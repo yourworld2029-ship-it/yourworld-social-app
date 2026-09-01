@@ -1,44 +1,52 @@
-# [Project name]
+# YourWorld
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+YourWorld is a social and creator platform for sharing posts, moments, reels, messages, and community experiences.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- `pnpm --filter @workspace/yourworld run dev` — run the YourWorld web app
+- `pnpm --filter @workspace/api-server run dev` — run the starter API server when API work is needed
 - `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
+- `pnpm --filter @workspace/yourworld run build` — build the imported TanStack Start app
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- Supabase configuration is loaded from `artifacts/yourworld/.env`.
 
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- Web: TanStack Start + React 19 + TypeScript
+- Styling: Tailwind CSS v4 with Radix UI primitives
+- Auth & data: Supabase Auth, Postgres, Storage, and Realtime
+- Routing: TanStack Router with generated file-based route tree
+- Build: Vite + Nitro
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/yourworld/src/routes/` — product routes for feed, profiles, channels, moments, reels, Orbit, chat, notifications, settings, uploads, and wallet
+- `artifacts/yourworld/src/components/` — shared app and Radix UI components
+- `artifacts/yourworld/src/lib/` — state stores, Supabase data access, uploads, media helpers, and server functions
+- `artifacts/yourworld/src/styles.css` — YourWorld theme and global styles
+- `artifacts/yourworld/src/integrations/supabase/` — browser/server Supabase clients and auth helpers
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- The imported TanStack route tree remains the source of truth for navigation; the artifact shell mounts it through `RouterProvider`.
+- The app is mobile-first and intentionally constrains the primary surface to a centered narrow viewport with persistent bottom navigation.
+- Supabase remains the backing service because it is part of the imported application contract and its public configuration is bundled with the source.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+Users can discover and publish social content, manage profiles and creator channels, share moments and reels, message other people, use Orbit matching, receive notifications, upload videos, and view creator earnings.
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+No additional preferences have been provided.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Keep the YourWorld web workflow as the preview entry point; the starter API and mockup services are separate artifacts.
+- Run the web package typecheck after changing imported dependencies or route code.
 
 ## Pointers
 

@@ -1,0 +1,1 @@
+- [Imported app dependencies](imported-app-dependencies.md) — keep external app toolchain versions explicit and run both local and workspace-wide checks after import.

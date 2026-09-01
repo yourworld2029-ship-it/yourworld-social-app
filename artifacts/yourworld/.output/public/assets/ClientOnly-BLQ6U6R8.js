@@ -1,0 +1,1 @@
+import{r as e}from"./rolldown-runtime-hePW80VL.js";import{i as t,r as n}from"./useRouter-BP8vT1kh.js";var r=e(t(),1),i=n();function a({children:e,fallback:t=null}){return(0,i.jsx)(r.Fragment,{children:o()?e:t})}function o(){return r.useSyncExternalStore(s,()=>!0,()=>!1)}function s(){return()=>{}}export{o as n,a as t};

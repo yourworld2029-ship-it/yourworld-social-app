@@ -29,6 +29,9 @@ if (!basePath) {
 
 export default defineConfig({
   base: basePath,
+  // The preview sandbox intentionally combines plugins from different Vite
+  // release lines; the runtime accepts them, but their duplicated Vite type
+  // declarations are not assignable to one another during workspace checks.
   plugins: [
     mockupPreviewPlugin(),
     react(),
@@ -44,7 +47,7 @@ export default defineConfig({
           ),
         ]
       : []),
-  ],
+  ] as any,
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),

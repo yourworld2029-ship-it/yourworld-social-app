@@ -1,0 +1,6 @@
+/*
+ * Compatibility entry for tools that still look for the scaffold stylesheet.
+ * The TanStack Start app imports styles.css directly from main.tsx and from
+ * the root route so there is one visual source of truth.
+ */
+@import "./styles.css";

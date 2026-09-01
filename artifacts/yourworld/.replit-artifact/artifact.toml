@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "YourWorld"
+description = "A social and creator platform for sharing posts, moments, reels, messages, and community experiences, with profiles, channels, Orbit matching, notifications, and creator monetization."
+version = "1.0.0"
+id = "artifacts/yourworld"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 25605
+
+[services.development]
+run = "pnpm --filter @workspace/yourworld run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/yourworld", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/yourworld/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "25605"
+BASE_PATH = "/"

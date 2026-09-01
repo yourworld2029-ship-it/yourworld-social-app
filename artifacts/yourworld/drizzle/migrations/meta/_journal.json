@@ -1,0 +1,104 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1787983902439,
+      "tag": "0000_canonical_dm_threads",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1787988341158,
+      "tag": "0001_enable_social_interactions_realtime",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787988575224,
+      "tag": "0002_restore_social_interaction_data_api_access",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1787988767609,
+      "tag": "0003_grant_follow_count_rpc_access",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1787988861305,
+      "tag": "0004_add_realtime_follow_counts",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788016925879,
+      "tag": "0005_create_monetization_wallet",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788065277406,
+      "tag": "0006_add_payout_schedule_and_eligibility",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788067075821,
+      "tag": "0007_compliance_flags_and_paid_promotion",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1788067226702,
+      "tag": "0008_enable_realtime_creator_earnings",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1788099553353,
+      "tag": "0009_dedupe_post_views_per_viewer",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1788101987052,
+      "tag": "0010_create_copyright_reports",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1788104352579,
+      "tag": "0011_dmca_admin_review",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1788164363076,
+      "tag": "0012_post_display_options",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1788167030290,
+      "tag": "0013_comment_pinning",
+      "breakpoints": true
+    }
+  ]
+}
