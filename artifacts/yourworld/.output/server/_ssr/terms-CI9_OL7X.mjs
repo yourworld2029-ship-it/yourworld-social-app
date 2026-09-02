@@ -1,6 +1,6 @@
 import { p as Link } from "../_libs/@tanstack/react-router+[...].mjs";
 import { P as require_jsx_runtime } from "../_libs/@radix-ui/react-alert-dialog+[...].mjs";
-import { In as ArrowLeft, Xt as FileText } from "../_libs/lucide-react.mjs";
+import { Fn as ArrowLeft, Yt as FileText } from "../_libs/lucide-react.mjs";
 //#region node_modules/.nitro/vite/services/ssr/assets/terms-CI9_OL7X.js
 var import_jsx_runtime = require_jsx_runtime();
 function Section({ title, children }) {
