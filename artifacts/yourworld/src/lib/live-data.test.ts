@@ -3,6 +3,10 @@ import { test } from "node:test";
 import { loadSearchData } from "@/lib/search-data";
 import { loadChannelData } from "@/lib/channel-data";
 import {
+  recordVideoWatchHeartbeat,
+  startVideoWatchSession,
+} from "@/lib/video-data";
+import {
   createPostComment,
   deletePostComment,
   loadSocialPosts,
@@ -157,6 +161,56 @@ test("channel maps live videos, posts, likes, and subscribers", async () => {
     watchHours: 0,
     posts: 2,
   });
+});
+
+test("channel uses the live watch-hours aggregate for the requested period", async () => {
+  const creatorId = "88888888-8888-4888-8888-888888888888";
+  const { client, calls } = fakeClient({
+    from: {
+      posts: [{ data: [post("video-1", creatorId, "post")] }],
+      post_likes: [{ data: [] }],
+    },
+    rpc: {
+      list_follows: [{ data: [] }],
+      get_follow_counts: [{ data: [{ followers: 1 }] }],
+      get_public_profiles: [{ data: [] }],
+      get_channel_watch_hours: [{ data: 12.5 }],
+    },
+  });
+
+  const result = await loadChannelData(creatorId, client, 7);
+
+  assert.equal(result.stats.watchHours, 12.5);
+  assert.equal(result.watchTimeError, null);
+  const watchCall = calls.find((call) => call.name === "get_channel_watch_hours");
+  assert.equal(watchCall?.type, "rpc");
+  assert.equal((watchCall?.args[0] as { _channel_id: string })._channel_id, creatorId);
+});
+
+test("watch recording sends no client-asserted duration or direct table insert", async () => {
+  const postId = "99999999-9999-4999-8999-999999999999";
+  const sessionId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const { client, calls } = fakeClient({
+    from: {},
+    rpc: {
+      start_video_watch_session: [{ data: sessionId }],
+      record_video_watch_heartbeat: [{ data: 10 }],
+    },
+  });
+
+  const started = await startVideoWatchSession(postId, client);
+  const heartbeat = await recordVideoWatchHeartbeat(sessionId, client);
+
+  assert.equal(started.sessionId, sessionId);
+  assert.equal(heartbeat.creditedSeconds, 10);
+  assert.equal(calls.some((call) => call.type === "from"), false);
+  assert.deepEqual(
+    calls.filter((call) => call.type === "rpc").map((call) => [call.name, call.args[0]]),
+    [
+      ["start_video_watch_session", { _post_id: postId }],
+      ["record_video_watch_heartbeat", { _session_id: sessionId }],
+    ],
+  );
 });
 
 test("a feed refresh returns empty live data instead of stale local rows", async () => {

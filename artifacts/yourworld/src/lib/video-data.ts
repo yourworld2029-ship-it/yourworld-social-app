@@ -67,6 +67,110 @@ export const formatViews = (n: number) =>
 
 export { timeAgo };
 
+/** Start a server-timed session after the player begins authenticated playback. */
+export async function startVideoWatchSession(
+  postId: string,
+  client: typeof supabase = supabase,
+): Promise<{ sessionId: string | null; error: string | null }> {
+  if (!postId) return { sessionId: null, error: null };
+  const { data, error } = await client.rpc("start_video_watch_session", {
+    _post_id: postId,
+  });
+  return { sessionId: data ?? null, error: error?.message ?? null };
+}
+
+/** Ask the server to credit only elapsed time observed for this session. */
+export async function recordVideoWatchHeartbeat(
+  sessionId: string,
+  client: typeof supabase = supabase,
+): Promise<{ creditedSeconds: number; error: string | null }> {
+  if (!sessionId) return { creditedSeconds: 0, error: null };
+  const { data, error } = await client.rpc("record_video_watch_heartbeat", {
+    _session_id: sessionId,
+  });
+  return {
+    creditedSeconds: typeof data === "number" ? data : 0,
+    error: error?.message ?? null,
+  };
+}
+
+/**
+ * Buffers small playback deltas and periodically persists them as one event.
+ * A failed write is put back into the buffer so a transient network error does
+ * not silently discard watch time.
+ */
+export function useVideoWatchTime(videoId: string, enabled: boolean) {
+  const pendingRef = useRef(0);
+  const flushingRef = useRef(false);
+  const sessionIdRef = useRef<string | null>(null);
+  const startingRef = useRef<Promise<string | null> | null>(null);
+  const lastActivityAtRef = useRef(0);
+
+  const ensureSession = useCallback(async () => {
+    if (!enabled || !videoId) return null;
+    if (sessionIdRef.current) return sessionIdRef.current;
+    if (startingRef.current) return startingRef.current;
+
+    startingRef.current = startVideoWatchSession(videoId).then((result) => {
+      startingRef.current = null;
+      sessionIdRef.current = result.error ? null : result.sessionId;
+      return sessionIdRef.current;
+    });
+    return startingRef.current;
+  }, [enabled, videoId]);
+
+  const flush = useCallback(async () => {
+    if (flushingRef.current || !enabled || !videoId || pendingRef.current < 1) return;
+    flushingRef.current = true;
+    const sessionId = await ensureSession();
+    if (!sessionId) {
+      flushingRef.current = false;
+      return;
+    }
+
+    const playedSeconds = pendingRef.current;
+    pendingRef.current = 0;
+    const result = await recordVideoWatchHeartbeat(sessionId);
+    flushingRef.current = false;
+    if (result.error) {
+      pendingRef.current += playedSeconds;
+      sessionIdRef.current = null;
+    }
+
+    if (pendingRef.current >= 10) void flush();
+  }, [enabled, ensureSession, videoId]);
+
+  const report = useCallback(
+    (seconds: number) => {
+      if (!enabled || !Number.isFinite(seconds) || seconds <= 0) return;
+      const now = Date.now();
+      if (lastActivityAtRef.current && now - lastActivityAtRef.current > 3_000) {
+        sessionIdRef.current = null;
+        startingRef.current = null;
+        pendingRef.current = 0;
+      }
+      lastActivityAtRef.current = now;
+      pendingRef.current += Math.min(seconds, 10);
+      if (!sessionIdRef.current) void ensureSession();
+      if (pendingRef.current >= 10) void flush();
+    },
+    [enabled, ensureSession, flush],
+  );
+
+  useEffect(() => {
+    const flushOnLeave = () => void flush();
+    window.addEventListener("pagehide", flushOnLeave);
+    document.addEventListener("visibilitychange", flushOnLeave);
+    return () => {
+      window.removeEventListener("pagehide", flushOnLeave);
+      document.removeEventListener("visibilitychange", flushOnLeave);
+      void flush();
+    };
+  }, [flush]);
+
+  return report;
+}
+
 /**
  * Long videos are stored with durable signed URLs. Keep those URLs intact:
  * attempting to re-sign them as an anonymous viewer is masked by Supabase as

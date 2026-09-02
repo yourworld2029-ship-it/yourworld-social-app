@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
 import { ChannelHeader, StatTile } from "@/components/yw/ChannelHeader";
 import {
   formatCount,
@@ -23,18 +24,39 @@ export const Route = createFileRoute("/channel/analytics")({
 });
 
 function ChannelAnalytics() {
-  const { stats, videos, reels } = useChannelData();
+  const [periodDays, setPeriodDays] = useState(30);
+  const { stats, videos, reels, loading, watchTimeError } = useChannelData(periodDays);
   const top = [...videos, ...reels].sort((a, b) => b.views - a.views).slice(0, 4);
+  const statValue = (value: number) => (loading ? "…" : formatCount(value));
 
   return (
     <main className="min-h-screen pb-12">
       <ChannelHeader title="Analytics" />
 
+      <div className="flex gap-2 overflow-x-auto px-4 pt-4 no-scrollbar">
+        {[7, 30, 90].map((days) => (
+          <button
+            key={days}
+            type="button"
+            onClick={() => setPeriodDays(days)}
+            className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+              periodDays === days ? "bg-foreground text-background" : "bg-secondary text-muted-foreground"
+            }`}
+          >
+            Last {days} days
+          </button>
+        ))}
+      </div>
+
       <div className="grid grid-cols-2 gap-3 px-4 pt-4">
-        <StatTile label="Total views" value={formatCount(stats.views30d)} />
-        <StatTile label="Watch hours" value={formatCount(stats.watchHours)} hint="No live watch-time source yet" />
-        <StatTile label="Subscribers" value={formatCount(stats.subscribers)} />
-        <StatTile label="Published" value={formatCount(stats.posts)} />
+        <StatTile label="Total views" value={statValue(stats.views30d)} />
+        <StatTile
+          label="Watch hours"
+          value={statValue(stats.watchHours)}
+          hint={watchTimeError ? "Watch time unavailable" : `Last ${periodDays} days`}
+        />
+        <StatTile label="Subscribers" value={statValue(stats.subscribers)} />
+        <StatTile label="Published" value={statValue(stats.posts)} />
       </div>
 
       <div className="px-4 pt-4">
@@ -43,7 +65,9 @@ function ChannelAnalytics() {
             Top performing
           </p>
           <ul className="pt-1">
-            {top.map((t) => (
+            {loading ? (
+              <li className="px-4 py-8 text-center text-sm text-muted-foreground">Loading content…</li>
+            ) : top.map((t) => (
               <li
                 key={t.id}
                 className="flex items-center gap-3 border-b border-border px-4 py-3 last:border-0"
@@ -56,7 +80,7 @@ function ChannelAnalytics() {
                 <span className="shrink-0 text-xs font-semibold">{formatCount(t.views)}</span>
               </li>
             ))}
-            {top.length === 0 && (
+            {!loading && top.length === 0 && (
               <li className="px-4 py-8 text-center text-sm text-muted-foreground">No published content yet.</li>
             )}
           </ul>

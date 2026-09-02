@@ -24,7 +24,7 @@ export const Route = createFileRoute("/channel/monetization")({
 });
 
 function ChannelMonetization() {
-  const { stats } = useChannelData();
+  const { stats, loading, watchTimeError } = useChannelData();
   const reqs = [
     {
       label: `${formatCount(MONETIZATION.minSubscribers)} subscribers`,
@@ -37,7 +37,7 @@ function ChannelMonetization() {
       target: MONETIZATION.minWatchHours,
     },
   ];
-  const eligible = reqs.every((r) => r.value >= r.target);
+  const eligible = !loading && !watchTimeError && reqs.every((r) => r.value >= r.target);
 
   return (
     <main className="min-h-screen pb-12">
@@ -54,12 +54,20 @@ function ChannelMonetization() {
           </span>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold">
-              {eligible ? "You're eligible to monetize" : "Monetization locked"}
+              {loading
+                ? "Loading eligibility…"
+                : eligible
+                  ? "You're eligible to monetize"
+                  : "Monetization locked"}
             </p>
             <p className="pt-0.5 text-xs leading-relaxed text-muted-foreground">
-              {eligible
-                ? "Apply once and earnings start on your next published video."
-                : "Keep publishing — monetization unlocks automatically when you meet both requirements."}
+              {loading
+                ? "Checking your live channel requirements."
+                : watchTimeError
+                  ? "Watch time is temporarily unavailable. Try again shortly."
+                  : eligible
+                    ? "Apply once and earnings start on your next published video."
+                    : "Keep publishing — monetization unlocks automatically when you meet both requirements."}
             </p>
           </div>
         </div>
@@ -81,7 +89,7 @@ function ChannelMonetization() {
                 </span>
                 <p className="flex-1 text-sm font-medium">{r.label}</p>
                 <p className="text-xs text-muted-foreground">
-                  {formatCount(r.value)} / {formatCount(r.target)}
+                  {loading ? "Loading…" : formatCount(r.value)} / {formatCount(r.target)}
                 </p>
               </div>
               <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-secondary">
@@ -95,10 +103,10 @@ function ChannelMonetization() {
       <div className="px-4 pt-4">
         <Button
           className="h-11 w-full rounded-full"
-          disabled={!eligible}
+          disabled={loading || !!watchTimeError || !eligible}
           onClick={() => toast.success("Monetization application submitted for review")}
         >
-          {eligible ? "Apply for monetization" : "Not eligible yet"}
+          {loading ? "Checking eligibility…" : eligible ? "Apply for monetization" : "Not eligible yet"}
         </Button>
       </div>
     </main>

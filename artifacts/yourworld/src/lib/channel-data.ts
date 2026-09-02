@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { resolveMediaUrl, timeAgo } from "@/lib/social-data";
 
@@ -19,6 +19,7 @@ export type ChannelLiveData = {
   posts: ChannelItem[];
   subscribers: Subscriber[];
   stats: { subscribers: number; views30d: number; watchHours: number; posts: number };
+  watchTimeError: string | null;
   loading: boolean;
 };
 
@@ -30,6 +31,7 @@ const emptyData: ChannelLiveData = {
   posts: [],
   subscribers: [],
   stats: { subscribers: 0, views30d: 0, watchHours: 0, posts: 0 },
+  watchTimeError: null,
   loading: true,
 };
 
@@ -43,8 +45,11 @@ function hueOf(id: string) {
 export async function loadChannelData(
   uid: string,
   client: typeof supabase = supabase,
+  watchPeriodDays = 30,
 ): Promise<LoadedChannelData> {
-  const [{ data: rows, error }, { data: followRows }, { data: countRows }] = await Promise.all([
+  const periodStart = new Date(Date.now() - watchPeriodDays * 24 * 60 * 60 * 1000).toISOString();
+  const [{ data: rows, error }, { data: followRows }, { data: countRows }, { data: watchHours, error: watchError }] =
+    await Promise.all([
     client
       .from("posts")
       .select("id,kind,title,caption,media_url,thumbnail_url,views,created_at")
@@ -53,6 +58,10 @@ export async function loadChannelData(
       .limit(200),
     client.rpc("list_follows", { _user_id: uid, _kind: "followers", _limit: 500 }),
     client.rpc("get_follow_counts", { ids: [uid] }),
+    client.rpc("get_channel_watch_hours", {
+      _channel_id: uid,
+      _period_start: periodStart,
+    }),
   ]);
 
   if (error) {
@@ -62,6 +71,7 @@ export async function loadChannelData(
       posts: [],
       subscribers: [],
       stats: { subscribers: 0, views30d: 0, watchHours: 0, posts: 0 },
+      watchTimeError: null,
     };
   }
 
@@ -107,6 +117,10 @@ export async function loadChannelData(
   const reels = items.filter((_, index) => postRows[index]?.kind === "reel");
   const posts = items.filter((_, index) => postRows[index]?.kind === "post");
   const subscribersCount = Number((countRows ?? [])[0]?.followers ?? subscribers.length);
+  const parsedWatchHours =
+    typeof watchHours === "number"
+      ? watchHours
+      : Number((watchHours as { watch_hours?: number } | null)?.watch_hours ?? 0);
 
   return {
     videos,
@@ -116,26 +130,32 @@ export async function loadChannelData(
     stats: {
       subscribers: subscribersCount,
       views30d: postRows.reduce((sum, row) => sum + Number(row.views ?? 0), 0),
-      watchHours: 0,
+      watchHours: Number.isFinite(parsedWatchHours) ? Math.max(0, parsedWatchHours) : 0,
       posts: postRows.length,
     },
+    watchTimeError: watchError?.message ?? null,
   };
 }
 
-export function useChannelData() {
+export function useChannelData(watchPeriodDays = 30) {
   const [data, setData] = useState<ChannelLiveData>(emptyData);
+  const requestIdRef = useRef(0);
 
   const load = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
+    setData((current) => ({ ...current, loading: true, watchTimeError: null }));
     const { data: session } = await supabase.auth.getSession();
     const uid = session.session?.user.id;
+    if (requestId !== requestIdRef.current) return;
     if (!uid) {
       setData({ ...emptyData, loading: false });
       return;
     }
 
-    const next = await loadChannelData(uid);
+    const next = await loadChannelData(uid, supabase, watchPeriodDays);
+    if (requestId !== requestIdRef.current) return;
     setData({ ...next, loading: false });
-  }, []);
+  }, [watchPeriodDays]);
 
   useEffect(() => {
     void load();

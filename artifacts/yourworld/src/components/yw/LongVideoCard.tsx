@@ -13,7 +13,7 @@ import {
   type LongVideo,
 } from "@/lib/video-data";
 import { deletePost } from "@/lib/post-actions";
-import { PremiumVideoPlayer } from "@/components/yw/PremiumVideoPlayer";
+import { TrackedVideoPlayer } from "@/components/yw/TrackedVideoPlayer";
 import { CommentsSheet } from "@/components/yw/CommentsSheet";
 import { ShareSheet } from "@/components/yw/ShareSheet";
 import { VideoPoster } from "@/components/yw/VideoPoster";
@@ -246,12 +246,14 @@ export function LongVideoCard({
         }`}
       >
         {playing && src ? (
-          <PremiumVideoPlayer
+          <TrackedVideoPlayer
             key={active.id}
             src={src}
             title={active.title}
             poster={active.thumbnailUrl}
             portrait={active.portrait}
+            watchVideoId={active.id}
+            watchTimeEnabled={!!currentUserId}
             onOrientationChange={setPlayerPortrait}
             onSwipeQueue={swipeQueue}
             hideAuxControls

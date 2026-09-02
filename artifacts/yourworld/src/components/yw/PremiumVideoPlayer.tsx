@@ -16,6 +16,8 @@ type Props = {
   onOrientationChange?: (portrait: boolean) => void;
   /** Fullscreen-only swipe to the next/previous video of the same orientation. */
   onSwipeQueue?: (dir: 1 | -1, portrait: boolean) => void;
+  /** Receives content seconds actually played, excluding seeks and pauses. */
+  onWatchTime?: (seconds: number) => void;
   /** When true (inline feed cards), hide the Loop and Fullscreen buttons in the bottom-right. */
   hideAuxControls?: boolean;
 };
@@ -33,7 +35,7 @@ function fmt(t: number) {
 }
 
 /** Premium player: YouTube-style controls + MX Player gestures (seek, volume, brightness, lock, fit). */
-export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, className, onOrientationChange, onSwipeQueue, hideAuxControls }: Props) {
+export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, className, onOrientationChange, onSwipeQueue, onWatchTime, hideAuxControls }: Props) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const vidRef = useRef<HTMLVideoElement | null>(null);
 
@@ -64,6 +66,7 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
   const hideTimer = useRef<number | null>(null);
   const gesture = useRef<{ x: number; y: number; mode: null | "seek" | "vol" | "bright" | "queue"; t0: number; dy: number } | null>(null);
   const lastTap = useRef(0);
+  const lastPlaybackTime = useRef<number | null>(null);
 
   // fullscreen-only: brightness slider + pinch zoom/pan
   const [showBrightBar, setShowBrightBar] = useState(false);
@@ -380,8 +383,16 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
             ? "object-contain"
             : fit === "Fit" ? "object-contain" : fit === "Fill" ? "object-cover" : "object-fill",
         )}
-        onPlay={() => { setPlaying(true); poke(); }}
-        onPause={() => { setPlaying(false); setShowUI(true); }}
+        onPlay={(e) => {
+          lastPlaybackTime.current = e.currentTarget.currentTime;
+          setPlaying(true);
+          poke();
+        }}
+        onPause={() => {
+          lastPlaybackTime.current = null;
+          setPlaying(false);
+          setShowUI(true);
+        }}
         onError={() => {
           setPlaying(false);
           setShowUI(true);
@@ -395,6 +406,12 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
         }}
         onTimeUpdate={(e) => {
           const v = e.currentTarget;
+          const previous = lastPlaybackTime.current;
+          const delta = previous === null ? 0 : v.currentTime - previous;
+          if (!v.paused && delta > 0 && delta <= Math.max(2.5, v.playbackRate * 2.5)) {
+            onWatchTime?.(delta);
+          }
+          lastPlaybackTime.current = v.currentTime;
           setTime(v.currentTime);
           if (v.buffered.length) setBuffered(v.buffered.end(v.buffered.length - 1));
         }}

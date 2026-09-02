@@ -17,7 +17,7 @@ import { usePostComments } from "@/lib/social-data";
 import { useYw } from "@/lib/yw-store";
 import { formatCount } from "@/lib/yw-data";
 import { cn } from "@/lib/utils";
-import { PremiumVideoPlayer } from "@/components/yw/PremiumVideoPlayer";
+import { TrackedVideoPlayer } from "@/components/yw/TrackedVideoPlayer";
 import { CommentsSheet } from "@/components/yw/CommentsSheet";
 import { ShareSheet } from "@/components/yw/ShareSheet";
 import { VideoPoster } from "@/components/yw/VideoPoster";
@@ -147,12 +147,14 @@ function WatchPage() {
           <div className={cn("w-full bg-black", portrait && "flex justify-center")}>
             <div className={cn("w-full overflow-hidden bg-black", portrait && "max-w-[33vh]")}>
               {src ? (
-                <PremiumVideoPlayer
+                <TrackedVideoPlayer
                   key={video.id}
                   src={src}
                   title={video.title}
                   poster={video.thumbnailUrl}
                   portrait={portrait}
+                  watchVideoId={video.id}
+                  watchTimeEnabled={!!currentUserId}
                   className="rounded-none"
                 />
               ) : (

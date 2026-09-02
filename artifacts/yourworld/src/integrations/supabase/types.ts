@@ -967,6 +967,70 @@ export type Database = {
           },
         ]
       }
+      video_watch_events: {
+        Row: {
+          created_at: string
+          id: string
+          post_id: string
+          viewer_id: string
+          watched_seconds: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          post_id: string
+          viewer_id: string
+          watched_seconds: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          post_id?: string
+          viewer_id?: string
+          watched_seconds?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_watch_events_post_id_fkey"
+            columns: ["post_id"]
+            isOneToOne: false
+            referencedRelation: "posts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      video_watch_sessions: {
+        Row: {
+          id: string
+          last_heartbeat_at: string
+          post_id: string
+          started_at: string
+          viewer_id: string
+        }
+        Insert: {
+          id?: string
+          last_heartbeat_at?: string
+          post_id: string
+          started_at?: string
+          viewer_id: string
+        }
+        Update: {
+          id?: string
+          last_heartbeat_at?: string
+          post_id?: string
+          started_at?: string
+          viewer_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_watch_sessions_post_id_fkey"
+            columns: ["post_id"]
+            isOneToOne: false
+            referencedRelation: "posts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       posts: {
         Row: {
           allow_download: boolean
@@ -1227,6 +1291,18 @@ export type Database = {
           id: string
           username: string
         }[]
+      }
+      get_channel_watch_hours: {
+        Args: { _channel_id: string; _period_start: string }
+        Returns: number
+      }
+      record_video_watch_heartbeat: {
+        Args: { _session_id: string }
+        Returns: number
+      }
+      start_video_watch_session: {
+        Args: { _post_id: string }
+        Returns: string
       }
       has_role: {
         Args: {
