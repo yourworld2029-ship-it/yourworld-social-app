@@ -10,7 +10,7 @@ YourWorld is a social and creator platform for sharing posts, moments, reels, me
 - `pnpm --filter @workspace/yourworld run build` — build the imported TanStack Start app
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Supabase configuration is loaded from `artifacts/yourworld/.env`.
+- Supabase configuration is loaded from the `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` Replit Secrets. The build exposes only these public client values.
 
 ## Stack
 

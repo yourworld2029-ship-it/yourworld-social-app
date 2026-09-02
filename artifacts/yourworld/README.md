@@ -1,24 +1,22 @@
-# Welcome to your Lovable project
+# YourWorld
 
-This project was built with [Lovable](https://lovable.dev).
+YourWorld is a TanStack Start social and creator platform running on Replit with Supabase for authentication, data, realtime, and storage.
 
-## Build with Lovable
+## Replit configuration
 
-Open your project in the [Lovable editor](https://lovable.dev) and keep building.
-
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: connect the project to GitHub and every change made in Lovable is committed straight to your repository.
-- **Full ownership**: this code is yours. Push to your repository and your changes sync back into Lovable, ready for your next prompt.
+- Configure `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` in Replit Secrets.
+- Build with `pnpm --filter @workspace/yourworld run build`.
+- Run locally with `pnpm --filter @workspace/yourworld run dev`.
 
 ## Development
 
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
+Use Node.js and pnpm.
 
 ```sh
 git clone <this-repository-url>
 cd <repository-name>
-npm i
-npm run dev
+pnpm install
+pnpm --filter @workspace/yourworld run dev
 ```
 
 ## Built with

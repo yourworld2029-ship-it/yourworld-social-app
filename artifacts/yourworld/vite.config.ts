@@ -1,29 +1,52 @@
-// @lovable.dev/vite-tanstack-config already includes the following — do NOT add them manually
-// or the app will break with duplicate plugins:
-//   - TanStack devtools (dev-only, first), tanstackStart, viteReact, tailwindcss, tsConfigPaths,
-//     nitro (build-only using cloudflare as a default target), VITE_* env injection, @ path alias,
-//     React/TanStack dedupe, error logger plugins, and sandbox detection (port/host/strictPort).
-// You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
-import { defineConfig } from "@lovable.dev/vite-tanstack-config";
+import tailwindcss from "@tailwindcss/vite";
+import { tanstackStart } from "@tanstack/react-start/plugin/vite";
+import react from "@vitejs/plugin-react";
+import { nitro } from "nitro/vite";
+import { defineConfig } from "vite";
+import tsConfigPaths from "vite-tsconfig-paths";
 
-// The preview proxy in this environment routes to the port defined by DEV_PORT
-// (falling back to 5173). Outside the Lovable sandbox, the base config's default
-// port (8080) is only a default and is overridden by anything we set here, so we
-// pin the dev server to the port the preview actually targets.
 const devPort = Number(process.env.DEV_PORT ?? process.env.PORT) || 5173;
+const CURRENT_REPLIT_DEPLOYMENT_URL =
+  "https://your-world-social-app--yourworld2029.replit.app";
 
-export default defineConfig({
-  tanstackStart: {
-    // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
-    // nitro/vite builds from this
-    server: { entry: "server" },
-  },
-  vite: {
+export default defineConfig(({ command }) => {
+  const supabaseUrl = process.env.SUPABASE_URL ?? "";
+  const supabasePublishableKey = process.env.SUPABASE_PUBLISHABLE_KEY ?? "";
+  const appUrl = process.env.REPLIT_APP_URL ?? CURRENT_REPLIT_DEPLOYMENT_URL;
+
+  if (!supabaseUrl || !supabasePublishableKey) {
+    throw new Error(
+      "SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY must be configured in Replit Secrets.",
+    );
+  }
+
+  return {
+    plugins: [
+      tailwindcss(),
+      tsConfigPaths({ projects: ["./tsconfig.json"] }),
+      tanstackStart({
+        server: { entry: "server" },
+        importProtection: {
+          behavior: "error",
+          client: {
+            files: ["**/server/**"],
+            specifiers: ["server-only"],
+          },
+        },
+      }),
+      ...(command === "build" ? [nitro({ defaultPreset: "node-server" })] : []),
+      react(),
+    ],
+    define: {
+      "import.meta.env.VITE_SUPABASE_URL": JSON.stringify(supabaseUrl),
+      "import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY": JSON.stringify(supabasePublishableKey),
+      "import.meta.env.VITE_APP_URL": JSON.stringify(appUrl),
+    },
     server: {
       host: true,
       allowedHosts: true,
       port: devPort,
       strictPort: true,
     },
-  },
+  };
 });

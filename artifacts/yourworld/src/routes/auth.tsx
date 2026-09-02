@@ -70,7 +70,13 @@ function AuthPage() {
   // Social Logins
   const handleSocialLogin = async (provider: 'google' | 'apple') => {
     setLoading(true);
-    const { error } = await supabase.auth.signInWithOAuth({ provider });
+    const configuredAppUrl = import.meta.env['VITE_APP_URL'];
+    const appOrigin = configuredAppUrl || window.location.origin;
+    const redirectTo = new URL("/auth", appOrigin).toString();
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: { redirectTo },
+    });
     setLoading(false);
     if (error) toast.error(error.message);
   };

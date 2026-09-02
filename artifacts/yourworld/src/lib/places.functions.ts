@@ -15,7 +15,7 @@ const schema = z.object({
   region: z.string().trim().max(120).optional(),
 });
 
-const GATEWAY_URL = "https://connector-gateway.lovable.dev/google_maps";
+const GOOGLE_PLACES_URL = "https://places.googleapis.com/v1/places:searchText";
 const OSM_URL = "https://nominatim.openstreetmap.org/search";
 
 /** Free, keyless real place search (OpenStreetMap) used when Google Maps isn't connected. */
@@ -48,19 +48,17 @@ async function searchOsm(textQuery: string): Promise<PlaceResult[]> {
 export const searchPlaces = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => schema.parse(data))
   .handler(async ({ data }): Promise<{ places: PlaceResult[]; source: "google" | "osm" | "none" }> => {
-    const lovableKey = process.env["LOVABLE_API_KEY"];
     const mapsKey = process.env["GOOGLE_MAPS_API_KEY"];
     const textQuery = [data.query, data.region].filter(Boolean).join(" in ");
 
-    if (!lovableKey || !mapsKey) {
+    if (!mapsKey) {
       return { places: await searchOsm(textQuery), source: "osm" };
     }
 
-    const res = await fetch(`${GATEWAY_URL}/places/v1/places:searchText`, {
+    const res = await fetch(GOOGLE_PLACES_URL, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${lovableKey}`,
-        "X-Connection-Api-Key": mapsKey,
+        "X-Goog-Api-Key": mapsKey,
         "Content-Type": "application/json",
         "X-Goog-FieldMask":
           "places.id,places.displayName,places.formattedAddress,places.rating,places.currentOpeningHours.openNow,places.googleMapsUri",

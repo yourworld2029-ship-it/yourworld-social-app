@@ -11,7 +11,6 @@ import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 import appCss from "../styles.css?url";
-import { reportLovableError } from "../lib/lovable-error-reporting";
 import { BottomNav } from "@/components/yw/BottomNav";
 import { CreateSheet } from "@/components/yw/CreateSheet";
 import { YwStoreProvider } from "@/lib/yw-store";
@@ -50,9 +49,6 @@ function NotFoundComponent() {
 
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   console.error("[RootErrorBoundary]", error);
-  useEffect(() => {
-    reportLovableError(error, { boundary: "tanstack_root_error_component" });
-  }, [error]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
