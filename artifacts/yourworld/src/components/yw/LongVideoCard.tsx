@@ -5,8 +5,13 @@ import {
 } from "lucide-react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { formatDuration, formatViews, timeAgo, type LongVideo } from "@/lib/video-data";
-import { resolveMediaUrl } from "@/lib/social-data";
+import {
+  formatDuration,
+  formatViews,
+  resolveLongVideoUrl,
+  timeAgo,
+  type LongVideo,
+} from "@/lib/video-data";
 import { deletePost } from "@/lib/post-actions";
 import { PremiumVideoPlayer } from "@/components/yw/PremiumVideoPlayer";
 import { CommentsSheet } from "@/components/yw/CommentsSheet";
@@ -68,7 +73,7 @@ export function LongVideoCard({
   const prefetch = React.useCallback(async (mediaUrl: string) => {
     const cached = urlCache.current.get(mediaUrl);
     if (cached) return cached;
-    const url = await resolveMediaUrl(mediaUrl, "reels");
+    const url = await resolveLongVideoUrl(mediaUrl);
     urlCache.current.set(mediaUrl, url);
     warmVideo(url);
     return url;
@@ -158,7 +163,7 @@ export function LongVideoCard({
   const handleDownload = async () => {
     const toastId = toast.loading("Preparing download…");
     try {
-      const url = src ?? (await resolveMediaUrl(video.mediaUrl, "reels"));
+      const url = src ?? (await resolveLongVideoUrl(video.mediaUrl));
       const response = await fetch(url);
       if (!response.ok) throw new Error("Download failed");
       const blobUrl = URL.createObjectURL(await response.blob());
@@ -249,7 +254,6 @@ export function LongVideoCard({
             portrait={active.portrait}
             onOrientationChange={setPlayerPortrait}
             onSwipeQueue={swipeQueue}
-            autoPlay
             hideAuxControls
             className="rounded-none"
           />

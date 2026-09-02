@@ -1,0 +1,1 @@
+import{r as e}from"./useRouter-BP8vT1kh.js";import{o as t}from"./channel-data-Ctiq2G7r.js";import{t as n}from"./ChannelContentList-CX7H3suD.js";var r=e(),i=()=>(0,r.jsx)(n,{title:`Videos`,items:t,emptyLabel:`No videos published yet.`});export{i as component};

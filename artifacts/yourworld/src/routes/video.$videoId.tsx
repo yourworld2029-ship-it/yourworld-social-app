@@ -5,9 +5,13 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import {
-  formatDuration, formatViews, timeAgo, useLongVideos, type LongVideo,
+  formatDuration,
+  formatViews,
+  resolveLongVideoUrl,
+  timeAgo,
+  useLongVideos,
+  type LongVideo,
 } from "@/lib/video-data";
-import { resolveMediaUrl } from "@/lib/social-data";
 import { usePostSaves } from "@/lib/post-actions";
 import { usePostComments } from "@/lib/social-data";
 import { useYw } from "@/lib/yw-store";
@@ -53,7 +57,7 @@ function WatchPage() {
   useEffect(() => {
     if (!video) return;
     let alive = true;
-    void resolveMediaUrl(video.mediaUrl, "reels").then((u) => alive && setSrc(u));
+    void resolveLongVideoUrl(video.mediaUrl).then((u) => alive && setSrc(u));
     return () => { alive = false; };
   }, [video]);
 
@@ -117,7 +121,7 @@ function WatchPage() {
   const handleDownload = async () => {
     const toastId = toast.loading("Preparing download…");
     try {
-      const url = src ?? (await resolveMediaUrl(video.mediaUrl, "reels"));
+      const url = src ?? (await resolveLongVideoUrl(video.mediaUrl));
       const response = await fetch(url);
       if (!response.ok) throw new Error("Download failed");
       const blobUrl = URL.createObjectURL(await response.blob());
@@ -149,7 +153,6 @@ function WatchPage() {
                   title={video.title}
                   poster={video.thumbnailUrl}
                   portrait={portrait}
-                  autoPlay
                   className="rounded-none"
                 />
               ) : (

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { resolveMediaUrl } from "@/lib/social-data";
+import { resolveLongVideoUrl } from "@/lib/video-data";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -21,7 +21,7 @@ export function VideoPoster({ thumbnailUrl, mediaUrl, alt, className }: Props) {
     setFrameFailed(false);
     if (thumbnailUrl || !mediaUrl) return;
     let alive = true;
-    void resolveMediaUrl(mediaUrl, "reels").then((url) => {
+    void resolveLongVideoUrl(mediaUrl).then((url) => {
       if (alive && url) setFrameUrl(`${url}${url.includes("#") ? "" : "#t=0.5"}`);
     });
     return () => {

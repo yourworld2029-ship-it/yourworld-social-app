@@ -1,2 +1,3 @@
 - [Imported app dependencies](imported-app-dependencies.md) — keep external app toolchain versions explicit and run both local and workspace-wide checks after import.
 - [TanStack Start publishing](tanstack-start-publishing.md) — SSR builds need Nitro node-server output and a runnable artifact service, not static publicDir serving.
+- [Private media playback](private-media-playback.md) — preserve stored signed media URLs when anonymous clients cannot re-sign private Supabase objects.

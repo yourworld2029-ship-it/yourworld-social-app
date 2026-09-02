@@ -1,7 +1,13 @@
 import { useCallback, useRef, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { cacheGet, cacheSet } from "@/lib/local-cache";
-import { rememberLocalMedia, timeAgo, type DbProfile } from "@/lib/social-data";
+import {
+  getLocalMedia,
+  rememberLocalMedia,
+  resolveMediaUrl,
+  timeAgo,
+  type DbProfile,
+} from "@/lib/social-data";
 import { uploadWithProgress } from "@/lib/storage-upload";
 import { sampleVideoFrames } from "@/lib/video-frames";
 import { scanVideoContent, type ModerationVerdict } from "@/lib/moderation.functions";
@@ -61,6 +67,19 @@ export const formatViews = (n: number) =>
       : `${n} ${n === 1 ? "view" : "views"}`;
 
 export { timeAgo };
+
+/**
+ * Long videos are stored with durable signed URLs. Keep those URLs intact:
+ * attempting to re-sign them as an anonymous viewer is masked by Supabase as
+ * "not found", and a generated public URL cannot read the private bucket.
+ */
+export async function resolveLongVideoUrl(url: string): Promise<string> {
+  if (!url) return url;
+  const local = getLocalMedia(url);
+  if (local) return local;
+  if (/^(https?:|blob:|data:)/.test(url)) return url;
+  return resolveMediaUrl(url, "reels");
+}
 
 async function uploadToStorage(
   blobUrl: string,
