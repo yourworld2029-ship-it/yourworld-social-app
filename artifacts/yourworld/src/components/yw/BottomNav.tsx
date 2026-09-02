@@ -1,5 +1,5 @@
 import React from "react";
-import { Link, useLocation, useNavigate } from "@tanstack/react-router";
+import { Link, useLocation } from "@tanstack/react-router";
 import { Home, Film, MessageSquare, User, Plus } from "lucide-react";
 
 interface BottomNavProps {
@@ -8,7 +8,6 @@ interface BottomNavProps {
 
 export function BottomNav({ onOpenCreate }: BottomNavProps) {
   const location = useLocation();
-  const navigate = useNavigate();
 
   // Hide bottom nav completely when on /create route
   if (location.pathname === "/create") {
@@ -28,11 +27,9 @@ export function BottomNav({ onOpenCreate }: BottomNavProps) {
           <span>Video</span>
         </Link>
 
-        <button 
-          onClick={() => {
-            void navigate({ to: "/create", search: { mode: "reel" } });
-          }}
-          aria-label="Open video editor"
+        <button
+          onClick={() => onOpenCreate?.()}
+          aria-label="Open create menu"
           className="w-12 h-12 -mt-5 bg-gradient-to-tr from-pink-500 via-purple-500 to-amber-400 text-white rounded-full flex items-center justify-center shadow-lg active:scale-95 transition"
         >
           <Plus className="w-6 h-6 stroke-[3]" />
