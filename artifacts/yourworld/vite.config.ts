@@ -4,21 +4,23 @@ import react from "@vitejs/plugin-react";
 import { nitro } from "nitro/vite";
 import { defineConfig } from "vite";
 import tsConfigPaths from "vite-tsconfig-paths";
+import { normalizeSupabaseProjectUrl } from "./src/integrations/supabase/url.ts";
 
 const devPort = Number(process.env.DEV_PORT ?? process.env.PORT) || 5173;
 const CURRENT_REPLIT_DEPLOYMENT_URL =
   "https://your-world-social-app--yourworld2029.replit.app";
 
 export default defineConfig(({ command }) => {
-  const supabaseUrl = process.env.SUPABASE_URL ?? "";
+  const configuredSupabaseUrl = process.env.SUPABASE_URL ?? "";
   const supabasePublishableKey = process.env.SUPABASE_PUBLISHABLE_KEY ?? "";
   const appUrl = process.env.REPLIT_APP_URL ?? CURRENT_REPLIT_DEPLOYMENT_URL;
 
-  if (!supabaseUrl || !supabasePublishableKey) {
+  if (!configuredSupabaseUrl || !supabasePublishableKey) {
     throw new Error(
       "SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY must be configured in Replit Secrets.",
     );
   }
+  const supabaseUrl = normalizeSupabaseProjectUrl(configuredSupabaseUrl);
 
   return {
     plugins: [

@@ -1,0 +1,1 @@
+import{r as e}from"./useRouter-BP8vT1kh.js";import{n as t}from"./channel-data-Ctiq2G7r.js";import{t as n}from"./ChannelContentList-CaIPdW_m.js";var r=e(),i=()=>(0,r.jsx)(n,{title:`Posts`,items:t,emptyLabel:`No posts published yet.`});export{i as component};
