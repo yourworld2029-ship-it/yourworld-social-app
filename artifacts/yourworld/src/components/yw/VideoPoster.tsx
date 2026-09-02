@@ -15,8 +15,10 @@ type Props = {
  */
 export function VideoPoster({ thumbnailUrl, mediaUrl, alt, className }: Props) {
   const [frameUrl, setFrameUrl] = useState<string | null>(null);
+  const [frameFailed, setFrameFailed] = useState(false);
 
   useEffect(() => {
+    setFrameFailed(false);
     if (thumbnailUrl || !mediaUrl) return;
     let alive = true;
     void resolveMediaUrl(mediaUrl, "reels").then((url) => {
@@ -38,7 +40,7 @@ export function VideoPoster({ thumbnailUrl, mediaUrl, alt, className }: Props) {
     );
   }
 
-  if (frameUrl) {
+  if (frameUrl && !frameFailed) {
     return (
       <video
         src={frameUrl}
@@ -46,6 +48,7 @@ export function VideoPoster({ thumbnailUrl, mediaUrl, alt, className }: Props) {
         playsInline
         preload="metadata"
         aria-label={alt}
+        onError={() => setFrameFailed(true)}
         className={cn("h-full w-full object-cover", className)}
       />
     );

@@ -59,6 +59,7 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
   const [caption, setCaption] = useState("Off");
   const [audioTracks, setAudioTracks] = useState<Array<{ index: number; label: string }>>([]);
   const [audio, setAudio] = useState("Original");
+  const [mediaError, setMediaError] = useState(false);
 
   const hideTimer = useRef<number | null>(null);
   const gesture = useRef<{ x: number; y: number; mode: null | "seek" | "vol" | "bright" | "queue"; t0: number; dy: number } | null>(null);
@@ -97,7 +98,16 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
   const toggle = useCallback(() => {
     const v = vidRef.current;
     if (!v) return;
-    if (v.paused) void v.play(); else v.pause();
+    if (v.paused) {
+      setMediaError(false);
+      void v.play().catch(() => {
+        setPlaying(false);
+        setShowUI(true);
+        setMediaError(true);
+      });
+    } else {
+      v.pause();
+    }
   }, []);
 
   const seekBy = useCallback((d: number) => {
@@ -111,6 +121,23 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
     const v = vidRef.current;
     if (v) { v.playbackRate = speed; v.volume = volume; v.muted = muted; v.loop = loop; }
   }, [speed, volume, muted, loop]);
+
+  useEffect(() => {
+    setMediaError(false);
+    if (!autoPlay) return;
+    const video = vidRef.current;
+    if (!video) return;
+    let active = true;
+    void video.play().catch(() => {
+      if (!active) return;
+      setPlaying(false);
+      setShowUI(true);
+      setMediaError(true);
+    });
+    return () => {
+      active = false;
+    };
+  }, [src, autoPlay]);
 
   useEffect(() => {
     const onFs = () => setFullscreen(!!document.fullscreenElement);
@@ -339,7 +366,6 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
         ref={vidRef}
         src={src}
         poster={poster ?? undefined}
-        autoPlay={autoPlay}
         playsInline
         preload="auto"
         style={{
@@ -356,6 +382,11 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
         )}
         onPlay={() => { setPlaying(true); poke(); }}
         onPause={() => { setPlaying(false); setShowUI(true); }}
+        onError={() => {
+          setPlaying(false);
+          setShowUI(true);
+          setMediaError(true);
+        }}
         onLoadedMetadata={(e) => {
           const video = e.currentTarget;
           setDur(video.duration || 0);
@@ -368,6 +399,15 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
           if (v.buffered.length) setBuffered(v.buffered.end(v.buffered.length - 1));
         }}
       />
+
+      {mediaError && (
+        <div className="pointer-events-none absolute inset-0 z-30 grid place-items-center bg-black/75 px-6 text-center">
+          <div>
+            <p className="text-sm font-semibold text-white">Video unavailable</p>
+            <p className="mt-1 text-xs text-zinc-400">This video source could not be played on this device.</p>
+          </div>
+        </div>
+      )}
 
       {/* gesture surface */}
       <div
