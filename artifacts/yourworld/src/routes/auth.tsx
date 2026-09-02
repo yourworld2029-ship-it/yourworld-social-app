@@ -11,6 +11,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Lock, Mail, Phone, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
+import { quickDemoLogin } from "@/lib/quick-demo-login.functions";
 
 export const Route = createFileRoute("/auth")({
   component: AuthPage,
@@ -49,6 +50,7 @@ function AuthPage() {
   const [step, setStep] = useState<"input" | "verify">("input");
   const [loading, setLoading] = useState(false);
   const [resendIn, setResendIn] = useState(0);
+  const [demoLoading, setDemoLoading] = useState(false);
   const navigate = useNavigate();
   const verifying = useRef(false);
 
@@ -117,6 +119,25 @@ function AuthPage() {
   const handleSendCode = async (e: React.FormEvent) => {
     e.preventDefault();
     await sendCode();
+  };
+
+  const handleQuickDemoLogin = async () => {
+    if (demoLoading || loading) return;
+    setDemoLoading(true);
+    try {
+      const result = await quickDemoLogin();
+      const { error } = await supabase.auth.setSession({
+        access_token: result.accessToken,
+        refresh_token: result.refreshToken,
+      });
+      if (error) throw error;
+      toast.success("Welcome to the YourWorld demo");
+      await navigate({ to: "/", replace: true });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Quick Demo Login is temporarily unavailable.");
+    } finally {
+      setDemoLoading(false);
+    }
   };
 
   // Verify OTP
@@ -218,6 +239,15 @@ function AuthPage() {
                   {loading ? "Sending Code..." : "Send Verification Code"} <ArrowRight className="w-4 h-4" />
                 </Button>
               </form>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={loading || demoLoading}
+                onClick={() => void handleQuickDemoLogin()}
+                className="w-full border-pink-500/50 bg-pink-500/10 text-pink-100 hover:bg-pink-500/20 transition-all"
+              >
+                {demoLoading ? "Opening Demo…" : "Quick Demo Login"}
+              </Button>
             </>
           ) : (
             <form
