@@ -1,5 +1,4 @@
 import { t as createClient } from "../_libs/supabase__supabase-js.mjs";
-import processModule from "node:process";
 //#region node_modules/.nitro/vite/services/ssr/assets/client.server-KzwUIAkW.js
 function isNewSupabaseApiKey(value) {
 	return value.startsWith("sb_publishable_") || value.startsWith("sb_secret_");
@@ -17,8 +16,8 @@ function createSupabaseFetch(supabaseKey) {
 	};
 }
 function createSupabaseAdminClient() {
-	const SUPABASE_URL = processModule.env["SUPABASE_URL"];
-	const SUPABASE_SERVICE_ROLE_KEY = processModule.env["SUPABASE_SERVICE_ROLE_KEY"];
+	const SUPABASE_URL = process.env["SUPABASE_URL"];
+	const SUPABASE_SERVICE_ROLE_KEY = process.env["SUPABASE_SERVICE_ROLE_KEY"];
 	if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
 		const message = `Missing Supabase environment variable(s): ${[...!SUPABASE_URL ? ["SUPABASE_URL"] : [], ...!SUPABASE_SERVICE_ROLE_KEY ? ["SUPABASE_SERVICE_ROLE_KEY"] : []].join(", ")}. Connect Supabase in Lovable Cloud.`;
 		console.error(`[Supabase] ${message}`);

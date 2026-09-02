@@ -14,14 +14,22 @@ localPort = 25605
 [services.development]
 run = "pnpm --filter @workspace/yourworld run dev"
 
-[services.production]
-build = [ "pnpm", "--filter", "@workspace/yourworld", "run", "build" ]
-serve = "static"
-publicDir = "artifacts/yourworld/dist/public"
+[services.production.build]
+args = [ "pnpm", "--filter", "@workspace/yourworld", "run", "build" ]
 
-[[services.production.rewrites]]
-from = "/*"
-to = "/index.html"
+[services.production.build.env]
+NODE_ENV = "production"
+NITRO_PRESET = "node-server"
+
+[services.production.run]
+args = [ "node", "--enable-source-maps", "artifacts/yourworld/.output/server/index.mjs" ]
+
+[services.production.run.env]
+NODE_ENV = "production"
+PORT = "25605"
+
+[services.production.health.startup]
+path = "/"
 
 [services.env]
 PORT = "25605"
