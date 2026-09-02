@@ -16,6 +16,33 @@ export const Route = createFileRoute("/auth")({
   component: AuthPage,
 });
 
+function signupMetadata(identifier: string, isEmail: boolean) {
+  const normalized = identifier.trim().toLowerCase();
+  const source = isEmail ? normalized.split("@")[0] : "user";
+  const base = source.replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "") || "user";
+
+  // Keep the profile username stable for this identifier while avoiding
+  // collisions when two people share the same email local-part.
+  let hash = 2166136261;
+  for (let i = 0; i < normalized.length; i += 1) {
+    hash ^= normalized.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  const suffix = (hash >>> 0).toString(36).slice(0, 7);
+  const username = `${base.slice(0, 24)}_${suffix}`;
+  const displayName = isEmail ? (source || "YourWorld user") : "YourWorld user";
+
+  // Existing Supabase profile triggers may read either `username` or the
+  // OAuth-style `user_name`, so provide both without changing existing rows.
+  return {
+    username,
+    user_name: username,
+    display_name: displayName,
+    full_name: displayName,
+    name: displayName,
+  };
+}
+
 function AuthPage() {
   const [identifier, setIdentifier] = useState("");
   const [code, setCode] = useState("");
@@ -55,15 +82,18 @@ function AuthPage() {
     setLoading(true);
 
     const isEmail = value.includes("@");
+    const data = signupMetadata(value, isEmail);
     const { error } = isEmail
       ? await supabase.auth.signInWithOtp({
           email: value,
-          // Omitting emailRedirectTo keeps this a code-based sign-in
-          options: { shouldCreateUser: true },
+          // Omitting emailRedirectTo keeps this a code-based sign-in.
+          // Metadata lets the existing auth.users profile trigger create a
+          // valid first profile when this address is new.
+          options: { shouldCreateUser: true, data },
         })
       : await supabase.auth.signInWithOtp({
           phone: value,
-          options: { shouldCreateUser: true },
+          options: { shouldCreateUser: true, data },
         });
 
     setLoading(false);
