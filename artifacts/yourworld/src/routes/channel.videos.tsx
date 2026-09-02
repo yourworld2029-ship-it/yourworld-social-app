@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { ChannelContentList } from "@/components/yw/ChannelContentList";
-import { channelVideos } from "@/lib/channel-data";
+import { useChannelData } from "@/lib/channel-data";
 
 export const Route = createFileRoute("/channel/videos")({
   head: () => ({
@@ -13,7 +13,10 @@ export const Route = createFileRoute("/channel/videos")({
       { name: "twitter:card", content: "summary" },
     ],
   }),
-  component: () => (
-    <ChannelContentList title="Videos" items={channelVideos} emptyLabel="No videos published yet." />
-  ),
+  component: ChannelVideos,
 });
+
+function ChannelVideos() {
+  const { videos } = useChannelData();
+  return <ChannelContentList title="Videos" items={videos} emptyLabel="No videos published yet." />;
+}

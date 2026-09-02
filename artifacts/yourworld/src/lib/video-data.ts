@@ -1,6 +1,5 @@
 import { useCallback, useRef, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { cacheGet, cacheSet } from "@/lib/local-cache";
 import {
   getLocalMedia,
   rememberLocalMedia,
@@ -11,7 +10,6 @@ import {
 import { uploadWithProgress } from "@/lib/storage-upload";
 import { sampleVideoFrames } from "@/lib/video-frames";
 import { scanVideoContent, type ModerationVerdict } from "@/lib/moderation.functions";
-import { DEMO_LONG_VIDEOS } from "@/lib/demo-content";
 
 
 export const VIDEO_CATEGORIES = [
@@ -212,9 +210,8 @@ export async function publishLongVideo(opts: {
 
 /** Live list of published long videos (scheduled ones appear at their release time). */
 export function useLongVideos() {
-  const cached = useMemo(() => cacheGet<LongVideo[]>("long-videos", 10 * 60_000), []);
-  const [videos, setVideos] = useState<LongVideo[]>(cached ?? []);
-  const [loading, setLoading] = useState(!cached?.length);
+  const [videos, setVideos] = useState<LongVideo[]>([]);
+  const [loading, setLoading] = useState(true);
   const [me, setMe] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -230,8 +227,8 @@ export function useLongVideos() {
       .limit(30);
 
     if (error || !posts?.length) {
-      setVideos(DEMO_LONG_VIDEOS);
-      cacheSet("long-videos", DEMO_LONG_VIDEOS);
+      if (error) console.error("Unable to load videos", error);
+      setVideos([]);
       setLoading(false);
       return;
     }
@@ -283,7 +280,6 @@ export function useLongVideos() {
         } satisfies LongVideo;
     });
     setVideos(next);
-    cacheSet("long-videos", next.slice(0, 15));
     setLoading(false);
   }, []);
 

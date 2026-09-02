@@ -5,7 +5,6 @@ import { loadCachedThread, saveCachedThread, PAGE_SIZE } from "@/lib/chat-db";
 import { uploadWithProgress } from "@/lib/storage-upload";
 import { flagChatMessage } from "@/lib/chat-compliance";
 import type { User } from "@/lib/yw-data";
-import { DEMO_POSTS, DEMO_REELS } from "@/lib/demo-content";
 
 export type DbProfile = {
   id: string;
@@ -132,9 +131,8 @@ export function useSocialPosts(kind: "post" | "reel") {
       .limit(50);
 
     if (error || !posts?.length) {
-      const demo = kind === "reel" ? DEMO_REELS : DEMO_POSTS;
-      setRows(demo);
-      cacheSet(`feed:${kind}`, demo);
+      if (error) console.error(`Unable to load ${kind} feed`, error);
+      setRows([]);
       setLoading(false);
       return;
     }
@@ -160,16 +158,10 @@ export function useSocialPosts(kind: "post" | "reel") {
       likedByMe: !!uid && (likes ?? []).some((l) => l.post_id === p.id && l.user_id === uid),
     }));
     setRows(next);
-    cacheSet(`feed:${kind}`, next.slice(0, 20));
     setLoading(false);
   }, [kind]);
 
   useEffect(() => {
-    const cached = cacheGet<SocialPost[]>(`feed:${kind}`, 10 * 60_000);
-    if (cached?.length) {
-      setRows(cached);
-      setLoading(false);
-    }
     void load();
     // Coalesce realtime bursts so a flood of likes never triggers a refetch storm.
     let timer: number | undefined;
@@ -903,5 +895,4 @@ export function usePostComments(postId: string | null) {
 
   return { comments, loading, send, remove, togglePin, me, postOwnerId, isPostOwner, pinnedCount };
 }
-
 

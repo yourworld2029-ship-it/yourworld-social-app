@@ -1,12 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { TrendingUp } from "lucide-react";
 import { ChannelHeader, StatTile } from "@/components/yw/ChannelHeader";
 import {
-  channelStats,
   formatCount,
-  viewsSeries,
-  channelVideos,
-  channelReels,
+  useChannelData,
 } from "@/lib/channel-data";
 
 export const Route = createFileRoute("/channel/analytics")({
@@ -26,41 +22,19 @@ export const Route = createFileRoute("/channel/analytics")({
   component: ChannelAnalytics,
 });
 
-const top = [...channelVideos, ...channelReels].sort((a, b) => b.views - a.views).slice(0, 4);
-
 function ChannelAnalytics() {
-  const max = Math.max(...viewsSeries);
+  const { stats, videos, reels } = useChannelData();
+  const top = [...videos, ...reels].sort((a, b) => b.views - a.views).slice(0, 4);
 
   return (
     <main className="min-h-screen pb-12">
       <ChannelHeader title="Analytics" />
 
       <div className="grid grid-cols-2 gap-3 px-4 pt-4">
-        <StatTile label="Views · 30d" value={formatCount(channelStats.views30d)} hint="+18% vs last month" />
-        <StatTile label="Watch hours" value={formatCount(channelStats.watchHours)} hint="Last 365 days" />
-        <StatTile label="Subscribers" value={formatCount(channelStats.subscribers)} hint="+284 this week" />
-        <StatTile label="Avg. view rate" value="61%" hint="Across all formats" />
-      </div>
-
-      <div className="px-4 pt-4">
-        <section className="surface-card rounded-3xl p-4">
-          <div className="flex items-center gap-2">
-            <TrendingUp className="h-4 w-4 text-muted-foreground" strokeWidth={1.8} />
-            <p className="text-sm font-semibold">Daily views · last 14 days</p>
-          </div>
-          <div className="flex h-28 items-end gap-1.5 pt-4" role="img" aria-label="Daily views trend for the last 14 days">
-            {viewsSeries.map((v, i) => (
-              <span
-                key={i}
-                className="flex-1 rounded-t-md bg-foreground/80"
-                style={{ height: `${(v / max) * 100}%` }}
-              />
-            ))}
-          </div>
-          <p className="pt-2 text-[11px] text-muted-foreground">
-            Peak day {formatCount(max * 1000)} views · trending upward
-          </p>
-        </section>
+        <StatTile label="Total views" value={formatCount(stats.views30d)} />
+        <StatTile label="Watch hours" value={formatCount(stats.watchHours)} hint="No live watch-time source yet" />
+        <StatTile label="Subscribers" value={formatCount(stats.subscribers)} />
+        <StatTile label="Published" value={formatCount(stats.posts)} />
       </div>
 
       <div className="px-4 pt-4">
@@ -82,6 +56,9 @@ function ChannelAnalytics() {
                 <span className="shrink-0 text-xs font-semibold">{formatCount(t.views)}</span>
               </li>
             ))}
+            {top.length === 0 && (
+              <li className="px-4 py-8 text-center text-sm text-muted-foreground">No published content yet.</li>
+            )}
           </ul>
         </section>
       </div>

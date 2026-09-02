@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { ChannelHeader } from "@/components/yw/ChannelHeader";
-import { channelStats, channelSubscribers, formatCount } from "@/lib/channel-data";
+import { formatCount, useChannelData } from "@/lib/channel-data";
 
 export const Route = createFileRoute("/channel/subscribers")({
   head: () => ({
@@ -17,19 +17,20 @@ export const Route = createFileRoute("/channel/subscribers")({
 });
 
 function ChannelSubscribers() {
+  const { stats, subscribers } = useChannelData();
   return (
     <main className="min-h-screen pb-12">
       <ChannelHeader title="Subscribers" />
 
       <div className="px-4 pt-4">
         <div className="surface-card rounded-3xl p-4">
-          <p className="font-display text-2xl font-bold">{formatCount(channelStats.subscribers)}</p>
-          <p className="text-xs text-muted-foreground">Total subscribers · +284 this week</p>
+          <p className="font-display text-2xl font-bold">{formatCount(stats.subscribers)}</p>
+          <p className="text-xs text-muted-foreground">Total subscribers</p>
         </div>
       </div>
 
       <ul className="space-y-2 px-4 pt-4">
-        {channelSubscribers.map((s, i) => (
+        {subscribers.map((s, i) => (
           <li
             key={s.id}
             className="surface-card animate-rise flex items-center gap-3 rounded-2xl p-3"

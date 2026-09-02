@@ -19,7 +19,7 @@ import {
 import { YwAvatar } from "@/components/yw/Avatar";
 import { ShareSheet } from "@/components/yw/ShareSheet";
 import { CommentsSheet } from "@/components/yw/CommentsSheet";
-import { byId, formatCount, type Reel, type User } from "@/lib/yw-data";
+import { formatCount, type Reel, type User } from "@/lib/yw-data";
 import { getLocalMedia, resolveMediaUrl, useSocialPosts } from "@/lib/social-data";
 import { useDoubleTapLike, useYw } from "@/lib/yw-store";
 import { downloadWithWatermark } from "@/lib/yw-download";
@@ -128,7 +128,7 @@ function ReelsList() {
   );
 }
 
-const REEL_DURATION = 15; // seconds per reel (image-backed demo media)
+const REEL_DURATION = 15;
 
 /**
  * Renders reel media with graceful recovery: if the stored URL fails to load
@@ -244,7 +244,8 @@ function ReelItem({
   mediaType?: string;
   onDbLike?: () => void;
 }) {
-  const user = author ?? byId(reel.userId);
+  if (!author) return null;
+  const user = author;
   const { saved, following, toggleSave, toggleFollow } = useYw();
   const { burst, onDoubleTap } = useDoubleTapLike(reel.id);
   const [expanded, setExpanded] = useState(false);

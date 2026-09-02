@@ -1,10 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, X, Hash, TrendingUp, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSearch } from "@/lib/search-store";
 import { YwAvatar } from "@/components/yw/Avatar";
-import { suggestedUsers, hashtags, formatCount, type SuggestedUser } from "@/lib/yw-data";
+import { formatCount, type Hashtag, type SuggestedUser } from "@/lib/yw-data";
+import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/search")({
   head: () => ({
@@ -20,24 +21,89 @@ function SearchPage() {
   const [tab, setTab] = useState<Tab>("users");
   const inputRef = useRef<HTMLInputElement>(null);
   const { history, push, remove, clear } = useSearch();
+  const [users, setUsers] = useState<SuggestedUser[]>([]);
+  const [hashtags, setHashtags] = useState<Hashtag[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      const [{ data: profiles }, { data: posts }] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("id,username,display_name,category")
+          .order("updated_at", { ascending: false })
+          .limit(100),
+        supabase.from("posts").select("hashtags").limit(500),
+      ]);
+      if (!active) return;
+
+      const profileRows = profiles ?? [];
+      const ids = profileRows.map((profile) => profile.id);
+      const { data: counts } = ids.length
+        ? await supabase.rpc("get_follow_counts", { ids })
+        : { data: [] };
+      if (!active) return;
+      const followersById = new Map(
+        (counts ?? []).map((row) => [row.user_id as string, Number(row.followers ?? 0)]),
+      );
+      setUsers(
+        profileRows.map((profile) => ({
+          id: profile.id,
+          username: profile.username || "user",
+          name: profile.display_name || profile.username || "YourWorld user",
+          category: profile.category || undefined,
+          hue: profile.id.split("").reduce((h, char) => (h * 31 + char.charCodeAt(0)) % 360, 0),
+          followerCount: followersById.get(profile.id) ?? 0,
+        })),
+      );
+
+      const totals = new Map<string, number>();
+      for (const post of posts ?? []) {
+        for (const tag of post.hashtags ?? []) {
+          const normalized = String(tag).trim().replace(/^#/, "").toLowerCase();
+          if (normalized) totals.set(normalized, (totals.get(normalized) ?? 0) + 1);
+        }
+      }
+      setHashtags(
+        [...totals.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .map(([tag, postCount], index) => ({ tag, postCount, trending: index < 6 })),
+      );
+    };
+
+    void load();
+    const channel = supabase
+      .channel("search-live-data")
+      .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => void load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "posts" }, () => void load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "follows" }, () => void load())
+      .subscribe();
+    return () => {
+      active = false;
+      void supabase.removeChannel(channel);
+    };
+  }, []);
 
   const q = query.trim().toLowerCase().replace(/^[#@]/, "");
   const hasQuery = q.length > 0;
 
   // --- filtered results ---
-  const filteredUsers = hasQuery
-    ? suggestedUsers.filter(
+  const filteredUsers = useMemo(() => hasQuery
+    ? users.filter(
         (u) =>
           u.username.toLowerCase().includes(q) ||
           u.name.toLowerCase().includes(q),
       )
-    : [];
+    : [], [hasQuery, q, users]);
 
-  const filteredHashtags = hasQuery
+  const filteredHashtags = useMemo(() => hasQuery
     ? hashtags.filter((h) => h.tag.toLowerCase().includes(q))
-    : [];
+    : [], [hasQuery, hashtags, q]);
 
-  const trendingHashtags = hashtags.filter((h) => h.trending).slice(0, 6);
+  const trendingHashtags = useMemo(
+    () => hashtags.filter((h) => h.trending).slice(0, 6),
+    [hashtags],
+  );
 
   function handleUserClick(user: SuggestedUser) {
     push({ kind: "user", label: user.username, sublabel: user.name, userId: user.id });
@@ -273,7 +339,7 @@ function SearchPage() {
               </Link>
             </div>
             <div className="no-scrollbar -mx-4 flex gap-3 overflow-x-auto px-4 pb-1">
-              {suggestedUsers.map((u) => (
+              {users.map((u) => (
                 <SuggestedCard
                   key={u.id}
                   user={u}

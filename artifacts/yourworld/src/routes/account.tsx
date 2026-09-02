@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -26,8 +26,8 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-store";
-import { currentUser } from "@/lib/yw-data";
 import { YwAvatar } from "@/components/yw/Avatar";
+import { useMyProfile } from "@/lib/profile-data";
 import {
   Sheet,
   SheetContent,
@@ -680,23 +680,47 @@ function SessionCard({
 /* ══════════════════ MAIN PAGE ══════════════════ */
 
 function AccountPage() {
-  const { signOut } = useAuth();
+  const { signOut, user } = useAuth();
+  const { profile, avatarSrc, save } = useMyProfile();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const [name, setName] = useState(currentUser.name);
-  const [username, setUsername] = useState(currentUser.username);
-  const [bio, setBio] = useState(currentUser.bio ?? "");
-  const [email, setEmail] = useState("you@yourworld.app");
-  const [phone, setPhone] = useState("+1 (555) 000-0000");
+  const [name, setName] = useState("");
+  const [username, setUsername] = useState("");
+  const [bio, setBio] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [twoFa, setTwoFa] = useState(false);
   const [saved, setSaved] = useState(false);
   const [fbOn, setFbOn] = useState(false);
-  const [igOn, setIgOn] = useState(true);
+  const [igOn, setIgOn] = useState(false);
   const [scOn, setScOn] = useState(false);
   const [sessionsOpen, setSessionsOpen] = useState(false);
 
-  const handleSave = () => {
+  useEffect(() => {
+    setName(profile.display_name);
+    setUsername(profile.username);
+    setBio(profile.bio);
+    setEmail(user?.email ?? "");
+    setPhone(user?.phone ?? "");
+  }, [profile, user]);
+
+  const avatarUser = {
+    id: profile.id,
+    username: profile.username || "user",
+    name: profile.display_name || profile.username || "YourWorld user",
+    hue: 280,
+  };
+
+  const handleSave = async () => {
+    await save({
+      name,
+      username,
+      bio,
+      category: profile.category,
+      location: profile.location,
+      website: profile.website,
+    });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -746,7 +770,11 @@ function AccountPage() {
         {/* ── avatar hero ── */}
         <div className="flex flex-col items-center pb-1 pt-2">
           <div className="relative">
-            <YwAvatar user={currentUser} size={80} />
+            {avatarSrc ? (
+              <img src={avatarSrc} alt="" className="h-20 w-20 rounded-full object-cover" />
+            ) : (
+              <YwAvatar user={avatarUser} size={80} />
+            )}
             <button
               aria-label="Change photo"
               className="absolute -bottom-1 -right-1 grid h-7 w-7 place-items-center rounded-full bg-primary shadow-[0_2px_8px_oklch(0_0_0/0.5)] ring-2 ring-background transition-transform duration-200 active:scale-90"

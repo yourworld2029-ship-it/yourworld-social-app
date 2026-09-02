@@ -44,8 +44,8 @@ import { PlacePickerSheet } from "@/components/yw/PlacePickerSheet";
 import { buildInvite, inviteById, type InviteCard, type InviteKind } from "@/lib/orbit-invites";
 import { UserWatermark } from "@/components/yw/UserWatermark";
 import { useCaptureDetect } from "@/lib/capture-detect";
-import { currentUser } from "@/lib/yw-data";
 import { supabase } from "@/integrations/supabase/client";
+import { useMyProfile } from "@/lib/profile-data";
 import { saveChatDisplayName, setChatNameLocal, useChatNames } from "@/lib/chat-names";
 import { saveSecretChatLock } from "@/lib/secret-chats";
 import { PinDialog } from "@/components/yw/PinDialog";
@@ -176,6 +176,9 @@ function autoDeleteLabel(seconds: number) {
 }
 
 function OrbitChatPage() {
+  const { profile: myProfile } = useMyProfile();
+  const currentUserName = myProfile.display_name || myProfile.username || "YourWorld user";
+  const currentUsername = myProfile.username || "user";
   const { userId } = Route.useParams();
   const navigate = useNavigate();
   const orbit = useOrbit();
@@ -375,7 +378,7 @@ function OrbitChatPage() {
     accepted && orbit.privacy.screenshotAlerts && (screenshotAlert || recordingAlert),
     (kind) => {
       if (kind === "recording" ? !recordingAlert : !screenshotAlert) return;
-      void chat.insert({ kind: "system", text: `${currentUser.name} took a ${kind === "recording" ? "recording" : "screenshot"}`, expiresIn: autoDelete });
+      void chat.insert({ kind: "system", text: `${currentUserName} took a ${kind === "recording" ? "recording" : "screenshot"}`, expiresIn: autoDelete });
     },
   );
 
@@ -932,7 +935,7 @@ function OrbitChatPage() {
         }}
         className="relative flex-1 space-y-2 overflow-y-auto px-4 py-4"
       >
-        <UserWatermark username={currentUser.username} className="fixed" />
+        <UserWatermark username={currentUsername} className="fixed" />
         {chat.loadingMore ? (
           <p className="py-1 text-center text-[11px] text-muted-foreground">Loading older messages…</p>
         ) : null}

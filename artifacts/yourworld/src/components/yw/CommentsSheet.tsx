@@ -9,8 +9,9 @@ import {
 } from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
 import { YwAvatar } from "@/components/yw/Avatar";
-import { byId, currentUser, type Comment, type User } from "@/lib/yw-data";
+import type { User } from "@/lib/yw-data";
 import { usePostComments, timeAgo, resolveMediaUrl, MAX_PINNED_COMMENTS } from "@/lib/social-data";
+import { useMyProfile } from "@/lib/profile-data";
 import { Pin, PinOff, SendHorizonal, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -56,23 +57,20 @@ function CommentAvatar({ user, url }: { user: User; url?: string | null }) {
 }
 
 /**
- * Comments drawer. When `postId` is provided it fetches real comments from the
- * database (with optimistic posting, delete-own and realtime sync). Otherwise
- * it falls back to the supplied local comment list (demo posts).
+ * Database-backed comments drawer with optimistic posting, delete-own and
+ * realtime sync.
  */
 export function CommentsSheet({
   children,
   postId,
-  fallbackComments = [],
   onCountChange,
 }: {
   children: ReactNode;
-  postId?: string | null;
-  fallbackComments?: Comment[];
+  postId: string;
   onCountChange?: (count: number) => void;
 }) {
-  const real = usePostComments(postId ?? null);
-  const [local, setLocal] = useState<Comment[]>(fallbackComments);
+  const real = usePostComments(postId);
+  const { profile, userId } = useMyProfile();
   const [draft, setDraft] = useState("");
   const [open, setOpen] = useState(false);
   const router = useRouter();
@@ -86,10 +84,14 @@ export function CommentsSheet({
     void router.preloadRoute({ to: "/u/$userId", params: { userId: id } }).catch(() => {});
   };
 
-  const useReal = !!postId;
+  const currentUser: User = {
+    id: userId ?? "",
+    username: profile.username,
+    name: profile.display_name || profile.username,
+    hue: 280,
+  };
 
-  const list: DisplayComment[] = useReal
-    ? real.comments.map((c) => ({
+  const list: DisplayComment[] = real.comments.map((c) => ({
         id: c.id,
         user: toUser(c.username, c.displayName, c.userId),
         body: c.body,
@@ -97,42 +99,23 @@ export function CommentsSheet({
         avatarUrl: c.avatarUrl,
         mine: !!real.me && c.userId === real.me,
         pinned: c.pinned,
-      }))
-    : local.map((c) => {
-        const u = byId(c.userId);
-        return {
-          id: c.id,
-          user: u,
-          body: c.text,
-          time: c.time,
-          mine: c.userId === currentUser.id,
-          pinned: false,
-        };
-      });
+      }));
 
   const count = list.length;
 
   useEffect(() => {
-    if (useReal) onCountChange?.(real.comments.length);
-  }, [useReal, real.comments.length, onCountChange]);
+    onCountChange?.(real.comments.length);
+  }, [real.comments.length, onCountChange]);
 
   const send = () => {
     if (!draft.trim()) return;
-    if (useReal) {
-      void real.send(draft);
-    } else {
-      setLocal((p) => [
-        ...p,
-        { id: `local-${Date.now()}`, userId: currentUser.id, text: draft.trim(), time: "now" },
-      ]);
-    }
+    void real.send(draft);
     setDraft("");
   };
 
-  const canModerate = useReal && real.isPostOwner;
+  const canModerate = real.isPostOwner;
 
   const togglePin = async (c: DisplayComment) => {
-    if (!useReal) return;
     if (!c.pinned && real.pinnedCount >= MAX_PINNED_COMMENTS) {
       toast("You can pin up to 4 comments");
       return;
@@ -143,12 +126,8 @@ export function CommentsSheet({
   };
 
   const remove = (c: DisplayComment) => {
-    if (useReal) {
-      void real.remove(c.id);
-      toast.success("Comment deleted");
-    } else {
-      setLocal((p) => p.filter((x) => x.id !== c.id));
-    }
+    void real.remove(c.id);
+    toast.success("Comment deleted");
   };
 
   return (
@@ -227,7 +206,7 @@ export function CommentsSheet({
                 </div>
               </li>
             ))}
-            {useReal && !real.loading && list.length === 0 && (
+            {!real.loading && list.length === 0 && (
               <li className="pt-10 text-center text-sm text-muted-foreground">
                 No comments yet. Be the first.
               </li>
@@ -235,7 +214,7 @@ export function CommentsSheet({
           </ul>
 
           <div className="safe-bottom flex items-center gap-2 border-t border-border px-4 pt-3">
-            <YwAvatar user={currentUser} size={34} />
+            {userId ? <YwAvatar user={currentUser} size={34} /> : null}
             <Input
               value={draft}
               onChange={(e) => setDraft(e.target.value)}

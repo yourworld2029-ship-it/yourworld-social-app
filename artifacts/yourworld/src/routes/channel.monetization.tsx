@@ -3,7 +3,7 @@ import { Check, Coins, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ChannelHeader } from "@/components/yw/ChannelHeader";
-import { channelStats, formatCount, MONETIZATION } from "@/lib/channel-data";
+import { formatCount, MONETIZATION, useChannelData } from "@/lib/channel-data";
 
 export const Route = createFileRoute("/channel/monetization")({
   head: () => ({
@@ -24,15 +24,16 @@ export const Route = createFileRoute("/channel/monetization")({
 });
 
 function ChannelMonetization() {
+  const { stats } = useChannelData();
   const reqs = [
     {
       label: `${formatCount(MONETIZATION.minSubscribers)} subscribers`,
-      value: channelStats.subscribers,
+      value: stats.subscribers,
       target: MONETIZATION.minSubscribers,
     },
     {
       label: `${formatCount(MONETIZATION.minWatchHours)} watch hours`,
-      value: channelStats.watchHours,
+      value: stats.watchHours,
       target: MONETIZATION.minWatchHours,
     },
   ];

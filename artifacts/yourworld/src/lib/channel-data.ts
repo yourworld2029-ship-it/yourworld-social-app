@@ -1,7 +1,6 @@
-import reel1 from "@/assets/reel-1.jpg";
-import reel2 from "@/assets/reel-2.jpg";
-import reel3 from "@/assets/reel-3.jpg";
-import post1 from "@/assets/post-1.jpg";
+import { useCallback, useEffect, useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { resolveMediaUrl, timeAgo } from "@/lib/social-data";
 
 export type ChannelItem = {
   id: string;
@@ -12,45 +11,133 @@ export type ChannelItem = {
   publishedAt: string;
 };
 
-export const channelVideos: ChannelItem[] = [
-  { id: "v1", title: "Night city in 4K — full walk", thumb: reel1, views: 128400, likes: 9120, publishedAt: "2 days ago" },
-  { id: "v2", title: "Studio session, one take", thumb: reel3, views: 64230, likes: 4310, publishedAt: "1 week ago" },
-  { id: "v3", title: "Coast to coast in 12 hours", thumb: reel2, views: 41890, likes: 3020, publishedAt: "3 weeks ago" },
-];
-
-export const channelReels: ChannelItem[] = [
-  { id: "r1", title: "Neon alley loop", thumb: reel2, views: 302100, likes: 21400, publishedAt: "1 day ago" },
-  { id: "r2", title: "Sunrise surf", thumb: reel1, views: 188900, likes: 12800, publishedAt: "4 days ago" },
-  { id: "r3", title: "Golden hour spin", thumb: reel3, views: 96540, likes: 7010, publishedAt: "2 weeks ago" },
-];
-
-export const channelPosts: ChannelItem[] = [
-  { id: "p1", title: "Behind the scenes of last night's shoot", thumb: post1, views: 24100, likes: 1880, publishedAt: "5 hours ago" },
-  { id: "p2", title: "Gear list everyone keeps asking for", thumb: reel1, views: 18400, likes: 1240, publishedAt: "6 days ago" },
-];
-
 export type Subscriber = { id: string; name: string; handle: string; since: string; hue: number };
 
-export const channelSubscribers: Subscriber[] = [
-  { id: "s1", name: "Riko Tan", handle: "riko.night", since: "Today", hue: 300 },
-  { id: "s2", name: "Mara Vega", handle: "sea.salt", since: "Yesterday", hue: 190 },
-  { id: "s3", name: "Ada Kim", handle: "spinsolo", since: "3 days ago", hue: 40 },
-  { id: "s4", name: "Noah Ferre", handle: "slowbrunch", since: "1 week ago", hue: 15 },
-  { id: "s5", name: "Kai Oduya", handle: "wavelen", since: "2 weeks ago", hue: 250 },
-  { id: "s6", name: "Ines Roth", handle: "moss.club", since: "1 month ago", hue: 150 },
-];
-
-export const channelStats = {
-  subscribers: 12840,
-  views30d: 486320,
-  watchHours: 3120,
-  posts: channelPosts.length + channelVideos.length + channelReels.length,
+export type ChannelLiveData = {
+  videos: ChannelItem[];
+  reels: ChannelItem[];
+  posts: ChannelItem[];
+  subscribers: Subscriber[];
+  stats: { subscribers: number; views30d: number; watchHours: number; posts: number };
+  loading: boolean;
 };
 
-/** Views for the last 14 days — used by the lightweight sparkline chart. */
-export const viewsSeries = [
-  18, 22, 19, 31, 28, 35, 41, 38, 47, 52, 49, 61, 58, 72,
-];
+const emptyData: ChannelLiveData = {
+  videos: [],
+  reels: [],
+  posts: [],
+  subscribers: [],
+  stats: { subscribers: 0, views30d: 0, watchHours: 0, posts: 0 },
+  loading: true,
+};
+
+function hueOf(id: string) {
+  let hue = 0;
+  for (let i = 0; i < id.length; i += 1) hue = (hue * 31 + id.charCodeAt(i)) % 360;
+  return hue;
+}
+
+export function useChannelData() {
+  const [data, setData] = useState<ChannelLiveData>(emptyData);
+
+  const load = useCallback(async () => {
+    const { data: session } = await supabase.auth.getSession();
+    const uid = session.session?.user.id;
+    if (!uid) {
+      setData({ ...emptyData, loading: false });
+      return;
+    }
+
+    const [{ data: rows, error }, { data: followRows }, { data: countRows }] = await Promise.all([
+      supabase
+        .from("posts")
+        .select("id,kind,title,caption,media_url,thumbnail_url,views,created_at")
+        .eq("user_id", uid)
+        .order("created_at", { ascending: false })
+        .limit(200),
+      supabase.rpc("list_follows", { _user_id: uid, _kind: "followers", _limit: 500 }),
+      supabase.rpc("get_follow_counts", { ids: [uid] }),
+    ]);
+
+    if (error) {
+      setData({ ...emptyData, loading: false });
+      return;
+    }
+
+    const postRows = rows ?? [];
+    const postIds = postRows.map((row) => row.id);
+    const { data: likes } = postIds.length
+      ? await supabase.from("post_likes").select("post_id").in("post_id", postIds)
+      : { data: [] };
+    const likesByPost = new Map<string, number>();
+    for (const like of likes ?? []) {
+      likesByPost.set(like.post_id, (likesByPost.get(like.post_id) ?? 0) + 1);
+    }
+
+    const items = await Promise.all(
+      postRows.map(async (row): Promise<ChannelItem> => ({
+        id: row.id,
+        title: row.title || row.caption || "Untitled",
+        thumb: await resolveMediaUrl(row.thumbnail_url || row.media_url, "reels"),
+        views: Number(row.views ?? 0),
+        likes: likesByPost.get(row.id) ?? 0,
+        publishedAt: timeAgo(row.created_at),
+      })),
+    );
+
+    const followerIds = (followRows ?? []).map((row) => row.id as string).filter(Boolean);
+    const { data: profiles } = followerIds.length
+      ? await supabase.rpc("get_public_profiles", { ids: followerIds })
+      : { data: [] };
+    const profileById = new Map((profiles ?? []).map((profile) => [profile.id, profile]));
+    const subscribers = followerIds.flatMap((id): Subscriber[] => {
+      const profile = profileById.get(id);
+      if (!profile) return [];
+      return [{
+        id,
+        name: profile.display_name || profile.username || "YourWorld user",
+        handle: profile.username || "user",
+        since: "Subscriber",
+        hue: hueOf(id),
+      }];
+    });
+
+    const videos = items.filter((_, index) => postRows[index]?.kind === "video");
+    const reels = items.filter((_, index) => postRows[index]?.kind === "reel");
+    const posts = items.filter((_, index) => postRows[index]?.kind === "post");
+    const subscribersCount = Number((countRows ?? [])[0]?.followers ?? subscribers.length);
+    setData({
+      videos,
+      reels,
+      posts,
+      subscribers,
+      stats: {
+        subscribers: subscribersCount,
+        views30d: postRows.reduce((sum, row) => sum + Number(row.views ?? 0), 0),
+        watchHours: 0,
+        posts: postRows.length,
+      },
+      loading: false,
+    });
+  }, []);
+
+  useEffect(() => {
+    void load();
+    const channel = supabase
+      .channel("channel-live-data")
+      .on("postgres_changes", { event: "*", schema: "public", table: "posts" }, () => void load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "post_likes" }, () => void load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "follows" }, () => void load())
+      .subscribe();
+    const { data: auth } = supabase.auth.onAuthStateChange(() => void load());
+    return () => {
+      void supabase.removeChannel(channel);
+      auth.subscription.unsubscribe();
+    };
+  }, [load]);
+
+  return data;
+}
 
 export const MONETIZATION = { minSubscribers: 1000, minWatchHours: 4000 };
 

@@ -15,7 +15,7 @@ import { UserWatermark } from "@/components/yw/UserWatermark";
 import { LazyImage } from "@/components/yw/LazyImage";
 import { compressImageFile } from "@/lib/image-compress";
 import { useCaptureDetect } from "@/lib/capture-detect";
-import { currentUser } from "@/lib/yw-data";
+import { useMyProfile } from "@/lib/profile-data";
 import { useThreadMessages, useThreadPeer, dmThreadId } from "@/lib/social-data";
 import { supabase } from "@/integrations/supabase/client";
 import { useThreadPresence } from "@/lib/presence";
@@ -72,6 +72,9 @@ function MenuItem({
 }
 
 export function ChatThreadPage() {
+  const { profile: myProfile } = useMyProfile();
+  const currentUserName = myProfile.display_name || myProfile.username || "YourWorld user";
+  const currentUsername = myProfile.username || "user";
   const navigate = useNavigate();
   const router = useRouter();
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
@@ -360,7 +363,7 @@ export function ChatThreadPage() {
   // Screenshot / recording detection posts an in-chat system note for both sides.
   useCaptureDetect(true, (kind) => {
     if (kind === "recording" ? !recordingAlert : !screenshotAlert) return;
-    pushSystem(`${currentUser.name} took a ${kind === "recording" ? "recording" : "screenshot"}`);
+    pushSystem(`${currentUserName} took a ${kind === "recording" ? "recording" : "screenshot"}`);
   });
 
   // Auto delete messages after the configured window
@@ -673,7 +676,7 @@ export function ChatThreadPage() {
       )}
 
       <div ref={scrollRef} onScroll={onScrollMessages} className="relative flex-1 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] p-4 space-y-3.5 bg-zinc-950/50" onClick={() => setShowOptionsMenu(false)}>
-        <UserWatermark username={currentUser.username} className="fixed text-white" />
+        <UserWatermark username={currentUsername} className="fixed text-white" />
         {loadingMore ? (
           <p className="py-1 text-center text-[11px] text-zinc-500">Loading older messages…</p>
         ) : null}
