@@ -5,6 +5,7 @@ import { loadCachedThread, saveCachedThread, PAGE_SIZE } from "@/lib/chat-db";
 import { uploadWithProgress } from "@/lib/storage-upload";
 import { flagChatMessage } from "@/lib/chat-compliance";
 import type { User } from "@/lib/yw-data";
+import { DEMO_POSTS, DEMO_REELS } from "@/lib/demo-content";
 
 export type DbProfile = {
   id: string;
@@ -131,7 +132,9 @@ export function useSocialPosts(kind: "post" | "reel") {
       .limit(50);
 
     if (error || !posts?.length) {
-      setRows([]);
+      const demo = kind === "reel" ? DEMO_REELS : DEMO_POSTS;
+      setRows(demo);
+      cacheSet(`feed:${kind}`, demo);
       setLoading(false);
       return;
     }

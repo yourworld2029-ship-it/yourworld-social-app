@@ -11,6 +11,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Lock, Mail, Phone, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
+import { startDemoGuest } from "@/lib/auth-store";
 
 export const Route = createFileRoute("/auth")({
   component: AuthPage,
@@ -51,6 +52,12 @@ function AuthPage() {
   const [resendIn, setResendIn] = useState(0);
   const navigate = useNavigate();
   const verifying = useRef(false);
+
+  const enterDemo = (message = "Welcome to YourWorld demo mode") => {
+    startDemoGuest();
+    toast.success(message);
+    window.location.assign("/");
+  };
 
   useEffect(() => {
     if (resendIn <= 0) return;
@@ -105,7 +112,11 @@ function AuthPage() {
     setLoading(false);
 
     if (error) {
-      toast.error(error.message);
+      enterDemo(
+        /rate|limit|email|otp|path|network|fetch/i.test(error.message)
+          ? "Login service is busy — opening demo mode"
+          : "Opening YourWorld in guest mode",
+      );
     } else {
       setCode("");
       setStep("verify");
@@ -218,6 +229,13 @@ function AuthPage() {
                   {loading ? "Sending Code..." : "Send Verification Code"} <ArrowRight className="w-4 h-4" />
                 </Button>
               </form>
+              <button
+                type="button"
+                onClick={() => enterDemo()}
+                className="w-full rounded-lg border border-slate-700 bg-slate-950/40 py-2.5 text-sm font-medium text-slate-200 transition hover:bg-slate-800"
+              >
+                Continue as guest
+              </button>
             </>
           ) : (
             <form

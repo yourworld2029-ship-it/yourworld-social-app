@@ -11,6 +11,7 @@ import {
 import { uploadWithProgress } from "@/lib/storage-upload";
 import { sampleVideoFrames } from "@/lib/video-frames";
 import { scanVideoContent, type ModerationVerdict } from "@/lib/moderation.functions";
+import { DEMO_LONG_VIDEOS } from "@/lib/demo-content";
 
 
 export const VIDEO_CATEGORIES = [
@@ -221,15 +222,16 @@ export function useLongVideos() {
     const uid = sessionData.session?.user.id ?? null;
     setMe(uid);
 
-    const { data: posts } = await supabase
+    const { data: posts, error } = await supabase
       .from("posts")
       .select("*")
       .eq("kind", "video")
       .order("created_at", { ascending: false })
       .limit(30);
 
-    if (!posts?.length) {
-      setVideos([]);
+    if (error || !posts?.length) {
+      setVideos(DEMO_LONG_VIDEOS);
+      cacheSet("long-videos", DEMO_LONG_VIDEOS);
       setLoading(false);
       return;
     }

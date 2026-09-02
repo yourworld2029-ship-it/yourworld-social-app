@@ -14,8 +14,29 @@ type AuthValue = {
   session: Session | null;
   user: User | null;
   loading: boolean;
+  isDemo: boolean;
   signOut: () => Promise<void>;
 };
+
+const DEMO_SESSION_KEY = "yourworld:demo-session";
+export const DEMO_USER = {
+  id: "demo-guest",
+  aud: "authenticated",
+  role: "authenticated",
+  email: "guest@yourworld.demo",
+  app_metadata: { provider: "demo", providers: ["demo"] },
+  user_metadata: { display_name: "Guest Creator", username: "guest.creator" },
+  identities: [],
+  created_at: new Date(0).toISOString(),
+} as User;
+
+export function isDemoGuest() {
+  return typeof window !== "undefined" && window.localStorage.getItem(DEMO_SESSION_KEY) === "1";
+}
+
+export function startDemoGuest() {
+  if (typeof window !== "undefined") window.localStorage.setItem(DEMO_SESSION_KEY, "1");
+}
 
 const AuthContext = createContext<AuthValue | null>(null);
 
@@ -28,15 +49,21 @@ export function isPublicRoute(pathname: string) {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
+  const [demo, setDemo] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => {
       setSession(next);
+      if (next) {
+        window.localStorage.removeItem(DEMO_SESSION_KEY);
+        setDemo(false);
+      }
       setLoading(false);
     });
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
+      setDemo(!data.session && isDemoGuest());
       setLoading(false);
     });
     return () => sub.subscription.unsubscribe();
@@ -45,13 +72,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AuthValue>(
     () => ({
       session,
-      user: session?.user ?? null,
+      user: session?.user ?? (demo ? DEMO_USER : null),
       loading,
+      isDemo: demo,
       signOut: async () => {
+        window.localStorage.removeItem(DEMO_SESSION_KEY);
+        setDemo(false);
         await supabase.auth.signOut();
       },
     }),
-    [session, loading],
+    [session, demo, loading],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
