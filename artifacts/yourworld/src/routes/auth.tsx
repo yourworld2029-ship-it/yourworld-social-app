@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
+import type { EmailOtpType } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -11,7 +12,6 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Lock, Mail, Phone, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
-import { quickDemoLogin } from "@/lib/quick-demo-login.functions";
 
 export const Route = createFileRoute("/auth")({
   component: AuthPage,
@@ -50,7 +50,6 @@ function AuthPage() {
   const [step, setStep] = useState<"input" | "verify">("input");
   const [loading, setLoading] = useState(false);
   const [resendIn, setResendIn] = useState(0);
-  const [demoLoading, setDemoLoading] = useState(false);
   const navigate = useNavigate();
   const verifying = useRef(false);
 
@@ -60,12 +59,38 @@ function AuthPage() {
     return () => clearTimeout(t);
   }, [resendIn]);
 
-  // Persistent auth: a valid stored session skips the login screen entirely.
+  // Persistent auth and clicked email links: Supabase stores the resulting
+  // session in the browser, so a real user can return through the email link
+  // without entering the code manually.
   useEffect(() => {
     let alive = true;
-    void supabase.auth.getSession().then(({ data }) => {
-      if (alive && data.session) navigate({ to: "/", replace: true });
-    });
+    void (async () => {
+      const params = new URLSearchParams(window.location.search);
+      const tokenHash = params.get("token_hash");
+      const linkType = params.get("type");
+      const emailLinkTypes: EmailOtpType[] = ["email", "magiclink", "signup", "invite"];
+
+      if (tokenHash && emailLinkTypes.includes(linkType as EmailOtpType)) {
+        setLoading(true);
+        const { error } = await supabase.auth.verifyOtp({
+          token_hash: tokenHash,
+          type: linkType as EmailOtpType,
+        });
+        setLoading(false);
+        if (error) {
+          toast.error("This verification link is invalid or has expired.");
+          return;
+        }
+        if (alive) {
+          toast.success("Email verified. Welcome to YourWorld.");
+          await navigate({ to: "/", replace: true });
+        }
+        return;
+      }
+
+      const { data } = await supabase.auth.getSession();
+      if (alive && data.session) await navigate({ to: "/", replace: true });
+    })();
     return () => { alive = false; };
   }, [navigate]);
 
@@ -91,13 +116,15 @@ function AuthPage() {
 
     const isEmail = value.includes("@");
     const data = signupMetadata(value, isEmail);
+    const configuredAppUrl = import.meta.env["VITE_APP_URL"];
+    const appOrigin = configuredAppUrl || window.location.origin;
+    const emailRedirectTo = new URL("/auth", appOrigin).toString();
     const { error } = isEmail
       ? await supabase.auth.signInWithOtp({
           email: value,
-          // Omitting emailRedirectTo keeps this a code-based sign-in.
-          // Metadata lets the existing auth.users profile trigger create a
-          // valid first profile when this address is new.
-          options: { shouldCreateUser: true, data },
+          // Supabase can include both the six-digit code and a clickable link.
+          // The link returns here, where the token_hash is exchanged below.
+          options: { shouldCreateUser: true, data, emailRedirectTo },
         })
       : await supabase.auth.signInWithOtp({
           phone: value,
@@ -119,25 +146,6 @@ function AuthPage() {
   const handleSendCode = async (e: React.FormEvent) => {
     e.preventDefault();
     await sendCode();
-  };
-
-  const handleQuickDemoLogin = async () => {
-    if (demoLoading || loading) return;
-    setDemoLoading(true);
-    try {
-      const result = await quickDemoLogin();
-      const { error } = await supabase.auth.setSession({
-        access_token: result.accessToken,
-        refresh_token: result.refreshToken,
-      });
-      if (error) throw error;
-      toast.success("Welcome to the YourWorld demo");
-      await navigate({ to: "/", replace: true });
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Quick Demo Login is temporarily unavailable.");
-    } finally {
-      setDemoLoading(false);
-    }
   };
 
   // Verify OTP
@@ -239,15 +247,6 @@ function AuthPage() {
                   {loading ? "Sending Code..." : "Send Verification Code"} <ArrowRight className="w-4 h-4" />
                 </Button>
               </form>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={loading || demoLoading}
-                onClick={() => void handleQuickDemoLogin()}
-                className="w-full border-pink-500/50 bg-pink-500/10 text-pink-100 hover:bg-pink-500/20 transition-all"
-              >
-                {demoLoading ? "Opening Demo…" : "Quick Demo Login"}
-              </Button>
             </>
           ) : (
             <form

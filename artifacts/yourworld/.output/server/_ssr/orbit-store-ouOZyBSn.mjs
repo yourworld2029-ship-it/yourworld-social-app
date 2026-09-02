@@ -2,7 +2,7 @@ import { o as __toESM } from "../_runtime.mjs";
 import { t as supabase } from "./client-DidqkCgA.mjs";
 import { u as require_react } from "../_libs/@floating-ui/react-dom+[...].mjs";
 import { P as require_jsx_runtime } from "../_libs/@radix-ui/react-alert-dialog+[...].mjs";
-import { nt as notifyOrbitPrefsChanged, tt as ORBIT_KEY } from "./router-BPTrg-6h.mjs";
+import { nt as notifyOrbitPrefsChanged, tt as ORBIT_KEY } from "./router-UxuX_yNN.mjs";
 //#region node_modules/.nitro/vite/services/ssr/assets/orbit-store-ouOZyBSn.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_jsx_runtime = require_jsx_runtime();
