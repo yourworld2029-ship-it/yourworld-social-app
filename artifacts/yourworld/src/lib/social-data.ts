@@ -46,7 +46,7 @@ const hueFromId = (id: string) => {
   return h;
 };
 
-const toUser = (p: DbProfile | undefined, id: string): User => ({
+export const toUser = (p: DbProfile | undefined, id: string): User => ({
   id,
   username: p?.username ?? `user${id.slice(0, 4)}`,
   name: p?.display_name ?? p?.username ?? "YourWorld user",
@@ -107,6 +107,48 @@ export async function resolveMediaUrl(url: string, bucket = "reels"): Promise<st
 }
 
 /** Live list of posts of a given kind, with author, like and comment counts. */
+export async function loadSocialPosts(
+  kind: "post" | "reel",
+  client: typeof supabase = supabase,
+): Promise<{ posts: SocialPost[]; currentUserId: string | null }> {
+  const { data: sessionData } = await client.auth.getSession();
+  const uid = sessionData.session?.user.id ?? null;
+  const { data: posts, error } = await client
+    .from("posts")
+    .select("*")
+    .eq("kind", kind)
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  if (error || !posts?.length) {
+    if (error) console.error(`Unable to load ${kind} feed`, error);
+    return { posts: [], currentUserId: uid };
+  }
+
+  const ids = posts.map((p) => p.id);
+  const authorIds = [...new Set(posts.map((p) => p.user_id))];
+
+  const [{ data: profiles }, { data: likes }, { data: comments }] = await Promise.all([
+    client.rpc("get_public_profiles", { ids: authorIds }),
+    client.from("post_likes").select("post_id,user_id").in("post_id", ids),
+    client.from("post_comments").select("post_id").in("post_id", ids),
+  ]);
+
+  const profileById = new Map(
+    ((profiles ?? []) as DbProfile[]).map((p) => [p.id, p]),
+  );
+
+  const next: SocialPost[] = posts.map((p) => ({
+    ...(p as DbPost),
+    author: toUser(profileById.get(p.user_id), p.user_id),
+    likeCount: (likes ?? []).filter((l) => l.post_id === p.id).length,
+    commentCount: (comments ?? []).filter((c) => c.post_id === p.id).length,
+    likedByMe: !!uid && (likes ?? []).some((l) => l.post_id === p.id && l.user_id === uid),
+  }));
+
+  return { posts: next, currentUserId: uid };
+}
+
 export function useSocialPosts(kind: "post" | "reel") {
   // Keep the server and first client render identical, then hydrate the local
   // cache after mount. Reading localStorage during render breaks mobile SSR.
@@ -119,45 +161,9 @@ export function useSocialPosts(kind: "post" | "reel") {
 
   const load = useCallback(async () => {
     if (Date.now() < muteUntil.current) return;
-    const { data: sessionData } = await supabase.auth.getSession();
-    const uid = sessionData.session?.user.id ?? null;
-    setMe(uid);
-
-    const { data: posts, error } = await supabase
-      .from("posts")
-      .select("*")
-      .eq("kind", kind)
-      .order("created_at", { ascending: false })
-      .limit(50);
-
-    if (error || !posts?.length) {
-      if (error) console.error(`Unable to load ${kind} feed`, error);
-      setRows([]);
-      setLoading(false);
-      return;
-    }
-
-    const ids = posts.map((p) => p.id);
-    const authorIds = [...new Set(posts.map((p) => p.user_id))];
-
-    const [{ data: profiles }, { data: likes }, { data: comments }] = await Promise.all([
-      supabase.rpc("get_public_profiles", { ids: authorIds }),
-      supabase.from("post_likes").select("post_id,user_id").in("post_id", ids),
-      supabase.from("post_comments").select("post_id").in("post_id", ids),
-    ]);
-
-    const profileById = new Map(
-      ((profiles ?? []) as DbProfile[]).map((p) => [p.id, p]),
-    );
-
-    const next: SocialPost[] = posts.map((p) => ({
-      ...(p as DbPost),
-      author: toUser(profileById.get(p.user_id), p.user_id),
-      likeCount: (likes ?? []).filter((l) => l.post_id === p.id).length,
-      commentCount: (comments ?? []).filter((c) => c.post_id === p.id).length,
-      likedByMe: !!uid && (likes ?? []).some((l) => l.post_id === p.id && l.user_id === uid),
-    }));
-    setRows(next);
+    const next = await loadSocialPosts(kind);
+    setMe(next.currentUserId);
+    setRows(next.posts);
     setLoading(false);
   }, [kind]);
 
@@ -715,6 +721,33 @@ export type PostComment = {
 
 export const MAX_PINNED_COMMENTS = 4;
 
+export async function createPostComment(
+  postId: string,
+  userId: string,
+  body: string,
+  client: typeof supabase = supabase,
+) {
+  const text = body.trim();
+  if (!text) return { data: null, error: null };
+  const result = await client
+    .from("post_comments")
+    .insert({ post_id: postId, user_id: userId, body: text })
+    .select("id,created_at")
+    .maybeSingle();
+  return {
+    data: result.data as { id: string; created_at: string } | null,
+    error: result.error as { message: string } | null,
+  };
+}
+
+export async function deletePostComment(
+  id: string,
+  client: typeof supabase = supabase,
+) {
+  const result = await client.from("post_comments").delete().eq("id", id);
+  return { error: result.error as { message: string } | null };
+}
+
 
 /** Real comments for a post or reel: live fetch, optimistic post, realtime sync. */
 export function usePostComments(postId: string | null) {
@@ -834,11 +867,7 @@ export function usePostComments(postId: string | null) {
           pinnedAt: null,
         },
       ]);
-      const { error } = await supabase
-        .from("post_comments")
-        .insert({ post_id: postId, user_id: me, body: text })
-        .select("id,created_at")
-        .maybeSingle();
+      const { error } = await createPostComment(postId, me, text);
       if (error) {
         setComments((prev) => prev.filter((c) => c.id !== tempId));
       } else {
@@ -857,7 +886,7 @@ export function usePostComments(postId: string | null) {
     async (id: string) => {
       const snapshot = comments;
       setComments((prev) => prev.filter((c) => c.id !== id));
-      const { error } = await supabase.from("post_comments").delete().eq("id", id);
+      const { error } = await deletePostComment(id);
       if (error) setComments(snapshot);
       return !error;
     },

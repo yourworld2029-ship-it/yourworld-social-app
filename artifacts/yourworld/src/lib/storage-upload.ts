@@ -3,9 +3,9 @@ import { supabase } from "@/integrations/supabase/client";
 export type ProgressFn = (percent: number) => void;
 
 const SUPABASE_URL =
-  (import.meta.env["VITE_SUPABASE_URL"] as string | undefined) ?? "";
+  (import.meta.env?.["VITE_SUPABASE_URL"] as string | undefined) ?? "";
 const SUPABASE_KEY =
-  (import.meta.env["VITE_SUPABASE_PUBLISHABLE_KEY"] as string | undefined) ?? "";
+  (import.meta.env?.["VITE_SUPABASE_PUBLISHABLE_KEY"] as string | undefined) ?? "";
 
 /**
  * Uploads a blob to a storage bucket with real byte-level progress (XHR based,

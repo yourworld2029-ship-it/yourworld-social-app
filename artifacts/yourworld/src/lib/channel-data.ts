@@ -22,6 +22,8 @@ export type ChannelLiveData = {
   loading: boolean;
 };
 
+export type LoadedChannelData = Omit<ChannelLiveData, "loading">;
+
 const emptyData: ChannelLiveData = {
   videos: [],
   reels: [],
@@ -37,6 +39,89 @@ function hueOf(id: string) {
   return hue;
 }
 
+/** Loads the signed-in creator's channel data directly from Supabase. */
+export async function loadChannelData(
+  uid: string,
+  client: typeof supabase = supabase,
+): Promise<LoadedChannelData> {
+  const [{ data: rows, error }, { data: followRows }, { data: countRows }] = await Promise.all([
+    client
+      .from("posts")
+      .select("id,kind,title,caption,media_url,thumbnail_url,views,created_at")
+      .eq("user_id", uid)
+      .order("created_at", { ascending: false })
+      .limit(200),
+    client.rpc("list_follows", { _user_id: uid, _kind: "followers", _limit: 500 }),
+    client.rpc("get_follow_counts", { ids: [uid] }),
+  ]);
+
+  if (error) {
+    return {
+      videos: [],
+      reels: [],
+      posts: [],
+      subscribers: [],
+      stats: { subscribers: 0, views30d: 0, watchHours: 0, posts: 0 },
+    };
+  }
+
+  const postRows = rows ?? [];
+  const postIds = postRows.map((row) => row.id);
+  const { data: likes } = postIds.length
+    ? await client.from("post_likes").select("post_id").in("post_id", postIds)
+    : { data: [] };
+  const likesByPost = new Map<string, number>();
+  for (const like of likes ?? []) {
+    likesByPost.set(like.post_id, (likesByPost.get(like.post_id) ?? 0) + 1);
+  }
+
+  const items = await Promise.all(
+    postRows.map(async (row): Promise<ChannelItem> => ({
+      id: row.id,
+      title: row.title || row.caption || "Untitled",
+      thumb: await resolveMediaUrl(row.thumbnail_url || row.media_url, "reels"),
+      views: Number(row.views ?? 0),
+      likes: likesByPost.get(row.id) ?? 0,
+      publishedAt: timeAgo(row.created_at),
+    })),
+  );
+
+  const followerIds = (followRows ?? []).map((row) => row.id as string).filter(Boolean);
+  const { data: profiles } = followerIds.length
+    ? await client.rpc("get_public_profiles", { ids: followerIds })
+    : { data: [] };
+  const profileById = new Map((profiles ?? []).map((profile) => [profile.id, profile]));
+  const subscribers = followerIds.flatMap((id): Subscriber[] => {
+    const profile = profileById.get(id);
+    if (!profile) return [];
+    return [{
+      id,
+      name: profile.display_name || profile.username || "YourWorld user",
+      handle: profile.username || "user",
+      since: "Subscriber",
+      hue: hueOf(id),
+    }];
+  });
+
+  const videos = items.filter((_, index) => postRows[index]?.kind === "video");
+  const reels = items.filter((_, index) => postRows[index]?.kind === "reel");
+  const posts = items.filter((_, index) => postRows[index]?.kind === "post");
+  const subscribersCount = Number((countRows ?? [])[0]?.followers ?? subscribers.length);
+
+  return {
+    videos,
+    reels,
+    posts,
+    subscribers,
+    stats: {
+      subscribers: subscribersCount,
+      views30d: postRows.reduce((sum, row) => sum + Number(row.views ?? 0), 0),
+      watchHours: 0,
+      posts: postRows.length,
+    },
+  };
+}
+
 export function useChannelData() {
   const [data, setData] = useState<ChannelLiveData>(emptyData);
 
@@ -48,77 +133,8 @@ export function useChannelData() {
       return;
     }
 
-    const [{ data: rows, error }, { data: followRows }, { data: countRows }] = await Promise.all([
-      supabase
-        .from("posts")
-        .select("id,kind,title,caption,media_url,thumbnail_url,views,created_at")
-        .eq("user_id", uid)
-        .order("created_at", { ascending: false })
-        .limit(200),
-      supabase.rpc("list_follows", { _user_id: uid, _kind: "followers", _limit: 500 }),
-      supabase.rpc("get_follow_counts", { ids: [uid] }),
-    ]);
-
-    if (error) {
-      setData({ ...emptyData, loading: false });
-      return;
-    }
-
-    const postRows = rows ?? [];
-    const postIds = postRows.map((row) => row.id);
-    const { data: likes } = postIds.length
-      ? await supabase.from("post_likes").select("post_id").in("post_id", postIds)
-      : { data: [] };
-    const likesByPost = new Map<string, number>();
-    for (const like of likes ?? []) {
-      likesByPost.set(like.post_id, (likesByPost.get(like.post_id) ?? 0) + 1);
-    }
-
-    const items = await Promise.all(
-      postRows.map(async (row): Promise<ChannelItem> => ({
-        id: row.id,
-        title: row.title || row.caption || "Untitled",
-        thumb: await resolveMediaUrl(row.thumbnail_url || row.media_url, "reels"),
-        views: Number(row.views ?? 0),
-        likes: likesByPost.get(row.id) ?? 0,
-        publishedAt: timeAgo(row.created_at),
-      })),
-    );
-
-    const followerIds = (followRows ?? []).map((row) => row.id as string).filter(Boolean);
-    const { data: profiles } = followerIds.length
-      ? await supabase.rpc("get_public_profiles", { ids: followerIds })
-      : { data: [] };
-    const profileById = new Map((profiles ?? []).map((profile) => [profile.id, profile]));
-    const subscribers = followerIds.flatMap((id): Subscriber[] => {
-      const profile = profileById.get(id);
-      if (!profile) return [];
-      return [{
-        id,
-        name: profile.display_name || profile.username || "YourWorld user",
-        handle: profile.username || "user",
-        since: "Subscriber",
-        hue: hueOf(id),
-      }];
-    });
-
-    const videos = items.filter((_, index) => postRows[index]?.kind === "video");
-    const reels = items.filter((_, index) => postRows[index]?.kind === "reel");
-    const posts = items.filter((_, index) => postRows[index]?.kind === "post");
-    const subscribersCount = Number((countRows ?? [])[0]?.followers ?? subscribers.length);
-    setData({
-      videos,
-      reels,
-      posts,
-      subscribers,
-      stats: {
-        subscribers: subscribersCount,
-        views30d: postRows.reduce((sum, row) => sum + Number(row.views ?? 0), 0),
-        watchHours: 0,
-        posts: postRows.length,
-      },
-      loading: false,
-    });
+    const next = await loadChannelData(uid);
+    setData({ ...next, loading: false });
   }, []);
 
   useEffect(() => {

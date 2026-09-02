@@ -6,6 +6,7 @@ import { useSearch } from "@/lib/search-store";
 import { YwAvatar } from "@/components/yw/Avatar";
 import { formatCount, type Hashtag, type SuggestedUser } from "@/lib/yw-data";
 import { supabase } from "@/integrations/supabase/client";
+import { loadSearchData } from "@/lib/search-data";
 
 export const Route = createFileRoute("/search")({
   head: () => ({
@@ -27,48 +28,11 @@ function SearchPage() {
   useEffect(() => {
     let active = true;
     const load = async () => {
-      const [{ data: profiles }, { data: posts }] = await Promise.all([
-        supabase
-          .from("profiles")
-          .select("id,username,display_name,category")
-          .order("updated_at", { ascending: false })
-          .limit(100),
-        supabase.from("posts").select("hashtags").limit(500),
-      ]);
+      const next = await loadSearchData();
       if (!active) return;
 
-      const profileRows = profiles ?? [];
-      const ids = profileRows.map((profile) => profile.id);
-      const { data: counts } = ids.length
-        ? await supabase.rpc("get_follow_counts", { ids })
-        : { data: [] };
-      if (!active) return;
-      const followersById = new Map(
-        (counts ?? []).map((row) => [row.user_id as string, Number(row.followers ?? 0)]),
-      );
-      setUsers(
-        profileRows.map((profile) => ({
-          id: profile.id,
-          username: profile.username || "user",
-          name: profile.display_name || profile.username || "YourWorld user",
-          category: profile.category || undefined,
-          hue: profile.id.split("").reduce((h, char) => (h * 31 + char.charCodeAt(0)) % 360, 0),
-          followerCount: followersById.get(profile.id) ?? 0,
-        })),
-      );
-
-      const totals = new Map<string, number>();
-      for (const post of posts ?? []) {
-        for (const tag of post.hashtags ?? []) {
-          const normalized = String(tag).trim().replace(/^#/, "").toLowerCase();
-          if (normalized) totals.set(normalized, (totals.get(normalized) ?? 0) + 1);
-        }
-      }
-      setHashtags(
-        [...totals.entries()]
-          .sort((a, b) => b[1] - a[1])
-          .map(([tag, postCount], index) => ({ tag, postCount, trending: index < 6 })),
-      );
+      setUsers(next.users);
+      setHashtags(next.hashtags);
     };
 
     void load();
