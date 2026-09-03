@@ -600,7 +600,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         }
       }
       pc.onicecandidate = (e) => {
-        if (e.candidate) signal({ type: "ice", candidate: e.candidate.toJSON() });
+        if (e.candidate) signal({ type: "ICE_CANDIDATE", candidate: e.candidate.toJSON() });
       };
       pc.ontrack = (e) => {
         // Some browsers deliver tracks without a stream — build one ourselves so
@@ -670,14 +670,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
         void (async () => {
         const { data: sess } = await supabase.auth.getSession();
         await supabase.realtime.setAuth(sess.session?.access_token);
-        const ch = supabase.channel(`rtc-${callId}`, {
+        const ch = supabase.channel(`call:${callId}`, {
           config: { broadcast: { self: false }, private: true },
         });
         sigRef.current = ch;
         const receive = async (payload: Record<string, unknown>) => {
           const pc = pcRef.current;
           try {
-            if (payload.type === "accept" && isCaller) {
+            if ((payload.type === "CALL_ACCEPT" || payload.type === "accept") && isCaller) {
               setPhase("connecting");
               const stream = localStream.current ?? (await getMedia(mode));
               const peer = pcRef.current ?? createPeer(stream);
@@ -690,8 +690,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 sdp: optimizeVideoSdp(offer.sdp ?? ""),
               };
               await peer.setLocalDescription(optimizedOffer);
-              signal({ type: "offer", sdp: peer.localDescription });
-            } else if (payload.type === "offer" && !isCaller && !pc?.remoteDescription) {
+              signal({ type: "CALL_OFFER", sdp: peer.localDescription });
+            } else if ((payload.type === "CALL_OFFER" || payload.type === "offer") && !isCaller && !pc?.remoteDescription) {
               const remoteOffer = asSessionDescription(payload.sdp);
               if (!remoteOffer) return;
               const stream = localStream.current ?? (await getMedia(mode));
@@ -704,14 +704,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 sdp: optimizeVideoSdp(answer.sdp ?? ""),
               };
               await peer.setLocalDescription(optimizedAnswer);
-              signal({ type: "answer", sdp: peer.localDescription });
+              signal({ type: "CALL_ANSWER", sdp: peer.localDescription });
               setPhase("connecting");
-            } else if (payload.type === "answer" && pc && !pc.remoteDescription) {
+            } else if ((payload.type === "CALL_ANSWER" || payload.type === "answer") && pc && !pc.remoteDescription) {
               const remoteAnswer = asSessionDescription(payload.sdp);
               if (!remoteAnswer) return;
               await pc.setRemoteDescription(new RTCSessionDescription(remoteAnswer));
               await flushIce();
-            } else if (payload.type === "ice") {
+            } else if (payload.type === "ICE_CANDIDATE" || payload.type === "ice") {
               const candidate = asIceCandidate(payload.candidate);
               if (!candidate) return;
               if (pc?.remoteDescription) {
@@ -1001,7 +1001,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
     createPeer(localStream.current!);
     await openSignalChannel(call.callId, call.mode, false);
-    signal({ type: "accept" });
+    signal({ type: "CALL_ACCEPT" });
     // Mark the durable row so the caller's devices stop ringing everywhere.
     const { error } = await supabase
       .from("calls")
