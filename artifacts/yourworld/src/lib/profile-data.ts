@@ -53,6 +53,7 @@ export function useMyProfile() {
   const [avatarSrc, setAvatarSrc] = useState<string | null>(null);
   const [coverSrc, setCoverSrc] = useState<string | null>(null);
   const [posts, setPosts] = useState<DbPost[]>([]);
+  const [savedPosts, setSavedPosts] = useState<DbPost[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
@@ -62,11 +63,12 @@ export function useMyProfile() {
     if (!uid) {
       setProfile(empty);
       setPosts([]);
+      setSavedPosts([]);
       setLoading(false);
       return;
     }
 
-    const [{ data: row }, { data: myPosts }] = await Promise.all([
+    const [{ data: row }, { data: myPosts }, { data: saves }] = await Promise.all([
       supabase.from("profiles").select("*").eq("id", uid).maybeSingle(),
       supabase
         .from("posts")
@@ -74,7 +76,12 @@ export function useMyProfile() {
         .eq("user_id", uid)
         .order("created_at", { ascending: false })
         .limit(100),
+      supabase.from("post_saves").select("post_id").eq("user_id", uid),
     ]);
+    const savedIds = ((saves ?? []) as { post_id: string }[]).map((s) => s.post_id);
+    const savedResult = savedIds.length
+      ? await supabase.from("posts").select("*").in("id", savedIds).limit(200)
+      : { data: [], error: null };
 
     const email = sessionData.session?.user.email ?? "";
     const next: MyProfile = {
@@ -90,6 +97,11 @@ export function useMyProfile() {
     };
     setProfile(next);
     setPosts((myPosts ?? []).map(normalizePostRow) as DbPost[]);
+    setSavedPosts(
+      (savedResult.data ?? [])
+        .map(normalizePostRow)
+        .filter((post) => post.kind === "video" || post.kind === "reel") as DbPost[],
+    );
     setAvatarSrc(await signedIfNeeded(next.avatar_url));
     setCoverSrc(await signedIfNeeded(next.cover_url));
     setLoading(false);
@@ -151,7 +163,15 @@ export function useMyProfile() {
     [profile.avatar_url, profile.cover_url, uploadImage, load],
   );
 
-  const grid = useMemo(() => posts.filter((p) => p.kind !== "reel"), [posts]);
+  const grid = useMemo(
+    () =>
+      posts.filter(
+        (p) =>
+          p.kind === "video" ||
+          (p.kind !== "reel" && p.media_type?.startsWith("video")),
+      ),
+    [posts],
+  );
   const reels = useMemo(() => posts.filter((p) => p.kind === "reel"), [posts]);
 
   return {
@@ -160,6 +180,7 @@ export function useMyProfile() {
     avatarSrc,
     coverSrc,
     posts,
+    savedPosts,
     grid,
     reels,
     loading,

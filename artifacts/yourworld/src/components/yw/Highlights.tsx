@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, ImagePlus, Check, ChevronRight, ChevronLeft } from "lucide-react";
+import { Plus, ImagePlus, Check, ChevronRight, ChevronLeft, X, Volume2, VolumeX, Pause, Play } from "lucide-react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -59,7 +59,7 @@ function Thumb({ src, video }: { src?: string; video?: boolean }) {
 }
 
 export function Highlights({ userId, posts }: { userId: string | null; posts: DbPost[] }) {
-  const { archive } = useMoments();
+  const { moments, archive } = useMoments();
   const [highlights, setHighlights] = useState<Highlight[]>([]);
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<0 | 1>(0);
@@ -67,6 +67,7 @@ export function Highlights({ userId, posts }: { userId: string | null; posts: Db
   const [title, setTitle] = useState("");
   const [cover, setCover] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [viewer, setViewer] = useState<Highlight | null>(null);
   const coverInput = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -88,20 +89,20 @@ export function Highlights({ userId, posts }: { userId: string | null; posts: Db
 
   const storyItems = useMemo<HighlightItem[]>(
     () =>
-      archive.map((m: MyMoment) => ({
+      [...moments, ...archive].filter((m: MyMoment) => m.mine).map((m: MyMoment) => ({
         source: "story",
         refId: m.id,
         thumb: m.media ?? "",
         media: m.media,
         mediaType: m.kind === "video" ? "video" : "image",
       })),
-    [archive],
+    [moments, archive],
   );
 
   const topReels = useMemo<HighlightItem[]>(
     () =>
       [...posts]
-        .filter((p) => p.media_type?.startsWith("video") || p.kind === "reel" || p.kind === "video")
+        .filter((p) => p.kind === "reel")
         .sort((a, b) => (b.views ?? 0) - (a.views ?? 0))
         .map((p) => ({
           source: "post",
@@ -245,7 +246,7 @@ export function Highlights({ userId, posts }: { userId: string | null; posts: Db
         </button>
 
         {highlights.map((h) => (
-          <div key={h.id} className="flex w-[68px] shrink-0 flex-col items-center gap-1.5">
+          <button key={h.id} type="button" onClick={() => setViewer(h)} className="flex w-[68px] shrink-0 flex-col items-center gap-1.5">
             <span className="h-[60px] w-[60px] overflow-hidden rounded-full border border-border/60 bg-muted/40 p-[2px]">
               <span className="block h-full w-full overflow-hidden rounded-full">
                 {h.cover_url ? (
@@ -264,7 +265,7 @@ export function Highlights({ userId, posts }: { userId: string | null; posts: Db
             <span className="w-full truncate text-center text-[11px] text-muted-foreground">
               {h.title}
             </span>
-          </div>
+          </button>
         ))}
       </div>
 
@@ -285,7 +286,7 @@ export function Highlights({ userId, posts }: { userId: string | null; posts: Db
               <Tabs defaultValue="stories">
                 <TabsList className="grid w-full grid-cols-3">
                   <TabsTrigger value="stories">Stories</TabsTrigger>
-                  <TabsTrigger value="top">Top Reels/Videos</TabsTrigger>
+                  <TabsTrigger value="top">Reels</TabsTrigger>
                   <TabsTrigger value="posts">Posts</TabsTrigger>
                 </TabsList>
                 <div className="mt-3 max-h-[46vh] overflow-y-auto pr-1">
@@ -369,6 +370,81 @@ export function Highlights({ userId, posts }: { userId: string | null; posts: Db
           )}
         </DialogContent>
       </Dialog>
+      {viewer ? <HighlightViewer highlight={viewer} onClose={() => setViewer(null)} /> : null}
     </section>
+  );
+}
+
+function HighlightViewer({ highlight, onClose }: { highlight: Highlight; onClose: () => void }) {
+  const [index, setIndex] = useState(0);
+  const [progress, setProgress] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const [muted, setMuted] = useState(true);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const current = highlight.items[index];
+
+  useEffect(() => {
+    setProgress(0);
+    setPaused(false);
+  }, [index]);
+  useEffect(() => {
+    if (!current || current.mediaType === "video" || paused) return;
+    const timer = window.setInterval(() => {
+      setProgress((p) => {
+        if (p >= 100) {
+          if (index >= highlight.items.length - 1) onClose();
+          else setIndex((i) => i + 1);
+          return 0;
+        }
+        return p + 2;
+      });
+    }, 100);
+    return () => window.clearInterval(timer);
+  }, [current, paused, index, highlight.items.length, onClose]);
+  useEffect(() => {
+    if (!videoRef.current) return;
+    if (paused) videoRef.current.pause();
+    else void videoRef.current.play().catch(() => {});
+  }, [paused, index]);
+  if (!current) return null;
+  return (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black">
+      <div className="relative h-full w-full max-w-md overflow-hidden">
+        {highlight.items.map((_, i) => (
+          <div key={i} className="absolute left-2 right-2 top-3 z-20 h-1 overflow-hidden rounded-full bg-white/30">
+            <div className="h-full bg-white" style={{ width: i < index ? "100%" : i === index ? `${progress}%` : "0%" }} />
+          </div>
+        ))}
+        {current.mediaType === "video" ? (
+          <video
+            ref={videoRef}
+            key={current.refId}
+             src={current.media ?? current.thumb}
+            autoPlay
+            muted={muted}
+            playsInline
+            className="h-full w-full object-contain"
+            onTimeUpdate={(e) => {
+              const v = e.currentTarget;
+              if (v.duration) setProgress((v.currentTime / v.duration) * 100);
+            }}
+            onEnded={() => index >= highlight.items.length - 1 ? onClose() : setIndex((i) => i + 1)}
+          />
+        ) : <img src={current.media ?? current.thumb} alt="" className="h-full w-full object-contain" />}
+        <div className="absolute inset-x-0 top-0 z-30 flex items-center justify-between bg-gradient-to-b from-black/75 to-transparent px-3 pb-8 pt-7">
+          <span className="text-sm font-semibold text-white">{highlight.title}</span>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setPaused((p) => !p)} className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white backdrop-blur-xl" aria-label={paused ? "Play" : "Pause"}>
+              {paused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+            </button>
+            {current.mediaType === "video" ? <button type="button" onClick={() => setMuted((m) => !m)} className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white backdrop-blur-xl" aria-label="Toggle sound">{muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}</button> : null}
+            <button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white backdrop-blur-xl" aria-label="Close"><X className="h-4 w-4" /></button>
+          </div>
+        </div>
+        <button type="button" aria-label="Previous clip" onClick={() => setIndex((i) => Math.max(0, i - 1))} className="absolute inset-y-0 left-0 z-20 w-2/5" />
+        <button type="button" aria-label="Next clip" onClick={() => index >= highlight.items.length - 1 ? onClose() : setIndex((i) => i + 1)} className="absolute inset-y-0 right-0 z-20 w-3/5" />
+        {paused ? <span className="pointer-events-none absolute bottom-8 left-1/2 z-30 -translate-x-1/2 rounded-full bg-black/50 px-3 py-1.5 text-xs text-white"><Pause className="mr-1 inline h-3 w-3" />Paused</span> : null}
+      </div>
+    </div>
   );
 }

@@ -36,6 +36,8 @@ export type DbPost = {
   kind: string;
   media_url: string;
   media_type: string;
+  thumbnail_url?: string | null;
+  duration_seconds?: number | null;
   caption: string;
   hashtags: string[];
   location: string | null;

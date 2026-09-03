@@ -16,10 +16,16 @@ type Props = {
 export function VideoPoster({ thumbnailUrl, mediaUrl, alt, className }: Props) {
   const [frameUrl, setFrameUrl] = useState<string | null>(null);
   const [frameFailed, setFrameFailed] = useState(false);
+  const [thumbnailFailed, setThumbnailFailed] = useState(false);
 
   useEffect(() => {
+    setThumbnailFailed(false);
     setFrameFailed(false);
-    if (thumbnailUrl || !mediaUrl) return;
+    setFrameUrl(null);
+  }, [thumbnailUrl, mediaUrl]);
+
+  useEffect(() => {
+    if ((thumbnailUrl && !thumbnailFailed) || !mediaUrl) return;
     let alive = true;
     void resolveLongVideoUrl(mediaUrl).then((url) => {
       if (alive && url) setFrameUrl(`${url}${url.includes("#") ? "" : "#t=0.5"}`);
@@ -27,14 +33,15 @@ export function VideoPoster({ thumbnailUrl, mediaUrl, alt, className }: Props) {
     return () => {
       alive = false;
     };
-  }, [thumbnailUrl, mediaUrl]);
+  }, [thumbnailFailed, thumbnailUrl, mediaUrl]);
 
-  if (thumbnailUrl) {
+  if (thumbnailUrl && !thumbnailFailed) {
     return (
       <img
         src={thumbnailUrl}
         alt={alt}
         loading="lazy"
+        onError={() => setThumbnailFailed(true)}
         className={cn("h-full w-full object-cover", className)}
       />
     );

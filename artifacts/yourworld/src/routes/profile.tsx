@@ -3,8 +3,6 @@ import type React from "react";
 import { useState } from "react";
 import {
   Settings,
-  Grid3x3,
-  Bookmark,
   Play,
   MapPin,
   Link2,
@@ -45,7 +43,6 @@ import { YwAvatar } from "@/components/yw/Avatar";
 import { Bio } from "@/components/yw/Bio";
 import { EditProfileSheet, type ProfileEdit } from "@/components/yw/EditProfileSheet";
 import { formatCount } from "@/lib/yw-data";
-import { useYw } from "@/lib/yw-store";
 import {
   useMyProfile,
   useResolvedMedia,
@@ -57,6 +54,7 @@ import { UserWatermark } from "@/components/yw/UserWatermark";
 import { FollowListDialog } from "@/components/yw/FollowListDialog";
 import { useFollowCounts } from "@/lib/follow-data";
 import { Highlights } from "@/components/yw/Highlights";
+import { VideoPoster } from "@/components/yw/VideoPoster";
 
 
 
@@ -82,8 +80,7 @@ export const Route = createFileRoute("/profile")({
 });
 
 function ProfilePage() {
-  const { saved } = useYw();
-  const { profile, avatarSrc, grid, reels, posts, loading, save, userId, reload } =
+  const { profile, avatarSrc, grid, reels, posts, savedPosts, loading, save, userId, reload } =
     useMyProfile();
   const [editOpen, setEditOpen] = useState(false);
   const counts = useFollowCounts(userId);
@@ -128,9 +125,19 @@ function ProfilePage() {
 
 
 
-  const savedPosts = posts.filter((p) => saved[p.id]);
-  const media = useResolvedMedia([...posts.map((p) => p.media_url)]);
-  const src = (u: string) => media[u] ?? u;
+  const reelMedia = useResolvedMedia(
+    [...posts, ...savedPosts]
+      .filter((p) => p.kind === "reel")
+      .map((p) => p.media_url),
+    "reels",
+  );
+  const videoMedia = useResolvedMedia(
+    [...posts, ...savedPosts]
+      .filter((p) => p.kind === "video")
+      .map((p) => p.media_url),
+    "videos",
+  );
+  const src = (u: string) => reelMedia[u] ?? videoMedia[u] ?? u;
 
   const avatarUser = {
     id: userId ?? "me",
@@ -288,26 +295,34 @@ function ProfilePage() {
         </div>
       </section>
 
-      <Highlights userId={userId} posts={posts} />
+      <Highlights
+        userId={userId}
+        posts={posts.map((post) => ({ ...post, media_url: src(post.media_url) }))}
+      />
 
-      <Tabs defaultValue="grid" className="pt-5">
+      <Tabs defaultValue="videos" className="pt-5">
         <TabsList className="grid w-full grid-cols-3 rounded-none border-y border-border bg-transparent p-0">
-          <TabsTrigger value="grid" className="rounded-none py-3" aria-label="Posts">
-            <Grid3x3 className="h-5 w-5" />
+          <TabsTrigger value="videos" className="rounded-none py-3 text-xs data-[state=active]:bg-white/10 data-[state=active]:backdrop-blur-md" aria-label="Videos">
+            Videos
           </TabsTrigger>
-          <TabsTrigger value="reels" className="rounded-none py-3" aria-label="Reels">
-            <Play className="h-5 w-5" />
+          <TabsTrigger value="reels" className="rounded-none py-3 text-xs data-[state=active]:bg-white/10 data-[state=active]:backdrop-blur-md" aria-label="Reels">
+            Reels
           </TabsTrigger>
-          <TabsTrigger value="saved" className="rounded-none py-3" aria-label="Saved">
-            <Bookmark className="h-5 w-5" />
+          <TabsTrigger value="saved" className="rounded-none py-3 text-xs data-[state=active]:bg-white/10 data-[state=active]:backdrop-blur-md" aria-label="Saved">
+            Saved
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="grid" className="mt-0">
+        <TabsContent value="videos" className="mt-0">
           {grid.length ? (
             <MediaGrid
               onSelect={openManage}
-              items={sortPinned(grid).map((p) => ({ src: src(p.media_url), type: p.media_type, post: p }))}
+              items={sortPinned(grid).map((p) => ({
+                src: src(p.media_url),
+                type: p.kind === "video" ? "video" : p.media_type,
+                post: p,
+                ratio: "video",
+              }))}
             />
           ) : (
             <Empty text={loading ? "Loading your posts…" : "No posts yet. Create your first one."} />
@@ -317,7 +332,12 @@ function ProfilePage() {
           {reels.length ? (
             <MediaGrid
               onSelect={openManage}
-              items={sortPinned(reels).map((p) => ({ src: src(p.media_url), type: p.media_type, post: p }))}
+              items={sortPinned(reels).map((p) => ({
+                src: src(p.media_url),
+                type: "video",
+                post: p,
+                ratio: "reel",
+              }))}
             />
           ) : (
             <Empty text={loading ? "Loading reels…" : "No reels yet."} />
@@ -326,7 +346,12 @@ function ProfilePage() {
         <TabsContent value="saved" className="mt-0">
           {savedPosts.length ? (
             <MediaGrid
-              items={savedPosts.map((p) => ({ src: src(p.media_url), type: p.media_type }))}
+              items={savedPosts.map((p) => ({
+                src: src(p.media_url),
+                type: "video",
+                post: p,
+                ratio: p.kind === "reel" ? "reel" : "video",
+              }))}
             />
           ) : (
             <Empty text="Nothing saved yet. Tap the bookmark on a post to keep it here." />
@@ -641,23 +666,38 @@ function MediaGrid({
   items,
   onSelect,
 }: {
-  items: { src: string; type: string; post?: DbPost }[];
+  items: { src: string; type: string; post?: DbPost; ratio?: "video" | "reel" }[];
   onSelect?: (post: DbPost) => void;
 }) {
   return (
     <ul className="grid grid-cols-3 gap-0.5">
       {items.map((it, i) => (
-        <li key={`${it.src}-${i}`} className="relative aspect-square overflow-hidden bg-secondary">
-          {it.type?.startsWith("video") ? (
-            <video src={it.src} muted playsInline preload="metadata" className="h-full w-full object-cover" />
+        <li key={`${it.src}-${i}`} className={`relative overflow-hidden bg-secondary ${it.ratio === "reel" ? "aspect-[4/5]" : "aspect-video"}`}>
+          {it.post?.kind === "video" || it.post?.kind === "reel" || it.type?.startsWith("video") ? (
+            <VideoPoster
+              mediaUrl={it.src}
+              thumbnailUrl={it.post?.thumbnail_url}
+              alt=""
+              className="h-full w-full object-cover"
+            />
           ) : (
             <img src={it.src} alt="" loading="lazy" className="h-full w-full object-cover" />
           )}
-          {it.type?.startsWith("video") ? (
+          {it.post?.kind === "video" || it.post?.kind === "reel" || it.type?.startsWith("video") ? (
             <Play className="absolute left-1.5 top-1.5 h-4 w-4 fill-current text-white drop-shadow" />
           ) : null}
           {it.post?.pinned ? (
             <Pin className="absolute bottom-1.5 left-1.5 h-4 w-4 fill-current text-white drop-shadow" />
+          ) : null}
+          {it.post?.views != null ? (
+            <span className="absolute bottom-1.5 right-1.5 rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
+              {formatCount(it.post.views)} views
+            </span>
+          ) : null}
+          {it.post?.duration_seconds != null ? (
+            <span className="absolute right-1.5 top-1.5 rounded bg-black/65 px-1.5 py-0.5 text-[10px] font-medium text-white">
+              {formatDuration(it.post.duration_seconds)}
+            </span>
           ) : null}
           {it.post && onSelect ? (
             <>
@@ -686,4 +726,12 @@ function MediaGrid({
 
 
   );
+}
+
+function formatDuration(seconds: number) {
+  const total = Math.max(0, Math.round(seconds));
+  if (total >= 3600) {
+    return `${Math.floor(total / 3600)}:${String(Math.floor((total % 3600) / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+  }
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
