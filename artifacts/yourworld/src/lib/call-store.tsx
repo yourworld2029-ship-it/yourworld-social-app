@@ -8,9 +8,18 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Mic, MicOff, PhoneOff, Phone, Video, VideoOff, SwitchCamera, Zap, ZapOff, Volume2, VolumeX } from "lucide-react";
+import { Bell, Mic, MicOff, PhoneOff, Phone, Video, VideoOff, SwitchCamera, Zap, ZapOff, Volume2, VolumeX, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import {
+  enableCallNotifications,
+  hasSeenCallNotificationBanner,
+  markCallNotificationBannerSeen,
+  readCallNotificationAction,
+  registerCallServiceWorker,
+  showIncomingCallNotification,
+  type CallNotificationAction,
+} from "@/lib/call-notifications";
 
 /**
  * The deployed calls/user_blocks schema is newer than generated Supabase types.
@@ -24,6 +33,7 @@ const callDb = supabase as unknown as {
 
 export type CallMode = "audio" | "video";
 type Phase = "idle" | "outgoing" | "incoming" | "connecting" | "active" | "ended";
+type CallOutcome = "answered" | "missed" | "declined";
 
 /** `calls` deliberately is not in the generated client types yet. */
 type CallRow = {
@@ -133,6 +143,19 @@ function buildRingToneUrl(freqs: number[], onSec: number, cycleSec: number): str
 
 let incomingUrl: string | null = null;
 let ringbackUrl: string | null = null;
+const activeRingtones = new Set<HTMLAudioElement>();
+
+function stopAllRingtones() {
+  for (const audio of activeRingtones) {
+    audio.pause();
+    audio.currentTime = 0;
+    audio.src = "";
+    activeRingtones.delete(audio);
+  }
+  if (typeof navigator !== "undefined" && navigator.vibrate) {
+    try { navigator.vibrate(0); } catch { /* ignore */ }
+  }
+}
 
 /** HTML5 <audio> ringtone: incoming ring, or ringback while our outgoing call connects. */
 function useRingtone(kind: "incoming" | "ringback" | null) {
@@ -146,6 +169,7 @@ function useRingtone(kind: "incoming" | "ringback" | null) {
         ringbackUrl ??= buildRingToneUrl([440, 480], 1, 4);
       }
       audio = new Audio(kind === "incoming" ? incomingUrl! : ringbackUrl!);
+      activeRingtones.add(audio);
       audio.loop = true;
       audio.volume = kind === "incoming" ? 1 : 0.6;
       void audio.play().catch(() => {});
@@ -154,13 +178,15 @@ function useRingtone(kind: "incoming" | "ringback" | null) {
     }
     if (kind === "incoming" && navigator.vibrate) {
       try {
-        navigator.vibrate([400, 300, 400, 300, 400]);
+        navigator.vibrate([200, 100, 200, 100, 400]);
       } catch { /* ignore */ }
     }
     return () => {
       if (audio) {
         audio.pause();
+        audio.currentTime = 0;
         audio.src = "";
+        activeRingtones.delete(audio);
       }
       if (navigator.vibrate) {
         try { navigator.vibrate(0); } catch { /* ignore */ }
@@ -218,11 +244,38 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const connectedAt = useRef<number | null>(null);
   /** Ensures the call-log chat message is written exactly once per call. */
   const loggedCall = useRef<string | null>(null);
+  const logCallOutcomeRef = useRef<((outcome: CallOutcome) => Promise<void>) | null>(null);
+  const pendingNotificationAction = useRef<CallNotificationAction | null>(null);
+  const [showNotificationBanner, setShowNotificationBanner] = useState(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
 
   useRingtone(
     phase === "incoming" ? "incoming" : phase === "outgoing" ? "ringback" : null,
   );
+
+  useEffect(() => {
+    void registerCallServiceWorker();
+  }, []);
+
+  useEffect(() => {
+    if (!me || typeof window === "undefined" || !("Notification" in window)) return;
+    if (Notification.permission === "default" && !hasSeenCallNotificationBanner()) {
+      setShowNotificationBanner(true);
+    }
+  }, [me]);
+
+  useEffect(() => {
+    const fromUrl = readCallNotificationAction();
+    if (fromUrl) pendingNotificationAction.current = fromUrl;
+
+    const onMessage = (event: MessageEvent<CallNotificationAction & { type?: string }>) => {
+      if (event.data?.type !== "call-notification-click" || !event.data.callId) return;
+      pendingNotificationAction.current = event.data;
+    };
+    navigator.serviceWorker?.addEventListener("message", onMessage);
+    return () => navigator.serviceWorker?.removeEventListener("message", onMessage);
+  }, []);
 
   /* ---------- auto-hiding controls (Social + Orbit video calls) ---------- */
   useEffect(() => {
@@ -266,6 +319,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   /* ---------- teardown ---------- */
   const teardown = useCallback(() => {
+    stopAllRingtones();
     localStream.current?.getTracks().forEach((t) => t.stop());
     localStream.current = null;
     // Release the remote tracks too, otherwise the camera/mic indicator can
@@ -311,6 +365,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     setFlashOn(false);
     setSwapped(false);
     setControlsVisible(true);
+    setElapsedSeconds(0);
   }, []);
 
   const signal = useCallback((payload: Record<string, unknown>) => {
@@ -377,6 +432,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
           .eq("id", c.callId)
           .eq("status", "ringing");
       }
+      stopAllRingtones();
       teardown();
     }, 45_000);
     return () => window.clearTimeout(t);
@@ -393,7 +449,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
    * through the normal chat realtime subscription.
    */
   const logCallOutcome = useCallback(
-    async (outcome: "answered" | "missed" | "declined") => {
+    async (outcome: CallOutcome) => {
       const c = callRef.current;
       const meId = meRef.current;
       if (!c || c.incoming || !meId || isGuestRef.current) return;
@@ -402,24 +458,23 @@ export function CallProvider({ children }: { children: ReactNode }) {
       const durMs = connectedAt.current ? Date.now() - connectedAt.current : null;
       connectedAt.current = null;
       const fmtDur = (ms: number) => {
-        const s = Math.max(1, Math.round(ms / 1000));
-        return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
+        const s = Math.max(0, Math.floor(ms / 1000));
+        return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
       };
       const label = c.mode === "video" ? "Video" : "Voice";
       const text =
         outcome === "answered" && durMs != null
-          ? `${label} call · ${fmtDur(durMs)}`
-          : outcome === "declined"
-            ? `${label} call declined`
-            : `Missed ${label.toLowerCase()} call`;
+          ? `${label} Call ended • ${fmtDur(durMs)}`
+          : `Missed ${label} Call`;
       try {
         if (c.threadId) {
-          await supabase.from("direct_messages").insert({
-            thread_id: c.threadId,
+          await supabase.from("messages" as never).insert({
             sender_id: meId,
+            receiver_id: c.peerId,
             content: text,
-            media_type: "system",
-          });
+            media_url: null,
+            voice_note_url: null,
+          } as never);
         } else {
           await supabase.from("orbit_messages").insert({
             sender_id: meId,
@@ -434,6 +489,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     },
     [],
   );
+  logCallOutcomeRef.current = logCallOutcome;
   const createPeer = useCallback(
     (stream: MediaStream) => {
       // Pre-gather ICE candidates so the call connects near-instantly.
@@ -470,6 +526,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
       pc.onconnectionstatechange = () => {
         if (pc.connectionState === "connected") {
+          stopAllRingtones();
           connectedAt.current ??= Date.now();
           setPhase("active");
         }
@@ -545,10 +602,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 pendingIce.current.push(candidate);
               }
             } else if (payload.type === "end") {
+              stopAllRingtones();
               toast.message("Call ended");
               void logCallOutcome(connectedAt.current ? "answered" : "missed");
               teardown();
             } else if (payload.type === "decline") {
+              stopAllRingtones();
               toast.message("Call declined");
               void logCallOutcome("declined");
               teardown();
@@ -631,16 +690,49 @@ export function CallProvider({ children }: { children: ReactNode }) {
         void callDb.from("calls").update({ status: "declined", ended_at: new Date().toISOString() }).eq("id", row.id);
         return;
       }
-      setCall({ callId: row.id, mode: row.call_type, peerId: row.caller_id, peerName: "Incoming call", incoming: true });
+      const { data: callerProfile } = await supabase
+        .from("profiles")
+        .select("display_name,username")
+        .eq("id", row.caller_id)
+        .maybeSingle();
+      const peerName = callerProfile?.display_name || callerProfile?.username || "YourWorld caller";
+      setCall({ callId: row.id, mode: row.call_type, peerId: row.caller_id, peerName, incoming: true });
       setPhase("incoming");
-      toast.message(`Incoming ${row.call_type === "video" ? "video" : "voice"} call`);
+      toast.message(`Incoming ${row.call_type === "video" ? "video" : "audio"} call`);
+      if (document.visibilityState !== "visible") {
+        void showIncomingCallNotification({
+          callId: row.id,
+          mode: row.call_type,
+          peerName,
+        });
+      }
     };
     const update = ({ new: raw }: { new: unknown }) => {
       const row = raw as CallRow;
       if (row.receiver_id !== me2 && row.caller_id !== me2) return;
       if (row.receiver_id === me2 && row.status === "ringing") void ring(row);
-      if (row.id === callRef.current?.callId && (row.status === "ended" || row.status === "cancelled" || row.status === "declined")) {
-        toast.message(row.status === "declined" ? "Call declined" : "Call ended");
+      if (row.id === callRef.current?.callId && row.status === "connected") {
+        stopAllRingtones();
+        connectedAt.current ??= Date.now();
+        setPhase("active");
+      }
+      if (
+        row.id === callRef.current?.callId &&
+        (row.status === "ended" ||
+          row.status === "cancelled" ||
+          row.status === "declined" ||
+          row.status === "rejected" ||
+          row.status === "busy")
+      ) {
+        stopAllRingtones();
+        toast.message(
+          row.status === "declined" || row.status === "rejected"
+            ? "Call declined"
+            : row.status === "busy"
+              ? "User is busy"
+              : "Call ended",
+        );
+        void logCallOutcomeRef.current?.(row.status === "declined" ? "declined" : "missed");
         teardown();
       }
       const stored = row.signal_data as Partial<StoredSignal> | null;
@@ -745,6 +837,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         ringTimer.current = null;
         if (phaseRef.current !== "outgoing") return;
         toast.message("No answer");
+        stopAllRingtones();
         void callDb.from("calls").update({ status: "cancelled", ended_at: new Date().toISOString() }).eq("id", callId);
         void logCallOutcome("missed");
         teardown();
@@ -799,6 +892,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
 
   const hangup = useCallback(async () => {
+    stopAllRingtones();
     if (call && phase === "incoming") {
       void supabase
         .from("calls")
@@ -814,6 +908,31 @@ export function CallProvider({ children }: { children: ReactNode }) {
     teardown();
   }, [call, phase, signal, teardown, logCallOutcome]);
 
+
+  useEffect(() => {
+    if (phase !== "active") {
+      setElapsedSeconds(0);
+      return;
+    }
+    const update = () => {
+      setElapsedSeconds(
+        connectedAt.current
+          ? Math.max(0, Math.floor((Date.now() - connectedAt.current) / 1000))
+          : 0,
+      );
+    };
+    update();
+    const timer = window.setInterval(update, 1000);
+    return () => window.clearInterval(timer);
+  }, [phase, call?.callId]);
+
+  useEffect(() => {
+    const pending = pendingNotificationAction.current;
+    if (!pending || !call || phase !== "incoming" || pending.callId !== call.callId) return;
+    pendingNotificationAction.current = null;
+    if (pending.action === "accept") void accept();
+    else void hangup();
+  }, [accept, call, hangup, phase]);
 
 
   const toggleMic = () => {
@@ -928,21 +1047,92 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   const statusText =
     phase === "incoming"
-      ? `Incoming ${call?.mode === "video" ? "video" : "voice"} call…`
+          ? `Incoming ${call?.mode === "video" ? "video" : "audio"} call…`
       : phase === "outgoing"
         ? "Ringing…"
         : phase === "connecting"
           ? "Connecting…"
           : "Connected";
+  const callClock = `${String(Math.floor(elapsedSeconds / 60)).padStart(2, "0")}:${String(
+    elapsedSeconds % 60,
+  ).padStart(2, "0")}`;
+  const enableNotifications = async () => {
+    markCallNotificationBannerSeen();
+    setShowNotificationBanner(false);
+    const result = await enableCallNotifications();
+    if (result.permission === "granted") toast.success("Call and message notifications enabled");
+    else if (result.permission === "denied") toast.message("Notifications remain disabled");
+  };
 
   return (
     <CallCtx.Provider value={value}>
       {children}
+      {showNotificationBanner && (
+        <div className="fixed inset-x-4 bottom-5 z-[200] mx-auto flex max-w-md items-center gap-3 rounded-2xl border border-white/10 bg-zinc-950/95 p-4 text-white shadow-2xl backdrop-blur-2xl">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary/20 text-primary">
+            <Bell className="h-5 w-5" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold">Enable Call &amp; Message Notifications</p>
+            <p className="mt-1 text-xs text-white/60">Get notified when someone calls while YourWorld is closed.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void enableNotifications()}
+            className="shrink-0 rounded-full bg-primary px-3 py-2 text-xs font-bold text-primary-foreground"
+          >
+            Enable
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              markCallNotificationBannerSeen();
+              setShowNotificationBanner(false);
+            }}
+            aria-label="Dismiss notification prompt"
+            className="absolute right-2 top-2 grid h-6 w-6 place-items-center rounded-full text-white/50 hover:bg-white/10 hover:text-white"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
       {call && phase !== "idle" && (
         <div
-          className="fixed inset-0 z-[100] flex flex-col justify-between bg-zinc-950 p-6 text-white"
+          className="fixed inset-0 z-[100] flex flex-col justify-between overflow-hidden bg-zinc-950 p-6 text-white"
           onClick={phase === "incoming" ? undefined : pokeControls}
         >
+          {phase !== "incoming" && call.mode === "audio" && (
+            <div className="absolute inset-0 z-0 overflow-hidden bg-[radial-gradient(circle_at_50%_34%,rgba(99,102,241,0.35),transparent_58%),linear-gradient(160deg,#09090b,#18122e_55%,#09090b)]">
+              {peerAvatar && (
+                <img
+                  src={peerAvatar}
+                  alt=""
+                  aria-hidden
+                  className="absolute inset-0 h-full w-full scale-125 object-cover opacity-35 blur-3xl"
+                />
+              )}
+              <div className="absolute inset-0 bg-black/35 backdrop-blur-3xl" />
+              <div className="absolute left-1/2 top-[40%] flex h-64 w-64 -translate-x-1/2 -translate-y-1/2 items-center justify-center">
+                <span className="absolute inset-0 animate-ping rounded-full bg-indigo-400/10" />
+                <span
+                  className="absolute inset-5 animate-ping rounded-full bg-fuchsia-400/10"
+                  style={{ animationDelay: "0.7s" }}
+                />
+                <span className="absolute inset-10 rounded-full border border-white/20 bg-white/5 backdrop-blur-xl" />
+                {peerAvatar ? (
+                  <img
+                    src={peerAvatar}
+                    alt={call.peerName}
+                    className="relative h-32 w-32 rounded-full object-cover shadow-[0_0_70px_rgba(129,140,248,0.5)]"
+                  />
+                ) : (
+                  <div className="relative grid h-32 w-32 place-items-center rounded-full bg-white/10 text-5xl font-bold shadow-[0_0_70px_rgba(129,140,248,0.5)] backdrop-blur-xl">
+                    {call.peerName?.charAt(0)?.toUpperCase() || "?"}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
           {call.mode === "video" && (
             <>
               <video
@@ -978,6 +1168,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 }
               />
               {phase !== "incoming" && (
+                <div className="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-b from-black/55 via-transparent to-black/75" />
+              )}
+              {phase !== "incoming" && (
                 <div
                   className={`absolute right-3 top-3 z-[9999] flex items-center gap-2 rounded-full border border-white/15 bg-black/40 p-1.5 shadow-lg backdrop-blur-xl transition-all duration-300 ${
                     controlsVisible ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-3 opacity-0"
@@ -998,19 +1191,18 @@ export function CallProvider({ children }: { children: ReactNode }) {
                   >
                     {flashOn ? <Zap size={17} className="text-yellow-400" /> : <ZapOff size={17} />}
                   </button>
-                  <button
-                    onClick={toggleSpeaker}
-                    className="grid h-9 w-9 place-items-center rounded-full text-white/90 transition-colors hover:bg-white/10 active:scale-90"
-                    aria-label="Toggle speaker"
-                  >
-                    {speakerOn ? <Volume2 size={17} /> : <VolumeX size={17} />}
-                  </button>
                 </div>
               )}
             </>
           )}
 
           <audio ref={remoteAudio} autoPlay className="hidden" />
+
+          {phase !== "incoming" && (
+            <div className="absolute left-1/2 top-[max(1.25rem,env(safe-area-inset-top,0px))] z-30 -translate-x-1/2 rounded-full border border-white/15 bg-black/30 px-4 py-2 text-sm font-semibold tracking-[0.18em] text-white/90 shadow-xl backdrop-blur-2xl">
+              {phase === "active" ? callClock : statusText}
+            </div>
+          )}
 
           {phase === "incoming" ? (
             <>
@@ -1054,7 +1246,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
                     {call.peerName}
                   </h2>
                   <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white/80 backdrop-blur-md">
-                    {call.mode === "video" ? "Incoming video call" : "Incoming voice call"}
+                    {call.mode === "video" ? "Incoming video call" : "Incoming audio call"}
                   </span>
                 </div>
               </div>
@@ -1066,11 +1258,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
               }`}
             >
               <h2 className="text-lg font-bold drop-shadow-lg">{call.peerName}</h2>
-              <span className="animate-pulse text-xs font-bold text-emerald-400 drop-shadow-lg">{statusText}</span>
+              <span className="text-xs font-bold text-emerald-400 drop-shadow-lg">
+                {phase === "active" ? "HD connection" : statusText}
+              </span>
             </div>
           )}
 
-          <div className="relative z-10 mb-10 flex items-center justify-center gap-6">
+          <div className="relative z-10 mb-[max(1.5rem,env(safe-area-inset-bottom,0px))] flex items-center justify-center gap-6">
             {phase === "incoming" ? (
               <div className="flex w-full items-center justify-between px-6">
                 <button
@@ -1095,8 +1289,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 </button>
               </div>
             ) : (
-              <div
-                className={`flex items-center gap-4 rounded-full border border-white/10 bg-black/40 px-4 py-2.5 shadow-2xl backdrop-blur-xl transition-all duration-300 ${
+                <div
+                 className={`flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-2.5 shadow-2xl backdrop-blur-2xl transition-all duration-300 ${
                   controlsVisible ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-4 opacity-0"
                 }`}
                 onClick={(e) => e.stopPropagation()}
@@ -1119,6 +1313,22 @@ export function CallProvider({ children }: { children: ReactNode }) {
                     aria-label="Toggle camera"
                   >
                     {camOn ? <Video size={19} /> : <VideoOff size={19} />}
+                  </button>
+                )}
+                <button
+                  onClick={toggleSpeaker}
+                  className="grid h-11 w-11 place-items-center rounded-full bg-white/10 text-white transition-all hover:bg-white/20 active:scale-90"
+                  aria-label="Toggle speaker"
+                >
+                  {speakerOn ? <Volume2 size={19} /> : <VolumeX size={19} />}
+                </button>
+                {call.mode === "video" && (
+                  <button
+                    onClick={() => void flipCamera()}
+                    className="grid h-11 w-11 place-items-center rounded-full bg-white/10 text-white transition-all hover:bg-white/20 active:scale-90"
+                    aria-label="Flip camera"
+                  >
+                    <SwitchCamera size={19} />
                   </button>
                 )}
                 <button

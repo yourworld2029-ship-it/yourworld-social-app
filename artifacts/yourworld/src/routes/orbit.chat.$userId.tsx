@@ -1049,9 +1049,14 @@ function OrbitChatPage() {
               return (
                 <p
                   key={m.id}
-                  className="mx-auto w-fit rounded-full bg-secondary/70 px-3 py-1 text-center text-[11px] text-muted-foreground"
+                  className="mx-auto flex w-fit items-center gap-2 rounded-full bg-secondary/70 px-3 py-1 text-center text-[11px] text-muted-foreground"
                 >
-                  {m.text}
+                  <span>{m.text}</span>
+                  <time dateTime={m.at ? new Date(m.at).toISOString() : undefined} className="text-[10px] opacity-70">
+                    {m.at
+                      ? new Date(m.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                      : ""}
+                  </time>
                 </p>
               );
             }

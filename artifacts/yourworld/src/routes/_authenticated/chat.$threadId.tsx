@@ -50,6 +50,8 @@ type Message = {
   opened?: boolean;
 };
 
+const CALL_LOG_PATTERN = /^(Missed (Audio|Video) Call|(Audio|Video) Call ended • \d{2}:\d{2})$/;
+
 function MenuItem({
   icon, label, onClick, state, danger,
 }: {
@@ -171,7 +173,7 @@ function ChatThreadPage() {
       image: m.media_url ?? undefined,
       audio: m.voice_note_url ?? undefined,
       sender: m.sender_id === currentUserId ? "me" : "them",
-      system: false,
+      system: CALL_LOG_PATTERN.test(m.content),
       time: fmtTime(m.created_at),
       ts: new Date(m.created_at).getTime(),
       read: m.is_read,
@@ -718,8 +720,11 @@ function ChatThreadPage() {
           </div>
         )}
         {messages.map((m) => m.system ? (
-          <p key={m.id} className="mx-auto w-fit rounded-full bg-zinc-800/70 px-3 py-1 text-center text-[11px] text-zinc-400">
-            {m.text}
+          <p key={m.id} className="mx-auto flex w-fit items-center gap-2 rounded-full bg-zinc-800/70 px-3 py-1 text-center text-[11px] text-zinc-400">
+            <span>{m.text}</span>
+            <time dateTime={new Date(m.ts).toISOString()} className="text-[10px] text-zinc-500">
+              {m.time}
+            </time>
           </p>
         ) : (
           <div
