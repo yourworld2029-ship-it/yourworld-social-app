@@ -80,6 +80,8 @@ function asIceCandidate(value: unknown): RTCIceCandidateInit | null {
 
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
+  { urls: "stun:stun1.l.google.com:19302" },
+  { urls: "stun:stun2.l.google.com:19302" },
   { urls: "stun:global.stun.twilio.com:3478" },
 ];
 
@@ -447,7 +449,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     const sender = meRef.current;
     if (c && sender) {
       const prior = fallbackSignals.current[c.callId];
-      const data: StoredSignal = payload.type === "ice" && prior
+      const data: StoredSignal = payload.type === "ICE_CANDIDATE" && prior
         ? {
             ...prior,
             candidates: [...(prior.candidates ?? []), payload.candidate as RTCIceCandidateInit].slice(-32),
@@ -619,6 +621,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
           }
           if (remoteAudio.current) {
             remoteAudio.current.srcObject = s;
+            remoteAudio.current.muted = remoteAudioMuted.current;
             void remoteAudio.current.play().catch(() => {});
           }
         };
@@ -711,6 +714,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
               if (!remoteAnswer) return;
               await pc.setRemoteDescription(new RTCSessionDescription(remoteAnswer));
               await flushIce();
+              stopAllRingtones();
+              connectedAt.current ??= Date.now();
+              setPhase("active");
             } else if (payload.type === "ICE_CANDIDATE" || payload.type === "ice") {
               const candidate = asIceCandidate(payload.candidate);
               if (!candidate) return;
@@ -763,7 +769,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
             if (stored?.sender_id && stored.sender_id !== meRef.current && stored.payload) {
               void (async () => {
                 await receive(stored.payload!);
-                for (const candidate of stored.candidates ?? []) await receive({ type: "ice", candidate });
+                for (const candidate of stored.candidates ?? []) await receive({ type: "ICE_CANDIDATE", candidate });
               })();
             }
           });
@@ -860,7 +866,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         void (async () => {
           await receiveSignalRef.current?.(stored.payload!);
           for (const candidate of stored.candidates ?? []) {
-            await receiveSignalRef.current?.({ type: "ice", candidate });
+            await receiveSignalRef.current?.({ type: "ICE_CANDIDATE", candidate });
           }
         })();
       }
