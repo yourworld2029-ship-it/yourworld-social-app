@@ -132,18 +132,50 @@ function ChatListPage() {
       }
     }
 
-    loadThreads();
+    void loadThreads();
 
-    const channel = supabase
-      .channel("chat-list")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "direct_messages" },
-        () => void loadThreads(),
-      )
-      .subscribe();
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let retry: number | null = null;
+    let alive = true;
+    const subscribe = () => {
+      if (!alive) return;
+      channel = supabase
+        .channel(`chat-list-${Math.random().toString(36).slice(2)}`)
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "direct_messages" },
+          () => void loadThreads(),
+        )
+        .subscribe((status) => {
+          if (status === "SUBSCRIBED") {
+            void loadThreads();
+            return;
+          }
+          if (status !== "CHANNEL_ERROR" && status !== "TIMED_OUT" && status !== "CLOSED") return;
+          const failed = channel;
+          channel = null;
+          if (failed && status !== "CLOSED") window.setTimeout(() => void supabase.removeChannel(failed), 0);
+          if (alive && !retry) {
+            retry = window.setTimeout(() => {
+              retry = null;
+              subscribe();
+            }, 1500);
+          }
+        });
+    };
+    subscribe();
+    const resyncOnVisible = () => {
+      if (document.visibilityState === "visible") void loadThreads();
+    };
+    const resyncOnOnline = () => void loadThreads();
+    document.addEventListener("visibilitychange", resyncOnVisible);
+    window.addEventListener("online", resyncOnOnline);
     return () => {
-      void supabase.removeChannel(channel);
+      alive = false;
+      if (retry) window.clearTimeout(retry);
+      document.removeEventListener("visibilitychange", resyncOnVisible);
+      window.removeEventListener("online", resyncOnOnline);
+      if (channel) void supabase.removeChannel(channel);
     };
   }, []);
 

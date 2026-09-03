@@ -270,8 +270,45 @@ export type DbMessage = {
   media_url: string | null;
   media_type: string;
   is_read: boolean;
+  expires_at?: string | null;
   created_at: string;
 };
+
+const unexpiredMessages = (rows: DbMessage[]) =>
+  rows.filter((message) => !message.expires_at || new Date(message.expires_at).getTime() > Date.now());
+
+type MutationResult = Promise<{ error: { message: string } | null }>;
+// Migration 0015 is intentionally newer than generated Supabase types. Keep
+// that boundary narrow rather than changing generated files.
+const migrationTables = supabase as unknown as {
+  from: (table: string) => {
+    insert: (values: object) => MutationResult;
+    upsert: (values: object, options: { onConflict: string }) => MutationResult;
+    delete: () => {
+      eq: (column: string, value: string) => {
+        eq: (column: string, value: string) => MutationResult;
+      };
+    };
+  };
+};
+
+export async function setUserBlock(blockerId: string, blockedId: string, blocked: boolean) {
+  const result = blocked
+    ? await migrationTables.from("user_blocks").insert({ blocker_id: blockerId, blocked_id: blockedId })
+    : await migrationTables.from("user_blocks").delete().eq("blocker_id", blockerId).eq("blocked_id", blockedId);
+  return result.error?.message ?? null;
+}
+
+export async function reportSocialUser(reporterId: string, reportedUserId: string, threadId: string) {
+  const result = await migrationTables.from("user_reports").upsert({
+    reporter_id: reporterId,
+    reported_user_id: reportedUserId,
+    surface: "social",
+    thread_id: threadId,
+    reason: "User report",
+  }, { onConflict: "reporter_id,reported_user_id,surface" });
+  return result.error?.message ?? null;
+}
 
 /** Uploads a rendered reel and inserts it into the posts table (kind = "reel"). */
 export async function publishReel(opts: {
@@ -413,11 +450,11 @@ export function useThreadMessages(threadId: string, opts: { staleTime?: number }
   const staleTime = opts.staleTime ?? 0;
   // Hydrate instantly from the local cache so the thread paints with zero wait.
   const [messages, setMessages] = useState<DbMessage[]>(
-    () => cacheGet<DbMessage[]>(`thread:${threadId}`) ?? [],
+    () => unexpiredMessages(cacheGet<DbMessage[]>(`thread:${threadId}`) ?? []),
   );
   const [me, setMe] = useState<string | null>(null);
   const [loading, setLoading] = useState(
-    () => (cacheGet<DbMessage[]>(`thread:${threadId}`) ?? []).length === 0,
+    () => unexpiredMessages(cacheGet<DbMessage[]>(`thread:${threadId}`) ?? []).length === 0,
   );
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -434,9 +471,10 @@ export function useThreadMessages(threadId: string, opts: { staleTime?: number }
   useEffect(() => {
     let alive = true;
     void loadCachedThread<DbMessage>(`dm:${threadId}`).then((rows) => {
-      if (!alive || !rows?.length) return;
+      const cached = unexpiredMessages(rows ?? []);
+      if (!alive || !cached.length) return;
       setMessages((prev) => {
-        const map = new Map(rows.map((r) => [r.id, r]));
+        const map = new Map(cached.map((r) => [r.id, r]));
         for (const m of prev) map.set(m.id, m);
         return [...map.values()].sort((a, b) => a.created_at.localeCompare(b.created_at));
       });
@@ -450,11 +488,11 @@ export function useThreadMessages(threadId: string, opts: { staleTime?: number }
   const load = useCallback(async () => {
     const { data } = await supabase
       .from("direct_messages")
-      .select("id,thread_id,sender_id,content,media_url,media_type,is_read,created_at")
+      .select("id,thread_id,sender_id,content,media_url,media_type,is_read,expires_at,created_at" as never)
       .eq("thread_id", threadId)
       .order("created_at", { ascending: false })
       .limit(PAGE_SIZE);
-    const rows = ((data ?? []) as DbMessage[]).slice().reverse();
+    const rows = ((data ?? []) as unknown as DbMessage[]).slice().reverse();
     setHasMore(rows.length >= PAGE_SIZE);
     // Keep any still-pending optimistic messages plus older pages already loaded.
     setMessages((prev) => {
@@ -476,12 +514,12 @@ export function useThreadMessages(threadId: string, opts: { staleTime?: number }
     setLoadingMore(true);
     const { data } = await supabase
       .from("direct_messages")
-      .select("id,thread_id,sender_id,content,media_url,media_type,is_read,created_at")
+      .select("id,thread_id,sender_id,content,media_url,media_type,is_read,expires_at,created_at" as never)
       .eq("thread_id", threadId)
       .lt("created_at", oldest)
       .order("created_at", { ascending: false })
       .limit(PAGE_SIZE);
-    const rows = ((data ?? []) as DbMessage[]).slice().reverse();
+    const rows = ((data ?? []) as unknown as DbMessage[]).slice().reverse();
     setHasMore(rows.length >= PAGE_SIZE);
     if (rows.length) {
       setMessages((prev) => {
@@ -558,26 +596,31 @@ export function useThreadMessages(threadId: string, opts: { staleTime?: number }
     };
     subscribe();
 
-    const resync = () => {
-      // With staleTime: Infinity the thread is treated as never stale — realtime
-      // reconnects (above) already catch up, so skip the full refetch here.
-      if (staleTime === Infinity) return;
+    const resyncOnVisible = () => {
+      // A device may miss Realtime while suspended. Visibility/online are
+      // authoritative catch-up points, including callers using Infinity cache.
       if (document.visibilityState === "visible") void load();
     };
-    document.addEventListener("visibilitychange", resync);
-    window.addEventListener("online", resync);
+    const resyncOnOnline = () => void load();
+    document.addEventListener("visibilitychange", resyncOnVisible);
+    window.addEventListener("online", resyncOnOnline);
 
     return () => {
       alive = false;
       if (retry) clearTimeout(retry);
-      document.removeEventListener("visibilitychange", resync);
-      window.removeEventListener("online", resync);
+      document.removeEventListener("visibilitychange", resyncOnVisible);
+      window.removeEventListener("online", resyncOnOnline);
       if (channel) void supabase.removeChannel(channel);
     };
   }, [threadId, load, staleTime]);
 
   const send = useCallback(
-    async (payload: { content?: string; media_url?: string | null; media_type?: string }) => {
+    async (payload: {
+      content?: string;
+      media_url?: string | null;
+      media_type?: string;
+      expires_at?: string | null;
+    }) => {
       if (!me) return { error: "no-session" as const };
       // Optimistic: show the message immediately, reconcile when the insert lands.
       const tempId = `tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -589,6 +632,7 @@ export function useThreadMessages(threadId: string, opts: { staleTime?: number }
         media_url: payload.media_url ?? null,
         media_type: payload.media_type ?? "text",
         is_read: false,
+        expires_at: payload.expires_at ?? null,
         created_at: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, optimistic]);
@@ -599,7 +643,8 @@ export function useThreadMessages(threadId: string, opts: { staleTime?: number }
         content: payload.content ?? "",
         media_url: payload.media_url ?? null,
         media_type: payload.media_type ?? "text",
-      }).select("*").maybeSingle();
+        expires_at: payload.expires_at ?? null,
+      } as never).select("*").maybeSingle();
       // Silent background compliance monitoring (no UI impact).
       flagChatMessage({
         surface: "social",
@@ -610,7 +655,7 @@ export function useThreadMessages(threadId: string, opts: { staleTime?: number }
       if (error) {
         setMessages((prev) => prev.filter((m) => m.id !== tempId));
       } else if (data) {
-        const row = data as DbMessage;
+        const row = data as unknown as DbMessage;
         setMessages((prev) =>
           prev.some((m) => m.id === row.id)
             ? prev.filter((m) => m.id !== tempId)

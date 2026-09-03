@@ -29,6 +29,8 @@ export function OrbitCallActions({ profile }: { profile: OrbitProfile }) {
   const connected = !!orbit.connected[profile.id];
   const blocked = orbit.privacy.blocked.includes(profile.id);
   const callsOn = orbit.privacy.callsEnabled;
+  const callAudienceAllows = orbit.privacy.whoCanCall !== "nobody"
+    && (orbit.privacy.whoCanCall !== "connections" || connected);
 
   const call = useCall();
   const [locationOpen, setLocationOpen] = useState(false);
@@ -51,6 +53,14 @@ export function OrbitCallActions({ profile }: { profile: OrbitProfile }) {
     gate(() => {
       if (!callsOn) {
         toast.warning("Calls are turned off in your Orbit privacy settings.");
+        return;
+      }
+      if (!callAudienceAllows) {
+        toast.warning(
+          orbit.privacy.whoCanCall === "nobody"
+            ? "Your Orbit call privacy is set to nobody."
+            : "Calls are available to Orbit connections only.",
+        );
         return;
       }
       void call.startCall({
@@ -95,13 +105,13 @@ export function OrbitCallActions({ profile }: { profile: OrbitProfile }) {
         <Tile
           icon={Phone}
           label="Voice"
-          locked={!connected || !callsOn}
+          locked={!connected || !callsOn || !callAudienceAllows}
           onClick={() => startCall("voice")}
         />
         <Tile
           icon={VideoIcon}
           label="Video"
-          locked={!connected || !callsOn}
+          locked={!connected || !callsOn || !callAudienceAllows}
           onClick={() => startCall("video")}
         />
         <Tile

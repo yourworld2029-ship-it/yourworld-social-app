@@ -50,6 +50,19 @@ import { saveChatDisplayName, setChatNameLocal, useChatNames } from "@/lib/chat-
 import { saveSecretChatLock } from "@/lib/secret-chats";
 import { PinDialog } from "@/components/yw/PinDialog";
 
+// Relations added by migration 0015 are intentionally not in checked-in
+// generated Supabase types. Keep this narrow escape hatch at that boundary.
+type MigrationQuery = {
+  error: { message?: string } | null;
+  select: (columns: string) => MigrationQuery;
+  eq: (column: string, value: string) => MigrationQuery;
+  delete: () => MigrationQuery;
+  insert: (value: unknown) => Promise<{ error: { message?: string } | null }>;
+  upsert: (value: unknown, options: { onConflict: string }) => Promise<{ error: { message?: string } | null }>;
+  maybeSingle: () => Promise<{ data: unknown | null }>;
+};
+const migrationSupabase = supabase as unknown as { from: (table: string) => MigrationQuery };
+
 export const Route = createFileRoute("/orbit/chat/$userId")({
   head: () => ({
     meta: [
@@ -241,6 +254,18 @@ function OrbitChatPage() {
             .eq("peer_id", userId)
             .maybeSingle()
         : { data: null };
+       // `user_blocks` is the enforcement source used by message/call RLS.
+       // Reconcile the optimistic Orbit preference on every chat open.
+       if (me) {
+         const { data: block } = await migrationSupabase
+           .from("user_blocks")
+           .select("blocked_id")
+           .eq("blocker_id", me)
+           .eq("blocked_id", userId)
+           .maybeSingle();
+         const remotelyBlocked = !!block;
+         if (remotelyBlocked !== orbit.privacy.blocked.includes(userId)) orbit.toggleBlocked(userId);
+       }
       const raw = window.localStorage.getItem(prefsKey);
       const local = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
       const row = data as null | Record<string, unknown>;
@@ -262,7 +287,15 @@ function OrbitChatPage() {
       setMuted(!!v['muted']);
       if (row) setMuted(!!row['muted']);
       setClearedBefore((row?.['cleared_before'] as string | null) ?? null);
-      const { data: report } = await supabase.from("orbit_reports").select("id").eq("reported_user_id", userId).maybeSingle();
+       const { data: report } = me
+         ? await migrationSupabase
+             .from("user_reports")
+             .select("id")
+             .eq("reporter_id", me)
+             .eq("reported_user_id", userId)
+             .eq("surface", "orbit")
+             .maybeSingle()
+         : { data: null };
       if (cancelled) return;
       setReported(!!report);
       setSettingsReady(true);
@@ -272,7 +305,7 @@ function OrbitChatPage() {
     };
     void loadSettings();
     return () => { cancelled = true; };
-  }, [prefsKey, userId]);
+  }, [prefsKey, userId, orbit]);
 
   useEffect(() => {
     if (!settingsReady) return;
@@ -291,7 +324,7 @@ function OrbitChatPage() {
         }),
       );
       // Coalesce rapid toggles into one write so the chat never stalls.
-      const t = setTimeout(() => {
+       const t = setTimeout(() => {
         void supabase.auth.getUser().then(({ data }) => {
           const me = data.user?.id;
           if (!me) return;
@@ -307,7 +340,7 @@ function OrbitChatPage() {
             cleared_before: clearedBefore,
           } as never, { onConflict: "user_id,peer_id" });
         });
-      }, 600);
+       }, 0);
       return () => clearTimeout(t);
     } catch {
       /* storage unavailable */
@@ -378,7 +411,11 @@ function OrbitChatPage() {
     accepted && orbit.privacy.screenshotAlerts && (screenshotAlert || recordingAlert),
     (kind) => {
       if (kind === "recording" ? !recordingAlert : !screenshotAlert) return;
-      void chat.insert({ kind: "system", text: `${currentUserName} took a ${kind === "recording" ? "recording" : "screenshot"}`, expiresIn: autoDelete });
+       void chat
+         .insert({ kind: "system", text: `${currentUserName} took a ${kind === "recording" ? "recording" : "screenshot"}`, expiresIn: autoDelete })
+         .then((id) => {
+           if (!id) toast.error("Security alert could not be delivered.");
+         });
     },
   );
 
@@ -399,8 +436,10 @@ function OrbitChatPage() {
           new File([blob], `voice-${Date.now()}.webm`, { type: blob.type || "audio/webm" }),
            "audio",
            false,
-           autoDelete,
-        );
+          autoDelete,
+        ).then((id) => {
+          if (!id) toast.error("Voice note could not be sent. Please try again.");
+        });
       };
       rec.start();
       recorderRef.current = rec;
@@ -425,6 +464,14 @@ function OrbitChatPage() {
     }
     if (!orbit.privacy.callsEnabled) {
       toast.warning("Calls are turned off in your Orbit privacy settings.");
+      return;
+    }
+    if (orbit.privacy.whoCanCall === "nobody") {
+      toast.warning("Your Orbit call privacy is set to nobody.");
+      return;
+    }
+    if (orbit.privacy.whoCanCall === "connections" && !orbit.connected[userId]) {
+      toast.warning("Calls are available to Orbit connections only.");
       return;
     }
     if (orbit.privacy.blocked.includes(userId)) {
@@ -472,7 +519,9 @@ function OrbitChatPage() {
       if (!outgoingPending) toast.success(`Request sent to ${p.name}`);
       return;
     }
-    void chat.sendText(t, autoDelete);
+    void chat.sendText(t, autoDelete).then((id) => {
+      if (!id) toast.error("Message could not be sent. Please try again.");
+    });
     setText("");
   };
 
@@ -572,12 +621,12 @@ function OrbitChatPage() {
     const { data: auth } = await supabase.auth.getUser();
     const reporterId = auth.user?.id;
     if (!reporterId) return;
-    const { error } = await supabase.from("orbit_reports").upsert({
+    const { error } = await migrationSupabase.from("user_reports").upsert({
       reporter_id: reporterId,
       reported_user_id: userId,
+      surface: "orbit",
       reason: reason.trim().slice(0, 500),
-      status: "pending",
-    } as never, { onConflict: "reporter_id,reported_user_id" });
+    } as never, { onConflict: "reporter_id,reported_user_id,surface" });
     if (error) {
       toast.error("Report could not be sent");
       return;
@@ -758,8 +807,23 @@ function OrbitChatPage() {
                 label={blocked ? "Unblock User" : "Block User"}
                 state={blocked}
                 onClick={() => {
-                  orbit.toggleBlocked(userId);
-                  pushSystem(`${name} ${!blocked ? "blocked" : "unblocked"}`);
+                  void (async () => {
+                    const { data: auth } = await supabase.auth.getUser();
+                    const me = auth.user?.id;
+                    if (!me) {
+                      toast.error("Please sign in to update blocks.");
+                      return;
+                    }
+                    const { error } = blocked
+                      ? await migrationSupabase.from("user_blocks").delete().eq("blocker_id", me).eq("blocked_id", userId)
+                      : await migrationSupabase.from("user_blocks").insert({ blocker_id: me, blocked_id: userId });
+                    if (error) {
+                      toast.error(`User could not be ${blocked ? "unblocked" : "blocked"}.`);
+                      return;
+                    }
+                    orbit.toggleBlocked(userId);
+                    pushSystem(`${name} ${!blocked ? "blocked" : "unblocked"}`);
+                  })();
                   setMenuOpen(false);
                 }}
               />
@@ -787,7 +851,9 @@ function OrbitChatPage() {
               const next = nameDraft.trim();
               setDisplayName(next || null);
               setChatNameLocal(userId, next || null);
-              void saveChatDisplayName(userId, next || null);
+              void saveChatDisplayName(userId, next || null).then((ok) => {
+                if (!ok) toast.error("Display name could not be saved.");
+              });
               pushSystem(next ? `Display name changed to ${next}` : "Display name reset");
               setNameDialogOpen(false);
             }}
@@ -1026,7 +1092,7 @@ function OrbitChatPage() {
                         src={m.url}
                         seconds={5}
                         sentByMe={m.me}
-                        onConsumed={() => deleteIds([m.id])}
+                         onConsumed={() => chat.consumeViewOnce(m.id)}
                       />
                     ) : (
                       <button
@@ -1180,12 +1246,14 @@ function OrbitChatPage() {
         onOpenChange={(o) => !o && setInviteKind(null)}
         onSelect={(place) => {
           if (!inviteKind) return;
-          void chat.sendText(
+           void chat.sendText(
             `${INVITE_PREFIX}${JSON.stringify(buildInvite(inviteKind, place))}`,
             autoDelete,
-          );
+           ).then((id) => {
+             if (!id) toast.error("Invite could not be sent. Please try again.");
+             else toast.success(`Invite sent to ${p.name}`, { description: place.name });
+           });
           setInviteKind(null);
-          toast.success(`Invite sent to ${p.name}`, { description: place.name });
         }}
       />
 
@@ -1336,7 +1404,7 @@ function OrbitViewOnce({
   src: string;
   seconds: number;
   sentByMe: boolean;
-  onConsumed: () => void;
+  onConsumed: () => Promise<boolean>;
 }) {
   const [state, setState] = useState<"sealed" | "open" | "gone">("sealed");
   if (state === "gone")
@@ -1352,8 +1420,13 @@ function OrbitViewOnce({
           }
           setState("open");
           window.setTimeout(() => {
-            setState("gone");
-            onConsumed();
+            void onConsumed().then((consumed) => {
+              if (consumed) setState("gone");
+              else {
+                setState("sealed");
+                toast.error("This photo could not be consumed. Please try again.");
+              }
+            });
           }, seconds * 1000);
         }}
         className="flex h-40 w-full flex-col items-center justify-center gap-2 bg-foreground/10 text-xs font-semibold"

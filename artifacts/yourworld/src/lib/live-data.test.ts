@@ -12,6 +12,7 @@ import {
   loadSocialPosts,
 } from "@/lib/social-data";
 import { supabase } from "@/integrations/supabase/client";
+import { isRenderableOrbitMessage, isUnexpiredOrbitRow } from "@/lib/orbit-chat";
 
 type QueryResult = { data?: unknown; error?: { message: string } | null };
 
@@ -291,4 +292,12 @@ test("comments are inserted and deleted through Supabase", async () => {
     calls.find(({ name }) => name === "post_comments.eq")?.args,
     ["id", "comment-live"],
   );
+});
+
+test("Orbit expiry guards reject expired server and cached messages", () => {
+  const now = Date.parse("2026-01-01T00:00:00.000Z");
+  assert.equal(isUnexpiredOrbitRow({ expires_at: "2025-12-31T23:59:59.000Z" }, now), false);
+  assert.equal(isUnexpiredOrbitRow({ expires_at: "2026-01-01T00:00:01.000Z" }, now), true);
+  assert.equal(isRenderableOrbitMessage({ expiresAt: now - 1 }, now), false);
+  assert.equal(isRenderableOrbitMessage({ expiresAt: now + 1 }, now), true);
 });

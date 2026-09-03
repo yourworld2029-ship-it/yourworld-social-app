@@ -6,8 +6,31 @@ export type SearchLiveData = {
   hashtags: Hashtag[];
 };
 
+export type PublicSearchProfile = SuggestedUser;
+
 function hueOf(id: string) {
   return id.split("").reduce((h, char) => (h * 31 + char.charCodeAt(0)) % 360, 0);
+}
+
+/** Searches profiles on the server so results honour public-profile access rules. */
+export async function searchPublicProfiles(
+  search: string,
+  client: typeof supabase = supabase,
+): Promise<PublicSearchProfile[]> {
+  const term = search.trim();
+  if (!term) return [];
+  const { data, error } = await client.rpc("search_profiles", { search: term });
+  if (error) throw error;
+  return ((data ?? []) as unknown as Array<{
+    id: string; username: string | null; display_name: string | null; category: string | null;
+  }>).map((profile) => ({
+    id: profile.id,
+    username: profile.username || "user",
+    name: profile.display_name || profile.username || "YourWorld user",
+    category: profile.category || undefined,
+    hue: hueOf(profile.id),
+    followerCount: 0,
+  }));
 }
 
 /** Loads the current public search data directly from Supabase. */

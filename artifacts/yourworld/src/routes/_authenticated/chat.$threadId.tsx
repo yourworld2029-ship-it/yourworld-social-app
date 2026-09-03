@@ -16,7 +16,7 @@ import { LazyImage } from "@/components/yw/LazyImage";
 import { compressImageFile } from "@/lib/image-compress";
 import { useCaptureDetect } from "@/lib/capture-detect";
 import { useMyProfile } from "@/lib/profile-data";
-import { useThreadMessages, useThreadPeer, dmThreadId } from "@/lib/social-data";
+import { useThreadMessages, useThreadPeer, dmThreadId, reportSocialUser, setUserBlock } from "@/lib/social-data";
 import { supabase } from "@/integrations/supabase/client";
 import { useThreadPresence } from "@/lib/presence";
 import { useCall } from "@/lib/call-store";
@@ -299,19 +299,18 @@ function ChatThreadPage() {
   const blocked = settings.blocked;
   const [reported, setReported] = useState(false);
 
-  const pushSystem = (text: string) =>
-    setLocalMessages((prev) => [
-      ...prev,
-      {
-        id: `local-${Date.now()}-${Math.random()}`,
-        system: true,
-        sender: "me" as const,
-        text,
-        ts: Date.now(),
-        local: true,
-        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      },
-    ]);
+  const pushSystem = async (text: string) => {
+    if (currentUserId) {
+      const sent = await sendToDb({ content: text, media_type: "system" });
+      if (sent.error) toast.error(sent.error);
+      return;
+    }
+    setLocalMessages((prev) => [...prev, {
+      id: `local-${Date.now()}-${Math.random()}`, system: true, sender: "me" as const,
+      text, ts: Date.now(), local: true,
+      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    }]);
+  };
 
   const startLongPress = (id: string) => {
     if (longPressRef.current) clearTimeout(longPressRef.current);
@@ -367,7 +366,7 @@ function ChatThreadPage() {
   // Screenshot / recording detection posts an in-chat system note for both sides.
   useCaptureDetect(true, (kind) => {
     if (kind === "recording" ? !recordingAlert : !screenshotAlert) return;
-    pushSystem(`${currentUserName} took a ${kind === "recording" ? "recording" : "screenshot"}`);
+    void pushSystem(`${currentUserName} took a ${kind === "recording" ? "recording" : "screenshot"}`);
   });
 
   // Auto delete messages after the configured window
@@ -405,9 +404,12 @@ function ChatThreadPage() {
       },
     ]);
 
+  const expiry = () => autoDelete ? new Date(Date.now() + autoDelete * 1000).toISOString() : null;
   const doSend = (currentMsg: string) => {
     if (currentUserId) {
-      void sendToDb({ content: currentMsg, media_type: "text" });
+      void sendToDb({ content: currentMsg, media_type: "text", expires_at: expiry() }).then((sent) => {
+        if (sent.error) toast.error(sent.error);
+      });
     } else {
       pushLocal({ text: currentMsg, sender: "me" });
     }
@@ -463,6 +465,7 @@ function ChatThreadPage() {
           const sent = await sendToDb({
             media_url: uploaded.url,
             media_type: "audio",
+            expires_at: expiry(),
           });
           if (sent.error) toast.error(sent.error);
         })();
@@ -648,11 +651,29 @@ function ChatThreadPage() {
                 deleteIds(messages.map((m) => m.id)); exitSelectMode(); setShowOptionsMenu(false);
               }} />
               <MenuItem danger icon={<UserX size={16} className="text-red-400" />} label={blocked ? "Unblock User" : "Block User"} state={blocked} onClick={() => {
-                patch({ blocked: !blocked }); pushSystem(`${displayName} ${!blocked ? "blocked" : "unblocked"}`);
+                void (async () => {
+                  if (!currentUserId || !peer.peerId) return;
+                  const error = await setUserBlock(currentUserId, peer.peerId, !blocked);
+                  if (error) {
+                    toast.error(error);
+                    return;
+                  }
+                  patch({ blocked: !blocked });
+                  await pushSystem(`${displayName} ${!blocked ? "blocked" : "unblocked"}`);
+                })();
                 setShowOptionsMenu(false);
               }} />
               <MenuItem danger icon={<Flag size={16} className="text-red-400" />} label={reported ? "Reported" : "Report User"} state={reported} onClick={() => {
-                if (!reported) { setReported(true); pushSystem(`${displayName} reported. Our team will review.`); }
+                if (!reported) void (async () => {
+                  if (!currentUserId || !peer.peerId) return;
+                  const error = await reportSocialUser(currentUserId, peer.peerId, threadId);
+                  if (error) {
+                    toast.error(error);
+                    return;
+                  }
+                  setReported(true);
+                  await pushSystem(`${displayName} reported. Our team will review.`);
+                })();
                 setShowOptionsMenu(false);
               }} />
             </div>
@@ -1206,6 +1227,7 @@ function ChatThreadPage() {
                 media_url: uploaded.url,
                 media_type: isViewOnce ? "image_once" : "image",
                 content: caption,
+                expires_at: expiry(),
               });
               if (sent.error) {
                 toast.error(sent.error);

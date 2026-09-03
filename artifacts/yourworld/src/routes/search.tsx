@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, X, Hash, TrendingUp, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -6,7 +6,7 @@ import { useSearch } from "@/lib/search-store";
 import { YwAvatar } from "@/components/yw/Avatar";
 import { formatCount, type Hashtag, type SuggestedUser } from "@/lib/yw-data";
 import { supabase } from "@/integrations/supabase/client";
-import { loadSearchData } from "@/lib/search-data";
+import { loadSearchData, searchPublicProfiles } from "@/lib/search-data";
 
 export const Route = createFileRoute("/search")({
   head: () => ({
@@ -24,6 +24,9 @@ function SearchPage() {
   const { history, push, remove, clear } = useSearch();
   const [users, setUsers] = useState<SuggestedUser[]>([]);
   const [hashtags, setHashtags] = useState<Hashtag[]>([]);
+  const [remoteUsers, setRemoteUsers] = useState<SuggestedUser[]>([]);
+  const [userSearchError, setUserSearchError] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     let active = true;
@@ -51,14 +54,24 @@ function SearchPage() {
   const q = query.trim().toLowerCase().replace(/^[#@]/, "");
   const hasQuery = q.length > 0;
 
+  useEffect(() => {
+    if (!hasQuery || tab !== "users") {
+      setRemoteUsers([]);
+      setUserSearchError(null);
+      return;
+    }
+    let active = true;
+    const timer = window.setTimeout(() => {
+      void searchPublicProfiles(query).then(
+        (results) => { if (active) { setRemoteUsers(results); setUserSearchError(null); } },
+        () => { if (active) setUserSearchError("Couldn't search people. Please try again."); },
+      );
+    }, 220);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [hasQuery, query, tab]);
+
   // --- filtered results ---
-  const filteredUsers = useMemo(() => hasQuery
-    ? users.filter(
-        (u) =>
-          u.username.toLowerCase().includes(q) ||
-          u.name.toLowerCase().includes(q),
-      )
-    : [], [hasQuery, q, users]);
+  const filteredUsers = useMemo(() => hasQuery ? remoteUsers : [], [hasQuery, remoteUsers]);
 
   const filteredHashtags = useMemo(() => hasQuery
     ? hashtags.filter((h) => h.tag.toLowerCase().includes(q))
@@ -71,6 +84,7 @@ function SearchPage() {
 
   function handleUserClick(user: SuggestedUser) {
     push({ kind: "user", label: user.username, sublabel: user.name, userId: user.id });
+    void navigate({ to: "/u/$userId", params: { userId: user.id } });
   }
 
   function handleHashtagClick(tag: string) {
@@ -161,6 +175,8 @@ function SearchPage() {
                   </li>
                 ))}
               </ul>
+            ) : userSearchError ? (
+              <EmptyState label={userSearchError} />
             ) : (
               <EmptyState label={`No people match "${q}"`} />
             )

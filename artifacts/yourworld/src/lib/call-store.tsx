@@ -12,8 +12,61 @@ import { Mic, MicOff, PhoneOff, Phone, Video, VideoOff, SwitchCamera, Zap, ZapOf
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
+/**
+ * The deployed calls/user_blocks schema is newer than generated Supabase types.
+ * Keep that compatibility boundary local rather than modifying generated code.
+ */
+const callDb = supabase as unknown as {
+  // Generated types lag the verified live schema; keep the escape hatch here.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  from: (table: "calls" | "user_blocks") => any;
+};
+
 export type CallMode = "audio" | "video";
 type Phase = "idle" | "outgoing" | "incoming" | "connecting" | "active" | "ended";
+
+/** `calls` deliberately is not in the generated client types yet. */
+type CallRow = {
+  id: string;
+  caller_id: string;
+  receiver_id: string;
+  call_type: CallMode;
+  status: string;
+  signal_data: unknown;
+  created_at: string;
+  ended_at: string | null;
+};
+
+type StoredSignal = {
+  sender_id: string;
+  payload: Record<string, unknown>;
+  at: string;
+  candidates?: RTCIceCandidateInit[];
+};
+type BlockRow = { blocker_id: string; blocked_id: string };
+
+function asSessionDescription(value: unknown): RTCSessionDescriptionInit | null {
+  if (!value || typeof value !== "object") return null;
+  const description = value as { type?: unknown; sdp?: unknown };
+  if (
+    (description.type !== "offer" && description.type !== "answer" &&
+      description.type !== "pranswer" && description.type !== "rollback") ||
+    (description.sdp !== undefined && typeof description.sdp !== "string")
+  ) return null;
+  return { type: description.type, sdp: description.sdp };
+}
+
+function asIceCandidate(value: unknown): RTCIceCandidateInit | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as { candidate?: unknown; sdpMid?: unknown; sdpMLineIndex?: unknown; usernameFragment?: unknown };
+  if (
+    typeof candidate.candidate !== "string" ||
+    (candidate.sdpMid !== undefined && candidate.sdpMid !== null && typeof candidate.sdpMid !== "string") ||
+    (candidate.sdpMLineIndex !== undefined && candidate.sdpMLineIndex !== null && typeof candidate.sdpMLineIndex !== "number") ||
+    (candidate.usernameFragment !== undefined && typeof candidate.usernameFragment !== "string")
+  ) return null;
+  return candidate as RTCIceCandidateInit;
+}
 
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
@@ -37,31 +90,13 @@ type Ctx = {
     peerName?: string;
     mode: CallMode;
   }) => Promise<void>;
-  /** The id other people can call you on — Supabase user id, or a temporary guest session id. */
+  /** The authenticated Supabase user id. Signed-out visitors cannot call. */
   myCallId: string | null;
   isGuest: boolean;
 };
 
 const CallCtx = createContext<Ctx>({ startCall: async () => {}, myCallId: null, isGuest: true });
 export const useCall = () => useContext(CallCtx);
-
-const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
-
-const GUEST_KEY = "yw.guest-call-id";
-
-/** Stable per-browser temporary id so signed-out users can still ring and be rung. */
-function getGuestCallId(): string {
-  if (typeof window === "undefined") return "";
-  try {
-    const existing = window.localStorage.getItem(GUEST_KEY);
-    if (existing) return existing;
-    const fresh = `guest-${uid()}`;
-    window.localStorage.setItem(GUEST_KEY, fresh);
-    return fresh;
-  } catch {
-    return `guest-${uid()}`;
-  }
-}
 
 /** Builds a looping ring tone as a WAV data URL playable by an HTML5 <audio> element. */
 function buildRingToneUrl(freqs: number[], onSec: number, cycleSec: number): string {
@@ -136,8 +171,7 @@ function useRingtone(kind: "incoming" | "ringback" | null) {
 
 export function CallProvider({ children }: { children: ReactNode }) {
   const [authId, setAuthId] = useState<string | null>(null);
-  const [guestId, setGuestId] = useState<string | null>(null);
-  const me = authId ?? guestId;
+  const me = authId;
   const isGuest = !authId;
   const [call, setCall] = useState<CallState | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
@@ -161,10 +195,15 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const localStream = useRef<MediaStream | null>(null);
   const sigRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const pendingIce = useRef<RTCIceCandidateInit[]>([]);
+  const fallbackSignals = useRef<Record<string, StoredSignal>>({});
+  const receiveSignalRef = useRef<((payload: Record<string, unknown>) => Promise<void>) | null>(null);
   const localVideo = useRef<HTMLVideoElement | null>(null);
   const remoteVideo = useRef<HTMLVideoElement | null>(null);
   const remoteAudio = useRef<HTMLAudioElement | null>(null);
   const remoteStream = useRef<MediaStream | null>(null);
+  const callRef = useRef<CallState | null>(null);
+  const meRef = useRef<string | null>(null);
+  const isGuestRef = useRef(true);
   /** Call ids we've already reacted to (broadcast + database ring paths). */
   const seenCalls = useRef<Set<string>>(new Set());
   /** Remember handled call ids without growing the set forever. */
@@ -218,7 +257,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   /* ---------- identity ---------- */
   useEffect(() => {
-    setGuestId(getGuestCallId());
     void supabase.auth.getUser().then(({ data }) => setAuthId(data.user?.id ?? null));
     const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
       setAuthId(session?.user.id ?? null);
@@ -263,6 +301,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
     connectedAt.current = null;
     pendingIce.current = [];
+    receiveSignalRef.current = null;
 
     setPhase("idle");
     setCall(null);
@@ -276,31 +315,24 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   const signal = useCallback((payload: Record<string, unknown>) => {
     sigRef.current?.send({ type: "broadcast", event: "signal", payload });
+    // Broadcast is an optimization only. `signal_data` is visible exclusively to
+    // call participants through calls RLS and lets a reconnecting peer rehydrate
+    // the latest SDP/terminal signal when private Realtime auth is unavailable.
+    const c = callRef.current;
+    const sender = meRef.current;
+    if (c && sender) {
+      const prior = fallbackSignals.current[c.callId];
+      const data: StoredSignal = payload.type === "ice" && prior
+        ? {
+            ...prior,
+            candidates: [...(prior.candidates ?? []), payload.candidate as RTCIceCandidateInit].slice(-32),
+            at: new Date().toISOString(),
+          }
+        : { sender_id: sender, payload, candidates: [], at: new Date().toISOString() };
+      fallbackSignals.current[c.callId] = data;
+      void callDb.from("calls").update({ signal_data: data }).eq("id", c.callId);
+    }
   }, []);
-
-  /**
-   * Sends a broadcast over REST instead of joining the topic.
-   * Realtime RLS only lets you *read* your own `calls-user-<id>` topic, so a
-   * caller can never subscribe to the callee's ring topic — but it may write
-   * to it. REST delivery uses only that write permission, which makes rings,
-   * cancels and declines arrive instantly in both Social and Orbit chats.
-   */
-  const httpBroadcast = useCallback(
-    async (topic: string, event: string, payload: Record<string, unknown>) => {
-      const ch = supabase.channel(topic, { config: { private: true } });
-      try {
-        const { data } = await supabase.auth.getSession();
-        await supabase.realtime.setAuth(data.session?.access_token);
-        await ch.httpSend(event, payload);
-      } catch (err) {
-        console.error("[call] broadcast failed", topic, event, err);
-      } finally {
-        void supabase.removeChannel(ch);
-      }
-    },
-    [],
-  );
-
 
   const attachStreams = useCallback(() => {
     if (localVideo.current && localStream.current) {
@@ -338,16 +370,20 @@ export function CallProvider({ children }: { children: ReactNode }) {
     if (phase !== "incoming") return;
     const t = window.setTimeout(() => {
       toast.message("Missed call");
+      const c = callRef.current;
+      if (c) {
+        void callDb.from("calls")
+          .update({ status: "declined", ended_at: new Date().toISOString() })
+          .eq("id", c.callId)
+          .eq("status", "ringing");
+      }
       teardown();
     }, 45_000);
     return () => window.clearTimeout(t);
   }, [phase, teardown]);
 
-  const callRef = useRef<CallState | null>(null);
   useEffect(() => { callRef.current = call; }, [call]);
-  const meRef = useRef<string | null>(null);
   useEffect(() => { meRef.current = me; }, [me]);
-  const isGuestRef = useRef(true);
   useEffect(() => { isGuestRef.current = isGuest; }, [isGuest]);
 
   /**
@@ -361,7 +397,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
       const c = callRef.current;
       const meId = meRef.current;
       if (!c || c.incoming || !meId || isGuestRef.current) return;
-      if (c.peerId.startsWith("guest-")) return;
       if (loggedCall.current === c.callId) return;
       loggedCall.current = c.callId;
       const durMs = connectedAt.current ? Date.now() - connectedAt.current : null;
@@ -440,6 +475,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
         }
         if (pc.connectionState === "failed") {
           toast.error("Call connection failed");
+          const c = callRef.current;
+          if (c) {
+            void callDb.from("calls")
+              .update({ status: "ended", ended_at: new Date().toISOString() })
+              .eq("id", c.callId);
+          }
           void logCallOutcome("missed");
           teardown();
         }
@@ -469,7 +510,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
           config: { broadcast: { self: false }, private: true },
         });
         sigRef.current = ch;
-        ch.on("broadcast", { event: "signal" }, async ({ payload }) => {
+        const receive = async (payload: Record<string, unknown>) => {
           const pc = pcRef.current;
           try {
             if (payload.type === "accept" && isCaller) {
@@ -479,23 +520,29 @@ export function CallProvider({ children }: { children: ReactNode }) {
               const offer = await peer.createOffer();
               await peer.setLocalDescription(offer);
               signal({ type: "offer", sdp: peer.localDescription });
-            } else if (payload.type === "offer" && !isCaller) {
+            } else if (payload.type === "offer" && !isCaller && !pc?.remoteDescription) {
+              const remoteOffer = asSessionDescription(payload.sdp);
+              if (!remoteOffer) return;
               const stream = localStream.current ?? (await getMedia(mode));
               const peer = pcRef.current ?? createPeer(stream);
-              await peer.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+              await peer.setRemoteDescription(new RTCSessionDescription(remoteOffer));
               await flushIce();
               const answer = await peer.createAnswer();
               await peer.setLocalDescription(answer);
               signal({ type: "answer", sdp: peer.localDescription });
               setPhase("connecting");
-            } else if (payload.type === "answer" && pc) {
-              await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+            } else if (payload.type === "answer" && pc && !pc.remoteDescription) {
+              const remoteAnswer = asSessionDescription(payload.sdp);
+              if (!remoteAnswer) return;
+              await pc.setRemoteDescription(new RTCSessionDescription(remoteAnswer));
               await flushIce();
             } else if (payload.type === "ice") {
+              const candidate = asIceCandidate(payload.candidate);
+              if (!candidate) return;
               if (pc?.remoteDescription) {
-                await pc.addIceCandidate(new RTCIceCandidate(payload.candidate));
+                await pc.addIceCandidate(new RTCIceCandidate(candidate));
               } else {
-                pendingIce.current.push(payload.candidate);
+                pendingIce.current.push(candidate);
               }
             } else if (payload.type === "end") {
               toast.message("Call ended");
@@ -509,6 +556,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
           } catch (err) {
             console.error("[call] signal error", err);
           }
+        };
+        receiveSignalRef.current = receive;
+        ch.on("broadcast", { event: "signal" }, ({ payload }) => {
+          void receive(payload as Record<string, unknown>);
         });
 
         // Never leave callers awaiting forever: resolve on any terminal
@@ -531,6 +582,18 @@ export function CallProvider({ children }: { children: ReactNode }) {
             done();
           }
         });
+        // A newly opened/reopened channel may have missed the last private
+        // broadcast. Read the participant-protected fallback once to resync.
+        void callDb.from("calls").select("signal_data").eq("id", callId).maybeSingle()
+          .then(({ data }: { data: { signal_data?: Partial<StoredSignal> } | null }) => {
+            const stored = (data as { signal_data?: Partial<StoredSignal> } | null)?.signal_data;
+            if (stored?.sender_id && stored.sender_id !== meRef.current && stored.payload) {
+              void (async () => {
+                await receive(stored.payload!);
+                for (const candidate of stored.candidates ?? []) await receive({ type: "ice", candidate });
+              })();
+            }
+          });
         })().catch((error) => {
           console.error("[call] signalling setup failed", error);
           resolve();
@@ -540,195 +603,109 @@ export function CallProvider({ children }: { children: ReactNode }) {
     [createPeer, flushIce, getMedia, signal, teardown, logCallOutcome],
   );
 
-  /* ---------- incoming ring listener (per user) ---------- */
-  useEffect(() => {
-    if (!me) return;
-    let ch: ReturnType<typeof supabase.channel> | null = null;
-    let retry: ReturnType<typeof setTimeout> | null = null;
-    let alive = true;
-    let connecting = false;
-
-    const listen = async () => {
-      if (!alive || connecting || ch) return;
-      connecting = true;
-      // Private channels are authorized against realtime.messages RLS.
-      const { data } = await supabase.auth.getSession();
-      if (!alive) {
-        connecting = false;
-        return;
-      }
-      await supabase.realtime.setAuth(data.session?.access_token);
-      if (!alive) {
-        connecting = false;
-        return;
-      }
-      const nextChannel = supabase
-        .channel(`calls-user-${me}`, { config: { broadcast: { self: false }, private: true } })
-        .on("broadcast", { event: "ring" }, ({ payload }) => {
-        if (!payload?.callId || seenCalls.current.has(payload.callId)) return;
-        // Only accept rings whose signalling topic we are actually a participant of.
-        if (!String(payload.callId).includes(me)) return;
-        markSeen(payload.callId);
-        if (pcRef.current || phaseRef.current !== "idle") {
-          // already busy — tell the caller
-          void httpBroadcast(`rtc-${payload.callId}`, "signal", { type: "decline" });
-          return;
-        }
-        setCall({
-          callId: payload.callId,
-          mode: payload.mode,
-          peerId: payload.fromId,
-          peerName: payload.fromName ?? "Incoming call",
-          incoming: true,
-        });
-        setPhase("incoming");
-        toast.message(
-          `Incoming ${payload.mode === "video" ? "video" : "voice"} call`,
-          { description: payload.fromName ?? "Someone is calling you" },
-        );
-
-      })
-        .on("broadcast", { event: "cancel" }, () => {
-        if (phaseRef.current === "incoming") {
-          toast.message("Missed call");
-          teardown();
-        }
-      })
-        .subscribe((status) => {
-          // Rejoin automatically so a dropped socket never silences incoming calls.
-          if (status === "SUBSCRIBED") connecting = false;
-          if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
-            // Clear our reference before any cleanup. Calling removeChannel while
-            // handling CLOSED synchronously emits CLOSED again in some mobile
-            // browsers, which previously caused a recursive stack overflow.
-            if (ch === nextChannel) ch = null;
-            connecting = false;
-            if (status !== "CLOSED") {
-              window.setTimeout(() => void supabase.removeChannel(nextChannel), 0);
-            }
-            if (alive && !retry) {
-              retry = setTimeout(() => {
-                retry = null;
-                void listen();
-              }, 1500);
-            }
-          }
-        });
-      ch = nextChannel;
-    };
-    void listen();
-
-    const wake = () => {
-      if (document.visibilityState === "visible" && !ch && !connecting) void listen();
-    };
-    document.addEventListener("visibilitychange", wake);
-    window.addEventListener("online", wake);
-
-    return () => {
-      alive = false;
-      if (retry) clearTimeout(retry);
-      document.removeEventListener("visibilitychange", wake);
-      window.removeEventListener("online", wake);
-      if (ch) void supabase.removeChannel(ch);
-    };
-  }, [me, teardown, httpBroadcast, markSeen]);
-
-
   /* ---------- durable ring listener (database, works app-wide) ---------- */
   useEffect(() => {
     if (!authId) return;
     const me2 = authId;
+    let alive = true;
+    const blocked = async (peerId: string) => {
+      const { data } = await callDb
+        .from("user_blocks")
+        .select("blocker_id")
+        .or(`blocker_id.eq.${me2},blocked_id.eq.${me2}`)
+        .limit(20);
+      return ((data as BlockRow[] | null) ?? []).some((row: BlockRow) =>
+        row.blocker_id === peerId || row.blocked_id === peerId,
+      );
+    };
+    const ring = async (raw: unknown) => {
+      const row = raw as CallRow;
+      if (!alive || row.receiver_id !== me2 || row.status !== "ringing" || seenCalls.current.has(row.id)) return;
+      if (Date.now() - new Date(row.created_at).getTime() > 45_000) return;
+      if (await blocked(row.caller_id)) {
+        void callDb.from("calls").update({ status: "declined", ended_at: new Date().toISOString() }).eq("id", row.id);
+        return;
+      }
+      markSeen(row.id);
+      if (pcRef.current || phaseRef.current !== "idle") {
+        void callDb.from("calls").update({ status: "declined", ended_at: new Date().toISOString() }).eq("id", row.id);
+        return;
+      }
+      setCall({ callId: row.id, mode: row.call_type, peerId: row.caller_id, peerName: "Incoming call", incoming: true });
+      setPhase("incoming");
+      toast.message(`Incoming ${row.call_type === "video" ? "video" : "voice"} call`);
+    };
+    const update = ({ new: raw }: { new: unknown }) => {
+      const row = raw as CallRow;
+      if (row.receiver_id !== me2 && row.caller_id !== me2) return;
+      if (row.receiver_id === me2 && row.status === "ringing") void ring(row);
+      if (row.id === callRef.current?.callId && (row.status === "ended" || row.status === "cancelled" || row.status === "declined")) {
+        toast.message(row.status === "declined" ? "Call declined" : "Call ended");
+        teardown();
+      }
+      const stored = row.signal_data as Partial<StoredSignal> | null;
+      if (stored?.sender_id && stored.sender_id !== me2 && stored.payload) {
+        void (async () => {
+          await receiveSignalRef.current?.(stored.payload!);
+          for (const candidate of stored.candidates ?? []) {
+            await receiveSignalRef.current?.({ type: "ice", candidate });
+          }
+        })();
+      }
+    };
     const ch = supabase
       .channel(`calls-db-${me2}`)
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "calls", filter: `callee_id=eq.${me2}` },
-        ({ new: row }: { new: Record<string, unknown> }) => {
-          const callId = String(row.call_id ?? "");
-          if (!callId || seenCalls.current.has(callId)) return;
-          if (row.status !== "ringing") return;
-          // Ignore stale rows (e.g. replayed after a reconnect).
-          const age = Date.now() - new Date(String(row.created_at)).getTime();
-          if (age > 60_000) return;
-          markSeen(callId);
-          if (pcRef.current || phaseRef.current !== "idle") {
-            void supabase.from("calls").update({ status: "declined" }).eq("call_id", callId);
-            void httpBroadcast(`rtc-${callId}`, "signal", { type: "decline" });
-            return;
-          }
-          const mode = (row.mode === "video" ? "video" : "audio") as CallMode;
-          setCall({
-            callId,
-            mode,
-            peerId: String(row.caller_id),
-            peerName: (row.caller_name as string) || "Incoming call",
-            incoming: true,
-          });
-          setPhase("incoming");
-          toast.message(`Incoming ${mode === "video" ? "video" : "voice"} call`, {
-            description: (row.caller_name as string) || "Someone is calling you",
-          });
-        },
+        { event: "INSERT", schema: "public", table: "calls", filter: `receiver_id=eq.${me2}` },
+        ({ new: row }) => { void ring(row); },
       )
       .on(
         "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "calls", filter: `callee_id=eq.${me2}` },
-        ({ new: row }: { new: Record<string, unknown> }) => {
-          const callId = String(row.call_id ?? "");
-          const status = String(row.status ?? "");
-          if (phaseRef.current !== "incoming") return;
-          if (callId !== callRef.current?.callId) return;
-          if (status === "ended" || status === "cancelled") {
-            toast.message("Missed call");
-            teardown();
-          }
-        },
+        { event: "UPDATE", schema: "public", table: "calls" },
+        update,
       )
       .subscribe();
+    // Rehydrate unanswered calls after reconnect/background suspension.
+    void callDb.from("calls").select("*").eq("receiver_id", me2).eq("status", "ringing").then(({ data }: { data: CallRow[] | null }) => {
+      for (const row of (data ?? [])) void ring(row);
+    });
     return () => {
+      alive = false;
       void supabase.removeChannel(ch);
     };
-  }, [authId, teardown, httpBroadcast, markSeen]);
+  }, [authId, teardown, markSeen]);
 
 
   /* ---------- start an outgoing call ---------- */
   const startCall = useCallback<Ctx["startCall"]>(
     async ({ threadId, peerId, peerName, mode }) => {
-      if (!me) {
-        toast.error("Calling isn't ready yet — try again in a moment");
+      if (!authId) {
+        toast.error("Sign in to make a call");
         return;
       }
       let target = peerId ?? null;
-      if (!target && threadId && !isGuest) {
+      if (!target && threadId) {
         const { data } = await supabase
           .from("thread_participants")
           .select("user_id")
           .eq("thread_id", threadId);
         target = (data ?? []).map((r) => r.user_id).find((id) => id !== me) ?? null;
       }
-      if (!target) {
-        toast.error(
-          isGuest
-            ? "Guest calls need the other person's call ID"
-            : "This person isn't reachable for calls yet",
-        );
+      if (!target || target === authId) {
+        toast.error("This person isn't reachable for calls yet");
         return;
       }
-
-      // Embed both participant ids in the call id so the realtime RLS policy can
-      // verify the subscriber is actually part of this specific call.
-      const callId = `${[me, target].sort().join(".")}.${uid()}`;
-      let myName = "Guest";
-      if (!isGuest) {
-        const { data: myProfile } = await supabase
-          .from("profiles")
-          .select("display_name, username")
-          .eq("id", me)
-          .maybeSingle();
-        myName = myProfile?.display_name || myProfile?.username || "Someone";
+      const { data: blocks } = await callDb
+        .from("user_blocks")
+        .select("blocker_id,blocked_id")
+        .or(`blocker_id.eq.${authId},blocked_id.eq.${authId}`);
+      if (((blocks as BlockRow[] | null) ?? []).some((block: BlockRow) =>
+        block.blocker_id === target || block.blocked_id === target,
+      )) {
+        toast.error("Calls are unavailable because one of you has blocked the other.");
+        return;
       }
-      setCall({ callId, mode, peerId: target, peerName: peerName ?? "Calling…", incoming: false, threadId: threadId ?? null });
-      setPhase("outgoing");
 
       try {
         await getMedia(mode);
@@ -737,61 +714,62 @@ export function CallProvider({ children }: { children: ReactNode }) {
         teardown();
         return;
       }
+      const { data: inserted, error } = await callDb
+        .from("calls")
+        .insert({
+          caller_id: authId,
+          receiver_id: target,
+          call_type: mode,
+          status: "ringing",
+          signal_data: null,
+        })
+        .select("id")
+        .single();
+      const callId = (inserted as { id?: string } | null)?.id;
+      if (error || !callId) {
+        toast.error(`Call could not start: ${error?.message ?? "no call id was returned"}`);
+        teardown();
+        return;
+      }
+      setCall({ callId, mode, peerId: target, peerName: peerName ?? "Calling…", incoming: false, threadId: threadId ?? null });
+      callRef.current = { callId, mode, peerId: target, peerName: peerName ?? "Calling…", incoming: false, threadId: threadId ?? null };
+      setPhase("outgoing");
       createPeer(localStream.current!);
       await openSignalChannel(callId, mode, true);
 
-      const ringPayload = { callId, mode, fromId: me, fromName: myName, threadId };
       markSeen(callId);
-      // Durable ring: a row the callee's realtime subscription always receives,
-      // so the incoming-call screen pops app-wide (WhatsApp / Instagram style).
-      if (!isGuest) {
-        const { error } = await supabase.from("calls").insert({
-          call_id: callId,
-          caller_id: me,
-          callee_id: target,
-          caller_name: myName,
-          mode,
-          thread_id: threadId ?? null,
-          status: "ringing",
-        });
-        if (error) {
-          toast.error(`Call could not start: ${error.message}`);
-          teardown();
-          return;
-        }
-      }
-      void httpBroadcast(`calls-user-${target}`, "ring", ringPayload);
-
-      // Re-send a few times: the receiver may still be re-joining its channel.
-      let sent = 1;
-      const timer = window.setInterval(() => {
-        if (phaseRef.current !== "outgoing" || sent >= 4) {
-          window.clearInterval(timer);
-          return;
-        }
-        sent++;
-        void httpBroadcast(`calls-user-${target}`, "ring", ringPayload);
-      }, 1500);
 
       // Stop ringing after 45s instead of hanging on the calling screen.
       if (ringTimer.current) window.clearTimeout(ringTimer.current);
       ringTimer.current = window.setTimeout(() => {
         ringTimer.current = null;
         if (phaseRef.current !== "outgoing") return;
-        window.clearInterval(timer);
         toast.message("No answer");
-        void httpBroadcast(`calls-user-${target}`, "cancel", { callId });
-        void supabase.from("calls").update({ status: "cancelled" }).eq("call_id", callId);
+        void callDb.from("calls").update({ status: "cancelled", ended_at: new Date().toISOString() }).eq("id", callId);
         void logCallOutcome("missed");
         teardown();
       }, 45_000);
     },
-    [me, isGuest, getMedia, createPeer, openSignalChannel, teardown, httpBroadcast, logCallOutcome, markSeen],
+    [authId, me, getMedia, createPeer, openSignalChannel, teardown, logCallOutcome, markSeen],
 
   );
 
   const accept = useCallback(async () => {
-    if (!call) return;
+    if (!call || !authId) return;
+    const { data: blocks } = await callDb
+      .from("user_blocks")
+      .select("blocker_id,blocked_id")
+      .or(`blocker_id.eq.${authId},blocked_id.eq.${authId}`);
+    if (((blocks as BlockRow[] | null) ?? []).some((block: BlockRow) =>
+      block.blocker_id === call.peerId || block.blocked_id === call.peerId,
+    )) {
+      toast.error("Calls are unavailable because one of you has blocked the other.");
+      void callDb.from("calls")
+        .update({ status: "declined", ended_at: new Date().toISOString() })
+        .eq("id", call.callId);
+      teardown();
+      return;
+    }
     if (ringTimer.current) {
       window.clearTimeout(ringTimer.current);
       ringTimer.current = null;
@@ -801,7 +779,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       await getMedia(call.mode);
     } catch {
       toast.error("Camera / microphone permission denied");
-      void supabase.from("calls").update({ status: "declined" }).eq("call_id", call.callId);
+      void callDb.from("calls").update({ status: "declined", ended_at: new Date().toISOString() }).eq("id", call.callId);
       teardown();
       return;
     }
@@ -811,33 +789,30 @@ export function CallProvider({ children }: { children: ReactNode }) {
     // Mark the durable row so the caller's devices stop ringing everywhere.
     const { error } = await supabase
       .from("calls")
-      .update({ status: "accepted" })
-      .eq("call_id", call.callId);
+      .update({ status: "accepted" } as never)
+      .eq("id", call.callId);
     if (error) {
       toast.error(`Call could not connect: ${error.message}`);
       teardown();
     }
-  }, [call, getMedia, createPeer, openSignalChannel, signal, teardown]);
+  }, [call, authId, getMedia, createPeer, openSignalChannel, signal, teardown]);
 
 
   const hangup = useCallback(async () => {
     if (call && phase === "incoming") {
-      void httpBroadcast(`rtc-${call.callId}`, "signal", { type: "decline" });
       void supabase
         .from("calls")
-        .update({ status: "declined" })
-        .eq("call_id", call.callId);
+        .update({ status: "declined", ended_at: new Date().toISOString() } as never)
+        .eq("id", call.callId);
     } else if (call) {
       signal({ type: "end" });
-      void httpBroadcast(`rtc-${call.callId}`, "signal", { type: "end" });
-      void httpBroadcast(`calls-user-${call.peerId}`, "cancel", { callId: call.callId });
-      void supabase.from("calls").update({ status: "ended" }).eq("call_id", call.callId);
+      void callDb.from("calls").update({ status: "ended", ended_at: new Date().toISOString() }).eq("id", call.callId);
       // Caller hanging up: answered calls log the duration, unanswered rings
       // become a missed-call entry in the chat.
       void logCallOutcome(connectedAt.current ? "answered" : "missed");
     }
     teardown();
-  }, [call, phase, signal, teardown, httpBroadcast, logCallOutcome]);
+  }, [call, phase, signal, teardown, logCallOutcome]);
 
 
 
@@ -926,7 +901,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     setSwapped(false);
     setPeerAvatar(null);
     const peerId = call?.peerId;
-    if (!peerId || peerId.startsWith("guest-")) return;
+    if (!peerId) return;
     let cancelled = false;
     void (async () => {
       const { data } = await supabase

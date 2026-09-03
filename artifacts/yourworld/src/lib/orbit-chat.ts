@@ -12,6 +12,8 @@ export type OrbitMessage = {
   text?: string;
   url?: string;
   viewOnce?: boolean;
+  /** Retained in the local cache so an expired row can never be painted offline. */
+  expiresAt?: number;
   at: number;
 };
 
@@ -30,6 +32,21 @@ type Row = {
 const isUuid = (v: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 
+function removeOrbitMediaByUrl(url: string) {
+  try {
+    const path = new URL(url).pathname.split("/storage/v1/object/sign/orbit-media/")[1];
+    if (path) void supabase.storage.from("orbit-media").remove([decodeURIComponent(path)]);
+  } catch {
+    /* cleanup is best effort and must not change a message result */
+  }
+}
+
+export const isUnexpiredOrbitRow = (r: Pick<Row, "expires_at">, now = Date.now()) =>
+  !r.expires_at || new Date(r.expires_at).getTime() > now;
+
+export const isRenderableOrbitMessage = (m: Pick<OrbitMessage, "expiresAt">, now = Date.now()) =>
+  !m.expiresAt || m.expiresAt > now;
+
 const toMsg = (r: Row, me: string): OrbitMessage => ({
   id: r.id,
   me: r.sender_id === me,
@@ -37,6 +54,7 @@ const toMsg = (r: Row, me: string): OrbitMessage => ({
   text: r.text ?? undefined,
   url: r.url ?? undefined,
   viewOnce: r.view_once,
+  expiresAt: r.expires_at ? new Date(r.expires_at).getTime() : undefined,
   at: new Date(r.created_at).getTime(),
 });
 
@@ -52,7 +70,8 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
   const merge = useCallback((next: OrbitMessage[]) => {
     setMessages((prev) => {
       const map = new Map(prev.map((m) => [m.id, m]));
-      for (const m of next) map.set(m.id, m);
+      for (const m of next) if (isRenderableOrbitMessage(m)) map.set(m.id, m);
+      for (const [id, m] of map) if (!isRenderableOrbitMessage(m)) map.delete(id);
       return [...map.values()].sort((a, b) => a.at - b.at);
     });
   }, []);
@@ -63,7 +82,7 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
     if (enabled && isUuid(peerId)) {
       saveCachedThread(
         `orbit:${peerId}`,
-        messages.filter((m) => !m.id.startsWith("temp-")),
+        messages.filter((m) => !m.id.startsWith("temp-") && isRenderableOrbitMessage(m)),
       );
     }
   }, [messages, peerId, enabled]);
@@ -77,7 +96,7 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
 
     void loadCachedThread<OrbitMessage>(`orbit:${peerId}`).then((rows) => {
       if (cancelled || !rows?.length) return;
-      merge(rows);
+      merge(rows.filter((row) => isRenderableOrbitMessage(row)));
     });
 
     const load = async () => {
@@ -95,16 +114,29 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
       if (clearedBefore) query = query.gt("created_at", clearedBefore);
       const { data } = await query.order("created_at", { ascending: false }).limit(PAGE_SIZE);
       if (cancelled) return;
-      const rows = (data ?? []) as Row[];
+       const rows = ((data ?? []) as Row[]).filter((row) => isUnexpiredOrbitRow(row));
       setHasMore(rows.length >= PAGE_SIZE);
       merge(rows.map((r) => toMsg(r, me)));
     };
 
     void load();
 
-
-    const channel = supabase
-      .channel(`orbit-chat-${peerId}`)
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let retryTimer: number | null = null;
+    let retries = 0;
+    const reconnect = () => {
+      if (cancelled || retryTimer !== null || retries >= 5) return;
+      retryTimer = window.setTimeout(() => {
+        retryTimer = null;
+        retries += 1;
+        if (channel) void supabase.removeChannel(channel);
+        subscribe();
+      }, Math.min(1_000 * 2 ** retries, 16_000));
+    };
+    const subscribe = () => {
+      if (cancelled) return;
+      channel = supabase
+      .channel(`orbit-chat-${peerId}-${Date.now()}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "orbit_messages" },
@@ -116,19 +148,36 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
           const pair =
             (row.sender_id === me && row.recipient_id === peerId) ||
             (row.sender_id === peerId && row.recipient_id === me);
-          if (!pair || (clearedBefore && new Date(row.created_at).getTime() <= new Date(clearedBefore).getTime())) return;
+          if (!pair || !isUnexpiredOrbitRow(row) || (clearedBefore && new Date(row.created_at).getTime() <= new Date(clearedBefore).getTime())) return;
           if (payload.eventType === "DELETE") {
             setMessages((prev) => prev.filter((m) => m.id !== row.id));
             return;
           }
           merge([toMsg(row, me)]);
         },
-      )
-      .subscribe();
+       )
+       .subscribe((status) => {
+         if (status === "SUBSCRIBED") {
+           retries = 0;
+           void load();
+         } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+           reconnect();
+         }
+       });
+    };
+    const resync = () => {
+      if (!cancelled && document.visibilityState === "visible" && navigator.onLine) void load();
+    };
+    subscribe();
+    window.addEventListener("online", resync);
+    document.addEventListener("visibilitychange", resync);
 
     return () => {
       cancelled = true;
-      void supabase.removeChannel(channel);
+      if (retryTimer !== null) window.clearTimeout(retryTimer);
+      window.removeEventListener("online", resync);
+      document.removeEventListener("visibilitychange", resync);
+      if (channel) void supabase.removeChannel(channel);
     };
   }, [peerId, enabled, merge, clearedBefore]);
 
@@ -162,7 +211,7 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
         .select("id,sender_id,recipient_id,kind,text,url,view_once,expires_at,created_at")
         .maybeSingle();
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
-      if (error || !data) return null;
+       if (error || !data) return null;
       merge([toMsg(data as Row, me)]);
       return (data as Row).id;
     },
@@ -178,10 +227,30 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
     async (file: File, kind: "photo" | "video" | "audio", viewOnce = false, expiresIn = 0) => {
       const url = await uploadOrbitMedia(file);
       if (!url) return null;
-      return insert({ kind, url, viewOnce, expiresIn });
+      const id = await insert({ kind, url, viewOnce, expiresIn });
+      if (!id) removeOrbitMediaByUrl(url);
+      return id;
     },
     [insert],
   );
+
+  /** Atomically burns received view-once media. The database enforces recipient ownership. */
+  const consumeViewOnce = useCallback(async (id: string) => {
+    if (!isUuid(id)) return false;
+    const message = messagesRef.current.find((m) => m.id === id);
+    if (!message || message.me || !message.viewOnce) return false;
+    const { data, error } = await supabase.rpc("consume_orbit_view_once" as never, { _msg_id: id } as never);
+    if (error) return false;
+    const retained = messagesRef.current.filter((m) => m.id !== id && !m.id.startsWith("temp-") && isRenderableOrbitMessage(m));
+    messagesRef.current = retained;
+    saveCachedThread(`orbit:${peerId}`, retained);
+    setMessages((prev) => prev.filter((m) => m.id !== id));
+    // Storage deletion is deliberately best-effort: a received signed URL may not
+    // grant delete permission, but the database row is already irreversibly burned.
+    const url = typeof data === "string" ? data : message.url;
+    if (url) removeOrbitMediaByUrl(url);
+    return true;
+  }, [peerId]);
 
   const remove = useCallback(async (ids: string[]) => {
     if (!ids.length) return;
@@ -209,7 +278,7 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
       .lt("created_at", new Date(oldest).toISOString());
     if (clearedBefore) query = query.gt("created_at", clearedBefore);
     const { data } = await query.order("created_at", { ascending: false }).limit(PAGE_SIZE);
-    const rows = (data ?? []) as Row[];
+    const rows = ((data ?? []) as Row[]).filter((row) => isUnexpiredOrbitRow(row));
     setHasMore(rows.length >= PAGE_SIZE);
     if (rows.length) merge(rows.map((r) => toMsg(r, me)));
     setLoadingMore(false);
@@ -217,11 +286,14 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
 
   useEffect(() => {
     if (!enabled) return;
-    const sweep = () => void supabase.rpc("delete_expired_orbit_messages" as never);
+    const sweep = () => {
+      setMessages((prev) => prev.filter((message) => isRenderableOrbitMessage(message)));
+      void supabase.rpc("delete_expired_orbit_messages" as never);
+    };
     sweep();
     const timer = window.setInterval(sweep, 30_000);
     return () => window.clearInterval(timer);
   }, [enabled]);
 
-  return { messages, meId, sendText, sendMedia, insert, remove, clear, loadOlder, loadingMore, hasMore };
+  return { messages, meId, sendText, sendMedia, insert, consumeViewOnce, remove, clear, loadOlder, loadingMore, hasMore };
 }
