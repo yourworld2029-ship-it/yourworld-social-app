@@ -138,7 +138,7 @@ function OrbitBrowse() {
 
   return (
     <main className="min-h-screen pb-12">
-      <header className="sticky top-0 z-40 flex items-center gap-1.5 border-b border-border glass px-3 py-2.5">
+      <header className="sticky top-0 z-50 flex items-center gap-1.5 border-b border-border bg-background px-3 pb-2.5 pt-[calc(env(safe-area-inset-top,0px)+0.625rem)]">
         <Link
           to="/settings"
           aria-label="Back to settings"

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useRouter } from "@tanstack/react-router";
 import {
   Drawer,
@@ -73,7 +73,31 @@ export function CommentsSheet({
   const { profile, userId } = useMyProfile();
   const [draft, setDraft] = useState("");
   const [open, setOpen] = useState(false);
+  const listRef = useRef<HTMLUListElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
+
+  const scrollToLatest = () => {
+    requestAnimationFrame(() => {
+      const list = listRef.current;
+      if (list) list.scrollTo({ top: list.scrollHeight, behavior: "smooth" });
+    });
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const onViewportChange = () => {
+      if (document.activeElement === inputRef.current) scrollToLatest();
+    };
+    viewport.addEventListener("resize", onViewportChange);
+    viewport.addEventListener("scroll", onViewportChange);
+    return () => {
+      viewport.removeEventListener("resize", onViewportChange);
+      viewport.removeEventListener("scroll", onViewportChange);
+    };
+  }, [open]);
 
   const isRealUser = (id: string) =>
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
@@ -139,15 +163,15 @@ export function CommentsSheet({
   return (
     <Drawer open={open} onOpenChange={setOpen}>
       <DrawerTrigger asChild>{children}</DrawerTrigger>
-      <DrawerContent className="border-border bg-popover">
-        <div className="mx-auto flex h-[70vh] w-full max-w-lg flex-col">
-          <DrawerHeader className="pb-2">
+      <DrawerContent className="max-h-[100dvh] overflow-hidden border-border bg-popover">
+        <div className="mx-auto flex h-[min(70dvh,100dvh)] max-h-[calc(100dvh-env(safe-area-inset-top,0px))] min-h-0 w-full max-w-lg flex-col">
+          <DrawerHeader className="sticky top-0 z-30 shrink-0 bg-popover pb-2">
             <DrawerTitle className="text-center font-display text-base">
               {count} {count === 1 ? "comment" : "comments"}
             </DrawerTitle>
           </DrawerHeader>
 
-          <ul className="flex-1 space-y-4 overflow-y-auto px-4 pb-4">
+          <ul ref={listRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pb-4">
             {list.map((c) => (
               <li key={c.id} className={c.pinned ? "flex gap-3 rounded-xl bg-secondary/40 p-2" : "flex gap-3"}>
                 {isRealUser(c.user.id) && !c.mine ? (
@@ -219,11 +243,13 @@ export function CommentsSheet({
             )}
           </ul>
 
-          <div className="safe-bottom flex items-center gap-2 border-t border-border px-4 pt-3">
+          <div className="sticky bottom-0 z-40 flex shrink-0 items-center gap-2 border-t border-border bg-popover px-4 pb-[calc(env(safe-area-inset-bottom,0px)+0.5rem)] pt-3">
             {userId ? <YwAvatar user={currentUser} size={34} /> : null}
             <Input
+              ref={inputRef}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
+              onFocus={scrollToLatest}
               onKeyDown={(e) => e.key === "Enter" && send()}
               placeholder="Add a comment…"
               className="h-11 rounded-full border-0 bg-secondary text-sm"

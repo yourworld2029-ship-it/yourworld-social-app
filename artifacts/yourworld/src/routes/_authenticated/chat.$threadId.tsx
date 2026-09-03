@@ -321,6 +321,16 @@ function ChatThreadPage() {
   const EMOJIS = ["Like", "Heart", "Laugh", "Flame", "Celebrate", "Love", "Applause", "Support", "Launch", "Perfect"];
 
   const didFirstScroll = useRef(false);
+  const scrollToLatest = () => {
+    requestAnimationFrame(() => {
+      messagesEndRef.current?.scrollIntoView({
+        behavior: didFirstScroll.current ? "smooth" : "auto",
+        block: "end",
+      });
+      didFirstScroll.current = true;
+    });
+  };
+
   useEffect(() => {
     // Older pages prepend above — keep the reader anchored instead of jumping down.
     if (keepScrollRef.current !== null && scrollRef.current) {
@@ -328,15 +338,20 @@ function ChatThreadPage() {
       keepScrollRef.current = null;
       return;
     }
-    const id = requestAnimationFrame(() => {
-      messagesEndRef.current?.scrollIntoView({
-        behavior: didFirstScroll.current ? "smooth" : "auto",
-        block: "end",
-      });
-      didFirstScroll.current = true;
-    });
-    return () => cancelAnimationFrame(id);
+    scrollToLatest();
   }, [messages, isRecording]);
+
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const onViewportChange = () => scrollToLatest();
+    viewport.addEventListener("resize", onViewportChange);
+    viewport.addEventListener("scroll", onViewportChange);
+    return () => {
+      viewport.removeEventListener("resize", onViewportChange);
+      viewport.removeEventListener("scroll", onViewportChange);
+    };
+  }, []);
 
   const onScrollMessages = () => {
     const el = scrollRef.current;
@@ -455,7 +470,7 @@ function ChatThreadPage() {
 
   return (
     <>
-    <div className="fixed inset-0 z-50 bg-black text-white font-sans flex flex-col justify-between overflow-hidden">
+    <div className="fixed inset-0 z-50 flex h-[100dvh] flex-col justify-between overflow-hidden bg-black font-sans text-white">
       {secretLock && !chatUnlocked && settings.secretPinHash ? (
         <div className="absolute inset-0 z-[95] grid place-items-center bg-black px-6">
           <form
@@ -501,7 +516,9 @@ function ChatThreadPage() {
       <input type="file" ref={cameraInputRef} accept="image/*" capture="environment" className="hidden" onChange={handleImageSelect} />
 
       {/* TOP HEADER */}
-      <div className="relative z-[70] flex items-center justify-between px-4 py-3 bg-zinc-950/90 border-b border-zinc-800/80 backdrop-blur-md shrink-0">
+      <div
+        className="sticky top-0 z-50 flex shrink-0 items-center justify-between border-b border-zinc-800/80 bg-zinc-950 px-4 pb-3 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)]"
+      >
         <div className="flex items-center gap-3">
           <button onClick={() => navigate({ to: ".." })} className="p-1 text-zinc-300 hover:text-white">
             <ArrowLeft size={22} />
@@ -682,7 +699,7 @@ function ChatThreadPage() {
         </div>
       )}
 
-      <div ref={scrollRef} onScroll={onScrollMessages} className="relative flex-1 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] p-4 space-y-3.5 bg-zinc-950/50" onClick={() => setShowOptionsMenu(false)}>
+      <div ref={scrollRef} onScroll={onScrollMessages} className="relative min-h-0 flex-1 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] p-4 space-y-3.5 bg-zinc-950/50" onClick={() => setShowOptionsMenu(false)}>
         <UserWatermark username={currentUsername} className="fixed text-white" />
         {messagesError ? <p role="alert" className="rounded-lg border border-red-900 bg-red-950/40 px-3 py-2 text-center text-xs text-red-300">{messagesError}</p> : null}
         {loadingMore ? (
@@ -837,7 +854,7 @@ function ChatThreadPage() {
       )}
 
       {/* INPUT BAR */}
-      <div className="p-3 bg-zinc-950/95 border-t border-zinc-800/80 backdrop-blur-md flex items-center gap-2 shrink-0">
+      <div className="sticky bottom-0 z-40 flex shrink-0 items-center gap-2 border-t border-zinc-800/80 bg-zinc-950 px-3 pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)] pt-3">
         {blocked ? (
           <p className="flex-1 text-center text-xs font-semibold text-zinc-500 py-2">
             You blocked {displayName}. Unblock from the menu to message.
@@ -868,6 +885,7 @@ function ChatThreadPage() {
                   setMessage(e.target.value);
                   setTyping(e.target.value.trim().length > 0);
                 }}
+                onFocus={scrollToLatest}
                 onBlur={() => setTyping(false)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {

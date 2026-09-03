@@ -390,6 +390,25 @@ function OrbitChatPage() {
     if (!accepted) setNotes([]);
   }, [accepted, userId]);
 
+  const scrollToLatest = () => {
+    requestAnimationFrame(() => {
+      const el = msgScrollRef.current;
+      if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    });
+  };
+
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const onViewportChange = () => scrollToLatest();
+    viewport.addEventListener("resize", onViewportChange);
+    viewport.addEventListener("scroll", onViewportChange);
+    return () => {
+      viewport.removeEventListener("resize", onViewportChange);
+      viewport.removeEventListener("scroll", onViewportChange);
+    };
+  }, []);
+
   // Landing on the chat (e.g. tapping Message on a profile) focuses the
   // composer so the user is straight in the message box, ready to type.
   useEffect(() => {
@@ -647,7 +666,7 @@ function OrbitChatPage() {
 
   return (
     <main className="flex h-[100dvh] flex-col overflow-hidden">
-      <header className="relative z-[100] flex shrink-0 items-center gap-2 border-b border-border glass px-3 py-2.5">
+      <header className="sticky top-0 z-50 flex shrink-0 items-center gap-2 border-b border-border bg-background px-3 pb-2.5 pt-[calc(env(safe-area-inset-top,0px)+0.625rem)]">
         <button
           type="button"
           onClick={() => navigate({ to: "/orbit/messages" })}
@@ -999,7 +1018,7 @@ function OrbitChatPage() {
             });
           });
         }}
-        className="relative flex-1 space-y-2 overflow-y-auto px-4 py-4"
+        className="relative min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-4"
       >
         <UserWatermark username={currentUsername} className="fixed" />
         {chat.loadingMore ? (
@@ -1132,7 +1151,7 @@ function OrbitChatPage() {
           e.preventDefault();
           send();
         }}
-        className="shrink-0 border-t border-border glass px-3 py-3"
+        className="sticky bottom-0 z-40 shrink-0 border-t border-border bg-background px-3 pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)] pt-3"
       >
         <div className="flex items-center gap-2">
           <input
@@ -1210,6 +1229,7 @@ function OrbitChatPage() {
             ref={inputRef}
             value={text}
             onChange={(e) => setText(e.target.value)}
+            onFocus={scrollToLatest}
             disabled={inputDisabled}
             placeholder={
               incomingPending || declined

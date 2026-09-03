@@ -86,7 +86,7 @@ function HomePage() {
   return (
     <div className="min-h-screen bg-black text-white pb-24">
       {/* Header */}
-      <header className="sticky top-0 z-30 flex items-center justify-between px-4 py-3 bg-black/95 backdrop-blur-md border-b border-neutral-900">
+      <header className="sticky top-0 z-50 flex items-center justify-between border-b border-neutral-900 bg-black px-4 pb-3 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)]">
         <Link to="/" className="flex items-center gap-2">
           <img src={ywLogo} alt="YourWorld" className="h-8 w-auto object-contain" />
           <span className="font-bold text-xl tracking-tight bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-500 bg-clip-text text-transparent">
