@@ -2,7 +2,7 @@ import { Upload } from "tus-js-client";
 import { supabase } from "@/integrations/supabase/client";
 import { normalizeSupabaseProjectUrl } from "@/integrations/supabase/url";
 
-export type ProgressFn = (percent: number) => void;
+export type ProgressFn = (percent: number, detail?: string) => void;
 
 /** Supabase recommends 6 MiB TUS chunks for reliable resumable uploads. */
 export const TUS_CHUNK_SIZE_BYTES = 6 * 1024 * 1024;

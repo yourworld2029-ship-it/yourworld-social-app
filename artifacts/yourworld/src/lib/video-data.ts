@@ -7,7 +7,8 @@ import {
   timeAgo,
   type DbProfile,
 } from "@/lib/social-data";
-import { STORAGE_BUCKETS, uploadWithProgress } from "@/lib/storage-upload";
+import { STORAGE_BUCKETS, uploadWithProgress, type ProgressFn } from "@/lib/storage-upload";
+import { optimizeVideoBlob } from "@/lib/video-compression";
 import { sampleVideoFrames } from "@/lib/video-frames";
 import { scanVideoContent, type ModerationVerdict } from "@/lib/moderation.functions";
 import { missingColumn, normalizePostRow, postKind, writeCompat } from "@/lib/supabase-compat";
@@ -190,17 +191,25 @@ async function uploadToStorage(
   uid: string,
   ext: string,
   fallbackType: string,
-  onProgress?: (p: number) => void,
+  onProgress?: ProgressFn,
 ): Promise<string | null> {
   try {
     const blob = await (await fetch(blobUrl)).blob();
-    const path = `${uid}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    const uploadBlob = blob.type.startsWith("video/")
+      ? await optimizeVideoBlob(blob, (percent, detail) =>
+          onProgress?.(Math.round(percent * 0.45), detail),
+        )
+      : blob;
+    const outputExt = uploadBlob.type.includes("webm") ? "webm" : ext;
+    const path = `${uid}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${outputExt}`;
     const { url } = await uploadWithProgress(
       STORAGE_BUCKETS.videos,
       path,
-      blob,
-      blob.type || fallbackType,
-      onProgress,
+      uploadBlob,
+      uploadBlob.type || fallbackType,
+      (percent) => onProgress?.(
+        blob.type.startsWith("video/") ? 45 + Math.round(percent * 0.55) : percent,
+      ),
     );
     return url;
   } catch (error) {
@@ -230,7 +239,7 @@ export async function publishLongVideo(opts: {
   scheduledAt?: string | null;
   paidPromotion?: boolean;
   officialSponsorshipId?: string | null;
-  onProgress?: (percent: number) => void;
+  onProgress?: ProgressFn;
 }): Promise<{ error: string | null }> {
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
   if (sessionError) {

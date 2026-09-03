@@ -9,10 +9,11 @@ import {
   type ReactNode,
 } from "react";
 import { Link } from "@tanstack/react-router";
-import { CheckCircle2, AlertCircle, X, Loader2 } from "lucide-react";
+import { CheckCircle2, AlertCircle, X, Loader2, RefreshCw } from "lucide-react";
 import type { ProgressFn } from "@/lib/storage-upload";
 
 export type UploadKind = "reel" | "video" | "post" | "moment";
+export type UploadProgressReporter = ProgressFn;
 
 export type UploadTask = {
   id: string;
@@ -24,6 +25,8 @@ export type UploadTask = {
   progress: number;
   status: "uploading" | "processing" | "done" | "error";
   error?: string | null;
+  detail?: string | null;
+  retry?: () => void;
 };
 
 type Ctx = {
@@ -31,7 +34,7 @@ type Ctx = {
   /** Runs an upload in the background while the user keeps browsing. */
   startUpload: (
     meta: { kind: UploadKind; label: string; thumbnail?: string | null; viewTo: string },
-    runner: (onProgress: ProgressFn) => Promise<{ error: string | null }>,
+    runner: (onProgress: UploadProgressReporter) => Promise<{ error: string | null }>,
   ) => Promise<{ error: string | null }>;
   dismiss: (id: string) => void;
 };
@@ -46,11 +49,12 @@ export function useUploads() {
 
 export function UploadProvider({ children }: { children: ReactNode }) {
   const [tasks, setTasks] = useState<UploadTask[]>([]);
-  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   useEffect(
     () => () => {
       timers.current.forEach(clearTimeout);
+      timers.current.clear();
     },
     [],
   );
@@ -60,6 +64,11 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const dismiss = useCallback((id: string) => {
+    const timer = timers.current.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      timers.current.delete(id);
+    }
     setTasks((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
@@ -71,26 +80,38 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         { id, progress: 0, status: "uploading", ...meta },
       ]);
 
-      let result: { error: string | null };
-      try {
-        result = await runner((p) =>
-          patch(id, {
-            progress: p,
-            status: p >= 100 ? "processing" : "uploading",
-          }),
-        );
-      } catch (e) {
-        result = { error: e instanceof Error ? e.message : "Upload failed" };
-      }
+      const run = async (): Promise<{ error: string | null }> => {
+        const previousTimer = timers.current.get(id);
+        if (previousTimer) {
+          clearTimeout(previousTimer);
+          timers.current.delete(id);
+        }
+        patch(id, { progress: 0, status: "processing", error: null, detail: null, retry: undefined });
 
-      if (result.error) {
-        patch(id, { status: "error", error: result.error });
-        timers.current.push(setTimeout(() => dismiss(id), 8000));
-      } else {
-        patch(id, { status: "done", progress: 100 });
-        timers.current.push(setTimeout(() => dismiss(id), 6000));
-      }
-      return result;
+        let result: { error: string | null };
+        try {
+          result = await runner((p, detail) =>
+            patch(id, {
+              progress: p,
+              status: detail || p >= 100 ? "processing" : "uploading",
+              detail: detail ?? null,
+            }),
+          );
+        } catch (e) {
+          result = { error: e instanceof Error ? e.message : "Upload failed" };
+        }
+
+        if (result.error) {
+          patch(id, { status: "error", error: result.error, detail: null, retry: () => void run() });
+          timers.current.set(id, setTimeout(() => dismiss(id), 30_000));
+        } else {
+          patch(id, { status: "done", progress: 100, detail: null, retry: undefined });
+          timers.current.set(id, setTimeout(() => dismiss(id), 6_000));
+        }
+        return result;
+      };
+
+      return run();
     },
     [patch, dismiss],
   );
@@ -161,6 +182,8 @@ function UploadProgressStack() {
                   ? t.error
                   : t.status === "done"
                     ? t.label
+                    : t.detail
+                      ? t.detail
                     : t.status === "processing"
                       ? "Finishing up…"
                       : `${t.progress}% · ${t.label}`}
@@ -176,7 +199,17 @@ function UploadProgressStack() {
                 View
               </Link>
             ) : t.status === "error" ? (
-              <AlertCircle size={18} className="shrink-0 text-red-400" />
+              <div className="flex shrink-0 items-center gap-2">
+                <AlertCircle size={18} className="text-red-400" />
+                {t.retry && (
+                  <button
+                    onClick={t.retry}
+                    className="flex items-center gap-1 rounded-full bg-red-500/15 px-2 py-1 text-[10px] font-bold text-red-300"
+                  >
+                    <RefreshCw size={12} /> Retry
+                  </button>
+                )}
+              </div>
             ) : (
               <span className="shrink-0 text-[11px] font-bold tabular-nums text-pink-400">
                 {t.progress}%

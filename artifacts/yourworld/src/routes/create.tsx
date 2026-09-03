@@ -107,14 +107,18 @@ function CreateStudioPage() {
   const [exportProgress, setExportProgress] = useState(0);
   const [posting, setPosting] = useState(false);
   const [exportedUrl, setExportedUrl] = useState<string | null>(null);
+  const backgroundExportUrls = useRef(new Set<string>());
   const [gpuPreviewEnabled, setGpuPreviewEnabled] = useState(false);
   const handleGpuCapability = React.useCallback((enabled: boolean) => {
     setGpuPreviewEnabled(enabled);
   }, []);
 
   useEffect(() => {
+    const retainedUrls = backgroundExportUrls.current;
     return () => {
-      if (exportedUrl) URL.revokeObjectURL(exportedUrl);
+      if (exportedUrl && !retainedUrls.has(exportedUrl)) {
+        URL.revokeObjectURL(exportedUrl);
+      }
     };
   }, [exportedUrl]);
 
@@ -222,6 +226,7 @@ function CreateStudioPage() {
     }
 
     // Upload continues in the background with a live percentage bar.
+    if (exportedUrl) backgroundExportUrls.current.add(exportedUrl);
     void startUpload(
       { kind: "reel", label: caption || "New reel", thumbnail: null, viewTo: "/reels" },
       (onProgress) =>
@@ -239,7 +244,13 @@ function CreateStudioPage() {
         }),
     ).then(({ error }) => {
       if (error) toast.error(error);
-      else toast.success("Reel posted");
+      else {
+        if (exportedUrl) {
+          backgroundExportUrls.current.delete(exportedUrl);
+          URL.revokeObjectURL(exportedUrl);
+        }
+        toast.success("Reel posted");
+      }
     });
 
     setPosting(false);

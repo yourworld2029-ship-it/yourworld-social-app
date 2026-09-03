@@ -11,10 +11,12 @@ import {
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { STORAGE_BUCKETS, uploadWithProgress } from "@/lib/storage-upload";
+import type { ProgressFn } from "@/lib/storage-upload";
 import { isAuthSessionMissing } from "@/lib/auth-errors";
 import { missingTable, writeCompat } from "@/lib/supabase-compat";
 import { getRegisteredBlob } from "@/lib/blob-registry";
 import { dmThreadId } from "@/lib/social-data";
+import { optimizeVideoBlob } from "@/lib/video-compression";
 
 
 export type MomentKind = "photo" | "video" | "text";
@@ -299,7 +301,7 @@ async function uploadMomentMedia(
   src: string,
   mediaType?: string,
   prefix = "media",
-  onProgress?: (percent: number) => void,
+  onProgress?: ProgressFn,
 ) {
   if (!src || (!src.startsWith("blob:") && !src.startsWith("data:"))) return src;
   // Prefer the retained Blob: the object URL may already be revoked by the
@@ -317,26 +319,32 @@ async function uploadMomentMedia(
     blob.type ||
     hinted ||
     (mediaType === "video" ? "video/mp4" : mediaType === "audio" ? "audio/mpeg" : "image/jpeg");
-  const ext = type.includes("audio")
+  const uploadBlob = type.startsWith("video/")
+    ? await optimizeVideoBlob(blob, (percent, detail) => onProgress?.(percent, detail))
+    : blob;
+  const uploadType = uploadBlob.type || type;
+  const ext = uploadType.includes("audio")
     ? type.includes("wav")
       ? "wav"
       : type.includes("mp4") || type.includes("m4a")
         ? "m4a"
         : "mp3"
-    : type.includes("video")
-    ? type.includes("webm")
+    : uploadType.includes("video")
+    ? uploadType.includes("webm")
       ? "webm"
       : "mp4"
-    : type.includes("png")
+    : uploadType.includes("png")
       ? "png"
       : "jpg";
   const path = `${uid}/${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
   const { url, error } = await uploadWithProgress(
     STORAGE_BUCKETS.moments,
     path,
-    blob,
-    type,
-    onProgress,
+    uploadBlob,
+    uploadType,
+    (percent) => onProgress?.(
+      type.startsWith("video/") ? 45 + Math.round(percent * 0.55) : percent,
+    ),
   );
   if (error && !url) throw new Error(error);
   // Store the storage path; every viewer signs their own short-lived URL.

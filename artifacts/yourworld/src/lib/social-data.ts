@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { cacheGet, cacheSet } from "@/lib/local-cache";
 import { PAGE_SIZE } from "@/lib/chat-db";
-import { STORAGE_BUCKETS, uploadWithProgress } from "@/lib/storage-upload";
+import { STORAGE_BUCKETS, uploadWithProgress, type ProgressFn } from "@/lib/storage-upload";
+import { optimizeVideoBlob } from "@/lib/video-compression";
 import { flagChatMessage } from "@/lib/chat-compliance";
 import type { User } from "@/lib/yw-data";
 import { missingColumn, normalizePostRow, postKind, writeCompat } from "@/lib/supabase-compat";
@@ -348,7 +349,7 @@ export async function publishReel(opts: {
   audience?: "everyone" | "close_friends";
   taggedUserIds?: string[];
   viewerUserIds?: string[];
-  onProgress?: (percent: number) => void;
+  onProgress?: ProgressFn;
 }): Promise<{ error: string | null }> {
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
   if (sessionError) {
@@ -364,14 +365,20 @@ export async function publishReel(opts: {
   if (/^(blob:|data:)/.test(opts.fileUrl)) {
     try {
       const blob = await (await fetch(opts.fileUrl)).blob();
-      const ext = blob.type.includes("webm") ? "webm" : "mp4";
+      const uploadBlob = await optimizeVideoBlob(
+        blob,
+        (percent, detail) => opts.onProgress?.(Math.round(percent * 0.45), detail),
+      );
+      const ext = uploadBlob.type.includes("webm") ? "webm" : "mp4";
       const path = `${uid}/${Date.now()}.${ext}`;
       const { url, error: upErr } = await uploadWithProgress(
         STORAGE_BUCKETS.reels,
         path,
-        blob,
-        blob.type || "video/mp4",
-        opts.onProgress,
+        uploadBlob,
+        uploadBlob.type || "video/mp4",
+        (percent) => opts.onProgress?.(
+          45 + Math.round(percent * 0.55),
+        ),
       );
       if (upErr || !url) {
         console.error("Reel storage upload failed", upErr);
@@ -415,7 +422,7 @@ export async function publishPost(opts: {
   location?: string | null;
   allowDownload?: boolean;
   audience?: "everyone" | "close_friends";
-  onProgress?: (percent: number) => void;
+  onProgress?: ProgressFn;
 }): Promise<{ error: string | null }> {
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
   if (sessionError) {
@@ -431,14 +438,23 @@ export async function publishPost(opts: {
     try {
       const blob = await (await fetch(opts.fileUrl)).blob();
       const type = blob.type || (opts.mediaType === "video" ? "video/mp4" : "image/jpeg");
-      const ext = type.split("/")[1]?.split(";")[0] || (opts.mediaType === "video" ? "mp4" : "jpg");
+      const uploadBlob = opts.mediaType === "video"
+        ? await optimizeVideoBlob(
+            blob,
+            (percent, detail) => opts.onProgress?.(Math.round(percent * 0.45), detail),
+          )
+        : blob;
+      const uploadType = uploadBlob.type || type;
+      const ext = uploadType.split("/")[1]?.split(";")[0] || (opts.mediaType === "video" ? "mp4" : "jpg");
       const path = `${uid}/post-${Date.now()}.${ext}`;
       const { url, error: upErr } = await uploadWithProgress(
         STORAGE_BUCKETS.videos,
         path,
-        blob,
-        type,
-        opts.onProgress,
+        uploadBlob,
+        uploadType,
+        (percent) => opts.onProgress?.(
+          opts.mediaType === "video" ? 45 + Math.round(percent * 0.55) : percent,
+        ),
       );
       if (upErr || !url) {
         console.error("Post storage upload failed", upErr);
