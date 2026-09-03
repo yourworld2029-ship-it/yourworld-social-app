@@ -22,11 +22,12 @@ NODE_ENV = "production"
 NITRO_PRESET = "node-server"
 
 [services.production.run]
-args = [ "node", "--enable-source-maps", "artifacts/yourworld/.output/server/index.mjs" ]
+args = [ "node", "--enable-source-maps", "artifacts/yourworld/server/index.mjs" ]
 
 [services.production.run.env]
 NODE_ENV = "production"
 PORT = "25605"
+NITRO_HOST = "0.0.0.0"
 
 [services.production.health.startup]
 path = "/"
