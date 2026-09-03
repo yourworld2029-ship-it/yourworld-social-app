@@ -1,0 +1,34 @@
+CRITICAL UPGRADE: ULTRA-LUXURY PRO PROFILE EXPERIENCE, INSTAGRAM-STYLE POST VIEWER & POST MANAGEMENT SUITE
+
+1. Ultra-Pro Profile UI Polish:
+   - Header Stats: Clean typography for live dynamic counters (Posts, Followers, Following) with bold numbers and subtle muted labels.
+   - Highlights Tray: Clean circular story highlights under the bio with active gradient rings, "+ New" button, and smooth scroll.
+   - Profile Media Tabs (Videos | Reels | Saved):
+     - Glassmorphic active tab pill with seamless sliding transition.
+     - Videos Tab: 3-column responsive grid with crisp auto-generated thumbnails, view count badges (e.g. "👁 45.7K"), and duration chips.
+     - Reels Tab: 3-column 9:16 vertical grid cards with play view counters.
+     - Saved Tab: Clean bookmarked videos grid (accessible only to profile owner).
+     - Fix completely black thumbnail cards by auto-capturing first-frame posters.
+
+2. Instagram-Style Single Post / Reel Viewer Flow:
+   - Tapping any grid card in Videos or Reels opens the dedicated single-post feed view:
+     - Top navigation: "< Posts" back arrow, creator avatar, username, and top-right 3-dots (...) button.
+     - Video plays automatically in high quality with correct dynamic aspect ratio and unmute controls.
+     - Action Bar: Heart (Like), Comment, Share, Download, Bookmark.
+
+3. Complete Exact 3-Dots Action Sheet (As shown in design):
+   - Tapping the 3-dots (...) button opens the sleek dark glassmorphic bottom sheet with all active toggles and actions:
+     a) "Hide like count to others" (Heart icon + toggle switch) -> Updates post `hide_likes` boolean in realtime.
+     b) "Hide share count" (Paper plane icon + toggle switch) -> Updates post `hide_shares` boolean.
+     c) "Turn off commenting" (Comment slash icon + toggle switch) -> Disables comment submission for this post.
+     d) "Pin to your main grid" (Pin icon) -> Pins post to the top of creator's profile grid.
+     e) "Edit" (Pencil icon) -> Opens modal to edit Title and Description/Captions.
+     f) "Copy link" (Link icon) -> Copies direct post URL with a "Link copied to clipboard" toast.
+     g) "Archive" (Archive box icon) -> Hides post from public feed into creator's private archive.
+     h) "Delete" (Red trash icon + red text) -> Confirmation modal ("Delete this post?") and permanently removes post & media files.
+
+4. Fix Database Like & Save Errors ("Couldn't update like / saved videos"):
+   - Ensure the Like and Save handlers on Long Videos correctly mutate the database without throwing toast errors or RLS policy rejections.
+   - Update optimistic state instantly on UI tap.
+
+Run production build and ensure zero compilation or runtime errors.
