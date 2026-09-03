@@ -1,9 +1,11 @@
 import { supabase } from "@/integrations/supabase/client";
+import { normalizeSupabaseProjectUrl } from "@/integrations/supabase/url";
 
 export type ProgressFn = (percent: number) => void;
 
-const SUPABASE_URL =
-  (import.meta.env?.["VITE_SUPABASE_URL"] as string | undefined) ?? "";
+const SUPABASE_URL = normalizeSupabaseProjectUrl(
+  (import.meta.env?.["VITE_SUPABASE_URL"] as string | undefined) ?? "",
+);
 const SUPABASE_KEY =
   (import.meta.env?.["VITE_SUPABASE_PUBLISHABLE_KEY"] as string | undefined) ?? "";
 
@@ -63,9 +65,15 @@ export async function uploadWithProgress(
 
   if (err) return { url: null, error: err };
 
-  const { data: signed } = await supabase.storage
+  const { data: signed, error: signError } = await supabase.storage
     .from(bucket)
     .createSignedUrl(path, 60 * 60 * 24 * 365);
+  if (signError || !signed?.signedUrl) {
+    return {
+      url: null,
+      error: signError?.message ?? "Upload completed, but the media URL could not be created.",
+    };
+  }
   onProgress?.(100);
-  return { url: signed?.signedUrl ?? path, error: null };
+  return { url: signed.signedUrl, error: null };
 }

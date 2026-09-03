@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { resolveMediaUrl, type DbPost } from "@/lib/social-data";
+import { normalizePostRow, writeCompat } from "@/lib/supabase-compat";
 
 export type MyProfile = {
   id: string;
@@ -87,7 +88,7 @@ export function useMyProfile() {
       cover_url: row?.cover_url ?? null,
     };
     setProfile(next);
-    setPosts((myPosts ?? []) as DbPost[]);
+    setPosts((myPosts ?? []).map(normalizePostRow) as DbPost[]);
     setAvatarSrc(await signedIfNeeded(next.avatar_url));
     setCoverSrc(await signedIfNeeded(next.cover_url));
     setLoading(false);
@@ -123,7 +124,8 @@ export function useMyProfile() {
       if (edit.avatarFile) avatarPath = await uploadImage(edit.avatarFile, "avatar", uid);
       if (edit.coverFile) coverPath = await uploadImage(edit.coverFile, "cover", uid);
 
-      const { error } = await supabase.from("profiles").upsert(
+      const { error } = await writeCompat(
+        (payload) => supabase.from("profiles").upsert(payload as never, { onConflict: "id" }),
         {
           id: uid,
           username: edit.username || null,
@@ -135,7 +137,6 @@ export function useMyProfile() {
           avatar_url: avatarPath,
           cover_url: coverPath,
         },
-        { onConflict: "id" },
       );
       if (error) throw new Error(error.message);
       await load();

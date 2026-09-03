@@ -1,1 +1,0 @@
-import{r as e}from"./useRouter-BP8vT1kh.js";import{r as t}from"./channel-data-C0uD39U_.js";import{t as n}from"./ChannelContentList-BQTgphdk.js";var r=e();function i(){let{reels:e}=t();return(0,r.jsx)(n,{title:`Reels`,items:e,emptyLabel:`No reels published yet.`})}export{i as component};

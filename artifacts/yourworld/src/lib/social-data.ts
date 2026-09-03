@@ -5,6 +5,7 @@ import { loadCachedThread, saveCachedThread, PAGE_SIZE } from "@/lib/chat-db";
 import { uploadWithProgress } from "@/lib/storage-upload";
 import { flagChatMessage } from "@/lib/chat-compliance";
 import type { User } from "@/lib/yw-data";
+import { missingColumn, normalizePostRow, postKind, writeCompat } from "@/lib/supabase-compat";
 
 export type DbProfile = {
   id: string;
@@ -99,9 +100,9 @@ export async function resolveMediaUrl(url: string, bucket = "reels"): Promise<st
   const path = storagePathFrom(url, bucket);
   if (!path) return url;
 
-  const { data } = await supabase.storage.from(bucket).createSignedUrl(path, 60 * 60 * 24);
-  const next =
-    data?.signedUrl ?? supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl ?? url;
+  const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, 60 * 60 * 24);
+  if (error || !data?.signedUrl) return url;
+  const next = data.signedUrl;
   signedCache.set(url, next);
   return next;
 }
@@ -113,12 +114,33 @@ export async function loadSocialPosts(
 ): Promise<{ posts: SocialPost[]; currentUserId: string | null }> {
   const { data: sessionData } = await client.auth.getSession();
   const uid = sessionData.session?.user.id ?? null;
-  const { data: posts, error } = await client
+  let { data: posts, error } = await client
     .from("posts")
     .select("*")
     .eq("kind", kind)
     .order("created_at", { ascending: false })
     .limit(50);
+
+  if (missingColumn(error) === "kind") {
+    const legacyKind = kind === "post" ? "story" : kind;
+    const legacy = await client
+      .from("posts")
+      .select("*")
+      .eq("type" as "kind", legacyKind)
+      .order("created_at", { ascending: false })
+      .limit(50);
+    posts = legacy.data;
+    error = legacy.error;
+    if (missingColumn(error) === "type") {
+      const unfiltered = await client
+        .from("posts")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(100);
+      posts = (unfiltered.data ?? []).filter((row) => postKind(row) === kind);
+      error = unfiltered.error;
+    }
+  }
 
   if (error || !posts?.length) {
     if (error) console.error(`Unable to load ${kind} feed`, error);
@@ -139,7 +161,7 @@ export async function loadSocialPosts(
   );
 
   const next: SocialPost[] = posts.map((p) => ({
-    ...(p as DbPost),
+    ...(normalizePostRow(p) as DbPost),
     author: toUser(profileById.get(p.user_id), p.user_id),
     likeCount: (likes ?? []).filter((l) => l.post_id === p.id).length,
     commentCount: (comments ?? []).filter((c) => c.post_id === p.id).length,
@@ -293,7 +315,7 @@ export async function publishReel(opts: {
     opts.onProgress?.(100);
   }
 
-  const { error } = await supabase.from("posts").insert({
+  const { error } = await writeCompat((payload) => supabase.from("posts").insert(payload as never), {
     user_id: uid,
     kind: "reel",
     media_url: mediaUrl,
@@ -307,7 +329,7 @@ export async function publishReel(opts: {
     audience: opts.audience ?? "everyone",
     tagged_user_ids: opts.taggedUserIds ?? [],
     viewer_user_ids: opts.viewerUserIds ?? [],
-  });
+  }, { kind: "type" });
   if (!error) rememberLocalMedia(mediaUrl, opts.fileUrl);
   return { error: error?.message ?? null };
 }
@@ -351,7 +373,7 @@ export async function publishPost(opts: {
     opts.onProgress?.(100);
   }
 
-  const { error } = await supabase.from("posts").insert({
+  const { error } = await writeCompat((payload) => supabase.from("posts").insert(payload as never), {
     user_id: uid,
     kind: "post",
     media_url: mediaUrl,
@@ -363,7 +385,7 @@ export async function publishPost(opts: {
     audience: opts.audience ?? "everyone",
     tagged_user_ids: [],
     viewer_user_ids: [],
-  });
+  }, { kind: "type" });
   if (!error) rememberLocalMedia(mediaUrl, opts.fileUrl);
   return { error: error?.message ?? null };
 }

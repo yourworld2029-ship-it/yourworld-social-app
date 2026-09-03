@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { resolveMediaUrl, timeAgo } from "@/lib/social-data";
+import { missingColumn, normalizePostRow } from "@/lib/supabase-compat";
 
 export type ChannelItem = {
   id: string;
@@ -48,7 +49,7 @@ export async function loadChannelData(
   watchPeriodDays = 30,
 ): Promise<LoadedChannelData> {
   const periodStart = new Date(Date.now() - watchPeriodDays * 24 * 60 * 60 * 1000).toISOString();
-  const [{ data: rows, error }, { data: followRows }, { data: countRows }, { data: watchHours, error: watchError }] =
+  let [{ data: rows, error }, { data: followRows }, { data: countRows }, { data: watchHours, error: watchError }] =
     await Promise.all([
     client
       .from("posts")
@@ -63,6 +64,17 @@ export async function loadChannelData(
       _period_start: periodStart,
     }),
   ]);
+
+  if (missingColumn(error) === "kind") {
+    const fallback = await client
+      .from("posts")
+      .select("*")
+      .eq("user_id", uid)
+      .order("created_at", { ascending: false })
+      .limit(200);
+    rows = fallback.data?.map(normalizePostRow) ?? null;
+    error = fallback.error;
+  }
 
   if (error) {
     return {

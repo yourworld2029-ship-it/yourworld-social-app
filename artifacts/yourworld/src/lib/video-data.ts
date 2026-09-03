@@ -10,6 +10,7 @@ import {
 import { uploadWithProgress } from "@/lib/storage-upload";
 import { sampleVideoFrames } from "@/lib/video-frames";
 import { scanVideoContent, type ModerationVerdict } from "@/lib/moderation.functions";
+import { missingColumn, normalizePostRow, postKind, writeCompat } from "@/lib/supabase-compat";
 
 
 export const VIDEO_CATEGORIES = [
@@ -285,7 +286,7 @@ export async function publishLongVideo(opts: {
     !!scan?.sponsorship ||
     (scan?.brands?.length ?? 0) > 0;
 
-  const { error } = await supabase.from("posts").insert({
+  const { error } = await writeCompat((payload) => supabase.from("posts").insert(payload as never), {
     user_id: uid,
     kind: "video",
     media_url: mediaUrl,
@@ -305,7 +306,7 @@ export async function publishLongVideo(opts: {
     audience: "everyone",
     tagged_user_ids: [],
     viewer_user_ids: [],
-  });
+  }, { kind: "type" });
 
   opts.onProgress?.(100);
   if (!error) rememberLocalMedia(mediaUrl, opts.fileUrl);
@@ -323,12 +324,22 @@ export function useLongVideos() {
     const uid = sessionData.session?.user.id ?? null;
     setMe(uid);
 
-    const { data: posts, error } = await supabase
+    let { data: posts, error } = await supabase
       .from("posts")
       .select("*")
       .eq("kind", "video")
       .order("created_at", { ascending: false })
       .limit(30);
+
+    if (missingColumn(error) === "kind") {
+      const legacy = await supabase
+        .from("posts")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(100);
+      posts = (legacy.data ?? []).filter((row) => postKind(row) === "video");
+      error = legacy.error;
+    }
 
     if (error || !posts?.length) {
       if (error) console.error("Unable to load videos", error);
@@ -338,7 +349,7 @@ export function useLongVideos() {
     }
 
     const now = Date.now();
-    const visible = posts.filter(
+    const visible = posts.map(normalizePostRow).filter(
       (p) =>
         !p.scheduled_at ||
         new Date(p.scheduled_at).getTime() <= now ||
