@@ -399,7 +399,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   }, []);
 
   /* ---------- teardown ---------- */
-  const teardown = useCallback(() => {
+  const teardown = useCallback((options?: { keepSignal?: boolean }) => {
     stopAllRingtones();
     localStream.current?.getTracks().forEach((t) => t.stop());
     localStream.current = null;
@@ -422,12 +422,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
       try { pc.close(); } catch { /* ignore */ }
     }
     pcRef.current = null;
-    if (sigRef.current) {
-      void supabase.removeChannel(sigRef.current);
-      sigRef.current = null;
+    if (!options?.keepSignal) {
+      if (sigRef.current) {
+        void supabase.removeChannel(sigRef.current);
+        sigRef.current = null;
+      }
+      signalCallIdRef.current = null;
+      signalReadyRef.current = null;
     }
-    signalCallIdRef.current = null;
-    signalReadyRef.current = null;
     if (hideTimer.current) {
       window.clearTimeout(hideTimer.current);
       hideTimer.current = null;
@@ -454,7 +456,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signal = useCallback((payload: Record<string, unknown>) => {
-    sigRef.current?.send({ type: "broadcast", event: "signal", payload });
+    const callId = callRef.current?.callId;
+    const event = typeof payload.type === "string" ? payload.type : "signal";
+    const broadcastPayload = callId ? { ...payload, callId } : payload;
+    void sigRef.current?.send({ type: "broadcast", event, payload: broadcastPayload });
     // Broadcast is an optimization only. `signal_data` is visible exclusively to
     // call participants through calls RLS and lets a reconnecting peer rehydrate
     // the latest SDP/terminal signal when private Realtime auth is unavailable.
@@ -474,6 +479,15 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const broadcastEndCall = useCallback((callId: string) => {
+    const channel = sigRef.current;
+    return channel?.send({
+      type: "broadcast",
+      event: "END_CALL",
+      payload: { callId },
+    }) ?? Promise.resolve();
+  }, []);
+
   const attachStreams = useCallback(() => {
     if (localVideo.current && localStream.current) {
       localVideo.current.srcObject = localStream.current;
@@ -482,11 +496,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
     if (remoteStream.current) {
       if (callRef.current?.mode === "video" && remoteVideo.current) {
         remoteVideo.current.srcObject = remoteStream.current;
+        remoteVideo.current.muted = false;
         void remoteVideo.current.play().catch((e) => console.log("Autoplay error:", e));
       }
       if (callRef.current?.mode !== "video" && remoteAudio.current) {
         remoteAudio.current.srcObject = remoteStream.current;
-        remoteAudio.current.muted = remoteAudioMuted.current;
+        remoteAudio.current.muted = false;
         void remoteAudio.current.play().catch((e) => console.log("Autoplay error:", e));
       }
     }
@@ -630,11 +645,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
         const attachNow = () => {
           if (callRef.current?.mode === "video" && remoteVideo.current) {
             remoteVideo.current.srcObject = s;
+            remoteVideo.current.muted = false;
             void remoteVideo.current.play().catch((e) => console.log("Autoplay error:", e));
           }
           if (callRef.current?.mode !== "video" && remoteAudio.current) {
             remoteAudio.current.srcObject = s;
-            remoteAudio.current.muted = remoteAudioMuted.current;
+            remoteAudio.current.muted = false;
             void remoteAudio.current.play().catch((e) => console.log("Autoplay error:", e));
           }
         };
@@ -692,14 +708,15 @@ export function CallProvider({ children }: { children: ReactNode }) {
         void (async () => {
         const { data: sess } = await supabase.auth.getSession();
         await supabase.realtime.setAuth(sess.session?.access_token);
-        const ch = supabase.channel(`call:${callId}`, {
-          config: { broadcast: { self: false }, private: true },
+        const ch = supabase.channel(`call_room_${callId}`, {
+          config: { broadcast: { self: false } },
         });
         sigRef.current = ch;
-        const receive = async (payload: Record<string, unknown>) => {
+        const receive = async (payload: Record<string, unknown>, eventType?: string) => {
           const pc = pcRef.current;
+          const type = typeof payload.type === "string" ? payload.type : eventType;
           try {
-            if ((payload.type === "CALL_ACCEPT" || payload.type === "accept") && isCaller) {
+            if ((type === "CALL_ACCEPT" || type === "accept") && isCaller) {
               setPhase("connecting");
               const stream = localStream.current ?? (await getMedia(mode));
               const peer = pcRef.current ?? createPeer(stream);
@@ -713,7 +730,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
               };
               await peer.setLocalDescription(optimizedOffer);
               signal({ type: "CALL_OFFER", sdp: peer.localDescription });
-            } else if ((payload.type === "CALL_OFFER" || payload.type === "offer") && !isCaller && !pc?.remoteDescription) {
+            } else if ((type === "CALL_OFFER" || type === "offer") && !isCaller && !pc?.remoteDescription) {
               const remoteOffer = asSessionDescription(payload.sdp);
               if (!remoteOffer) return;
               const stream = localStream.current ?? (await getMedia(mode));
@@ -727,8 +744,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
               };
               await peer.setLocalDescription(optimizedAnswer);
               signal({ type: "CALL_ANSWER", sdp: peer.localDescription });
+              const { error: statusError } = await callDb
+                .from("calls")
+                .update({ status: "connected" })
+                .eq("id", callId);
+              if (statusError) console.error("[call] connected status update failed", statusError);
               setPhase("connecting");
-            } else if ((payload.type === "CALL_ANSWER" || payload.type === "answer") && pc && !pc.remoteDescription) {
+            } else if ((type === "CALL_ANSWER" || type === "answer") && pc && !pc.remoteDescription) {
               const remoteAnswer = asSessionDescription(payload.sdp);
               if (!remoteAnswer) return;
               await pc.setRemoteDescription(new RTCSessionDescription(remoteAnswer));
@@ -742,7 +764,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
                   .update({ status: "connected" })
                   .eq("id", currentCall.callId);
               }
-            } else if (payload.type === "ICE_CANDIDATE" || payload.type === "ice") {
+            } else if (type === "ICE_CANDIDATE" || type === "ice") {
               const candidate = asIceCandidate(payload.candidate);
               if (!candidate) return;
               if (pc?.remoteDescription) {
@@ -750,7 +772,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
               } else {
                 pendingIce.current.push(candidate);
               }
-            } else if (payload.type === "END_CALL") {
+            } else if (type === "END_CALL") {
+              if (payload.callId && payload.callId !== callId) return;
               stopAllRingtones();
               const reason = payload.reason === "rejected" || payload.reason === "declined";
               toast.message(reason ? "Call declined" : "Call ended");
@@ -762,6 +785,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
           }
         };
         receiveSignalRef.current = receive;
+        const broadcastEvents = ["CALL_ACCEPT", "CALL_OFFER", "CALL_ANSWER", "ICE_CANDIDATE", "END_CALL"] as const;
+        for (const event of broadcastEvents) {
+          ch.on("broadcast", { event }, ({ payload }) => {
+            void receive(payload as Record<string, unknown>, event);
+          });
+        }
+        // Keep accepting the older generic event for calls started by a tab
+        // that has not refreshed yet.
         ch.on("broadcast", { event: "signal" }, ({ payload }) => {
           void receive(payload as Record<string, unknown>);
         });
@@ -1047,21 +1078,33 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   const hangup = useCallback(async () => {
     stopAllRingtones();
-    if (call && phase === "incoming") {
-      signal({ type: "END_CALL", reason: "rejected" });
-      void supabase
-        .from("calls")
-        .update({ status: "declined", ended_at: new Date().toISOString() } as never)
-        .eq("id", call.callId);
-    } else if (call) {
-      signal({ type: "END_CALL", reason: "ended" });
-      void callDb.from("calls").update({ status: "ended", ended_at: new Date().toISOString() }).eq("id", call.callId);
-      // Caller hanging up: answered calls log the duration, unanswered rings
-      // become a missed-call entry in the chat.
-      void logCallOutcome(connectedAt.current ? "answered" : "missed");
+    if (!call) {
+      teardown();
+      return;
     }
-    teardown();
-  }, [call, phase, signal, teardown, logCallOutcome]);
+
+    const callId = call.callId;
+    const channel = sigRef.current;
+    const wasConnected = connectedAt.current !== null;
+    const broadcastPromise = broadcastEndCall(callId);
+    const dbPromise = callDb
+      .from("calls")
+      .update({ status: "ended", ended_at: new Date().toISOString() })
+      .eq("id", callId);
+
+    // Clean up the local call immediately, but keep the signaling channel alive
+    // until the terminal broadcast has had a chance to leave the socket.
+    teardown({ keepSignal: true });
+    void logCallOutcome(wasConnected ? "answered" : "missed");
+
+    await Promise.allSettled([broadcastPromise, dbPromise]);
+    if (channel && sigRef.current === channel) {
+      await supabase.removeChannel(channel);
+      sigRef.current = null;
+    }
+    signalCallIdRef.current = null;
+    signalReadyRef.current = null;
+  }, [call, teardown, broadcastEndCall, logCallOutcome]);
 
 
   useEffect(() => {
