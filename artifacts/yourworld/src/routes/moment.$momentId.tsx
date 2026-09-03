@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { createFileRoute, useParams, useNavigate } from "@tanstack/react-router";
 import { aiFilterCss, useMoments, type MyMoment } from "@/lib/moment-store";
+import { MAX_MOMENT_PART_SECONDS } from "@/lib/moment-parts";
 import { useProfiles } from "@/lib/profiles-map";
 import { cn } from "@/lib/utils";
 import {
@@ -24,8 +25,8 @@ import { toast } from "sonner";
 /** photo / text segment length (ms) */
 const PHOTO_DURATION = 5000;
 const TICK = 60;
-/** long videos are split into chunks of this many seconds */
-const SEGMENT_DURATION = 20;
+/** Must stay aligned with the upload trim windows. */
+const SEGMENT_DURATION = MAX_MOMENT_PART_SECONDS;
 
 export const Route = createFileRoute("/moment/$momentId")({
   head: () => ({
@@ -93,10 +94,12 @@ function MomentViewRoute() {
   const [liked, setLiked] = useState(false);
   const [reply, setReply] = useState("");
   const [replying, setReplying] = useState(false);
+  const [replyFocused, setReplyFocused] = useState(false);
   const [showViewers, setShowViewers] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const musicRef = useRef<HTMLAudioElement | null>(null);
+  const replyBarRef = useRef<HTMLDivElement | null>(null);
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const heldRef = useRef(false);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
@@ -237,6 +240,26 @@ function MomentViewRoute() {
     return () => a.pause();
   }, [current?.id, current?.musicUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Keep the reply bar above the mobile virtual keyboard. VisualViewport is
+  // supported by modern mobile browsers and does not affect desktop layout.
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const updateReplyBarPosition = () => {
+      const bar = replyBarRef.current;
+      if (!bar) return;
+      const keyboardOffset = Math.max(0, window.innerHeight - viewport.height);
+      bar.style.transform = keyboardOffset > 50 ? `translateY(-${keyboardOffset}px)` : "translateY(0)";
+    };
+    updateReplyBarPosition();
+    viewport.addEventListener("resize", updateReplyBarPosition);
+    viewport.addEventListener("scroll", updateReplyBarPosition);
+    return () => {
+      viewport.removeEventListener("resize", updateReplyBarPosition);
+      viewport.removeEventListener("scroll", updateReplyBarPosition);
+    };
+  }, []);
+
   // keyboard controls
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -299,6 +322,7 @@ function MomentViewRoute() {
   if (!current) return null;
 
   const filter = aiFilterCss(current.ai, current.effect);
+  const displayMomentText = current.text.replace(/\s+\(\d+\/\d+\)\s*$/, "");
   const segments = current.kind === "video" ? videoChunks : 1;
   const likeCount = current.viewers.filter((v) => v.liked).length;
 
@@ -335,7 +359,7 @@ function MomentViewRoute() {
               autoPlay
               playsInline
               muted={muted}
-              preload="auto"
+              preload="metadata"
               style={{ filter }}
               className="h-full w-full object-cover"
               onLoadedMetadata={(e) => {
@@ -356,7 +380,7 @@ function MomentViewRoute() {
             <img key={current.id} src={current.media} alt="" style={{ filter }} className="h-full w-full object-cover" />
           ) : (
             <div className="grid h-full w-full place-items-center p-8" style={{ background: current.textBg || "#111" }}>
-              <p className="text-center text-2xl font-bold text-white">{current.text}</p>
+              <p className="text-center text-2xl font-bold text-white">{displayMomentText}</p>
             </div>
           )}
         </div>
@@ -384,7 +408,7 @@ function MomentViewRoute() {
           ))}
           {current.kind !== "text" && current.text ? (
             <p className="absolute inset-x-6 bottom-24 text-center text-base font-semibold text-white drop-shadow-lg">
-              {current.text}
+              {displayMomentText}
             </p>
           ) : null}
           {current.location && current.showLocation !== false ? (
@@ -468,7 +492,7 @@ function MomentViewRoute() {
         <div
           className={cn(
             "pointer-events-none absolute left-3 right-3 top-3 z-[10002] flex gap-1.5 transition-opacity duration-300",
-            paused ? "opacity-0" : "opacity-100",
+            "opacity-100",
           )}
         >
           {Array.from({ length: segments }).map((_, idx) => (
@@ -487,7 +511,7 @@ function MomentViewRoute() {
         {/* HEADER */}
         <div
           className={cn(
-            "absolute left-3 right-3 top-7 z-[10002] flex items-center justify-between transition-opacity duration-300",
+            "absolute inset-x-0 top-0 z-[10002] flex items-center justify-between bg-gradient-to-b from-black/75 via-black/35 to-transparent px-3 pb-5 pt-7 backdrop-blur-[2px] transition-opacity duration-300",
             paused ? "pointer-events-none opacity-0" : "opacity-100",
           )}
         >
@@ -509,16 +533,11 @@ function MomentViewRoute() {
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 items-center gap-2">
               <span className="text-sm font-bold text-white drop-shadow-md">
                 {current.author?.name || current.author?.username || "You"}
               </span>
-              <span className="text-[11px] font-medium text-white/70">{timeAgo(current.createdAt)}</span>
-              {items.length > 1 ? (
-                <span className="rounded-full bg-white/20 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                  {index + 1}/{items.length}
-                </span>
-              ) : null}
+              <span className="shrink-0 text-[11px] font-medium text-white/70">{timeAgo(current.createdAt)}</span>
             </div>
           </div>
 
@@ -527,7 +546,7 @@ function MomentViewRoute() {
               type="button"
               aria-label={muted ? "Unmute" : "Mute"}
               onClick={() => setMuted((m) => !m)}
-              className="rounded-full border border-white/20 bg-black/60 p-2.5 text-white active:scale-90"
+              className="rounded-full border border-white/25 bg-white/10 p-2.5 text-white shadow-lg shadow-black/10 backdrop-blur-xl transition-transform duration-150 active:scale-90"
             >
               {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
             </button>
@@ -535,7 +554,7 @@ function MomentViewRoute() {
               type="button"
               aria-label="Close"
               onClick={close}
-              className="rounded-full border border-white/20 bg-black/60 p-2.5 text-white active:scale-90"
+              className="rounded-full border border-white/25 bg-white/10 p-2.5 text-white shadow-lg shadow-black/10 backdrop-blur-xl transition-transform duration-150 active:scale-90"
             >
               <X className="h-4 w-4" />
             </button>
@@ -552,9 +571,11 @@ function MomentViewRoute() {
         {/* FOOTER ACTIONS */}
         {!current.mine ? (
           <div
+            ref={replyBarRef}
+            style={{ bottom: "max(env(safe-area-inset-bottom, 0px), 0px)" }}
             className={cn(
-              "absolute inset-x-3 bottom-4 z-[10002] flex items-center gap-2 transition-opacity duration-300",
-              paused ? "pointer-events-none opacity-0" : "opacity-100",
+              "absolute inset-x-3 z-[10002] flex items-center gap-2 transition-[opacity,transform] duration-200",
+              paused && !replyFocused ? "pointer-events-none opacity-0" : "opacity-100",
             )}
           >
             {current.allowReplies === false ? (
@@ -562,38 +583,55 @@ function MomentViewRoute() {
                 Replies are turned off
               </div>
             ) : (
-            <div className="flex flex-1 items-center gap-2 rounded-full border border-white/20 bg-black/50 px-3 py-1.5 backdrop-blur-md">
+            <form
+              className="flex min-w-0 flex-1 items-center gap-2 rounded-full border border-white/25 bg-white/10 px-3 py-1.5 shadow-lg shadow-black/10 backdrop-blur-xl"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const text = reply.trim();
+                if (!text || replying) return;
+                setReplying(true);
+                setReply("");
+                setReplyFocused(false);
+                setPaused(false);
+                const res = await addReply(current.id, text);
+                setReplying(false);
+                if (res?.error) {
+                  toast.error("Couldn't send reply");
+                  setReply(text);
+                } else {
+                  toast.success("Reply sent");
+                }
+              }}
+            >
               <input
                 value={reply}
                 onChange={(e) => setReply(e.target.value)}
-                onFocus={() => setPaused(true)}
-                onBlur={() => setPaused(false)}
-                placeholder="Send a reply"
-                className="flex-1 bg-transparent text-sm text-white placeholder:text-white/50 focus:outline-none"
-              />
-              <button
-                type="button"
-                aria-label="Send reply"
-                disabled={!reply.trim() || replying}
-                onClick={async () => {
-                  const text = reply.trim();
-                  if (!text) return;
-                  setReplying(true);
+                onFocus={() => setReplyFocused(true)}
+                onBlur={() => {
+                  setReplyFocused(false);
+                  setPaused(false);
                   setReply("");
-                  const res = await addReply(current.id, text);
-                  setReplying(false);
-                  if (res?.error) {
-                    toast.error("Couldn't send reply");
-                    setReply(text);
-                  } else {
-                    toast.success("Reply sent");
+                  if (replyBarRef.current) replyBarRef.current.style.transform = "translateY(0)";
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    e.currentTarget.form?.requestSubmit();
                   }
                 }}
-                className="text-white disabled:opacity-40"
+                placeholder="Send a reply"
+                className="min-w-0 flex-1 bg-transparent text-sm text-white placeholder:text-white/50 focus:outline-none"
+              />
+              <button
+                type="submit"
+                aria-label="Send reply"
+                disabled={!reply.trim() || replying}
+                onMouseDown={(e) => e.preventDefault()}
+                className="shrink-0 text-white transition-transform duration-150 disabled:opacity-40 active:scale-90"
               >
                 <Send className="h-4 w-4" />
               </button>
-            </div>
+            </form>
             )}
             {current.allowReactions === false ? null : (
             <button
@@ -604,7 +642,7 @@ function MomentViewRoute() {
                 setLiked(next);
                 registerView(current.id, next);
               }}
-              className="rounded-full border border-white/20 bg-black/50 p-2.5 text-white backdrop-blur-md active:scale-90"
+              className="rounded-full border border-white/25 bg-white/10 p-2.5 text-white shadow-lg shadow-black/10 backdrop-blur-xl transition-transform duration-150 active:scale-90"
             >
               <Heart className={cn("h-5 w-5", liked && "fill-red-500 text-red-500")} />
             </button>
@@ -621,7 +659,7 @@ function MomentViewRoute() {
                     current.id,
                   )
                 }
-                className="rounded-full border border-white/20 bg-black/50 p-2.5 text-white backdrop-blur-md active:scale-90"
+                className="rounded-full border border-white/25 bg-white/10 p-2.5 text-white shadow-lg shadow-black/10 backdrop-blur-xl transition-transform duration-150 active:scale-90"
               >
                 <Download className="h-5 w-5" />
               </button>

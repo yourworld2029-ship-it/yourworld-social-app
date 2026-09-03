@@ -1,4 +1,5 @@
-export const MAX_MOMENT_PART_SECONDS = 20;
+/** Instagram/WhatsApp-style maximum duration for one video Moment part. */
+export const MAX_MOMENT_PART_SECONDS = 30;
 
 export type MomentPart = {
   start: number;

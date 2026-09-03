@@ -131,7 +131,7 @@ export function MomentPlayer({ segments, startIndex = 0, onClose, onSegmentChang
             autoPlay
             playsInline
             muted={muted}
-            preload="auto"
+            preload="metadata"
             style={{ filter }}
             className="h-full w-full object-cover"
             onTimeUpdate={(e) => {
@@ -184,7 +184,7 @@ export function MomentPlayer({ segments, startIndex = 0, onClose, onSegmentChang
         <div
           className={cn(
             "absolute left-2 right-2 top-2 z-[1000] flex gap-1 transition-opacity duration-200",
-            paused ? "opacity-0" : "opacity-100",
+            "opacity-100",
           )}
         >
           {segments.map((s, i) => (
@@ -203,7 +203,7 @@ export function MomentPlayer({ segments, startIndex = 0, onClose, onSegmentChang
         {/* header */}
         <div
           className={cn(
-            "absolute inset-x-3 top-6 z-[1001] flex items-center justify-between transition-opacity duration-200",
+            "absolute inset-x-0 top-0 z-[1001] flex items-center justify-between bg-gradient-to-b from-black/75 via-black/35 to-transparent px-3 pb-5 pt-7 backdrop-blur-[2px] transition-opacity duration-200",
             paused ? "pointer-events-none opacity-0" : "opacity-100",
           )}
         >
@@ -213,12 +213,12 @@ export function MomentPlayer({ segments, startIndex = 0, onClose, onSegmentChang
                 <img src={current.author.avatar} alt="" className="h-full w-full object-cover" />
               ) : null}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 items-center gap-2">
               <span className="text-sm font-semibold text-white drop-shadow">
                 {current.author?.username ?? current.author?.name ?? "You"}
               </span>
-              <span className="rounded-full bg-white/20 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                {index + 1}/{segments.length}
+              <span className="shrink-0 text-[11px] font-medium text-white/70">
+                {momentTimeAgo(current.createdAt)}
               </span>
             </div>
           </div>
@@ -226,14 +226,14 @@ export function MomentPlayer({ segments, startIndex = 0, onClose, onSegmentChang
             <button
               aria-label={muted ? "Unmute" : "Mute"}
               onClick={() => setMuted((m) => !m)}
-              className="grid h-9 w-9 place-items-center rounded-full bg-black/50 text-white backdrop-blur-md active:scale-90"
+              className="grid h-9 w-9 place-items-center rounded-full border border-white/25 bg-white/10 text-white shadow-lg shadow-black/10 backdrop-blur-xl transition-transform duration-150 active:scale-90"
             >
               {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
             </button>
             <button
               aria-label="Close"
               onClick={onClose}
-              className="grid h-9 w-9 place-items-center rounded-full bg-black/50 text-white backdrop-blur-md active:scale-90"
+              className="grid h-9 w-9 place-items-center rounded-full border border-white/25 bg-white/10 text-white shadow-lg shadow-black/10 backdrop-blur-xl transition-transform duration-150 active:scale-90"
             >
               <X className="h-4 w-4" />
             </button>
@@ -248,4 +248,13 @@ export function MomentPlayer({ segments, startIndex = 0, onClose, onSegmentChang
       </div>
     </div>
   );
+}
+
+function momentTimeAgo(timestamp: number) {
+  const minutes = Math.floor(Math.max(0, Date.now() - timestamp) / 60_000);
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
 }

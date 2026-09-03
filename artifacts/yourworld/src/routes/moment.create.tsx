@@ -1870,8 +1870,8 @@ function MomentCreatePage() {
         ? crypto.randomUUID()
         : `${Date.now()}-${suffix}`;
 
-    // Editing is finished at this point — now cut long videos into
-    // consecutive parts of at most 20 seconds (60s -> 20 + 20 + 20).
+    // Keep one uploaded source and expose contiguous 30-second trim windows.
+    // The viewer seeks these windows directly, so the source is not re-encoded.
     const parts = isVideo
       ? splitMomentIntoParts(
           await readVideoDuration(
@@ -1950,10 +1950,7 @@ function MomentCreatePage() {
           : undefined,
         partIndex: index + 1,
         partCount: parts.length,
-        caption:
-          parts.length > 1
-            ? `${base.caption ? `${base.caption} ` : ""}(${index + 1}/${parts.length})`
-            : base.caption,
+        caption: base.caption,
       })
     );
 
