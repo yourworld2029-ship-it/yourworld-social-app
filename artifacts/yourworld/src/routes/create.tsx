@@ -64,6 +64,8 @@ interface ClipItem {
   trimStart?: number;
   trimEnd?: number;
   duration?: number;
+  originalWidth?: number;
+  originalHeight?: number;
   crop?: number;
   cropX?: number;
   cropY?: number;
@@ -273,6 +275,8 @@ function CreateStudioPage() {
           viewerUserIds: meta.viewerUserIds,
           audio: audioTrack?.title ?? null,
            durationSeconds: totalDuration,
+           originalWidth: clip?.originalWidth ?? null,
+           originalHeight: clip?.originalHeight ?? null,
           onProgress,
         }),
     ).then(({ error }) => {
@@ -453,7 +457,7 @@ function CreateStudioPage() {
       toast.error(MAX_REEL_CLIPS_MESSAGE);
       return;
     }
-    const newClips: ClipItem[] = files.map((f, i) => ({
+     const newClips: ClipItem[] = files.map((f, i) => ({
       id: `c_${Date.now()}_${i}`,
       url: URL.createObjectURL(f),
       speed: 1,
@@ -497,7 +501,14 @@ function CreateStudioPage() {
         }
         setClips((previous) => {
           const measured = previous.map((item) =>
-            item.id === clip.id ? { ...item, duration } : item,
+            item.id === clip.id
+              ? {
+                  ...item,
+                  duration,
+                  originalWidth: probe.videoWidth || undefined,
+                  originalHeight: probe.videoHeight || undefined,
+                }
+              : item,
           );
           if (reelSequenceDuration(measured) > MAX_REEL_DURATION_SECONDS) {
             notifyMaxDuration();

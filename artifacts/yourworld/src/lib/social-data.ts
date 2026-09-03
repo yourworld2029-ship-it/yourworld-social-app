@@ -14,6 +14,7 @@ import {
   MIN_REEL_DURATION_MESSAGE,
   MIN_REEL_DURATION_SECONDS,
 } from "@/lib/reel-editor";
+import { qualityTierFromDimensions } from "@/lib/video-quality";
 
 const liveSocialTable = (
   client: typeof supabase,
@@ -38,6 +39,9 @@ export type DbPost = {
   media_type: string;
   thumbnail_url?: string | null;
   duration_seconds?: number | null;
+  original_width?: number | null;
+  original_height?: number | null;
+  source_quality_tier?: string | null;
   caption: string;
   hashtags: string[];
   location: string | null;
@@ -415,6 +419,8 @@ export async function publishReel(opts: {
   taggedUserIds?: string[];
   viewerUserIds?: string[];
   durationSeconds?: number;
+  originalWidth?: number | null;
+  originalHeight?: number | null;
   onProgress?: ProgressFn;
 }): Promise<{ error: string | null }> {
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
@@ -479,6 +485,10 @@ export async function publishReel(opts: {
     audience: opts.audience ?? "everyone",
     tagged_user_ids: opts.taggedUserIds ?? [],
     viewer_user_ids: opts.viewerUserIds ?? [],
+    duration_seconds: opts.durationSeconds ? Math.round(opts.durationSeconds) : null,
+    original_width: opts.originalWidth ?? null,
+    original_height: opts.originalHeight ?? null,
+    source_quality_tier: qualityTierFromDimensions(opts.originalWidth, opts.originalHeight),
   }, { kind: "type" });
   if (error) console.error("Reel database insert failed", error);
   else rememberLocalMedia(mediaUrl, opts.fileUrl);

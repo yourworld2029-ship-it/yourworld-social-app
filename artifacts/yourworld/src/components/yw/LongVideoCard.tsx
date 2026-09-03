@@ -30,8 +30,11 @@ import { onStopRequested, releasePlayback, requestPlayback } from "@/lib/video-p
 import { getAdjacentVideo, warmVideo, type QueueItem } from "@/lib/video-queue";
 import {
   downloadVideoInBackground,
+  downloadVideoAtQuality,
+  downloadAudioOnly,
   sanitizeDownloadName,
 } from "@/lib/yw-download";
+import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadSheet";
 
 type Props = {
   video: LongVideo;
@@ -60,6 +63,7 @@ export function LongVideoCard({
   const [hidden, setHidden] = useState(false);
   const [commentCount, setCommentCount] = useState(video.commentCount);
   const [liking, setLiking] = useState(false);
+  const [downloadOpen, setDownloadOpen] = useState(false);
   const [playerPortrait, setPlayerPortrait] = useState(video.orientation === "portrait");
   const [active, setActive] = useState<QueueItem>({
     id: video.id,
@@ -167,15 +171,30 @@ export function LongVideoCard({
   const shareUrl =
     typeof window !== "undefined" ? `${window.location.origin}/?post=${video.id}` : undefined;
 
-  const handleDownload = async () => {
+  const handleDownload = () => {
+    setDownloadOpen(true);
+  };
+
+  const downloadSelected = async (choice: DownloadChoice) => {
     const toastId = toast.loading("Downloading video... 0%");
     try {
       const url = src ?? (await resolveLongVideoUrl(video.mediaUrl));
-      await downloadVideoInBackground(
-        url,
-        `${sanitizeDownloadName(video.title, `yw-${video.id}`)}.mp4`,
-        (percent) => toast.loading(`Downloading video... ${percent}%`, { id: toastId }),
-      );
+      const baseName = sanitizeDownloadName(video.title, `yw-${video.id}`);
+      if (choice === "mp3") {
+        await downloadAudioOnly(url, baseName, (percent) =>
+          toast.loading(`Preparing MP3 audio... ${percent}%`, { id: toastId }),
+        );
+      } else if (choice === "original" || choice === video.sourceQualityTier) {
+        await downloadVideoInBackground(
+          url,
+          `${baseName}.mp4`,
+          (percent) => toast.loading(`Downloading ${choice} video... ${percent}%`, { id: toastId }),
+        );
+      } else {
+        await downloadVideoAtQuality(url, baseName, choice, (percent) =>
+          toast.loading(`Creating ${choice} video... ${percent}%`, { id: toastId }),
+        );
+      }
       toast.success("Saved to your device", { id: toastId });
     } catch {
       toast.error("Couldn't save this video", { id: toastId });
@@ -428,6 +447,14 @@ export function LongVideoCard({
           </button>
         </div>
       </div>
+      <DownloadSheet
+        open={downloadOpen}
+        onOpenChange={setDownloadOpen}
+        title={video.title}
+        durationSeconds={video.durationSeconds}
+        sourceQualityTier={video.sourceQualityTier}
+        onDownload={downloadSelected}
+      />
     </article>
   );
 }

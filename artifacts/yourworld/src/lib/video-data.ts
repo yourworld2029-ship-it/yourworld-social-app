@@ -13,6 +13,7 @@ import { sampleVideoFrames } from "@/lib/video-frames";
 import { scanVideoContent, type ModerationVerdict } from "@/lib/moderation.functions";
 import { missingColumn, normalizePostRow, postKind, writeCompat } from "@/lib/supabase-compat";
 import { registerUniqueView } from "@/lib/unique-views";
+import { isVideoQualityTier, qualityTierFromDimensions, type VideoQualityTier } from "@/lib/video-quality";
 
 
 export const VIDEO_CATEGORIES = [
@@ -41,6 +42,9 @@ export type LongVideo = {
   thumbnailUrl: string | null;
   orientation: "landscape" | "portrait";
   durationSeconds: number | null;
+  originalWidth?: number | null;
+  originalHeight?: number | null;
+  sourceQualityTier?: VideoQualityTier | null;
   views: number;
   hashtags: string[];
   createdAt: string;
@@ -237,6 +241,8 @@ export async function publishLongVideo(opts: {
   tags?: string[];
   orientation: "landscape" | "portrait";
   durationSeconds?: number | null;
+  originalWidth?: number | null;
+  originalHeight?: number | null;
   scheduledAt?: string | null;
   paidPromotion?: boolean;
   officialSponsorshipId?: string | null;
@@ -317,6 +323,9 @@ export async function publishLongVideo(opts: {
         thumbnail_url: thumb,
         orientation: opts.orientation,
         duration_seconds: opts.durationSeconds ? Math.round(opts.durationSeconds) : null,
+        original_width: opts.originalWidth ?? null,
+        original_height: opts.originalHeight ?? null,
+        source_quality_tier: qualityTierFromDimensions(opts.originalWidth, opts.originalHeight),
         scheduled_at: opts.scheduledAt ?? null,
         paid_promotion: !!opts.paidPromotion,
         review_status: needsReview ? "pending_review" : "approved",
@@ -405,6 +414,11 @@ export function useLongVideos() {
     const byId = new Map(((profiles ?? []) as DbProfile[]).map((p) => [p.id, p]));
 
     const next: LongVideo[] = visible.map((p) => {
+        const metadata = p as typeof p & {
+          original_width?: number | null;
+          original_height?: number | null;
+          source_quality_tier?: string | null;
+        };
         const prof = byId.get(p.user_id);
         const username = prof?.username ?? `user${p.user_id.slice(0, 4)}`;
         const name = prof?.display_name ?? username;
@@ -417,6 +431,11 @@ export function useLongVideos() {
           thumbnailUrl: p.thumbnail_url,
           orientation: p.orientation === "portrait" ? "portrait" : "landscape",
           durationSeconds: p.duration_seconds,
+          originalWidth: typeof metadata.original_width === "number" ? metadata.original_width : null,
+          originalHeight: typeof metadata.original_height === "number" ? metadata.original_height : null,
+          sourceQualityTier: isVideoQualityTier(metadata.source_quality_tier)
+            ? metadata.source_quality_tier
+            : qualityTierFromDimensions(metadata.original_width, metadata.original_height),
           views: p.views ?? 0,
           hashtags: p.hashtags ?? [],
           createdAt: p.created_at,

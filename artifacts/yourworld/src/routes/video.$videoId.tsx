@@ -23,8 +23,11 @@ import { ShareSheet } from "@/components/yw/ShareSheet";
 import { VideoPoster } from "@/components/yw/VideoPoster";
 import {
   downloadVideoInBackground,
+  downloadVideoAtQuality,
+  downloadAudioOnly,
   sanitizeDownloadName,
 } from "@/lib/yw-download";
+import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadSheet";
 
 export const Route = createFileRoute("/video/$videoId")({
   head: () => ({
@@ -55,6 +58,7 @@ function WatchPage() {
   const [src, setSrc] = useState<string | null>(null);
   const [commentCount, setCommentCount] = useState(video?.commentCount ?? 0);
   const [liking, setLiking] = useState(false);
+  const [downloadOpen, setDownloadOpen] = useState(false);
   const counted = useRef(false);
 
   // Resolve a playable signed URL for the video.
@@ -122,15 +126,30 @@ function WatchPage() {
     } catch { toast.error("Couldn't update saved videos"); }
   };
 
-  const handleDownload = async () => {
+  const handleDownload = () => {
+    setDownloadOpen(true);
+  };
+
+  const downloadSelected = async (choice: DownloadChoice) => {
     const toastId = toast.loading("Downloading video... 0%");
     try {
       const url = src ?? (await resolveLongVideoUrl(video.mediaUrl));
-      await downloadVideoInBackground(
-        url,
-        `${sanitizeDownloadName(video.title, `yw-${video.id}`)}.mp4`,
-        (percent) => toast.loading(`Downloading video... ${percent}%`, { id: toastId }),
-      );
+      const baseName = sanitizeDownloadName(video.title, `yw-${video.id}`);
+      if (choice === "mp3") {
+        await downloadAudioOnly(url, baseName, (percent) =>
+          toast.loading(`Preparing MP3 audio... ${percent}%`, { id: toastId }),
+        );
+      } else if (choice === "original" || choice === video.sourceQualityTier) {
+        await downloadVideoInBackground(
+          url,
+          `${baseName}.mp4`,
+          (percent) => toast.loading(`Downloading ${choice} video... ${percent}%`, { id: toastId }),
+        );
+      } else {
+        await downloadVideoAtQuality(url, baseName, choice, (percent) =>
+          toast.loading(`Creating ${choice} video... ${percent}%`, { id: toastId }),
+        );
+      }
       toast.success("Saved to your device", { id: toastId });
     } catch { toast.error("Couldn't save this video", { id: toastId }); }
   };
@@ -233,7 +252,7 @@ function WatchPage() {
               </button>
             </ShareSheet>
 
-            <button onClick={handleDownload} aria-label="Download" className="flex shrink-0 items-center gap-1.5 rounded-full bg-[#272727] px-3.5 py-2 text-xs font-medium text-white transition-transform active:scale-95">
+             <button onClick={handleDownload} aria-label="Download" className="flex shrink-0 items-center gap-1.5 rounded-full bg-[#272727] px-3.5 py-2 text-xs font-medium text-white transition-transform active:scale-95">
               <Download size={17} />
               <span>Save</span>
             </button>
@@ -304,6 +323,14 @@ function WatchPage() {
             </div>
           </div>
         </div>
+        <DownloadSheet
+          open={downloadOpen}
+          onOpenChange={setDownloadOpen}
+          title={video.title}
+          durationSeconds={video.durationSeconds}
+          sourceQualityTier={video.sourceQualityTier}
+          onDownload={downloadSelected}
+        />
       </div>
     </div>
   );

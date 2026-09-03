@@ -48,6 +48,7 @@ function VideoUploadPage() {
   const [fileUrl, setFileUrl] = useState<string | null>(null);
   const [orientation, setOrientation] = useState<"landscape" | "portrait">("landscape");
   const [duration, setDuration] = useState<number | null>(null);
+  const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null);
   const [thumb, setThumb] = useState<string | null>(null);
 
   const [title, setTitle] = useState("");
@@ -81,6 +82,7 @@ function VideoUploadPage() {
     setFileUrl(url);
     setThumb(null);
     setDuration(null);
+    setDimensions(null);
   };
 
   const onMeta = useCallback(() => {
@@ -88,6 +90,11 @@ function VideoUploadPage() {
     if (!v) return;
     setOrientation(v.videoHeight > v.videoWidth ? "portrait" : "landscape");
     setDuration(Number.isFinite(v.duration) ? v.duration : null);
+    setDimensions(
+      v.videoWidth > 0 && v.videoHeight > 0
+        ? { width: v.videoWidth, height: v.videoHeight }
+        : null,
+    );
   }, []);
 
   /** Grabs the current preview frame as a custom thumbnail. */
@@ -142,6 +149,8 @@ function VideoUploadPage() {
           tags,
           orientation,
           durationSeconds: duration,
+           originalWidth: dimensions?.width ?? null,
+           originalHeight: dimensions?.height ?? null,
           scheduledAt: scheduledAt ? scheduledAt.toISOString() : null,
           paidPromotion,
           onProgress,

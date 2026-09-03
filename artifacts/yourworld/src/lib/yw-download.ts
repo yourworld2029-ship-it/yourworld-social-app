@@ -2,6 +2,11 @@
  * Downloads media at original resolution with a small semi-transparent YW
  * logo and the creator's @username watermark burned in.
  */
+import {
+  VIDEO_QUALITY_TIERS,
+  type VideoQualityTier,
+} from "@/lib/video-quality";
+
 const VIDEO_DOWNLOAD_CACHE = "yourworld-video-downloads-v1";
 const activeVideoDownloads = new Map<string, Promise<void>>();
 const serviceWorkerTasks = new Map<
@@ -238,6 +243,172 @@ export async function downloadVideoInBackground(
 
   activeVideoDownloads.set(key, task);
   return task;
+}
+
+function recorderMime(audioOnly: boolean) {
+  const candidates = audioOnly
+    ? ["audio/mpeg", "audio/webm;codecs=opus", "audio/webm", "audio/mp4"]
+    : ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/mp4"];
+  return candidates.find((mime) => MediaRecorder.isTypeSupported?.(mime)) ?? "";
+}
+
+function extensionForMime(mime: string, fallback: "mp4" | "mp3" | "webm") {
+  if (mime.includes("mpeg")) return "mp3";
+  if (mime.includes("webm")) return "webm";
+  if (mime.includes("mp4")) return "mp4";
+  return fallback;
+}
+
+async function loadVideoForExport(src: string) {
+  const video = document.createElement("video");
+  video.crossOrigin = "anonymous";
+  video.playsInline = true;
+  video.preload = "auto";
+  video.src = src;
+  await new Promise<void>((resolve, reject) => {
+    video.addEventListener("loadedmetadata", () => resolve(), { once: true });
+    video.addEventListener("error", () => reject(new Error("The video could not be read")), { once: true });
+    video.load();
+  });
+  if (!video.duration || !Number.isFinite(video.duration)) {
+    throw new Error("The video duration is unavailable");
+  }
+  return video;
+}
+
+function audioContextConstructor() {
+  const browserWindow = window as typeof window & { webkitAudioContext?: typeof AudioContext };
+  return browserWindow.AudioContext ?? browserWindow.webkitAudioContext;
+}
+
+/**
+ * Creates a lower-resolution copy in the browser. This keeps the existing
+ * signed-URL download path for source quality and only processes when the
+ * viewer explicitly chooses a smaller tier.
+ */
+export async function downloadVideoAtQuality(
+  src: string,
+  fileNameBase: string,
+  quality: VideoQualityTier,
+  onProgress?: (percent: number) => void,
+) {
+  const target = VIDEO_QUALITY_TIERS.find((candidate) => candidate.id === quality);
+  if (!target) throw new Error("Unsupported video quality");
+  if (typeof MediaRecorder === "undefined" || !HTMLCanvasElement.prototype.captureStream) {
+    throw new Error("This browser cannot create a quality-specific video download");
+  }
+  const video = await loadVideoForExport(src);
+  const Ctx = audioContextConstructor();
+  if (!Ctx) throw new Error("This browser cannot export video audio");
+
+  const sourceShortSide = Math.min(video.videoWidth, video.videoHeight);
+  const scale = Math.min(1, target.shortSide / Math.max(1, sourceShortSide));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(2, Math.floor((video.videoWidth * scale) / 2) * 2);
+  canvas.height = Math.max(2, Math.floor((video.videoHeight * scale) / 2) * 2);
+  const context = canvas.getContext("2d", { alpha: false });
+  if (!context) throw new Error("Canvas unavailable");
+
+  const audioContext = new Ctx();
+  const audioDestination = audioContext.createMediaStreamDestination();
+  try {
+    audioContext.createMediaElementSource(video).connect(audioDestination);
+  } catch {
+    // Some source files have no audio track; video export can continue.
+  }
+  const stream = new MediaStream([
+    ...canvas.captureStream(30).getVideoTracks(),
+    ...audioDestination.stream.getAudioTracks(),
+  ]);
+  const mime = recorderMime(false);
+  const recorder = new MediaRecorder(
+    stream,
+    mime ? { mimeType: mime, videoBitsPerSecond: target.bitrate, audioBitsPerSecond: 128_000 } : undefined,
+  );
+  const chunks: BlobPart[] = [];
+  let raf = 0;
+  const result = new Promise<Blob>((resolve, reject) => {
+    recorder.ondataavailable = (event) => {
+      if (event.data.size) chunks.push(event.data);
+    };
+    recorder.onerror = () => reject(new Error("Video export failed"));
+    recorder.onstop = () => resolve(new Blob(chunks, { type: mime || "video/webm" }));
+  });
+  const draw = () => {
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    onProgress?.(Math.min(99, Math.round((video.currentTime / video.duration) * 100)));
+    if (!video.ended) raf = requestAnimationFrame(draw);
+  };
+  const stop = () => {
+    if (recorder.state !== "inactive") recorder.stop();
+  };
+  video.addEventListener("ended", stop, { once: true });
+  video.muted = false;
+  await audioContext.resume().catch(() => {});
+  recorder.start(250);
+  await video.play();
+  raf = requestAnimationFrame(draw);
+  const blob = await result.finally(() => {
+    cancelAnimationFrame(raf);
+    video.pause();
+    void audioContext.close().catch(() => {});
+  });
+  onProgress?.(100);
+  triggerBlobDownload(
+    blob,
+    `${sanitizeDownloadName(fileNameBase, "yourworld-video")}.${extensionForMime(mime, "webm")}`,
+  );
+}
+
+/** Extracts an audio-only download. Browsers that support audio/mpeg produce a true MP3. */
+export async function downloadAudioOnly(
+  src: string,
+  fileNameBase: string,
+  onProgress?: (percent: number) => void,
+) {
+  if (typeof MediaRecorder === "undefined") {
+    throw new Error("This browser cannot export audio");
+  }
+  const video = await loadVideoForExport(src);
+  const Ctx = audioContextConstructor();
+  if (!Ctx) throw new Error("This browser cannot export audio");
+  const audioContext = new Ctx();
+  const destination = audioContext.createMediaStreamDestination();
+  audioContext.createMediaElementSource(video).connect(destination);
+  const mime = recorderMime(true);
+  const recorder = new MediaRecorder(
+    destination.stream,
+    mime ? { mimeType: mime, audioBitsPerSecond: 128_000 } : undefined,
+  );
+  const chunks: BlobPart[] = [];
+  const result = new Promise<Blob>((resolve, reject) => {
+    recorder.ondataavailable = (event) => {
+      if (event.data.size) chunks.push(event.data);
+    };
+    recorder.onerror = () => reject(new Error("Audio export failed"));
+    recorder.onstop = () => resolve(new Blob(chunks, { type: mime || "audio/webm" }));
+  });
+  const update = () => {
+    onProgress?.(Math.min(99, Math.round((video.currentTime / video.duration) * 100)));
+  };
+  const stop = () => {
+    video.removeEventListener("timeupdate", update);
+    if (recorder.state !== "inactive") recorder.stop();
+  };
+  video.addEventListener("timeupdate", update);
+  video.addEventListener("ended", stop, { once: true });
+  await audioContext.resume().catch(() => {});
+  recorder.start(250);
+  await video.play();
+  const blob = await result.finally(() => {
+    video.pause();
+    void audioContext.close().catch(() => {});
+  });
+  onProgress?.(100);
+  triggerBlobDownload(
+    blob,
+    `${sanitizeDownloadName(fileNameBase, "yourworld-audio")}.${extensionForMime(mime, "webm")}`,
+  );
 }
 
 export async function downloadWithWatermark(src: string, username: string, fileName: string) {

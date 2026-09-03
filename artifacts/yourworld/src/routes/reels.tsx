@@ -25,11 +25,15 @@ import { getLocalMedia, resolveMediaUrl, useSocialPosts } from "@/lib/social-dat
 import { useDoubleTapLike, useYw } from "@/lib/yw-store";
 import {
   downloadVideoInBackground,
+  downloadVideoAtQuality,
+  downloadAudioOnly,
   downloadWithWatermark,
   sanitizeDownloadName,
 } from "@/lib/yw-download";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadSheet";
+import { isVideoQualityTier, qualityTierFromDimensions } from "@/lib/video-quality";
 
 export const Route = createFileRoute("/reels")({
   head: () => ({
@@ -86,6 +90,19 @@ function ReelsList() {
       commentCount: p.commentCount,
       shares: 0,
       allowDownload: p.allow_download,
+      originalWidth: (p as typeof p & { original_width?: number | null }).original_width,
+      originalHeight: (p as typeof p & { original_height?: number | null }).original_height,
+      sourceQualityTier: (() => {
+        const row = p as typeof p & {
+          original_width?: number | null;
+          original_height?: number | null;
+          source_quality_tier?: string | null;
+        };
+        return isVideoQualityTier(row.source_quality_tier)
+          ? row.source_quality_tier
+          : qualityTierFromDimensions(row.original_width, row.original_height);
+      })(),
+      durationSeconds: p.duration_seconds,
     } satisfies Reel,
     author: p.author,
     likedByMe: p.likedByMe,
@@ -276,6 +293,7 @@ function ReelItem({
   const isLiked = !!likedByMe;
   const isSaved = !!saved[reel.id];
   const [liking, setLiking] = useState(false);
+  const [downloadOpen, setDownloadOpen] = useState(false);
 
   // ---- playback timeline -------------------------------------------------
   const [progress, setProgress] = useState(0); // 0..1
@@ -415,19 +433,38 @@ function ReelItem({
     setTappedPause((v) => !v);
   };
 
-  const handleDownload = async () => {
+  const handleDownload = async (choice?: DownloadChoice) => {
     if (!user) return;
     const isVideo = mediaType?.startsWith("video") && Boolean(mediaUrl);
+    if (isVideo && !choice) {
+      setDownloadOpen(true);
+      return;
+    }
     const source = mediaUrl ?? reel.poster;
-    const toastId = toast.loading(isVideo ? "Downloading video... 0%" : "Preparing image download…");
+    const toastId = toast.loading(
+      isVideo && choice === "mp3" ? "Preparing MP3 audio… 0%" :
+      isVideo ? `Downloading ${choice} video… 0%` :
+      "Preparing image download…",
+    );
     try {
       if (isVideo) {
         const playableUrl = getLocalMedia(source) ?? await resolveMediaUrl(source);
-        await downloadVideoInBackground(
-          playableUrl,
-          `${sanitizeDownloadName(reel.caption, `yw-reel-${reel.id}`)}.mp4`,
-          (percent) => toast.loading(`Downloading video... ${percent}%`, { id: toastId }),
-        );
+        const baseName = sanitizeDownloadName(reel.caption, `yw-reel-${reel.id}`);
+        if (choice === "mp3") {
+          await downloadAudioOnly(playableUrl, baseName, (percent) =>
+            toast.loading(`Preparing MP3 audio... ${percent}%`, { id: toastId }),
+          );
+        } else if (choice === "original" || choice === reel.sourceQualityTier) {
+          await downloadVideoInBackground(
+            playableUrl,
+            `${baseName}.mp4`,
+            (percent) => toast.loading(`Downloading ${choice} video... ${percent}%`, { id: toastId }),
+          );
+        } else if (choice) {
+          await downloadVideoAtQuality(playableUrl, baseName, choice, (percent) =>
+            toast.loading(`Creating ${choice} video... ${percent}%`, { id: toastId }),
+          );
+        }
         toast.success("Saved to your device", { id: toastId });
       } else {
         await downloadWithWatermark(reel.poster, user.username, `yw-reel-${reel.id}.jpg`);
@@ -682,6 +719,14 @@ function ReelItem({
           />
         </div>
       </div>
+      <DownloadSheet
+        open={downloadOpen}
+        onOpenChange={setDownloadOpen}
+        title={reel.caption || "YourWorld reel"}
+        durationSeconds={reel.durationSeconds ?? REEL_DURATION}
+        sourceQualityTier={reel.sourceQualityTier ?? null}
+        onDownload={handleDownload}
+      />
     </>
   );
 }

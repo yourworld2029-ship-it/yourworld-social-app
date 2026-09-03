@@ -136,6 +136,10 @@ export type Reel = {
   shares: number;
   allowDownload: boolean;
   views?: number;
+  originalWidth?: number | null;
+  originalHeight?: number | null;
+  sourceQualityTier?: import("@/lib/video-quality").VideoQualityTier | null;
+  durationSeconds?: number | null;
 };
 
 export const reels: Reel[] = [
