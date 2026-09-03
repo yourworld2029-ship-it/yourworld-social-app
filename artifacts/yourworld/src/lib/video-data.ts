@@ -15,6 +15,12 @@ import { missingColumn, normalizePostRow, postKind, writeCompat } from "@/lib/su
 import { registerUniqueView } from "@/lib/unique-views";
 import { isVideoQualityTier, qualityTierFromDimensions, type VideoQualityTier } from "@/lib/video-quality";
 
+// The generated Supabase types still describe the retired post_likes table.
+// Keep the runtime table name authoritative while reusing the matching row
+// shape until types are regenerated from the live project.
+const liveLikesTable = () =>
+  supabase.from("likes" as "post_likes");
+
 
 export const VIDEO_CATEGORIES = [
   "Vlog",
@@ -410,7 +416,7 @@ export function useLongVideos() {
 
     const [{ data: profiles }, { data: likes }, { data: comments }] = await Promise.all([
       supabase.rpc("get_public_profiles", { ids: authorIds }),
-      supabase.from("post_likes").select("post_id,user_id").in("post_id", ids),
+      liveLikesTable().select("post_id,user_id").in("post_id", ids),
       supabase.from("post_comments").select("post_id").in("post_id", ids),
     ]);
 
@@ -465,7 +471,7 @@ export function useLongVideos() {
       channel = supabase
         .channel("long-videos")
         .on("postgres_changes", { event: "*", schema: "public", table: "posts" }, queue)
-        .on("postgres_changes", { event: "*", schema: "public", table: "post_likes" }, queue)
+        .on("postgres_changes", { event: "*", schema: "public", table: "likes" }, queue)
         .on("postgres_changes", { event: "*", schema: "public", table: "post_comments" }, queue)
         .subscribe();
     }, 300);
@@ -504,8 +510,8 @@ export function useLongVideos() {
         }),
       );
       const { error } = wasLiked
-        ? await supabase.from("post_likes").delete().eq("post_id", id).eq("user_id", me)
-        : await supabase.from("post_likes").upsert(
+        ? await liveLikesTable().delete().eq("post_id", id).eq("user_id", me)
+        : await liveLikesTable().upsert(
             { post_id: id, user_id: me },
             { onConflict: "post_id,user_id", ignoreDuplicates: true },
           );
