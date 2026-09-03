@@ -114,18 +114,18 @@ function OrbitBrowse() {
   );
 
   const myMood = orbit.profile?.mood ?? null;
-  const myInterests = orbit.profile?.hobbies ?? [];
-
   /** Same-mood and similar-interest people are surfaced first. */
   const ranked = useMemo(
-    () =>
-      visible
+    () => {
+      const myInterests = orbit.profile?.hobbies ?? [];
+      return visible
         .filter((p) => matchesOrbitFilters(p, filters))
         .sort(
         (a, b) =>
           moodMatchScore(b, myMood, myInterests) - moodMatchScore(a, myMood, myInterests),
-      ),
-    [visible, myMood, myInterests, filters],
+        );
+    },
+    [visible, myMood, orbit.profile?.hobbies, filters],
   );
 
   const gate = (action: () => void) => () => {

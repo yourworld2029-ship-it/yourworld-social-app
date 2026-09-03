@@ -1,4 +1,3 @@
-import React from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft, Camera, Image } from "lucide-react";
 
@@ -6,7 +5,7 @@ export const Route = createFileRoute("/channel/")({
   component: ChannelIndexPage,
 });
 
-export function ChannelIndexPage() {
+function ChannelIndexPage() {
   const navigate = useNavigate();
 
   return (
@@ -55,5 +54,3 @@ export function ChannelIndexPage() {
     </div>
   );
 }
-
-export default ChannelIndexPage;

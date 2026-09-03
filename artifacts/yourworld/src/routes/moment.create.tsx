@@ -1,4 +1,5 @@
 import React, {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -31,7 +32,6 @@ import {
   MapPin,
   Share2,
   RotateCcw,
-  ZoomIn,
   Type,
   Pencil,
   Smile,
@@ -52,6 +52,7 @@ import {
 } from "@tanstack/react-router";
 import { useMoments } from "@/lib/moment-store";
 import { useUploads } from "@/lib/upload-progress";
+import { splitMomentIntoParts } from "@/lib/moment-parts";
 
 export const Route = createFileRoute("/moment/create")({
   component: MomentCreatePage,
@@ -87,7 +88,6 @@ const clamp01 = (v: number) =>
   Math.min(1, Math.max(0, v));
 
 /** Moments are published in chunks of at most this many seconds. */
-const MAX_PART_SECONDS = 20;
 
 const fmtTime = (s: number) => {
   const total = Math.max(0, Math.floor(s || 0));
@@ -122,35 +122,6 @@ const readVideoDuration = (
     }
   );
 
-/** Splits a duration into consecutive parts of at most MAX_PART_SECONDS. */
-export const splitIntoParts = (
-  duration: number
-) => {
-  if (
-    !duration ||
-    duration <= MAX_PART_SECONDS
-  ) {
-    return [
-      {
-        start: 0,
-        end: duration || 0,
-      },
-    ];
-  }
-  const count = Math.ceil(
-    duration / MAX_PART_SECONDS
-  );
-  return Array.from(
-    { length: count },
-    (_, i) => ({
-      start: i * MAX_PART_SECONDS,
-      end: Math.min(
-        duration,
-        (i + 1) * MAX_PART_SECONDS
-      ),
-    })
-  );
-};
 type CaptureMode = "photo" | "video";
 type Audience =
   | "everyone"
@@ -215,7 +186,7 @@ const FILTERS: Record<
   },
 };
 
-export function MomentCreatePage() {
+function MomentCreatePage() {
   const navigate = useNavigate();
   const { addMoment } = useMoments();
   const { startUpload } = useUploads();
@@ -299,7 +270,7 @@ export function MomentCreatePage() {
   const [qualityLabel, setQualityLabel] =
     useState("AUTO");
 
-  const [cameraResolution, setCameraResolution] =
+  const [, setCameraResolution] =
     useState("");
 
   // =====================================================
@@ -531,7 +502,7 @@ export function MomentCreatePage() {
     );
   };
 
-  const getCapabilities = () => {
+  const getCapabilities = useCallback(() => {
     const track = getVideoTrack();
 
     if (!track) return null;
@@ -554,13 +525,13 @@ export function MomentCreatePage() {
     } catch {
       return null;
     }
-  };
+  }, []);
 
   // =====================================================
   // START CAMERA
   // =====================================================
 
-  const startCamera = async () => {
+  const startCamera = useCallback(async () => {
     setCameraReady(false);
     setCameraError("");
 
@@ -736,7 +707,7 @@ export function MomentCreatePage() {
           : "Unable to start camera."
       );
     }
-  };
+  }, [facingMode, getCapabilities]);
 
   useEffect(() => {
     if (step !== 0) return;
@@ -750,7 +721,7 @@ export function MomentCreatePage() {
 
       streamRef.current = null;
     };
-  }, [facingMode, step]);
+  }, [facingMode, startCamera, step]);
 
   // =====================================================
   // ZOOM
@@ -1418,7 +1389,7 @@ export function MomentCreatePage() {
   // DRAWING
   // =====================================================
 
-  const setupDrawingCanvas = () => {
+  const setupDrawingCanvas = useCallback(() => {
     const canvas =
       drawingCanvasRef.current;
 
@@ -1436,7 +1407,7 @@ export function MomentCreatePage() {
       parent.clientHeight;
 
     clearDrawing();
-  };
+  }, []);
 
   const saveDrawingState = () => {
     const canvas =
@@ -1690,7 +1661,7 @@ export function MomentCreatePage() {
       window.clearTimeout(
         timer
       );
-  }, [step]);
+  }, [setupDrawingCanvas, step]);
 
   // =====================================================
   // VIDEO EFFECTS
@@ -1784,7 +1755,7 @@ export function MomentCreatePage() {
           180
       );
 
-      let filter =
+      const filter =
         FILTERS[selectedFilter]
           .css;
 
@@ -1902,7 +1873,7 @@ export function MomentCreatePage() {
     // Editing is finished at this point — now cut long videos into
     // consecutive parts of at most 20 seconds (60s -> 20 + 20 + 20).
     const parts = isVideo
-      ? splitIntoParts(
+      ? splitMomentIntoParts(
           await readVideoDuration(
             mediaUrl
           )

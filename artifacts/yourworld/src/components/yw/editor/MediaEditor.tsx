@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { X, Play, Pause, Download, Scissors, Trash2, Volume2, Sparkles, Image as ImageIcon } from "lucide-react";
+import { X, Play, Pause } from "lucide-react";
 
 type Clip = {
   id: string;
@@ -47,7 +47,7 @@ export const MediaEditor: React.FC<MediaEditorProps> = ({
     if (videoRef.current && isPlaying) {
       videoRef.current.play().catch(() => {});
     }
-  }, [activeClipIndex]);
+  }, [activeClipIndex, isPlaying]);
 
   // Play/Pause Toggle
   const togglePlay = () => {

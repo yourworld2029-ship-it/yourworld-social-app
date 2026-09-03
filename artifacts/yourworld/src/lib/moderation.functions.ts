@@ -57,7 +57,7 @@ function parseVerdict(text: string): ModerationVerdict | null {
 
 /** Scans a video's sampled frames + metadata with Gemini before it is published. */
 export const scanVideoContent = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => schema.parse(data))
+  .validator((data: unknown) => schema.parse(data))
   .handler(async ({ data }): Promise<ModerationVerdict> => {
     const key = process.env["GEMINI_API_KEY"];
     if (!key) {

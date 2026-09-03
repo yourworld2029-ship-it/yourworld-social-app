@@ -20,14 +20,18 @@ export const STORAGE_BUCKETS = {
   avatars: "avatars",
 } as const;
 
-const SUPABASE_URL = normalizeSupabaseProjectUrl(
-  (import.meta.env?.["VITE_SUPABASE_URL"] as string | undefined) ?? "",
-);
-const SUPABASE_KEY =
-  (import.meta.env?.["VITE_SUPABASE_PUBLISHABLE_KEY"] as string | undefined) ?? "";
+function storageConfig() {
+  return {
+    url: normalizeSupabaseProjectUrl(
+      (import.meta.env?.["VITE_SUPABASE_URL"] as string | undefined) ?? "",
+    ),
+    key:
+      (import.meta.env?.["VITE_SUPABASE_PUBLISHABLE_KEY"] as string | undefined) ?? "",
+  };
+}
 
 function resumableUploadEndpoint() {
-  const url = new URL(SUPABASE_URL);
+  const url = new URL(storageConfig().url);
   // Supabase's direct Storage hostname avoids the general API gateway's
   // request-size path and is recommended for large resumable uploads.
   if (url.hostname.endsWith(".supabase.co") && !url.hostname.endsWith(".storage.supabase.co")) {
@@ -155,9 +159,10 @@ async function uploadTus(
   onProgress?: ProgressFn,
 ): Promise<{ error: string | null }> {
   const endpoint = resumableUploadEndpoint();
+  const { key: supabaseKey } = storageConfig();
   const commonHeaders = {
     authorization: `Bearer ${token}`,
-    apikey: SUPABASE_KEY,
+    apikey: supabaseKey,
     "tus-resumable": TUS_VERSION,
   };
   const metadata = [
@@ -266,17 +271,25 @@ export async function uploadWithProgress(
   contentType: string,
   onProgress?: ProgressFn,
 ): Promise<{ url: string | null; error: string | null }> {
-  const { data: sessionData } = await supabase.auth.getSession();
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError) {
+    console.error("Could not authorize storage upload", sessionError);
+    return { url: null, error: sessionError.message };
+  }
   const token = sessionData.session?.access_token;
   if (!token) return { url: null, error: "You need to sign in to upload." };
 
   const upload = await uploadTus(bucket, path, blob, contentType, token, onProgress);
-  if (upload.error) return { url: null, error: upload.error };
+  if (upload.error) {
+    console.error(`Storage upload failed for ${bucket}/${path}: ${upload.error}`);
+    return { url: null, error: upload.error };
+  }
 
   const { data: signed, error: signError } = await supabase.storage
     .from(bucket)
     .createSignedUrl(path, 60 * 60 * 24 * 365);
   if (signError || !signed?.signedUrl) {
+    console.error(`Failed to sign uploaded media ${bucket}/${path}`, signError);
     return {
       url: null,
       error: signError?.message ?? "Upload completed, but the media URL could not be created.",
@@ -295,10 +308,15 @@ export async function uploadSourceWithProgress(
 ) {
   try {
     const response = await fetch(source);
-    if (!response.ok) return { url: null, error: "The selected media is no longer available." };
+    if (!response.ok) {
+      const error = "The selected media is no longer available.";
+      console.error(error, { source, status: response.status });
+      return { url: null, error };
+    }
     const blob = await response.blob();
     return uploadWithProgress(bucket, path, blob, blob.type || fallbackType, onProgress);
   } catch (error) {
+    console.error("Could not prepare media for upload", error);
     return {
       url: null,
       error: error instanceof Error ? error.message : "Could not prepare media for upload.",

@@ -1,4 +1,3 @@
-import React from "react";
 import { createFileRoute, Outlet, useNavigate, useLocation } from "@tanstack/react-router";
 import { ArrowLeft, Megaphone, Video, Film, FileText, Users, DollarSign, BarChart2 } from "lucide-react";
 
@@ -6,7 +5,7 @@ export const Route = createFileRoute("/channel")({
   component: ChannelLayout,
 });
 
-export function ChannelLayout() {
+function ChannelLayout() {
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -58,5 +57,3 @@ export function ChannelLayout() {
     </div>
   );
 }
-
-export default ChannelLayout;

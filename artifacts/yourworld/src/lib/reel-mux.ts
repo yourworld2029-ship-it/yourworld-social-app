@@ -24,6 +24,15 @@ export type MuxOptions = {
   onProgress?: (pct: number) => void;
 };
 
+type AudioContextWindow = typeof window & {
+  webkitAudioContext?: typeof AudioContext;
+};
+
+function getAudioContextConstructor() {
+  const browserWindow = window as AudioContextWindow;
+  return browserWindow.AudioContext ?? browserWindow.webkitAudioContext;
+}
+
 function pickMime(): string | undefined {
   const candidates = [
     "video/webm;codecs=vp9,opus",
@@ -38,7 +47,7 @@ export function canMuxReel(): boolean {
   return (
     typeof window !== "undefined" &&
     typeof MediaRecorder !== "undefined" &&
-    !!(window.AudioContext || (window as any).webkitAudioContext) &&
+    !!getAudioContextConstructor() &&
     typeof HTMLCanvasElement.prototype.captureStream === "function"
   );
 }
@@ -60,13 +69,17 @@ export async function renderReelWithMusic(opts: MuxOptions): Promise<string | nu
   audio.crossOrigin = "anonymous";
   audio.preload = "auto";
 
-  const Ctx: typeof AudioContext =
-    (window as any).AudioContext || (window as any).webkitAudioContext;
+  const Ctx = getAudioContextConstructor();
+  if (!Ctx) return null;
   const actx = new Ctx();
   let recorder: MediaRecorder | null = null;
 
   const cleanup = () => {
-    try { recorder?.state !== "inactive" && recorder?.stop(); } catch { /* noop */ }
+    try {
+      if (recorder?.state !== "inactive") recorder?.stop();
+    } catch {
+      /* noop */
+    }
     try { video.pause(); } catch { /* noop */ }
     try { audio.pause(); } catch { /* noop */ }
     void actx.close().catch(() => {});

@@ -117,5 +117,3 @@ function LicensesPage() {
     </div>
   );
 }
-
-export default LicensesPage;

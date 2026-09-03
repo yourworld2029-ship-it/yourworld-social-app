@@ -29,7 +29,7 @@ export const Route = createFileRoute("/settings")({
 
 type PanelId = "privacy" | "notifications" | "appearance" | "help" | "about";
 
-export function SettingsPage() {
+function SettingsPage() {
   const navigate = useNavigate();
   const { signOut, user } = useAuth();
   const queryClient = useQueryClient();
@@ -427,7 +427,6 @@ export function SettingsPage() {
     </div>
   );
 }
-
 function Panel({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center sm:justify-center">
@@ -449,7 +448,6 @@ function Panel({ title, onClose, children }: { title: string; onClose: () => voi
     </div>
   );
 }
-
 function Row({ label, hint, onClick }: { label: string; hint?: string; onClick?: () => void }) {
   return (
     <button
@@ -502,5 +500,3 @@ function Toggle({ label, hint, on, onClick }: { label: string; hint?: string; on
     </div>
   );
 }
-
-export default SettingsPage;

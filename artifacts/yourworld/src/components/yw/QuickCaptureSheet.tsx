@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { X, ShieldAlert, Clock, Sparkles, Eye, Check, Download, Archive } from "lucide-react";
+import { X, ShieldAlert, Sparkles, Eye, Check, Download, Archive } from "lucide-react";
 
 type QuickCaptureSheetProps = {
   onClose?: () => void;
@@ -10,7 +10,8 @@ type QuickCaptureSheetProps = {
 };
 
 export const QuickCaptureSheet: React.FC<QuickCaptureSheetProps> = ({ onClose }) => {
-  const [privacy, setPrivacy] = useState<"everyone" | "followers" | "close_friends" | "only_me">("everyone");
+  type Privacy = "everyone" | "followers" | "close_friends" | "only_me";
+  const [privacy, setPrivacy] = useState<Privacy>("everyone");
   const [duration, setDuration] = useState<"12h" | "24h">("24h");
   const [screenshotAlert, setScreenshotAlert] = useState<boolean>(true);
   const [screenRecordingAlert, setScreenRecordingAlert] = useState<boolean>(true);
@@ -48,15 +49,15 @@ export const QuickCaptureSheet: React.FC<QuickCaptureSheetProps> = ({ onClose })
       <div className="mb-6">
         <label className="block text-xs font-semibold text-zinc-400 mb-2 uppercase tracking-wider">Privacy</label>
         <div className="grid grid-cols-2 gap-3">
-          {[
+          {([
             { id: "everyone", label: "Everyone", desc: "Anyone on YourWorld" },
             { id: "followers", label: "Followers", desc: "People who follow you" },
             { id: "close_friends", label: "Close Friends", desc: "Your green-list only" },
             { id: "only_me", label: "Only Me", desc: "Private to you" },
-          ].map((item) => (
+          ] satisfies Array<{ id: Privacy; label: string; desc: string }>).map((item) => (
             <button
               key={item.id}
-              onClick={() => setPrivacy(item.id as any)}
+              onClick={() => setPrivacy(item.id)}
               className={`p-3 rounded-xl border text-left transition-all ${
                 privacy === item.id
                   ? "bg-pink-950/40 border-pink-500 text-white"

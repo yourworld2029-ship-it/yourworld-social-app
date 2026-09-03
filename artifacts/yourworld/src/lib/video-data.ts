@@ -1,4 +1,4 @@
-import { useCallback, useRef, useEffect, useMemo, useState } from "react";
+import { useCallback, useRef, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import {
   getLocalMedia,
@@ -203,7 +203,8 @@ async function uploadToStorage(
       onProgress,
     );
     return url;
-  } catch {
+  } catch (error) {
+    console.error("Video storage upload failed", error);
     return null;
   }
 }
@@ -231,7 +232,11 @@ export async function publishLongVideo(opts: {
   officialSponsorshipId?: string | null;
   onProgress?: (percent: number) => void;
 }): Promise<{ error: string | null }> {
-  const { data: sessionData } = await supabase.auth.getSession();
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError) {
+    console.error("Could not authorize video publishing", sessionError);
+    return { error: sessionError.message };
+  }
   const uid = sessionData.session?.user.id;
   if (!uid) return { error: "You need to sign in to publish a video." };
 
@@ -310,7 +315,8 @@ export async function publishLongVideo(opts: {
   }, { kind: "type" });
 
   opts.onProgress?.(100);
-  if (!error) rememberLocalMedia(mediaUrl, opts.fileUrl);
+  if (error) console.error("Long-video database insert failed", error);
+  else rememberLocalMedia(mediaUrl, opts.fileUrl);
   return { error: error?.message ?? null };
 }
 

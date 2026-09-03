@@ -46,7 +46,7 @@ async function searchOsm(textQuery: string): Promise<PlaceResult[]> {
 }
 
 export const searchPlaces = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => schema.parse(data))
+  .validator((data: unknown) => schema.parse(data))
   .handler(async ({ data }): Promise<{ places: PlaceResult[]; source: "google" | "osm" | "none" }> => {
     const mapsKey = process.env["GOOGLE_MAPS_API_KEY"];
     const textQuery = [data.query, data.region].filter(Boolean).join(" in ");

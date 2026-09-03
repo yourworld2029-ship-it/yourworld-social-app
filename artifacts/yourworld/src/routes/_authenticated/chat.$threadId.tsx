@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useMemo } from "react";
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
 import {
   ArrowLeft, Phone, Video, MoreVertical, Image as ImageIcon,
-  Mic, Send, Smile, Play, Pause, X, MicOff,
+  Mic, Send, Smile, Play, Pause, X,
   Pencil, Lock, EyeOff, Clock, Camera, VideoOff, BellOff, UserX, Flag,
   Trash2, CheckCheck, Check, Crop, Type, Sparkles 
 } from "lucide-react";
@@ -77,7 +77,7 @@ function MenuItem({
   );
 }
 
-export function ChatThreadPage() {
+function ChatThreadPage() {
   const { profile: myProfile } = useMyProfile();
   const currentUserName = myProfile.display_name || myProfile.username || "YourWorld user";
   const currentUsername = myProfile.username || "user";
@@ -162,8 +162,6 @@ export function ChatThreadPage() {
   const [message, setMessage] = useState("");
   const [localMessages, setLocalMessages] = useState<Message[]>([]);
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
-
-  const setMessages = setLocalMessages;
 
   const fmtTime = (iso: string) =>
     new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -383,13 +381,15 @@ export function ChatThreadPage() {
   }, [autoDelete]);
 
   useEffect(() => {
-    let timer: any;
+    let timer: ReturnType<typeof setInterval> | undefined;
     if (isRecording) {
       timer = setInterval(() => setRecordingTime((prev) => prev + 1), 1000);
     } else {
       setRecordingTime(0);
     }
-    return () => clearInterval(timer);
+    return () => {
+      if (timer) clearInterval(timer);
+    };
   }, [isRecording]);
 
 
@@ -1268,5 +1268,3 @@ export function ChatThreadPage() {
 
   );
 }
-
-export default ChatThreadPage;

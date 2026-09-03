@@ -23,8 +23,6 @@ type Props = {
 };
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
-const FITS = ["Fit", "Fill", "Stretch"] as const;
-
 function fmt(t: number) {
   if (!Number.isFinite(t)) return "0:00";
   const s = Math.floor(t % 60);
@@ -49,7 +47,6 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
   const [speed, setSpeed] = useState(1);
   const [quality, setQuality] = useState("Auto");
   const [sourceHeight, setSourceHeight] = useState(0);
-  const [fit, setFit] = useState<(typeof FITS)[number]>("Fill");
   const [loop, setLoop] = useState(false);
   const [locked, setLocked] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
@@ -381,7 +378,7 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
           "h-full w-full",
           fullscreen
             ? "object-contain"
-            : fit === "Fit" ? "object-contain" : fit === "Fill" ? "object-cover" : "object-fill",
+            : "object-cover",
         )}
         onPlay={(e) => {
           lastPlaybackTime.current = e.currentTarget.currentTime;
@@ -402,6 +399,7 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
           const video = e.currentTarget;
           setDur(video.duration || 0);
           setSourceHeight(video.videoHeight || 0);
+            onOrientationChange?.(video.videoHeight > video.videoWidth);
           readMediaTracks();
         }}
         onTimeUpdate={(e) => {

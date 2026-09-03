@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { Phone, PhoneOff, Mic, MicOff } from 'lucide-react';
+import { PhoneOff, Mic, MicOff } from 'lucide-react';
 
 interface RtcCallSheetProps {
   isOpen: boolean;

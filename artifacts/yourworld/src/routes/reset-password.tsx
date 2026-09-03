@@ -34,7 +34,12 @@ function ResetPasswordPage() {
       return;
     }
     toast.success("Password updated");
-    await supabase.auth.signOut();
+    const { error: signOutError } = await supabase.auth.signOut();
+    if (signOutError) {
+      console.error("Password changed, but sign-out failed", signOutError);
+      toast.error("Password changed, but we couldn't sign you out. Please try again.");
+      return;
+    }
     navigate({ to: "/auth", search: { redirect: undefined }, replace: true });
   };
 

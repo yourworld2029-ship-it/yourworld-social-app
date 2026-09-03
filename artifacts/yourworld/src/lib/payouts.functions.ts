@@ -73,7 +73,7 @@ export const processPayout = createServerFn({ method: "POST" })
 /** Emails the generated payout PDF to the creator's registered address. */
 export const emailPayoutInvoice = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d) =>
+  .validator((d) =>
     z
       .object({
         payoutId: z.string().uuid(),

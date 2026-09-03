@@ -3,7 +3,6 @@ import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import react from "@vitejs/plugin-react";
 import { nitro } from "nitro/vite";
 import { defineConfig } from "vite";
-import tsConfigPaths from "vite-tsconfig-paths";
 import { normalizeSupabaseProjectUrl } from "./src/integrations/supabase/url.ts";
 
 const devPort = Number(process.env.DEV_PORT ?? process.env.PORT) || 5173;
@@ -25,7 +24,6 @@ export default defineConfig(({ command }) => {
   return {
     plugins: [
       tailwindcss(),
-      tsConfigPaths({ projects: ["./tsconfig.json"] }),
       tanstackStart({
         server: { entry: "server" },
         importProtection: {
@@ -49,6 +47,9 @@ export default defineConfig(({ command }) => {
       allowedHosts: true,
       port: devPort,
       strictPort: true,
+    },
+    resolve: {
+      tsconfigPaths: true,
     },
   };
 });

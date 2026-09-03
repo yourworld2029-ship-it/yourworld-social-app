@@ -1,4 +1,4 @@
-import React, {
+import {
   createContext,
   useCallback,
   useContext,
@@ -196,7 +196,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     return () => {
       if (hideTimer.current) window.clearTimeout(hideTimer.current);
     };
-  }, [call?.callId, phase]);
+  }, [call, phase]);
 
   const pokeControls = useCallback(() => {
     setControlsVisible((v) => {
@@ -446,7 +446,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       };
       return pc;
     },
-    [signal, attachStreams, teardown, logCallOutcome],
+    [signal, teardown, logCallOutcome],
   );
 
   const flushIce = useCallback(async () => {
@@ -461,7 +461,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
   /* ---------- signalling channel for one call ---------- */
   const openSignalChannel = useCallback(
     (callId: string, mode: CallMode, isCaller: boolean) =>
-      new Promise<void>(async (resolve) => {
+      new Promise<void>((resolve) => {
+        void (async () => {
         const { data: sess } = await supabase.auth.getSession();
         await supabase.realtime.setAuth(sess.session?.access_token);
         const ch = supabase.channel(`rtc-${callId}`, {
@@ -529,6 +530,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
             clearTimeout(guard);
             done();
           }
+        });
+        })().catch((error) => {
+          console.error("[call] signalling setup failed", error);
+          resolve();
         });
       }),
 

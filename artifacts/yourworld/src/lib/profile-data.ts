@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { STORAGE_BUCKETS } from "@/lib/storage-upload";
 import { resolveMediaUrl, type DbPost } from "@/lib/social-data";
 import { normalizePostRow, writeCompat } from "@/lib/supabase-compat";
 
@@ -107,7 +108,10 @@ export function useMyProfile() {
       const { error } = await supabase.storage
         .from("avatars")
         .upload(path, file, { contentType: file.type || "image/jpeg", upsert: true });
-      if (error) throw new Error(error.message);
+      if (error) {
+        console.error("Profile image upload failed", error);
+        throw new Error(error.message);
+      }
       return path;
     },
     [],
@@ -138,7 +142,10 @@ export function useMyProfile() {
           cover_url: coverPath,
         },
       );
-      if (error) throw new Error(error.message);
+      if (error) {
+        console.error("Profile update failed", error);
+        throw new Error(error.message);
+      }
       await load();
     },
     [profile.avatar_url, profile.cover_url, uploadImage, load],
@@ -202,28 +209,36 @@ export async function updateMyPost(
   if (patch.archived !== undefined) next.archived = patch.archived;
 
   const { error } = await supabase.from("posts").update(next).eq("id", postId);
-  if (error) throw new Error(error.message);
+  if (error) {
+    console.error("Post update failed", error);
+    throw new Error(error.message);
+  }
 }
 
 
 /** Permanently delete a post/reel you own, plus its stored media file. */
 export async function deleteMyPost(post: { id: string; media_url: string; kind: string }) {
-  const bucket = post.kind === "reel" ? "reels" : "reels";
+  const bucket =
+    post.kind === "reel" ? STORAGE_BUCKETS.reels : STORAGE_BUCKETS.videos;
   const url = post.media_url ?? "";
   if (url && !/^(blob:|data:)/.test(url)) {
     const path = /^https?:/.test(url)
       ? url.match(new RegExp(`/storage/v1/object/(?:sign|public)/${bucket}/([^?]+)`))?.[1]
       : url.replace(/^\/+/, "");
     if (path) {
-      try {
-        await supabase.storage.from(bucket).remove([decodeURIComponent(path)]);
-      } catch {
-        /* media already gone */
+      const { error: storageError } = await supabase.storage
+        .from(bucket)
+        .remove([decodeURIComponent(path)]);
+      if (storageError) {
+        console.error(`Failed to remove media from ${bucket}`, storageError);
       }
     }
   }
   const { error } = await supabase.from("posts").delete().eq("id", post.id);
-  if (error) throw new Error(error.message);
+  if (error) {
+    console.error("Post deletion failed", error);
+    throw new Error(error.message);
+  }
 }
 
 /** Resolves a stored media reference to something an <img> can render. */

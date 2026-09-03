@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { resolveMediaUrl, timeAgo } from "@/lib/social-data";
-import { missingColumn, normalizePostRow } from "@/lib/supabase-compat";
+import { missingColumn, normalizePostRow, postKind } from "@/lib/supabase-compat";
 
 export type ChannelItem = {
   id: string;
@@ -49,8 +49,7 @@ export async function loadChannelData(
   watchPeriodDays = 30,
 ): Promise<LoadedChannelData> {
   const periodStart = new Date(Date.now() - watchPeriodDays * 24 * 60 * 60 * 1000).toISOString();
-  let [{ data: rows, error }, { data: followRows }, { data: countRows }, { data: watchHours, error: watchError }] =
-    await Promise.all([
+  const [postsResult, followsResult, countsResult, watchResult] = await Promise.all([
     client
       .from("posts")
       .select("id,kind,title,caption,media_url,thumbnail_url,views,created_at")
@@ -64,6 +63,10 @@ export async function loadChannelData(
       _period_start: periodStart,
     }),
   ]);
+  let { data: rows, error } = postsResult;
+  const { data: followRows } = followsResult;
+  const { data: countRows } = countsResult;
+  const { data: watchHours, error: watchError } = watchResult;
 
   if (missingColumn(error) === "kind") {
     const fallback = await client
@@ -101,7 +104,10 @@ export async function loadChannelData(
     postRows.map(async (row): Promise<ChannelItem> => ({
       id: row.id,
       title: row.title || row.caption || "Untitled",
-      thumb: await resolveMediaUrl(row.thumbnail_url || row.media_url, "reels"),
+      thumb: await resolveMediaUrl(
+        row.thumbnail_url || row.media_url,
+        postKind(row) === "reel" ? "reels" : "videos",
+      ),
       views: Number(row.views ?? 0),
       likes: likesByPost.get(row.id) ?? 0,
       publishedAt: timeAgo(row.created_at),

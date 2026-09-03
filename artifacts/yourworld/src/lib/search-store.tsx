@@ -39,7 +39,9 @@ function loadHistory(): SearchEntry[] {
 function saveHistory(entries: SearchEntry[]) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
-  } catch {}
+  } catch {
+    // Search history is optional when storage is unavailable.
+  }
 }
 
 const SearchContext = createContext<SearchStore | null>(null);

@@ -16,11 +16,15 @@ export interface AudioTrackState {
 
 const peakCache = new Map<string, number[]>();
 
+type AudioContextWindow = typeof window & {
+  webkitAudioContext?: typeof AudioContext;
+};
+
 async function loadPeaks(url: string, buckets = 320): Promise<number[]> {
   const hit = peakCache.get(url);
   if (hit) return hit;
-  const Ctx: typeof AudioContext =
-    (window as any).AudioContext || (window as any).webkitAudioContext;
+  const browserWindow = window as AudioContextWindow;
+  const Ctx = browserWindow.AudioContext ?? browserWindow.webkitAudioContext;
   if (!Ctx) return [];
   const ctx = new Ctx();
   try {

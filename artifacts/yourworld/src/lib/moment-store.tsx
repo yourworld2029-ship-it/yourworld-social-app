@@ -11,6 +11,7 @@ import {
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { STORAGE_BUCKETS, uploadWithProgress } from "@/lib/storage-upload";
+import { isAuthSessionMissing } from "@/lib/auth-errors";
 import { getRegisteredBlob } from "@/lib/blob-registry";
 import { dmThreadId } from "@/lib/social-data";
 
@@ -323,7 +324,19 @@ export function MomentProvider({ children }: { children: ReactNode }) {
   const archivingRef = useRef(new Set<string>());
 
   const load = useCallback(async () => {
-    const { data: auth } = await supabase.auth.getUser();
+    const { data: auth, error: authError } = await supabase.auth.getUser();
+    if (authError) {
+      if (isAuthSessionMissing(authError)) {
+        uidRef.current = null;
+        setMoments([]);
+        setLoading(false);
+        return;
+      }
+      console.error("Failed to load the signed-in user for moments", authError);
+      toast.error("Couldn't load moments. Please try again.");
+      setLoading(false);
+      return;
+    }
     const uid = auth.user?.id ?? null;
     uidRef.current = uid;
     if (!uid) {
@@ -332,11 +345,17 @@ export function MomentProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const { data: rows } = await supabase
+    const { data: rows, error: momentsError } = await supabase
       .from("moments")
       .select("*")
       .order("created_at", { ascending: false })
       .limit(200);
+    if (momentsError) {
+      console.error("Failed to load moments", momentsError);
+      toast.error("Couldn't load moments. Please try again.");
+      setLoading(false);
+      return;
+    }
 
     const list = (rows ?? []) as unknown as DbMoment[];
     if (!list.length) {
@@ -348,11 +367,20 @@ export function MomentProvider({ children }: { children: ReactNode }) {
     const ids = list.map((r) => r.id);
     const authorIds = [...new Set(list.map((r) => r.user_id))];
 
-    const [{ data: views }, { data: replies }, { data: profiles }] = await Promise.all([
+    const [viewsResult, repliesResult, profilesResult] = await Promise.all([
       supabase.from("moment_views").select("*").in("moment_id", ids),
       supabase.from("moment_replies").select("*").in("moment_id", ids),
       supabase.rpc("get_public_profiles", { ids: authorIds }),
     ]);
+    const relatedError =
+      viewsResult.error ?? repliesResult.error ?? profilesResult.error;
+    if (relatedError) {
+      console.error("Failed to load moment details", relatedError);
+      toast.error("Some moment details couldn't be loaded.");
+    }
+    const views = viewsResult.data;
+    const replies = repliesResult.data;
+    const profiles = profilesResult.data;
 
     const profileById = new Map(
       ((profiles ?? []) as { id: string; username: string | null; display_name?: string | null; avatar_url: string | null }[]).map(
@@ -450,7 +478,11 @@ export function MomentProvider({ children }: { children: ReactNode }) {
       .in("id", ids)
       .then(({ error }) => {
         ids.forEach((id) => archivingRef.current.delete(id));
-        if (error) void load();
+        if (error) {
+          console.error("Automatic moment archive failed", error);
+          toast.error("Couldn't archive an expired moment.");
+          void load();
+        }
       });
   }, [moments, now, load]);
 
@@ -503,6 +535,7 @@ export function MomentProvider({ children }: { children: ReactNode }) {
                   : m.onUploadProgress,
               );
             } catch (e) {
+              console.error("Moment media upload failed", e);
               toast.error(
                 e instanceof Error ? e.message : "Couldn't upload this moment's media",
               );
@@ -525,6 +558,7 @@ export function MomentProvider({ children }: { children: ReactNode }) {
                   : undefined,
               );
             } catch (e) {
+              console.error("Moment music upload failed", e);
               toast.error(e instanceof Error ? e.message : "Couldn't upload the moment song");
               musicUrl = undefined;
             }
@@ -555,6 +589,7 @@ export function MomentProvider({ children }: { children: ReactNode }) {
           });
           setMoments((p) => p.filter((x) => x.id !== tempId));
           if (error) {
+            console.error("Moment database insert failed", error);
             toast.error(error.message);
             return { error: error.message };
           }
@@ -567,10 +602,24 @@ export function MomentProvider({ children }: { children: ReactNode }) {
         setMoments((p) => p.filter((m) => m.id !== id));
         void (async () => {
           // Remove child rows first so the delete never fails on FK constraints
-          await supabase.from("moment_replies").delete().eq("moment_id", id);
-          await supabase.from("moment_views").delete().eq("moment_id", id);
+          const repliesResult = await supabase
+            .from("moment_replies")
+            .delete()
+            .eq("moment_id", id);
+          const viewsResult = await supabase
+            .from("moment_views")
+            .delete()
+            .eq("moment_id", id);
+          const childError = repliesResult.error ?? viewsResult.error;
+          if (childError) {
+            console.error("Failed to remove moment activity", childError);
+            toast.error("Couldn't delete this moment.");
+            await load();
+            return;
+          }
           const { error } = await supabase.from("moments").delete().eq("id", id);
           if (error) {
+            console.error("Moment deletion failed", error);
             toast.error("Couldn't delete this moment");
             await load(); // restore truthful state
             return;
@@ -580,11 +629,29 @@ export function MomentProvider({ children }: { children: ReactNode }) {
       },
       archiveMoment: (id) => {
         patch(id, (m) => ({ ...m, archived: true }));
-        void supabase.from("moments").update({ archived: true }).eq("id", id);
+        void supabase
+          .from("moments")
+          .update({ archived: true })
+          .eq("id", id)
+          .then(({ error }) => {
+            if (!error) return;
+            console.error("Moment archive failed", error);
+            toast.error("Couldn't archive this moment.");
+            patch(id, (m) => ({ ...m, archived: false }));
+          });
       },
       restoreMoment: (id) => {
         patch(id, (m) => ({ ...m, archived: false }));
-        void supabase.from("moments").update({ archived: false }).eq("id", id);
+        void supabase
+          .from("moments")
+          .update({ archived: false })
+          .eq("id", id)
+          .then(({ error }) => {
+            if (!error) return;
+            console.error("Moment restore failed", error);
+            toast.error("Couldn't restore this moment.");
+            patch(id, (m) => ({ ...m, archived: true }));
+          });
       },
       addReply: async (id, text) => {
         const uid = uidRef.current;
@@ -597,20 +664,29 @@ export function MomentProvider({ children }: { children: ReactNode }) {
         const { error } = await supabase
           .from("moment_replies")
           .insert({ moment_id: id, user_id: uid, text: body });
-        if (error) return { error: error.message };
+          if (error) {
+            console.error("Moment reply failed", error);
+            toast.error("Couldn't send your reply.");
+            void load();
+            return { error: error.message };
+          }
 
         // Deliver the reply to the moment owner's chat inbox as a real DM.
         const target = moments.find((m) => m.id === id);
         const ownerId = target?.author?.id;
         if (ownerId && ownerId !== uid) {
           const threadId = dmThreadId(uid, ownerId);
-          await supabase.from("direct_messages").insert({
+          const { error: messageError } = await supabase.from("direct_messages").insert({
             thread_id: threadId,
             sender_id: uid,
             content: body,
             media_url: target?.media ?? null,
             media_type: "text",
           });
+          if (messageError) {
+            console.error("Moment reply chat delivery failed", messageError);
+            toast.error("Reply saved, but chat delivery failed.");
+          }
         }
         return { error: null };
       },
@@ -621,7 +697,18 @@ export function MomentProvider({ children }: { children: ReactNode }) {
         votes[option] += 1;
         const poll = { ...target.poll, votes, myVote: option };
         patch(id, (m) => ({ ...m, poll }));
-        if (target.mine) void supabase.from("moments").update({ poll }).eq("id", id);
+        if (target.mine) {
+          void supabase
+            .from("moments")
+            .update({ poll })
+            .eq("id", id)
+            .then(({ error }) => {
+              if (!error) return;
+              console.error("Moment poll update failed", error);
+              toast.error("Couldn't save your vote.");
+              void load();
+            });
+        }
       },
       registerScreenshot: (id) => {
         const uid = uidRef.current;
@@ -631,7 +718,12 @@ export function MomentProvider({ children }: { children: ReactNode }) {
           .upsert(
             { moment_id: id, viewer_id: uid, screenshot: true },
             { onConflict: "moment_id,viewer_id" },
-          );
+          )
+          .then(({ error }) => {
+            if (!error) return;
+            console.error("Moment screenshot registration failed", error);
+            toast.error("Couldn't record the screenshot alert.");
+          });
       },
       registerView: (id, liked) => {
         const uid = uidRef.current;
@@ -641,7 +733,12 @@ export function MomentProvider({ children }: { children: ReactNode }) {
           .upsert(
             { moment_id: id, viewer_id: uid, ...(liked === undefined ? {} : { liked }) },
             { onConflict: "moment_id,viewer_id" },
-          );
+          )
+          .then(({ error }) => {
+            if (!error) return;
+            console.error("Moment view registration failed", error);
+            toast.error("Couldn't update this moment.");
+          });
       },
       reload: load,
     }),

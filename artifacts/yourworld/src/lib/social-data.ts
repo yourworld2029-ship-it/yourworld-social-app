@@ -287,7 +287,11 @@ export async function publishReel(opts: {
   viewerUserIds?: string[];
   onProgress?: (percent: number) => void;
 }): Promise<{ error: string | null }> {
-  const { data: sessionData } = await supabase.auth.getSession();
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError) {
+    console.error("Could not authorize reel publishing", sessionError);
+    return { error: sessionError.message };
+  }
   const uid = sessionData.session?.user.id;
   if (!uid) return { error: "You need to sign in to post a reel." };
 
@@ -306,9 +310,13 @@ export async function publishReel(opts: {
         blob.type || "video/mp4",
         opts.onProgress,
       );
-      if (upErr || !url) return { error: upErr ?? "Upload failed" };
+      if (upErr || !url) {
+        console.error("Reel storage upload failed", upErr);
+        return { error: upErr ?? "Upload failed" };
+      }
       mediaUrl = url;
     } catch (e) {
+      console.error("Reel upload preparation failed", e);
       return { error: e instanceof Error ? e.message : "Upload failed" };
     }
   } else {
@@ -330,7 +338,8 @@ export async function publishReel(opts: {
     tagged_user_ids: opts.taggedUserIds ?? [],
     viewer_user_ids: opts.viewerUserIds ?? [],
   }, { kind: "type" });
-  if (!error) rememberLocalMedia(mediaUrl, opts.fileUrl);
+  if (error) console.error("Reel database insert failed", error);
+  else rememberLocalMedia(mediaUrl, opts.fileUrl);
   return { error: error?.message ?? null };
 }
 
@@ -345,7 +354,11 @@ export async function publishPost(opts: {
   audience?: "everyone" | "close_friends";
   onProgress?: (percent: number) => void;
 }): Promise<{ error: string | null }> {
-  const { data: sessionData } = await supabase.auth.getSession();
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError) {
+    console.error("Could not authorize post publishing", sessionError);
+    return { error: sessionError.message };
+  }
   const uid = sessionData.session?.user.id;
   if (!uid) return { error: "You need to sign in to create a post." };
 
@@ -364,9 +377,13 @@ export async function publishPost(opts: {
         type,
         opts.onProgress,
       );
-      if (upErr || !url) return { error: upErr ?? "Upload failed" };
+      if (upErr || !url) {
+        console.error("Post storage upload failed", upErr);
+        return { error: upErr ?? "Upload failed" };
+      }
       mediaUrl = url;
     } catch (e) {
+      console.error("Post upload preparation failed", e);
       return { error: e instanceof Error ? e.message : "Upload failed" };
     }
   } else {
@@ -386,7 +403,8 @@ export async function publishPost(opts: {
     tagged_user_ids: [],
     viewer_user_ids: [],
   }, { kind: "type" });
-  if (!error) rememberLocalMedia(mediaUrl, opts.fileUrl);
+  if (error) console.error("Post database insert failed", error);
+  else rememberLocalMedia(mediaUrl, opts.fileUrl);
   return { error: error?.message ?? null };
 }
 
@@ -556,7 +574,7 @@ export function useThreadMessages(threadId: string, opts: { staleTime?: number }
       window.removeEventListener("online", resync);
       if (channel) void supabase.removeChannel(channel);
     };
-  }, [threadId, load]);
+  }, [threadId, load, staleTime]);
 
   const send = useCallback(
     async (payload: { content?: string; media_url?: string | null; media_type?: string }) => {

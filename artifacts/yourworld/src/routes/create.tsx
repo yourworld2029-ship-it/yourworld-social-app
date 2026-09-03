@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
-  ArrowLeft, Play, Pause, Scissors, Gauge, Volume2,
-  Sparkles, Captions, Trash2, Copy, RotateCw,
-  Music, Type, Smile, Sliders, Download, Undo2, Redo2, Crop, SplitSquareHorizontal,
+  ArrowLeft, Play, Pause, Scissors, Gauge,
+  Sparkles, Trash2, Copy,
+  Music, Type, Smile, Sliders, Undo2, Redo2, Crop, SplitSquareHorizontal,
   PictureInPicture2, Upload,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -79,7 +79,7 @@ const fmtSec = (s: number) => {
 };
 
 
-export function CreateStudioPage() {
+function CreateStudioPage() {
   const navigate = useNavigate();
   const { mode } = Route.useSearch();
   const { startUpload } = useUploads();
@@ -371,7 +371,7 @@ export function CreateStudioPage() {
   const currentClip = clips[activeClipIndex];
 
   // Real-time Property Updation (selected clip only)
-  const updateCurrentClip = (key: keyof ClipItem, val: any) => {
+  const updateCurrentClip = <K extends keyof ClipItem>(key: K, val: ClipItem[K]) => {
     setClips((prev) =>
       prev.map((c, i) => (i === activeClipIndex ? { ...c, [key]: val } : c)),
     );
@@ -427,7 +427,7 @@ export function CreateStudioPage() {
       const p = stagePct(ev);
       const dx = p.x - origin.x;
       const dy = p.y - origin.y;
-      let next = { ...box };
+      const next = { ...box };
       if (mode === "move") {
         next.x = clamp(box.x + dx, 0, 100 - box.w);
         next.y = clamp(box.y + dy, 0, 100 - box.h);
@@ -622,7 +622,7 @@ export function CreateStudioPage() {
       v.removeEventListener("ended", advanceClip);
       v.removeEventListener("loadedmetadata", seek);
     };
-  }, [activeClipIndex, currentClip?.trimStart, currentClip?.trimEnd, currentClip?.url, advanceClip]);
+  }, [activeClipIndex, currentClip, advanceClip]);
 
   // Split the SELECTED clip at the playhead into two trimmed clips
   // Keep the library music block playing in sync with the video playhead
@@ -654,7 +654,7 @@ export function CreateStudioPage() {
       v.removeEventListener("pause", onPause);
       a.pause();
     };
-  }, [audioTrack?.url, audioTrack?.start, audioTrack?.clipStart, audioTrack?.clipEnd, activeClipIndex]);
+  }, [audioTrack, activeClipIndex]);
 
   const handleSplit = () => {
     const v = videoRef.current;
@@ -722,7 +722,7 @@ export function CreateStudioPage() {
     if (id === "EFFECT")
       return updateCurrentClip("filter", currentClip?.filter === "vivid" ? "none" : "vivid");
     if (id === "PIP") {
-      const v = videoRef.current as any;
+      const v = videoRef.current;
       if (document.pictureInPictureElement) void document.exitPictureInPicture();
       else if (v?.requestPictureInPicture) void v.requestPictureInPicture().catch(() => toast.error("Picture-in-picture unavailable"));
       else toast.error("Picture-in-picture unavailable");

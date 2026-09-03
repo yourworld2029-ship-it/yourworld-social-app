@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { isAuthSessionMissing } from "@/lib/auth-errors";
+import { toast } from "sonner";
 
 /**
  * Real post interactions: saves (bookmarks), view counting and deletion.
@@ -11,11 +13,22 @@ const viewed = new Set<string>();
 /** Count a view once per session per post. */
 export async function registerPostView(postId: string) {
   if (viewed.has(postId)) return;
-  viewed.add(postId);
-  const { data } = await supabase.auth.getUser();
+  const { data, error: authError } = await supabase.auth.getUser();
+  if (authError) {
+    if (isAuthSessionMissing(authError)) return;
+    console.error("Unable to authorize post view", authError);
+    throw authError;
+  }
   const uid = data.user?.id;
   if (!uid) return; // views are only logged for signed-in users
-  await supabase.from("post_views").insert({ post_id: postId, viewer_id: uid });
+  const { error } = await supabase
+    .from("post_views")
+    .insert({ post_id: postId, viewer_id: uid });
+  if (error) {
+    console.error("Unable to register post view", error);
+    throw error;
+  }
+  viewed.add(postId);
 }
 
 /** Permanently delete my own post. */
@@ -30,14 +43,32 @@ export function usePostSaves() {
   const meRef = useRef<string | null>(null);
 
   const load = useCallback(async () => {
-    const { data: auth } = await supabase.auth.getUser();
+    const { data: auth, error: authError } = await supabase.auth.getUser();
+    if (authError) {
+      if (isAuthSessionMissing(authError)) {
+        meRef.current = null;
+        setSaved({});
+        return;
+      }
+      console.error("Unable to load saved posts", authError);
+      toast.error("Couldn't load saved posts.");
+      return;
+    }
     const me = auth.user?.id ?? null;
     meRef.current = me;
     if (!me) {
       setSaved({});
       return;
     }
-    const { data } = await supabase.from("post_saves").select("post_id").eq("user_id", me);
+    const { data, error } = await supabase
+      .from("post_saves")
+      .select("post_id")
+      .eq("user_id", me);
+    if (error) {
+      console.error("Unable to load saved posts", error);
+      toast.error("Couldn't load saved posts.");
+      return;
+    }
     const next: Record<string, boolean> = {};
     for (const row of data ?? []) next[row.post_id] = true;
     setSaved(next);
@@ -71,6 +102,7 @@ export function usePostSaves() {
         )
       : await supabase.from("post_saves").delete().eq("post_id", postId).eq("user_id", me);
     if (error) {
+      console.error("Unable to update saved post", error);
       setSaved((prev) => ({ ...prev, [postId]: !next }));
       throw error;
     }

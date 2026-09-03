@@ -1,4 +1,3 @@
-import React from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { Video, Radio, Film, X } from "lucide-react";
 

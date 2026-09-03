@@ -120,7 +120,7 @@ function LightTimelineBase({
   totalDuration,
   playFraction,
   isPlaying,
-  audioLabel,
+  audioLabel: _audioLabel,
   onAddAudio,
   isMuted,
   onToggleMute,

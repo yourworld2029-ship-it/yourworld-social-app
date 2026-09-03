@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { Video, VideoOff, Mic, MicOff, PhoneOff, SwitchCamera, Zap, ZapOff } from 'lucide-react';
 
 interface VideoCallSheetProps {
@@ -8,20 +7,27 @@ interface VideoCallSheetProps {
   targetUserId: string;
 }
 
-export const VideoCallSheet: React.FC<VideoCallSheetProps> = ({ isOpen, onClose, targetUserId }) => {
+type AudioContextWindow = typeof window & {
+  webkitAudioContext?: typeof AudioContext;
+};
+
+export const VideoCallSheet: React.FC<VideoCallSheetProps> = ({ isOpen, onClose, targetUserId: _targetUserId }) => {
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [isFlashOn, setIsFlashOn] = useState(false);
   const localVideoRef = useRef<HTMLVideoElement>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // Simple ringtone sound generator
   useEffect(() => {
     if (!isOpen) return;
     
     // Play Ringtone logic using Web Audio API (No external file needed)
-    const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const browserWindow = window as AudioContextWindow;
+    const AudioContextConstructor =
+      browserWindow.AudioContext ?? browserWindow.webkitAudioContext;
+    if (!AudioContextConstructor) return;
+    const audioCtx = new AudioContextConstructor();
     let isPlaying = true;
 
     const playRingtone = async () => {
@@ -37,7 +43,7 @@ export const VideoCallSheet: React.FC<VideoCallSheetProps> = ({ isOpen, onClose,
           osc.start();
           osc.stop(audioCtx.currentTime + 1.5);
           await new Promise(r => setTimeout(r, 3000));
-        } catch (e) {
+        } catch {
           break;
         }
       }
@@ -87,10 +93,10 @@ export const VideoCallSheet: React.FC<VideoCallSheetProps> = ({ isOpen, onClose,
     if (track) {
       try {
         await track.applyConstraints({
-          advanced: [{ torch: !isFlashOn }] as any
+          advanced: [{ torch: !isFlashOn } as unknown as MediaTrackConstraintSet],
         });
         setIsFlashOn(!isFlashOn);
-      } catch (err) {
+      } catch {
         console.warn("Flashlight not supported.");
       }
     }

@@ -244,7 +244,6 @@ function ReelItem({
   mediaType?: string;
   onDbLike?: () => void;
 }) {
-  if (!author) return null;
   const user = author;
   const { saved, following, toggleSave, toggleFollow } = useYw();
   const { burst, onDoubleTap } = useDoubleTapLike(reel.id);
@@ -394,6 +393,7 @@ function ReelItem({
   };
 
   const handleDownload = async () => {
+    if (!user) return;
     try {
       await downloadWithWatermark(reel.poster, user.username, `yw-reel-${reel.id}.jpg`);
       toast.success("Downloaded in original quality with YW watermark");
@@ -401,6 +401,8 @@ function ReelItem({
       toast.error("Download failed");
     }
   };
+
+  if (!user) return null;
 
   return (
     <>

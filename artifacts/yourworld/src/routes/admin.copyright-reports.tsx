@@ -274,5 +274,3 @@ function AdminCopyrightReports() {
     </div>
   );
 }
-
-export default AdminCopyrightReports;

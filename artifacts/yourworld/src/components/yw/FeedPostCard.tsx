@@ -21,6 +21,7 @@ import { useYw } from "@/lib/yw-store";
 import { downloadWithWatermark } from "@/lib/yw-download";
 import { cn } from "@/lib/utils";
 import { PremiumVideoPlayer } from "@/components/yw/PremiumVideoPlayer";
+import { STORAGE_BUCKETS } from "@/lib/storage-upload";
 
 function FeedPostCardBase({
   post,
@@ -49,13 +50,19 @@ function FeedPostCardBase({
 
   useEffect(() => {
     let alive = true;
-    void resolveMediaUrl(post.media_url, "reels").then((u) => {
-      if (alive) setSrc(u);
-    });
+    const bucket =
+      post.kind === "reel" ? STORAGE_BUCKETS.reels : STORAGE_BUCKETS.videos;
+    void resolveMediaUrl(post.media_url, bucket)
+      .then((u) => {
+        if (alive) setSrc(u);
+      })
+      .catch((error) => {
+        console.error("Failed to resolve post media", error);
+      });
     return () => {
       alive = false;
     };
-  }, [post.media_url]);
+  }, [post.kind, post.media_url]);
 
   // Real view counting — once the card has actually been seen.
   useEffect(() => {

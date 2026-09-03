@@ -1,4 +1,3 @@
-import React from "react";
 import { Link, useLocation } from "@tanstack/react-router";
 import { Home, Film, MessageSquare, User, Plus } from "lucide-react";
 
