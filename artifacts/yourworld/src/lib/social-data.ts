@@ -409,6 +409,7 @@ export async function reportSocialUser(reporterId: string, reportedUserId: strin
 /** Uploads a rendered reel and inserts it into the posts table (kind = "reel"). */
 export async function publishReel(opts: {
   fileUrl: string;
+  file?: Blob | null;
   caption?: string;
   hashtags?: string[];
   audio?: string | null;
@@ -442,7 +443,7 @@ export async function publishReel(opts: {
   // Blob/object URLs must be uploaded to storage first.
   if (/^(blob:|data:)/.test(opts.fileUrl)) {
     try {
-      const blob = await (await fetch(opts.fileUrl)).blob();
+      const blob = opts.file ?? await (await fetch(opts.fileUrl)).blob();
       const uploadBlob = await optimizeVideoBlob(
         blob,
         (percent, detail) => opts.onProgress?.(Math.round(percent * 0.45), detail),
@@ -498,6 +499,7 @@ export async function publishReel(opts: {
 /** Uploads a photo/video and inserts it into the posts table (kind = "post"). */
 export async function publishPost(opts: {
   fileUrl: string;
+  file?: Blob | null;
   mediaType: "image" | "video";
   caption?: string;
   hashtags?: string[];
@@ -518,7 +520,7 @@ export async function publishPost(opts: {
 
   if (/^(blob:|data:)/.test(opts.fileUrl)) {
     try {
-      const blob = await (await fetch(opts.fileUrl)).blob();
+      const blob = opts.file ?? await (await fetch(opts.fileUrl)).blob();
       const type = blob.type || (opts.mediaType === "video" ? "video/mp4" : "image/jpeg");
       const uploadBlob = opts.mediaType === "video"
         ? await optimizeVideoBlob(

@@ -6,6 +6,7 @@ export type ProgressFn = (percent: number, detail?: string) => void;
 
 /** Supabase recommends 6 MiB TUS chunks for reliable resumable uploads. */
 export const TUS_CHUNK_SIZE_BYTES = 6 * 1024 * 1024;
+export const RESUMABLE_UPLOAD_THRESHOLD_BYTES = 25 * 1024 * 1024;
 
 export const STORAGE_BUCKETS = {
   videos: "videos",
@@ -84,12 +85,18 @@ function uploadTus(
       chunkSize: TUS_CHUNK_SIZE_BYTES,
       uploadDataDuringCreation: true,
       removeFingerprintOnSuccess: true,
-      retryDelays: [0, 1000, 3000, 5000, 10000],
+      // Initial request + two retries = three attempts per failed chunk.
+      retryDelays: [1_000, 3_000],
       onProgress: (bytesSent, bytesTotal) => {
         const percent = bytesTotal
           ? Math.min(99, Math.floor((bytesSent / bytesTotal) * 100))
           : 0;
-        onProgress?.(percent);
+        const totalChunks = Math.max(1, Math.ceil(bytesTotal / TUS_CHUNK_SIZE_BYTES));
+        const completedChunks = Math.min(totalChunks, Math.ceil(bytesSent / TUS_CHUNK_SIZE_BYTES));
+        const chunkLabel = bytesTotal > RESUMABLE_UPLOAD_THRESHOLD_BYTES
+          ? `Chunk ${completedChunks}/${totalChunks}`
+          : undefined;
+        onProgress?.(percent, chunkLabel);
       },
       onSuccess: () => {
         onProgress?.(100);

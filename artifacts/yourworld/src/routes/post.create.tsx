@@ -34,6 +34,7 @@ function PostCreatePage() {
   const navigate = useNavigate();
   const { startUpload } = useUploads();
   const fileInput = useRef<HTMLInputElement | null>(null);
+  const selectedFileRef = useRef<File | null>(null);
 
   const [fileUrl, setFileUrl] = useState<string | null>(null);
   const [mediaType, setMediaType] = useState<"image" | "video">("image");
@@ -61,6 +62,7 @@ function PostCreatePage() {
       return;
     }
     setMediaType(isVideo ? "video" : "image");
+    selectedFileRef.current = file;
     setFileUrl(URL.createObjectURL(file));
   };
 
@@ -79,6 +81,7 @@ function PostCreatePage() {
       (onProgress) =>
         publishPost({
           fileUrl,
+          file: selectedFileRef.current,
           mediaType,
           caption,
           hashtags,

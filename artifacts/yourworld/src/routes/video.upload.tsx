@@ -42,6 +42,7 @@ function VideoUploadPage() {
   const navigate = useNavigate();
   const { startUpload } = useUploads();
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const selectedFileRef = useRef<File | null>(null);
   const videoInput = useRef<HTMLInputElement | null>(null);
   const thumbInput = useRef<HTMLInputElement | null>(null);
 
@@ -79,6 +80,7 @@ function VideoUploadPage() {
       return;
     }
     const url = URL.createObjectURL(file);
+    selectedFileRef.current = file;
     setFileUrl(url);
     setThumb(null);
     setDuration(null);
@@ -143,6 +145,7 @@ function VideoUploadPage() {
       (onProgress) =>
         publishLongVideo({
           fileUrl,
+           file: selectedFileRef.current,
           thumbnailUrl: thumb,
           title,
           description,

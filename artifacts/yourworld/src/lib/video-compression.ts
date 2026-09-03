@@ -1,11 +1,9 @@
 import type { ProgressFn } from "@/lib/storage-upload";
 
-/** Leave headroom below Supabase's 50 MB single-object limit. */
-export const MAX_OPTIMIZED_VIDEO_BYTES = 45 * 1024 * 1024;
-const TARGET_VIDEO_BYTES = 42 * 1024 * 1024;
 const OPTIMIZING_LABEL = "Optimizing Video for Ultra-Fast Upload...";
+const MAX_PRESERVED_DIMENSION = 3_840;
 
-type VideoMetadata = {
+export type VideoMetadata = {
   width: number;
   height: number;
   duration: number;
@@ -21,12 +19,12 @@ function supportedMimeType() {
   return candidates.find((type) => MediaRecorder.isTypeSupported(type)) ?? null;
 }
 
-function readMetadata(blobUrl: string): Promise<VideoMetadata> {
-  return new Promise((resolve, reject) => {
+export function readVideoMetadata(blobUrl: string): Promise<VideoMetadata | null> {
+  return new Promise((resolve) => {
     const video = document.createElement("video");
     let timeout: ReturnType<typeof setTimeout> | null = setTimeout(() => {
       cleanup();
-      reject(new Error("Video metadata timed out. Try a shorter video."));
+      resolve(null);
     }, 15_000);
     const cleanup = () => {
       if (timeout) clearTimeout(timeout);
@@ -50,7 +48,7 @@ function readMetadata(blobUrl: string): Promise<VideoMetadata> {
         !video.videoHeight
       ) {
         cleanup();
-        reject(new Error("Could not read video duration."));
+        resolve(null);
         return;
       }
       const metadata = { width: video.videoWidth, height: video.videoHeight, duration };
@@ -59,7 +57,7 @@ function readMetadata(blobUrl: string): Promise<VideoMetadata> {
     };
     video.onerror = () => {
       cleanup();
-      reject(new Error("Could not decode this video on your device."));
+      resolve(null);
     };
     video.src = blobUrl;
   });
@@ -70,10 +68,28 @@ function even(value: number) {
 }
 
 function outputSize(metadata: VideoMetadata) {
-  const scale = Math.min(1, 1920 / Math.max(metadata.width, metadata.height));
+  const scale = Math.min(
+    1,
+    MAX_PRESERVED_DIMENSION / Math.max(metadata.width, metadata.height),
+  );
   return {
     width: even(metadata.width * scale),
     height: even(metadata.height * scale),
+  };
+}
+
+function targetBitrates(metadata: VideoMetadata) {
+  const maxDimension = Math.max(metadata.width, metadata.height);
+  const videoBitsPerSecond =
+    maxDimension <= 1_920
+      ? 8_000_000
+      : maxDimension <= 2_560
+        ? 16_000_000
+        : 35_000_000;
+  return {
+    videoBitsPerSecond,
+    audioBitsPerSecond: 192_000,
+    totalBitsPerSecond: videoBitsPerSecond + 192_000,
   };
 }
 
@@ -107,16 +123,9 @@ function encodeVideo(
       return;
     }
 
-    const totalBits = TARGET_VIDEO_BYTES * 8 * bitrateFactor;
-    const totalBitsPerSecond = totalBits / metadata.duration;
-    const audioBitsPerSecond = Math.min(
-      128_000,
-      Math.max(64_000, Math.floor(totalBitsPerSecond * 0.12)),
-    );
-    const videoBitsPerSecond = Math.max(
-      48_000,
-      Math.min(12_000_000, Math.floor(totalBitsPerSecond - audioBitsPerSecond)),
-    );
+    const target = targetBitrates(metadata);
+    const audioBitsPerSecond = Math.floor(target.audioBitsPerSecond * bitrateFactor);
+    const videoBitsPerSecond = Math.floor(target.videoBitsPerSecond * bitrateFactor);
     const tracks = [
       ...captureStream.getVideoTracks(),
       ...(sourceStream?.getAudioTracks() ?? []),
@@ -126,7 +135,7 @@ function encodeVideo(
     try {
       recorder = new MediaRecorder(output, {
         mimeType,
-        videoBitsPerSecond,
+        videoBitsPerSecond: Math.max(48_000, videoBitsPerSecond),
         audioBitsPerSecond,
       });
     } catch {
@@ -190,37 +199,54 @@ function encodeVideo(
 }
 
 /**
- * Re-encodes video through a hardware-accelerated browser media pipeline when
- * available. The canvas keeps the source at up to 1080p while MediaRecorder
- * bounds bitrate and includes the source audio track.
+ * Best-effort adaptive compression. It only re-encodes a source when its
+ * measured bitrate is materially above a resolution-appropriate target.
+ * 1080p, 2K, and 4K sources keep their native dimensions; sources above 4K
+ * may be reduced to 4K so the result remains crisp without uploading waste.
+ *
+ * This is never an upload-size gate. If metadata, codecs, or device resources
+ * are unavailable, the original Blob is returned and TUS uploads it directly.
  */
 export async function optimizeVideoBlob(
   source: Blob,
   onProgress?: ProgressFn,
 ): Promise<Blob> {
   if (!source.type.startsWith("video/")) return source;
-  const mimeType = supportedMimeType();
-  if (!mimeType) {
-    if (source.size < MAX_OPTIMIZED_VIDEO_BYTES) return source;
-    throw new Error("This browser cannot optimize videos larger than 45 MB.");
-  }
-
   const sourceUrl = URL.createObjectURL(source);
+  let metadata: VideoMetadata | null = null;
   try {
-    const metadata = await readMetadata(sourceUrl);
-    const factors = [1, 0.72, 0.5];
+    metadata = await readVideoMetadata(sourceUrl);
+  } finally {
+    URL.revokeObjectURL(sourceUrl);
+  }
+  if (!metadata) return source;
+
+  const target = targetBitrates(metadata);
+  const sourceBitsPerSecond = (source.size * 8) / metadata.duration;
+  const shouldCompress = sourceBitsPerSecond > target.totalBitsPerSecond * 1.15;
+  if (!shouldCompress) return source;
+
+  const mimeType = supportedMimeType();
+  if (!mimeType) return source;
+
+  const encodeUrl = URL.createObjectURL(source);
+  try {
+    const factors = [1, 0.82, 0.68];
     for (const factor of factors) {
-      const optimized = await encodeVideo(sourceUrl, metadata, mimeType, factor, (percent) =>
+      const optimized = await encodeVideo(encodeUrl, metadata, mimeType, factor, (percent) =>
         onProgress?.(percent, `${OPTIMIZING_LABEL} ${percent}%`),
       );
-      if (optimized.size < MAX_OPTIMIZED_VIDEO_BYTES) {
+      if (optimized.size < source.size * 0.9) {
         onProgress?.(100, `${OPTIMIZING_LABEL} 100%`);
         return optimized;
       }
     }
-    throw new Error("Could not reduce this video below the 45 MB upload limit.");
+    return source;
+  } catch (error) {
+    console.warn("Adaptive video compression unavailable; uploading the original source.", error);
+    return source;
   } finally {
-    URL.revokeObjectURL(sourceUrl);
+    URL.revokeObjectURL(encodeUrl);
   }
 }
 

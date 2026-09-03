@@ -93,7 +93,9 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           result = await runner((p, detail) =>
             patch(id, {
               progress: p,
-              status: detail || p >= 100 ? "processing" : "uploading",
+              status: detail?.toLowerCase().includes("optim") || p >= 100
+                ? "processing"
+                : "uploading",
               detail: detail ?? null,
             }),
           );
@@ -183,7 +185,7 @@ function UploadProgressStack() {
                   : t.status === "done"
                     ? t.label
                     : t.detail
-                      ? t.detail
+                      ? `${t.progress}% · ${t.detail}`
                     : t.status === "processing"
                       ? "Finishing up…"
                       : `${t.progress}% · ${t.label}`}

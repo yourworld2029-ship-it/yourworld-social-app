@@ -55,6 +55,7 @@ export const Route = createFileRoute("/create")({
 interface ClipItem {
   id: string;
   url: string;
+  file?: Blob;
   speed: number;
   speedRamp?: "constant" | "up" | "down";
   rotation: number;
@@ -266,6 +267,7 @@ function CreateStudioPage() {
       (onProgress) =>
         publishReel({
           fileUrl: uploadUrl,
+          file: exportedUrl ? null : clip?.file,
           caption,
           hashtags: meta.hashtags,
           location: meta.location,
@@ -460,6 +462,7 @@ function CreateStudioPage() {
      const newClips: ClipItem[] = files.map((f, i) => ({
       id: `c_${Date.now()}_${i}`,
       url: URL.createObjectURL(f),
+       file: f,
       speed: 1,
       speedRamp: "constant",
       rotation: 0,

@@ -192,14 +192,16 @@ export async function resolveLongVideoUrl(url: string): Promise<string> {
 }
 
 async function uploadToStorage(
-  blobUrl: string,
+  source: Blob | string,
   uid: string,
   ext: string,
   fallbackType: string,
   onProgress?: ProgressFn,
 ): Promise<string | null> {
   try {
-    const blob = await (await fetch(blobUrl)).blob();
+    const blob = typeof source === "string"
+      ? await (await fetch(source)).blob()
+      : source;
     const uploadBlob = blob.type.startsWith("video/")
       ? await optimizeVideoBlob(blob, (percent, detail) =>
           onProgress?.(Math.round(percent * 0.45), detail),
@@ -235,6 +237,7 @@ const BRAND_PROMO_HINTS = [
 
 export async function publishLongVideo(opts: {
   fileUrl: string;
+  file?: Blob | null;
   thumbnailUrl?: string | null;
   title: string;
   description?: string;
@@ -259,7 +262,7 @@ export async function publishLongVideo(opts: {
   let mediaUrl = opts.fileUrl;
   if (/^(blob:|data:)/.test(mediaUrl)) {
     // Reserve the last few percent for the thumbnail + database write.
-    const up = await uploadToStorage(mediaUrl, uid, "mp4", "video/mp4", (p) =>
+    const up = await uploadToStorage(opts.file ?? mediaUrl, uid, "mp4", "video/mp4", (p) =>
       opts.onProgress?.(Math.min(97, Math.round(p * 0.97))),
     );
     if (!up) return { error: "Video upload failed. Please try again." };
