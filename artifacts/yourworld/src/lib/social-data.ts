@@ -8,6 +8,12 @@ import { flagChatMessage } from "@/lib/chat-compliance";
 import type { User } from "@/lib/yw-data";
 import { missingColumn, normalizePostRow, postKind, writeCompat } from "@/lib/supabase-compat";
 import { registerUniqueView } from "@/lib/unique-views";
+import {
+  MAX_REEL_DURATION_MESSAGE,
+  MAX_REEL_DURATION_SECONDS,
+  MIN_REEL_DURATION_MESSAGE,
+  MIN_REEL_DURATION_SECONDS,
+} from "@/lib/reel-editor";
 
 const liveSocialTable = (
   client: typeof supabase,
@@ -406,6 +412,7 @@ export async function publishReel(opts: {
   audience?: "everyone" | "close_friends";
   taggedUserIds?: string[];
   viewerUserIds?: string[];
+  durationSeconds?: number;
   onProgress?: ProgressFn;
 }): Promise<{ error: string | null }> {
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
@@ -415,6 +422,12 @@ export async function publishReel(opts: {
   }
   const uid = sessionData.session?.user.id;
   if (!uid) return { error: "You need to sign in to post a reel." };
+  if (opts.durationSeconds != null && opts.durationSeconds < MIN_REEL_DURATION_SECONDS) {
+    return { error: MIN_REEL_DURATION_MESSAGE };
+  }
+  if (opts.durationSeconds != null && opts.durationSeconds > MAX_REEL_DURATION_SECONDS) {
+    return { error: MAX_REEL_DURATION_MESSAGE };
+  }
 
   let mediaUrl = opts.fileUrl;
 
