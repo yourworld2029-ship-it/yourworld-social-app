@@ -78,7 +78,7 @@ export async function resolveLongVideoUrl(url: string): Promise<string> {
   const local = getLocalMedia(url);
   if (local) return local;
   if (/^(https?:|blob:|data:)/.test(url)) return url;
-  return resolveMediaUrl(url, "reels");
+  return resolveMediaUrl(url, "videos");
 }
 
 async function uploadToStorage(
@@ -92,7 +92,7 @@ async function uploadToStorage(
     const blob = await (await fetch(blobUrl)).blob();
     const path = `${uid}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
     const { url } = await uploadWithProgress(
-      "reels",
+      "videos",
       path,
       blob,
       blob.type || fallbackType,
