@@ -7,6 +7,7 @@ import { optimizeVideoBlob } from "@/lib/video-compression";
 import { flagChatMessage } from "@/lib/chat-compliance";
 import type { User } from "@/lib/yw-data";
 import { missingColumn, normalizePostRow, postKind, writeCompat } from "@/lib/supabase-compat";
+import { registerUniqueView } from "@/lib/unique-views";
 
 const liveSocialTable = (
   client: typeof supabase,
@@ -159,11 +160,15 @@ export async function loadSocialPosts(
   const ids = posts.map((p) => p.id);
   const authorIds = [...new Set(posts.map((p) => p.user_id))];
 
-  const [{ data: profiles }, { data: likes }, { data: comments }] = await Promise.all([
+  const [profilesResult, likesResult, commentsResult] = await Promise.all([
     client.rpc("get_public_profiles", { ids: authorIds }),
     liveSocialTable(client, "likes").select("post_id,user_id").in("post_id", ids),
     liveSocialTable(client, "comments").select("post_id").in("post_id", ids),
   ]);
+  const { data: profiles } = profilesResult;
+  const { data: likes, error: likesError } = likesResult;
+  const { data: comments } = commentsResult;
+  if (likesError) console.error(`Unable to load ${kind} likes`, likesError);
 
   const profileById = new Map(
     ((profiles ?? []) as DbProfile[]).map((p) => [p.id, p]),
@@ -191,6 +196,8 @@ export function useSocialPosts(kind: "post" | "reel") {
   // While the user is interacting we keep the optimistic state and skip
   // realtime refetches so the UI never flickers back to the old value.
   const muteUntil = useRef(0);
+  const pendingLikes = useRef(new Set<string>());
+  const viewedRef = useRef(new Set<string>());
 
   const load = useCallback(async () => {
     if (Date.now() < muteUntil.current) return;
@@ -227,7 +234,9 @@ export function useSocialPosts(kind: "post" | "reel") {
 
   const toggleLike = useCallback(
     async (postId: string) => {
-      if (!me) return;
+      if (!me) throw new Error("Sign in required");
+      if (pendingLikes.current.has(postId)) return;
+      pendingLikes.current.add(postId);
       muteUntil.current = Date.now() + 1500;
       let wasLiked = false;
       // optimistic, instant
@@ -235,27 +244,67 @@ export function useSocialPosts(kind: "post" | "reel") {
         prev.map((r) => {
           if (r.id !== postId) return r;
           wasLiked = !!r.likedByMe;
-          return { ...r, likedByMe: !r.likedByMe, likeCount: r.likeCount + (r.likedByMe ? -1 : 1) };
+           return {
+             ...r,
+             likedByMe: !r.likedByMe,
+             likeCount: Math.max(0, r.likeCount + (r.likedByMe ? -1 : 1)),
+           };
         }),
       );
-      if (wasLiked) {
-        const { error } = await liveSocialTable(supabase, "likes").delete().eq("post_id", postId).eq("user_id", me);
-        if (error) {
-          await load();
-          throw error;
+      try {
+        if (wasLiked) {
+          const { error } = await liveSocialTable(supabase, "likes").delete().eq("post_id", postId).eq("user_id", me);
+          if (error) {
+            throw error;
+          }
+        } else {
+          const { error } = await liveSocialTable(supabase, "likes").upsert(
+            { post_id: postId, user_id: me },
+            { onConflict: "post_id,user_id", ignoreDuplicates: true },
+          );
+          if (error) {
+            throw error;
+          }
         }
-      } else {
-        const { error } = await liveSocialTable(supabase, "likes").upsert(
-          { post_id: postId, user_id: me },
-          { onConflict: "post_id,user_id", ignoreDuplicates: true },
+      } catch (error) {
+        // Realtime reloads are muted briefly after a tap. Roll back directly
+        // so an RLS/network failure can never leave a false optimistic like.
+        setRows((prev) =>
+          prev.map((row) => {
+            if (row.id !== postId) return row;
+            const optimisticLiked = row.likedByMe;
+            return {
+              ...row,
+              likedByMe: wasLiked,
+              likeCount: Math.max(
+                0,
+                row.likeCount + (optimisticLiked === wasLiked ? 0 : wasLiked ? 1 : -1),
+              ),
+            };
+          }),
         );
-        if (error) {
-          await load();
-          throw error;
-        }
+        throw error;
+      } finally {
+        pendingLikes.current.delete(postId);
       }
     },
-    [me, load],
+    [me],
+  );
+
+  const countView = useCallback(
+    async (postId: string) => {
+      if (viewedRef.current.has(postId)) return false;
+      const counted = await registerUniqueView(postId, kind);
+      if (!counted) return false;
+      viewedRef.current.add(postId);
+      setRows((prev) =>
+        prev.map((row) =>
+          row.id === postId ? { ...row, views: (row.views ?? 0) + 1 } : row,
+        ),
+      );
+      return true;
+    },
+    [kind],
   );
 
   /** Optimistically bump a post's comment count (call when a comment is posted). */
@@ -270,7 +319,15 @@ export function useSocialPosts(kind: "post" | "reel") {
     );
   }, []);
 
-  return { posts: rows, loading, currentUserId: me, toggleLike, bumpComment, reload: load };
+  return {
+    posts: rows,
+    loading,
+    currentUserId: me,
+    toggleLike,
+    countView,
+    bumpComment,
+    reload: load,
+  };
 }
 
 export type DbMessage = {

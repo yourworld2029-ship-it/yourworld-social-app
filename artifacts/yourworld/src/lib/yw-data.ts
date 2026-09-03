@@ -135,6 +135,7 @@ export type Reel = {
   commentCount: number;
   shares: number;
   allowDownload: boolean;
+  views?: number;
 };
 
 export const reels: Reel[] = [

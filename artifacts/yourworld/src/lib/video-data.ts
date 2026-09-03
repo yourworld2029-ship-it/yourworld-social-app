@@ -12,6 +12,7 @@ import { optimizeVideoBlob } from "@/lib/video-compression";
 import { sampleVideoFrames } from "@/lib/video-frames";
 import { scanVideoContent, type ModerationVerdict } from "@/lib/moderation.functions";
 import { missingColumn, normalizePostRow, postKind, writeCompat } from "@/lib/supabase-compat";
+import { registerUniqueView } from "@/lib/unique-views";
 
 
 export const VIDEO_CATEGORIES = [
@@ -453,20 +454,15 @@ export function useLongVideos() {
     };
   }, [load]);
 
-  // Track posts this user already viewed in this session so re-watches
-  // never hit the database (and never bump the counter) again.
+  // Avoid duplicate requests in this tab; the database RPC is still the
+  // authoritative cross-tab/device uniqueness guard.
   const viewedRef = useRef(new Set<string>());
 
   const countView = useCallback(async (id: string) => {
     if (viewedRef.current.has(id)) return; // one view per user, not per watch
+    const counted = await registerUniqueView(id, "video");
+    if (!counted) return;
     viewedRef.current.add(id);
-    const { data: sessionData } = await supabase.auth.getSession();
-    const uid = sessionData.session?.user.id;
-    if (!uid) return; // views are only logged for signed-in users
-    const { error } = await supabase.from("post_views").insert({ post_id: id, viewer_id: uid });
-    // 23505 = unique violation: this user already viewed this post before,
-    // so the DB rejected the duplicate and the counter must not move.
-    if (error) return;
     setVideos((prev) => prev.map((v) => (v.id === id ? { ...v, views: v.views + 1 } : v)));
   }, []);
 
@@ -478,7 +474,11 @@ export function useLongVideos() {
         prev.map((v) => {
           if (v.id !== id) return v;
           wasLiked = v.likedByMe;
-          return { ...v, likedByMe: !v.likedByMe, likeCount: v.likeCount + (v.likedByMe ? -1 : 1) };
+           return {
+             ...v,
+             likedByMe: !v.likedByMe,
+             likeCount: Math.max(0, v.likeCount + (v.likedByMe ? -1 : 1)),
+           };
         }),
       );
       const { error } = wasLiked
@@ -491,7 +491,11 @@ export function useLongVideos() {
         setVideos((prev) =>
           prev.map((v) =>
             v.id === id
-              ? { ...v, likedByMe: wasLiked, likeCount: v.likeCount + (wasLiked ? 1 : -1) }
+               ? {
+                   ...v,
+                   likedByMe: wasLiked,
+                   likeCount: Math.max(0, v.likeCount + (wasLiked ? 1 : -1)),
+                 }
               : v,
           ),
         );

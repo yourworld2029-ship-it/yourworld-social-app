@@ -34,7 +34,7 @@ function FeedPostCardBase({
 }: {
   post: SocialPost;
   currentUserId: string | null;
-  onToggleLike: (id: string) => void;
+  onToggleLike: (id: string) => void | Promise<unknown>;
   isSaved?: boolean;
   onToggleSave?: (id: string) => void | Promise<unknown>;
   onDeleted?: (id: string) => void;
@@ -64,6 +64,10 @@ function FeedPostCardBase({
     };
   }, [post.kind, post.media_url]);
 
+  useEffect(() => {
+    setViews(post.views ?? 0);
+  }, [post.views]);
+
   // Real view counting — once the card has actually been seen.
   useEffect(() => {
     const el = cardRef.current;
@@ -72,16 +76,29 @@ function FeedPostCardBase({
       (entries) => {
         if (entries.some((e) => e.isIntersecting && e.intersectionRatio > 0.6)) {
           io.disconnect();
-          void registerPostView(post.id)
-            .then(() => setViews((v) => v + 1))
-            .catch(() => {});
+          const contentType = post.kind === "reel"
+            ? "reel"
+            : post.media_type === "video"
+              ? "video"
+              : "post";
+          void registerPostView(post.id, contentType)
+            .then((counted) => {
+              if (counted) setViews((v) => v + 1);
+            })
+            .catch((error) => console.error("Unable to register feed view", error));
         }
       },
       { threshold: [0.6] },
     );
     io.observe(el);
     return () => io.disconnect();
-  }, [post.id]);
+  }, [post.id, post.kind, post.media_type]);
+
+  const handleLike = () => {
+    void Promise.resolve(onToggleLike(post.id)).catch((error) => {
+      toast.error(error instanceof Error ? error.message : "Couldn't update like");
+    });
+  };
 
   const isMine = currentUserId === post.user_id;
   const isFollowing = !!following[post.user_id];
@@ -201,7 +218,7 @@ function FeedPostCardBase({
         </div>
 
         <div className="absolute bottom-7 right-3 z-30 flex flex-col items-center gap-5 text-white">
-          <button onClick={() => onToggleLike(post.id)} aria-label="Like" className="flex w-12 flex-col items-center gap-1 drop-shadow active:scale-90">
+          <button onClick={handleLike} aria-label="Like" className="flex w-12 flex-col items-center gap-1 drop-shadow active:scale-90">
             <Heart size={28} strokeWidth={2.2} className={post.likedByMe ? "fill-pink-500 text-pink-500" : "text-white"} />
             <span className="text-[11px] font-bold">{formatCount(post.likeCount)}</span>
           </button>
@@ -325,7 +342,7 @@ function FeedPostCardBase({
         <div className="flex items-center justify-between pt-1">
           <div className="flex items-center gap-4">
             <button
-              onClick={() => onToggleLike(post.id)}
+              onClick={handleLike}
               aria-label="Like"
               className="transition-transform active:scale-75"
             >

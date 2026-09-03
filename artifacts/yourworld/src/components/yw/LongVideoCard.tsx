@@ -31,8 +31,8 @@ import { getAdjacentVideo, warmVideo, type QueueItem } from "@/lib/video-queue";
 
 type Props = {
   video: LongVideo;
-  onView: (id: string) => void;
-  onLike: (id: string) => void;
+  onView: (id: string) => void | Promise<unknown>;
+  onLike: (id: string) => void | Promise<unknown>;
   currentUserId?: string | null;
   isSaved?: boolean;
   onToggleSave?: (id: string) => void | Promise<unknown>;
@@ -93,7 +93,10 @@ export function LongVideoCard({
     setPlaying(true);
     if (!counted.current) {
       counted.current = true;
-      onView(video.id);
+      void Promise.resolve(onView(video.id)).catch((error) => {
+        counted.current = false;
+        console.error("Unable to register long-video view", error);
+      });
     }
   };
 

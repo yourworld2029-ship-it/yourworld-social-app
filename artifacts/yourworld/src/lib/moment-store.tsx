@@ -17,6 +17,7 @@ import { missingTable, writeCompat } from "@/lib/supabase-compat";
 import { getRegisteredBlob } from "@/lib/blob-registry";
 import { dmThreadId } from "@/lib/social-data";
 import { optimizeVideoBlob } from "@/lib/video-compression";
+import { registerUniqueView } from "@/lib/unique-views";
 
 
 export type MomentKind = "photo" | "video" | "text";
@@ -152,6 +153,13 @@ type DbLike = {
   moment_id: string;
   user_id: string;
   created_at: string;
+};
+
+type DbUniqueView = {
+  user_id: string;
+  content_id: string;
+  content_type: string;
+  viewed_at: string;
 };
 
 type MomentDbResult = {
@@ -447,7 +455,7 @@ export function MomentProvider({ children }: { children: ReactNode }) {
     const ids = list.map((r) => r.id);
     const authorIds = [...new Set(list.map((r) => r.user_id))];
 
-    const [viewsResult, repliesResult, likesResult, profilesResult] = await Promise.all([
+    const [viewsResult, repliesResult, likesResult, profilesResult, uniqueViewsResult] = await Promise.all([
       usesPostsFallback
         ? Promise.resolve({ data: [] as DbView[], error: null })
         : supabase.from("moment_views").select("*").in("moment_id", ids),
@@ -456,6 +464,11 @@ export function MomentProvider({ children }: { children: ReactNode }) {
         : supabase.from("moment_replies").select("*").in("moment_id", ids),
       momentDb.from("moment_likes").select("moment_id,user_id,created_at").in("moment_id", ids),
       supabase.rpc("get_public_profiles", { ids: authorIds }),
+      momentDb
+        .from("unique_views")
+        .select("user_id,content_id,content_type,viewed_at")
+        .in("content_id", ids)
+        .eq("content_type", "moment"),
     ]);
     let likes = (likesResult.data ?? []) as DbLike[];
     let likesError = likesResult.error;
@@ -479,7 +492,11 @@ export function MomentProvider({ children }: { children: ReactNode }) {
       likesError = legacyLikes.error;
     }
     const relatedError =
-      viewsResult.error ?? repliesResult.error ?? likesError ?? profilesResult.error;
+      viewsResult.error ??
+      repliesResult.error ??
+      likesError ??
+      profilesResult.error ??
+      (missingTable(uniqueViewsResult.error, "unique_views") ? null : uniqueViewsResult.error);
     if (relatedError) {
       console.error("Failed to load moment details", relatedError);
       toast.error("Some moment details couldn't be loaded.");
@@ -487,6 +504,9 @@ export function MomentProvider({ children }: { children: ReactNode }) {
     const views = viewsResult.data;
     const replies = repliesResult.data;
     const profiles = profilesResult.data;
+    const uniqueViews = missingTable(uniqueViewsResult.error, "unique_views")
+      ? []
+      : (uniqueViewsResult.data ?? []) as DbUniqueView[];
 
     const profileById = new Map(
       ((profiles ?? []) as { id: string; username: string | null; display_name?: string | null; avatar_url: string | null }[]).map(
@@ -507,6 +527,15 @@ export function MomentProvider({ children }: { children: ReactNode }) {
         row,
         [
           ...((views ?? []) as DbView[]),
+          ...uniqueViews
+            .filter((view) => view.content_id === row.id && view.content_type === "moment")
+            .map((view) => ({
+              moment_id: row.id,
+              viewer_id: view.user_id,
+              liked: false,
+              screenshot: false,
+              created_at: view.viewed_at,
+            })),
           ...likes
             .filter((like) => like.moment_id === row.id)
             .map((like) => ({
@@ -565,6 +594,7 @@ export function MomentProvider({ children }: { children: ReactNode }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "moment_views" }, queueReload)
       .on("postgres_changes", { event: "*", schema: "public", table: "moment_replies" }, queueReload)
       .on("postgres_changes", { event: "*", schema: "public", table: "moment_likes" }, queueReload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "unique_views" }, queueReload)
       .on("postgres_changes", { event: "*", schema: "public", table: "posts" }, queueReload)
       .subscribe();
     const { data: sub } = supabase.auth.onAuthStateChange(() => void load());
@@ -958,12 +988,23 @@ export function MomentProvider({ children }: { children: ReactNode }) {
             return;
           }
 
-          const { error } = await supabase
-            .from("moment_views")
-            .upsert({ moment_id: id, viewer_id: uid }, { onConflict: "moment_id,viewer_id" });
-          if (!error || missingTable(error, "moment_views")) return;
-          console.error("Moment view registration failed", error);
-          toast.error("Couldn't update this moment.");
+          try {
+            const counted = await registerUniqueView(id, "moment");
+            if (!counted) return;
+            patch(id, (moment) => {
+              if (moment.viewers.some((viewer) => viewer.userId === uid)) return moment;
+              return {
+                ...moment,
+                viewers: [
+                  ...moment.viewers,
+                  { userId: uid, at: Date.now(), liked: false, screenshot: false },
+                ],
+              };
+            });
+          } catch (error) {
+            console.error("Moment view registration failed", error);
+            toast.error("Couldn't update this moment.");
+          }
         })();
       },
       reload: load,

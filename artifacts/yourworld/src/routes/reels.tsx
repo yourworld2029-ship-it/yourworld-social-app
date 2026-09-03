@@ -11,6 +11,7 @@ import {
   Lock,
   MoreVertical,
   EyeOff,
+  Eye,
   UserX,
   Flag,
   VolumeX,
@@ -60,7 +61,13 @@ function ReelsPage() {
 function ReelsList() {
   const [active, setActive] = useState(0);
   const nodes = useRef<(HTMLElement | null)[]>([]);
-  const { posts: dbReels, toggleLike: toggleDbLike } = useSocialPosts("reel");
+  const {
+    posts: dbReels,
+    toggleLike: toggleDbLike,
+    countView,
+    currentUserId,
+  } = useSocialPosts("reel");
+  const viewedRef = useRef(new Set<string>());
 
   const live = dbReels.map((p) => ({
     reel: {
@@ -71,6 +78,7 @@ function ReelsList() {
       hashtags: p.hashtags ?? [],
       audio: p.audio ?? "original audio",
       likes: p.likeCount,
+      views: p.views ?? 0,
       commentCount: p.commentCount,
       shares: 0,
       allowDownload: p.allow_download,
@@ -82,6 +90,16 @@ function ReelsList() {
   }));
 
   const items = live;
+
+  useEffect(() => {
+    const reel = dbReels[active];
+    if (!reel || viewedRef.current.has(reel.id) || !currentUserId) return;
+    void countView(reel.id)
+      .then((counted) => {
+        if (counted) viewedRef.current.add(reel.id);
+      })
+      .catch((error) => console.error("Unable to register reel view", error));
+  }, [active, countView, currentUserId, dbReels]);
 
   useEffect(() => {
     const io = new IntersectionObserver(
@@ -119,7 +137,7 @@ function ReelsList() {
               likedByMe={likedByMe}
               mediaUrl={mediaUrl}
               mediaType={mediaType}
-              onDbLike={() => void toggleDbLike(reel.id)}
+              onDbLike={() => toggleDbLike(reel.id)}
             />
           ) : null}
         </section>
@@ -242,7 +260,7 @@ function ReelItem({
   likedByMe?: boolean;
   mediaUrl?: string;
   mediaType?: string;
-  onDbLike?: () => void;
+  onDbLike?: () => void | Promise<unknown>;
 }) {
   const user = author;
   const { saved, following, toggleSave, toggleFollow } = useYw();
@@ -253,6 +271,7 @@ function ReelItem({
   const lastTap = useRef(0);
   const isLiked = !!likedByMe;
   const isSaved = !!saved[reel.id];
+  const [liking, setLiking] = useState(false);
 
   // ---- playback timeline -------------------------------------------------
   const [progress, setProgress] = useState(0); // 0..1
@@ -402,6 +421,18 @@ function ReelItem({
     }
   };
 
+  const handleLike = async () => {
+    if (!onDbLike || liking) return;
+    setLiking(true);
+    try {
+      await onDbLike();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't update like");
+    } finally {
+      setLiking(false);
+    }
+  };
+
   if (!user) return null;
 
   return (
@@ -502,7 +533,7 @@ function ReelItem({
 
       <div className="absolute bottom-14 right-2 flex flex-col items-center gap-2.5">
         <Action
-          onClick={() => onDbLike?.()}
+          onClick={() => void handleLike()}
           label={formatCount(reel.likes)}
           active={isLiked}
         >
@@ -510,6 +541,10 @@ function ReelItem({
             strokeWidth={1.8}
             className={cn("h-[18px] w-[18px]", isLiked && "fill-primary text-primary")}
           />
+        </Action>
+
+        <Action label={`${formatCount(reel.views ?? 0)} views`}>
+          <Eye strokeWidth={1.8} className="h-[18px] w-[18px]" />
         </Action>
 
         <CommentsSheet

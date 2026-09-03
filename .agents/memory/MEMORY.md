@@ -4,3 +4,4 @@
 - [Supabase project identity](supabase-project-identity.md) — treat Replit Secrets as authoritative; management connections may target a different project.
 - [Supabase schema drift](supabase-schema-drift.md) — preserve live data by adapting app writes to reported missing columns instead of resetting or blindly migrating.
 - [Reel editor performance](reel-editor-performance.md) — keep thumbnail generation source-keyed and off the trim-drag hot path; use worker encoding with a local fallback.
+- [Unique interaction counting](unique-interaction-counting.md) — use one database-enforced key per user/content/type and an atomic insert-before-increment RPC for views.

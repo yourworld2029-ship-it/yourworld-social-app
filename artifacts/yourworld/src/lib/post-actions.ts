@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { isAuthSessionMissing } from "@/lib/auth-errors";
+import { registerUniqueView, type ViewContentType } from "@/lib/unique-views";
 
 /**
  * Real post interactions: saves (bookmarks), view counting and deletion.
@@ -9,25 +10,24 @@ import { isAuthSessionMissing } from "@/lib/auth-errors";
 
 const viewed = new Set<string>();
 
-/** Count a view once per session per post. */
-export async function registerPostView(postId: string) {
-  if (viewed.has(postId)) return;
+/** Count one authenticated user's unique view for this content. */
+export async function registerPostView(
+  postId: string,
+  contentType: ViewContentType = "post",
+): Promise<boolean> {
+  const key = `${contentType}:${postId}`;
+  if (viewed.has(key)) return false;
   const { data, error: authError } = await supabase.auth.getUser();
   if (authError) {
-    if (isAuthSessionMissing(authError)) return;
+    if (isAuthSessionMissing(authError)) return false;
     console.error("Unable to authorize post view", authError);
     throw authError;
   }
   const uid = data.user?.id;
-  if (!uid) return; // views are only logged for signed-in users
-  const { error } = await supabase
-    .from("post_views")
-    .insert({ post_id: postId, viewer_id: uid });
-  if (error) {
-    console.error("Unable to register post view", error);
-    throw error;
-  }
-  viewed.add(postId);
+  if (!uid) return false;
+  const counted = await registerUniqueView(postId, contentType);
+  if (counted) viewed.add(key);
+  return counted;
 }
 
 /** Permanently delete my own post. */
