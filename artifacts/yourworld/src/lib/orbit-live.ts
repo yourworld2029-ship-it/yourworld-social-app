@@ -442,8 +442,12 @@ export async function uploadOrbitMedia(file: File): Promise<string | null> {
     console.error("[orbit] media upload failed", error.message);
     return null;
   }
-  const { data } = await supabase.storage
+  const { data, error: signError } = await supabase.storage
     .from(ORBIT_BUCKET)
     .createSignedUrl(path, ORBIT_SIGN_SECONDS);
+  if (signError) {
+    console.error("[orbit] media signing failed", signError.message);
+    return null;
+  }
   return data?.signedUrl ?? null;
 }

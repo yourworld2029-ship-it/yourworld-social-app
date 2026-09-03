@@ -10,7 +10,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { uploadWithProgress } from "@/lib/storage-upload";
+import { STORAGE_BUCKETS, uploadWithProgress } from "@/lib/storage-upload";
 import { getRegisteredBlob } from "@/lib/blob-registry";
 import { dmThreadId } from "@/lib/social-data";
 
@@ -266,7 +266,7 @@ async function uploadMomentMedia(uid: string, src: string, mediaType?: string, p
       ? "png"
       : "jpg";
   const path = `${uid}/${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-  const { url, error } = await uploadWithProgress("moments", path, blob, type);
+  const { url, error } = await uploadWithProgress(STORAGE_BUCKETS.moments, path, blob, type);
   if (error && !url) throw new Error(error);
   // Store the storage path; every viewer signs their own short-lived URL.
   return path;
@@ -283,7 +283,10 @@ async function signMomentMedia(list: MyMoment[]) {
     ),
   ];
   if (!paths.length) return list;
-  const { data } = await supabase.storage.from("moments").createSignedUrls(paths, 60 * 60 * 6);
+  const { data, error } = await supabase.storage
+    .from(STORAGE_BUCKETS.moments)
+    .createSignedUrls(paths, 60 * 60 * 6);
+  if (error) throw new Error(`Moment media could not be opened: ${error.message}`);
   const byPath = new Map(
     (data ?? [])
       .filter((d) => d.signedUrl && d.path)

@@ -740,7 +740,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       // Durable ring: a row the callee's realtime subscription always receives,
       // so the incoming-call screen pops app-wide (WhatsApp / Instagram style).
       if (!isGuest) {
-        void supabase.from("calls").insert({
+        const { error } = await supabase.from("calls").insert({
           call_id: callId,
           caller_id: me,
           callee_id: target,
@@ -749,6 +749,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
           thread_id: threadId ?? null,
           status: "ringing",
         });
+        if (error) {
+          toast.error(`Call could not start: ${error.message}`);
+          teardown();
+          return;
+        }
       }
       void httpBroadcast(`calls-user-${target}`, "ring", ringPayload);
 
@@ -799,7 +804,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
     await openSignalChannel(call.callId, call.mode, false);
     signal({ type: "accept" });
     // Mark the durable row so the caller's devices stop ringing everywhere.
-    void supabase.from("calls").update({ status: "accepted" }).eq("call_id", call.callId);
+    const { error } = await supabase
+      .from("calls")
+      .update({ status: "accepted" })
+      .eq("call_id", call.callId);
+    if (error) {
+      toast.error(`Call could not connect: ${error.message}`);
+      teardown();
+    }
   }, [call, getMedia, createPeer, openSignalChannel, signal, teardown]);
 
 

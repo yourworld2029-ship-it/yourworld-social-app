@@ -7,7 +7,7 @@ import {
   timeAgo,
   type DbProfile,
 } from "@/lib/social-data";
-import { uploadWithProgress } from "@/lib/storage-upload";
+import { STORAGE_BUCKETS, uploadWithProgress } from "@/lib/storage-upload";
 import { sampleVideoFrames } from "@/lib/video-frames";
 import { scanVideoContent, type ModerationVerdict } from "@/lib/moderation.functions";
 import { missingColumn, normalizePostRow, postKind, writeCompat } from "@/lib/supabase-compat";
@@ -182,7 +182,7 @@ export async function resolveLongVideoUrl(url: string): Promise<string> {
   const local = getLocalMedia(url);
   if (local) return local;
   if (/^(https?:|blob:|data:)/.test(url)) return url;
-  return resolveMediaUrl(url, "reels");
+  return resolveMediaUrl(url, STORAGE_BUCKETS.videos);
 }
 
 async function uploadToStorage(
@@ -196,7 +196,7 @@ async function uploadToStorage(
     const blob = await (await fetch(blobUrl)).blob();
     const path = `${uid}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
     const { url } = await uploadWithProgress(
-      "reels",
+      STORAGE_BUCKETS.videos,
       path,
       blob,
       blob.type || fallbackType,
@@ -248,6 +248,7 @@ export async function publishLongVideo(opts: {
   let thumb = opts.thumbnailUrl ?? null;
   if (thumb && /^(blob:|data:)/.test(thumb)) {
     thumb = await uploadToStorage(thumb, uid, "jpg", "image/jpeg");
+    if (!thumb) return { error: "Thumbnail upload failed. Please try again." };
   }
 
   // Automated content scan (safety + brand/sponsorship detection) before publishing.

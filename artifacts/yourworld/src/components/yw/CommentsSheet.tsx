@@ -109,8 +109,14 @@ export function CommentsSheet({
 
   const send = () => {
     if (!draft.trim()) return;
-    void real.send(draft);
+    const text = draft;
     setDraft("");
+    void real.send(text).then((ok) => {
+      if (!ok) {
+        setDraft(text);
+        toast.error("Comment could not be posted");
+      }
+    });
   };
 
   const canModerate = real.isPostOwner;

@@ -1,9 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
 import { Check, Coins, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ChannelHeader } from "@/components/yw/ChannelHeader";
 import { formatCount, MONETIZATION, useChannelData } from "@/lib/channel-data";
+import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/channel/monetization")({
   head: () => ({
@@ -25,6 +27,7 @@ export const Route = createFileRoute("/channel/monetization")({
 
 function ChannelMonetization() {
   const { stats, loading, watchTimeError } = useChannelData();
+  const [applying, setApplying] = useState(false);
   const reqs = [
     {
       label: `${formatCount(MONETIZATION.minSubscribers)} subscribers`,
@@ -103,10 +106,35 @@ function ChannelMonetization() {
       <div className="px-4 pt-4">
         <Button
           className="h-11 w-full rounded-full"
-          disabled={loading || !!watchTimeError || !eligible}
-          onClick={() => toast.success("Monetization application submitted for review")}
+          disabled={loading || applying || !!watchTimeError || !eligible}
+          onClick={() => {
+            void (async () => {
+              setApplying(true);
+              try {
+                const { data } = await supabase.auth.getSession();
+                const uid = data.session?.user.id;
+                if (!uid) throw new Error("Sign in to apply for monetization");
+                const { error } = await supabase.from("creator_payout_details").upsert(
+                  { user_id: uid, monetization_eligible: true },
+                  { onConflict: "user_id" },
+                );
+                if (error) throw new Error(error.message);
+                toast.success("Monetization application submitted for review");
+              } catch (error) {
+                toast.error(error instanceof Error ? error.message : "Application failed");
+              } finally {
+                setApplying(false);
+              }
+            })();
+          }}
         >
-          {loading ? "Checking eligibility…" : eligible ? "Apply for monetization" : "Not eligible yet"}
+          {loading
+            ? "Checking eligibility…"
+            : applying
+              ? "Submitting…"
+              : eligible
+                ? "Apply for monetization"
+                : "Not eligible yet"}
         </Button>
       </div>
     </main>

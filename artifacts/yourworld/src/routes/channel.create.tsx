@@ -12,6 +12,8 @@ import {
   useChannel,
   type Channel,
 } from "@/lib/channel-store";
+import { supabase } from "@/integrations/supabase/client";
+import { STORAGE_BUCKETS, uploadWithProgress } from "@/lib/storage-upload";
 
 export const Route = createFileRoute("/channel/create")({
   head: () => ({
@@ -38,6 +40,9 @@ function ChannelCreate() {
   const { channel, hasChannel, saveChannel } = useChannel();
   const navigate = useNavigate();
   const [draft, setDraft] = useState<Channel>(channel ?? emptyChannel());
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [bannerFile, setBannerFile] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
   const logoInput = useRef<HTMLInputElement>(null);
   const bannerInput = useRef<HTMLInputElement>(null);
 
@@ -55,6 +60,8 @@ function ChannelCreate() {
       return;
     }
     set(key, URL.createObjectURL(file));
+    if (key === "logo") setLogoFile(file);
+    else setBannerFile(file);
   };
 
   const valid = draft.name.trim().length >= 2 && draft.handle.trim().length >= 3;
@@ -237,15 +244,42 @@ function ChannelCreate() {
           </Button>
           <Button
             className="h-11 rounded-full"
-            disabled={!valid}
+            disabled={!valid || saving}
             onClick={() => {
-              saveChannel({ ...draft, createdAt: channel?.createdAt ?? Date.now() });
-              toast.success(hasChannel ? "Channel updated" : "Channel created");
-              navigate({ to: "/channel" });
+              void (async () => {
+                setSaving(true);
+                try {
+                  const { data } = await supabase.auth.getSession();
+                  const uid = data.session?.user.id;
+                  if (!uid) throw new Error("Sign in to save your channel");
+                  const next = { ...draft };
+                  for (const [kind, file] of [["logo", logoFile], ["banner", bannerFile]] as const) {
+                    if (!file) continue;
+                    const ext = file.name.split(".").pop()?.replace(/[^a-z0-9]/gi, "") || "jpg";
+                    const uploaded = await uploadWithProgress(
+                      STORAGE_BUCKETS.channels,
+                      `${uid}/${kind}-${Date.now()}.${ext}`,
+                      file,
+                      file.type || "image/jpeg",
+                    );
+                    if (uploaded.error || !uploaded.url) {
+                      throw new Error(uploaded.error ?? `Channel ${kind} upload failed`);
+                    }
+                    next[kind] = uploaded.url;
+                  }
+                  saveChannel({ ...next, createdAt: channel?.createdAt ?? Date.now() });
+                  toast.success(hasChannel ? "Channel updated" : "Channel created");
+                  navigate({ to: "/channel" });
+                } catch (error) {
+                  toast.error(error instanceof Error ? error.message : "Could not save channel");
+                } finally {
+                  setSaving(false);
+                }
+              })();
             }}
           >
             <Sparkles className="mr-1.5 h-4 w-4" strokeWidth={1.8} />
-            {hasChannel ? "Save Changes" : "Create Channel"}
+            {saving ? "Uploading…" : hasChannel ? "Save Changes" : "Create Channel"}
           </Button>
         </div>
       </div>

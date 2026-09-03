@@ -24,6 +24,12 @@ import { useChatNames, saveChatDisplayName } from "@/lib/chat-names";
 import { useChatSettings } from "@/lib/chat-settings";
 import { hashPin, randomPinSalt, saveSecretChatLock } from "@/lib/secret-chats";
 import { PinDialog } from "@/components/yw/PinDialog";
+import { toast } from "sonner";
+import {
+  STORAGE_BUCKETS,
+  uploadSourceWithProgress,
+  uploadWithProgress,
+} from "@/lib/storage-upload";
 
 export const Route = createFileRoute("/_authenticated/chat/$threadId")({
   component: ChatThreadPage,
@@ -441,8 +447,25 @@ export function ChatThreadPage() {
       recorder.ondataavailable = (e) => chunks.push(e.data);
       recorder.onstop = () => {
         const blob = new Blob(chunks, { type: "audio/webm" });
-        const audioUrl = URL.createObjectURL(blob);
-        pushLocal({ audio: audioUrl, sender: "me" });
+        void (async () => {
+          if (!currentUserId) return;
+          const path = `${currentUserId}/${threadId}/voice-${Date.now()}.webm`;
+          const uploaded = await uploadWithProgress(
+            STORAGE_BUCKETS.voiceNotes,
+            path,
+            blob,
+            "audio/webm",
+          );
+          if (uploaded.error || !uploaded.url) {
+            toast.error(uploaded.error ?? "Voice note upload failed");
+            return;
+          }
+          const sent = await sendToDb({
+            media_url: uploaded.url,
+            media_type: "audio",
+          });
+          if (sent.error) toast.error(sent.error);
+        })();
         stream.getTracks().forEach((t) => t.stop());
       };
 
@@ -1168,11 +1191,26 @@ export function ChatThreadPage() {
             const filterCss = filters.find((f) => f.id === selectedFilter)?.css ?? "none";
             const finalImage = await renderPhoto(selectedImage, filterCss, overlays);
             if (currentUserId) {
-              void sendToDb({
-                media_url: finalImage,
+              const extension = finalImage.startsWith("data:image/png") ? "png" : "jpg";
+              const uploaded = await uploadSourceWithProgress(
+                STORAGE_BUCKETS.messages,
+                `${currentUserId}/${threadId}/image-${Date.now()}.${extension}`,
+                finalImage,
+                extension === "png" ? "image/png" : "image/jpeg",
+              );
+              if (uploaded.error || !uploaded.url) {
+                toast.error(uploaded.error ?? "Image upload failed");
+                return;
+              }
+              const sent = await sendToDb({
+                media_url: uploaded.url,
                 media_type: isViewOnce ? "image_once" : "image",
                 content: caption,
               });
+              if (sent.error) {
+                toast.error(sent.error);
+                return;
+              }
             } else {
               pushLocal({ image: finalImage, text: caption || undefined, sender: "me", viewOnce: isViewOnce });
             }

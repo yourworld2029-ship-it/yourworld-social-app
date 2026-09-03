@@ -84,9 +84,22 @@ export const emailPayoutInvoice = createServerFn({ method: "POST" })
       .parse(d),
   )
   .handler(async ({ data, context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const pdfBytes = Buffer.from(data.pdfBase64, "base64");
+    const { error: uploadError } = await supabaseAdmin.storage
+      .from("monetization")
+      .upload(
+        `${context.userId}/${data.statementId}-payout-statement.pdf`,
+        pdfBytes,
+        { contentType: "application/pdf", upsert: true },
+      );
+    if (uploadError) {
+      return { sent: false, reason: `Invoice storage failed: ${uploadError.message}` };
+    }
+
     const apiKey = process.env["RESEND_API_KEY"];
     if (!apiKey) {
-      return { sent: false, reason: "Email service is not connected yet." };
+      return { sent: false, reason: "Invoice saved. Email service is not connected yet." };
     }
 
     const res = await fetch("https://api.resend.com/emails", {
@@ -112,12 +125,14 @@ export const emailPayoutInvoice = createServerFn({ method: "POST" })
       return { sent: false, reason: "Could not send the invoice email." };
     }
 
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    await supabaseAdmin
+    const { error: statusError } = await supabaseAdmin
       .from("creator_payouts")
       .update({ email_sent: true, status: "paid" })
       .eq("id", data.payoutId)
       .eq("user_id", context.userId);
+    if (statusError) {
+      return { sent: false, reason: `Invoice sent, but payout status update failed: ${statusError.message}` };
+    }
 
     return { sent: true };
   });

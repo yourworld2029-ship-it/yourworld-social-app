@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { cacheGet, cacheSet } from "@/lib/local-cache";
 import { loadCachedThread, saveCachedThread, PAGE_SIZE } from "@/lib/chat-db";
-import { uploadWithProgress } from "@/lib/storage-upload";
+import { STORAGE_BUCKETS, uploadWithProgress } from "@/lib/storage-upload";
 import { flagChatMessage } from "@/lib/chat-compliance";
 import type { User } from "@/lib/yw-data";
 import { missingColumn, normalizePostRow, postKind, writeCompat } from "@/lib/supabase-compat";
@@ -300,7 +300,7 @@ export async function publishReel(opts: {
       const ext = blob.type.includes("webm") ? "webm" : "mp4";
       const path = `${uid}/${Date.now()}.${ext}`;
       const { url, error: upErr } = await uploadWithProgress(
-        "reels",
+        STORAGE_BUCKETS.reels,
         path,
         blob,
         blob.type || "video/mp4",
@@ -358,7 +358,7 @@ export async function publishPost(opts: {
       const ext = type.split("/")[1]?.split(";")[0] || (opts.mediaType === "video" ? "mp4" : "jpg");
       const path = `${uid}/post-${Date.now()}.${ext}`;
       const { url, error: upErr } = await uploadWithProgress(
-        "reels",
+        STORAGE_BUCKETS.videos,
         path,
         blob,
         type,
@@ -633,7 +633,7 @@ export function useThreadMessages(threadId: string, opts: { staleTime?: number }
     // Remove the underlying storage object when the media lived in a bucket.
     const url = row?.media_url;
     if (url && /^https?:/.test(url)) {
-      for (const bucket of ["chat-files", "reels"]) {
+      for (const bucket of [STORAGE_BUCKETS.messages, STORAGE_BUCKETS.voiceNotes]) {
         const path = storagePathFrom(url, bucket);
         if (path && path !== url) {
           await supabase.storage.from(bucket).remove([path]);
@@ -871,7 +871,7 @@ export function usePostComments(postId: string | null) {
 
   const send = useCallback(
     async (body: string) => {
-      if (!postId || !me || !body.trim()) return;
+      if (!postId || !me || !body.trim()) return false;
       const text = body.trim();
       const tempId = `tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       // Optimistic: show the comment instantly.
@@ -892,10 +892,12 @@ export function usePostComments(postId: string | null) {
       const { error } = await createPostComment(postId, me, text);
       if (error) {
         setComments((prev) => prev.filter((c) => c.id !== tempId));
+        return false;
       } else {
         // Replace the optimistic row with the real one (keeps order).
         void load();
       }
+      return true;
     },
     [postId, me, load],
   );

@@ -3,6 +3,18 @@ import { normalizeSupabaseProjectUrl } from "@/integrations/supabase/url";
 
 export type ProgressFn = (percent: number) => void;
 
+export const STORAGE_BUCKETS = {
+  videos: "videos",
+  reels: "reels",
+  moments: "moments",
+  voiceNotes: "voice_notes",
+  channels: "channels",
+  monetization: "monetization",
+  messages: "messages",
+  calls: "calls",
+  avatars: "avatars",
+} as const;
+
 const SUPABASE_URL = normalizeSupabaseProjectUrl(
   (import.meta.env?.["VITE_SUPABASE_URL"] as string | undefined) ?? "",
 );
@@ -76,4 +88,24 @@ export async function uploadWithProgress(
   }
   onProgress?.(100);
   return { url: signed.signedUrl, error: null };
+}
+
+export async function uploadSourceWithProgress(
+  bucket: string,
+  path: string,
+  source: string,
+  fallbackType: string,
+  onProgress?: ProgressFn,
+) {
+  try {
+    const response = await fetch(source);
+    if (!response.ok) return { url: null, error: "The selected media is no longer available." };
+    const blob = await response.blob();
+    return uploadWithProgress(bucket, path, blob, blob.type || fallbackType, onProgress);
+  } catch (error) {
+    return {
+      url: null,
+      error: error instanceof Error ? error.message : "Could not prepare media for upload.",
+    };
+  }
 }

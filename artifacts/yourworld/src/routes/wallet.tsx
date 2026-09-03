@@ -8,6 +8,7 @@ import { useAuth } from "@/lib/auth-store";
 import { computeBreakdown, inr, type GrossBySource } from "@/lib/payout-math";
 import { downloadPayoutPdf, payoutPdfBase64, type StatementInfo } from "@/lib/payout-pdf";
 import { emailPayoutInvoice, processPayout } from "@/lib/payouts.functions";
+import { postKind } from "@/lib/supabase-compat";
 
 export const Route = createFileRoute("/wallet")({
   head: () => ({
@@ -105,7 +106,7 @@ function WalletPage() {
             .eq("user_id", uid)
             .order("created_at", { ascending: false }),
           supabase.from("follow_counts").select("followers").eq("user_id", uid).maybeSingle(),
-          supabase.from("posts").select("kind, views, duration_seconds").eq("user_id", uid),
+          supabase.from("posts").select("*").eq("user_id", uid),
         ]);
       if (!alive) return;
       const next: GrossBySource = { ads: 0, course: 0, vip: 0 };
@@ -138,8 +139,9 @@ function WalletPage() {
       let reelViews = 0;
       for (const p of myPosts ?? []) {
         const views = Number(p.views ?? 0);
-        if (p.kind === "video") watchSeconds += views * Number(p.duration_seconds ?? 0);
-        else if (p.kind === "reel" || p.kind === "short") reelViews += views;
+        const kind = postKind(p);
+        if (kind === "video") watchSeconds += views * Number(p.duration_seconds ?? 0);
+        else if (kind === "reel") reelViews += views;
       }
       setStats({
         followers: Number(counts?.followers ?? 0),
