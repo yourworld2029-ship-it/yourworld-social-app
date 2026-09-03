@@ -83,6 +83,67 @@ const ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:global.stun.twilio.com:3478" },
 ];
 
+const AUDIO_CONSTRAINTS: MediaTrackConstraints = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+};
+
+function videoConstraints(facingMode: "user" | "environment", width: number, height: number, frameRate: number): MediaTrackConstraints {
+  return {
+    facingMode,
+    width: { ideal: width, max: width },
+    height: { ideal: height, max: height },
+    frameRate: { ideal: frameRate, max: frameRate },
+  };
+}
+
+function optimizeVideoSdp(sdp: string) {
+  const lines = sdp.split("\r\n");
+  const qualityPayloads = new Set<string>();
+  let inVideoSection = false;
+  let hasVideoBitrate = false;
+  const output: string[] = [];
+  for (const line of lines) {
+    if (line.startsWith("m=")) inVideoSection = line.startsWith("m=video ");
+    if (inVideoSection && line.startsWith("m=video ")) {
+      output.push(line);
+      output.push("b=AS:50000");
+      hasVideoBitrate = true;
+      continue;
+    }
+    if (inVideoSection && line.startsWith("a=rtpmap:")) {
+      const match = /^a=rtpmap:(\d+)\s+([^/]+)\//i.exec(line);
+      if (match && /^(VP8|VP9|H264)$/i.test(match[2])) {
+        qualityPayloads.add(match[1]);
+      }
+    }
+    if (inVideoSection && line.startsWith("b=")) {
+      if (line.startsWith("b=AS:")) {
+        if (!hasVideoBitrate) output.push("b=AS:50000");
+        hasVideoBitrate = true;
+      } else {
+        output.push(line);
+      }
+      continue;
+    }
+    if (inVideoSection && line.startsWith("a=fmtp:")) {
+      const match = /^a=fmtp:(\d+)\s*(.*)$/.exec(line);
+      if (match && qualityPayloads.has(match[1])) {
+        const params = match[2];
+        if (!params.includes("x-google-max-bitrate")) {
+          output.push(
+            `${line};x-google-start-bitrate=12000;x-google-min-bitrate=3000;x-google-max-bitrate=50000`,
+          );
+          continue;
+        }
+      }
+    }
+    output.push(line);
+  }
+  return output.join("\r\n");
+}
+
 type CallState = {
   callId: string;
   mode: CallMode;
@@ -227,11 +288,15 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const remoteVideo = useRef<HTMLVideoElement | null>(null);
   const remoteAudio = useRef<HTMLAudioElement | null>(null);
   const remoteStream = useRef<MediaStream | null>(null);
+  const remoteAudioMuted = useRef(false);
   const callRef = useRef<CallState | null>(null);
   const meRef = useRef<string | null>(null);
   const isGuestRef = useRef(true);
   /** Call ids we've already reacted to (broadcast + database ring paths). */
   const seenCalls = useRef<Set<string>>(new Set());
+  const signalCallIdRef = useRef<string | null>(null);
+  const signalReadyRef = useRef<Promise<void> | null>(null);
+  const openSignalChannelRef = useRef<((callId: string, mode: CallMode, isCaller: boolean) => Promise<void>) | null>(null);
   /** Remember handled call ids without growing the set forever. */
   const markSeen = useCallback((id: string) => {
     const set = seenCalls.current;
@@ -302,6 +367,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const toggleSpeaker = useCallback(() => {
     setSpeakerOn((on) => {
       const next = !on;
+      remoteAudioMuted.current = !next;
       if (remoteAudio.current) remoteAudio.current.muted = !next;
       if (remoteVideo.current) remoteVideo.current.muted = true; // video element stays silent; audio via <audio>
       return next;
@@ -345,6 +411,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
       void supabase.removeChannel(sigRef.current);
       sigRef.current = null;
     }
+    signalCallIdRef.current = null;
+    signalReadyRef.current = null;
     if (hideTimer.current) {
       window.clearTimeout(hideTimer.current);
       hideTimer.current = null;
@@ -361,6 +429,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
     setCall(null);
     setMicOn(true);
     setCamOn(true);
+    setSpeakerOn(true);
+    remoteAudioMuted.current = false;
     setFacingMode("user");
     setFlashOn(false);
     setSwapped(false);
@@ -401,16 +471,35 @@ export function CallProvider({ children }: { children: ReactNode }) {
       }
       if (remoteAudio.current) {
         remoteAudio.current.srcObject = remoteStream.current;
+        remoteAudio.current.muted = remoteAudioMuted.current;
         void remoteAudio.current.play().catch(() => {});
       }
     }
   }, []);
 
   const getMedia = useCallback(async (mode: CallMode) => {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: true,
-      video: mode === "video" ? { facingMode, width: { ideal: 1280 } } : false,
-    });
+    const videoProfiles = [
+      videoConstraints(facingMode, 3840, 2160, 60),
+      videoConstraints(facingMode, 1920, 1080, 60),
+      videoConstraints(facingMode, 1280, 720, 30),
+    ];
+    let stream: MediaStream | null = null;
+    let lastError: unknown = null;
+    for (const video of mode === "video" ? videoProfiles : [false]) {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: AUDIO_CONSTRAINTS,
+          video,
+        });
+        break;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    if (!stream) throw lastError ?? new Error("Unable to access camera and microphone");
+    for (const track of stream.getVideoTracks()) {
+      track.contentHint = "detail";
+    }
     localStream.current = stream;
     attachStreams();
     return stream;
@@ -432,11 +521,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
           .eq("id", c.callId)
           .eq("status", "ringing");
       }
+      signal({ type: "END_CALL", reason: "timeout" });
       stopAllRingtones();
       teardown();
     }, 45_000);
     return () => window.clearTimeout(t);
-  }, [phase, teardown]);
+  }, [phase, teardown, signal]);
 
   useEffect(() => { callRef.current = call; }, [call]);
   useEffect(() => { meRef.current = me; }, [me]);
@@ -496,6 +586,19 @@ export function CallProvider({ children }: { children: ReactNode }) {
       const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS, iceCandidatePoolSize: 4 });
       pcRef.current = pc;
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+      for (const sender of pc.getSenders()) {
+        if (sender.track?.kind !== "video") continue;
+        const parameters = sender.getParameters();
+        if (parameters.encodings?.length) {
+          parameters.encodings = parameters.encodings.map((encoding) => ({
+            ...encoding,
+            maxBitrate: 50_000_000,
+            maxFramerate: 60,
+            scaleResolutionDownBy: 1,
+          }));
+          void sender.setParameters(parameters).catch(() => {});
+        }
+      }
       pc.onicecandidate = (e) => {
         if (e.candidate) signal({ type: "ice", candidate: e.candidate.toJSON() });
       };
@@ -534,6 +637,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
           toast.error("Call connection failed");
           const c = callRef.current;
           if (c) {
+            signal({ type: "END_CALL", reason: "failed" });
             void callDb.from("calls")
               .update({ status: "ended", ended_at: new Date().toISOString() })
               .eq("id", c.callId);
@@ -558,8 +662,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   /* ---------- signalling channel for one call ---------- */
   const openSignalChannel = useCallback(
-    (callId: string, mode: CallMode, isCaller: boolean) =>
-      new Promise<void>((resolve) => {
+    (callId: string, mode: CallMode, isCaller: boolean) => {
+      if (signalCallIdRef.current === callId && signalReadyRef.current) {
+        return signalReadyRef.current;
+      }
+      const ready = new Promise<void>((resolve) => {
         void (async () => {
         const { data: sess } = await supabase.auth.getSession();
         await supabase.realtime.setAuth(sess.session?.access_token);
@@ -574,8 +681,15 @@ export function CallProvider({ children }: { children: ReactNode }) {
               setPhase("connecting");
               const stream = localStream.current ?? (await getMedia(mode));
               const peer = pcRef.current ?? createPeer(stream);
-              const offer = await peer.createOffer();
-              await peer.setLocalDescription(offer);
+              const offer = await peer.createOffer({
+                offerToReceiveAudio: true,
+                offerToReceiveVideo: mode === "video",
+              });
+              const optimizedOffer = {
+                ...offer,
+                sdp: optimizeVideoSdp(offer.sdp ?? ""),
+              };
+              await peer.setLocalDescription(optimizedOffer);
               signal({ type: "offer", sdp: peer.localDescription });
             } else if (payload.type === "offer" && !isCaller && !pc?.remoteDescription) {
               const remoteOffer = asSessionDescription(payload.sdp);
@@ -585,7 +699,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
               await peer.setRemoteDescription(new RTCSessionDescription(remoteOffer));
               await flushIce();
               const answer = await peer.createAnswer();
-              await peer.setLocalDescription(answer);
+              const optimizedAnswer = {
+                ...answer,
+                sdp: optimizeVideoSdp(answer.sdp ?? ""),
+              };
+              await peer.setLocalDescription(optimizedAnswer);
               signal({ type: "answer", sdp: peer.localDescription });
               setPhase("connecting");
             } else if (payload.type === "answer" && pc && !pc.remoteDescription) {
@@ -601,15 +719,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
               } else {
                 pendingIce.current.push(candidate);
               }
-            } else if (payload.type === "end") {
+            } else if (payload.type === "END_CALL") {
               stopAllRingtones();
-              toast.message("Call ended");
-              void logCallOutcome(connectedAt.current ? "answered" : "missed");
-              teardown();
-            } else if (payload.type === "decline") {
-              stopAllRingtones();
-              toast.message("Call declined");
-              void logCallOutcome("declined");
+              const reason = payload.reason === "rejected" || payload.reason === "declined";
+              toast.message(reason ? "Call declined" : "Call ended");
+              void logCallOutcome(reason ? "declined" : connectedAt.current ? "answered" : "missed");
               teardown();
             }
           } catch (err) {
@@ -657,10 +771,15 @@ export function CallProvider({ children }: { children: ReactNode }) {
           console.error("[call] signalling setup failed", error);
           resolve();
         });
-      }),
+      });
+      signalCallIdRef.current = callId;
+      signalReadyRef.current = ready;
+      return ready;
+    },
 
     [createPeer, flushIce, getMedia, signal, teardown, logCallOutcome],
   );
+  openSignalChannelRef.current = openSignalChannel;
 
   /* ---------- durable ring listener (database, works app-wide) ---------- */
   useEffect(() => {
@@ -698,6 +817,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       const peerName = callerProfile?.display_name || callerProfile?.username || "YourWorld caller";
       setCall({ callId: row.id, mode: row.call_type, peerId: row.caller_id, peerName, incoming: true });
       setPhase("incoming");
+      void openSignalChannelRef.current?.(row.id, row.call_type, false);
       toast.message(`Incoming ${row.call_type === "video" ? "video" : "audio"} call`);
       if (document.visibilityState !== "visible") {
         void showIncomingCallNotification({
@@ -837,13 +957,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
         ringTimer.current = null;
         if (phaseRef.current !== "outgoing") return;
         toast.message("No answer");
+        signal({ type: "END_CALL", reason: "timeout" });
         stopAllRingtones();
         void callDb.from("calls").update({ status: "cancelled", ended_at: new Date().toISOString() }).eq("id", callId);
         void logCallOutcome("missed");
         teardown();
       }, 45_000);
     },
-    [authId, me, getMedia, createPeer, openSignalChannel, teardown, logCallOutcome, markSeen],
+    [authId, me, getMedia, createPeer, openSignalChannel, signal, teardown, logCallOutcome, markSeen],
 
   );
 
@@ -857,6 +978,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       block.blocker_id === call.peerId || block.blocked_id === call.peerId,
     )) {
       toast.error("Calls are unavailable because one of you has blocked the other.");
+      signal({ type: "END_CALL", reason: "rejected" });
       void callDb.from("calls")
         .update({ status: "declined", ended_at: new Date().toISOString() })
         .eq("id", call.callId);
@@ -872,6 +994,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       await getMedia(call.mode);
     } catch {
       toast.error("Camera / microphone permission denied");
+      signal({ type: "END_CALL", reason: "rejected" });
       void callDb.from("calls").update({ status: "declined", ended_at: new Date().toISOString() }).eq("id", call.callId);
       teardown();
       return;
@@ -894,12 +1017,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const hangup = useCallback(async () => {
     stopAllRingtones();
     if (call && phase === "incoming") {
+      signal({ type: "END_CALL", reason: "rejected" });
       void supabase
         .from("calls")
         .update({ status: "declined", ended_at: new Date().toISOString() } as never)
         .eq("id", call.callId);
     } else if (call) {
-      signal({ type: "end" });
+      signal({ type: "END_CALL", reason: "ended" });
       void callDb.from("calls").update({ status: "ended", ended_at: new Date().toISOString() }).eq("id", call.callId);
       // Caller hanging up: answered calls log the duration, unanswered rings
       // become a missed-call entry in the chat.
@@ -973,11 +1097,23 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
     setFlashOn(false);
     try {
-      const newStream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: { facingMode: { ideal: next }, width: { ideal: 1280 } },
-      });
+      const profiles = [
+        videoConstraints(next, 3840, 2160, 60),
+        videoConstraints(next, 1920, 1080, 60),
+        videoConstraints(next, 1280, 720, 30),
+      ];
+      let newStream: MediaStream | null = null;
+      for (const video of profiles) {
+        try {
+          newStream = await navigator.mediaDevices.getUserMedia({ audio: false, video });
+          break;
+        } catch {
+          // Try the next supported camera profile.
+        }
+      }
+      if (!newStream) throw new Error("No supported camera profile");
       const newVideoTrack = newStream.getVideoTracks()[0];
+      newVideoTrack.contentHint = "detail";
       const sender = pcRef.current
         ?.getSenders()
         .find((s) => s.track?.kind === "video");
@@ -995,7 +1131,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       try {
         const back = await navigator.mediaDevices.getUserMedia({
           audio: false,
-          video: { facingMode: { ideal: facingMode }, width: { ideal: 1280 } },
+          video: videoConstraints(facingMode, 1280, 720, 30),
         });
         const t = back.getVideoTracks()[0];
         const sender = pcRef.current?.getSenders().find((s) => s.track?.kind === "video");
@@ -1178,11 +1314,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
                   onClick={(e) => e.stopPropagation()}
                 >
                   <button
-                    onClick={() => void flipCamera()}
+                    onClick={toggleSpeaker}
                     className="grid h-9 w-9 place-items-center rounded-full text-white/90 transition-colors hover:bg-white/10 active:scale-90"
-                    aria-label="Flip camera"
+                    aria-label={speakerOn ? "Mute other user" : "Unmute other user"}
                   >
-                    <SwitchCamera size={17} />
+                    {speakerOn ? <Volume2 size={17} /> : <VolumeX size={17} />}
                   </button>
                   <button
                     onClick={() => void toggleFlash()}
