@@ -15,6 +15,7 @@ import { publishReel } from "@/lib/social-data";
 import { useUploads } from "@/lib/upload-progress";
 import { canMuxReel, renderReel } from "@/lib/reel-mux";
 import { ReelPublishSheet, type ReelPublishMeta } from "@/components/yw/ReelPublishSheet";
+import { MAX_REEL_CLIPS, MAX_REEL_CLIPS_MESSAGE } from "@/lib/reel-editor";
 
 import type { AudioTrackState } from "@/components/yw/editor/AudioTrackLane";
 
@@ -377,12 +378,11 @@ function CreateStudioPage() {
 
   // Push files into the Pro Edits Studio editor
   const addFiles = (files: File[]) => {
-    const remaining = 10 - clips.length;
-    if (remaining <= 0) {
-      toast.error("Maximum 10 clips limit reached!");
+    if (clips.length + files.length > MAX_REEL_CLIPS) {
+      toast.error(MAX_REEL_CLIPS_MESSAGE);
       return;
     }
-    const newClips: ClipItem[] = files.slice(0, remaining).map((f, i) => ({
+    const newClips: ClipItem[] = files.map((f, i) => ({
       id: `c_${Date.now()}_${i}`,
       url: URL.createObjectURL(f),
       speed: 1,
@@ -408,7 +408,7 @@ function CreateStudioPage() {
     setActiveClipIndex(clips.length);
   };
 
-  // Smooth Multi-Select Import (Up to 10 clips)
+  // Smooth Multi-Select Import (Up to 5 clips)
   const handleMediaSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
@@ -719,8 +719,8 @@ function CreateStudioPage() {
 
   const handleSplit = () => {
     const v = videoRef.current;
-    if (!currentClip || clips.length >= 10) {
-      toast.error("Maximum 10 clips limit reached!");
+    if (!currentClip || clips.length >= MAX_REEL_CLIPS) {
+      toast.error(MAX_REEL_CLIPS_MESSAGE);
       return;
     }
     const dur = currentClip.duration || v?.duration || 0;
@@ -747,8 +747,8 @@ function CreateStudioPage() {
 
   // Real-time Duplicate
   const handleDuplicate = () => {
-    if (!currentClip || clips.length >= 10) {
-      toast.error("Maximum 10 clips limit reached!");
+    if (!currentClip || clips.length >= MAX_REEL_CLIPS) {
+      toast.error(MAX_REEL_CLIPS_MESSAGE);
       return;
     }
     const copy = { ...currentClip, id: `c_${Date.now()}` };
@@ -941,11 +941,16 @@ function CreateStudioPage() {
 
           {/* FULL-WIDTH VIDEO CANVAS */}
           <div className="flex-1 min-h-0 w-full flex items-center justify-center relative bg-black overflow-hidden">
-            <div ref={stageRef} className="relative h-full w-full flex items-center justify-center touch-none">
+              <div
+                ref={stageRef}
+                className="relative h-full max-h-full w-auto max-w-full aspect-[9/16] flex items-center justify-center touch-none bg-black overflow-hidden"
+                style={{ contain: "layout paint size" }}
+              >
               <video
                 ref={videoRef}
                 autoPlay
                 playsInline
+                 preload="auto"
                 muted={isMuted}
                 onTimeUpdate={syncTime}
                 onSeeked={syncTime}
@@ -955,11 +960,12 @@ function CreateStudioPage() {
                   if (isFinite(d) && d > 0 && !currentClip?.duration) updateCurrentClip("duration", d);
                 }}
                 onEmptied={() => { loadedUrlRef.current = null; }}
-                className={`h-full w-full object-cover will-change-transform transition-opacity duration-200 ${
+                 className={`h-full w-full object-contain will-change-transform transition-opacity duration-200 ${
                   gpuPreviewEnabled ? "opacity-0" : "opacity-100"
                 }`}
                 style={{
-                  transform: `translateZ(0) rotate(${currentClip?.rotation || 0}deg) scale(${currentClip?.crop ?? 1})`,
+                   transform: `translate3d(0,0,0) rotate(${currentClip?.rotation || 0}deg) scale(${currentClip?.crop ?? 1})`,
+                   backfaceVisibility: "hidden",
                   clipPath: currentClip?.cropBox
                     ? `inset(${currentClip.cropBox.y}% ${100 - (currentClip.cropBox.x + currentClip.cropBox.w)}% ${100 - (currentClip.cropBox.y + currentClip.cropBox.h)}% ${currentClip.cropBox.x}%)`
                     : undefined,
@@ -978,11 +984,11 @@ function CreateStudioPage() {
                 warmth={currentClip?.warmth ?? 0}
                 grain={currentClip?.grain ?? 0}
                 onCapability={handleGpuCapability}
-                className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-200 ${
+                 className={`absolute inset-0 h-full w-full object-contain transition-opacity duration-200 ${
                   gpuPreviewEnabled ? "opacity-100" : "opacity-0"
                 }`}
                 style={{
-                  transform: `translateZ(0) rotate(${currentClip?.rotation || 0}deg) scale(${currentClip?.crop ?? 1})`,
+                   transform: `translate3d(0,0,0) rotate(${currentClip?.rotation || 0}deg) scale(${currentClip?.crop ?? 1})`,
                   clipPath: currentClip?.cropBox
                     ? `inset(${currentClip.cropBox.y}% ${100 - (currentClip.cropBox.x + currentClip.cropBox.w)}% ${100 - (currentClip.cropBox.y + currentClip.cropBox.h)}% ${currentClip.cropBox.x}%)`
                     : undefined,

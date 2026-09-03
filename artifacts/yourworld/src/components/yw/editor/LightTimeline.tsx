@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Volume2, VolumeX } from "lucide-react";
 import { AudioTrackLane, type AudioTrackState } from "./AudioTrackLane";
+import { MAX_REEL_CLIPS } from "@/lib/reel-editor";
 
 export interface TimelineClip {
   id: string;
@@ -48,6 +49,63 @@ const clipLen = (c: TimelineClip) => {
 // ---- thumbnail extraction (cached per url+time) ----
 const thumbCache = new Map<string, string>();
 const thumbInFlight = new Map<string, Promise<string>>();
+let thumbnailWorker: Worker | null | undefined;
+let thumbnailRequestId = 0;
+const thumbnailWorkerRequests = new Map<
+  number,
+  { resolve: (blob: Blob) => void; reject: (error: Error) => void }
+>();
+
+function getThumbnailWorker() {
+  if (thumbnailWorker !== undefined) return thumbnailWorker;
+  if (typeof Worker === "undefined") {
+    thumbnailWorker = null;
+    return thumbnailWorker;
+  }
+  try {
+    const worker = new Worker(new URL("./thumbnail-worker.ts", import.meta.url), {
+      type: "module",
+    });
+    worker.addEventListener("message", (event: MessageEvent<{
+      id: number;
+      blob?: Blob;
+      error?: string;
+    }>) => {
+      const pending = thumbnailWorkerRequests.get(event.data.id);
+      if (!pending) return;
+      thumbnailWorkerRequests.delete(event.data.id);
+      if (event.data.blob) pending.resolve(event.data.blob);
+      else pending.reject(new Error(event.data.error ?? "thumbnail encode failed"));
+    });
+    worker.addEventListener("error", () => {
+      for (const [id, pending] of thumbnailWorkerRequests) {
+        thumbnailWorkerRequests.delete(id);
+        pending.reject(new Error("thumbnail worker failed"));
+      }
+      worker.terminate();
+      thumbnailWorker = null;
+    });
+    thumbnailWorker = worker;
+  } catch {
+    thumbnailWorker = null;
+  }
+  return thumbnailWorker;
+}
+
+function encodeThumbnailInWorker(bitmap: ImageBitmap, width: number, height: number) {
+  const worker = getThumbnailWorker();
+  if (!worker) return Promise.reject(new Error("thumbnail worker unavailable"));
+  const id = ++thumbnailRequestId;
+  return new Promise<Blob>((resolve, reject) => {
+    thumbnailWorkerRequests.set(id, { resolve, reject });
+    try {
+      worker.postMessage({ id, bitmap, width, height }, [bitmap]);
+    } catch (error) {
+      thumbnailWorkerRequests.delete(id);
+      reject(error instanceof Error ? error : new Error("thumbnail transfer failed"));
+    }
+  });
+}
 
 function grabFrame(url: string, time: number): Promise<string> {
   const key = `${url}@${time.toFixed(2)}`;
@@ -66,27 +124,38 @@ function grabFrame(url: string, time: number): Promise<string> {
       v.removeAttribute("src");
       try { v.load(); } catch { /* ignore */ }
     };
-    const onSeeked = async () => {
+    const capture = async () => {
       try {
         const w = 160;
         const ratio = v.videoHeight ? v.videoHeight / v.videoWidth : 16 / 9;
         const h = Math.max(1, Math.round(w * ratio));
-        const canvas: HTMLCanvasElement | OffscreenCanvas =
-          typeof OffscreenCanvas !== "undefined"
-            ? new OffscreenCanvas(w, h)
-            : Object.assign(document.createElement("canvas"), { width: w, height: h });
-        const ctx = canvas.getContext("2d");
-        if (!ctx) throw new Error("no ctx");
-        ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
-        const blob = "convertToBlob" in canvas
-          ? await canvas.convertToBlob({ type: "image/jpeg", quality: 0.65 })
-          : await new Promise<Blob>((blobResolve, blobReject) => {
-              (canvas as HTMLCanvasElement).toBlob(
-                (value) => value ? blobResolve(value) : blobReject(new Error("thumbnail blob failed")),
-                "image/jpeg",
-                0.65,
-              );
-            });
+        let blob: Blob | null = null;
+        if (typeof createImageBitmap === "function" && getThumbnailWorker()) {
+          try {
+            const bitmap = await createImageBitmap(v);
+            blob = await encodeThumbnailInWorker(bitmap, w, h);
+          } catch {
+            // Fall through to the local canvas path for Safari/older browsers.
+          }
+        }
+        if (!blob) {
+          const canvas = Object.assign(document.createElement("canvas"), {
+            width: w,
+            height: h,
+          });
+          const ctx = canvas.getContext("2d");
+          if (!ctx) throw new Error("no thumbnail context");
+          ctx.drawImage(v, 0, 0, w, h);
+          blob = await new Promise<Blob>((blobResolve, blobReject) => {
+            canvas.toBlob(
+              (value) => value
+                ? blobResolve(value)
+                : blobReject(new Error("thumbnail blob failed")),
+              "image/jpeg",
+              0.65,
+            );
+          });
+        }
         const data = URL.createObjectURL(blob);
         thumbCache.set(key, data);
         cleanup();
@@ -96,12 +165,39 @@ function grabFrame(url: string, time: number): Promise<string> {
         reject(e);
       }
     };
-    v.addEventListener("loadeddata", () => {
+    let settled = false;
+    let seekTimer: ReturnType<typeof setTimeout> | null = null;
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      if (seekTimer) clearTimeout(seekTimer);
+      v.removeEventListener("seeked", onSeeked);
+      fn();
+    };
+    const onSeeked = () => {
+      void capture().catch((error) => finish(() => {
+        cleanup();
+        reject(error);
+      }));
+    };
+    const onLoaded = () => {
       const t = Math.min(Math.max(0.05, time), Math.max(0.05, (v.duration || 1) - 0.05));
       v.addEventListener("seeked", onSeeked, { once: true });
+      seekTimer = setTimeout(() => {
+        if (v.readyState >= 2) onSeeked();
+        else finish(() => {
+          cleanup();
+          reject(new Error("thumbnail seek timed out"));
+        });
+      }, 1500);
       try { v.currentTime = t; } catch { onSeeked(); }
-    }, { once: true });
-    v.addEventListener("error", () => { cleanup(); reject(new Error("thumb load failed")); }, { once: true });
+    };
+    const onError = () => finish(() => {
+      cleanup();
+      reject(new Error("thumb load failed"));
+    });
+    v.addEventListener("loadeddata", onLoaded, { once: true });
+    v.addEventListener("error", onError, { once: true });
   });
   thumbInFlight.set(key, pending);
   void pending.then(
@@ -113,7 +209,9 @@ function grabFrame(url: string, time: number): Promise<string> {
 
 function useThumbnails(clips: TimelineClip[]) {
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
-  const sig = clips.map((c) => `${c.id}:${c.url ?? ""}:${(c.trimStart ?? 0).toFixed(2)}`).join("|");
+  // Trim handles update on every pointer frame. Thumbnails are source frames,
+  // so never make that hot path invalidate the cached frame set.
+  const sig = clips.map((c) => `${c.id}:${c.url ?? ""}`).join("|");
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -162,7 +260,6 @@ function LightTimelineBase({
   const dragRef = useRef<{ index: number; startX: number; moved: boolean } | null>(null);
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const lens = useMemo(() => clips.map(clipLen), [clips]);
   const thumbs = useThumbnails(clips);
   const [timelineZoom, setTimelineZoom] = useState(1);
   const cell = Math.round(BASE_CELL * timelineZoom);
@@ -239,7 +336,7 @@ function LightTimelineBase({
       if (autoRaf.current) cancelAnimationFrame(autoRaf.current);
       autoRaf.current = null;
     };
-  }, [activeIndex, playFraction, lens, cell]);
+  }, [activeIndex, playFraction, cell]);
 
   // scrub updates are throttled to one per frame — dragging stays at 60fps
   const scrubRaf = useRef<number | null>(null);
@@ -340,13 +437,19 @@ function LightTimelineBase({
         <span className="rounded-full bg-muted/60 px-3 py-0.5 text-[11px] font-black tabular-nums text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.4)]">
           {fmt(currentTime)} <span className="text-muted-foreground">/ {fmt(totalDuration)}</span>
         </span>
-        <button
-          onClick={onAdd}
-          className="grid h-7 w-7 place-items-center rounded-full bg-muted/70 text-muted-foreground transition-transform duration-150 active:scale-90"
-          aria-label="Add clip"
-        >
-          <Plus className="w-3.5 h-3.5" />
-        </button>
+        {clips.length < MAX_REEL_CLIPS ? (
+          <button
+            onClick={onAdd}
+            className="grid h-7 w-7 place-items-center rounded-full bg-muted/70 text-muted-foreground transition-transform duration-150 active:scale-90"
+            aria-label="Add clip"
+          >
+            <Plus className="w-3.5 h-3.5" />
+          </button>
+        ) : (
+          <span className="w-7 text-center text-[9px] font-black text-orange-500" aria-label="Maximum clips reached">
+            5/5
+          </span>
+        )}
       </div>
 
       <div className="relative">
