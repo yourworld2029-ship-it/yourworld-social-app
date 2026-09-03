@@ -5,6 +5,11 @@
  * clip's own audio with the trimmed music through the Web Audio API, then
  * records the combined stream with MediaRecorder.
  */
+import {
+  MAX_REEL_DURATION_SECONDS,
+  MIN_REEL_DURATION_SECONDS,
+} from "@/lib/reel-editor";
+
 export type MuxMusic = {
   url: string;
   /** where the music starts on the video timeline (seconds) */
@@ -131,9 +136,13 @@ export async function renderReelWithMusic(opts: MuxOptions): Promise<string | nu
     const requestedEnd = opts.trimEnd;
     const end = Math.min(
       video.duration || 0,
+      start + MAX_REEL_DURATION_SECONDS,
       requestedEnd != null && requestedEnd > start ? requestedEnd : video.duration || 0,
     );
     const span = Math.max(0.2, end - start);
+    if (span < MIN_REEL_DURATION_SECONDS) {
+      throw new Error("Reel duration is below the minimum");
+    }
 
     const sourceWidth = video.videoWidth || 720;
     const sourceHeight = video.videoHeight || 1280;
@@ -280,14 +289,20 @@ export async function renderReelWithMusic(opts: MuxOptions): Promise<string | nu
     raf = requestAnimationFrame(draw);
 
     await new Promise<void>((resolve) => {
+      let tick: number | null = null;
+      const startedAt = performance.now();
       const stop = () => {
         video.removeEventListener("ended", stop);
+        if (tick !== null) window.clearInterval(tick);
         resolve();
       };
       video.addEventListener("ended", stop);
-      const tick = window.setInterval(() => {
-        if (video.currentTime >= end - 0.05) {
-          window.clearInterval(tick);
+      tick = window.setInterval(() => {
+        const outputElapsed = (performance.now() - startedAt) / 1000;
+        if (
+          video.currentTime >= end - 0.05 ||
+          outputElapsed >= MAX_REEL_DURATION_SECONDS
+        ) {
           stop();
         }
       }, 100);

@@ -1,7 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Volume2, VolumeX } from "lucide-react";
 import { AudioTrackLane, type AudioTrackState } from "./AudioTrackLane";
-import { MAX_REEL_CLIPS } from "@/lib/reel-editor";
+import {
+  MAX_REEL_CLIPS,
+  MAX_REEL_DURATION_SECONDS,
+} from "@/lib/reel-editor";
 
 export interface TimelineClip {
   id: string;
@@ -43,7 +46,7 @@ const clipLen = (c: TimelineClip) => {
   const dur = c.duration || 0;
   const start = c.trimStart ?? 0;
   const end = c.trimEnd ?? dur;
-  return Math.max(0.1, end - start);
+  return Math.min(MAX_REEL_DURATION_SECONDS, Math.max(0.1, end - start));
 };
 
 // ---- thumbnail extraction (cached per url+time) ----
@@ -235,7 +238,7 @@ function LightTimelineBase({
   clips,
   activeIndex,
   currentTime,
-  totalDuration,
+  totalDuration: requestedTotalDuration,
   playFraction,
   isPlaying,
   audioLabel: _audioLabel,
@@ -251,6 +254,10 @@ function LightTimelineBase({
   onAudioChange,
   onAudioRemove,
 }: LightTimelineProps) {
+  const totalDuration = Math.min(
+    MAX_REEL_DURATION_SECONDS,
+    Math.max(0, requestedTotalDuration),
+  );
   const scrollRef = useRef<HTMLDivElement>(null);
   const userScrollRef = useRef(false);
   const userTimer = useRef<ReturnType<typeof setTimeout> | null>(null);

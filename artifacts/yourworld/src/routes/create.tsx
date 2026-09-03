@@ -15,7 +15,16 @@ import { publishReel } from "@/lib/social-data";
 import { useUploads } from "@/lib/upload-progress";
 import { canMuxReel, renderReel } from "@/lib/reel-mux";
 import { ReelPublishSheet, type ReelPublishMeta } from "@/components/yw/ReelPublishSheet";
-import { MAX_REEL_CLIPS, MAX_REEL_CLIPS_MESSAGE } from "@/lib/reel-editor";
+import {
+  capReelSequence,
+  MAX_REEL_CLIPS,
+  MAX_REEL_CLIPS_MESSAGE,
+  MAX_REEL_DURATION_MESSAGE,
+  MAX_REEL_DURATION_SECONDS,
+  MIN_REEL_DURATION_MESSAGE,
+  MIN_REEL_DURATION_SECONDS,
+  reelSequenceDuration,
+} from "@/lib/reel-editor";
 
 import type { AudioTrackState } from "@/components/yw/editor/AudioTrackLane";
 
@@ -87,6 +96,9 @@ const fmtSec = (s: number) => {
   return `${Math.floor(v / 60)}:${String(v % 60).padStart(2, "0")}`;
 };
 
+const capEditorClips = (clips: ClipItem[]) =>
+  capReelSequence(clips, MAX_REEL_DURATION_SECONDS) as ClipItem[];
+
 
 function CreateStudioPage() {
   const navigate = useNavigate();
@@ -115,6 +127,11 @@ function CreateStudioPage() {
     setGpuPreviewEnabled(enabled);
   }, []);
 
+  const notifyMaxDuration = React.useCallback(() => {
+    setActiveToolPanel("TRIM");
+    toast.info(MAX_REEL_DURATION_MESSAGE);
+  }, []);
+
   useEffect(() => {
     const retainedUrls = backgroundExportUrls.current;
     return () => {
@@ -127,12 +144,23 @@ function CreateStudioPage() {
   const startExport = async () => {
     const clip = clips[activeClipIndex] ?? clips[0];
     if (!clip?.url) return;
+    if (totalDuration < MIN_REEL_DURATION_SECONDS) {
+      toast.error(MIN_REEL_DURATION_MESSAGE);
+      return;
+    }
+    if (totalDuration > MAX_REEL_DURATION_SECONDS) {
+      notifyMaxDuration();
+      return;
+    }
     setExportStage("saving");
     setExportProgress(0);
     const rendered = await renderReel({
       videoUrl: clip.url,
       trimStart: clip.trimStart ?? 0,
-      trimEnd: clip.trimEnd ?? clip.duration,
+      trimEnd: Math.min(
+        MAX_REEL_DURATION_SECONDS,
+        clip.trimEnd ?? clip.duration ?? MAX_REEL_DURATION_SECONDS,
+      ),
       music: audioTrack ?? undefined,
       resolution: exportRes,
       fps: 60,
@@ -177,13 +205,12 @@ function CreateStudioPage() {
       toast.error("Nothing to post yet");
       return;
     }
-    // Reels on YourWorld are 5–80 seconds long.
-    if (totalDuration < 5) {
-      toast.error("Reel is too short — it must be at least 5 seconds.");
+    if (totalDuration < MIN_REEL_DURATION_SECONDS) {
+      toast.error(MIN_REEL_DURATION_MESSAGE);
       return;
     }
-    if (totalDuration > 80) {
-      toast.error("Reel is too long — trim it to 80 seconds or less.");
+    if (totalDuration > MAX_REEL_DURATION_SECONDS) {
+      notifyMaxDuration();
       return;
     }
     setPosting(true);
@@ -193,7 +220,10 @@ function CreateStudioPage() {
     let uploadUrl = exportedUrl || url;
     if (!exportedUrl && audioTrack && canMuxReel()) {
       const t = toast.loading("Adding music to your reel…");
-      const trimEnd = clip?.trimEnd ?? clip?.duration;
+      const trimEnd = Math.min(
+        MAX_REEL_DURATION_SECONDS,
+        clip?.trimEnd ?? clip?.duration ?? MAX_REEL_DURATION_SECONDS,
+      );
       const baked = await renderReel({
         videoUrl: url,
         trimStart: clip?.trimStart ?? 0,
@@ -242,6 +272,7 @@ function CreateStudioPage() {
           taggedUserIds: meta.taggedUserIds,
           viewerUserIds: meta.viewerUserIds,
           audio: audioTrack?.title ?? null,
+           durationSeconds: totalDuration,
           onProgress,
         }),
     ).then(({ error }) => {
@@ -292,9 +323,13 @@ function CreateStudioPage() {
 
   const applySnapshot = (snap: EditSnapshot) => {
     skipHistoryRef.current = true;
-    setClips(snap.clips);
+    const capped = capEditorClips(snap.clips);
+    if (reelSequenceDuration(snap.clips) > MAX_REEL_DURATION_SECONDS) {
+      notifyMaxDuration();
+    }
+    setClips(capped);
     setAudioTrack(snap.audioTrack);
-    setActiveClipIndex((i) => Math.min(i, Math.max(0, snap.clips.length - 1)));
+    setActiveClipIndex((i) => Math.min(i, Math.max(0, capped.length - 1)));
   };
 
   const handleUndo = () => {
@@ -352,12 +387,7 @@ function CreateStudioPage() {
     probe.addEventListener("error", () => toast.error("Could not read that audio file"));
   };
 
-  const totalDuration = clips.reduce((acc, c) => {
-    const d = c.duration || 0;
-    const start = c.trimStart ?? 0;
-    const end = c.trimEnd ?? d;
-    return acc + Math.max(0, end - start);
-  }, 0);
+  const totalDuration = reelSequenceDuration(clips);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
@@ -450,6 +480,33 @@ function CreateStudioPage() {
     });
     setClips((prev) => [...prev, ...newClips]);
     setActiveClipIndex(clips.length);
+
+    // Read metadata immediately so the timeline and cap are based on the
+    // actual media, not a guessed duration.
+    for (const clip of newClips) {
+      const probe = document.createElement("video");
+      probe.preload = "metadata";
+      probe.src = clip.url;
+      probe.onloadedmetadata = () => {
+        const duration = Number.isFinite(probe.duration) && probe.duration > 0
+          ? probe.duration
+          : 0;
+        if (!duration) {
+          toast.error("Could not read the selected video duration.");
+          return;
+        }
+        setClips((previous) => {
+          const measured = previous.map((item) =>
+            item.id === clip.id ? { ...item, duration } : item,
+          );
+          if (reelSequenceDuration(measured) > MAX_REEL_DURATION_SECONDS) {
+            notifyMaxDuration();
+          }
+          return capEditorClips(measured);
+        });
+      };
+      probe.onerror = () => toast.error("Could not read the selected video duration.");
+    }
   };
 
   // Smooth Multi-Select Import (Up to 5 clips)
@@ -461,6 +518,10 @@ function CreateStudioPage() {
   };
 
   const currentClip = clips[activeClipIndex];
+
+  useEffect(() => {
+    setActiveClipIndex((index) => Math.min(index, Math.max(0, clips.length - 1)));
+  }, [clips.length]);
 
   // Real-time Property Updation (selected clip only)
   const updateCurrentClip = <K extends keyof ClipItem>(key: K, val: ClipItem[K]) => {
@@ -778,7 +839,10 @@ function CreateStudioPage() {
       const pd = p?.duration || 0;
       before += Math.max(0, (p?.trimEnd ?? pd) - (p?.trimStart ?? 0));
     }
-    const global = before + frac * span;
+    const global = Math.min(
+      MAX_REEL_DURATION_SECONDS,
+      before + frac * span,
+    );
     globalTimeRef.current = global;
     const last = lastSyncRef.current;
     if (Math.abs(last.frac - frac) > 0.0015) {
@@ -1035,8 +1099,12 @@ function CreateStudioPage() {
     const copy = { ...currentClip, id: `c_${Date.now()}` };
     const updated = [...clips];
     updated.splice(activeClipIndex + 1, 0, copy);
-    setClips(updated);
-    setActiveClipIndex(activeClipIndex + 1);
+    if (reelSequenceDuration(updated) > MAX_REEL_DURATION_SECONDS) {
+      notifyMaxDuration();
+    }
+    const capped = capEditorClips(updated);
+    setClips(capped);
+    setActiveClipIndex(Math.min(activeClipIndex + 1, Math.max(0, capped.length - 1)));
   };
 
   // Real-time Delete
@@ -1134,6 +1202,14 @@ function CreateStudioPage() {
             <span className="text-[11px] font-black uppercase tracking-wide text-muted-foreground">Edit</span>
             <button
               onClick={() => {
+                 if (totalDuration < MIN_REEL_DURATION_SECONDS) {
+                   toast.error(MIN_REEL_DURATION_MESSAGE);
+                   return;
+                 }
+                 if (totalDuration > MAX_REEL_DURATION_SECONDS) {
+                   notifyMaxDuration();
+                   return;
+                 }
                 setExportStage("choose");
                 setExportProgress(0);
                 setShowExport(true);
@@ -1207,8 +1283,14 @@ function CreateStudioPage() {
                     <div className="flex flex-col gap-2">
                       <button
                         onClick={() => {
-                          if (totalDuration < 5) { toast.error("Reel is too short — it must be at least 5 seconds."); return; }
-                          if (totalDuration > 80) { toast.error("Reel is too long — trim it to 80 seconds or less."); return; }
+                          if (totalDuration < MIN_REEL_DURATION_SECONDS) {
+                            toast.error(MIN_REEL_DURATION_MESSAGE);
+                            return;
+                          }
+                          if (totalDuration > MAX_REEL_DURATION_SECONDS) {
+                            notifyMaxDuration();
+                            return;
+                          }
                           setShowPublish(true);
                         }}
                         disabled={posting}
@@ -1266,7 +1348,17 @@ function CreateStudioPage() {
                   onEnded={slot === activeVideoSlot ? advanceClip : undefined}
                   onLoadedMetadata={slot === activeVideoSlot ? (e) => {
                     const d = e.currentTarget.duration;
-                    if (isFinite(d) && d > 0 && !currentClip?.duration) updateCurrentClip("duration", d);
+                    if (isFinite(d) && d > 0 && !currentClip?.duration) {
+                      setClips((previous) => {
+                        const measured = previous.map((item, index) =>
+                          index === activeClipIndex ? { ...item, duration: d } : item,
+                        );
+                        if (reelSequenceDuration(measured) > MAX_REEL_DURATION_SECONDS) {
+                          notifyMaxDuration();
+                        }
+                        return capEditorClips(measured);
+                      });
+                    }
                   } : undefined}
                   aria-hidden={slot !== activeVideoSlot}
                   tabIndex={-1}
@@ -1709,9 +1801,15 @@ function CreateStudioPage() {
                 if (Math.abs(nextStart - start) > 0.001 || Math.abs(nextEnd - end) > 0.001) {
                   try { navigator.vibrate?.(6); } catch { /* ignore */ }
                 }
-                setClips((prev) =>
-                  prev.map((c, idx) => (idx === i ? { ...c, trimStart: nextStart, trimEnd: nextEnd } : c)),
-                );
+                setClips((prev) => {
+                  const measured = prev.map((c, idx) =>
+                    idx === i ? { ...c, trimStart: nextStart, trimEnd: nextEnd } : c,
+                  );
+                  if (reelSequenceDuration(measured) > MAX_REEL_DURATION_SECONDS) {
+                    notifyMaxDuration();
+                  }
+                  return capEditorClips(measured);
+                });
               }}
               onAdd={() => fileInputRef.current?.click()}
               onReorder={(from, to) => {
