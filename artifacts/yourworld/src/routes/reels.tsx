@@ -23,7 +23,11 @@ import { CommentsSheet } from "@/components/yw/CommentsSheet";
 import { formatCount, type Reel, type User } from "@/lib/yw-data";
 import { getLocalMedia, resolveMediaUrl, useSocialPosts } from "@/lib/social-data";
 import { useDoubleTapLike, useYw } from "@/lib/yw-store";
-import { downloadWithWatermark } from "@/lib/yw-download";
+import {
+  downloadVideoInBackground,
+  downloadWithWatermark,
+  sanitizeDownloadName,
+} from "@/lib/yw-download";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -413,11 +417,24 @@ function ReelItem({
 
   const handleDownload = async () => {
     if (!user) return;
+    const isVideo = mediaType?.startsWith("video") && Boolean(mediaUrl);
+    const source = mediaUrl ?? reel.poster;
+    const toastId = toast.loading(isVideo ? "Downloading video... 0%" : "Preparing image download…");
     try {
-      await downloadWithWatermark(reel.poster, user.username, `yw-reel-${reel.id}.jpg`);
-      toast.success("Downloaded in original quality with YW watermark");
+      if (isVideo) {
+        const playableUrl = getLocalMedia(source) ?? await resolveMediaUrl(source);
+        await downloadVideoInBackground(
+          playableUrl,
+          `${sanitizeDownloadName(reel.caption, `yw-reel-${reel.id}`)}.mp4`,
+          (percent) => toast.loading(`Downloading video... ${percent}%`, { id: toastId }),
+        );
+        toast.success("Saved to your device", { id: toastId });
+      } else {
+        await downloadWithWatermark(reel.poster, user.username, `yw-reel-${reel.id}.jpg`);
+        toast.success("Downloaded in original quality with YW watermark", { id: toastId });
+      }
     } catch {
-      toast.error("Download failed");
+      toast.error("Download failed", { id: toastId });
     }
   };
 

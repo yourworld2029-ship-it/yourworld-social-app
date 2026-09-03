@@ -43,7 +43,9 @@ const warmed = new Map<string, HTMLVideoElement>();
 export function warmVideo(url: string) {
   if (typeof document === "undefined" || !url || warmed.has(url)) return;
   const el = document.createElement("video");
-  el.preload = "auto";
+  // Metadata keeps the next item warm without downloading an entire 50MB+
+  // file before the viewer asks to play it. Playback itself uses byte ranges.
+  el.preload = "metadata";
   el.muted = true;
   el.playsInline = true;
   el.src = url;

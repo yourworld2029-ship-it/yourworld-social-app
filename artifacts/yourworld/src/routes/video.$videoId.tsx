@@ -21,6 +21,10 @@ import { TrackedVideoPlayer } from "@/components/yw/TrackedVideoPlayer";
 import { CommentsSheet } from "@/components/yw/CommentsSheet";
 import { ShareSheet } from "@/components/yw/ShareSheet";
 import { VideoPoster } from "@/components/yw/VideoPoster";
+import {
+  downloadVideoInBackground,
+  sanitizeDownloadName,
+} from "@/lib/yw-download";
 
 export const Route = createFileRoute("/video/$videoId")({
   head: () => ({
@@ -119,19 +123,14 @@ function WatchPage() {
   };
 
   const handleDownload = async () => {
-    const toastId = toast.loading("Preparing download…");
+    const toastId = toast.loading("Downloading video... 0%");
     try {
       const url = src ?? (await resolveLongVideoUrl(video.mediaUrl));
-      const response = await fetch(url);
-      if (!response.ok) throw new Error("Download failed");
-      const blobUrl = URL.createObjectURL(await response.blob());
-      const a = document.createElement("a");
-      a.href = blobUrl;
-      a.download = `yw-${video.id}.mp4`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1_000);
+      await downloadVideoInBackground(
+        url,
+        `${sanitizeDownloadName(video.title, `yw-${video.id}`)}.mp4`,
+        (percent) => toast.loading(`Downloading video... ${percent}%`, { id: toastId }),
+      );
       toast.success("Saved to your device", { id: toastId });
     } catch { toast.error("Couldn't save this video", { id: toastId }); }
   };

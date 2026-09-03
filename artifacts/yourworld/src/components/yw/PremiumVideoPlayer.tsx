@@ -367,7 +367,7 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
         src={src}
         poster={poster ?? undefined}
         playsInline
-        preload="auto"
+        preload="metadata"
         style={{
           filter: `brightness(${brightness})`,
           transform: fullscreen && zoom > 1 ? `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` : undefined,

@@ -28,6 +28,10 @@ import { useYw } from "@/lib/yw-store";
 import { cn } from "@/lib/utils";
 import { onStopRequested, releasePlayback, requestPlayback } from "@/lib/video-playback";
 import { getAdjacentVideo, warmVideo, type QueueItem } from "@/lib/video-queue";
+import {
+  downloadVideoInBackground,
+  sanitizeDownloadName,
+} from "@/lib/yw-download";
 
 type Props = {
   video: LongVideo;
@@ -164,19 +168,14 @@ export function LongVideoCard({
     typeof window !== "undefined" ? `${window.location.origin}/?post=${video.id}` : undefined;
 
   const handleDownload = async () => {
-    const toastId = toast.loading("Preparing download…");
+    const toastId = toast.loading("Downloading video... 0%");
     try {
       const url = src ?? (await resolveLongVideoUrl(video.mediaUrl));
-      const response = await fetch(url);
-      if (!response.ok) throw new Error("Download failed");
-      const blobUrl = URL.createObjectURL(await response.blob());
-      const a = document.createElement("a");
-      a.href = blobUrl;
-      a.download = `yw-${video.id}.mp4`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1_000);
+      await downloadVideoInBackground(
+        url,
+        `${sanitizeDownloadName(video.title, `yw-${video.id}`)}.mp4`,
+        (percent) => toast.loading(`Downloading video... ${percent}%`, { id: toastId }),
+      );
       toast.success("Saved to your device", { id: toastId });
     } catch {
       toast.error("Couldn't save this video", { id: toastId });
