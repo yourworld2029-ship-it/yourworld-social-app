@@ -31,7 +31,7 @@ export interface LightTimelineProps {
   onAudioRemove?: () => void;
 }
 
-const CELL = 112;
+const BASE_CELL = 112;
 
 const fmt = (s: number) => {
   const t = Math.max(0, Math.floor(s || 0));
@@ -47,12 +47,15 @@ const clipLen = (c: TimelineClip) => {
 
 // ---- thumbnail extraction (cached per url+time) ----
 const thumbCache = new Map<string, string>();
+const thumbInFlight = new Map<string, Promise<string>>();
 
 function grabFrame(url: string, time: number): Promise<string> {
   const key = `${url}@${time.toFixed(2)}`;
   const hit = thumbCache.get(key);
   if (hit) return Promise.resolve(hit);
-  return new Promise((resolve, reject) => {
+  const inflight = thumbInFlight.get(key);
+  if (inflight) return inflight;
+  const pending = new Promise<string>((resolve, reject) => {
     const v = document.createElement("video");
     v.crossOrigin = "anonymous";
     v.muted = true;
@@ -63,17 +66,28 @@ function grabFrame(url: string, time: number): Promise<string> {
       v.removeAttribute("src");
       try { v.load(); } catch { /* ignore */ }
     };
-    const onSeeked = () => {
+    const onSeeked = async () => {
       try {
-        const canvas = document.createElement("canvas");
         const w = 160;
         const ratio = v.videoHeight ? v.videoHeight / v.videoWidth : 16 / 9;
-        canvas.width = w;
-        canvas.height = Math.max(1, Math.round(w * ratio));
+        const h = Math.max(1, Math.round(w * ratio));
+        const canvas: HTMLCanvasElement | OffscreenCanvas =
+          typeof OffscreenCanvas !== "undefined"
+            ? new OffscreenCanvas(w, h)
+            : Object.assign(document.createElement("canvas"), { width: w, height: h });
         const ctx = canvas.getContext("2d");
         if (!ctx) throw new Error("no ctx");
         ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
-        const data = canvas.toDataURL("image/jpeg", 0.6);
+        const blob = "convertToBlob" in canvas
+          ? await canvas.convertToBlob({ type: "image/jpeg", quality: 0.65 })
+          : await new Promise<Blob>((blobResolve, blobReject) => {
+              (canvas as HTMLCanvasElement).toBlob(
+                (value) => value ? blobResolve(value) : blobReject(new Error("thumbnail blob failed")),
+                "image/jpeg",
+                0.65,
+              );
+            });
+        const data = URL.createObjectURL(blob);
         thumbCache.set(key, data);
         cleanup();
         resolve(data);
@@ -89,6 +103,12 @@ function grabFrame(url: string, time: number): Promise<string> {
     }, { once: true });
     v.addEventListener("error", () => { cleanup(); reject(new Error("thumb load failed")); }, { once: true });
   });
+  thumbInFlight.set(key, pending);
+  void pending.then(
+    () => thumbInFlight.delete(key),
+    () => thumbInFlight.delete(key),
+  );
+  return pending;
 }
 
 function useThumbnails(clips: TimelineClip[]) {
@@ -144,6 +164,9 @@ function LightTimelineBase({
 
   const lens = useMemo(() => clips.map(clipLen), [clips]);
   const thumbs = useThumbnails(clips);
+  const [timelineZoom, setTimelineZoom] = useState(1);
+  const cell = Math.round(BASE_CELL * timelineZoom);
+  const pinchRef = useRef<{ distance: number; zoom: number } | null>(null);
 
   // keep half-container padding so the first/last frame can reach the center line
   useEffect(() => {
@@ -159,6 +182,44 @@ function LightTimelineBase({
     return () => window.removeEventListener("resize", set);
   }, []);
 
+  // Native passive listeners keep pinch tracking off React's event queue.
+  // The timeline remains horizontally scrollable while two fingers change
+  // frame precision from a compact overview to a precise edit view.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const distance = (a: Touch, b: Touch) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+    const start = (event: TouchEvent) => {
+      if (event.touches.length === 2) {
+        pinchRef.current = {
+          distance: distance(event.touches[0], event.touches[1]),
+          zoom: timelineZoom,
+        };
+      }
+    };
+    const move = (event: TouchEvent) => {
+      const pinch = pinchRef.current;
+      if (!pinch || event.touches.length !== 2) return;
+      const nextDistance = distance(event.touches[0], event.touches[1]);
+      const nextZoom = Math.min(
+        2.25,
+        Math.max(0.75, pinch.zoom * (nextDistance / Math.max(1, pinch.distance))),
+      );
+      setTimelineZoom(nextZoom);
+    };
+    const end = () => { pinchRef.current = null; };
+    el.addEventListener("touchstart", start, { passive: true });
+    el.addEventListener("touchmove", move, { passive: true });
+    el.addEventListener("touchend", end, { passive: true });
+    el.addEventListener("touchcancel", end, { passive: true });
+    return () => {
+      el.removeEventListener("touchstart", start);
+      el.removeEventListener("touchmove", move);
+      el.removeEventListener("touchend", end);
+      el.removeEventListener("touchcancel", end);
+    };
+  }, [timelineZoom]);
+
   // auto-scroll the track under the fixed center playhead while playing.
   // The write is deferred to the next animation frame so the scroll never
   // fights the browser's own compositing pass (that's what caused the jitter).
@@ -167,7 +228,7 @@ function LightTimelineBase({
     const el = scrollRef.current;
     if (!el || userScrollRef.current) return;
     const frac = playFraction ?? 0;
-    const target = activeIndex * CELL + frac * CELL;
+    const target = activeIndex * cell + frac * cell;
     if (autoRaf.current) cancelAnimationFrame(autoRaf.current);
     autoRaf.current = requestAnimationFrame(() => {
       autoRaf.current = null;
@@ -178,7 +239,7 @@ function LightTimelineBase({
       if (autoRaf.current) cancelAnimationFrame(autoRaf.current);
       autoRaf.current = null;
     };
-  }, [activeIndex, playFraction, lens]);
+  }, [activeIndex, playFraction, lens, cell]);
 
   // scrub updates are throttled to one per frame — dragging stays at 60fps
   const scrubRaf = useRef<number | null>(null);
@@ -189,11 +250,11 @@ function LightTimelineBase({
     scrubRaf.current = requestAnimationFrame(() => {
       scrubRaf.current = null;
       const x = Math.max(0, el.scrollLeft);
-      const idx = Math.min(clips.length - 1, Math.floor(x / CELL));
-      const frac = Math.min(1, Math.max(0, (x - idx * CELL) / CELL));
+      const idx = Math.min(clips.length - 1, Math.floor(x / cell));
+      const frac = Math.min(1, Math.max(0, (x - idx * cell) / cell));
       onScrub(idx, frac);
     });
-  }, [clips.length, onScrub]);
+  }, [clips.length, onScrub, cell]);
 
   const markUser = useCallback(() => {
     userScrollRef.current = true;
@@ -238,7 +299,7 @@ function LightTimelineBase({
       const d = dragRef.current;
       dragRef.current = null;
       if (d) {
-        const shift = Math.round(dragOffsetRef.current / CELL);
+        const shift = Math.round(dragOffsetRef.current / cell);
         const to = Math.min(clips.length - 1, Math.max(0, d.index + shift));
         if (to !== d.index) onReorder?.(d.index, to);
       }
@@ -251,6 +312,19 @@ function LightTimelineBase({
 
   const dragOffsetRef = useRef(0);
   dragOffsetRef.current = dragOffset;
+  const snapMarkers = useMemo(() => {
+    let offset = 0;
+    return clips.slice(0, -1).map((clip, index) => {
+      offset += clipLen(clip);
+      return {
+        index,
+        left: (offset / Math.max(totalDuration, 0.1)) * clips.length * cell,
+      };
+    });
+  }, [clips, totalDuration, cell]);
+  const audioMarkerLeft = audioTrack
+    ? (audioTrack.start / Math.max(totalDuration, 0.1)) * clips.length * cell
+    : null;
 
   return (
     <div className="w-full select-none">
@@ -296,7 +370,10 @@ function LightTimelineBase({
           }}
         >
           {/* video track — continuous, zero gaps, white dividers */}
-          <div className="flex items-center h-16" style={{ willChange: "transform" }}>
+          <div
+            className="relative flex items-center h-16"
+            style={{ width: Math.max(cell, clips.length * cell), willChange: "transform" }}
+          >
 
             {clips.map((clip, i) => {
               const selected = i === activeIndex;
@@ -333,7 +410,7 @@ function LightTimelineBase({
                     if (dragIndex === null) onSelect?.(i);
                   }}
                   style={{
-                    width: CELL,
+                    width: cell,
                     transform:
                       dragIndex === i
                         ? `translate3d(${dragOffset}px,0,0) scale(1.06)`
@@ -395,13 +472,27 @@ function LightTimelineBase({
               );
 
             })}
+            {snapMarkers.map((marker) => (
+              <div
+                key={`cut-${marker.index}`}
+                className="pointer-events-none absolute top-0 bottom-0 w-px bg-white/35"
+                style={{ left: marker.left }}
+              />
+            ))}
+            {audioMarkerLeft !== null && (
+              <div
+                className="pointer-events-none absolute top-0 bottom-0 w-px bg-emerald-300/75 shadow-[0_0_8px_rgba(110,231,183,0.7)]"
+                style={{ left: audioMarkerLeft }}
+              />
+            )}
           </div>
 
           {/* dedicated audio track with waveform trim */}
           <AudioTrackLane
             track={audioTrack ?? null}
             totalDuration={totalDuration}
-            width={Math.max(CELL, clips.length * CELL)}
+            currentTime={currentTime}
+            width={Math.max(cell, clips.length * cell)}
             onChange={(next) => onAudioChange?.(next)}
             onPick={() => onAddAudio?.()}
             onRemove={() => onAudioRemove?.()}

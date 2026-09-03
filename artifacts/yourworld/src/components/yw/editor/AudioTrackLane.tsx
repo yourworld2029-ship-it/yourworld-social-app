@@ -114,6 +114,7 @@ function Waveform({
 export function AudioTrackLane({
   track,
   totalDuration,
+  currentTime = 0,
   onChange,
   onPick,
   onRemove,
@@ -121,6 +122,7 @@ export function AudioTrackLane({
 }: {
   track: AudioTrackState | null;
   totalDuration: number;
+  currentTime?: number;
   onChange: (next: AudioTrackState) => void;
   onPick: () => void;
   onRemove: () => void;
@@ -144,6 +146,10 @@ export function AudioTrackLane({
   }
 
   const visible = Math.max(0.1, track.clipEnd - track.clipStart);
+  const audioPlaybackProgress = Math.min(
+    1,
+    Math.max(0, (currentTime - track.start) / Math.max(0.1, visible)),
+  );
 
   const drag =
     (mode: "move" | "left" | "right") => (e: React.PointerEvent) => {
@@ -198,6 +204,10 @@ export function AudioTrackLane({
           className="absolute inset-y-0 bg-emerald-500/25 border border-emerald-600/50 rounded-md touch-none cursor-grab overflow-hidden"
           style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
         >
+            <div
+              className="pointer-events-none absolute inset-y-0 z-10 w-px bg-white shadow-[0_0_7px_rgba(255,255,255,0.9)]"
+              style={{ left: `${audioPlaybackProgress * 100}%` }}
+            />
           <Waveform
             url={track.url}
             from={track.clipStart}

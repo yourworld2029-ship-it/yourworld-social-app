@@ -20,7 +20,16 @@ export type MuxOptions = {
   videoUrl: string;
   trimStart?: number;
   trimEnd?: number;
-  music: MuxMusic;
+  music?: MuxMusic;
+  resolution?: "HD" | "4K";
+  fps?: 30 | 60;
+  speed?: number;
+  speedRamp?: "constant" | "up" | "down";
+  filter?: "none" | "vivid" | "noir" | "cyber" | "warm";
+  contrast?: number;
+  saturation?: number;
+  warmth?: number;
+  grain?: number;
   onProgress?: (pct: number) => void;
 };
 
@@ -37,18 +46,33 @@ function pickMime(): string | undefined {
   const candidates = [
     "video/webm;codecs=vp9,opus",
     "video/webm;codecs=vp8,opus",
-    "video/webm",
     "video/mp4",
+    "video/webm",
   ];
   return candidates.find((m) => MediaRecorder.isTypeSupported?.(m));
 }
 
+export function getReelRenderCapabilities() {
+  const canCapture = typeof HTMLCanvasElement !== "undefined" &&
+    typeof HTMLCanvasElement.prototype.captureStream === "function";
+  const hasWebCodecs = typeof window !== "undefined" &&
+    "VideoEncoder" in window &&
+    "VideoFrame" in window;
+  return {
+    canCapture,
+    mediaRecorder: typeof MediaRecorder !== "undefined",
+    webCodecs: hasWebCodecs,
+    preferredEncoder: hasWebCodecs ? "webcodecs" as const : "media-recorder" as const,
+  };
+}
+
 export function canMuxReel(): boolean {
+  const capabilities = getReelRenderCapabilities();
   return (
     typeof window !== "undefined" &&
-    typeof MediaRecorder !== "undefined" &&
+    capabilities.mediaRecorder &&
     !!getAudioContextConstructor() &&
-    typeof HTMLCanvasElement.prototype.captureStream === "function"
+    capabilities.canCapture
   );
 }
 
@@ -61,13 +85,15 @@ export async function renderReelWithMusic(opts: MuxOptions): Promise<string | nu
   video.src = videoUrl;
   video.crossOrigin = "anonymous";
   video.playsInline = true;
-  video.muted = false;
+  video.muted = true;
   video.preload = "auto";
 
-  const audio = new Audio();
-  audio.src = music.url;
-  audio.crossOrigin = "anonymous";
-  audio.preload = "auto";
+  const audio = music ? new Audio() : null;
+  if (audio && music) {
+    audio.src = music.url;
+    audio.crossOrigin = "anonymous";
+    audio.preload = "auto";
+  }
 
   const Ctx = getAudioContextConstructor();
   if (!Ctx) return null;
@@ -81,7 +107,7 @@ export async function renderReelWithMusic(opts: MuxOptions): Promise<string | nu
       /* noop */
     }
     try { video.pause(); } catch { /* noop */ }
-    try { audio.pause(); } catch { /* noop */ }
+      try { audio?.pause(); } catch { /* noop */ }
     void actx.close().catch(() => {});
   };
 
@@ -92,12 +118,14 @@ export async function renderReelWithMusic(opts: MuxOptions): Promise<string | nu
       video.addEventListener("error", () => reject(new Error("video load")), { once: true });
       video.load();
     });
-    await new Promise<void>((resolve) => {
-      if (audio.readyState >= 1) return resolve();
-      audio.addEventListener("loadedmetadata", () => resolve(), { once: true });
-      audio.addEventListener("error", () => resolve(), { once: true });
-      audio.load();
-    });
+    if (audio) {
+      await new Promise<void>((resolve) => {
+        if (audio.readyState >= 1) return resolve();
+        audio.addEventListener("loadedmetadata", () => resolve(), { once: true });
+        audio.addEventListener("error", () => resolve(), { once: true });
+        audio.load();
+      });
+    }
 
     const start = Math.max(0, opts.trimStart ?? 0);
     const requestedEnd = opts.trimEnd;
@@ -107,10 +135,18 @@ export async function renderReelWithMusic(opts: MuxOptions): Promise<string | nu
     );
     const span = Math.max(0.2, end - start);
 
+    const sourceWidth = video.videoWidth || 720;
+    const sourceHeight = video.videoHeight || 1280;
+    const landscape = sourceWidth >= sourceHeight;
+    const maxDimension = opts.resolution === "HD" ? 1920 : 3840;
+    const maxShortDimension = opts.resolution === "HD" ? 1080 : 2160;
+    const scale = landscape
+      ? Math.min(maxDimension / sourceWidth, maxShortDimension / sourceHeight)
+      : Math.min(maxShortDimension / sourceWidth, maxDimension / sourceHeight);
     const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth || 720;
-    canvas.height = video.videoHeight || 1280;
-    const g = canvas.getContext("2d");
+    canvas.width = Math.max(2, Math.round(sourceWidth * scale));
+    canvas.height = Math.max(2, Math.round(sourceHeight * scale));
+    const g = canvas.getContext("2d", { alpha: false });
     if (!g) throw new Error("no canvas ctx");
 
     const dest = actx.createMediaStreamDestination();
@@ -124,18 +160,30 @@ export async function renderReelWithMusic(opts: MuxOptions): Promise<string | nu
     } catch { /* video may have no audio track */ }
 
     // music
-    const aSrc = actx.createMediaElementSource(audio);
-    const aGain = actx.createGain();
-    aGain.gain.value = music.volume ?? 1;
-    aSrc.connect(aGain).connect(dest);
+    if (audio && music) {
+      const aSrc = actx.createMediaElementSource(audio);
+      const aGain = actx.createGain();
+      aGain.gain.value = music.volume ?? 1;
+      aSrc.connect(aGain).connect(dest);
+    }
 
+    const fps = opts.fps ?? 60;
     const stream = new MediaStream([
-      ...canvas.captureStream(30).getVideoTracks(),
+      ...canvas.captureStream(fps).getVideoTracks(),
       ...dest.stream.getAudioTracks(),
     ]);
 
     const mime = pickMime();
-    recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    recorder = new MediaRecorder(
+      stream,
+      mime
+        ? {
+            mimeType: mime,
+            videoBitsPerSecond: opts.resolution === "HD" ? 18_000_000 : 50_000_000,
+            audioBitsPerSecond: 256_000,
+          }
+        : undefined,
+    );
     const chunks: BlobPart[] = [];
     recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
     const done = new Promise<Blob>((resolve) => {
@@ -145,19 +193,76 @@ export async function renderReelWithMusic(opts: MuxOptions): Promise<string | nu
     video.currentTime = start;
     await new Promise<void>((r) => video.addEventListener("seeked", () => r(), { once: true }));
 
+    const speed = Math.min(10, Math.max(0.1, opts.speed ?? 1));
+    const ramp = opts.speedRamp ?? "constant";
+    const playbackRateAt = () => {
+      const progress = Math.min(1, Math.max(0, (video.currentTime - start) / span));
+      if (ramp === "up") return 0.1 + (speed - 0.1) * progress;
+      if (ramp === "down") return speed - (speed - 0.1) * progress;
+      return speed;
+    };
+    video.playbackRate = speed;
+    const videoWithPitch = video as HTMLVideoElement & { preservesPitch?: boolean; webkitPreservesPitch?: boolean };
+    if ("preservesPitch" in videoWithPitch) videoWithPitch.preservesPitch = true;
+    if ("webkitPreservesPitch" in videoWithPitch) videoWithPitch.webkitPreservesPitch = true;
+    if (audio) {
+      audio.playbackRate = speed;
+      const audioWithPitch = audio as HTMLAudioElement & { preservesPitch?: boolean; webkitPreservesPitch?: boolean };
+      if ("preservesPitch" in audioWithPitch) audioWithPitch.preservesPitch = true;
+      if ("webkitPreservesPitch" in audioWithPitch) audioWithPitch.webkitPreservesPitch = true;
+    }
     await actx.resume().catch(() => {});
     recorder.start(200);
     await video.play();
 
     // music scheduling relative to the clip window
-    const musicSpan = Math.max(0.2, music.clipEnd - music.clipStart);
+    const musicSpan = music ? Math.max(0.2, music.clipEnd - music.clipStart) : 0;
+    const filter = opts.filter ?? "none";
+    const gradingFilter = [
+      filter === "vivid" ? "saturate(1.35) contrast(1.08)" :
+      filter === "noir" ? "grayscale(1) contrast(1.16)" :
+      filter === "cyber" ? "saturate(1.35) hue-rotate(65deg) contrast(1.12)" :
+      filter === "warm" ? "sepia(0.22) saturate(1.15) brightness(1.03)" : "",
+      `contrast(${opts.contrast ?? 1})`,
+      `saturate(${opts.saturation ?? 1})`,
+      opts.warmth ? `sepia(${Math.min(1, Math.abs(opts.warmth) * 0.28)})` : "",
+      opts.warmth && opts.warmth < 0 ? "hue-rotate(180deg)" : "",
+    ].filter(Boolean).join(" ");
+    const grainCanvas = document.createElement("canvas");
+    grainCanvas.width = 64;
+    grainCanvas.height = 64;
+    const grainContext = grainCanvas.getContext("2d");
+    if (grainContext) {
+      const pixels = grainContext.createImageData(64, 64);
+      for (let i = 0; i < pixels.data.length; i += 4) {
+        const value = Math.random() > 0.5 ? 255 : 0;
+        pixels.data[i] = value;
+        pixels.data[i + 1] = value;
+        pixels.data[i + 2] = value;
+        pixels.data[i + 3] = 255;
+      }
+      grainContext.putImageData(pixels, 0, 0);
+    }
+    const grainPattern = grainContext ? g.createPattern(grainCanvas, "repeat") : null;
     let musicOn = false;
     let raf = 0;
     const draw = () => {
+      g.filter = gradingFilter || "none";
       g.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const rel = video.currentTime - start - Math.max(0, music.start - start);
-      if (rel >= 0 && rel <= musicSpan) {
-        const t = music.clipStart + rel;
+      g.filter = "none";
+      if (grainPattern && (opts.grain ?? 0) > 0) {
+        g.globalAlpha = Math.min(0.16, (opts.grain ?? 0) * 0.9);
+        g.fillStyle = grainPattern;
+        g.fillRect(0, 0, canvas.width, canvas.height);
+        g.globalAlpha = 1;
+      }
+      const currentRate = playbackRateAt();
+      video.playbackRate = currentRate;
+      if (audio) audio.playbackRate = currentRate;
+      const elapsed = (video.currentTime - start) / Math.max(0.1, currentRate);
+      const rel = music ? elapsed - Math.max(0, music.start - start) : -1;
+      if (audio && music && rel >= 0 && rel <= musicSpan) {
+        const t = music.clipStart + rel * speed;
         if (!musicOn) {
           musicOn = true;
           try { audio.currentTime = t; } catch { /* noop */ }
@@ -165,11 +270,11 @@ export async function renderReelWithMusic(opts: MuxOptions): Promise<string | nu
         } else if (Math.abs(audio.currentTime - t) > 0.35) {
           try { audio.currentTime = t; } catch { /* noop */ }
         }
-      } else if (musicOn) {
+      } else if (musicOn && audio) {
         musicOn = false;
         audio.pause();
       }
-      opts.onProgress?.(Math.min(99, ((video.currentTime - start) / span) * 100));
+      opts.onProgress?.(Math.min(99, (elapsed / (span / speed)) * 100));
       raf = requestAnimationFrame(draw);
     };
     raf = requestAnimationFrame(draw);
@@ -190,7 +295,7 @@ export async function renderReelWithMusic(opts: MuxOptions): Promise<string | nu
 
     cancelAnimationFrame(raf);
     video.pause();
-    audio.pause();
+    audio?.pause();
     recorder.stop();
     const blob = await done;
     void actx.close().catch(() => {});
@@ -203,3 +308,5 @@ export async function renderReelWithMusic(opts: MuxOptions): Promise<string | nu
     return null;
   }
 }
+
+export const renderReel = renderReelWithMusic;

@@ -9,10 +9,11 @@ import {
 import { toast } from "sonner";
 import { CameraCapture } from "@/components/yw/CameraCapture";
 import { LightTimeline } from "@/components/yw/editor/LightTimeline";
+import { GpuVideoPreview } from "@/components/yw/editor/GpuVideoPreview";
 import { NO_COPYRIGHT_MUSIC } from "@/components/yw/MusicVault";
 import { publishReel } from "@/lib/social-data";
 import { useUploads } from "@/lib/upload-progress";
-import { canMuxReel, renderReelWithMusic } from "@/lib/reel-mux";
+import { canMuxReel, renderReel } from "@/lib/reel-mux";
 import { ReelPublishSheet, type ReelPublishMeta } from "@/components/yw/ReelPublishSheet";
 
 import type { AudioTrackState } from "@/components/yw/editor/AudioTrackLane";
@@ -45,6 +46,7 @@ interface ClipItem {
   id: string;
   url: string;
   speed: number;
+  speedRamp?: "constant" | "up" | "down";
   rotation: number;
   filter: "none" | "vivid" | "noir" | "cyber" | "warm";
   textOverlay: string;
@@ -56,6 +58,10 @@ interface ClipItem {
   textX?: number;
   textY?: number;
   cropBox?: { x: number; y: number; w: number; h: number };
+  contrast?: number;
+  saturation?: number;
+  warmth?: number;
+  grain?: number;
 }
 
 type ToolId =
@@ -95,35 +101,59 @@ function CreateStudioPage() {
   const [customTextInput, setCustomTextInput] = useState("");
   const [showMusicPicker, setShowMusicPicker] = useState(false);
   const [showExport, setShowExport] = useState(false);
-  const [exportRes, setExportRes] = useState<"8K" | "4K" | "2K" | "HD">("4K");
+  const [exportRes, setExportRes] = useState<"4K" | "HD">("4K");
   const [exportStage, setExportStage] = useState<"choose" | "saving" | "done">("choose");
   const [exportProgress, setExportProgress] = useState(0);
   const [posting, setPosting] = useState(false);
+  const [exportedUrl, setExportedUrl] = useState<string | null>(null);
+  const [gpuPreviewEnabled, setGpuPreviewEnabled] = useState(false);
+  const handleGpuCapability = React.useCallback((enabled: boolean) => {
+    setGpuPreviewEnabled(enabled);
+  }, []);
 
-  const startExport = () => {
+  useEffect(() => {
+    return () => {
+      if (exportedUrl) URL.revokeObjectURL(exportedUrl);
+    };
+  }, [exportedUrl]);
+
+  const startExport = async () => {
+    const clip = clips[activeClipIndex] ?? clips[0];
+    if (!clip?.url) return;
     setExportStage("saving");
     setExportProgress(0);
-    const step = () => {
-      setExportProgress((p) => {
-        if (p >= 100) return 100;
-        const next = Math.min(100, p + Math.random() * 9 + 3);
-        if (next >= 100) {
-          window.setTimeout(() => setExportStage("done"), 300);
-          return 100;
-        }
-        window.setTimeout(step, 120);
-        return next;
-      });
-    };
-    window.setTimeout(step, 150);
+    const rendered = await renderReel({
+      videoUrl: clip.url,
+      trimStart: clip.trimStart ?? 0,
+      trimEnd: clip.trimEnd ?? clip.duration,
+      music: audioTrack ?? undefined,
+      resolution: exportRes,
+      fps: 60,
+      speed: clip.speed,
+      speedRamp: clip.speedRamp,
+      filter: clip.filter,
+      contrast: clip.contrast ?? 1,
+      saturation: clip.saturation ?? 1,
+      warmth: clip.warmth ?? 0,
+      grain: clip.grain ?? 0,
+      onProgress: setExportProgress,
+    });
+    if (!rendered) {
+      setExportStage("choose");
+      toast.error("This browser could not render the reel. Try Chrome or Safari.");
+      return;
+    }
+    setExportedUrl(rendered);
+    setExportProgress(100);
+    setExportStage("done");
   };
 
   const saveToGallery = () => {
-    const url = clips[activeClipIndex]?.url || clips[0]?.url;
+    const url = exportedUrl || clips[activeClipIndex]?.url || clips[0]?.url;
     if (!url) return;
     const a = document.createElement("a");
     a.href = url;
-    a.download = `yourworld-${exportRes}-${Date.now()}.mp4`;
+    a.download = `yourworld-${exportRes}-${Date.now()}.webm`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -153,11 +183,11 @@ function CreateStudioPage() {
     const caption = meta.caption || clip?.textOverlay || "";
 
     // Bake the selected music into the video so the reel plays with sound.
-    let uploadUrl = url;
-    if (audioTrack && canMuxReel()) {
+    let uploadUrl = exportedUrl || url;
+    if (!exportedUrl && audioTrack && canMuxReel()) {
       const t = toast.loading("Adding music to your reel…");
       const trimEnd = clip?.trimEnd ?? clip?.duration;
-      const baked = await renderReelWithMusic({
+      const baked = await renderReel({
         videoUrl: url,
         trimStart: clip?.trimStart ?? 0,
         trimEnd: trimEnd && trimEnd > 0 ? trimEnd : undefined,
@@ -167,6 +197,15 @@ function CreateStudioPage() {
           clipStart: audioTrack.clipStart,
           clipEnd: audioTrack.clipEnd,
         },
+        resolution: "HD",
+        fps: 60,
+        speed: clip?.speed,
+        speedRamp: clip?.speedRamp,
+        filter: clip?.filter,
+        contrast: clip?.contrast ?? 1,
+        saturation: clip?.saturation ?? 1,
+        warmth: clip?.warmth ?? 0,
+        grain: clip?.grain ?? 0,
       });
       toast.dismiss(t);
       if (!baked) {
@@ -347,6 +386,7 @@ function CreateStudioPage() {
       id: `c_${Date.now()}_${i}`,
       url: URL.createObjectURL(f),
       speed: 1,
+      speedRamp: "constant",
       rotation: 0,
       filter: "none",
       textOverlay: "",
@@ -355,7 +395,15 @@ function CreateStudioPage() {
       crop: 1,
       textX: 50,
       textY: 50,
+      contrast: 1,
+      saturation: 1,
+      warmth: 0,
+      grain: 0,
     }));
+    setExportedUrl((previous) => {
+      if (previous) URL.revokeObjectURL(previous);
+      return null;
+    });
     setClips((prev) => [...prev, ...newClips]);
     setActiveClipIndex(clips.length);
   };
@@ -372,6 +420,10 @@ function CreateStudioPage() {
 
   // Real-time Property Updation (selected clip only)
   const updateCurrentClip = <K extends keyof ClipItem>(key: K, val: ClipItem[K]) => {
+    setExportedUrl((previous) => {
+      if (previous) URL.revokeObjectURL(previous);
+      return null;
+    });
     setClips((prev) =>
       prev.map((c, i) => (i === activeClipIndex ? { ...c, [key]: val } : c)),
     );
@@ -547,6 +599,15 @@ function CreateStudioPage() {
       videoRef.current.playbackRate = currentClip.speed;
       videoRef.current.volume = currentClip.volume;
     }
+    if (audioElRef.current && currentClip) {
+      audioElRef.current.playbackRate = currentClip.speed;
+      const audio = audioElRef.current as HTMLAudioElement & {
+        preservesPitch?: boolean;
+        webkitPreservesPitch?: boolean;
+      };
+      if ("preservesPitch" in audio) audio.preservesPitch = true;
+      if ("webkitPreservesPitch" in audio) audio.webkitPreservesPitch = true;
+    }
   }, [currentClip, activeClipIndex]);
 
   // Reload the <video> source whenever the active clip's URL changes,
@@ -634,7 +695,7 @@ function CreateStudioPage() {
       const global = globalTimeRef.current;
       const span = Math.max(0.1, audioTrack.clipEnd - audioTrack.clipStart);
       const rel = global - audioTrack.start;
-      const t = audioTrack.clipStart + rel;
+        const t = audioTrack.clipStart + rel * (currentClip?.speed ?? 1);
       if (rel >= 0 && rel <= span && !v.paused) {
         if (Math.abs(a.currentTime - t) > 0.25) a.currentTime = t;
         if (a.paused) void a.play().catch(() => {});
@@ -654,7 +715,7 @@ function CreateStudioPage() {
       v.removeEventListener("pause", onPause);
       a.pause();
     };
-  }, [audioTrack, activeClipIndex]);
+  }, [audioTrack, activeClipIndex, currentClip?.speed]);
 
   const handleSplit = () => {
     const v = videoRef.current;
@@ -791,8 +852,8 @@ function CreateStudioPage() {
                   <>
                     <h2 className="text-sm font-black uppercase tracking-wide mb-1">Export video</h2>
                     <p className="text-[11px] text-muted-foreground mb-4">Choose output resolution</p>
-                    <div className="grid grid-cols-4 gap-2 mb-5">
-                      {(["8K", "4K", "2K", "HD"] as const).map((r) => (
+                    <div className="grid grid-cols-2 gap-2 mb-5">
+                      {(["4K", "HD"] as const).map((r) => (
                         <button
                           key={r}
                           onClick={() => setExportRes(r)}
@@ -894,17 +955,37 @@ function CreateStudioPage() {
                   if (isFinite(d) && d > 0 && !currentClip?.duration) updateCurrentClip("duration", d);
                 }}
                 onEmptied={() => { loadedUrlRef.current = null; }}
-                className="h-full w-full object-cover will-change-transform"
+                className={`h-full w-full object-cover will-change-transform transition-opacity duration-200 ${
+                  gpuPreviewEnabled ? "opacity-0" : "opacity-100"
+                }`}
                 style={{
                   transform: `translateZ(0) rotate(${currentClip?.rotation || 0}deg) scale(${currentClip?.crop ?? 1})`,
                   clipPath: currentClip?.cropBox
                     ? `inset(${currentClip.cropBox.y}% ${100 - (currentClip.cropBox.x + currentClip.cropBox.w)}% ${100 - (currentClip.cropBox.y + currentClip.cropBox.h)}% ${currentClip.cropBox.x}%)`
                     : undefined,
                   filter:
-                    currentClip?.filter === "vivid" ? "saturate(2) contrast(1.1)" :
-                    currentClip?.filter === "noir" ? "grayscale(1) contrast(1.2)" :
-                    currentClip?.filter === "cyber" ? "hue-rotate(90deg) contrast(1.2)" :
-                    currentClip?.filter === "warm" ? "sepia(0.5) saturate(1.4)" : "none"
+                    currentClip?.filter === "vivid" ? "saturate(1.35) contrast(1.08)" :
+                    currentClip?.filter === "noir" ? "grayscale(1) contrast(1.16)" :
+                    currentClip?.filter === "cyber" ? "saturate(1.35) hue-rotate(65deg) contrast(1.12)" :
+                    currentClip?.filter === "warm" ? "sepia(0.22) saturate(1.15) brightness(1.03)" : "none"
+                }}
+              />
+              <GpuVideoPreview
+                videoRef={videoRef}
+                filter={currentClip?.filter ?? "none"}
+                contrast={currentClip?.contrast ?? 1}
+                saturation={currentClip?.saturation ?? 1}
+                warmth={currentClip?.warmth ?? 0}
+                grain={currentClip?.grain ?? 0}
+                onCapability={handleGpuCapability}
+                className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-200 ${
+                  gpuPreviewEnabled ? "opacity-100" : "opacity-0"
+                }`}
+                style={{
+                  transform: `translateZ(0) rotate(${currentClip?.rotation || 0}deg) scale(${currentClip?.crop ?? 1})`,
+                  clipPath: currentClip?.cropBox
+                    ? `inset(${currentClip.cropBox.y}% ${100 - (currentClip.cropBox.x + currentClip.cropBox.w)}% ${100 - (currentClip.cropBox.y + currentClip.cropBox.h)}% ${currentClip.cropBox.x}%)`
+                    : undefined,
                 }}
               />
 
@@ -1096,38 +1177,93 @@ function CreateStudioPage() {
 
 
               {activeToolPanel === "FILTER" && (
-                <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
-                  {(["none", "vivid", "noir", "cyber", "warm"] as const).map((f) => (
-                    <button
-                      key={f}
-                      onClick={() => updateCurrentClip("filter", f)}
-                      className={`px-4 py-2 rounded-xl font-bold text-xs uppercase border transition flex-shrink-0 ${
-                        currentClip?.filter === f
-                          ? "bg-orange-500 text-white border-orange-500"
-                          : "bg-muted text-foreground border-border"
-                      }`}
-                    >
-                      {f}
-                    </button>
-                  ))}
+                <div className="flex flex-col gap-3">
+                  <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+                    {(["none", "vivid", "noir", "cyber", "warm"] as const).map((f) => (
+                      <button
+                        key={f}
+                        onClick={() => updateCurrentClip("filter", f)}
+                        className={`px-4 py-2 rounded-xl font-bold text-xs uppercase border transition flex-shrink-0 ${
+                          currentClip?.filter === f
+                            ? "bg-orange-500 text-white border-orange-500"
+                            : "bg-muted text-foreground border-border"
+                        }`}
+                      >
+                        {f}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                    {([
+                      ["contrast", "Contrast", 0.6, 1.6, 0.01, currentClip?.contrast ?? 1],
+                      ["saturation", "Saturation", 0, 2, 0.01, currentClip?.saturation ?? 1],
+                      ["warmth", "Warmth", -1, 1, 0.01, currentClip?.warmth ?? 0],
+                      ["grain", "Film grain", 0, 0.18, 0.01, currentClip?.grain ?? 0],
+                    ] as const).map(([key, label, min, max, step, value]) => (
+                      <label key={key} className="flex min-w-0 items-center gap-2 text-[10px] font-bold text-muted-foreground">
+                        <span className="w-14 truncate">{label}</span>
+                        <input
+                          type="range"
+                          min={min}
+                          max={max}
+                          step={step}
+                          value={value}
+                          onChange={(e) => updateCurrentClip(key, Number(e.target.value))}
+                          className="min-w-0 flex-1 accent-orange-500"
+                        />
+                        <span className="w-8 text-right font-mono text-foreground">{Number(value).toFixed(2)}</span>
+                      </label>
+                    ))}
+                  </div>
                 </div>
               )}
 
               {activeToolPanel === "SPEED" && (
-                <div className="flex gap-2 justify-around py-1">
-                  {[0.25, 0.5, 1, 2, 4].map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => updateCurrentClip("speed", s)}
-                      className={`px-4 py-1.5 rounded-xl font-bold text-xs border transition ${
-                        currentClip?.speed === s
-                          ? "bg-orange-500 text-white border-orange-500"
-                          : "bg-muted text-foreground border-border"
-                      }`}
-                    >
-                      {s}x
-                    </button>
-                  ))}
+                <div className="flex flex-col gap-3 py-1">
+                  <div className="flex items-center gap-3">
+                    <Gauge size={15} className="text-orange-500" />
+                    <input
+                      type="range"
+                      min={0.1}
+                      max={10}
+                      step={0.05}
+                      value={currentClip?.speed ?? 1}
+                      onChange={(e) => updateCurrentClip("speed", Number(e.target.value))}
+                      className="flex-1 accent-orange-500"
+                    />
+                    <span className="w-12 text-right text-xs font-black tabular-nums">{(currentClip?.speed ?? 1).toFixed(2)}x</span>
+                  </div>
+                  <div className="flex items-center gap-2 overflow-x-auto scrollbar-none">
+                    {[0.1, 0.25, 0.5, 1, 2, 4, 8, 10].map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => updateCurrentClip("speed", s)}
+                        className={`px-3 py-1.5 rounded-xl font-bold text-xs border transition flex-shrink-0 ${
+                          currentClip?.speed === s
+                            ? "bg-orange-500 text-white border-orange-500"
+                            : "bg-muted text-foreground border-border"
+                        }`}
+                      >
+                        {s}x
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">Ramp</span>
+                    {(["constant", "up", "down"] as const).map((ramp) => (
+                      <button
+                        key={ramp}
+                        onClick={() => updateCurrentClip("speedRamp", ramp)}
+                        className={`rounded-lg border px-2.5 py-1 text-[10px] font-black uppercase ${
+                          (currentClip?.speedRamp ?? "constant") === ramp
+                            ? "border-orange-500 bg-orange-500 text-white"
+                            : "border-border bg-muted text-foreground"
+                        }`}
+                      >
+                        {ramp === "constant" ? "Flat" : ramp}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
 
@@ -1211,8 +1347,22 @@ function CreateStudioPage() {
                 }
               }}
               onTrim={(i, start, end) => {
+                const source = clips[i];
+                const duration = source?.duration ?? 0;
+                const snap = (value: number) => {
+                  const points = [0, duration, source?.trimStart ?? 0, source?.trimEnd ?? duration];
+                  const nearest = points.reduce((best, point) =>
+                    Math.abs(point - value) < Math.abs(best - value) ? point : best,
+                  points[0] ?? value);
+                  return Math.abs(nearest - value) < 0.12 ? nearest : value;
+                };
+                const nextStart = snap(start);
+                const nextEnd = snap(end);
+                if (Math.abs(nextStart - start) > 0.001 || Math.abs(nextEnd - end) > 0.001) {
+                  try { navigator.vibrate?.(6); } catch { /* ignore */ }
+                }
                 setClips((prev) =>
-                  prev.map((c, idx) => (idx === i ? { ...c, trimStart: start, trimEnd: end } : c)),
+                  prev.map((c, idx) => (idx === i ? { ...c, trimStart: nextStart, trimEnd: nextEnd } : c)),
                 );
               }}
               onAdd={() => fileInputRef.current?.click()}
@@ -1244,7 +1394,15 @@ function CreateStudioPage() {
                   v.pause();
                   setIsPlaying(false);
                 }
-                const target = Math.min(end, Math.max(start, start + frac * (end - start)));
+                 const rawTarget = Math.min(end, Math.max(start, start + frac * (end - start)));
+                 const snapPoints = [start, end];
+                 const nearest = snapPoints.reduce((best, point) =>
+                   Math.abs(point - rawTarget) < Math.abs(best - rawTarget) ? point : best,
+                 rawTarget);
+                 const target = Math.abs(nearest - rawTarget) < 0.12 ? nearest : rawTarget;
+                 if (target !== rawTarget) {
+                   try { navigator.vibrate?.(6); } catch { /* ignore */ }
+                 }
                 pendingSeekRef.current = target;
                 if (seekRafRef.current) return;
                 seekRafRef.current = requestAnimationFrame(() => {
