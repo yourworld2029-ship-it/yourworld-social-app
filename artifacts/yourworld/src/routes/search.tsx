@@ -4,9 +4,13 @@ import { Search, X, Hash, TrendingUp, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSearch } from "@/lib/search-store";
 import { YwAvatar } from "@/components/yw/Avatar";
-import { formatCount, type Hashtag, type SuggestedUser } from "@/lib/yw-data";
+import { formatCount, type Hashtag } from "@/lib/yw-data";
 import { supabase } from "@/integrations/supabase/client";
-import { loadSearchData, searchPublicProfiles } from "@/lib/search-data";
+import {
+  loadSearchData,
+  searchPublicProfiles,
+  type SearchUser,
+} from "@/lib/search-data";
 
 export const Route = createFileRoute("/search")({
   head: () => ({
@@ -22,9 +26,9 @@ function SearchPage() {
   const [tab, setTab] = useState<Tab>("users");
   const inputRef = useRef<HTMLInputElement>(null);
   const { history, push, remove, clear } = useSearch();
-  const [users, setUsers] = useState<SuggestedUser[]>([]);
+  const [users, setUsers] = useState<SearchUser[]>([]);
   const [hashtags, setHashtags] = useState<Hashtag[]>([]);
-  const [remoteUsers, setRemoteUsers] = useState<SuggestedUser[]>([]);
+  const [remoteUsers, setRemoteUsers] = useState<SearchUser[]>([]);
   const [userSearchError, setUserSearchError] = useState<string | null>(null);
   const navigate = useNavigate();
 
@@ -82,7 +86,7 @@ function SearchPage() {
     [hashtags],
   );
 
-  function handleUserClick(user: SuggestedUser) {
+  function handleUserClick(user: SearchUser) {
     push({ kind: "user", label: user.username, sublabel: user.name, userId: user.id });
     void navigate({ to: "/u/$userId", params: { userId: user.id } });
   }
@@ -340,7 +344,7 @@ function UserRow({
   user,
   onClick,
 }: {
-  user: SuggestedUser;
+  user: SearchUser;
   onClick: () => void;
 }) {
   return (
@@ -368,7 +372,7 @@ function UserRow({
         </p>
       </div>
       <p className="font-ui text-[12px] font-medium text-muted-foreground/70 shrink-0">
-        {formatCount(user.followerCount)}
+        {user.followerCount !== undefined && formatCount(user.followerCount)}
       </p>
     </button>
   );
@@ -407,7 +411,7 @@ function SuggestedCard({
   user,
   onClick,
 }: {
-  user: SuggestedUser;
+  user: SearchUser;
   onClick: () => void;
 }) {
   return (
@@ -425,7 +429,7 @@ function SuggestedCard({
         </p>
       )}
       <p className="mt-1 font-ui text-[11px] font-medium text-muted-foreground/70">
-        {formatCount(user.followerCount)}
+        {user.followerCount !== undefined && formatCount(user.followerCount)}
       </p>
       <div className="mt-3 w-full rounded-[10px] bg-primary py-1.5 font-ui text-[11px] font-semibold text-primary-foreground">
         Follow

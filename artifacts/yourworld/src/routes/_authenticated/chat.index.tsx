@@ -45,6 +45,7 @@ function ChatListPage() {
   const [selected, setSelected] = useState<string[]>([]);
   const [hidden, setHidden] = useState<string[]>(() => hiddenThreadIds());
   const [deleting, setDeleting] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const pressTimer = useRef<number | null>(null);
   const longPressed = useRef(false);
   const { nameFor } = useChatNames();
@@ -66,43 +67,41 @@ function ChatListPage() {
       setMe(me);
 
 
-      // 1) Find every thread this user participates in.
-      let threadIds: string[] = [];
-      if (me) {
-        const { data: parts } = await supabase
-          .from("thread_participants")
-          .select("thread_id")
-          .eq("user_id", me);
-        threadIds = (parts ?? []).map((p) => p.thread_id);
-      }
-
-      // 2) Fetch all messages for those threads (RLS scopes to visible rows).
-      let query = supabase
-        .from("direct_messages")
-        .select("id,thread_id,sender_id,content,media_type,is_read,created_at")
-        .order("created_at", { ascending: false })
-        .limit(2000);
-      if (threadIds.length > 0) query = query.in("thread_id", threadIds);
-      const { data, error } = await query;
+       if (!me) {
+         setThreads([]);
+         setLoadError("Sign in to view your chats.");
+         return;
+       }
+       // public.messages is the conversation source of truth. Canonical route
+       // ids are derived from the authenticated user and the other endpoint.
+       const { data, error } = await supabase
+         .from("messages" as never)
+         .select("id,sender_id,receiver_id,content,media_url,voice_note_url,is_read,created_at" as never)
+         .or(`sender_id.eq.${me},receiver_id.eq.${me}`)
+         .order("created_at", { ascending: false })
+         .limit(2000);
 
       if (!error && data) {
-        // Group messages by thread_id
         const map = new Map<string, ChatThread>();
-        data.forEach((msg) => {
-          const existing = map.get(msg.thread_id);
+         (data as unknown as Array<{ sender_id: string; receiver_id: string; content: string; media_url: string | null; voice_note_url: string | null; is_read: boolean; created_at: string }>).forEach((msg) => {
+           const peerId = msg.sender_id === me ? msg.receiver_id : msg.sender_id;
+           const id = dmThreadId(me, peerId);
+           const existing = map.get(id);
           const unread =
             (existing?.unreadCount ?? 0) + (!msg.is_read && msg.sender_id !== me ? 1 : 0);
           if (!existing) {
-            map.set(msg.thread_id, {
-              id: msg.thread_id,
+             map.set(id, {
+               id,
               name: "Loading…",
-              lastMessage: msg.content || "Media file",
+               peerId,
+               lastMessage: msg.content || (msg.voice_note_url ? "Voice note" : msg.media_url ? "Media file" : "Message"),
               time: new Date(msg.created_at).toLocaleTimeString([], {
                 hour: "2-digit",
                 minute: "2-digit",
               }),
               unreadCount: unread,
             });
+         setLoadError(null);
           } else {
             existing.unreadCount = unread;
           }
@@ -129,6 +128,8 @@ function ChatListPage() {
         );
         setThreads(resolved);
         cacheSet("chat-threads", resolved.slice(0, 30));
+       } else if (error) {
+         setLoadError(error.message);
       }
     }
 
@@ -143,7 +144,7 @@ function ChatListPage() {
         .channel(`chat-list-${Math.random().toString(36).slice(2)}`)
         .on(
           "postgres_changes",
-          { event: "*", schema: "public", table: "direct_messages" },
+           { event: "*", schema: "public", table: "messages" },
           () => void loadThreads(),
         )
         .subscribe((status) => {
@@ -311,6 +312,7 @@ function ChatListPage() {
 
       {/* Chat List */}
       <div className="flex-1 overflow-y-auto space-y-2">
+         {loadError ? <p role="alert" className="rounded-xl border border-red-900 bg-red-950/40 p-3 text-xs text-red-300">{loadError}</p> : null}
         {filteredThreads.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-40 text-gray-500">
             <MessageSquare className="h-10 w-10 mb-2 opacity-50" />

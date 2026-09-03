@@ -69,7 +69,7 @@ function List({
   kind: "followers" | "following";
   open: boolean;
 }) {
-  const { users, loading } = useFollowList(userId, kind, open);
+  const { users, loading, error } = useFollowList(userId, kind, open);
   const { following, toggleFollow } = useYw();
 
   if (loading)
@@ -81,12 +81,14 @@ function List({
       </ul>
     );
 
-  if (!users.length)
+  if (error)
     return (
       <p className="px-5 py-10 text-center text-sm text-muted-foreground">
-        {kind === "followers" ? "No followers yet." : "Not following anyone yet."}
+        {error}
       </p>
     );
+  if (!users.length)
+    return <p className="px-5 py-10 text-center text-sm text-muted-foreground">No connections yet.</p>;
 
   return (
     <ul className="max-h-[55vh] space-y-1 overflow-y-auto px-3 py-3">

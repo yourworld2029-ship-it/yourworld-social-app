@@ -8,6 +8,10 @@ import { supabase } from "@/integrations/supabase/client";
 
 const isUuid = (v: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+const dmPair = (id: string): [string, string] | null => {
+  const match = /^dm_([0-9a-f-]{36})_([0-9a-f-]{36})$/i.exec(id);
+  return match ? [match[1]!, match[2]!] : null;
+};
 
 const HIDDEN_DM_KEY = "yw-hidden-threads";
 const HIDDEN_ORBIT_KEY = "yw-hidden-orbit-chats";
@@ -46,9 +50,17 @@ export async function deleteDirectThreads(threadIds: string[]) {
   const me = auth.user?.id;
   if (!me) return;
 
-  // My messages go for good; then I leave the thread so nothing else reaches me.
-  await supabase.from("direct_messages").delete().in("thread_id", ids).eq("sender_id", me);
-  await supabase.from("thread_participants").delete().in("thread_id", ids).eq("user_id", me);
+  // messages has no thread membership. Only delete records authored by this
+  // user in each canonical pair; local hiding keeps incoming records private.
+  await Promise.all(ids.map(async (id) => {
+    const pair = dmPair(id);
+    if (!pair || !pair.includes(me)) return;
+    const peerId = pair.find((userId) => userId !== me);
+    if (!peerId) return;
+    await supabase.from("messages" as never).delete()
+      .eq("sender_id", me)
+      .eq("receiver_id", peerId);
+  }));
 }
 
 /** Delete one or many Orbit conversations for the signed-in user. */

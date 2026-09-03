@@ -23,6 +23,9 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useOrbitAppPrefs } from "@/lib/orbit-prefs";
+const liveDb = supabase as unknown as {
+  from: (table: "likes" | "comments" | "posts") => ReturnType<typeof supabase.from>;
+};
 
 export type NotificationKind =
   | "like"
@@ -84,24 +87,6 @@ const defaultPrefs = Object.fromEntries(
   NOTIFICATION_KINDS.map((k) => [k.id, true]),
 ) as NotificationPrefs;
 
-const KEY = "yw.notifications.v2";
-
-type Persisted = {
-  prefs?: Partial<NotificationPrefs>;
-  live?: boolean;
-  read?: string[];
-  removed?: string[];
-};
-
-function loadPersisted(): Persisted {
-  if (typeof window === "undefined") return {};
-  try {
-    return JSON.parse(window.localStorage.getItem(KEY) ?? "{}") as Persisted;
-  } catch {
-    return {};
-  }
-}
-
 type Ctx = {
   items: NotificationItem[];
   unread: number;
@@ -130,7 +115,7 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
   const me = auth.user?.id;
   if (!me) return [];
 
-  const { data: myPostRows } = await supabase.from("posts").select("id,kind").eq("user_id", me);
+  const { data: myPostRows } = await liveDb.from("posts").select("id,kind").eq("user_id", me);
   const myPosts = (myPostRows ?? []) as { id: string; kind: string }[];
   const postIds = myPosts.map((p) => p.id);
 
@@ -140,11 +125,11 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
     .eq("user_id", me);
   const threadIds = [...new Set(((threadRows ?? []) as { thread_id: string }[]).map((t) => t.thread_id))];
 
-  const [likes, comments, follows, dms, orbitMsgs, orbitLikes, myOrbitLikes, requests, connections] =
+  const [likes, comments, dms, orbitMsgs, orbitLikes, myOrbitLikes, requests, connections] =
     await Promise.all([
       postIds.length
-        ? supabase
-            .from("post_likes")
+        ? liveDb
+            .from("likes")
             .select("id,post_id,user_id,created_at")
             .in("post_id", postIds)
             .neq("user_id", me)
@@ -152,20 +137,14 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
             .limit(40)
         : Promise.resolve({ data: [] }),
       postIds.length
-        ? supabase
-            .from("post_comments")
-            .select("id,post_id,user_id,body,created_at")
+        ? liveDb
+            .from("comments")
+            .select("id,post_id,user_id,content,created_at")
             .in("post_id", postIds)
             .neq("user_id", me)
             .order("created_at", { ascending: false })
             .limit(40)
         : Promise.resolve({ data: [] }),
-      supabase
-        .from("follows")
-        .select("id,follower_id,created_at")
-        .eq("following_id", me)
-        .order("created_at", { ascending: false })
-        .limit(40),
       threadIds.length
         ? supabase
             .from("direct_messages")
@@ -208,10 +187,9 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       id: string;
       post_id: string;
       user_id: string;
-      body: string;
+      content: string;
       created_at: string;
     }[],
-    follows: (follows.data ?? []) as { id: string; follower_id: string; created_at: string }[],
     dms: (dms.data ?? []) as {
       id: string;
       thread_id: string;
@@ -252,7 +230,6 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
     ...new Set([
       ...rows.likes.map((r) => r.user_id),
       ...rows.comments.map((r) => r.user_id),
-      ...rows.follows.map((r) => r.follower_id),
       ...rows.dms.map((r) => r.sender_id),
       ...rows.orbitMsgs.map((r) => r.sender_id),
       ...rows.orbitLikes.map((r) => r.user_id),
@@ -292,18 +269,9 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       id: `comment-${r.id}`,
       kind: "comment",
       title: `${nameOf(r.user_id)} commented on your post`,
-      body: r.body,
+      body: r.content,
       at: ts(r.created_at),
       to: postLink(r.post_id),
-    });
-
-  for (const r of rows.follows)
-    out.push({
-      id: `follow-${r.id}`,
-      kind: "follower",
-      title: `${nameOf(r.follower_id)} started following you`,
-      at: ts(r.created_at),
-      to: `/u/${r.follower_id}`,
     });
 
   for (const r of rows.dms)
@@ -373,58 +341,27 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   const [live, setLive] = useState(true);
   const [readIds, setReadIds] = useState<string[]>([]);
   const [removedIds, setRemovedIds] = useState<string[]>([]);
-  const [hydrated, setHydrated] = useState(false);
   const { hideOrbitNotifications } = useOrbitAppPrefs();
-
-  useEffect(() => {
-    const p = loadPersisted();
-    setPrefs({ ...defaultPrefs, ...(p.prefs ?? {}) });
-    if (typeof p.live === "boolean") setLive(p.live);
-    setReadIds(p.read ?? []);
-    setRemovedIds(p.removed ?? []);
-    setHydrated(true);
-  }, []);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    try {
-      window.localStorage.setItem(
-        KEY,
-        JSON.stringify({ prefs, live, read: readIds.slice(0, 500), removed: removedIds.slice(0, 500) }),
-      );
-    } catch {
-      /* storage unavailable */
-    }
-  }, [prefs, live, readIds, removedIds, hydrated]);
 
   const load = useCallback(async () => {
     try {
       setEvents(await fetchEvents());
-    } catch {
-      /* offline or signed out */
+    } catch (error) {
+      console.error("Unable to load notifications", error);
+      setEvents([]);
     }
   }, []);
 
   useEffect(() => {
-    if (!hydrated) return;
     void load();
     const { data: sub } = supabase.auth.onAuthStateChange(() => void load());
     return () => sub.subscription.unsubscribe();
-  }, [hydrated, load]);
+  }, [load]);
 
   // Live updates straight from the database.
   useEffect(() => {
-    if (!hydrated || !live) return;
-    const tables = [
-      "post_likes",
-      "post_comments",
-      "follows",
-      "direct_messages",
-      "orbit_messages",
-      "orbit_likes",
-      "orbit_chat_requests",
-      "orbit_connections",
-    ];
+    if (!live) return;
+    const tables = ["likes", "comments"];
     // The feed is rebuilt with ~12 queries, so coalesce bursts (e.g. a chat
     // conversation) into a single refresh instead of one per row change.
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -441,7 +378,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       if (timer) clearTimeout(timer);
       void supabase.removeChannel(channel);
     };
-  }, [hydrated, live, load]);
+  }, [live, load]);
 
   const setPref = useCallback((k: NotificationKind, v: boolean) => {
     setPrefs((p) => ({ ...p, [k]: v }));

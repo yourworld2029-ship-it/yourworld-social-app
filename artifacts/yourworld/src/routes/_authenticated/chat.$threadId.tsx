@@ -86,7 +86,6 @@ function ChatThreadPage() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [protectionWarning, setProtectionWarning] = useState<string | null>(null);
   const [caption, setCaption] = useState("");
-  const [isViewOnce, setIsViewOnce] = useState(false);
   const [isHD, setIsHD] = useState(true);
   const [selectedFilter, setSelectedFilter] = useState("normal");
   const [showFilters, setShowFilters] = useState(false);
@@ -109,7 +108,6 @@ function ChatThreadPage() {
     if (selectedImage?.startsWith("blob:")) { URL.revokeObjectURL(selectedImage); }
     setSelectedImage(null);
     setCaption("");
-    setIsViewOnce(false);
     setSelectedFilter("normal");
     setShowFilters(false);
     setOverlays([]);
@@ -145,7 +143,7 @@ function ChatThreadPage() {
     send: sendToDb,
     remove: removeFromDb,
     markRead,
-    burnMedia,
+    error: messagesError,
     loading: messagesLoading,
     loadingMore,
     hasMore,
@@ -169,16 +167,16 @@ function ChatThreadPage() {
   const messages = useMemo<Message[]>(() => {
     const fromDb: Message[] = dbMessages.map((m) => ({
       id: m.id,
-      text: m.media_type === "text" ? m.content : m.content || undefined,
-      image: m.media_type.startsWith("image") ? m.media_url ?? undefined : undefined,
-      audio: m.media_type === "audio" ? m.media_url ?? undefined : undefined,
+      text: m.content || undefined,
+      image: m.media_url ?? undefined,
+      audio: m.voice_note_url ?? undefined,
       sender: m.sender_id === currentUserId ? "me" : "them",
-      system: m.media_type === "system",
+      system: false,
       time: fmtTime(m.created_at),
       ts: new Date(m.created_at).getTime(),
       read: m.is_read,
-      viewOnce: m.media_type.startsWith("image_once"),
-      opened: m.media_type === "image_once_opened",
+      viewOnce: false,
+      opened: false,
     }));
     return [...fromDb, ...localMessages]
       .filter((m) => !hiddenIds.includes(m.id))
@@ -208,16 +206,6 @@ function ChatThreadPage() {
   const peer = useThreadPeer(threadId, currentUserId);
   // Live presence: online dot + "typing..." indicator.
   const { peerOnline, peerTyping, setTyping } = useThreadPresence(threadId, currentUserId);
-
-  // Live view once: if the media is burned on either device, close the viewer.
-  useEffect(() => {
-    if (!viewOnceOpen) return;
-    const row = dbMessages.find((m) => m.id === viewOnceOpen.id);
-    if (row && (!row.media_url || row.media_type === "image_once_opened")) {
-      setOpenedOnce((prev) => (prev.includes(viewOnceOpen.id) ? prev : [...prev, viewOnceOpen.id]));
-      setViewOnceOpen(null);
-    }
-  }, [dbMessages, viewOnceOpen]);
 
   // Chat options persisted per conversation in the backend.
   const { settings, patch } = useChatSettings(peer.peerId);
@@ -291,7 +279,6 @@ function ChatThreadPage() {
     }
   };
 
-  const viewOnce = settings.viewOnce;
   const autoDelete = settings.autoDelete;
   const screenshotAlert = settings.screenshotAlert;
   const recordingAlert = settings.recordingAlert;
@@ -301,15 +288,11 @@ function ChatThreadPage() {
 
   const pushSystem = async (text: string) => {
     if (currentUserId) {
-      const sent = await sendToDb({ content: text, media_type: "system" });
+      const sent = await sendToDb({ content: text });
       if (sent.error) toast.error(sent.error);
       return;
     }
-    setLocalMessages((prev) => [...prev, {
-      id: `local-${Date.now()}-${Math.random()}`, system: true, sender: "me" as const,
-      text, ts: Date.now(), local: true,
-      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    }]);
+    toast.error("Sign in to send messages.");
   };
 
   const startLongPress = (id: string) => {
@@ -392,26 +375,13 @@ function ChatThreadPage() {
   }, [isRecording]);
 
 
-  const pushLocal = (partial: Omit<Message, "id" | "time" | "ts" | "local">) =>
-    setLocalMessages((prev) => [
-      ...prev,
-      {
-        ...partial,
-        id: `local-${Date.now()}-${Math.random()}`,
-        ts: Date.now(),
-        local: true,
-        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      },
-    ]);
-
-  const expiry = () => autoDelete ? new Date(Date.now() + autoDelete * 1000).toISOString() : null;
   const doSend = (currentMsg: string) => {
     if (currentUserId) {
-      void sendToDb({ content: currentMsg, media_type: "text", expires_at: expiry() }).then((sent) => {
+      void sendToDb({ content: currentMsg }).then((sent) => {
         if (sent.error) toast.error(sent.error);
       });
     } else {
-      pushLocal({ text: currentMsg, sender: "me" });
+      toast.error("Sign in to send messages.");
     }
     setMessage("");
     setShowEmojis(false);
@@ -433,7 +403,6 @@ function ChatThreadPage() {
     // Compress on-device first so sending/uploading is near-instant.
     const compressed = await compressImageFile(file, { maxDim: 1600, quality: 0.82 });
     setCaption("");
-    setIsViewOnce(false);
     setSelectedFilter("normal");
     setShowFilters(false);
     setSelectedImage(compressed);
@@ -463,9 +432,7 @@ function ChatThreadPage() {
             return;
           }
           const sent = await sendToDb({
-            media_url: uploaded.url,
-            media_type: "audio",
-            expires_at: expiry(),
+            voice_note_url: uploaded.url,
           });
           if (sent.error) toast.error(sent.error);
         })();
@@ -625,10 +592,6 @@ function ChatThreadPage() {
                 void toggleSecretLock();
                 setShowOptionsMenu(false);
               }} />
-              <MenuItem icon={<EyeOff size={16} className="text-zinc-400" />} label="View Once Mode" state={viewOnce} onClick={() => {
-                patch({ viewOnce: !viewOnce }); pushSystem(`View once mode ${!viewOnce ? "on" : "off"}`);
-                setShowOptionsMenu(false);
-              }} />
               <MenuItem icon={<Clock size={16} className="text-zinc-400" />} label={autoDelete ? `Auto Delete: ${autoDelete}s` : "Auto Delete Messages"} state={autoDelete > 0} onClick={() => {
                 const next = autoDelete === 0 ? 60 : autoDelete === 60 ? 300 : autoDelete === 300 ? 3600 : 0;
                 patch({ autoDelete: next });
@@ -721,6 +684,7 @@ function ChatThreadPage() {
 
       <div ref={scrollRef} onScroll={onScrollMessages} className="relative flex-1 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] p-4 space-y-3.5 bg-zinc-950/50" onClick={() => setShowOptionsMenu(false)}>
         <UserWatermark username={currentUsername} className="fixed text-white" />
+        {messagesError ? <p role="alert" className="rounded-lg border border-red-900 bg-red-950/40 px-3 py-2 text-center text-xs text-red-300">{messagesError}</p> : null}
         {loadingMore ? (
           <p className="py-1 text-center text-[11px] text-zinc-500">Loading older messages…</p>
         ) : null}
@@ -956,7 +920,7 @@ function ChatThreadPage() {
         onLoad={() => {
           const openedId = viewOnceOpen.id;
           setOpenedOnce((prev) => (prev.includes(openedId) ? prev : [...prev, openedId]));
-          void burnMedia(openedId);
+          setOpenedOnce((prev) => (prev.includes(openedId) ? prev : [...prev, openedId]));
         }}
         wrapperClassName="max-h-full max-w-full"
         className="max-h-full max-w-full object-contain rounded-lg"
@@ -1193,15 +1157,6 @@ function ChatThreadPage() {
           onChange={(e) => setCaption(e.target.value)}
           className="bg-transparent text-white text-sm flex-1 focus:outline-none"
         />
-        <button
-          type="button"
-          onClick={() => setIsViewOnce(!isViewOnce)}
-          className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs transition-all ${
-            isViewOnce ? 'bg-emerald-500 text-black scale-110 shadow-lg shadow-emerald-500/30' : 'bg-zinc-800 text-white border border-zinc-600'
-          }`}
-        >
-          1
-        </button>
       </div>
 
       <div className="flex items-center justify-end px-2">
@@ -1225,16 +1180,14 @@ function ChatThreadPage() {
               }
               const sent = await sendToDb({
                 media_url: uploaded.url,
-                media_type: isViewOnce ? "image_once" : "image",
                 content: caption,
-                expires_at: expiry(),
               });
               if (sent.error) {
                 toast.error(sent.error);
                 return;
               }
             } else {
-              pushLocal({ image: finalImage, text: caption || undefined, sender: "me", viewOnce: isViewOnce });
+              toast.error("Sign in to send messages.");
             }
             handleClosePreview();
           }}

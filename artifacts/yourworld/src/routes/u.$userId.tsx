@@ -64,7 +64,7 @@ function PublicProfilePage() {
     const uid = s.session?.user.id ?? null;
     setMe(uid);
 
-    const [{ data: rows }, { data: myPosts }, { data: rel }] = await Promise.all([
+    const [{ data: rows }, { data: myPosts }] = await Promise.all([
       supabase.rpc("get_public_profiles", { ids: [userId] }),
       supabase
         .from("posts")
@@ -72,14 +72,6 @@ function PublicProfilePage() {
         .eq("user_id", userId)
         .order("created_at", { ascending: false })
         .limit(100),
-      uid
-        ? supabase
-            .from("follows")
-            .select("following_id")
-            .eq("follower_id", uid)
-            .eq("following_id", userId)
-            .maybeSingle()
-        : Promise.resolve({ data: null }),
     ]);
 
     const row = (rows ?? [])[0] as
@@ -95,7 +87,7 @@ function PublicProfilePage() {
     };
     setProfile(next);
     setPosts((myPosts ?? []) as DbPost[]);
-    setIsFollowing(!!rel);
+    setIsFollowing(false);
     setAvatarSrc(next.avatar_url ? await resolveMediaUrl(next.avatar_url, "avatars") : null);
     setLoading(false);
   }, [userId]);
@@ -181,7 +173,7 @@ function PublicProfilePage() {
                 setListOpen(true);
               }}
             >
-              <p className="text-base font-bold">{formatCount(counts.followers)}</p>
+              <p className="text-base font-bold">{counts.followers === null ? "—" : formatCount(counts.followers)}</p>
               <p className="text-[11px] text-zinc-400">Followers</p>
             </button>
             <button
@@ -190,7 +182,7 @@ function PublicProfilePage() {
                 setListOpen(true);
               }}
             >
-              <p className="text-base font-bold">{formatCount(counts.following)}</p>
+              <p className="text-base font-bold">{counts.following === null ? "—" : formatCount(counts.following)}</p>
               <p className="text-[11px] text-zinc-400">Following</p>
             </button>
           </div>
@@ -209,13 +201,13 @@ function PublicProfilePage() {
           <button
             type="button"
             onClick={onFollow}
-            disabled={busy}
+            disabled={busy || counts.unavailable}
             className={cn(
               "flex-1 rounded-xl py-2 text-xs font-bold transition-all active:scale-[0.98] disabled:opacity-60",
               isFollowing ? "bg-zinc-800 text-white" : "bg-pink-500 text-white",
             )}
           >
-            {isFollowing ? "Following" : "Follow"}
+            {counts.unavailable ? "Follow unavailable" : isFollowing ? "Following" : "Follow"}
           </button>
           <button
             type="button"

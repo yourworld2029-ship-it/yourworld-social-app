@@ -264,7 +264,7 @@ test("comments are inserted and deleted through Supabase", async () => {
   const userId = "77777777-7777-4777-8777-777777777777";
   const { client, calls } = fakeClient({
     from: {
-      post_comments: [
+      comments: [
         { data: { id: "comment-live", created_at: "2026-09-02T10:00:00.000Z" }, error: null },
         { data: null, error: null },
       ],
@@ -281,15 +281,15 @@ test("comments are inserted and deleted through Supabase", async () => {
   assert.equal(created.error, null);
   assert.equal(deleted.error, null);
   assert.deepEqual(calls.filter(({ type }) => type === "from").map(({ type, name }) => `${type}:${name}`), [
-    "from:post_comments",
-    "from:post_comments",
+    "from:comments",
+    "from:comments",
   ]);
   assert.deepEqual(
-    calls.find(({ name }) => name === "post_comments.insert")?.args,
-    [{ post_id: postId, user_id: userId, body: "persisted comment" }],
+    calls.find(({ name }) => name === "comments.insert")?.args,
+    [{ post_id: postId, user_id: userId, content: "persisted comment" }],
   );
   assert.deepEqual(
-    calls.find(({ name }) => name === "post_comments.eq")?.args,
+    calls.find(({ name }) => name === "comments.eq")?.args,
     ["id", "comment-live"],
   );
 });

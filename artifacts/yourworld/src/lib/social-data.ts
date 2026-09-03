@@ -1,11 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { cacheGet, cacheSet } from "@/lib/local-cache";
-import { loadCachedThread, saveCachedThread, PAGE_SIZE } from "@/lib/chat-db";
+import { PAGE_SIZE } from "@/lib/chat-db";
 import { STORAGE_BUCKETS, uploadWithProgress } from "@/lib/storage-upload";
 import { flagChatMessage } from "@/lib/chat-compliance";
 import type { User } from "@/lib/yw-data";
 import { missingColumn, normalizePostRow, postKind, writeCompat } from "@/lib/supabase-compat";
+
+const liveSocialTable = (
+  client: typeof supabase,
+  table: "likes" | "comments",
+) =>
+  (client as unknown as {
+    from: (name: "likes" | "comments") => ReturnType<typeof supabase.from>;
+  }).from(table);
 
 export type DbProfile = {
   id: string;
@@ -152,20 +160,22 @@ export async function loadSocialPosts(
 
   const [{ data: profiles }, { data: likes }, { data: comments }] = await Promise.all([
     client.rpc("get_public_profiles", { ids: authorIds }),
-    client.from("post_likes").select("post_id,user_id").in("post_id", ids),
-    client.from("post_comments").select("post_id").in("post_id", ids),
+    liveSocialTable(client, "likes").select("post_id,user_id").in("post_id", ids),
+    liveSocialTable(client, "comments").select("post_id").in("post_id", ids),
   ]);
 
   const profileById = new Map(
     ((profiles ?? []) as DbProfile[]).map((p) => [p.id, p]),
   );
 
+  const likeRows = (likes ?? []) as Array<{ post_id: string; user_id: string }>;
+  const commentRows = (comments ?? []) as Array<{ post_id: string }>;
   const next: SocialPost[] = posts.map((p) => ({
     ...(normalizePostRow(p) as DbPost),
     author: toUser(profileById.get(p.user_id), p.user_id),
-    likeCount: (likes ?? []).filter((l) => l.post_id === p.id).length,
-    commentCount: (comments ?? []).filter((c) => c.post_id === p.id).length,
-    likedByMe: !!uid && (likes ?? []).some((l) => l.post_id === p.id && l.user_id === uid),
+    likeCount: likeRows.filter((like) => like.post_id === p.id).length,
+    commentCount: commentRows.filter((comment) => comment.post_id === p.id).length,
+    likedByMe: !!uid && likeRows.some((like) => like.post_id === p.id && like.user_id === uid),
   }));
 
   return { posts: next, currentUserId: uid };
@@ -203,8 +213,8 @@ export function useSocialPosts(kind: "post" | "reel") {
       channel = supabase
         .channel(`social-${kind}`)
         .on("postgres_changes", { event: "*", schema: "public", table: "posts" }, queue)
-        .on("postgres_changes", { event: "*", schema: "public", table: "post_likes" }, queue)
-        .on("postgres_changes", { event: "*", schema: "public", table: "post_comments" }, queue)
+        .on("postgres_changes", { event: "*", schema: "public", table: "likes" }, queue)
+        .on("postgres_changes", { event: "*", schema: "public", table: "comments" }, queue)
         .subscribe();
     }, 300);
     return () => {
@@ -228,13 +238,13 @@ export function useSocialPosts(kind: "post" | "reel") {
         }),
       );
       if (wasLiked) {
-        const { error } = await supabase.from("post_likes").delete().eq("post_id", postId).eq("user_id", me);
+        const { error } = await liveSocialTable(supabase, "likes").delete().eq("post_id", postId).eq("user_id", me);
         if (error) {
           await load();
           throw error;
         }
       } else {
-        const { error } = await supabase.from("post_likes").upsert(
+        const { error } = await liveSocialTable(supabase, "likes").upsert(
           { post_id: postId, user_id: me },
           { onConflict: "post_id,user_id", ignoreDuplicates: true },
         );
@@ -264,18 +274,32 @@ export function useSocialPosts(kind: "post" | "reel") {
 
 export type DbMessage = {
   id: string;
-  thread_id: string;
   sender_id: string;
+  receiver_id: string;
   content: string;
   media_url: string | null;
+  voice_note_url: string | null;
+  /** UI compatibility field derived from the messages URL columns. */
   media_type: string;
   is_read: boolean;
-  expires_at?: string | null;
   created_at: string;
 };
 
-const unexpiredMessages = (rows: DbMessage[]) =>
-  rows.filter((message) => !message.expires_at || new Date(message.expires_at).getTime() > Date.now());
+type PublicMessageRow = {
+  id: string;
+  sender_id: string;
+  receiver_id: string;
+  content: string;
+  media_url: string | null;
+  voice_note_url: string | null;
+  is_read: boolean;
+  created_at: string;
+};
+
+const toDbMessage = (row: PublicMessageRow): DbMessage => ({
+  ...row,
+  media_type: row.voice_note_url ? "audio" : row.media_url ? "image" : "text",
+});
 
 type MutationResult = Promise<{ error: { message: string } | null }>;
 // Migration 0015 is intentionally newer than generated Supabase types. Keep
@@ -445,271 +469,86 @@ export async function publishPost(opts: {
   return { error: error?.message ?? null };
 }
 
-/** Live messages for one chat thread. */
-export function useThreadMessages(threadId: string, opts: { staleTime?: number } = {}) {
-  const staleTime = opts.staleTime ?? 0;
-  // Hydrate instantly from the local cache so the thread paints with zero wait.
-  const [messages, setMessages] = useState<DbMessage[]>(
-    () => unexpiredMessages(cacheGet<DbMessage[]>(`thread:${threadId}`) ?? []),
-  );
+/** Live public.messages records for the canonical two-person route id. */
+export function useThreadMessages(threadId: string, _opts: { staleTime?: number } = {}) {
+  const pair = dmThreadPair(threadId);
+  const [messages, setMessages] = useState<DbMessage[]>(() => cacheGet<DbMessage[]>(`thread:${threadId}`) ?? []);
   const [me, setMe] = useState<string | null>(null);
-  const [loading, setLoading] = useState(
-    () => unexpiredMessages(cacheGet<DbMessage[]>(`thread:${threadId}`) ?? []).length === 0,
-  );
-  const [hasMore, setHasMore] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [error, setError] = useState<string | null>(pair ? null : "Invalid chat address.");
   const messagesRef = useRef<DbMessage[]>([]);
-  useEffect(() => {
-    messagesRef.current = messages;
-    // Persist a small tail of the thread for the next instant open.
-    const persistable = messages.filter((m) => !m.id.startsWith("tmp-"));
-    cacheSet(`thread:${threadId}`, persistable.slice(-40));
-    saveCachedThread(`dm:${threadId}`, persistable);
-  }, [messages, threadId]);
+  useEffect(() => { messagesRef.current = messages; cacheSet(`thread:${threadId}`, messages.filter((m) => !m.id.startsWith("tmp-")).slice(-40)); }, [messages, threadId]);
 
-  // Deeper offline history lives in IndexedDB — merge it in as soon as it reads.
-  useEffect(() => {
-    let alive = true;
-    void loadCachedThread<DbMessage>(`dm:${threadId}`).then((rows) => {
-      const cached = unexpiredMessages(rows ?? []);
-      if (!alive || !cached.length) return;
-      setMessages((prev) => {
-        const map = new Map(cached.map((r) => [r.id, r]));
-        for (const m of prev) map.set(m.id, m);
-        return [...map.values()].sort((a, b) => a.created_at.localeCompare(b.created_at));
-      });
-      setLoading(false);
-    });
-    return () => {
-      alive = false;
-    };
-  }, [threadId]);
-
+  const belongs = useCallback((row: PublicMessageRow) => !!pair &&
+    ((row.sender_id === pair[0] && row.receiver_id === pair[1]) || (row.sender_id === pair[1] && row.receiver_id === pair[0])), [pair]);
+  const merge = useCallback((rows: PublicMessageRow[]) => setMessages((prev) => {
+    const next = new Map(prev.filter((m) => m.id.startsWith("tmp-")).map((m) => [m.id, m]));
+    rows.filter(belongs).map(toDbMessage).forEach((m) => next.set(m.id, m));
+    return [...next.values()].sort((a, b) => a.created_at.localeCompare(b.created_at));
+  }), [belongs]);
+  const queryRows = useCallback(async (before?: string) => {
+    if (!pair) return [] as PublicMessageRow[];
+    let query = supabase.from("messages" as never).select("id,sender_id,receiver_id,content,media_url,voice_note_url,is_read,created_at" as never)
+      .or(`and(sender_id.eq.${pair[0]},receiver_id.eq.${pair[1]}),and(sender_id.eq.${pair[1]},receiver_id.eq.${pair[0]})`)
+      .order("created_at", { ascending: false }).limit(PAGE_SIZE);
+    if (before) query = query.lt("created_at", before);
+    const { data, error: queryError } = await query;
+    if (queryError) throw queryError;
+    return (data ?? []) as unknown as PublicMessageRow[];
+  }, [pair]);
   const load = useCallback(async () => {
-    const { data } = await supabase
-      .from("direct_messages")
-      .select("id,thread_id,sender_id,content,media_url,media_type,is_read,expires_at,created_at" as never)
-      .eq("thread_id", threadId)
-      .order("created_at", { ascending: false })
-      .limit(PAGE_SIZE);
-    const rows = ((data ?? []) as unknown as DbMessage[]).slice().reverse();
-    setHasMore(rows.length >= PAGE_SIZE);
-    // Keep any still-pending optimistic messages plus older pages already loaded.
-    setMessages((prev) => {
-      const map = new Map(prev.filter((m) => !m.id.startsWith("tmp-")).map((m) => [m.id, m]));
-      const oldest = rows[0]?.created_at;
-      // Drop stale cached rows that the server no longer returns in this window.
-      if (oldest) for (const [id, m] of map) if (m.created_at >= oldest) map.delete(id);
-      for (const r of rows) map.set(r.id, r);
-      const merged = [...map.values()].sort((a, b) => a.created_at.localeCompare(b.created_at));
-      return [...merged, ...prev.filter((m) => m.id.startsWith("tmp-"))];
-    });
-    setLoading(false);
-  }, [threadId]);
-
-  /** Infinite scroll: pull the previous page of older messages. */
+    if (!pair) { setLoading(false); return; }
+    try { const rows = await queryRows(); merge(rows); setHasMore(rows.length >= PAGE_SIZE); setError(null); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to load messages."); }
+    finally { setLoading(false); }
+  }, [pair, queryRows, merge]);
   const loadOlder = useCallback(async () => {
-    const oldest = messagesRef.current.find((m) => !m.id.startsWith("tmp-"))?.created_at;
+    const oldest = messagesRef.current.filter((m) => !m.id.startsWith("tmp-")).sort((a, b) => a.created_at.localeCompare(b.created_at))[0]?.created_at;
     if (!oldest || loadingMore || !hasMore) return;
     setLoadingMore(true);
-    const { data } = await supabase
-      .from("direct_messages")
-      .select("id,thread_id,sender_id,content,media_url,media_type,is_read,expires_at,created_at" as never)
-      .eq("thread_id", threadId)
-      .lt("created_at", oldest)
-      .order("created_at", { ascending: false })
-      .limit(PAGE_SIZE);
-    const rows = ((data ?? []) as unknown as DbMessage[]).slice().reverse();
-    setHasMore(rows.length >= PAGE_SIZE);
-    if (rows.length) {
-      setMessages((prev) => {
-        const map = new Map(rows.map((r) => [r.id, r] as const));
-        for (const m of prev) map.set(m.id, m);
-        return [...map.values()].sort((a, b) => a.created_at.localeCompare(b.created_at));
-      });
-    }
-    setLoadingMore(false);
-  }, [threadId, loadingMore, hasMore]);
-
-
+    try { const rows = await queryRows(oldest); merge(rows); setHasMore(rows.length >= PAGE_SIZE); setError(null); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to load older messages."); }
+    finally { setLoadingMore(false); }
+  }, [queryRows, merge, loadingMore, hasMore]);
   useEffect(() => {
     void supabase.auth.getSession().then(({ data }) => setMe(data.session?.user.id ?? null));
     void load();
-
-    let channel: ReturnType<typeof supabase.channel> | null = null;
-    let retry: ReturnType<typeof setTimeout> | null = null;
-    let alive = true;
-    let subscribeCount = 0;
-
-    const upsert = (row: DbMessage) =>
-      setMessages((prev) =>
-        prev.some((m) => m.id === row.id)
-          ? prev.map((m) => (m.id === row.id ? row : m))
-          : [...prev, row].sort((a, b) => a.created_at.localeCompare(b.created_at)),
-      );
-
-    const subscribe = () => {
-      if (!alive) return;
-      subscribeCount++;
-      channel = supabase
-        .channel(`thread-${threadId}-${Math.random().toString(36).slice(2)}`)
-        .on(
-          "postgres_changes",
-          { event: "*", schema: "public", table: "direct_messages", filter: `thread_id=eq.${threadId}` },
-          (payload) => {
-            // Apply the change instantly from the payload, no round-trip needed.
-            if (payload.eventType === "DELETE") {
-              const gone = (payload.old as { id?: string })?.id;
-              if (gone) setMessages((prev) => prev.filter((m) => m.id !== gone));
-              return;
-            }
-            const row = payload.new as DbMessage | undefined;
-            if (row?.id) upsert(row);
-            else void load();
-          },
-        )
-        .subscribe((status) => {
-          // Realtime sockets drop on sleep / network changes — rejoin and resync.
-          if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
-            const failedChannel = channel;
-            channel = null;
-            // Never remove synchronously from a CLOSED callback: Realtime emits
-            // CLOSED during removal, which can recurse until mobile Safari's
-            // call stack is exhausted.
-            if (failedChannel && status !== "CLOSED") {
-              window.setTimeout(() => void supabase.removeChannel(failedChannel), 0);
-            }
-            if (!alive) return;
-            if (!retry) {
-              retry = setTimeout(() => {
-                retry = null;
-                subscribe();
-              }, 1500);
-            }
-          } else if (status === "SUBSCRIBED") {
-            // Only catch up on a reconnect — never on the first join and never
-            // on each new message. Realtime payloads drive live updates, so a
-            // full refetch would just flicker the thread back to the old state.
-            if (subscribeCount > 1) void load();
-          }
-        });
-    };
-    subscribe();
-
-    const resyncOnVisible = () => {
-      // A device may miss Realtime while suspended. Visibility/online are
-      // authoritative catch-up points, including callers using Infinity cache.
-      if (document.visibilityState === "visible") void load();
-    };
-    const resyncOnOnline = () => void load();
-    document.addEventListener("visibilitychange", resyncOnVisible);
-    window.addEventListener("online", resyncOnOnline);
-
-    return () => {
-      alive = false;
-      if (retry) clearTimeout(retry);
-      document.removeEventListener("visibilitychange", resyncOnVisible);
-      window.removeEventListener("online", resyncOnOnline);
-      if (channel) void supabase.removeChannel(channel);
-    };
-  }, [threadId, load, staleTime]);
-
-  const send = useCallback(
-    async (payload: {
-      content?: string;
-      media_url?: string | null;
-      media_type?: string;
-      expires_at?: string | null;
-    }) => {
-      if (!me) return { error: "no-session" as const };
-      // Optimistic: show the message immediately, reconcile when the insert lands.
-      const tempId = `tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      const optimistic: DbMessage = {
-        id: tempId,
-        thread_id: threadId,
-        sender_id: me,
-        content: payload.content ?? "",
-        media_url: payload.media_url ?? null,
-        media_type: payload.media_type ?? "text",
-        is_read: false,
-        expires_at: payload.expires_at ?? null,
-        created_at: new Date().toISOString(),
-      };
-      setMessages((prev) => [...prev, optimistic]);
-
-      const { data, error } = await supabase.from("direct_messages").insert({
-        thread_id: threadId,
-        sender_id: me,
-        content: payload.content ?? "",
-        media_url: payload.media_url ?? null,
-        media_type: payload.media_type ?? "text",
-        expires_at: payload.expires_at ?? null,
-      } as never).select("*").maybeSingle();
-      // Silent background compliance monitoring (no UI impact).
-      flagChatMessage({
-        surface: "social",
-        text: payload.content,
-        threadId,
-        messageId: (data as DbMessage | null)?.id ?? null,
-      });
-      if (error) {
-        setMessages((prev) => prev.filter((m) => m.id !== tempId));
-      } else if (data) {
-        const row = data as unknown as DbMessage;
-        setMessages((prev) =>
-          prev.some((m) => m.id === row.id)
-            ? prev.filter((m) => m.id !== tempId)
-            : prev.map((m) => (m.id === tempId ? row : m)),
-        );
-      }
-      return { error: error?.message ?? null };
-    },
-    [me, threadId],
-  );
-
+    const channel = supabase.channel(`messages-${threadId}`).on("postgres_changes", { event: "*", schema: "public", table: "messages" }, (payload) => {
+      const row = (payload.new ?? payload.old) as PublicMessageRow;
+      if (!row?.id || !belongs(row)) return;
+      if (payload.eventType === "DELETE") setMessages((prev) => prev.filter((m) => m.id !== row.id));
+      else merge([row]);
+    }).subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [threadId, load, belongs, merge]);
+  const send = useCallback(async (payload: { content?: string; media_url?: string | null; voice_note_url?: string | null }) => {
+    if (!me || !pair || !pair.includes(me)) return { error: "You are not authorized for this chat." };
+    const receiverId = pair.find((id) => id !== me)!;
+    const tempId = `tmp-${Date.now()}`;
+    const optimistic = toDbMessage({ id: tempId, sender_id: me, receiver_id: receiverId, content: payload.content ?? "", media_url: payload.media_url ?? null, voice_note_url: payload.voice_note_url ?? null, is_read: false, created_at: new Date().toISOString() });
+    setMessages((prev) => [...prev, optimistic]);
+    const { data, error: insertError } = await supabase.from("messages" as never).insert({ sender_id: me, receiver_id: receiverId, content: optimistic.content, media_url: optimistic.media_url, voice_note_url: optimistic.voice_note_url } as never).select("*").maybeSingle();
+    if (insertError) { setMessages((prev) => prev.filter((m) => m.id !== tempId)); setError(insertError.message); return { error: insertError.message }; }
+    if (data) merge([data as unknown as PublicMessageRow]);
+    setMessages((prev) => prev.filter((m) => m.id !== tempId));
+    flagChatMessage({ surface: "social", text: payload.content, threadId, messageId: (data as PublicMessageRow | null)?.id ?? null });
+    return { error: null };
+  }, [me, pair, threadId, merge]);
   const remove = useCallback(async (ids: string[]) => {
-    if (!ids.length) return;
-    setMessages((prev) => prev.filter((m) => !ids.includes(m.id)));
-    await supabase.from("direct_messages").delete().in("id", ids);
-  }, []);
-
-  /** Marks incoming messages as read (blue ticks on the sender's side). */
-  const markRead = useCallback(
-    async (ids: string[]) => {
-      if (!me || !ids.length) return;
-      setMessages((prev) => prev.map((m) => (ids.includes(m.id) ? { ...m, is_read: true } : m)));
-      await supabase.from("direct_messages").update({ is_read: true }).in("id", ids);
-    },
-    [me],
-  );
-
-  /** Burns a view-once photo after the recipient opened it (permanent, both sides). */
-  const burnMedia = useCallback(async (id: string) => {
-    const row = messagesRef.current.find((m) => m.id === id);
-    const remaining = messagesRef.current.filter((m) => m.id !== id);
-    messagesRef.current = remaining;
-    setMessages(remaining);
-    // Update the persistent cache immediately so reopening the chat cannot
-    // briefly restore media that has already been viewed.
-    cacheSet(`thread:${threadId}`, remaining.filter((m) => !m.id.startsWith("tmp-")).slice(-40));
-    await supabase.rpc("burn_view_once", { _msg_id: id });
-    // Remove the underlying storage object when the media lived in a bucket.
-    const url = row?.media_url;
-    if (url && /^https?:/.test(url)) {
-      for (const bucket of [STORAGE_BUCKETS.messages, STORAGE_BUCKETS.voiceNotes]) {
-        const path = storagePathFrom(url, bucket);
-        if (path && path !== url) {
-          await supabase.storage.from(bucket).remove([path]);
-          break;
-        }
-      }
-    }
-  }, [threadId]);
-
-  return useMemo(
-    () => ({ messages, loading, loadingMore, hasMore, loadOlder, currentUserId: me, send, remove, markRead, burnMedia, reload: load }),
-    [messages, loading, loadingMore, hasMore, loadOlder, me, send, remove, markRead, burnMedia, load],
-  );
+    if (!me || !ids.length) return;
+    const { error: deleteError } = await supabase.from("messages" as never).delete().in("id", ids).eq("sender_id", me);
+    if (deleteError) { setError(deleteError.message); return; }
+    setMessages((prev) => prev.filter((m) => !ids.includes(m.id) || m.sender_id !== me));
+  }, [me]);
+  const markRead = useCallback(async (ids: string[]) => {
+    if (!me || !ids.length) return;
+    const { error: updateError } = await supabase.from("messages" as never).update({ is_read: true } as never).in("id", ids).eq("receiver_id", me);
+    if (updateError) { setError(updateError.message); return; }
+    setMessages((prev) => prev.map((m) => ids.includes(m.id) && m.receiver_id === me ? { ...m, is_read: true } : m));
+  }, [me]);
+  return useMemo(() => ({ messages, loading, loadingMore, hasMore, loadOlder, currentUserId: me, send, remove, markRead, error, reload: load }), [messages, loading, loadingMore, hasMore, loadOlder, me, send, remove, markRead, error, load]);
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -735,24 +574,6 @@ export async function resolveThreadPeer(
   // Canonical thread ids carry both user ids — no extra round trip needed.
   const pair = dmThreadPair(threadId);
   if (pair) peerId = pair.find((id) => id !== me) ?? pair[0];
-
-  if (!peerId) {
-    const { data: parts } = await supabase
-      .from("thread_participants")
-      .select("user_id")
-      .eq("thread_id", threadId);
-    peerId = (parts ?? []).map((p) => p.user_id).find((id) => id !== me) ?? null;
-  }
-
-  if (!peerId) {
-    // Fall back to whoever has sent a message in this thread.
-    const { data: msgs } = await supabase
-      .from("direct_messages")
-      .select("sender_id")
-      .eq("thread_id", threadId)
-      .limit(50);
-    peerId = (msgs ?? []).map((m) => m.sender_id).find((id) => id !== me) ?? null;
-  }
 
   // A thread id can also simply be the peer's user id (legacy deep link).
   if (!peerId && UUID_RE.test(threadId) && threadId !== me) peerId = threadId;
@@ -814,9 +635,8 @@ export async function createPostComment(
 ) {
   const text = body.trim();
   if (!text) return { data: null, error: null };
-  const result = await client
-    .from("post_comments")
-    .insert({ post_id: postId, user_id: userId, body: text })
+  const result = await liveSocialTable(client, "comments")
+    .insert({ post_id: postId, user_id: userId, content: text })
     .select("id,created_at")
     .maybeSingle();
   return {
@@ -829,7 +649,7 @@ export async function deletePostComment(
   id: string,
   client: typeof supabase = supabase,
 ) {
-  const result = await client.from("post_comments").delete().eq("id", id);
+  const result = await liveSocialTable(client, "comments").delete().eq("id", id);
   return { error: result.error as { message: string } | null };
 }
 
@@ -858,19 +678,24 @@ export function usePostComments(postId: string | null) {
       .maybeSingle();
     setPostOwnerId(postRow?.user_id ?? null);
 
-    const { data: rows } = await supabase
-      .from("post_comments")
-      .select("id,post_id,user_id,body,created_at,pinned,pinned_at")
+    const { data: rows } = await liveSocialTable(supabase, "comments")
+      .select("id,post_id,user_id,content,created_at")
       .eq("post_id", postId)
       .order("created_at", { ascending: true });
 
-    if (!rows?.length) {
+    const commentRows = (rows ?? []) as Array<{
+      id: string;
+      user_id: string;
+      content: string;
+      created_at: string;
+    }>;
+    if (!commentRows.length) {
       setComments([]);
       setLoading(false);
       return;
     }
 
-    const authorIds = [...new Set(rows.map((r) => r.user_id))];
+    const authorIds = [...new Set(commentRows.map((row) => row.user_id))];
     const { data: profiles } = await supabase.rpc("get_public_profiles", {
       ids: authorIds,
     });
@@ -878,7 +703,7 @@ export function usePostComments(postId: string | null) {
       ((profiles ?? []) as DbProfile[]).map((p) => [p.id, p]),
     );
 
-    const mapped: PostComment[] = rows.map((r) => {
+    const mapped: PostComment[] = commentRows.map((r) => {
       const p = profileById.get(r.user_id);
       return {
         id: r.id,
@@ -886,10 +711,10 @@ export function usePostComments(postId: string | null) {
         username: p?.username ?? `user${r.user_id.slice(0, 4)}`,
         displayName: p?.display_name ?? p?.username ?? "YourWorld user",
         avatarUrl: p?.avatar_url ?? null,
-        body: r.body,
+         body: r.content,
         createdAt: r.created_at,
-        pinned: !!r.pinned,
-        pinnedAt: r.pinned_at ?? null,
+         pinned: false,
+         pinnedAt: null,
       };
     });
 
@@ -917,7 +742,7 @@ export function usePostComments(postId: string | null) {
         .channel(topic)
         .on(
           "postgres_changes",
-          { event: "*", schema: "public", table: "post_comments", filter: `post_id=eq.${postId}` },
+           { event: "*", schema: "public", table: "comments", filter: `post_id=eq.${postId}` },
           () => void load(),
         )
         .subscribe();
@@ -980,33 +805,14 @@ export function usePostComments(postId: string | null) {
     [comments],
   );
 
-  /** Post owner pins/unpins a comment (max 4 pinned per post). */
+  /** Pinning is unavailable because the live comments table has no pin columns. */
   const togglePin = useCallback(
     async (id: string) => {
       const target = comments.find((c) => c.id === id);
       if (!target || !isPostOwner) return false;
-      const next = !target.pinned;
-      if (next && pinnedCount >= MAX_PINNED_COMMENTS) return false;
-
-      const snapshot = comments;
-      setComments((prev) =>
-        [...prev.map((c) => (c.id === id ? { ...c, pinned: next, pinnedAt: next ? new Date().toISOString() : null } : c))].sort(
-          (a, b) => {
-            if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-            if (a.pinned && b.pinned) return (a.pinnedAt ?? "").localeCompare(b.pinnedAt ?? "");
-            return a.createdAt.localeCompare(b.createdAt);
-          },
-        ),
-      );
-      const { error } = await supabase.from("post_comments").update({ pinned: next }).eq("id", id);
-      if (error) {
-        setComments(snapshot);
-        return false;
-      }
-      void load();
-      return true;
+      return false;
     },
-    [comments, isPostOwner, pinnedCount, load],
+    [comments, isPostOwner],
   );
 
   return { comments, loading, send, remove, togglePin, me, postOwnerId, isPostOwner, pinnedCount };

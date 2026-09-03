@@ -208,7 +208,7 @@ function ProfilePage() {
             <Stat label="Posts" value={formatCount(posts.length)} />
             <Stat
               label="Followers"
-              value={formatCount(counts.followers)}
+               value={counts.followers === null ? "—" : formatCount(counts.followers)}
               onClick={() => {
                 setListTab("followers");
                 setListOpen(true);
@@ -216,7 +216,7 @@ function ProfilePage() {
             />
             <Stat
               label="Following"
-              value={formatCount(counts.following)}
+               value={counts.following === null ? "—" : formatCount(counts.following)}
               onClick={() => {
                 setListTab("following");
                 setListOpen(true);

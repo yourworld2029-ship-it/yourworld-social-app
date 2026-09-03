@@ -10,10 +10,22 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { fetchMyFollowing, isRealUserId, setFollow } from "@/lib/follow-data";
+import { isRealUserId, setFollow } from "@/lib/follow-data";
 
 
 type Toggles = Record<string, boolean>;
+type MutationResult = { error: { code?: string; message: string } | null };
+type InteractionQuery = {
+  upsert: (
+    values: { post_id: string; user_id: string },
+    options: { onConflict: string; ignoreDuplicates: boolean },
+  ) => Promise<MutationResult>;
+  delete: () => InteractionQuery;
+  eq: (column: string, value: string) => InteractionQuery;
+};
+const interactionDb = supabase as unknown as {
+  from: (table: "likes" | "post_saves") => InteractionQuery;
+};
 
 type Store = {
   liked: Toggles;
@@ -42,22 +54,16 @@ const StoreContext = createContext<Store | null>(null);
 export function YwStoreProvider({ children }: { children: ReactNode }) {
   const [liked, setLiked] = useState<Toggles>({});
   const [saved, setSaved] = useState<Toggles>({});
-  const [following, setFollowing] = useState<Toggles>({});
+  const [following] = useState<Toggles>({});
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const meRef = useRef<string | null>(null);
 
 
-  // Database state is authoritative for follows, likes, and saves.
+  // Database state is authoritative for likes and saves. Following has no
+  // relationship table in this deployment, so it is deliberately unavailable.
   useEffect(() => {
     let cancelled = false;
     const sync = async () => {
-      try {
-        const ids = await fetchMyFollowing();
-        if (cancelled) return;
-        setFollowing(Object.fromEntries(ids.map((id) => [id, true])));
-      } catch {
-        /* offline / signed out */
-      }
       try {
         const { data: auth } = await supabase.auth.getUser();
         const me = auth.user?.id ?? null;
@@ -68,7 +74,10 @@ export function YwStoreProvider({ children }: { children: ReactNode }) {
           return;
         }
         const [likes, saves] = await Promise.all([
-          supabase.from("post_likes").select("post_id").eq("user_id", me),
+          // The deployed Live schema calls this table `likes`; generated types
+          // have not yet caught up with that schema.
+          // @ts-expect-error Live schema table is not present in generated types.
+          supabase.from("likes").select("post_id").eq("user_id", me),
           supabase.from("post_saves").select("post_id").eq("user_id", me),
         ]);
         if (cancelled) return;
@@ -84,9 +93,8 @@ export function YwStoreProvider({ children }: { children: ReactNode }) {
     const { data: sub } = supabase.auth.onAuthStateChange(() => void sync());
     const channel = supabase
       .channel("yw-interactions")
-      .on("postgres_changes", { event: "*", schema: "public", table: "post_likes" }, () => void sync())
+      .on("postgres_changes", { event: "*", schema: "public", table: "likes" }, () => void sync())
       .on("postgres_changes", { event: "*", schema: "public", table: "post_saves" }, () => void sync())
-      .on("postgres_changes", { event: "*", schema: "public", table: "follows" }, () => void sync())
       .subscribe();
     return () => {
       cancelled = true;
@@ -95,11 +103,11 @@ export function YwStoreProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // Shared writer for post_likes / post_saves so every surface (feed, reels,
+  // Shared writer for likes / post_saves so every surface (feed, reels,
   // profile, long video) persists the same rows.
   const persistToggle = useCallback(
     async (
-      table: "post_likes" | "post_saves",
+      table: "likes" | "post_saves",
       postId: string,
       on: boolean,
       revert: (v: boolean) => void,
@@ -116,11 +124,11 @@ export function YwStoreProvider({ children }: { children: ReactNode }) {
         return;
       }
       const { error } = on
-        ? await supabase.from(table).upsert(
+        ? await interactionDb.from(table).upsert(
             { post_id: postId, user_id: me },
             { onConflict: "post_id,user_id", ignoreDuplicates: true },
           )
-        : await supabase.from(table).delete().eq("post_id", postId).eq("user_id", me);
+        : await (interactionDb.from(table).delete().eq("post_id", postId).eq("user_id", me) as unknown as Promise<MutationResult>);
       if (error && !(on && error.code === "23505")) {
         revert(!on);
         toast.error(error.message);
@@ -136,7 +144,7 @@ export function YwStoreProvider({ children }: { children: ReactNode }) {
         next = !p[id];
         return { ...p, [id]: next };
       });
-      void persistToggle("post_likes", id, next, (v) => setLiked((p) => ({ ...p, [id]: v })));
+      void persistToggle("likes", id, next, (v) => setLiked((p) => ({ ...p, [id]: v })));
     },
     [persistToggle],
   );
@@ -153,17 +161,10 @@ export function YwStoreProvider({ children }: { children: ReactNode }) {
   );
 
   const toggleFollow = useCallback((id: string) => {
-    let next = false;
-    setFollowing((p) => {
-      next = !p[id];
-      return { ...p, [id]: next };
-    });
     if (!isRealUserId(id)) {
-      setFollowing((p) => ({ ...p, [id]: false }));
       return;
     }
-    void setFollow(id, next).catch((e: unknown) => {
-      setFollowing((p) => ({ ...p, [id]: !next }));
+    void setFollow(id, true).catch((e: unknown) => {
       toast.error(e instanceof Error ? e.message : "Couldn't update follow");
     });
   }, []);
