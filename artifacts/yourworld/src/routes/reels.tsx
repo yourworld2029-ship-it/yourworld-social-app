@@ -158,6 +158,7 @@ function ReelsList() {
               likedByMe={likedByMe}
               mediaUrl={mediaUrl}
               mediaType={mediaType}
+                commentsDisabled={!!dbReels[i]?.comments_off}
               onDbLike={() => toggleDbLike(reel.id)}
             />
           ) : null}
@@ -273,6 +274,7 @@ function ReelItem({
   likedByMe,
   mediaUrl,
   mediaType,
+  commentsDisabled = false,
   onDbLike,
 }: {
   reel: Reel;
@@ -281,6 +283,7 @@ function ReelItem({
   likedByMe?: boolean;
   mediaUrl?: string;
   mediaType?: string;
+  commentsDisabled?: boolean;
   onDbLike?: () => void | Promise<unknown>;
 }) {
   const user = author;
@@ -603,6 +606,7 @@ function ReelItem({
 
         <CommentsSheet
           postId={reel.id}
+          commentsDisabled={commentsDisabled}
         >
           <Action label={formatCount(reel.commentCount)}>
             <MessageCircle strokeWidth={1.8} className="h-[18px] w-[18px]" />

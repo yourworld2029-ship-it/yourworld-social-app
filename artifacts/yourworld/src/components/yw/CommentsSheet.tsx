@@ -64,10 +64,12 @@ export function CommentsSheet({
   children,
   postId,
   onCountChange,
+  commentsDisabled = false,
 }: {
   children: ReactNode;
   postId: string;
   onCountChange?: (count: number) => void;
+  commentsDisabled?: boolean;
 }) {
   const real = usePostComments(postId);
   const { profile, userId } = useMyProfile();
@@ -244,23 +246,36 @@ export function CommentsSheet({
           </ul>
 
           <div className="sticky bottom-0 z-40 flex shrink-0 items-center gap-2 border-t border-border bg-popover px-4 pb-[calc(env(safe-area-inset-bottom,0px)+0.5rem)] pt-3">
-            {userId ? <YwAvatar user={currentUser} size={34} /> : null}
-            <Input
-              ref={inputRef}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onFocus={scrollToLatest}
-              onKeyDown={(e) => e.key === "Enter" && send()}
-              placeholder="Add a comment…"
-              className="h-11 rounded-full border-0 bg-secondary text-sm"
-            />
-            <button
-              onClick={send}
-              aria-label="Send comment"
-              className="grid h-10 w-10 shrink-0 place-items-center rounded-full brand-gradient transition-transform active:scale-90"
-            >
-              <SendHorizonal className="h-4 w-4 text-primary-foreground" />
-            </button>
+            {commentsDisabled ? (
+              <p
+                data-testid="status-comments-disabled"
+                className="w-full py-2 text-center text-xs text-muted-foreground"
+              >
+                Comments are turned off for this post.
+              </p>
+            ) : (
+              <>
+                {userId ? <YwAvatar user={currentUser} size={34} /> : null}
+                <Input
+                  ref={inputRef}
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onFocus={scrollToLatest}
+                  onKeyDown={(e) => e.key === "Enter" && send()}
+                  placeholder="Add a comment…"
+                  className="h-11 rounded-full border-0 bg-secondary text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={send}
+                  aria-label="Send comment"
+                  data-testid="button-send-comment"
+                  className="grid h-10 w-10 shrink-0 place-items-center rounded-full brand-gradient transition-transform active:scale-90"
+                >
+                  <SendHorizonal className="h-4 w-4 text-primary-foreground" />
+                </button>
+              </>
+            )}
           </div>
         </div>
       </DrawerContent>

@@ -222,7 +222,11 @@ function FeedPostCardBase({
             <Heart size={28} strokeWidth={2.2} className={post.likedByMe ? "fill-pink-500 text-pink-500" : "text-white"} />
             <span className="text-[11px] font-bold">{formatCount(post.likeCount)}</span>
           </button>
-          <CommentsSheet postId={post.id} onCountChange={setCommentCount}>
+          <CommentsSheet
+            postId={post.id}
+            commentsDisabled={!!post.comments_off}
+            onCountChange={setCommentCount}
+          >
             <button aria-label="Comments" className="flex w-12 flex-col items-center gap-1 drop-shadow active:scale-90">
               <MessageCircle size={27} strokeWidth={2.2} />
               <span className="text-[11px] font-bold">{formatCount(commentCount)}</span>
@@ -351,7 +355,11 @@ function FeedPostCardBase({
                 className={post.likedByMe ? "fill-pink-500 text-pink-500" : "text-zinc-300"}
               />
             </button>
-            <CommentsSheet postId={post.id} onCountChange={setCommentCount}>
+            <CommentsSheet
+              postId={post.id}
+              commentsDisabled={!!post.comments_off}
+              onCountChange={setCommentCount}
+            >
               <button aria-label="Comments" className="flex items-center gap-1 text-zinc-300 transition-transform active:scale-75">
                 <MessageCircle size={22} />
                 {commentCount > 0 && <span className="text-xs font-semibold">{formatCount(commentCount)}</span>}
@@ -404,7 +412,11 @@ function FeedPostCardBase({
           </div>
         )}
         <div className="flex items-center gap-2 pt-0.5">
-          <CommentsSheet postId={post.id} onCountChange={setCommentCount}>
+          <CommentsSheet
+            postId={post.id}
+            commentsDisabled={!!post.comments_off}
+            onCountChange={setCommentCount}
+          >
             <button className="text-[11.5px] text-zinc-400 hover:text-white">
               {commentCount > 0 ? `View all ${commentCount} comments` : "Add a comment"}
             </button>

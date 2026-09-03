@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { resolveLongVideoUrl } from "@/lib/video-data";
+import { resolveMediaUrl } from "@/lib/social-data";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -15,6 +16,7 @@ type Props = {
  */
 export function VideoPoster({ thumbnailUrl, mediaUrl, alt, className }: Props) {
   const [frameUrl, setFrameUrl] = useState<string | null>(null);
+  const [resolvedThumbnail, setResolvedThumbnail] = useState<string | null>(null);
   const [frameFailed, setFrameFailed] = useState(false);
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
 
@@ -22,7 +24,19 @@ export function VideoPoster({ thumbnailUrl, mediaUrl, alt, className }: Props) {
     setThumbnailFailed(false);
     setFrameFailed(false);
     setFrameUrl(null);
+    setResolvedThumbnail(null);
   }, [thumbnailUrl, mediaUrl]);
+
+  useEffect(() => {
+    if (!thumbnailUrl) return;
+    let alive = true;
+    void resolveMediaUrl(thumbnailUrl, "videos").then((url) => {
+      if (alive) setResolvedThumbnail(url || thumbnailUrl);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [thumbnailUrl]);
 
   useEffect(() => {
     if ((thumbnailUrl && !thumbnailFailed) || !mediaUrl) return;
@@ -35,10 +49,10 @@ export function VideoPoster({ thumbnailUrl, mediaUrl, alt, className }: Props) {
     };
   }, [thumbnailFailed, thumbnailUrl, mediaUrl]);
 
-  if (thumbnailUrl && !thumbnailFailed) {
+  if ((resolvedThumbnail || thumbnailUrl) && !thumbnailFailed) {
     return (
       <img
-        src={thumbnailUrl}
+        src={resolvedThumbnail || thumbnailUrl || undefined}
         alt={alt}
         loading="lazy"
         onError={() => setThumbnailFailed(true)}

@@ -35,6 +35,7 @@ export type DbPost = {
   id: string;
   user_id: string;
   kind: string;
+  title?: string | null;
   media_url: string;
   media_type: string;
   thumbnail_url?: string | null;
@@ -58,6 +59,7 @@ export type DbPost = {
 
 export type SocialPost = DbPost & {
   author: User;
+  authorAvatarUrl?: string | null;
   likeCount: number;
   commentCount: number;
   likedByMe: boolean;
@@ -191,12 +193,123 @@ export async function loadSocialPosts(
   const next: SocialPost[] = posts.map((p) => ({
     ...(normalizePostRow(p) as DbPost),
     author: toUser(profileById.get(p.user_id), p.user_id),
+    authorAvatarUrl: profileById.get(p.user_id)?.avatar_url ?? null,
     likeCount: likeRows.filter((like) => like.post_id === p.id).length,
     commentCount: commentRows.filter((comment) => comment.post_id === p.id).length,
     likedByMe: !!uid && likeRows.some((like) => like.post_id === p.id && like.user_id === uid),
   }));
 
   return { posts: next, currentUserId: uid };
+}
+
+/** Loads one post/reel for the dedicated media viewer without inventing a
+ * second data model. The profile grid and the public viewer now share the
+ * same live likes/comments rows. */
+export function useMediaPost(postId: string | null) {
+  const [post, setPost] = useState<SocialPost | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [me, setMe] = useState<string | null>(null);
+  const pendingLike = useRef(false);
+  const viewedRef = useRef(false);
+
+  const load = useCallback(async () => {
+    if (!postId) {
+      setPost(null);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    const { data: sessionData } = await supabase.auth.getSession();
+    const uid = sessionData.session?.user.id ?? null;
+    setMe(uid);
+
+    const { data: row, error: rowError } = await supabase
+      .from("posts")
+      .select("*")
+      .eq("id", postId)
+      .maybeSingle();
+    if (rowError || !row) {
+      setPost(null);
+      setError(rowError?.message ?? "This post is no longer available.");
+      setLoading(false);
+      return;
+    }
+
+    const normalized = normalizePostRow(row) as DbPost;
+    const [{ data: profiles }, { data: likes }, { data: comments }] = await Promise.all([
+      supabase.rpc("get_public_profiles", { ids: [normalized.user_id] }),
+      liveSocialTable(supabase, "likes").select("post_id,user_id").eq("post_id", postId),
+      liveSocialTable(supabase, "comments").select("post_id").eq("post_id", postId),
+    ]);
+    const profile = ((profiles ?? []) as DbProfile[])[0];
+    const likeRows = (likes ?? []) as Array<{ post_id: string; user_id: string }>;
+    const next: SocialPost = {
+      ...normalized,
+      author: toUser(profile, normalized.user_id),
+      authorAvatarUrl: profile?.avatar_url ?? null,
+      likeCount: likeRows.length,
+      commentCount: ((comments ?? []) as Array<{ post_id: string }>).length,
+      likedByMe: !!uid && likeRows.some((like) => like.user_id === uid),
+    };
+    setPost(next);
+    setError(null);
+    setLoading(false);
+  }, [postId]);
+
+  useEffect(() => {
+    viewedRef.current = false;
+    void load();
+  }, [load]);
+
+  const toggleLike = useCallback(async () => {
+    if (!post || !me) throw new Error("Sign in required");
+    if (pendingLike.current) return;
+    pendingLike.current = true;
+    const wasLiked = post.likedByMe;
+    setPost((current) =>
+      current
+        ? {
+            ...current,
+            likedByMe: !wasLiked,
+            likeCount: Math.max(0, current.likeCount + (wasLiked ? -1 : 1)),
+          }
+        : current,
+    );
+    try {
+      const result = wasLiked
+        ? await liveSocialTable(supabase, "likes").delete().eq("post_id", post.id).eq("user_id", me)
+        : await liveSocialTable(supabase, "likes").upsert(
+            { post_id: post.id, user_id: me },
+            { onConflict: "post_id,user_id", ignoreDuplicates: true },
+          );
+      if (result.error) throw result.error;
+    } catch (cause) {
+      setPost((current) =>
+        current
+          ? {
+              ...current,
+              likedByMe: wasLiked,
+              likeCount: Math.max(0, current.likeCount + (wasLiked ? 1 : -1)),
+            }
+          : current,
+      );
+      throw cause;
+    } finally {
+      pendingLike.current = false;
+    }
+  }, [me, post]);
+
+  const countView = useCallback(async () => {
+    if (!post || viewedRef.current) return;
+    const contentType = post.kind === "reel" ? "reel" : post.kind === "video" ? "video" : "post";
+    const counted = await registerUniqueView(post.id, contentType);
+    if (!counted) return;
+    viewedRef.current = true;
+    setPost((current) => (current ? { ...current, views: (current.views ?? 0) + 1 } : current));
+  }, [post]);
+
+  return { post, loading, error, currentUserId: me, toggleLike, countView, reload: load };
 }
 
 export function useSocialPosts(kind: "post" | "reel") {

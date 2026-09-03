@@ -411,7 +411,11 @@ export function LongVideoCard({
               )}
             </button>
 
-            <CommentsSheet postId={video.id} onCountChange={setCommentCount}>
+            <CommentsSheet
+              postId={video.id}
+              commentsDisabled={!!video.commentsOff}
+              onCountChange={setCommentCount}
+            >
               <button
                 aria-label="Comments"
                 className="flex items-center gap-1 text-xs text-zinc-300 transition-transform active:scale-75"

@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import type React from "react";
 import { useState } from "react";
 import {
@@ -80,14 +80,16 @@ export const Route = createFileRoute("/profile")({
 });
 
 function ProfilePage() {
-  const { profile, avatarSrc, grid, reels, posts, savedPosts, loading, save, userId, reload } =
+  const { profile, avatarSrc, coverSrc, grid, reels, posts, savedPosts, loading, save, userId, reload } =
     useMyProfile();
+  const navigate = useNavigate();
   const [editOpen, setEditOpen] = useState(false);
   const counts = useFollowCounts(userId);
   const [listOpen, setListOpen] = useState(false);
   const [listTab, setListTab] = useState<"followers" | "following">("followers");
   const [manage, setManage] = useState<DbPost | null>(null);
   const [editing, setEditing] = useState(false);
+  const [title, setTitle] = useState("");
   const [caption, setCaption] = useState("");
   const [location, setLocation] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -96,11 +98,13 @@ function ProfilePage() {
   const openManage = (post: DbPost) => {
     setManage(post);
     setEditing(false);
+    setTitle(post.title ?? "");
     setCaption(post.caption ?? "");
     setLocation(post.location ?? "");
   };
 
   const startEdit = (post: DbPost) => {
+    setTitle(post.title ?? "");
     setCaption(post.caption ?? "");
     setLocation(post.location ?? "");
     setEditing(true);
@@ -122,6 +126,10 @@ function ProfilePage() {
 
   const sortPinned = (list: DbPost[]) =>
     [...list].sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned));
+
+  const openViewer = (post: DbPost) => {
+    void navigate({ to: "/video/$videoId", params: { videoId: post.id } });
+  };
 
 
 
@@ -182,26 +190,34 @@ function ProfilePage() {
   }
 
   return (
-    <main className="relative pb-6">
+      <main className="relative overflow-hidden pb-6">
       <UserWatermark username={profile.username} />
-      <header className="sticky top-0 z-40 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border glass px-4 py-3">
-        <h1 className="flex min-w-0 items-center gap-1.5 font-display text-xl font-bold">
+      <header className="header-lux sticky top-0 z-40 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-3">
+        <h1 data-testid="text-profile-username" className="flex min-w-0 items-center gap-2 font-display text-lg font-bold">
+          <span className="grid h-7 w-7 place-items-center rounded-lg bg-primary/15 text-xs font-black text-primary">YW</span>
           <span className="truncate">@{profile.username || "…"}</span>
         </h1>
-        <Link to="/settings" aria-label="Settings" className="transition-transform active:scale-90">
+        <Link data-testid="link-profile-settings" to="/settings" aria-label="Settings" className="action-btn grid h-9 w-9 place-items-center rounded-full">
           <Settings className="h-6 w-6" />
         </Link>
       </header>
 
+      {coverSrc ? (
+        <div className="relative h-28 overflow-hidden">
+          <img src={coverSrc} alt="" className="h-full w-full object-cover opacity-70" />
+          <div className="absolute inset-0 bg-gradient-to-b from-background/10 via-background/30 to-background" />
+        </div>
+      ) : (
+        <div className="h-10 bg-gradient-to-b from-primary/10 to-transparent" />
+      )}
 
-
-
-      <section className="px-4 pt-4">
+      <section className="-mt-2 px-4 pt-1">
         <div className="flex items-center gap-5">
           <span className="grid h-[86px] w-[86px] shrink-0 place-items-center rounded-full p-[3px] ring-story">
             <span className="grid h-full w-full place-items-center rounded-full bg-background p-[2px]">
               {avatarSrc ? (
-                <img
+              <img
+                data-testid="img-profile-avatar"
                   src={avatarSrc}
                   alt=""
                   className="h-[74px] w-[74px] rounded-full object-cover"
@@ -211,7 +227,7 @@ function ProfilePage() {
               )}
             </span>
           </span>
-          <dl className="grid flex-1 grid-cols-3 text-center">
+          <dl data-testid="stats-profile" className="grid flex-1 grid-cols-3 text-center">
             <Stat label="Posts" value={formatCount(posts.length)} />
             <Stat
               label="Followers"
@@ -234,7 +250,7 @@ function ProfilePage() {
         </div>
 
         <div className="pt-3">
-          <p className="font-semibold">{profile.display_name || "Add your name"}</p>
+           <p data-testid="text-profile-display-name" className="font-semibold">{profile.display_name || "Add your name"}</p>
           {profile.category ? (
             <p className="text-xs text-muted-foreground">{profile.category}</p>
           ) : null}
@@ -268,6 +284,7 @@ function ProfilePage() {
 
         <div className="grid grid-cols-2 gap-2 pt-4">
           <Button
+            data-testid="button-edit-profile"
             variant="secondary"
             className="h-10 rounded-full"
             onClick={() => setEditOpen(true)}
@@ -275,6 +292,7 @@ function ProfilePage() {
             Edit profile
           </Button>
           <Button
+            data-testid="button-share-profile"
             variant="secondary"
             className="h-10 rounded-full"
             onClick={async () => {
@@ -300,8 +318,8 @@ function ProfilePage() {
         posts={posts.map((post) => ({ ...post, media_url: src(post.media_url) }))}
       />
 
-      <Tabs defaultValue="videos" className="pt-5">
-        <TabsList className="grid w-full grid-cols-3 rounded-none border-y border-border bg-transparent p-0">
+      <Tabs defaultValue="videos" className="pt-7">
+        <TabsList className="grid w-full grid-cols-3 rounded-none border-y border-border/70 bg-background/70 p-0 backdrop-blur-xl">
           <TabsTrigger value="videos" className="rounded-none py-3 text-xs data-[state=active]:bg-white/10 data-[state=active]:backdrop-blur-md" aria-label="Videos">
             Videos
           </TabsTrigger>
@@ -316,12 +334,13 @@ function ProfilePage() {
         <TabsContent value="videos" className="mt-0">
           {grid.length ? (
             <MediaGrid
-              onSelect={openManage}
+              onOpen={openViewer}
+              onManage={openManage}
               items={sortPinned(grid).map((p) => ({
                 src: src(p.media_url),
                 type: p.kind === "video" ? "video" : p.media_type,
                 post: p,
-                ratio: "video",
+                ratio: mediaAspect(p),
               }))}
             />
           ) : (
@@ -331,12 +350,13 @@ function ProfilePage() {
         <TabsContent value="reels" className="mt-0">
           {reels.length ? (
             <MediaGrid
-              onSelect={openManage}
+              onOpen={openViewer}
+              onManage={openManage}
               items={sortPinned(reels).map((p) => ({
                 src: src(p.media_url),
                 type: "video",
                 post: p,
-                ratio: "reel",
+                 ratio: mediaAspect(p),
               }))}
             />
           ) : (
@@ -346,11 +366,12 @@ function ProfilePage() {
         <TabsContent value="saved" className="mt-0">
           {savedPosts.length ? (
             <MediaGrid
+              onOpen={openViewer}
               items={savedPosts.map((p) => ({
                 src: src(p.media_url),
                 type: "video",
                 post: p,
-                ratio: p.kind === "reel" ? "reel" : "video",
+                 ratio: mediaAspect(p),
               }))}
             />
           ) : (
@@ -447,6 +468,7 @@ function ProfilePage() {
                 setBusy(true);
                 try {
                   await updateMyPost(manage.id, {
+                    title,
                     caption,
                     location: location.trim() || null,
                   });
@@ -493,6 +515,13 @@ function ProfilePage() {
                       placeholder="Write a caption…"
                       rows={4}
                       className="resize-none border-0 bg-transparent p-0 text-sm shadow-none focus-visible:ring-0"
+                    />
+                    <input
+                      data-testid="input-edit-post-title"
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value.slice(0, 180))}
+                      placeholder="Add a title"
+                      className="mb-2 w-full border-b border-border/60 bg-transparent pb-2 text-sm font-semibold outline-none placeholder:text-muted-foreground"
                     />
                     <p className="pt-1 text-right text-[11px] text-muted-foreground">
                       {caption.length}/2,200
@@ -631,7 +660,7 @@ function OptionRow({
 }
 
 function Empty({ text }: { text: string }) {
-  return <p className="px-4 py-10 text-center text-sm text-muted-foreground">{text}</p>;
+  return <p data-testid="status-profile-empty" className="px-4 py-14 text-center text-sm text-muted-foreground">{text}</p>;
 }
 
 function Stat({
@@ -664,15 +693,22 @@ function Stat({
 
 function MediaGrid({
   items,
-  onSelect,
+  onOpen,
+  onManage,
 }: {
-  items: { src: string; type: string; post?: DbPost; ratio?: "video" | "reel" }[];
-  onSelect?: (post: DbPost) => void;
+  items: { src: string; type: string; post?: DbPost; ratio?: number }[];
+  onOpen?: (post: DbPost) => void;
+  onManage?: (post: DbPost) => void;
 }) {
   return (
-    <ul className="grid grid-cols-3 gap-0.5">
+    <ul data-testid="grid-profile-media" className="grid grid-cols-3 gap-1 bg-background">
       {items.map((it, i) => (
-        <li key={`${it.src}-${i}`} className={`relative overflow-hidden bg-secondary ${it.ratio === "reel" ? "aspect-[4/5]" : "aspect-video"}`}>
+        <li
+          key={`${it.post?.id ?? it.src}-${i}`}
+          data-testid={`card-profile-media-${it.post?.id ?? i}`}
+          className="media-frame relative overflow-hidden bg-secondary"
+          style={{ aspectRatio: it.ratio ?? 1 }}
+        >
           {it.post?.kind === "video" || it.post?.kind === "reel" || it.type?.startsWith("video") ? (
             <VideoPoster
               mediaUrl={it.src}
@@ -684,7 +720,9 @@ function MediaGrid({
             <img src={it.src} alt="" loading="lazy" className="h-full w-full object-cover" />
           )}
           {it.post?.kind === "video" || it.post?.kind === "reel" || it.type?.startsWith("video") ? (
-            <Play className="absolute left-1.5 top-1.5 h-4 w-4 fill-current text-white drop-shadow" />
+             <span className="absolute left-2 top-2 grid h-6 w-6 place-items-center rounded-full bg-black/45 text-white backdrop-blur-sm">
+               <Play className="h-3.5 w-3.5 fill-current" />
+             </span>
           ) : null}
           {it.post?.pinned ? (
             <Pin className="absolute bottom-1.5 left-1.5 h-4 w-4 fill-current text-white drop-shadow" />
@@ -699,25 +737,29 @@ function MediaGrid({
               {formatDuration(it.post.duration_seconds)}
             </span>
           ) : null}
-          {it.post && onSelect ? (
+           {it.post && onOpen ? (
             <>
               <button
                 type="button"
-                aria-label="Open post"
-                onClick={() => onSelect(it.post!)}
-                className="absolute inset-0"
+                 aria-label={`Open ${it.post.kind === "reel" ? "reel" : "post"}`}
+                 data-testid={`button-open-media-${it.post.id}`}
+                 onClick={() => onOpen(it.post!)}
+                 className="absolute inset-0 z-10"
               />
-              <button
-                type="button"
-                aria-label="Edit or delete"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onSelect(it.post!);
-                }}
-                className="absolute right-1 top-1 grid h-7 w-7 place-items-center rounded-full bg-background/70 backdrop-blur transition-transform active:scale-90"
-              >
-                <MoreHorizontal className="h-4 w-4" strokeWidth={2} />
-              </button>
+               {onManage ? (
+                 <button
+                   type="button"
+                   aria-label="Manage post"
+                   data-testid={`button-manage-media-${it.post.id}`}
+                   onClick={(e) => {
+                     e.stopPropagation();
+                     onManage(it.post!);
+                   }}
+                   className="absolute right-1.5 top-1.5 z-20 grid h-7 w-7 place-items-center rounded-full bg-background/75 backdrop-blur transition-transform active:scale-90"
+                 >
+                   <MoreHorizontal className="h-4 w-4" strokeWidth={2} />
+                 </button>
+               ) : null}
             </>
           ) : null}
         </li>
@@ -726,6 +768,15 @@ function MediaGrid({
 
 
   );
+}
+
+function mediaAspect(post: DbPost) {
+  const width = post.original_width;
+  const height = post.original_height;
+  if (width && height && width > 0 && height > 0) {
+    return Math.min(1.65, Math.max(0.62, width / height));
+  }
+  return post.kind === "reel" ? 0.8 : 1;
 }
 
 function formatDuration(seconds: number) {

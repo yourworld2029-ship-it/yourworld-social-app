@@ -193,6 +193,7 @@ export function useMyProfile() {
 export async function updateMyPost(
   postId: string,
   patch: {
+    title?: string;
     caption?: string;
     location?: string | null;
     allow_download?: boolean;
@@ -204,6 +205,7 @@ export async function updateMyPost(
   },
 ) {
   const next: {
+    title?: string;
     caption?: string;
     hashtags?: string[];
     location?: string | null;
@@ -215,6 +217,7 @@ export async function updateMyPost(
     archived?: boolean;
   } = {};
 
+  if (patch.title !== undefined) next.title = patch.title.trim();
   if (patch.caption !== undefined) {
     next.caption = patch.caption;
     next.hashtags = Array.from(

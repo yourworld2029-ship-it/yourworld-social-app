@@ -59,6 +59,7 @@ export type LongVideo = {
   likeCount: number;
   commentCount: number;
   likedByMe: boolean;
+  commentsOff?: boolean;
 };
 
 export const formatDuration = (s: number | null | undefined) => {
@@ -453,6 +454,7 @@ export function useLongVideos() {
           likeCount: (likes ?? []).filter((l) => l.post_id === p.id).length,
           commentCount: (comments ?? []).filter((c) => c.post_id === p.id).length,
           likedByMe: !!uid && (likes ?? []).some((l) => l.post_id === p.id && l.user_id === uid),
+          commentsOff: !!(p as typeof p & { comments_off?: boolean }).comments_off,
         } satisfies LongVideo;
     });
     setVideos(next);
