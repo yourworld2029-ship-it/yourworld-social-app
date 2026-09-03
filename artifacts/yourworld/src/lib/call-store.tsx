@@ -48,10 +48,14 @@ type CallRow = {
 };
 
 type StoredSignal = {
-  sender_id: string;
-  payload: Record<string, unknown>;
-  at: string;
+  sender_id?: string;
+  payload?: Record<string, unknown>;
+  at?: string;
   candidates?: RTCIceCandidateInit[];
+  caller_candidates?: RTCIceCandidateInit[];
+  receiver_candidates?: RTCIceCandidateInit[];
+  offer?: RTCSessionDescriptionInit;
+  answer?: RTCSessionDescriptionInit;
 };
 type BlockRow = { blocker_id: string; blocked_id: string };
 
@@ -296,6 +300,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const localStream = useRef<MediaStream | null>(null);
   const sigRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const pendingLocalIce = useRef<RTCIceCandidateInit[]>([]);
   const pendingIce = useRef<RTCIceCandidateInit[]>([]);
   const fallbackSignals = useRef<Record<string, StoredSignal>>({});
   const receiveSignalRef = useRef<((payload: Record<string, unknown>) => Promise<void>) | null>(null);
@@ -422,6 +427,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       try { pc.close(); } catch { /* ignore */ }
     }
     pcRef.current = null;
+    pendingLocalIce.current = [];
     if (!options?.keepSignal) {
       if (sigRef.current) {
         void supabase.removeChannel(sigRef.current);
@@ -467,13 +473,20 @@ export function CallProvider({ children }: { children: ReactNode }) {
     const sender = meRef.current;
     if (c && sender) {
       const prior = fallbackSignals.current[c.callId];
-      const data: StoredSignal = payload.type === "ICE_CANDIDATE" && prior
-        ? {
-            ...prior,
-            candidates: [...(prior.candidates ?? []), payload.candidate as RTCIceCandidateInit].slice(-32),
-            at: new Date().toISOString(),
-          }
-        : { sender_id: sender, payload, candidates: [], at: new Date().toISOString() };
+      const candidateKey = c.incoming ? "receiver_candidates" : "caller_candidates";
+      const candidate = payload.type === "ICE_CANDIDATE"
+        ? payload.candidate as RTCIceCandidateInit
+        : null;
+      const data: StoredSignal = {
+        ...(prior ?? {}),
+        sender_id: sender,
+        payload,
+        candidates: prior?.candidates ?? [],
+        [candidateKey]: candidate
+          ? [...(prior?.[candidateKey] ?? []), candidate].slice(-64)
+          : (prior?.[candidateKey] ?? []),
+        at: new Date().toISOString(),
+      };
       fallbackSignals.current[c.callId] = data;
       void callDb.from("calls").update({ signal_data: data }).eq("id", c.callId);
     }
@@ -486,6 +499,30 @@ export function CallProvider({ children }: { children: ReactNode }) {
       event: "END_CALL",
       payload: { callId },
     }) ?? Promise.resolve();
+  }, []);
+
+  const persistDescription = useCallback(async (
+    callId: string,
+    field: "offer" | "answer",
+    description: RTCSessionDescriptionInit,
+  ) => {
+    const { data } = await callDb
+      .from("calls")
+      .select("signal_data")
+      .eq("id", callId)
+      .maybeSingle();
+    const current = ((data as { signal_data?: StoredSignal } | null)?.signal_data ?? {});
+    const next: StoredSignal = {
+      ...current,
+      [field]: description,
+      at: new Date().toISOString(),
+    };
+    fallbackSignals.current[callId] = next;
+    const { error } = await callDb
+      .from("calls")
+      .update({ signal_data: next })
+      .eq("id", callId);
+    if (error) throw error;
   }, []);
 
   const attachStreams = useCallback(() => {
@@ -630,7 +667,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
         }
       }
       pc.onicecandidate = (e) => {
-        if (e.candidate) signal({ type: "ICE_CANDIDATE", candidate: e.candidate.toJSON() });
+        if (!e.candidate) return;
+        if (callRef.current) {
+          signal({ type: "ICE_CANDIDATE", candidate: e.candidate.toJSON() });
+        } else {
+          pendingLocalIce.current.push(e.candidate.toJSON());
+        }
       };
       pc.ontrack = (e) => {
         // Some browsers deliver tracks without a stream — build one ourselves so
@@ -708,7 +750,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         void (async () => {
         const { data: sess } = await supabase.auth.getSession();
         await supabase.realtime.setAuth(sess.session?.access_token);
-        const ch = supabase.channel(`call_room_${callId}`, {
+        const ch = supabase.channel(`call_${callId}`, {
           config: { broadcast: { self: false } },
         });
         sigRef.current = ch;
@@ -730,7 +772,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
               };
               await peer.setLocalDescription(optimizedOffer);
               signal({ type: "CALL_OFFER", sdp: peer.localDescription });
-            } else if ((type === "CALL_OFFER" || type === "offer") && !isCaller && !pc?.remoteDescription) {
+            } else if (
+              (type === "CALL_OFFER" || type === "offer") &&
+              !isCaller &&
+              phaseRef.current !== "incoming" &&
+              !pc?.remoteDescription
+            ) {
               const remoteOffer = asSessionDescription(payload.sdp);
               if (!remoteOffer) return;
               const stream = localStream.current ?? (await getMedia(mode));
@@ -743,7 +790,16 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 sdp: optimizeVideoSdp(answer.sdp ?? ""),
               };
               await peer.setLocalDescription(optimizedAnswer);
-              signal({ type: "CALL_ANSWER", sdp: peer.localDescription });
+              const answerDescription = peer.localDescription;
+              if (!answerDescription) return;
+              // Persist the answer first. Broadcast is only an acceleration
+              // path and must never race the database source of truth.
+              void sigRef.current?.send({
+                type: "broadcast",
+                event: "CALL_ANSWER",
+                payload: { type: "CALL_ANSWER", callId, sdp: answerDescription },
+              });
+              await persistDescription(callId, "answer", answerDescription);
               const { error: statusError } = await callDb
                 .from("calls")
                 .update({ status: "connected" })
@@ -826,6 +882,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
               void (async () => {
                 await receive(stored.payload!);
                 for (const candidate of stored.candidates ?? []) await receive({ type: "ICE_CANDIDATE", candidate });
+                const remoteCandidates = isCaller
+                  ? stored.receiver_candidates
+                  : stored.caller_candidates;
+                for (const candidate of remoteCandidates ?? []) await receive({ type: "ICE_CANDIDATE", candidate });
               })();
             }
           });
@@ -839,7 +899,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       return ready;
     },
 
-    [createPeer, flushIce, getMedia, signal, teardown, logCallOutcome],
+    [createPeer, flushIce, getMedia, signal, teardown, logCallOutcome, persistDescription],
   );
   openSignalChannelRef.current = openSignalChannel;
 
@@ -877,7 +937,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
         .eq("id", row.caller_id)
         .maybeSingle();
       const peerName = callerProfile?.display_name || callerProfile?.username || "YourWorld caller";
-      setCall({ callId: row.id, mode: row.call_type, peerId: row.caller_id, peerName, incoming: true });
+      const nextCall = { callId: row.id, mode: row.call_type, peerId: row.caller_id, peerName, incoming: true };
+      setCall(nextCall);
+      callRef.current = nextCall;
       setPhase("incoming");
       void openSignalChannelRef.current?.(row.id, row.call_type, false);
       toast.message(`Incoming ${row.call_type === "video" ? "video" : "audio"} call`);
@@ -924,6 +986,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
           for (const candidate of stored.candidates ?? []) {
             await receiveSignalRef.current?.({ type: "ICE_CANDIDATE", candidate });
           }
+          const remoteCandidates = row.caller_id === me2
+            ? stored.receiver_candidates
+            : stored.caller_candidates;
+          for (const candidate of remoteCandidates ?? []) {
+            await receiveSignalRef.current?.({ type: "ICE_CANDIDATE", candidate });
+          }
         })();
       }
     };
@@ -944,8 +1012,51 @@ export function CallProvider({ children }: { children: ReactNode }) {
     void callDb.from("calls").select("*").eq("receiver_id", me2).eq("status", "ringing").then(({ data }: { data: CallRow[] | null }) => {
       for (const row of (data ?? [])) void ring(row);
     });
+    const pollCalls = async () => {
+      if (!alive) return;
+      const { data } = await callDb
+        .from("calls")
+        .select("*")
+        .or(`caller_id.eq.${me2},receiver_id.eq.${me2}`)
+        .order("created_at", { ascending: false })
+        .limit(30);
+      for (const row of (data as CallRow[] | null) ?? []) {
+        if (!alive) return;
+        if (row.receiver_id === me2 && row.status === "ringing") void ring(row);
+        if (row.id !== callRef.current?.callId) continue;
+
+        update({ new: row });
+        if (row.status === "ended" || row.status === "declined" || row.status === "cancelled" || row.status === "rejected" || row.status === "busy") {
+          continue;
+        }
+        const record = row.signal_data as Partial<StoredSignal> | null;
+        if (row.caller_id === me2 && record?.answer) {
+          await receiveSignalRef.current?.({
+            type: "CALL_ANSWER",
+            callId: row.id,
+            sdp: record.answer,
+          });
+        }
+        if (row.receiver_id === me2 && record?.offer && phaseRef.current === "connecting") {
+          await receiveSignalRef.current?.({
+            type: "CALL_OFFER",
+            callId: row.id,
+            sdp: record.offer,
+          });
+        }
+        const remoteCandidates = row.caller_id === me2
+          ? record?.receiver_candidates
+          : record?.caller_candidates;
+        for (const candidate of remoteCandidates ?? []) {
+          await receiveSignalRef.current?.({ type: "ICE_CANDIDATE", candidate });
+        }
+      }
+    };
+    void pollCalls();
+    const pollTimer = window.setInterval(() => void pollCalls(), 1000);
     return () => {
       alive = false;
+      window.clearInterval(pollTimer);
       void supabase.removeChannel(ch);
     };
   }, [authId, teardown, markSeen]);
@@ -988,6 +1099,29 @@ export function CallProvider({ children }: { children: ReactNode }) {
         teardown();
         return;
       }
+      const stream = localStream.current!;
+      const peer = createPeer(stream);
+      const offer = await peer.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: mode === "video",
+      });
+      const optimizedOffer = {
+        ...offer,
+        sdp: optimizeVideoSdp(offer.sdp ?? ""),
+      };
+      await peer.setLocalDescription(optimizedOffer);
+      const offerDescription = peer.localDescription;
+      if (!offerDescription) {
+        toast.error("Call could not start: no offer was created");
+        teardown();
+        return;
+      }
+      const initialSignal: StoredSignal = {
+        offer: offerDescription,
+        caller_candidates: [...pendingLocalIce.current],
+        sender_id: authId,
+        at: new Date().toISOString(),
+      };
       const { data: inserted, error } = await callDb
         .from("calls")
         .insert({
@@ -995,7 +1129,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
           receiver_id: target,
           call_type: mode,
           status: "ringing",
-          signal_data: null,
+          signal_data: initialSignal,
         })
         .select("id")
         .single();
@@ -1005,13 +1139,19 @@ export function CallProvider({ children }: { children: ReactNode }) {
         teardown();
         return;
       }
-      setCall({ callId, mode, peerId: target, peerName: peerName ?? "Calling…", incoming: false, threadId: threadId ?? null });
-      callRef.current = { callId, mode, peerId: target, peerName: peerName ?? "Calling…", incoming: false, threadId: threadId ?? null };
+      const nextCall = { callId, mode, peerId: target, peerName: peerName ?? "Calling…", incoming: false, threadId: threadId ?? null };
+      fallbackSignals.current[callId] = initialSignal;
+      pendingLocalIce.current = [];
+      setCall(nextCall);
+      callRef.current = nextCall;
       setPhase("outgoing");
-      createPeer(localStream.current!);
       await openSignalChannel(callId, mode, true);
+      signal({ type: "CALL_OFFER", sdp: offerDescription });
 
       markSeen(callId);
+      for (const candidate of initialSignal.caller_candidates ?? []) {
+        signal({ type: "ICE_CANDIDATE", candidate });
+      }
 
       // Stop ringing after 45s instead of hanging on the calling screen.
       if (ringTimer.current) window.clearTimeout(ringTimer.current);
@@ -1063,8 +1203,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
     createPeer(localStream.current!);
     await openSignalChannel(call.callId, call.mode, false);
-    signal({ type: "CALL_ACCEPT" });
-    // Mark the durable row so the caller's devices stop ringing everywhere.
+    // The offer is already stored in signal_data. Marking the row accepted
+    // lets the one-second poll know the receiver is ready to answer it.
     const { error } = await supabase
       .from("calls")
       .update({ status: "accepted" } as never)
