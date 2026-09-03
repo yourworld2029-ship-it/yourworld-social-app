@@ -14,6 +14,15 @@ export function missingColumn(error: DbError | null | undefined): string | null 
   return null;
 }
 
+export function missingTable(
+  error: DbError | null | undefined,
+  table: string,
+): boolean {
+  if (error?.code !== "PGRST205") return false;
+  const text = [error.message, error.details].filter(Boolean).join(" ");
+  return new RegExp(`(?:public\\.)?${table}\\b`, "i").test(text);
+}
+
 export function postKind(row: Record<string, unknown>): "post" | "reel" | "video" {
   const explicit = row.kind ?? row.type;
   if (explicit === "reel" || explicit === "video") return explicit;

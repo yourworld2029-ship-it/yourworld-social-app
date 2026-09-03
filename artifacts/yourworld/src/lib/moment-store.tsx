@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { STORAGE_BUCKETS, uploadWithProgress } from "@/lib/storage-upload";
 import { isAuthSessionMissing } from "@/lib/auth-errors";
+import { missingTable, writeCompat } from "@/lib/supabase-compat";
 import { getRegisteredBlob } from "@/lib/blob-registry";
 import { dmThreadId } from "@/lib/social-data";
 
@@ -164,6 +165,32 @@ type DbMoment = {
   created_at: string;
   expires_at?: string | null;
 };
+
+function postRowToMoment(row: Record<string, unknown>): DbMoment {
+  const createdAt =
+    typeof row.created_at === "string" ? row.created_at : new Date().toISOString();
+  const durationHours = Number(row.duration_seconds) === 12 ? 12 : 24;
+  return {
+    id: String(row.id),
+    user_id: String(row.user_id),
+    kind: String(row.media_type ?? "photo").startsWith("video") ? "video" : "photo",
+    media_url: typeof row.media_url === "string" ? row.media_url : null,
+    media_type: typeof row.media_type === "string" ? row.media_type : null,
+    text: typeof row.caption === "string" ? row.caption : "",
+    text_bg: "",
+    payload: null,
+    privacy: typeof row.audience === "string" ? row.audience : "everyone",
+    duration: durationHours,
+    allow_download: row.allow_download !== false,
+    screenshot_alert: false,
+    poll: null,
+    archived: row.archived === true,
+    created_at: createdAt,
+    expires_at: new Date(
+      new Date(createdAt).getTime() + durationHours * 3600_000,
+    ).toISOString(),
+  };
+}
 
 function rowToMoment(
   row: DbMoment,
@@ -345,11 +372,26 @@ export function MomentProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const { data: rows, error: momentsError } = await supabase
+    const momentsResult = await supabase
       .from("moments")
       .select("*")
       .order("created_at", { ascending: false })
       .limit(200);
+    let rows: unknown[] | null = momentsResult.data;
+    let momentsError = momentsResult.error;
+    let usesPostsFallback = false;
+    if (missingTable(momentsError, "moments")) {
+      const postsResult = await supabase
+        .from("posts")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(200);
+      rows = (postsResult.data ?? []).filter(
+        (row) => (row as Record<string, unknown>).kind === "moment",
+      );
+      momentsError = postsResult.error;
+      usesPostsFallback = true;
+    }
     if (momentsError) {
       console.error("Failed to load moments", momentsError);
       toast.error("Couldn't load moments. Please try again.");
@@ -357,7 +399,9 @@ export function MomentProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const list = (rows ?? []) as unknown as DbMoment[];
+    const list = usesPostsFallback
+      ? (rows ?? []).map((row) => postRowToMoment(row as Record<string, unknown>))
+      : ((rows ?? []) as DbMoment[]);
     if (!list.length) {
       setMoments([]);
       setLoading(false);
@@ -368,8 +412,12 @@ export function MomentProvider({ children }: { children: ReactNode }) {
     const authorIds = [...new Set(list.map((r) => r.user_id))];
 
     const [viewsResult, repliesResult, profilesResult] = await Promise.all([
-      supabase.from("moment_views").select("*").in("moment_id", ids),
-      supabase.from("moment_replies").select("*").in("moment_id", ids),
+      usesPostsFallback
+        ? Promise.resolve({ data: [] as DbView[], error: null })
+        : supabase.from("moment_views").select("*").in("moment_id", ids),
+      usesPostsFallback
+        ? Promise.resolve({ data: [] as DbReply[], error: null })
+        : supabase.from("moment_replies").select("*").in("moment_id", ids),
       supabase.rpc("get_public_profiles", { ids: authorIds }),
     ]);
     const relatedError =
@@ -572,21 +620,57 @@ export function MomentProvider({ children }: { children: ReactNode }) {
           }
           const hours = m.duration === 12 ? 12 : 24;
 
-          const { error } = await supabase.from("moments").insert({
-            user_id: uid,
-            kind: m.kind,
-            media_url: media || null,
-            media_type: m.mediaType ?? null,
-            text: m.text ?? "",
-            text_bg: m.textBg ?? "",
-            payload: payloadOf({ ...m, musicUrl }),
-            privacy: m.privacy,
-            duration: hours,
-            allow_download: m.allowDownload,
-            screenshot_alert: m.screenshotAlert,
-            poll: m.poll,
-            expires_at: new Date(Date.now() + hours * 3600_000).toISOString(),
-          });
+          let error: { message: string } | null = null;
+          try {
+            const result = await writeCompat(
+              (payload) => supabase.from("moments").insert(payload as never),
+              {
+                user_id: uid,
+                kind: m.kind,
+                media_url: media || null,
+                media_type: m.mediaType ?? null,
+                text: m.text ?? "",
+                text_bg: m.textBg ?? "",
+                payload: payloadOf({ ...m, musicUrl }),
+                privacy: m.privacy,
+                duration: hours,
+                allow_download: m.allowDownload,
+                screenshot_alert: m.screenshotAlert,
+                poll: m.poll,
+                expires_at: new Date(Date.now() + hours * 3600_000).toISOString(),
+              },
+            );
+            if (missingTable(result.error, "moments")) {
+              const fallback = await writeCompat(
+                (payload) => supabase.from("posts").insert(payload as never),
+                {
+                  user_id: uid,
+                  kind: "moment",
+                  media_url: media || "",
+                  media_type: m.mediaType ?? (m.kind === "video" ? "video" : "image"),
+                  caption: m.text ?? "",
+                  audience: m.privacy,
+                  duration_seconds: hours,
+                  allow_download: m.allowDownload,
+                  audio: musicUrl ?? null,
+                  archived: false,
+                },
+                { kind: "type" },
+              );
+              error = fallback.error
+                ? { message: fallback.error.message ?? "Couldn't save this moment" }
+                : null;
+            } else {
+              error = result.error
+                ? { message: result.error.message ?? "Couldn't save this moment" }
+                : null;
+            }
+          } catch (e) {
+            console.error("Moment database insert threw unexpectedly", e);
+            error = {
+              message: e instanceof Error ? e.message : "Couldn't save this moment",
+            };
+          }
           setMoments((p) => p.filter((x) => x.id !== tempId));
           if (error) {
             console.error("Moment database insert failed", error);
@@ -595,7 +679,13 @@ export function MomentProvider({ children }: { children: ReactNode }) {
           }
           await load();
           return { error: null };
-        })();
+        })().catch((e) => {
+          console.error("Moment publish failed unexpectedly", e);
+          const message = e instanceof Error ? e.message : "Couldn't publish this moment";
+          toast.error(message);
+          setMoments((p) => p.filter((x) => x.id !== tempId));
+          return { error: message };
+        });
       },
       deleteMoment: (id) => {
         // Optimistic removal — instantly drops from feed bar, lists, viewer queue & archive

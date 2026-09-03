@@ -292,32 +292,48 @@ export async function publishLongVideo(opts: {
     !!scan?.sponsorship ||
     (scan?.brands?.length ?? 0) > 0;
 
-  const { error } = await writeCompat((payload) => supabase.from("posts").insert(payload as never), {
-    user_id: uid,
-    kind: "video",
-    media_url: mediaUrl,
-    media_type: "video",
-    title: opts.title.trim(),
-    caption: opts.description ?? "",
-    hashtags: opts.tags ?? [],
-    thumbnail_url: thumb,
-    orientation: opts.orientation,
-    duration_seconds: opts.durationSeconds ? Math.round(opts.durationSeconds) : null,
-    scheduled_at: opts.scheduledAt ?? null,
-    paid_promotion: !!opts.paidPromotion,
-    review_status: needsReview ? "pending_review" : "approved",
-    review_note: needsReview ? "Video under routine compliance check before publishing." : null,
-
-    allow_download: true,
-    audience: "everyone",
-    tagged_user_ids: [],
-    viewer_user_ids: [],
-  }, { kind: "type" });
+  let insertError: { message: string } | null = null;
+  try {
+    const result = await writeCompat(
+      (payload) => supabase.from("posts").insert(payload as never),
+      {
+        user_id: uid,
+        kind: "video",
+        media_url: mediaUrl,
+        media_type: "video",
+        title: opts.title.trim(),
+        caption: opts.description ?? "",
+        hashtags: opts.tags ?? [],
+        thumbnail_url: thumb,
+        orientation: opts.orientation,
+        duration_seconds: opts.durationSeconds ? Math.round(opts.durationSeconds) : null,
+        scheduled_at: opts.scheduledAt ?? null,
+        paid_promotion: !!opts.paidPromotion,
+        review_status: needsReview ? "pending_review" : "approved",
+        review_note: needsReview
+          ? "Video under routine compliance check before publishing."
+          : null,
+        allow_download: true,
+        audience: "everyone",
+        tagged_user_ids: [],
+        viewer_user_ids: [],
+      },
+      { kind: "type" },
+    );
+    insertError = result.error
+      ? { message: result.error.message ?? "Could not save the video." }
+      : null;
+  } catch (error) {
+    console.error("Long-video database insert threw unexpectedly", error);
+    insertError = {
+      message: error instanceof Error ? error.message : "Could not save the video.",
+    };
+  }
 
   opts.onProgress?.(100);
-  if (error) console.error("Long-video database insert failed", error);
+  if (insertError) console.error("Long-video database insert failed", insertError);
   else rememberLocalMedia(mediaUrl, opts.fileUrl);
-  return { error: error?.message ?? null };
+  return { error: insertError?.message ?? null };
 }
 
 /** Live list of published long videos (scheduled ones appear at their release time). */
