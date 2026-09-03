@@ -23,8 +23,9 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useOrbitAppPrefs } from "@/lib/orbit-prefs";
+import { STORAGE_BUCKETS } from "@/lib/storage-upload";
 const liveDb = supabase as unknown as {
-  from: (table: "likes" | "comments" | "posts") => ReturnType<typeof supabase.from>;
+  from: (table: "likes" | "comments" | "posts" | "messages") => ReturnType<typeof supabase.from>;
 };
 
 export type NotificationKind =
@@ -50,6 +51,8 @@ export type NotificationItem = {
   read: boolean;
   /** in-app destination, optional */
   to?: string;
+  /** Optional preview image for content notifications. */
+  thumbnailUrl?: string | null;
 };
 
 export type KindMeta = {
@@ -116,16 +119,22 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
   if (!me) return [];
 
   const { data: myPostRows } = await liveDb.from("posts").select("id,kind").eq("user_id", me);
-  const myPosts = (myPostRows ?? []) as { id: string; kind: string }[];
+  const myPosts = ((myPostRows ?? []) as { id: string; kind: string }[]).filter(
+    (post) => post.kind !== "moment",
+  );
   const postIds = myPosts.map((p) => p.id);
 
-  const { data: threadRows } = await supabase
-    .from("thread_participants")
-    .select("thread_id")
-    .eq("user_id", me);
-  const threadIds = [...new Set(((threadRows ?? []) as { thread_id: string }[]).map((t) => t.thread_id))];
-
-  const [likes, comments, dms, orbitMsgs, orbitLikes, myOrbitLikes, requests, connections] =
+  const [
+    likes,
+    comments,
+    dms,
+    momentNotifications,
+    orbitMsgs,
+    orbitLikes,
+    myOrbitLikes,
+    requests,
+    connections,
+  ] =
     await Promise.all([
       postIds.length
         ? liveDb
@@ -145,15 +154,18 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
             .order("created_at", { ascending: false })
             .limit(40)
         : Promise.resolve({ data: [] }),
-      threadIds.length
-        ? supabase
-            .from("direct_messages")
-            .select("id,thread_id,sender_id,content,media_type,created_at")
-            .in("thread_id", threadIds)
-            .neq("sender_id", me)
-            .order("created_at", { ascending: false })
-            .limit(40)
-        : Promise.resolve({ data: [] }),
+      supabase
+        .from("messages" as never)
+        .select("id,sender_id,receiver_id,content,media_url,voice_note_url,created_at" as never)
+        .eq("receiver_id", me)
+        .order("created_at", { ascending: false })
+        .limit(40),
+      supabase
+        .from("notifications" as never)
+        .select("id,actor_id,kind,title,body,entity_type,entity_id,metadata,read,created_at" as never)
+        .eq("recipient_id", me)
+        .order("created_at", { ascending: false })
+        .limit(80),
       supabase
         .from("orbit_messages")
         .select("id,sender_id,kind,text,created_at")
@@ -192,10 +204,23 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
     }[],
     dms: (dms.data ?? []) as {
       id: string;
-      thread_id: string;
       sender_id: string;
+      receiver_id: string;
       content: string;
-      media_type: string;
+      media_url: string | null;
+      voice_note_url: string | null;
+      created_at: string;
+    }[],
+    momentNotifications: (momentNotifications.data ?? []) as {
+      id: string;
+      actor_id: string | null;
+      kind: string;
+      title: string;
+      body: string | null;
+      entity_type: string | null;
+      entity_id: string | null;
+      metadata: Record<string, unknown> | null;
+      read: boolean;
       created_at: string;
     }[],
     orbitMsgs: (orbitMsgs.data ?? []) as {
@@ -231,6 +256,7 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       ...rows.likes.map((r) => r.user_id),
       ...rows.comments.map((r) => r.user_id),
       ...rows.dms.map((r) => r.sender_id),
+      ...rows.momentNotifications.flatMap((r) => (r.actor_id ? [r.actor_id] : [])),
       ...rows.orbitMsgs.map((r) => r.sender_id),
       ...rows.orbitLikes.map((r) => r.user_id),
       ...rows.requests.map((r) => r.requester_id),
@@ -252,6 +278,40 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
   const nameOf = (id: string) => names[id] ?? "Someone";
   const postKind = new Map(myPosts.map((p) => [p.id, p.kind]));
   const postLink = (id: string) => (postKind.get(id) === "reel" ? "/reels" : "/");
+  const momentIds = rows.momentNotifications
+    .filter((n) => n.entity_type === "moment" && n.entity_id)
+    .map((n) => n.entity_id as string);
+  const momentMedia = new Map<string, string>();
+  if (momentIds.length) {
+    const { data: moments } = await liveDb
+      .from("posts")
+      .select("id,media_url,thumbnail_url")
+      .in("id", [...new Set(momentIds)]);
+    for (const moment of (moments ?? []) as Array<{
+      id: string;
+      media_url: string | null;
+      thumbnail_url: string | null;
+    }>) {
+      const url = moment.thumbnail_url ?? moment.media_url;
+      if (url) momentMedia.set(moment.id, url);
+    }
+    const paths = [...new Set([...momentMedia.values()])].filter(
+      (url) => !/^(https?:|data:|blob:)/.test(url),
+    );
+    if (paths.length) {
+      const { data: signed } = await supabase.storage
+        .from(STORAGE_BUCKETS.moments)
+        .createSignedUrls(paths, 60 * 60 * 6);
+      const signedByPath = new Map(
+        (signed ?? [])
+          .filter((item) => item.signedUrl && item.path)
+          .map((item) => [item.path as string, item.signedUrl as string]),
+      );
+      for (const [id, url] of momentMedia) {
+        momentMedia.set(id, signedByPath.get(url) ?? url);
+      }
+    }
+  }
 
   const out: Omit<NotificationItem, "read">[] = [];
 
@@ -279,9 +339,24 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       id: `dm-${r.id}`,
       kind: "message",
       title: `New message from ${nameOf(r.sender_id)}`,
-      body: r.media_type && r.media_type !== "text" ? "Sent an attachment" : r.content,
+      body: r.voice_note_url ? "Sent a voice note" : r.media_url ? "Sent an attachment" : r.content,
       at: ts(r.created_at),
-      to: `/chat/${r.thread_id}`,
+      to: `/chat/dm_${[r.sender_id, r.receiver_id].sort().join("_")}`,
+    });
+
+  for (const r of rows.momentNotifications)
+    out.push({
+      id: `notification-${r.id}`,
+      kind: r.kind === "like" ? "like" : "system",
+      title:
+        r.entity_type === "moment" && r.actor_id
+          ? `${nameOf(r.actor_id)} liked your Moment`
+          : r.title,
+      body: r.body ?? undefined,
+      at: ts(r.created_at),
+      to: r.entity_type === "moment" && r.entity_id ? `/moment/${r.entity_id}` : undefined,
+      thumbnailUrl:
+        r.entity_type === "moment" && r.entity_id ? momentMedia.get(r.entity_id) ?? null : null,
     });
 
   for (const r of rows.orbitMsgs)
@@ -361,22 +436,54 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   // Live updates straight from the database.
   useEffect(() => {
     if (!live) return;
-    const tables = ["likes", "comments"];
     // The feed is rebuilt with ~12 queries, so coalesce bursts (e.g. a chat
-    // conversation) into a single refresh instead of one per row change.
+    // conversation) into a single refresh instead of one per row change. The
+    // status callback retries transient Realtime failures; polling is still
+    // available through the visibility/online resync handlers below.
     let timer: ReturnType<typeof setTimeout> | null = null;
     const reload = () => {
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => void load(), 2000);
+      timer = setTimeout(() => void load(), 350);
     };
-    let channel = supabase.channel("yw-notifications");
-    for (const table of tables) {
-      channel = channel.on("postgres_changes", { event: "*", schema: "public", table }, reload);
-    }
-    channel.subscribe();
+    let alive = true;
+    let retry: ReturnType<typeof setTimeout> | null = null;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    const subscribe = () => {
+      if (!alive) return;
+      channel = supabase
+        .channel(`yw-notifications-${Math.random().toString(36).slice(2)}`)
+        .on("postgres_changes", { event: "*", schema: "public", table: "likes" }, reload)
+        .on("postgres_changes", { event: "*", schema: "public", table: "comments" }, reload)
+        .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, reload)
+        .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications" }, reload)
+        .subscribe((status) => {
+          if (status === "SUBSCRIBED") {
+            void load();
+            return;
+          }
+          if (!["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(status) || !alive || retry) return;
+          retry = setTimeout(() => {
+            retry = null;
+            if (channel) void supabase.removeChannel(channel);
+            channel = null;
+            subscribe();
+          }, 1500);
+        });
+    };
+    subscribe();
+    const resyncOnVisible = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    const resyncOnOnline = () => void load();
+    document.addEventListener("visibilitychange", resyncOnVisible);
+    window.addEventListener("online", resyncOnOnline);
     return () => {
       if (timer) clearTimeout(timer);
-      void supabase.removeChannel(channel);
+      alive = false;
+      if (retry) clearTimeout(retry);
+      document.removeEventListener("visibilitychange", resyncOnVisible);
+      window.removeEventListener("online", resyncOnOnline);
+      if (channel) void supabase.removeChannel(channel);
     };
   }, [live, load]);
 

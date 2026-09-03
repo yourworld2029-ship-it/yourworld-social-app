@@ -146,6 +146,34 @@ type DbReply = {
   created_at: string;
 };
 
+type DbLike = {
+  moment_id: string;
+  user_id: string;
+  created_at: string;
+};
+
+type MomentDbResult = {
+  data: unknown[] | null;
+  error: { code?: string; message?: string; details?: string | null } | null;
+};
+
+type MomentDbQuery = {
+  select: (columns?: string) => MomentDbQuery;
+  insert: (values: Record<string, unknown>) => MomentDbQuery;
+  upsert: (
+    values: Record<string, unknown>,
+    options?: { onConflict?: string },
+  ) => MomentDbQuery;
+  delete: () => MomentDbQuery;
+  eq: (column: string, value: string) => MomentDbQuery;
+  in: (column: string, values: string[]) => MomentDbQuery;
+  then: PromiseLike<MomentDbResult>["then"];
+};
+
+const momentDb = supabase as unknown as {
+  from: (table: string) => MomentDbQuery;
+};
+
 type DbMoment = {
 
   id: string;
@@ -411,17 +439,39 @@ export function MomentProvider({ children }: { children: ReactNode }) {
     const ids = list.map((r) => r.id);
     const authorIds = [...new Set(list.map((r) => r.user_id))];
 
-    const [viewsResult, repliesResult, profilesResult] = await Promise.all([
+    const [viewsResult, repliesResult, likesResult, profilesResult] = await Promise.all([
       usesPostsFallback
         ? Promise.resolve({ data: [] as DbView[], error: null })
         : supabase.from("moment_views").select("*").in("moment_id", ids),
       usesPostsFallback
         ? Promise.resolve({ data: [] as DbReply[], error: null })
         : supabase.from("moment_replies").select("*").in("moment_id", ids),
+      momentDb.from("moment_likes").select("moment_id,user_id,created_at").in("moment_id", ids),
       supabase.rpc("get_public_profiles", { ids: authorIds }),
     ]);
+    let likes = (likesResult.data ?? []) as DbLike[];
+    let likesError = likesResult.error;
+    // Older deployments have no dedicated Moment-like table. Their Moment
+    // records are posts, so the existing likes table is a safe compatibility
+    // source until the migration is applied.
+    if (missingTable(likesError, "moment_likes")) {
+      const legacyLikes = await momentDb
+        .from("likes")
+        .select("post_id,user_id,created_at")
+        .in("post_id", ids);
+      likes = ((legacyLikes.data ?? []) as Array<{
+        post_id: string;
+        user_id: string;
+        created_at: string;
+      }>).map((like) => ({
+        moment_id: like.post_id,
+        user_id: like.user_id,
+        created_at: like.created_at,
+      }));
+      likesError = legacyLikes.error;
+    }
     const relatedError =
-      viewsResult.error ?? repliesResult.error ?? profilesResult.error;
+      viewsResult.error ?? repliesResult.error ?? likesError ?? profilesResult.error;
     if (relatedError) {
       console.error("Failed to load moment details", relatedError);
       toast.error("Some moment details couldn't be loaded.");
@@ -447,14 +497,34 @@ export function MomentProvider({ children }: { children: ReactNode }) {
     const mapped = list.map((row) =>
       rowToMoment(
         row,
-        ((views ?? []) as DbView[])
+        [
+          ...((views ?? []) as DbView[]),
+          ...likes
+            .filter((like) => like.moment_id === row.id)
+            .map((like) => ({
+              moment_id: row.id,
+              viewer_id: like.user_id,
+              liked: true,
+              screenshot: false,
+              created_at: like.created_at,
+            })),
+        ]
           .filter((v) => v.moment_id === row.id)
-          .map((v) => ({
-            userId: v.viewer_id,
-            at: new Date(v.created_at).getTime(),
-            liked: v.liked,
-            screenshot: v.screenshot,
-          })),
+          .reduce<MomentViewer[]>((all, v) => {
+            const existing = all.find((viewer) => viewer.userId === v.viewer_id);
+            if (existing) {
+              existing.liked = existing.liked || v.liked;
+              existing.screenshot = existing.screenshot || v.screenshot;
+            } else {
+              all.push({
+                userId: v.viewer_id,
+                at: new Date(v.created_at).getTime(),
+                liked: v.liked,
+                screenshot: v.screenshot,
+              });
+            }
+            return all;
+          }, []),
         ((replies ?? []) as DbReply[])
           .filter((r) => r.moment_id === row.id)
           .map((r) => ({
@@ -486,6 +556,8 @@ export function MomentProvider({ children }: { children: ReactNode }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "moments" }, queueReload)
       .on("postgres_changes", { event: "*", schema: "public", table: "moment_views" }, queueReload)
       .on("postgres_changes", { event: "*", schema: "public", table: "moment_replies" }, queueReload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "moment_likes" }, queueReload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "posts" }, queueReload)
       .subscribe();
     const { data: sub } = supabase.auth.onAuthStateChange(() => void load());
     return () => {
@@ -747,36 +819,53 @@ export function MomentProvider({ children }: { children: ReactNode }) {
         const uid = uidRef.current;
         const body = text.trim();
         if (!uid || !body) return { error: "no-session" };
+        const target = moments.find((m) => m.id === id);
+        const ownerId = target?.author?.id;
+        if (!ownerId || ownerId === uid) return { error: "invalid-target" };
         patch(id, (m) => ({
           ...m,
           replies: [...m.replies, { id: `tmp-${Date.now()}`, userId: uid, text: body, at: Date.now() }],
         }));
-        const { error } = await supabase
+        const replyResult = await momentDb
           .from("moment_replies")
           .insert({ moment_id: id, user_id: uid, text: body });
-          if (error) {
-            console.error("Moment reply failed", error);
+        if (replyResult.error && !missingTable(replyResult.error, "moment_replies")) {
+          console.error("Moment reply failed", replyResult.error);
             toast.error("Couldn't send your reply.");
             void load();
-            return { error: error.message };
-          }
+          return { error: replyResult.error.message ?? "Couldn't save the reply." };
+        }
 
-        // Deliver the reply to the moment owner's chat inbox as a real DM.
-        const target = moments.find((m) => m.id === id);
-        const ownerId = target?.author?.id;
-        if (ownerId && ownerId !== uid) {
-          const threadId = dmThreadId(uid, ownerId);
-          const { error: messageError } = await supabase.from("direct_messages").insert({
-            thread_id: threadId,
+        // Social chat reads public.messages. Keep the preview in metadata so
+        // the chat can identify this as a reply without a second legacy thread.
+        const threadId = dmThreadId(uid, ownerId);
+        const messageResult = await writeCompat(
+          (payload) => momentDb.from("messages").insert(payload),
+          {
             sender_id: uid,
+            receiver_id: ownerId,
             content: body,
-            media_url: target?.media ?? null,
-            media_type: "text",
-          });
-          if (messageError) {
-            console.error("Moment reply chat delivery failed", messageError);
-            toast.error("Reply saved, but chat delivery failed.");
-          }
+            media_url: target.media || null,
+            metadata: {
+              type: "moment_reply",
+              moment_id: id,
+              thread_id: threadId,
+              preview: {
+                kind: target.kind,
+                text: target.text,
+                media_url: target.media || null,
+              },
+            },
+          },
+        );
+        if (messageResult.error) {
+          console.error("Moment reply chat delivery failed", messageResult.error);
+          toast.error(
+            replyResult.error
+              ? "Reply couldn't be delivered to chat."
+              : "Reply saved, but chat delivery failed.",
+          );
+          return { error: messageResult.error.message ?? "Chat delivery failed." };
         }
         return { error: null };
       },
@@ -818,17 +907,56 @@ export function MomentProvider({ children }: { children: ReactNode }) {
       registerView: (id, liked) => {
         const uid = uidRef.current;
         if (!uid || id.startsWith("pending-")) return;
-        void supabase
-          .from("moment_views")
-          .upsert(
-            { moment_id: id, viewer_id: uid, ...(liked === undefined ? {} : { liked }) },
-            { onConflict: "moment_id,viewer_id" },
-          )
-          .then(({ error }) => {
-            if (!error) return;
-            console.error("Moment view registration failed", error);
-            toast.error("Couldn't update this moment.");
-          });
+        void (async () => {
+          if (liked !== undefined) {
+            const likeResult = liked
+              ? await momentDb
+                  .from("moment_likes")
+                  .upsert(
+                    { moment_id: id, user_id: uid },
+                    { onConflict: "moment_id,user_id" },
+                  )
+              : await momentDb
+                  .from("moment_likes")
+                  .delete()
+                  .eq("moment_id", id)
+                  .eq("user_id", uid);
+            if (!likeResult.error) return;
+            if (!missingTable(likeResult.error, "moment_likes")) {
+              console.error("Moment like update failed", likeResult.error);
+              toast.error("Couldn't update this moment.");
+              return;
+            }
+            // Compatibility for a deployment that has not applied the
+            // dedicated Moment interaction migration yet.
+            if (liked) {
+              const legacy = await momentDb
+                .from("likes")
+                .upsert({ post_id: id, user_id: uid }, { onConflict: "post_id,user_id" });
+              if (!legacy.error) return;
+              console.error("Legacy Moment like update failed", legacy.error);
+              toast.error("Couldn't update this moment.");
+              return;
+            }
+            const legacy = await momentDb
+              .from("likes")
+              .delete()
+              .eq("post_id", id)
+              .eq("user_id", uid);
+            if (legacy.error) {
+              console.error("Legacy Moment unlike failed", legacy.error);
+              toast.error("Couldn't update this moment.");
+            }
+            return;
+          }
+
+          const { error } = await supabase
+            .from("moment_views")
+            .upsert({ moment_id: id, viewer_id: uid }, { onConflict: "moment_id,viewer_id" });
+          if (!error || missingTable(error, "moment_views")) return;
+          console.error("Moment view registration failed", error);
+          toast.error("Couldn't update this moment.");
+        })();
       },
       reload: load,
     }),

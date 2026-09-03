@@ -14,3 +14,9 @@ For call signaling specifically, keep SDP and role-separated ICE candidates insi
 **Why:** The live calls table exposes `signal_data`; writing guessed `offer` or `answer` columns would make call setup fail before WebRTC starts.
 
 **How to apply:** Treat the database record as authoritative and let Realtime only accelerate delivery. Poll participant call rows on a short interval and rehydrate offer, answer, ICE, and terminal status from the envelope.
+
+For social interactions, verify the runtime table inventory before introducing feature-specific tables: the current YourWorld deployment stores Moments as `posts.kind = 'moment'`, while canonical DMs use `messages`.
+
+**Why:** Older app code expected standalone Moment tables and legacy direct-message rows, so those writes could fail or appear in a UI path the product no longer reads.
+
+**How to apply:** Preserve the posts-backed Moment path, use dedicated interaction/notification tables only when their runtime schema is applied, keep canonical DM writes in `messages`, and sign private Moment media paths before rendering them in notifications.

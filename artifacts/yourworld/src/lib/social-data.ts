@@ -279,6 +279,7 @@ export type DbMessage = {
   content: string;
   media_url: string | null;
   voice_note_url: string | null;
+  metadata?: Record<string, unknown> | null;
   /** UI compatibility field derived from the messages URL columns. */
   media_type: string;
   is_read: boolean;
@@ -292,6 +293,7 @@ type PublicMessageRow = {
   content: string;
   media_url: string | null;
   voice_note_url: string | null;
+  metadata?: Record<string, unknown> | null;
   is_read: boolean;
   created_at: string;
 };
@@ -490,7 +492,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
   }), [belongs]);
   const queryRows = useCallback(async (before?: string) => {
     if (!pair) return [] as PublicMessageRow[];
-    let query = supabase.from("messages" as never).select("id,sender_id,receiver_id,content,media_url,voice_note_url,is_read,created_at" as never)
+    let query = supabase.from("messages" as never).select("id,sender_id,receiver_id,content,media_url,voice_note_url,metadata,is_read,created_at" as never)
       .or(`and(sender_id.eq.${pair[0]},receiver_id.eq.${pair[1]}),and(sender_id.eq.${pair[1]},receiver_id.eq.${pair[0]})`)
       .order("created_at", { ascending: false }).limit(PAGE_SIZE);
     if (before) query = query.lt("created_at", before);
@@ -515,21 +517,55 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
   useEffect(() => {
     void supabase.auth.getSession().then(({ data }) => setMe(data.session?.user.id ?? null));
     void load();
-    const channel = supabase.channel(`messages-${threadId}`).on("postgres_changes", { event: "*", schema: "public", table: "messages" }, (payload) => {
-      const row = (payload.new ?? payload.old) as PublicMessageRow;
-      if (!row?.id || !belongs(row)) return;
-      if (payload.eventType === "DELETE") setMessages((prev) => prev.filter((m) => m.id !== row.id));
-      else merge([row]);
-    }).subscribe();
-    return () => { void supabase.removeChannel(channel); };
+    let alive = true;
+    let retry: ReturnType<typeof setTimeout> | null = null;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    const subscribe = () => {
+      if (!alive) return;
+      channel = supabase
+        .channel(`messages-${threadId}-${Math.random().toString(36).slice(2)}`)
+        .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, (payload) => {
+          const row = (payload.new ?? payload.old) as PublicMessageRow;
+          if (!row?.id || !belongs(row)) return;
+          if (payload.eventType === "DELETE") setMessages((prev) => prev.filter((m) => m.id !== row.id));
+          else merge([row]);
+        })
+        .subscribe((status) => {
+          if (status === "SUBSCRIBED") {
+            void load();
+            return;
+          }
+          if (!["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(status) || !alive || retry) return;
+          retry = setTimeout(() => {
+            retry = null;
+            if (channel) void supabase.removeChannel(channel);
+            channel = null;
+            subscribe();
+          }, 1500);
+        });
+    };
+    subscribe();
+    const resyncOnVisible = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    const resyncOnOnline = () => void load();
+    document.addEventListener("visibilitychange", resyncOnVisible);
+    window.addEventListener("online", resyncOnOnline);
+    return () => {
+      alive = false;
+      if (retry) clearTimeout(retry);
+      document.removeEventListener("visibilitychange", resyncOnVisible);
+      window.removeEventListener("online", resyncOnOnline);
+      if (channel) void supabase.removeChannel(channel);
+    };
   }, [threadId, load, belongs, merge]);
   const send = useCallback(async (payload: { content?: string; media_url?: string | null; voice_note_url?: string | null }) => {
     if (!me || !pair || !pair.includes(me)) return { error: "You are not authorized for this chat." };
     const receiverId = pair.find((id) => id !== me)!;
     const tempId = `tmp-${Date.now()}`;
-    const optimistic = toDbMessage({ id: tempId, sender_id: me, receiver_id: receiverId, content: payload.content ?? "", media_url: payload.media_url ?? null, voice_note_url: payload.voice_note_url ?? null, is_read: false, created_at: new Date().toISOString() });
+    const optimistic = toDbMessage({ id: tempId, sender_id: me, receiver_id: receiverId, content: payload.content ?? "", media_url: payload.media_url ?? null, voice_note_url: payload.voice_note_url ?? null, metadata: null, is_read: false, created_at: new Date().toISOString() });
     setMessages((prev) => [...prev, optimistic]);
-    const { data, error: insertError } = await supabase.from("messages" as never).insert({ sender_id: me, receiver_id: receiverId, content: optimistic.content, media_url: optimistic.media_url, voice_note_url: optimistic.voice_note_url } as never).select("*").maybeSingle();
+    const { data, error: insertError } = await supabase.from("messages" as never).insert({ sender_id: me, receiver_id: receiverId, content: optimistic.content, media_url: optimistic.media_url, voice_note_url: optimistic.voice_note_url, metadata: null } as never).select("*").maybeSingle();
     if (insertError) { setMessages((prev) => prev.filter((m) => m.id !== tempId)); setError(insertError.message); return { error: insertError.message }; }
     if (data) merge([data as unknown as PublicMessageRow]);
     setMessages((prev) => prev.filter((m) => m.id !== tempId));

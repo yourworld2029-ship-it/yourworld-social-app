@@ -200,12 +200,26 @@ function NotificationsPage() {
                       }}
                       className="flex min-w-0 flex-1 items-start gap-3 text-left"
                     >
-                      <span className="chip relative grid h-10 w-10 shrink-0 place-items-center rounded-full">
-                        <Icon className={cn("h-[18px] w-[18px]", meta.tint)} strokeWidth={1.7} />
-                        {!n.read && (
-                          <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-primary ring-2 ring-background" />
-                        )}
-                      </span>
+                      {n.thumbnailUrl ? (
+                        <span className="relative h-10 w-10 shrink-0 overflow-hidden rounded-xl bg-muted">
+                          <img
+                            src={n.thumbnailUrl}
+                            alt=""
+                            className="h-full w-full object-cover"
+                            loading="lazy"
+                          />
+                          {!n.read && (
+                            <span className="absolute right-0.5 top-0.5 h-2.5 w-2.5 rounded-full bg-primary ring-2 ring-background" />
+                          )}
+                        </span>
+                      ) : (
+                        <span className="chip relative grid h-10 w-10 shrink-0 place-items-center rounded-full">
+                          <Icon className={cn("h-[18px] w-[18px]", meta.tint)} strokeWidth={1.7} />
+                          {!n.read && (
+                            <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-primary ring-2 ring-background" />
+                          )}
+                        </span>
+                      )}
                       <span className="min-w-0 flex-1">
                         <span className="flex items-baseline gap-2">
                           <span
