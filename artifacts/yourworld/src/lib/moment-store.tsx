@@ -106,13 +106,16 @@ export type MyMoment = {
 export type NewMoment = Omit<
   MyMoment,
   "id" | "createdAt" | "archived" | "viewers" | "replies"
->;
+> & {
+  /** Runtime-only callback; never persisted with the moment. */
+  onUploadProgress?: (percent: number) => void;
+};
 
 type Store = {
   moments: MyMoment[];
   archive: MyMoment[];
   loading: boolean;
-  addMoment: (m: NewMoment) => MyMoment;
+  addMoment: (m: NewMoment) => Promise<{ error: string | null }>;
   deleteMoment: (id: string) => void;
   archiveMoment: (id: string) => void;
   restoreMoment: (id: string) => void;
@@ -235,7 +238,13 @@ function payloadOf(m: NewMoment) {
 }
 
 /** Uploads a blob/data url to the private moments bucket; returns the storage path. */
-async function uploadMomentMedia(uid: string, src: string, mediaType?: string, prefix = "media") {
+async function uploadMomentMedia(
+  uid: string,
+  src: string,
+  mediaType?: string,
+  prefix = "media",
+  onProgress?: (percent: number) => void,
+) {
   if (!src || (!src.startsWith("blob:") && !src.startsWith("data:"))) return src;
   // Prefer the retained Blob: the object URL may already be revoked by the
   // editor screen that unmounted while this upload runs in the background.
@@ -266,7 +275,13 @@ async function uploadMomentMedia(uid: string, src: string, mediaType?: string, p
       ? "png"
       : "jpg";
   const path = `${uid}/${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-  const { url, error } = await uploadWithProgress(STORAGE_BUCKETS.moments, path, blob, type);
+  const { url, error } = await uploadWithProgress(
+    STORAGE_BUCKETS.moments,
+    path,
+    blob,
+    type,
+    onProgress,
+  );
   if (error && !url) throw new Error(error);
   // Store the storage path; every viewer signs their own short-lived URL.
   return path;
@@ -465,30 +480,50 @@ export function MomentProvider({ children }: { children: ReactNode }) {
         };
         setMoments((p) => [optimistic, ...p]);
 
-        void (async () => {
+        return (async () => {
           const uid = uidRef.current ?? (await supabase.auth.getUser()).data.user?.id ?? null;
           if (!uid) {
             toast.error("Sign in to publish a moment");
             setMoments((p) => p.filter((x) => x.id !== tempId));
-            return;
+            return { error: "Sign in to publish a moment" };
           }
           let media = "";
           let musicUrl = m.musicUrl;
+          const uploadsLocalMusic =
+            !!musicUrl && (musicUrl.startsWith("blob:") || musicUrl.startsWith("data:"));
           if (m.media) {
             try {
-              media = await uploadMomentMedia(uid, m.media, m.mediaType);
+              media = await uploadMomentMedia(
+                uid,
+                m.media,
+                m.mediaType,
+                "media",
+                uploadsLocalMusic && m.onUploadProgress
+                  ? (percent) => m.onUploadProgress?.(Math.round(percent * 0.8))
+                  : m.onUploadProgress,
+              );
             } catch (e) {
               toast.error(
                 e instanceof Error ? e.message : "Couldn't upload this moment's media",
               );
               setMoments((p) => p.filter((x) => x.id !== tempId));
-              return;
+              return {
+                error: e instanceof Error ? e.message : "Couldn't upload this moment's media",
+              };
             }
           }
-          if (musicUrl?.startsWith("blob:") || musicUrl?.startsWith("data:")) {
+          if (uploadsLocalMusic && musicUrl) {
             const localMusic = musicUrl;
             try {
-              musicUrl = await uploadMomentMedia(uid, localMusic, "audio", "music");
+              musicUrl = await uploadMomentMedia(
+                uid,
+                localMusic,
+                "audio",
+                "music",
+                m.onUploadProgress
+                  ? (percent) => m.onUploadProgress?.(Math.round(80 + percent * 0.2))
+                  : undefined,
+              );
             } catch (e) {
               toast.error(e instanceof Error ? e.message : "Couldn't upload the moment song");
               musicUrl = undefined;
@@ -499,7 +534,7 @@ export function MomentProvider({ children }: { children: ReactNode }) {
           if (m.kind !== "text" && !media) {
             toast.error("Couldn't upload this moment's media");
             setMoments((p) => p.filter((x) => x.id !== tempId));
-            return;
+            return { error: "Couldn't upload this moment's media" };
           }
           const hours = m.duration === 12 ? 12 : 24;
 
@@ -519,11 +554,13 @@ export function MomentProvider({ children }: { children: ReactNode }) {
             expires_at: new Date(Date.now() + hours * 3600_000).toISOString(),
           });
           setMoments((p) => p.filter((x) => x.id !== tempId));
-          if (error) toast.error("Couldn't publish this moment");
+          if (error) {
+            toast.error(error.message);
+            return { error: error.message };
+          }
           await load();
+          return { error: null };
         })();
-
-        return optimistic;
       },
       deleteMoment: (id) => {
         // Optimistic removal — instantly drops from feed bar, lists, viewer queue & archive

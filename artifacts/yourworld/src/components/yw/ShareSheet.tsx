@@ -84,7 +84,7 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
       toast.error("Nothing to add");
       return;
     }
-    addMoment({
+    void addMoment({
       kind: mediaKind === "video" ? "video" : "photo",
       media,
       text: title,
@@ -98,8 +98,10 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
       allowDownload: true,
       screenshotAlert: false,
       poll: null,
+    }).then(({ error }) => {
+      if (error) toast.error(error);
+      else toast.success("Added to your moment");
     });
-    toast.success("Added to your moment");
     setOpen(false);
   };
 

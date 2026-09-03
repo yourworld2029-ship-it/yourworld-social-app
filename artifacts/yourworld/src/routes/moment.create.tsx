@@ -51,6 +51,7 @@ import {
   useNavigate,
 } from "@tanstack/react-router";
 import { useMoments } from "@/lib/moment-store";
+import { useUploads } from "@/lib/upload-progress";
 
 export const Route = createFileRoute("/moment/create")({
   component: MomentCreatePage,
@@ -217,6 +218,7 @@ const FILTERS: Record<
 export function MomentCreatePage() {
   const navigate = useNavigate();
   const { addMoment } = useMoments();
+  const { startUpload } = useUploads();
 
   // =====================================================
   // CAMERA REFS
@@ -2001,7 +2003,15 @@ export function MomentCreatePage() {
 
     // Publish each part into the live moments feed, oldest part first.
     for (const part of newMoments) {
-      addMoment({
+      await startUpload(
+        {
+          kind: "moment",
+          label: part.caption ?? "New moment",
+          thumbnail: null,
+          viewTo: "/moment",
+        },
+        (onProgress) =>
+          addMoment({
         kind: isVideo
           ? "video"
           : "photo",
@@ -2048,8 +2058,10 @@ export function MomentCreatePage() {
         allowDownload:
           allowDownloads,
         screenshotAlert,
-        poll: null,
-      });
+            poll: null,
+            onUploadProgress: onProgress,
+          }),
+      );
     }
 
     navigate({

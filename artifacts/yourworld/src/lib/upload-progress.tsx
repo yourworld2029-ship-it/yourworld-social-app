@@ -12,7 +12,7 @@ import { Link } from "@tanstack/react-router";
 import { CheckCircle2, AlertCircle, X, Loader2 } from "lucide-react";
 import type { ProgressFn } from "@/lib/storage-upload";
 
-export type UploadKind = "reel" | "video" | "post";
+export type UploadKind = "reel" | "video" | "post" | "moment";
 
 export type UploadTask = {
   id: string;
@@ -121,6 +121,7 @@ const TITLE: Record<UploadKind, string> = {
   reel: "Uploading reel",
   video: "Uploading video",
   post: "Uploading post",
+  moment: "Uploading moment",
 };
 
 function UploadProgressStack() {
