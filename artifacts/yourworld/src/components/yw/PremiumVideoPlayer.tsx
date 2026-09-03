@@ -50,10 +50,11 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
   const [loop, setLoop] = useState(false);
   const [locked, setLocked] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+  const [isVertical, setIsVertical] = useState(!!portrait);
+  const [aspectRatio, setAspectRatio] = useState<number | null>(null);
   const [showUI, setShowUI] = useState(true);
   const [menu, setMenu] = useState<null | "root" | "speed" | "quality" | "captions" | "audio">(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
-  const [viewPortrait] = useState(!!portrait);
   const [captionTracks, setCaptionTracks] = useState<Array<{ index: number; label: string }>>([]);
   const [caption, setCaption] = useState("Off");
   const [audioTracks, setAudioTracks] = useState<Array<{ index: number; label: string }>>([]);
@@ -139,11 +140,34 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
     };
   }, [src, autoPlay]);
 
+  const lockScreenOrientation = useCallback(async (vertical: boolean) => {
+    try {
+      await (screen.orientation as unknown as {
+        lock?: (orientation: string) => Promise<void>;
+      }).lock?.(vertical ? "portrait-primary" : "landscape");
+    } catch {
+      // Orientation locking is best-effort and unsupported in some browsers.
+    }
+  }, []);
+
   useEffect(() => {
-    const onFs = () => setFullscreen(!!document.fullscreenElement);
+    const onFs = () => {
+      const active = !!document.fullscreenElement;
+      setFullscreen(active);
+      if (active) {
+        void lockScreenOrientation(isVertical);
+      } else {
+        try { (screen.orientation as unknown as { unlock?: () => void }).unlock?.(); } catch { /* ignore */ }
+      }
+    };
     document.addEventListener("fullscreenchange", onFs);
     return () => document.removeEventListener("fullscreenchange", onFs);
-  }, []);
+  }, [isVertical, lockScreenOrientation]);
+
+  useEffect(() => {
+    setIsVertical(!!portrait);
+    setAspectRatio(null);
+  }, [portrait, src]);
 
   // Zoom/pan are fullscreen-only; reset to 100% fit when leaving fullscreen.
   useEffect(() => {
@@ -167,12 +191,7 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
         try { (screen.orientation as unknown as { unlock?: () => void }).unlock?.(); } catch { /* ignore */ }
       } else {
         await el.requestFullscreen();
-        // Cinematic landscape mode for landscape videos (best-effort, mobile only).
-        if (!viewPortrait) {
-          try {
-            await (screen.orientation as unknown as { lock?: (o: string) => Promise<void> }).lock?.("landscape");
-          } catch { /* unsupported */ }
-        }
+        await lockScreenOrientation(isVertical);
       }
     } catch { /* ignore */ }
   };
@@ -290,7 +309,7 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
     const g = gesture.current;
     gesture.current = null;
     if (g?.mode === "queue" && Math.abs(g.dy) > 90) {
-      onSwipeQueue?.(g.dy < 0 ? 1 : -1, viewPortrait);
+      onSwipeQueue?.(g.dy < 0 ? 1 : -1, isVertical);
     }
   };
 
@@ -350,15 +369,30 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
       .filter((option, index, options) => options.indexOf(option) === index);
   }, [sourceHeight]);
 
+  const handleMetadata = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
+    const { videoWidth, videoHeight, duration } = e.currentTarget;
+    const vertical = videoHeight > videoWidth;
+    setIsVertical(vertical);
+    setAspectRatio(videoWidth > 0 && videoHeight > 0 ? videoWidth / videoHeight : null);
+    setDur(duration || 0);
+    setSourceHeight(videoHeight || 0);
+    onOrientationChange?.(vertical);
+    readMediaTracks();
+  }, [onOrientationChange, readMediaTracks]);
+
   return (
     <div
       ref={wrapRef}
       onMouseMove={poke}
+      style={!fullscreen && aspectRatio ? { aspectRatio: String(aspectRatio) } : undefined}
       className={cn(
         "relative w-full overflow-hidden bg-black select-none",
         fullscreen
-          ? "h-full w-full rounded-none"
-          : cn("rounded-2xl", viewPortrait ? "aspect-[9/16]" : "aspect-video"),
+          ? "flex h-full w-full items-center justify-center rounded-none"
+          : cn(
+              "mx-auto rounded-xl",
+              isVertical ? "max-h-[75vh] aspect-[9/16]" : "aspect-[16/9]",
+            ),
         className,
       )}
     >
@@ -367,6 +401,7 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
         src={src}
         poster={poster ?? undefined}
         playsInline
+        muted={muted}
         preload="metadata"
         style={{
           filter: `brightness(${brightness})`,
@@ -376,9 +411,7 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
         }}
         className={cn(
           "h-full w-full",
-          fullscreen
-            ? "object-contain"
-            : "object-cover",
+          "object-contain",
         )}
         onPlay={(e) => {
           lastPlaybackTime.current = e.currentTarget.currentTime;
@@ -395,13 +428,7 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
           setShowUI(true);
           setMediaError(true);
         }}
-        onLoadedMetadata={(e) => {
-          const video = e.currentTarget;
-          setDur(video.duration || 0);
-          setSourceHeight(video.videoHeight || 0);
-            onOrientationChange?.(video.videoHeight > video.videoWidth);
-          readMediaTracks();
-        }}
+        onLoadedMetadata={handleMetadata}
         onTimeUpdate={(e) => {
           const v = e.currentTarget;
           const previous = lastPlaybackTime.current;

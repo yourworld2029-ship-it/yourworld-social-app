@@ -242,26 +242,26 @@ export function LongVideoCard({
       ref={cardRef}
       className="space-y-3 overflow-hidden border-y border-zinc-800/80 bg-[#141418] shadow-2xl"
     >
-      <div
-        className={`relative w-full overflow-hidden bg-black ${
-          playerPortrait ? "aspect-[9/16]" : "aspect-video"
-        }`}
-      >
-        {playing && src ? (
-          <TrackedVideoPlayer
-            key={active.id}
-            src={src}
-            title={active.title}
-            poster={active.thumbnailUrl}
-            portrait={active.portrait}
-            watchVideoId={active.id}
-            watchTimeEnabled={!!currentUserId}
-            onOrientationChange={setPlayerPortrait}
-            onSwipeQueue={swipeQueue}
-            hideAuxControls
-            className="rounded-none"
-          />
-        ) : (
+      {playing && src ? (
+        <TrackedVideoPlayer
+          key={active.id}
+          src={src}
+          title={active.title}
+          poster={active.thumbnailUrl}
+          portrait={active.portrait}
+          watchVideoId={active.id}
+          watchTimeEnabled={!!currentUserId}
+          onOrientationChange={setPlayerPortrait}
+          onSwipeQueue={swipeQueue}
+          hideAuxControls
+        />
+      ) : (
+        <div
+          className={cn(
+            "relative mx-auto w-full overflow-hidden bg-black",
+            playerPortrait ? "max-h-[75vh] aspect-[9/16]" : "aspect-[16/9]",
+          )}
+        >
           <button
             onClick={() => navigate({ to: "/video/$videoId", params: { videoId: video.id } })}
             aria-label={`Open ${video.title}`}
@@ -281,8 +281,8 @@ export function LongVideoCard({
               {formatDuration(video.durationSeconds)}
             </span>
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       <div className="space-y-2 px-3 pb-3">
         <div className="flex items-start justify-between gap-2">

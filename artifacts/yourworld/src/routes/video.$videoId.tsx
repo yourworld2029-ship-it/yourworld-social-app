@@ -143,29 +143,29 @@ function WatchPage() {
         {/* === STICKY TOP VIDEO PLAYER === */}
         <div className="sticky top-0 z-50 w-full bg-black shadow-lg">
           <BackBar onBack={() => navigate({ to: "/" })} transparent />
-          <div className={cn("w-full bg-black", portrait && "flex justify-center")}>
-            <div className={cn("w-full overflow-hidden bg-black", portrait && "max-w-[33vh]")}>
-              {src ? (
-                <TrackedVideoPlayer
-                  key={video.id}
-                  src={src}
-                  title={video.title}
-                  poster={video.thumbnailUrl}
-                  portrait={portrait}
-                  watchVideoId={video.id}
-                  watchTimeEnabled={!!currentUserId}
-                  className="rounded-none"
-                />
-              ) : (
-                <div className={cn("w-full bg-black", portrait ? "aspect-[9/16]" : "aspect-video")}>
-                  {video.thumbnailUrl ? (
-                    <img src={video.thumbnailUrl} alt={video.title} className="h-full w-full object-cover" />
-                  ) : (
-                    <div className="h-full w-full animate-pulse bg-zinc-900" />
-                  )}
+          <div className="w-full bg-black">
+            {src ? (
+              <TrackedVideoPlayer
+                key={video.id}
+                src={src}
+                title={video.title}
+                poster={video.thumbnailUrl}
+                portrait={portrait}
+                watchVideoId={video.id}
+                watchTimeEnabled={!!currentUserId}
+              />
+            ) : (
+              <div className={cn(
+                "mx-auto w-full bg-black",
+                portrait ? "max-h-[75vh] aspect-[9/16]" : "aspect-[16/9]",
+              )}>
+                {video.thumbnailUrl ? (
+                  <img src={video.thumbnailUrl} alt={video.title} className="h-full w-full object-contain" />
+                ) : (
+                  <div className="h-full w-full animate-pulse bg-zinc-900" />
+                )}
                 </div>
-              )}
-            </div>
+            )}
           </div>
         </div>
 
