@@ -1813,23 +1813,6 @@ var Phone = createLucideIcon("phone", [["path", {
 * This source code is licensed under the ISC license.
 * See the LICENSE file in the root directory of this source tree.
 */
-var PictureInPicture2 = createLucideIcon("picture-in-picture-2", [["path", {
-	d: "M21 9V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10c0 1.1.9 2 2 2h4",
-	key: "daa4of"
-}], ["rect", {
-	width: "10",
-	height: "7",
-	x: "12",
-	y: "13",
-	rx: "2",
-	key: "1nb8gs"
-}]]);
-/**
-* @license lucide-react v0.575.0 - ISC
-*
-* This source code is licensed under the ISC license.
-* See the LICENSE file in the root directory of this source tree.
-*/
 var PinOff = createLucideIcon("pin-off", [
 	["path", {
 		d: "M12 17v5",
@@ -3122,4 +3105,4 @@ var ZoomOut = createLucideIcon("zoom-out", [
 	}]
 ]);
 //#endregion
-export { Radio as $, Ellipsis as $t, SquarePen as A, BellOff as An, LockOpen as At, Share2 as B, Hotel as Bt, Trash2 as C, ChartNoAxesColumn as Cn, MessageCircleOff as Ct, Star as D, CalendarHeart as Dn, Mail as Dt, Sun as E, Camera as En, MapPin as Et, SlidersVertical as F, ArrowLeft as Fn, Info as Ft, Search as G, Gauge as Gt, Settings2 as H, Hash as Ht, SlidersHorizontal as I, Archive as In, Inbox as It, Scale as J, Film as Jt, Scissors as K, FolderClock as Kt, Shield as L, Image as Lt, Sparkle as M, BadgeCheck as Mn, Link2 as Mt, Smile as N, AtSign as Nn, Laptop as Nt, Square as O, Bookmark as On, LogOut as Ot, Smartphone as P, ArrowRight as Pn, Languages as Pt, Redo2 as Q, ExternalLink as Qt, ShieldCheck as R, ImagePlus as Rt, TrendingUp as S, CheckCheck as Sn, MessageCircle as St, SwitchCamera as T, Captions as Tn, Maximize as Tt, Send as U, Handshake as Ut, Settings as V, Heart as Vt, SendHorizontal as W, Grid3x3 as Wt, Repeat as X, Eye as Xt, RotateCcw as Y, FileText as Yt, RefreshCw as Z, EyeOff as Zt, UserPlus as _, ChevronUp as _n, MonitorPlay as _t, X as a, Copy as an, PictureInPicture2 as at, Type as b, ChevronDown as bn, MicOff as bt, VolumeX as c, Coffee as cn, Pencil as ct, VideoOff as d, Clapperboard as dn, Orbit as dt, EllipsisVertical as en, Plus as et, UtensilsCrossed as f, Circle as fn, Navigation as ft, UserRound as g, CircleAlert as gn, Monitor as gt, UserX as h, CircleCheck as hn, Moon as ht, ZapOff as i, Crop as in, PinOff as it, Sparkles as j, Ban as jn, LoaderCircle as jt, SquareSplitHorizontal as k, Bell as kn, Lock as kt, Volume2 as l, Clock as ln, Pause as lt, User as m, CircleQuestionMark as mn, Music2 as mt, ZoomIn as n, Download as nn, Pizza as nt, WandSparkles as o, Contrast as on, Phone as ot, Users as p, CircleX as pn, Music as pt, ScanFace as q, Flag as qt, Zap as r, DollarSign as rn, Pin as rt, Wallet as s, Coins as sn, PhoneOff as st, ZoomOut as t, Earth as tn, Play as tt, Video as u, Clock3 as un, Palette as ut, Upload as v, ChevronRight as vn, Minimize as vt, Timer as w, Cast as wn, Megaphone as wt, TriangleAlert as x, Check as xn, MessageSquare as xt, Undo2 as y, ChevronLeft as yn, Mic as yt, ShieldAlert as z, House as zt };
+export { Radio as $, EllipsisVertical as $t, SquarePen as A, Ban as An, LoaderCircle as At, Share2 as B, Heart as Bt, Trash2 as C, Cast as Cn, Megaphone as Ct, Star as D, Bookmark as Dn, LogOut as Dt, Sun as E, CalendarHeart as En, Mail as Et, SlidersVertical as F, Archive as Fn, Inbox as Ft, Search as G, FolderClock as Gt, Settings2 as H, Handshake as Ht, SlidersHorizontal as I, Image as It, Scale as J, FileText as Jt, Scissors as K, Flag as Kt, Shield as L, ImagePlus as Lt, Sparkle as M, AtSign as Mn, Laptop as Mt, Smile as N, ArrowRight as Nn, Languages as Nt, Square as O, Bell as On, Lock as Ot, Smartphone as P, ArrowLeft as Pn, Info as Pt, Redo2 as Q, Ellipsis as Qt, ShieldCheck as R, House as Rt, TrendingUp as S, ChartNoAxesColumn as Sn, MessageCircleOff as St, SwitchCamera as T, Camera as Tn, MapPin as Tt, Send as U, Grid3x3 as Ut, Settings as V, Hash as Vt, SendHorizontal as W, Gauge as Wt, Repeat as X, EyeOff as Xt, RotateCcw as Y, Eye as Yt, RefreshCw as Z, ExternalLink as Zt, UserPlus as _, ChevronRight as _n, Minimize as _t, X as a, Contrast as an, Phone as at, Type as b, Check as bn, MessageSquare as bt, VolumeX as c, Clock as cn, Pause as ct, VideoOff as d, Circle as dn, Navigation as dt, Earth as en, Plus as et, UtensilsCrossed as f, CircleX as fn, Music as ft, UserRound as g, ChevronUp as gn, MonitorPlay as gt, UserX as h, CircleAlert as hn, Monitor as ht, ZapOff as i, Copy as in, PinOff as it, Sparkles as j, BadgeCheck as jn, Link2 as jt, SquareSplitHorizontal as k, BellOff as kn, LockOpen as kt, Volume2 as l, Clock3 as ln, Palette as lt, User as m, CircleCheck as mn, Moon as mt, ZoomIn as n, DollarSign as nn, Pizza as nt, WandSparkles as o, Coins as on, PhoneOff as ot, Users as p, CircleQuestionMark as pn, Music2 as pt, ScanFace as q, Film as qt, Zap as r, Crop as rn, Pin as rt, Wallet as s, Coffee as sn, Pencil as st, ZoomOut as t, Download as tn, Play as tt, Video as u, Clapperboard as un, Orbit as ut, Upload as v, ChevronLeft as vn, Mic as vt, Timer as w, Captions as wn, Maximize as wt, TriangleAlert as x, CheckCheck as xn, MessageCircle as xt, Undo2 as y, ChevronDown as yn, MicOff as yt, ShieldAlert as z, Hotel as zt };

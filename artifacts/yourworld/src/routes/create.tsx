@@ -4,7 +4,7 @@ import {
   ArrowLeft, Play, Pause, Scissors, Gauge,
   Sparkles, Trash2, Copy,
   Music, Type, Smile, Sliders, Undo2, Redo2, Crop, SplitSquareHorizontal,
-  PictureInPicture2, Upload,
+  Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 import { CameraCapture } from "@/components/yw/CameraCapture";
@@ -56,8 +56,11 @@ interface ClipItem {
   trimEnd?: number;
   duration?: number;
   crop?: number;
+  cropX?: number;
+  cropY?: number;
   textX?: number;
   textY?: number;
+  textSize?: number;
   cropBox?: { x: number; y: number; w: number; h: number };
   contrast?: number;
   saturation?: number;
@@ -66,7 +69,7 @@ interface ClipItem {
 }
 
 type ToolId =
-  | "TRIM" | "MUSIC" | "FILTER" | "EFFECT" | "TEXT" | "STICKER" | "PIP" | "SPEED" | "CROP";
+  | "TRIM" | "MUSIC" | "FILTER" | "EFFECT" | "TEXT" | "STICKER" | "SPEED" | "CROP";
 
 const TOOL_MENU: { id: ToolId; label: string; Icon: React.ComponentType<{ size?: number }> }[] = [
   { id: "TRIM", label: "Trim", Icon: Scissors },
@@ -75,7 +78,6 @@ const TOOL_MENU: { id: ToolId; label: string; Icon: React.ComponentType<{ size?:
   { id: "EFFECT", label: "Effect", Icon: Sparkles },
   { id: "TEXT", label: "Text", Icon: Type },
   { id: "STICKER", label: "Sticker", Icon: Smile },
-  { id: "PIP", label: "PIP", Icon: PictureInPicture2 },
   { id: "SPEED", label: "Speed", Icon: Gauge },
   { id: "CROP", label: "Crop", Icon: Crop },
 ];
@@ -360,21 +362,49 @@ function CreateStudioPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const videoSlotsRef = useRef<[HTMLVideoElement | null, HTMLVideoElement | null]>([null, null]);
+  const slotClipIndexRef = useRef<[number | null, number | null]>([null, null]);
+  const activeVideoSlotRef = useRef(0);
+  const [activeVideoSlot, setActiveVideoSlot] = useState(0);
   const audioElRef = useRef<HTMLAudioElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const scrubbingRef = useRef(false);
-  const loadedUrlRef = useRef<string | null>(null);
+  const transitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrubTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dragRafRef = useRef<number | null>(null);
   const seekRafRef = useRef<number | null>(null);
   const pendingSeekRef = useRef<number | null>(null);
   const globalTimeRef = useRef(0);
+  const [textSelected, setTextSelected] = useState(false);
+  const viewportPointersRef = useRef(new Map<number, { x: number; y: number }>());
+  const viewportGestureRef = useRef<{
+    distance: number;
+    midpoint: { x: number; y: number };
+    crop: number;
+    cropX: number;
+    cropY: number;
+  } | null>(null);
+  const textGestureRef = useRef<{
+    pointers: Map<number, { x: number; y: number }>;
+    start: { x: number; y: number };
+    textX: number;
+    textY: number;
+    textSize: number;
+    distance: number;
+    midpoint: { x: number; y: number };
+    mode: "move" | "resize";
+    element: HTMLElement;
+  } | null>(null);
 
   useEffect(() => {
+    const viewportPointers = viewportPointersRef.current;
     return () => {
       if (dragRafRef.current) cancelAnimationFrame(dragRafRef.current);
       if (seekRafRef.current) cancelAnimationFrame(seekRafRef.current);
+      if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
       if (scrubTimerRef.current) clearTimeout(scrubTimerRef.current);
+      viewportPointers.clear();
+      textGestureRef.current = null;
     };
   }, []);
 
@@ -404,8 +434,11 @@ function CreateStudioPage() {
       volume: 1,
       trimStart: 0,
       crop: 1,
+      cropX: 0,
+      cropY: 0,
       textX: 50,
       textY: 50,
+      textSize: 1,
       contrast: 1,
       saturation: 1,
       warmth: 0,
@@ -441,6 +474,10 @@ function CreateStudioPage() {
   };
 
   const clamp = (n: number, a = 0, b = 100) => Math.min(b, Math.max(a, n));
+  const clampCropOffset = (value: number, scale: number) => {
+    const maxOffset = Math.max(0, (scale - 1) * 50);
+    return Math.min(maxOffset, Math.max(-maxOffset, value));
+  };
 
   const stagePct = (e: { clientX: number; clientY: number }) => {
     const r = stageRef.current?.getBoundingClientRect();
@@ -451,33 +488,195 @@ function CreateStudioPage() {
     };
   };
 
-  // Drag text overlay anywhere on the canvas
-  const startTextDrag = (e: React.PointerEvent) => {
+  // GPU-friendly viewport gestures. Two fingers control zoom and pan together;
+  // one finger can pan an already-zoomed frame without fighting page scroll.
+  const startViewportGesture = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
     e.preventDefault();
-    e.stopPropagation();
-    const el = e.currentTarget as HTMLElement;
-    el.setPointerCapture?.(e.pointerId);
-    const move = (ev: PointerEvent) => {
-      const p = stagePct(ev);
-      // paint immediately (GPU only), commit state once per frame
-      el.style.left = `${p.x}%`;
-      el.style.top = `${p.y}%`;
-      scheduleFrame(() =>
-        setClips((prev) =>
-          prev.map((c, i) => (i === activeClipIndex ? { ...c, textX: p.x, textY: p.y } : c)),
-        ),
+    const point = { x: e.clientX, y: e.clientY };
+    viewportPointersRef.current.set(e.pointerId, point);
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    const points = [...viewportPointersRef.current.values()];
+    if (points.length === 1) {
+      viewportGestureRef.current = {
+        distance: 0,
+        midpoint: point,
+        crop: currentClip?.crop ?? 1,
+        cropX: currentClip?.cropX ?? 0,
+        cropY: currentClip?.cropY ?? 0,
+      };
+    } else if (points.length === 2) {
+      const [first, second] = points;
+      viewportGestureRef.current = {
+        distance: Math.hypot(second.x - first.x, second.y - first.y),
+        midpoint: {
+          x: (first.x + second.x) / 2,
+          y: (first.y + second.y) / 2,
+        },
+        crop: currentClip?.crop ?? 1,
+        cropX: currentClip?.cropX ?? 0,
+        cropY: currentClip?.cropY ?? 0,
+      };
+    }
+  };
+
+  const moveViewportGesture = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!viewportPointersRef.current.has(e.pointerId)) return;
+    viewportPointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const gesture = viewportGestureRef.current;
+    if (!gesture || !currentClip) return;
+    const points = [...viewportPointersRef.current.values()];
+    const rect = stageRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const update = (crop: number, cropX: number, cropY: number) => {
+      const next = {
+        crop,
+        cropX: clampCropOffset(cropX, crop),
+        cropY: clampCropOffset(cropY, crop),
+      };
+      setClips((prev) =>
+        prev.map((clip, index) => (index === activeClipIndex ? { ...clip, ...next } : clip)),
       );
     };
-    const end = () => {
-      if (dragRafRef.current) {
-        cancelAnimationFrame(dragRafRef.current);
-        dragRafRef.current = null;
+    if (points.length >= 2) {
+      const [first, second] = points;
+      const distance = Math.max(1, Math.hypot(second.x - first.x, second.y - first.y));
+      const midpoint = {
+        x: (first.x + second.x) / 2,
+        y: (first.y + second.y) / 2,
+      };
+      const dx = ((midpoint.x - gesture.midpoint.x) / rect.width) * 100;
+      const dy = ((midpoint.y - gesture.midpoint.y) / rect.height) * 100;
+      update(
+        clamp(gesture.crop * (distance / Math.max(1, gesture.distance)), 1, 4),
+        gesture.cropX + dx,
+        gesture.cropY + dy,
+      );
+    } else if (points.length === 1) {
+      const point = points[0];
+      const dx = ((point.x - gesture.midpoint.x) / rect.width) * 100;
+      const dy = ((point.y - gesture.midpoint.y) / rect.height) * 100;
+      update(gesture.crop, gesture.cropX + dx, gesture.cropY + dy);
+    }
+  };
+
+  const endViewportGesture = (e: React.PointerEvent<HTMLDivElement>) => {
+    viewportPointersRef.current.delete(e.pointerId);
+    if (viewportPointersRef.current.size === 0) viewportGestureRef.current = null;
+  };
+
+  const updateTextFromGesture = (gesture: NonNullable<typeof textGestureRef.current>) => {
+    const rect = stageRef.current?.getBoundingClientRect();
+    const points = [...gesture.pointers.values()];
+    if (!rect || !points.length) return;
+    let nextX = gesture.textX;
+    let nextY = gesture.textY;
+    let nextSize = gesture.textSize;
+    if (gesture.mode === "resize" && points.length === 1) {
+      const center = {
+        x: rect.left + (gesture.textX / 100) * rect.width,
+        y: rect.top + (gesture.textY / 100) * rect.height,
+      };
+      const distance = Math.max(12, Math.hypot(points[0].x - center.x, points[0].y - center.y));
+      nextSize = clamp(gesture.textSize * (distance / Math.max(12, gesture.distance)), 0.65, 3);
+    } else if (points.length >= 2) {
+      const [first, second] = points;
+      const distance = Math.max(12, Math.hypot(second.x - first.x, second.y - first.y));
+      const midpoint = {
+        x: (first.x + second.x) / 2,
+        y: (first.y + second.y) / 2,
+      };
+      nextSize = clamp(gesture.textSize * (distance / Math.max(12, gesture.distance)), 0.65, 3);
+      nextX = clamp(gesture.textX + ((midpoint.x - gesture.midpoint.x) / rect.width) * 100);
+      nextY = clamp(gesture.textY + ((midpoint.y - gesture.midpoint.y) / rect.height) * 100);
+    } else {
+      const point = points[0];
+      nextX = clamp(gesture.textX + ((point.x - gesture.start.x) / rect.width) * 100);
+      nextY = clamp(gesture.textY + ((point.y - gesture.start.y) / rect.height) * 100);
+    }
+    gesture.element.style.left = `${nextX}%`;
+    gesture.element.style.top = `${nextY}%`;
+    gesture.element.style.fontSize = `${1.1 * nextSize}rem`;
+    scheduleFrame(() =>
+      setClips((prev) =>
+        prev.map((clip, index) =>
+          index === activeClipIndex
+            ? { ...clip, textX: nextX, textY: nextY, textSize: nextSize }
+            : clip,
+        ),
+      ),
+    );
+  };
+
+  const handleTextPointerMove = (e: PointerEvent) => {
+    const gesture = textGestureRef.current;
+    if (!gesture || !gesture.pointers.has(e.pointerId)) return;
+    gesture.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    updateTextFromGesture(gesture);
+  };
+
+  const handleTextPointerEnd = (e: PointerEvent) => {
+    const gesture = textGestureRef.current;
+    if (!gesture) return;
+    gesture.pointers.delete(e.pointerId);
+    if (gesture.pointers.size === 0) {
+      window.removeEventListener("pointermove", handleTextPointerMove);
+      window.removeEventListener("pointerup", handleTextPointerEnd);
+      window.removeEventListener("pointercancel", handleTextPointerEnd);
+      textGestureRef.current = null;
+    }
+  };
+
+  // Text supports one-finger dragging, two-finger pinch scaling, and handle
+  // resizing. All high-frequency writes are coalesced onto the next frame.
+  const startTextGesture = (
+    e: React.PointerEvent<HTMLElement>,
+    mode: "move" | "resize" = "move",
+    target?: HTMLElement,
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const el = target ?? (e.currentTarget as HTMLElement);
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    setTextSelected(true);
+    const point = { x: e.clientX, y: e.clientY };
+    const currentX = currentClip?.textX ?? 50;
+    const currentY = currentClip?.textY ?? 50;
+    const currentSize = currentClip?.textSize ?? 1;
+    const rect = stageRef.current?.getBoundingClientRect();
+    const center = rect
+      ? { x: rect.left + (currentX / 100) * rect.width, y: rect.top + (currentY / 100) * rect.height }
+      : point;
+    const existing = textGestureRef.current;
+    if (existing) {
+      const first = [...existing.pointers.values()][0];
+      existing.pointers.set(e.pointerId, point);
+      if (existing.pointers.size === 2 && first) {
+        existing.distance = Math.max(12, Math.hypot(point.x - first.x, point.y - first.y));
+        existing.midpoint = {
+          x: (point.x + first.x) / 2,
+          y: (point.y + first.y) / 2,
+        };
+        existing.textX = currentClip?.textX ?? existing.textX;
+        existing.textY = currentClip?.textY ?? existing.textY;
+        existing.textSize = currentClip?.textSize ?? existing.textSize;
       }
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", end);
+      return;
+    }
+    textGestureRef.current = {
+      pointers: new Map([[e.pointerId, point]]),
+      start: point,
+      textX: currentX,
+      textY: currentY,
+      textSize: currentSize,
+      distance: Math.max(12, Math.hypot(point.x - center.x, point.y - center.y)),
+      midpoint: point,
+      mode,
+      element: el,
     };
-    window.addEventListener("pointermove", move, { passive: true });
-    window.addEventListener("pointerup", end);
+    window.addEventListener("pointermove", handleTextPointerMove, { passive: true });
+    window.addEventListener("pointerup", handleTextPointerEnd);
+    window.addEventListener("pointercancel", handleTextPointerEnd);
   };
 
   // Freeform crop bounding box drag (move + corner resize)
@@ -621,53 +820,124 @@ function CreateStudioPage() {
     }
   }, [currentClip, activeClipIndex]);
 
-  // Reload the <video> source whenever the active clip's URL changes,
-  // and keep playing across clip boundaries
+  // Keep two video elements warm: one is visible while the other preloads the
+  // next source. Switching only after canplay avoids src/load black frames.
   useEffect(() => {
-    const v = videoRef.current;
-    const url = currentClip?.url;
-    if (!v || !url) return;
-    const start = currentClip?.trimStart ?? 0;
-    const end = currentClip?.trimEnd;
+    const activeSlot = activeVideoSlotRef.current;
+    const nextSlot = activeSlot === 0 ? 1 : 0;
+    const activeVideo = videoSlotsRef.current[activeSlot];
+    const preloadVideo = videoSlotsRef.current[nextSlot];
+    const activeClip = clips[activeClipIndex];
+    if (!activeVideo || !activeClip?.url) return;
+
+    videoRef.current = activeVideo;
+    activeVideo.muted = isMuted;
+    activeVideo.preload = "auto";
+    const start = activeClip.trimStart ?? 0;
+    const end = activeClip.trimEnd;
     const ready = () => {
       if (scrubbingRef.current) return;
-      if (v.currentTime < start - 0.05 || (end != null && v.currentTime > end + 0.05)) {
-        try { v.currentTime = start; } catch { /* ignore */ }
+      if (
+        activeVideo.currentTime < start - 0.05 ||
+        (end != null && activeVideo.currentTime > end + 0.05)
+      ) {
+        try { activeVideo.currentTime = start; } catch { /* ignore */ }
       }
-      if (isPlaying) void v.play().catch(() => {});
+      if (isPlaying) void activeVideo.play().catch(() => {});
     };
-    if (loadedUrlRef.current !== url) {
-      loadedUrlRef.current = url;
-      v.src = url;
-      v.load();
-      v.addEventListener("loadeddata", ready, { once: true });
-      return () => v.removeEventListener("loadeddata", ready);
-    }
-    if (v.readyState >= 2) {
-      ready();
-      return;
-    }
-    v.addEventListener("loadeddata", ready, { once: true });
-    return () => v.removeEventListener("loadeddata", ready);
-  }, [currentClip?.url, currentClip?.trimStart, currentClip?.trimEnd, activeClipIndex, isPlaying]);
 
-  // Advance to the next clip (loops back to the first)
+    const activeNeedsSource =
+      slotClipIndexRef.current[activeSlot] !== activeClipIndex ||
+      activeVideo.src !== activeClip.url;
+    if (activeNeedsSource) {
+      activeVideo.pause();
+      activeVideo.src = activeClip.url;
+      slotClipIndexRef.current[activeSlot] = activeClipIndex;
+      activeVideo.load();
+      activeVideo.addEventListener("canplay", ready, { once: true });
+    } else if (activeVideo.readyState >= 2) {
+      ready();
+    } else {
+      activeVideo.addEventListener("canplay", ready, { once: true });
+    }
+
+    const nextIndex = clips.length ? (activeClipIndex + 1) % clips.length : null;
+    const nextClip = nextIndex == null ? null : clips[nextIndex];
+    if (preloadVideo && nextClip?.url) {
+      preloadVideo.pause();
+      preloadVideo.muted = true;
+      preloadVideo.preload = "auto";
+      preloadVideo.playbackRate = nextClip.speed;
+      preloadVideo.volume = nextClip.volume;
+      const preloadNeedsSource =
+        slotClipIndexRef.current[nextSlot] !== nextIndex ||
+        preloadVideo.src !== nextClip.url;
+      if (preloadNeedsSource) {
+        preloadVideo.src = nextClip.url;
+        slotClipIndexRef.current[nextSlot] = nextIndex;
+        preloadVideo.load();
+      }
+    }
+    return () => activeVideo.removeEventListener("canplay", ready);
+  }, [clips, activeClipIndex, currentClip, isPlaying, isMuted, activeVideoSlot]);
+
+  // Advance at the trim boundary. The next video has already been loaded into
+  // the other slot, so it can start before the visible slot is swapped.
   const advancingRef = useRef(0);
   const advanceClip = React.useCallback(() => {
-    const v = videoRef.current;
     if (!clips.length) return;
     const now = Date.now();
     if (now - advancingRef.current < 400) return;
     advancingRef.current = now;
     const next = (activeClipIndex + 1) % clips.length;
     const nextClip = clips[next];
-    setIsPlaying(true);
-    if (v && nextClip && nextClip.url === currentClip?.url) {
-      try { v.currentTime = nextClip.trimStart ?? 0; } catch { /* ignore */ }
-      void v.play().catch(() => {});
+    const currentVideo = videoRef.current;
+    if (!nextClip || !currentVideo) return;
+    const start = nextClip.trimStart ?? 0;
+
+    if (nextClip.url === currentClip?.url) {
+      currentVideo.playbackRate = nextClip.speed;
+      currentVideo.volume = nextClip.volume;
+      try { currentVideo.currentTime = start; } catch { /* ignore */ }
+      if (isPlaying) void currentVideo.play().catch(() => {});
+      setActiveClipIndex(next);
+      return;
     }
-    setActiveClipIndex(next);
-  }, [clips, activeClipIndex, currentClip?.url]);
+
+    const oldSlot = activeVideoSlotRef.current;
+    const nextSlot = oldSlot === 0 ? 1 : 0;
+    const nextVideo = videoSlotsRef.current[nextSlot];
+    if (!nextVideo) return;
+
+    let switched = false;
+    const switchWhenReady = () => {
+      if (switched || nextVideo.readyState < 2) return;
+      switched = true;
+      nextVideo.removeEventListener("canplay", switchWhenReady);
+      try { nextVideo.currentTime = start; } catch { /* ignore */ }
+      nextVideo.muted = isMuted;
+      nextVideo.playbackRate = nextClip.speed;
+      nextVideo.volume = nextClip.volume;
+      const playNext = nextVideo.play();
+      const activate = () => {
+        if (transitionTimerRef.current) clearTimeout(transitionTimerRef.current);
+        currentVideo.pause();
+        videoRef.current = nextVideo;
+        activeVideoSlotRef.current = nextSlot;
+        setActiveVideoSlot(nextSlot);
+        setActiveClipIndex(next);
+        setIsPlaying(true);
+      };
+      void playNext.then(activate).catch(() => activate());
+    };
+
+    nextVideo.addEventListener("canplay", switchWhenReady);
+    if (nextVideo.readyState >= 2) switchWhenReady();
+    else nextVideo.load();
+    transitionTimerRef.current = setTimeout(() => {
+      if (!switched) switchWhenReady();
+    }, 1200);
+  }, [clips, activeClipIndex, currentClip?.url, isMuted, isPlaying]);
 
 
   // Sync canvas playback to the selected clip's trim range
@@ -680,7 +950,7 @@ function CreateStudioPage() {
       if (scrubbingRef.current) return;
       if (Math.abs(v.currentTime - start) > 0.05) v.currentTime = start;
     };
-    if (v.readyState >= 1 && loadedUrlRef.current === currentClip.url) seek();
+    if (v.readyState >= 1) seek();
     else v.addEventListener("loadedmetadata", seek, { once: true });
     const onTime = () => {
       if (scrubbingRef.current) return;
@@ -777,13 +1047,39 @@ function CreateStudioPage() {
     setActiveClipIndex(Math.max(0, activeClipIndex - 1));
   };
 
+  const selectClip = (index: number) => {
+    const clip = clips[index];
+    if (!clip) return;
+    setTextSelected(false);
+    const currentSlot = activeVideoSlotRef.current;
+    const matchingSlot = slotClipIndexRef.current.findIndex((value) => value === index);
+    if (matchingSlot >= 0 && matchingSlot !== currentSlot) {
+      const nextVideo = videoSlotsRef.current[matchingSlot];
+      const oldVideo = videoSlotsRef.current[currentSlot];
+      if (nextVideo) {
+        nextVideo.pause();
+        nextVideo.muted = isMuted;
+        try { nextVideo.currentTime = clip.trimStart ?? 0; } catch { /* ignore */ }
+        oldVideo?.pause();
+        videoRef.current = nextVideo;
+        activeVideoSlotRef.current = matchingSlot;
+        setActiveVideoSlot(matchingSlot);
+      }
+    }
+    setActiveClipIndex(index);
+    setIsPlaying(false);
+    const nextVideo = videoSlotsRef.current[matchingSlot >= 0 ? matchingSlot : currentSlot];
+    nextVideo?.pause();
+  };
+
   // Real-time Play/Pause Toggle
   const togglePlay = () => {
     if (!videoRef.current) return;
     if (isPlaying) {
       videoRef.current.pause();
+      setTextSelected(false);
     } else {
-      videoRef.current.play();
+      void videoRef.current.play().catch(() => {});
     }
     setIsPlaying(!isPlaying);
   };
@@ -793,13 +1089,6 @@ function CreateStudioPage() {
     if (id === "MUSIC") return setShowMusicPicker(true);
     if (id === "EFFECT")
       return updateCurrentClip("filter", currentClip?.filter === "vivid" ? "none" : "vivid");
-    if (id === "PIP") {
-      const v = videoRef.current;
-      if (document.pictureInPictureElement) void document.exitPictureInPicture();
-      else if (v?.requestPictureInPicture) void v.requestPictureInPicture().catch(() => toast.error("Picture-in-picture unavailable"));
-      else toast.error("Picture-in-picture unavailable");
-      return;
-    }
     setActiveToolPanel(activeToolPanel === id ? "NONE" : id);
   };
 
@@ -954,39 +1243,50 @@ function CreateStudioPage() {
           <div className="flex-1 min-h-0 w-full flex items-center justify-center relative bg-black overflow-hidden">
               <div
                 ref={stageRef}
+                onPointerDown={startViewportGesture}
+                onPointerMove={moveViewportGesture}
+                onPointerUp={endViewportGesture}
+                onPointerCancel={endViewportGesture}
                 className="relative h-full max-h-full w-auto max-w-full aspect-[9/16] flex items-center justify-center touch-none bg-black overflow-hidden"
                 style={{ contain: "layout paint size" }}
               >
-              <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                 preload="auto"
-                muted={isMuted}
-                onTimeUpdate={syncTime}
-                onSeeked={syncTime}
-
-                onLoadedMetadata={(e) => {
-                  const d = e.currentTarget.duration;
-                  if (isFinite(d) && d > 0 && !currentClip?.duration) updateCurrentClip("duration", d);
-                }}
-                onEmptied={() => { loadedUrlRef.current = null; }}
-                 className={`h-full w-full object-contain will-change-transform transition-opacity duration-200 ${
-                  gpuPreviewEnabled ? "opacity-0" : "opacity-100"
-                }`}
-                style={{
-                   transform: `translate3d(0,0,0) rotate(${currentClip?.rotation || 0}deg) scale(${currentClip?.crop ?? 1})`,
-                   backfaceVisibility: "hidden",
-                  clipPath: currentClip?.cropBox
-                    ? `inset(${currentClip.cropBox.y}% ${100 - (currentClip.cropBox.x + currentClip.cropBox.w)}% ${100 - (currentClip.cropBox.y + currentClip.cropBox.h)}% ${currentClip.cropBox.x}%)`
-                    : undefined,
-                  filter:
-                    currentClip?.filter === "vivid" ? "saturate(1.35) contrast(1.08)" :
-                    currentClip?.filter === "noir" ? "grayscale(1) contrast(1.16)" :
-                    currentClip?.filter === "cyber" ? "saturate(1.35) hue-rotate(65deg) contrast(1.12)" :
-                    currentClip?.filter === "warm" ? "sepia(0.22) saturate(1.15) brightness(1.03)" : "none"
-                }}
-              />
+              {([0, 1] as const).map((slot) => (
+                <video
+                  key={slot}
+                  ref={(node) => {
+                    videoSlotsRef.current[slot] = node;
+                    if (slot === activeVideoSlot) videoRef.current = node;
+                  }}
+                  autoPlay={slot === activeVideoSlot}
+                  playsInline
+                  preload="auto"
+                  muted={slot === activeVideoSlot ? isMuted : true}
+                  onTimeUpdate={slot === activeVideoSlot ? syncTime : undefined}
+                  onSeeked={slot === activeVideoSlot ? syncTime : undefined}
+                  onEnded={slot === activeVideoSlot ? advanceClip : undefined}
+                  onLoadedMetadata={slot === activeVideoSlot ? (e) => {
+                    const d = e.currentTarget.duration;
+                    if (isFinite(d) && d > 0 && !currentClip?.duration) updateCurrentClip("duration", d);
+                  } : undefined}
+                  aria-hidden={slot !== activeVideoSlot}
+                  tabIndex={-1}
+                  className={`absolute inset-0 h-full w-full object-contain will-change-transform transition-opacity duration-75 ${
+                    slot === activeVideoSlot && !gpuPreviewEnabled ? "opacity-100" : "opacity-0"
+                  }`}
+                  style={{
+                    transform: `translate3d(${currentClip?.cropX ?? 0}%,${currentClip?.cropY ?? 0}%,0) rotate(${currentClip?.rotation || 0}deg) scale(${currentClip?.crop ?? 1})`,
+                    backfaceVisibility: "hidden",
+                    clipPath: currentClip?.cropBox
+                      ? `inset(${currentClip.cropBox.y}% ${100 - (currentClip.cropBox.x + currentClip.cropBox.w)}% ${100 - (currentClip.cropBox.y + currentClip.cropBox.h)}% ${currentClip.cropBox.x}%)`
+                      : undefined,
+                    filter:
+                      currentClip?.filter === "vivid" ? "saturate(1.35) contrast(1.08)" :
+                      currentClip?.filter === "noir" ? "grayscale(1) contrast(1.16)" :
+                      currentClip?.filter === "cyber" ? "saturate(1.35) hue-rotate(65deg) contrast(1.12)" :
+                      currentClip?.filter === "warm" ? "sepia(0.22) saturate(1.15) brightness(1.03)" : "none",
+                  }}
+                />
+              ))}
               <GpuVideoPreview
                 videoRef={videoRef}
                 filter={currentClip?.filter ?? "none"}
@@ -999,7 +1299,7 @@ function CreateStudioPage() {
                   gpuPreviewEnabled ? "opacity-100" : "opacity-0"
                 }`}
                 style={{
-                   transform: `translate3d(0,0,0) rotate(${currentClip?.rotation || 0}deg) scale(${currentClip?.crop ?? 1})`,
+                    transform: `translate3d(${currentClip?.cropX ?? 0}%,${currentClip?.cropY ?? 0}%,0) rotate(${currentClip?.rotation || 0}deg) scale(${currentClip?.crop ?? 1})`,
                   clipPath: currentClip?.cropBox
                     ? `inset(${currentClip.cropBox.y}% ${100 - (currentClip.cropBox.x + currentClip.cropBox.w)}% ${100 - (currentClip.cropBox.y + currentClip.cropBox.h)}% ${currentClip.cropBox.x}%)`
                     : undefined,
@@ -1037,11 +1337,61 @@ function CreateStudioPage() {
               {/* Draggable Text Overlay */}
               {currentClip?.textOverlay && (
                 <div
-                  onPointerDown={startTextDrag}
-                  className="absolute -translate-x-1/2 -translate-y-1/2 bg-white/85 text-foreground font-black px-4 py-2 rounded-xl text-lg border border-orange-400 shadow-lg backdrop-blur-sm cursor-move touch-none select-none"
-                  style={{ left: `${currentClip.textX ?? 50}%`, top: `${currentClip.textY ?? 50}%` }}
+                  onPointerDown={(e) => startTextGesture(e)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setTextSelected(true);
+                  }}
+                  className={`absolute -translate-x-1/2 -translate-y-1/2 bg-white/85 text-foreground font-black px-4 py-2 rounded-xl border shadow-lg backdrop-blur-sm cursor-move touch-none select-none ${
+                    textSelected && !isPlaying ? "border-orange-400" : "border-transparent"
+                  }`}
+                  style={{
+                    left: `${currentClip.textX ?? 50}%`,
+                    top: `${currentClip.textY ?? 50}%`,
+                    fontSize: `${1.1 * (currentClip.textSize ?? 1)}rem`,
+                  }}
                 >
                   {currentClip.textOverlay}
+                  {textSelected && !isPlaying && (
+                    <>
+                      <span
+                        aria-hidden="true"
+                        onPointerDown={(e) => startTextGesture(
+                          e,
+                          "resize",
+                          e.currentTarget.parentElement as HTMLElement,
+                        )}
+                        className="absolute -left-2 -top-2 h-3.5 w-3.5 rounded-full border-2 border-white bg-orange-500 shadow"
+                      />
+                      <span
+                        aria-hidden="true"
+                        onPointerDown={(e) => startTextGesture(
+                          e,
+                          "resize",
+                          e.currentTarget.parentElement as HTMLElement,
+                        )}
+                        className="absolute -right-2 -top-2 h-3.5 w-3.5 rounded-full border-2 border-white bg-orange-500 shadow"
+                      />
+                      <span
+                        aria-hidden="true"
+                        onPointerDown={(e) => startTextGesture(
+                          e,
+                          "resize",
+                          e.currentTarget.parentElement as HTMLElement,
+                        )}
+                        className="absolute -bottom-2 -left-2 h-3.5 w-3.5 rounded-full border-2 border-white bg-orange-500 shadow"
+                      />
+                      <span
+                        aria-hidden="true"
+                        onPointerDown={(e) => startTextGesture(
+                          e,
+                          "resize",
+                          e.currentTarget.parentElement as HTMLElement,
+                        )}
+                        className="absolute -bottom-2 -right-2 h-3.5 w-3.5 rounded-full border-2 border-white bg-orange-500 shadow"
+                      />
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -1310,6 +1660,7 @@ function CreateStudioPage() {
                   <button
                     onClick={() => {
                       updateCurrentClip("textOverlay", customTextInput);
+                      setTextSelected(true);
                       setActiveToolPanel("NONE");
                     }}
                     className="bg-orange-500 text-white px-4 py-2 rounded-xl font-bold text-xs"
@@ -1339,29 +1690,9 @@ function CreateStudioPage() {
               isMuted={isMuted}
               onToggleMute={() => setIsMuted(!isMuted)}
               onSelect={(i) => {
-                const v = videoRef.current;
-                const clip = clips[i];
-                setActiveClipIndex(i);
-                if (!v || !clip) return;
                 scrubbingRef.current = false;
                 if (scrubTimerRef.current) clearTimeout(scrubTimerRef.current);
-                // Pause at the selected clip's starting frame for easy editing
-                const start = clip.trimStart ?? 0;
-                const applySeek = () => {
-                  try { v.currentTime = start; } catch { /* ignore */ }
-                  v.pause();
-                  setIsPlaying(false);
-                };
-                if (clip.url && loadedUrlRef.current !== clip.url) {
-                  loadedUrlRef.current = clip.url;
-                  v.src = clip.url;
-                  v.load();
-                  v.addEventListener("loadeddata", applySeek, { once: true });
-                } else if (v.readyState >= 1) {
-                  applySeek();
-                } else {
-                  v.addEventListener("loadeddata", applySeek, { once: true });
-                }
+                selectClip(i);
               }}
               onTrim={(i, start, end) => {
                 const source = clips[i];
