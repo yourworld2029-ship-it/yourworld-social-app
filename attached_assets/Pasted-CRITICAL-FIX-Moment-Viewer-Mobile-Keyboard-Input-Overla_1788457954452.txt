@@ -1,0 +1,39 @@
+CRITICAL FIX: Moment Viewer Mobile Keyboard Input Overlap & Auto-Elevation
+
+PROBLEM:
+When typing a reply in the Moment (Story) viewer on mobile devices, the on-screen keyboard opens on top of the input field, hiding the typed text. The user cannot see what they are typing until they dismiss the keyboard to tap send.
+
+SOLUTION (Mobile Viewport & Keyboard Handling):
+
+1. Keyboard-Aware Reply Input Bar:
+   - Wrap the bottom action bar / reply input in a container that listens to viewport adjustments:
+     - Use CSS dynamic viewport units: `bottom: max(env(safe-area-inset-bottom, 0px), 0px)`
+     - Support mobile virtual keyboard resize via VisualViewport API or window resize listener (`window.visualViewport`):
+       ```javascript
+       useEffect(() => {
+         const handleResize = () => {
+           if (window.visualViewport && inputContainerRef.current) {
+             const offset = window.innerHeight - window.visualViewport.height;
+             inputContainerRef.current.style.transform = offset > 50 ? `translateY(-${offset}px)` : 'translateY(0)';
+           }
+         };
+         window.visualViewport?.addEventListener('resize', handleResize);
+         window.visualViewport?.addEventListener('scroll', handleResize);
+         return () => {
+           window.visualViewport?.removeEventListener('resize', handleResize);
+           window.visualViewport?.removeEventListener('scroll', handleResize);
+         };
+       }, []);
+       ```
+
+2. Input Elevation & Focus State:
+   - When the "Send a reply" input is focused (`onFocus`):
+     a) Pause Moment progress timer automatically.
+     b) Elevate the input box right above the on-screen keyboard with high `z-index` (e.g. `z-50`).
+     c) Keep the send button (paper plane icon) visible and active alongside the input field so the user can type and tap Send in one seamless flow without closing the keyboard.
+     d) Allow pressing the mobile keyboard "Enter / Return / Send" key (via `onKeyDown` / `form onSubmit`) to send the message immediately.
+
+3. Blur & Send Cleanup:
+   - On message submit or outside tap (`onBlur`), reset the input position smoothly, clear the text field, resume the moment playback, and show a subtle confirmation.
+
+Run production build and verify zero compiler errors.
