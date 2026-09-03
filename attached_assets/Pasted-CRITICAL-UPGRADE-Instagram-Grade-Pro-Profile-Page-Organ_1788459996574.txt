@@ -1,0 +1,28 @@
+CRITICAL UPGRADE: Instagram-Grade Pro Profile Page (Organized Media Tabs, Auto-Thumbnails & Story Highlights Engine)
+
+1. Segment Profile Media into 3 Clean Dedicated Tabs:
+   - Tab 1: "Videos" (Long Videos Grid):
+     - Query and display only Long Videos posted by the user (`user_id = profile_id` AND `type = 'long_video'`).
+     - Render 3-column responsive grid with 16:9 / 4:5 preview cards showing view counts and duration badges.
+   - Tab 2: "Reels" (Dedicated Reels Tab):
+     - Fix the "No reels yet" bug: correctly fetch all Reels created by this user (`user_id = profile_id` AND `type = 'reel'`).
+     - Render 3-column vertical (9:16) grid cards with play view count overlays and smooth tap-to-watch transition into full vertical reel player.
+   - Tab 3: "Saved" (Bookmarked Media):
+     - Fetch user's saved/bookmarked long videos and reels. (Show only to profile owner).
+
+2. Fix Blank / Black Thumbnail Grid Cards:
+   - If a video doesn't have a custom uploaded thumbnail, generate an automatic first-frame canvas poster on upload or client-side video preview (`#t=0.5`).
+   - Eliminate all completely black placeholder grid boxes.
+
+3. Complete Story & Moment Highlights Feature:
+   - Enhance the "+ New" Highlights tray under the bio:
+     a) Tapping "+ New" opens a modal displaying all past active/archived Moments (Stories) and Reels posted by the user.
+     b) User can select multiple moments/clips, enter a Highlight title (e.g., "Gym", "Work", "2026"), pick a cover frame, and tap "Save Highlight".
+     c) Render saved highlights as sleek circular story bubbles with custom titles and covers below the bio.
+     d) Tapping any Highlight bubble launches the full-screen 30s segmented story player with all saved highlight clips.
+
+4. UI Polish & Header Stats:
+   - Keep clean typography for "Videos | Followers | Following" counts with accurate live database counters.
+   - Add glassmorphism active indicator pill for switching tabs seamlessly.
+
+Run production build and ensure zero compiler errors.
