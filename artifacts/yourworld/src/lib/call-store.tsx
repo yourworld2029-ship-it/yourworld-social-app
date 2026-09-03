@@ -80,9 +80,22 @@ function asIceCandidate(value: unknown): RTCIceCandidateInit | null {
 
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
-  { urls: "stun:stun1.l.google.com:19302" },
-  { urls: "stun:stun2.l.google.com:19302" },
-  { urls: "stun:global.stun.twilio.com:3478" },
+  { urls: "stun:stun.relay.metered.ca:80" },
+  {
+    urls: "turn:openrelay.metered.ca:80",
+    username: "openrelayproject",
+    credential: "openrelayproject",
+  },
+  {
+    urls: "turn:openrelay.metered.ca:443",
+    username: "openrelayproject",
+    credential: "openrelayproject",
+  },
+  {
+    urls: "turn:openrelay.metered.ca:443?transport=tcp",
+    username: "openrelayproject",
+    credential: "openrelayproject",
+  },
 ];
 
 const AUDIO_CONSTRAINTS: MediaTrackConstraints = {
@@ -371,7 +384,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       const next = !on;
       remoteAudioMuted.current = !next;
       if (remoteAudio.current) remoteAudio.current.muted = !next;
-      if (remoteVideo.current) remoteVideo.current.muted = true; // video element stays silent; audio via <audio>
+      if (remoteVideo.current) remoteVideo.current.muted = !next;
       return next;
     });
   }, []);
@@ -467,14 +480,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
       void localVideo.current.play().catch(() => {});
     }
     if (remoteStream.current) {
-      if (remoteVideo.current) {
+      if (callRef.current?.mode === "video" && remoteVideo.current) {
         remoteVideo.current.srcObject = remoteStream.current;
-        void remoteVideo.current.play().catch(() => {});
+        void remoteVideo.current.play().catch((e) => console.log("Autoplay error:", e));
       }
-      if (remoteAudio.current) {
+      if (callRef.current?.mode !== "video" && remoteAudio.current) {
         remoteAudio.current.srcObject = remoteStream.current;
         remoteAudio.current.muted = remoteAudioMuted.current;
-        void remoteAudio.current.play().catch(() => {});
+        void remoteAudio.current.play().catch((e) => console.log("Autoplay error:", e));
       }
     }
   }, []);
@@ -615,14 +628,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
         // <video> element immediately, then retry on the next frame in case the
         // ref wasn't bound yet (e.g. track arrives before the element mounts).
         const attachNow = () => {
-          if (remoteVideo.current) {
+          if (callRef.current?.mode === "video" && remoteVideo.current) {
             remoteVideo.current.srcObject = s;
-            void remoteVideo.current.play().catch(() => {});
+            void remoteVideo.current.play().catch((e) => console.log("Autoplay error:", e));
           }
-          if (remoteAudio.current) {
+          if (callRef.current?.mode !== "video" && remoteAudio.current) {
             remoteAudio.current.srcObject = s;
             remoteAudio.current.muted = remoteAudioMuted.current;
-            void remoteAudio.current.play().catch(() => {});
+            void remoteAudio.current.play().catch((e) => console.log("Autoplay error:", e));
           }
         };
         attachNow();
@@ -635,6 +648,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
           stopAllRingtones();
           connectedAt.current ??= Date.now();
           setPhase("active");
+          const currentCall = callRef.current;
+          if (currentCall) {
+            void callDb.from("calls")
+              .update({ status: "connected" })
+              .eq("id", currentCall.callId);
+          }
         }
         if (pc.connectionState === "failed") {
           toast.error("Call connection failed");
@@ -717,6 +736,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
               stopAllRingtones();
               connectedAt.current ??= Date.now();
               setPhase("active");
+              const currentCall = callRef.current;
+              if (currentCall) {
+                void callDb.from("calls")
+                  .update({ status: "connected" })
+                  .eq("id", currentCall.callId);
+              }
             } else if (payload.type === "ICE_CANDIDATE" || payload.type === "ice") {
               const candidate = asIceCandidate(payload.candidate);
               if (!candidate) return;
@@ -1281,7 +1306,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 ref={remoteVideo}
                 autoPlay
                 playsInline
-                muted
                 onClick={
                   swapped
                     ? (e) => { e.stopPropagation(); setSwapped(false); }
