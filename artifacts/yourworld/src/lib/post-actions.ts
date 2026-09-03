@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { isAuthSessionMissing } from "@/lib/auth-errors";
-import { toast } from "sonner";
 
 /**
  * Real post interactions: saves (bookmarks), view counting and deletion.
@@ -51,7 +50,8 @@ export function usePostSaves() {
         return;
       }
       console.error("Unable to load saved posts", authError);
-      toast.error("Couldn't load saved posts.");
+      meRef.current = null;
+      setSaved({});
       return;
     }
     const me = auth.user?.id ?? null;
@@ -66,7 +66,7 @@ export function usePostSaves() {
       .eq("user_id", me);
     if (error) {
       console.error("Unable to load saved posts", error);
-      toast.error("Couldn't load saved posts.");
+      setSaved({});
       return;
     }
     const next: Record<string, boolean> = {};
