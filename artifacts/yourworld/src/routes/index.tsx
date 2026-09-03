@@ -7,6 +7,7 @@ import { setVideoQueue } from "@/lib/video-queue";
 import { Search, Heart, Plus } from "lucide-react";
 import { useMoments } from "@/lib/moment-store";
 import { useAlertsCount } from "@/lib/alerts-count";
+import { useAuth } from "@/lib/auth-store";
 import ywLogo from "@/assets/yw-logo.png";
 
 export const Route = createFileRoute("/")({
@@ -23,12 +24,52 @@ export const Route = createFileRoute("/")({
   }),
 });
 
+function MomentAvatar({
+  username,
+  src,
+  alt,
+}: {
+  username: string;
+  src?: string | null;
+  alt: string;
+}) {
+  const [imageFailed, setImageFailed] = React.useState(false);
+  const initial = (username.trim().charAt(0) || "U").toUpperCase();
+
+  React.useEffect(() => {
+    setImageFailed(false);
+  }, [src]);
+
+  if (!src || imageFailed) {
+    return (
+      <div
+        role="img"
+        aria-label={`${alt} avatar`}
+        className="grid h-full w-full place-items-center rounded-full bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 text-xl font-extrabold leading-none text-white"
+      >
+        {initial}
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={src}
+      alt={alt}
+      onError={() => setImageFailed(true)}
+      className="h-full w-full rounded-full object-cover"
+      loading="lazy"
+    />
+  );
+}
+
 function HomePage() {
   const navigate = useNavigate();
   const [hydrated, setHydrated] = React.useState(false);
   const { videos, loading, currentUserId, countView, toggleLike, reload } = useLongVideos();
   const { saved, toggleSave } = usePostSaves();
   const { moments } = useMoments();
+  const { user } = useAuth();
   const { count: alertCount } = useAlertsCount();
 
   React.useEffect(() => setHydrated(true), []);
@@ -50,6 +91,17 @@ function HomePage() {
     () => moments.find((m) => m.mine),
     [moments],
   );
+  const userMetadata = (user?.user_metadata ?? {}) as Record<string, unknown>;
+  const myUsername =
+    myLatest?.author?.username ||
+    (typeof userMetadata.username === "string" ? userMetadata.username : null) ||
+    (typeof userMetadata.user_name === "string" ? userMetadata.user_name : null) ||
+    (typeof user?.email === "string" ? user.email.split("@")[0] : null) ||
+    "user";
+  const myAvatarUrl =
+    myLatest?.author?.avatar ||
+    (typeof userMetadata.avatar_url === "string" ? userMetadata.avatar_url : null) ||
+    (typeof userMetadata.picture === "string" ? userMetadata.picture : null);
 
   type StoryRing = {
     userId: string;
@@ -122,26 +174,20 @@ function HomePage() {
             className="relative w-16 h-16 rounded-full p-[2px] bg-gradient-to-tr from-pink-500 to-purple-600 flex items-center justify-center"
           >
             <div className="w-full h-full rounded-full bg-neutral-900 border-2 border-black overflow-hidden flex items-center justify-center">
-              {myLatest?.media ? (
-                <img src={myLatest.media} alt="My moment" className="w-full h-full object-cover" />
-              ) : (
-                <Plus className="w-6 h-6 text-pink-500" />
-              )}
+              <MomentAvatar username={myUsername} src={myAvatarUrl} alt="Your avatar" />
             </div>
             {/* Always-on "add another moment" badge (Snapchat-style) */}
-            {myLatest && (
-              <span
-                role="button"
-                aria-label="Add another moment"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigate({ to: "/moment/create" });
-                }}
-                className="absolute -bottom-0.5 -right-0.5 w-6 h-6 rounded-full bg-pink-500 border-2 border-black flex items-center justify-center"
-              >
-                <Plus className="w-3.5 h-3.5 text-white" />
-              </span>
-            )}
+            <span
+              role="button"
+              aria-label="Add another moment"
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate({ to: "/moment/create" });
+              }}
+              className="absolute -bottom-0.5 -right-0.5 grid h-5 w-5 place-items-center rounded-full bg-pink-500 border-2 border-black"
+            >
+              <Plus className="h-3 w-3 text-white" strokeWidth={3} />
+            </span>
           </button>
           <span className="text-xs text-neutral-300 font-medium truncate max-w-[68px]">
             Your moment
@@ -159,13 +205,7 @@ function HomePage() {
               className="w-16 h-16 rounded-full p-[2px] bg-gradient-to-tr from-pink-500 via-purple-500 to-yellow-500 flex items-center justify-center"
             >
               <div className="w-full h-full rounded-full bg-neutral-900 border-2 border-black overflow-hidden">
-                {s.avatarUrl ? (
-                  <img src={s.avatarUrl} alt={s.displayName} className="h-full w-full object-cover" loading="lazy" />
-                ) : (
-                  <div className="w-full h-full bg-neutral-800 flex items-center justify-center text-sm font-bold text-neutral-300">
-                    {(s.displayName || s.username)?.[0]?.toUpperCase() || "U"}
-                  </div>
-                )}
+                <MomentAvatar username={s.username} src={s.avatarUrl} alt={s.displayName} />
               </div>
             </button>
             <span className="text-xs text-neutral-400 truncate max-w-[68px]">

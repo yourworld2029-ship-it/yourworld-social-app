@@ -1,0 +1,1 @@
+import{t as e}from"./jsx-runtime-NZYk81nU.js";import{r as t}from"./channel-data-CJkbq1jI.js";import{t as n}from"./ChannelContentList-Bq-7_M_V.js";var r=e();function i(){let{videos:e}=t();return(0,r.jsx)(n,{title:`Videos`,items:e,emptyLabel:`No videos published yet.`})}export{i as component};
