@@ -460,7 +460,7 @@ export async function downloadWithWatermark(src: string, username: string, fileN
   document.body.appendChild(a);
   a.click();
   a.remove();
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }
 /** Generic saver for any media (video/audio/photo) — keeps original bytes. */
 export async function downloadMedia(src: string, fileName: string) {
@@ -472,7 +472,7 @@ export async function downloadMedia(src: string, fileName: string) {
   document.body.appendChild(a);
   a.click();
   a.remove();
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }
 
 /** Photo → watermarked jpg, anything else → raw file. */

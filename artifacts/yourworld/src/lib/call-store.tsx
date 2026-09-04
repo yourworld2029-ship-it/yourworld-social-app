@@ -461,6 +461,29 @@ export function CallProvider({ children }: { children: ReactNode }) {
     setElapsedSeconds(0);
   }, []);
 
+  const previousAuthId = useRef<string | null>(null);
+  useEffect(() => {
+    const wasAuthenticated = previousAuthId.current !== null;
+    const authChanged = previousAuthId.current !== authId;
+    previousAuthId.current = authId;
+    if (!wasAuthenticated || !authChanged) return;
+
+    const activeCall = callRef.current;
+    if (activeCall) {
+      void sigRef.current?.send({
+        type: "broadcast",
+        event: "END_CALL",
+        payload: { callId: activeCall.callId, reason: "auth_lost" },
+      });
+      void callDb
+        .from("calls")
+        .update({ status: "ended", ended_at: new Date().toISOString() })
+        .eq("id", activeCall.callId);
+      void logCallOutcomeRef.current?.(connectedAt.current ? "answered" : "missed");
+    }
+    teardown();
+  }, [authId, teardown]);
+
   const signal = useCallback((payload: Record<string, unknown>) => {
     const callId = callRef.current?.callId;
     const event = typeof payload.type === "string" ? payload.type : "signal";
@@ -1099,72 +1122,78 @@ export function CallProvider({ children }: { children: ReactNode }) {
         teardown();
         return;
       }
-      const stream = localStream.current!;
-      const peer = createPeer(stream);
-      const offer = await peer.createOffer({
-        offerToReceiveAudio: true,
-        offerToReceiveVideo: mode === "video",
-      });
-      const optimizedOffer = {
-        ...offer,
-        sdp: optimizeVideoSdp(offer.sdp ?? ""),
-      };
-      await peer.setLocalDescription(optimizedOffer);
-      const offerDescription = peer.localDescription;
-      if (!offerDescription) {
-        toast.error("Call could not start: no offer was created");
-        teardown();
-        return;
-      }
-      const initialSignal: StoredSignal = {
-        offer: offerDescription,
-        caller_candidates: [...pendingLocalIce.current],
-        sender_id: authId,
-        at: new Date().toISOString(),
-      };
-      const { data: inserted, error } = await callDb
-        .from("calls")
-        .insert({
-          caller_id: authId,
-          receiver_id: target,
-          call_type: mode,
-          status: "ringing",
-          signal_data: initialSignal,
-        })
-        .select("id")
-        .single();
-      const callId = (inserted as { id?: string } | null)?.id;
-      if (error || !callId) {
-        toast.error(`Call could not start: ${error?.message ?? "no call id was returned"}`);
-        teardown();
-        return;
-      }
-      const nextCall = { callId, mode, peerId: target, peerName: peerName ?? "Calling…", incoming: false, threadId: threadId ?? null };
-      fallbackSignals.current[callId] = initialSignal;
-      pendingLocalIce.current = [];
-      setCall(nextCall);
-      callRef.current = nextCall;
-      setPhase("outgoing");
-      await openSignalChannel(callId, mode, true);
-      signal({ type: "CALL_OFFER", sdp: offerDescription });
+      let callId: string | null = null;
+      try {
+        const stream = localStream.current!;
+        const peer = createPeer(stream);
+        const offer = await peer.createOffer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: mode === "video",
+        });
+        const optimizedOffer = {
+          ...offer,
+          sdp: optimizeVideoSdp(offer.sdp ?? ""),
+        };
+        await peer.setLocalDescription(optimizedOffer);
+        const offerDescription = peer.localDescription;
+        if (!offerDescription) throw new Error("no offer was created");
+        const initialSignal: StoredSignal = {
+          offer: offerDescription,
+          caller_candidates: [...pendingLocalIce.current],
+          sender_id: authId,
+          at: new Date().toISOString(),
+        };
+        const { data: inserted, error } = await callDb
+          .from("calls")
+          .insert({
+            caller_id: authId,
+            receiver_id: target,
+            call_type: mode,
+            status: "ringing",
+            signal_data: initialSignal,
+          })
+          .select("id")
+          .single();
+        callId = (inserted as { id?: string } | null)?.id ?? null;
+        if (error || !callId) {
+          throw new Error(error?.message ?? "no call id was returned");
+        }
+        const nextCall = { callId, mode, peerId: target, peerName: peerName ?? "Calling…", incoming: false, threadId: threadId ?? null };
+        fallbackSignals.current[callId] = initialSignal;
+        pendingLocalIce.current = [];
+        setCall(nextCall);
+        callRef.current = nextCall;
+        setPhase("outgoing");
+        await openSignalChannel(callId, mode, true);
+        signal({ type: "CALL_OFFER", sdp: offerDescription });
 
-      markSeen(callId);
-      for (const candidate of initialSignal.caller_candidates ?? []) {
-        signal({ type: "ICE_CANDIDATE", candidate });
-      }
+        markSeen(callId);
+        for (const candidate of initialSignal.caller_candidates ?? []) {
+          signal({ type: "ICE_CANDIDATE", candidate });
+        }
 
-      // Stop ringing after 45s instead of hanging on the calling screen.
-      if (ringTimer.current) window.clearTimeout(ringTimer.current);
-      ringTimer.current = window.setTimeout(() => {
-        ringTimer.current = null;
-        if (phaseRef.current !== "outgoing") return;
-        toast.message("No answer");
-        signal({ type: "END_CALL", reason: "timeout" });
-        stopAllRingtones();
-        void callDb.from("calls").update({ status: "cancelled", ended_at: new Date().toISOString() }).eq("id", callId);
-        void logCallOutcome("missed");
+        // Stop ringing after 45s instead of hanging on the calling screen.
+        if (ringTimer.current) window.clearTimeout(ringTimer.current);
+        ringTimer.current = window.setTimeout(() => {
+          ringTimer.current = null;
+          if (phaseRef.current !== "outgoing") return;
+          toast.message("No answer");
+          signal({ type: "END_CALL", reason: "timeout" });
+          stopAllRingtones();
+          void callDb.from("calls").update({ status: "cancelled", ended_at: new Date().toISOString() }).eq("id", callId);
+          void logCallOutcome("missed");
+          teardown();
+        }, 45_000);
+      } catch (error) {
+        if (callId) {
+          void callDb
+            .from("calls")
+            .update({ status: "cancelled", ended_at: new Date().toISOString() })
+            .eq("id", callId);
+        }
+        toast.error(`Call could not start: ${error instanceof Error ? error.message : "unexpected setup error"}`);
         teardown();
-      }, 45_000);
+      }
     },
     [authId, me, getMedia, createPeer, openSignalChannel, signal, teardown, logCallOutcome, markSeen],
 
@@ -1201,16 +1230,29 @@ export function CallProvider({ children }: { children: ReactNode }) {
       teardown();
       return;
     }
-    createPeer(localStream.current!);
-    await openSignalChannel(call.callId, call.mode, false);
-    // The offer is already stored in signal_data. Marking the row accepted
-    // lets the one-second poll know the receiver is ready to answer it.
-    const { error } = await supabase
-      .from("calls")
-      .update({ status: "accepted" } as never)
-      .eq("id", call.callId);
-    if (error) {
-      toast.error(`Call could not connect: ${error.message}`);
+    try {
+      createPeer(localStream.current!);
+      await openSignalChannel(call.callId, call.mode, false);
+      // The offer is already stored in signal_data. Marking the row accepted
+      // lets the one-second poll know the receiver is ready to answer it.
+      const { error } = await supabase
+        .from("calls")
+        .update({ status: "accepted" } as never)
+        .eq("id", call.callId);
+      if (error) throw error;
+      // The caller listens for this broadcast to generate the offer.
+      void sigRef.current?.send({
+        type: "broadcast",
+        event: "CALL_ACCEPT",
+        payload: { type: "CALL_ACCEPT", callId: call.callId },
+      });
+    } catch (error) {
+      toast.error(`Call could not connect: ${error instanceof Error ? error.message : "unexpected setup error"}`);
+      signal({ type: "END_CALL", reason: "failed" });
+      void callDb
+        .from("calls")
+        .update({ status: "ended", ended_at: new Date().toISOString() })
+        .eq("id", call.callId);
       teardown();
     }
   }, [call, authId, getMedia, createPeer, openSignalChannel, signal, teardown]);
