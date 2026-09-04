@@ -1,1 +1,0 @@
-import{t as e}from"./jsx-runtime-NZYk81nU.js";import{r as t}from"./channel-data-B4kj2yHj.js";import{t as n}from"./ChannelContentList-Dq3DU8E5.js";var r=e();function i(){let{posts:e}=t();return(0,r.jsx)(n,{title:`Posts`,items:e,emptyLabel:`No posts published yet.`})}export{i as component};
