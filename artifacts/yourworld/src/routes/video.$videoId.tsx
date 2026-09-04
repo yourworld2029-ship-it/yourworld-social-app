@@ -118,7 +118,7 @@ function MediaViewerPage() {
   const navigate = useNavigate();
   const {
     post: loadedPost,
-    loading,
+    loading: isLoading,
     error: postError,
     currentUserId,
     toggleLike,
@@ -226,11 +226,41 @@ function MediaViewerPage() {
     }
   }, [loadedPost, countView]);
 
-  if (loading && !loadedPost) return <ViewerState label="Loading your media…" />;
-  if (postError || !video) {
-    return <ViewerState label="Video unavailable or deleted" error />;
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        Loading video...
+      </div>
+    );
   }
-  if (mediaError && !src) return <ViewerState label="Video unavailable or deleted" error />;
+  if (postError || !video || !mediaUrl) {
+    return (
+      <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-6 gap-4">
+        <p className="text-lg">Video not found or unavailable.</p>
+        <button
+          type="button"
+          onClick={() => window.history.back()}
+          className="px-4 py-2 bg-pink-600 rounded-lg text-white font-medium"
+        >
+          Go Back
+        </button>
+      </div>
+    );
+  }
+  if (mediaError && !src) {
+    return (
+      <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-6 gap-4">
+        <p className="text-lg">Video not found or unavailable.</p>
+        <button
+          type="button"
+          onClick={() => window.history.back()}
+          className="px-4 py-2 bg-pink-600 rounded-lg text-white font-medium"
+        >
+          Go Back
+        </button>
+      </div>
+    );
+  }
 
   const post = video;
   const isMine = !!postUserId && currentUserId === postUserId;
@@ -366,8 +396,8 @@ function MediaViewerPage() {
       <section className="w-full pb-8">
         <div
           className={cn(
-             "sticky top-0 z-40 flex w-full items-center justify-center bg-black",
-             isLongVideo ? "aspect-video" : "max-h-[75vh]",
+             "sticky top-0 z-40 w-full bg-black",
+             isLongVideo ? "aspect-video flex items-center justify-center" : "max-h-[75vh]",
           )}
           style={!isLongVideo ? { aspectRatio: String(ratio) } : undefined}
         >
@@ -389,7 +419,7 @@ function MediaViewerPage() {
                   key={post.id}
                    ref={videoRef}
                    data-testid="video-viewer-long-video"
-                   src={videoUrl}
+                    src={videoUrl}
                    controls
                   autoPlay
                    playsInline
@@ -765,32 +795,6 @@ function MediaViewerPage() {
         sourceQualityTier={isVideoQualityTier(post.source_quality_tier) ? post.source_quality_tier : null}
         onDownload={downloadSelected}
       />
-    </main>
-  );
-}
-
-function ViewerState({ label, error = false }: { label: string; error?: boolean }) {
-  const navigate = useNavigate();
-  return (
-    <main className="min-h-[100dvh] bg-background">
-      <header className="header-lux flex items-center px-3 py-2.5">
-        <button type="button" data-testid="button-viewer-state-back" onClick={() => void navigate({ to: "/profile" })} aria-label="Back to profile" className="action-btn grid h-9 w-9 place-items-center rounded-full">
-          <ArrowLeft className="h-5 w-5" />
-        </button>
-      </header>
-       <div data-testid={error ? "status-viewer-error" : "status-viewer-loading"} className="grid place-items-center gap-4 px-6 py-28 text-center text-sm text-muted-foreground">
-         <p>{label}</p>
-         {error ? (
-           <button
-             type="button"
-             data-testid="button-viewer-state-back"
-             onClick={() => void navigate({ to: "/profile" })}
-             className="action-btn rounded-full px-4 py-2 font-semibold text-foreground"
-           >
-             {"< Go Back"}
-           </button>
-         ) : null}
-      </div>
     </main>
   );
 }

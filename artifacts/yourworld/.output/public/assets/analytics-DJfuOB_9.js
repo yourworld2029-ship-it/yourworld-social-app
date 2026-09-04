@@ -1,0 +1,1 @@
+function e(e,t){if(!(typeof window>`u`))try{window.umami?.track(e,t)}catch{}}export{e as t};
