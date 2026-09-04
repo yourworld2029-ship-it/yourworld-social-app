@@ -15,6 +15,7 @@ import {
   Clock,
   Download,
   Eye,
+  Maximize2,
   MessageCircle,
   MoreHorizontal,
   Send,
@@ -198,6 +199,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   const { liked, saved, toggleLike, toggleSave } = useYw();
   const queryClient = useQueryClient();
   const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [commentText, setCommentText] = useState("");
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const [disliked, setDisliked] = useState(false);
@@ -510,6 +512,14 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     }
   };
 
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      void containerRef.current?.requestFullscreen?.();
+    } else {
+      void document.exitFullscreen?.();
+    }
+  };
+
   const showGestureFeedback = (
     kind: GestureFeedback["kind"],
     value: number,
@@ -658,7 +668,8 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   return (
     <div className="min-h-screen bg-black pb-20 text-white">
       <div
-        className="sticky top-0 z-40 flex aspect-video max-h-[45vh] w-full items-center justify-center overflow-hidden bg-black shadow-lg sm:max-h-[55vh]"
+        ref={containerRef}
+        className="sticky relative top-0 z-40 flex aspect-video max-h-[45vh] w-full items-center justify-center overflow-hidden bg-black shadow-lg sm:max-h-[55vh]"
         onDoubleClick={handleDoubleTap}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
@@ -670,6 +681,8 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
             ref={videoRef}
             src={mediaUrl}
             controls
+            controlsList="nodownload"
+            disablePictureInPicture={false}
             autoPlay
             playsInline
             className="w-full h-full object-contain"
@@ -752,6 +765,17 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           aria-label={zoom > 1 || displayMode === "fill" ? "Fit video to screen" : "Fill video screen"}
         >
           {zoom > 1 || displayMode === "fill" ? "Fit" : "Fill"}
+        </button>
+
+        <button
+          type="button"
+          onClick={toggleFullscreen}
+          onTouchStart={(event) => event.stopPropagation()}
+          onTouchEnd={(event) => event.stopPropagation()}
+          className="absolute right-16 top-3 z-50 rounded-full bg-black/60 p-2 text-white backdrop-blur-md transition hover:bg-black/80"
+          aria-label="Toggle fullscreen"
+        >
+          <Maximize2 className="h-4 w-4" />
         </button>
 
         <button
