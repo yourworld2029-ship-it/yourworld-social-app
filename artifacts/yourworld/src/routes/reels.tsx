@@ -184,6 +184,8 @@ function ReelMedia({
   mediaRef,
   muted,
   paused = false,
+  onTimeUpdate,
+  onEnded,
 }: {
   url: string;
   type: string;
@@ -192,6 +194,8 @@ function ReelMedia({
   mediaRef: React.MutableRefObject<HTMLElement | null>;
   muted: boolean;
   paused?: boolean;
+  onTimeUpdate?: (event: React.SyntheticEvent<HTMLVideoElement>) => void;
+  onEnded?: (event: React.SyntheticEvent<HTMLVideoElement>) => void;
 }) {
   const [src, setSrc] = useState(url);
   const [asImage, setAsImage] = useState(!type.startsWith("video"));
@@ -259,9 +263,10 @@ function ReelMedia({
       src={src}
       playsInline
       muted={muted}
-      loop
       preload="metadata"
       onError={handleError}
+      onTimeUpdate={onTimeUpdate}
+      onEnded={onEnded}
       className={className}
     />
   );
@@ -299,35 +304,55 @@ function ReelItem({
   const [downloadOpen, setDownloadOpen] = useState(false);
 
   // ---- playback timeline -------------------------------------------------
-  const [progress, setProgress] = useState(0); // 0..1
+  const [progress, setProgress] = useState(0); // 0..100
   const [scrubbing, setScrubbing] = useState(false);
   // Single tap toggles pause/play; press-and-hold keeps it paused.
   const [held, setHeld] = useState(false);
   const [tappedPause, setTappedPause] = useState(false);
   const paused = held || tappedPause;
   const barRef = useRef<HTMLDivElement>(null);
-  const rafRef = useRef<number>(0);
-  const lastTs = useRef(0);
+  const mediaRef = useRef<HTMLElement | null>(null);
+  const seekRaf = useRef<number | null>(null);
+  const pendingSeek = useRef<number | null>(null);
 
-  useEffect(() => {
-    if (!active || scrubbing || paused) return;
-    lastTs.current = performance.now();
-    const tick = (ts: number) => {
-      const dt = (ts - lastTs.current) / 1000;
-      lastTs.current = ts;
-      setProgress((p) => (p + dt / REEL_DURATION) % 1);
-      rafRef.current = requestAnimationFrame(tick);
-    };
-    rafRef.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafRef.current);
-  }, [active, scrubbing, paused]);
+  useEffect(() => () => {
+    if (seekRaf.current !== null) cancelAnimationFrame(seekRaf.current);
+  }, []);
+
+  const handleTimeUpdate = useCallback((event: React.SyntheticEvent<HTMLVideoElement>) => {
+    const video = event.currentTarget;
+    if (video.duration) {
+      const currentProgress = (video.currentTime / video.duration) * 100;
+      setProgress(Math.min(100, Math.max(0, currentProgress)));
+    }
+  }, []);
+
+  const handleEnded = useCallback((event: React.SyntheticEvent<HTMLVideoElement>) => {
+    const video = event.currentTarget;
+    setProgress(0);
+    if (!active) return;
+    video.currentTime = 0;
+    void video.play().catch(() => {});
+  }, [active]);
 
   const seekFromEvent = useCallback((clientX: number) => {
     const el = barRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    setProgress(Math.min(1, Math.max(0, (clientX - r.left) / r.width)));
-  }, []);
+    const nextProgress = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
+    setProgress(nextProgress * 100);
+    pendingSeek.current = nextProgress;
+    if (seekRaf.current !== null) return;
+    seekRaf.current = requestAnimationFrame(() => {
+      seekRaf.current = null;
+      const video = mediaRef.current instanceof HTMLVideoElement ? mediaRef.current : null;
+      const target = pendingSeek.current;
+      pendingSeek.current = null;
+      if (video && target !== null && Number.isFinite(video.duration) && video.duration > 0) {
+        video.currentTime = target * video.duration;
+      }
+    });
+  }, [mediaRef]);
 
   const onBarPointerDown = (e: React.PointerEvent) => {
     e.stopPropagation();
@@ -343,7 +368,6 @@ function ReelItem({
   const endScrub = () => setScrubbing(false);
 
   // ---- pinch to zoom -----------------------------------------------------
-  const mediaRef = useRef<HTMLElement | null>(null);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const pinchStart = useRef({ dist: 0, scale: 1 });
   const transform = useRef({ scale: 1, x: 0, y: 0 });
@@ -513,6 +537,8 @@ function ReelItem({
           mediaRef={mediaRef}
           muted={muted}
           paused={paused}
+          onTimeUpdate={handleTimeUpdate}
+          onEnded={handleEnded}
         />
         <div className="pointer-events-none absolute inset-0 veil" />
         <div
@@ -711,7 +737,7 @@ function ReelItem({
           >
             <div
               className="h-full rounded-full bg-foreground"
-              style={{ width: `${progress * 100}%` }}
+              style={{ width: `${progress}%` }}
             />
           </div>
           <span
@@ -719,7 +745,7 @@ function ReelItem({
               "pointer-events-none absolute top-1/2 -ml-[7px] h-3.5 w-3.5 -translate-y-1/2 rounded-full bg-foreground shadow-lg transition-transform duration-200",
               scrubbing ? "scale-100" : "scale-0",
             )}
-            style={{ left: `${progress * 100}%` }}
+             style={{ left: `${progress}%` }}
           />
         </div>
       </div>

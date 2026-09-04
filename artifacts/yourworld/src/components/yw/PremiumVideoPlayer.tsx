@@ -120,7 +120,7 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
 
   useEffect(() => {
     const v = vidRef.current;
-    if (v) { v.playbackRate = speed; v.volume = volume; v.muted = muted; v.loop = loop; }
+    if (v) { v.playbackRate = speed; v.volume = volume; v.muted = muted; v.loop = false; }
   }, [speed, volume, muted, loop]);
 
   useEffect(() => {
@@ -439,6 +439,22 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
           lastPlaybackTime.current = v.currentTime;
           setTime(v.currentTime);
           if (v.buffered.length) setBuffered(v.buffered.end(v.buffered.length - 1));
+        }}
+        onEnded={(e) => {
+          const v = e.currentTarget;
+          setTime(0);
+          setBuffered(0);
+          lastPlaybackTime.current = 0;
+          if (loop) {
+            v.currentTime = 0;
+            void v.play().catch(() => {
+              setPlaying(false);
+              setShowUI(true);
+            });
+          } else {
+            setPlaying(false);
+            setShowUI(true);
+          }
         }}
       />
 
