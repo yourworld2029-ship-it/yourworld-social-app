@@ -100,6 +100,18 @@ function MediaViewerPage() {
   const [commentCount, setCommentCount] = useState(0);
   const [mediaLoading, setMediaLoading] = useState(false);
   const [mediaError, setMediaError] = useState<string | null>(null);
+  const postUserId = typeof post?.user_id === "string" ? post.user_id.trim() : "";
+  const mediaUrl = typeof post?.media_url === "string" ? post.media_url.trim() : "";
+  const mediaType = typeof post?.media_type === "string" ? post.media_type : "";
+  const postCaption = typeof post?.caption === "string" ? post.caption : "";
+  const creatorUsername = post?.author?.username || "user";
+  const creatorName = post?.author?.name || creatorUsername;
+  const creator = post?.author ?? {
+    id: postUserId || "unknown",
+    username: creatorUsername,
+    name: creatorName,
+    hue: 0,
+  };
 
   useEffect(() => {
     if (!post) return;
@@ -109,8 +121,8 @@ function MediaViewerPage() {
     setMediaLoading(true);
     setMediaError(null);
     void (post.kind === "reel"
-      ? resolveMediaUrl(post.media_url, bucket)
-      : resolveLongVideoUrl(post.media_url)
+      ? resolveMediaUrl(mediaUrl, bucket)
+      : resolveLongVideoUrl(mediaUrl)
     )
       .then((url) => {
         if (!alive) return;
@@ -132,12 +144,12 @@ function MediaViewerPage() {
       (url) => alive && setAvatarSrc(url || null),
     );
     setTitle(post.title ?? "");
-    setCaption(post.caption ?? "");
+    setCaption(postCaption);
     setLocation(post.location ?? "");
     return () => {
       alive = false;
     };
-  }, [post]);
+  }, [mediaUrl, post, postCaption]);
 
   useEffect(() => {
     setCommentCount(comments.length);
@@ -150,12 +162,12 @@ function MediaViewerPage() {
   if (loading && !post) return <ViewerState label="Loading your media…" />;
   if (!post) return <ViewerState label={error ?? "This media is no longer available."} error />;
 
-  const isMine = currentUserId === post.user_id;
+  const isMine = !!postUserId && currentUserId === postUserId;
   const isSaved = !!saved[post.id];
   const isVideo =
     post.kind === "video" ||
     post.kind === "reel" ||
-    (post.media_type ?? "").startsWith("video");
+    mediaType.startsWith("video");
   const ratio = mediaAspect(post);
   const shareUrl =
     typeof window !== "undefined"
@@ -212,7 +224,7 @@ function MediaViewerPage() {
     if (!src) return;
     const toastId = toast.loading("Preparing download…");
     try {
-      const baseName = sanitizeDownloadName(post.caption || post.kind, `yw-${post.id}`);
+      const baseName = sanitizeDownloadName(postCaption || post.kind, `yw-${post.id}`);
       if (choice === "mp3") {
         await downloadAudioOnly(src, baseName);
       } else {
@@ -239,7 +251,7 @@ function MediaViewerPage() {
         <Link
           data-testid="link-viewer-header-creator"
           to="/u/$userId"
-          params={{ userId: post.user_id }}
+          params={{ userId: postUserId }}
           className="flex min-w-0 flex-1 items-center gap-2.5 px-2"
         >
           {avatarSrc ? (
@@ -249,10 +261,10 @@ function MediaViewerPage() {
               className="h-8 w-8 shrink-0 rounded-full object-cover ring-1 ring-primary/40"
             />
           ) : (
-            <YwAvatar user={post.author} size={32} />
+            <YwAvatar user={creator} size={32} />
           )}
           <span className="min-w-0 text-left">
-            <span className="block truncate text-xs font-bold">@{post.author.username}</span>
+            <span className="block truncate text-xs font-bold">@{creatorUsername}</span>
             <span className="block text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
               {post.kind === "reel" ? "Reel" : "Post"}
             </span>
@@ -292,7 +304,7 @@ function MediaViewerPage() {
                 <TrackedVideoPlayer
                   key={post.id}
                   src={src}
-                  title={post.caption || "YourWorld video"}
+                  title={postCaption || "YourWorld video"}
                   poster={post.thumbnail_url}
                   portrait={ratio < 1}
                   autoPlay
@@ -319,7 +331,7 @@ function MediaViewerPage() {
               <img
                 data-testid="img-viewer-post"
                 src={src}
-                alt={post.caption || "YourWorld post"}
+                alt={postCaption || "YourWorld post"}
                 className="h-full w-full object-contain"
               />
             )
@@ -332,9 +344,9 @@ function MediaViewerPage() {
             </div>
           ) : (
             <VideoPoster
-              mediaUrl={post.media_url}
+              mediaUrl={mediaUrl}
               thumbnailUrl={post.thumbnail_url}
-              alt={post.caption || "Loading media"}
+              alt={postCaption || "Loading media"}
               className="h-full w-full object-contain"
             />
           )}
@@ -356,30 +368,30 @@ function MediaViewerPage() {
             <Link
               data-testid="link-viewer-creator-avatar"
               to="/u/$userId"
-              params={{ userId: post.user_id }}
+              params={{ userId: postUserId }}
               className="shrink-0"
-              aria-label={`Open @${post.author.username} profile`}
+              aria-label={`Open @${creatorUsername} profile`}
             >
               {avatarSrc ? (
                 <img
                   src={avatarSrc}
-                  alt={`@${post.author.username} avatar`}
+                    alt={`@${creatorUsername} avatar`}
                   className="h-11 w-11 rounded-full object-cover ring-2 ring-primary/30"
                 />
               ) : (
-                <YwAvatar user={post.author} size={44} />
+                <YwAvatar user={creator} size={44} />
               )}
             </Link>
             <div className="min-w-0 flex-1">
               <Link
                 data-testid="link-viewer-creator"
                 to="/u/$userId"
-                params={{ userId: post.user_id }}
+                params={{ userId: postUserId }}
                 className="block truncate text-sm font-bold"
               >
-                @{post.author.username}
+                @{creatorUsername}
               </Link>
-              <p className="truncate text-xs text-muted-foreground">{post.author.name}</p>
+              <p className="truncate text-xs text-muted-foreground">{creatorName}</p>
             </div>
             <span className="rounded-full bg-secondary px-3 py-1 text-[11px] font-medium text-muted-foreground">
               {formatCount(post.views ?? 0)} views
@@ -414,7 +426,7 @@ function MediaViewerPage() {
               </button>
             </CommentsSheet>
             <ShareSheet
-              title={post.caption}
+              title={postCaption}
               url={shareUrl}
               media={src ?? undefined}
               mediaKind={isVideo ? "video" : "photo"}
@@ -453,9 +465,9 @@ function MediaViewerPage() {
             </button>
           </div>
 
-          {post.caption ? (
+          {postCaption ? (
             <p data-testid="text-viewer-caption" className="mt-4 whitespace-pre-line text-sm leading-relaxed">
-              {post.caption}
+              {postCaption}
             </p>
           ) : null}
           {post.location ? (
@@ -585,7 +597,7 @@ function MediaViewerPage() {
       <DownloadSheet
         open={downloadOpen}
         onOpenChange={setDownloadOpen}
-        title={post.caption || `${post.kind} from @${post.author.username}`}
+        title={postCaption || `${post.kind} from @${creatorUsername}`}
         durationSeconds={post.duration_seconds}
         sourceQualityTier={isVideoQualityTier(post.source_quality_tier) ? post.source_quality_tier : null}
         onDownload={downloadSelected}
