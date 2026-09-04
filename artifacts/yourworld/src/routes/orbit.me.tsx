@@ -7,6 +7,39 @@ import { useOrbit, ORBIT_PHOTO_MAX, type OrbitPhoto } from "@/lib/orbit-store";
 import { moodById } from "@/lib/orbit-mood";
 import { uploadOrbitMedia, isLocalObjectUrl } from "@/lib/orbit-live";
 
+const validateOrbitVideoDuration = (file: File) =>
+  new Promise<boolean>((resolve) => {
+    const video = document.createElement("video");
+    const objectUrl = URL.createObjectURL(file);
+    video.preload = "metadata";
+    video.src = objectUrl;
+
+    const finish = (valid: boolean) => {
+      window.URL.revokeObjectURL(video.src);
+      video.removeAttribute("src");
+      video.load();
+      resolve(valid);
+    };
+
+    video.onloadedmetadata = () => {
+      if (video.duration < 1 || video.duration > 15.5 || !Number.isFinite(video.duration)) {
+        toast.error("Video duration must be between 1 and 15 seconds.", {
+          description: "Please upload a video between 1 and 15 seconds long.",
+        });
+        finish(false);
+        return;
+      }
+      finish(true);
+    };
+
+    video.onerror = () => {
+      toast.error("Video duration must be between 1 and 15 seconds.", {
+        description: "Please upload a video between 1 and 15 seconds long.",
+      });
+      finish(false);
+    };
+  });
+
 export const Route = createFileRoute("/orbit/me")({
   head: () => ({
     meta: [
@@ -66,6 +99,9 @@ function OrbitMyProfile() {
       return;
     }
     const picked = Array.from(files).slice(0, room);
+    if (kind === "video" && !(await validateOrbitVideoDuration(picked[0]))) {
+      return;
+    }
     const toastId = toast.loading(kind === "video" ? "Uploading video…" : "Uploading photo…");
     const next: OrbitPhoto[] = [];
     for (const f of picked) {
