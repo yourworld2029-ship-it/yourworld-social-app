@@ -42,7 +42,6 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { CommentsSheet } from "@/components/yw/CommentsSheet";
 import { ShareSheet } from "@/components/yw/ShareSheet";
-import { TrackedVideoPlayer } from "@/components/yw/TrackedVideoPlayer";
 import { VideoPoster } from "@/components/yw/VideoPoster";
 import { YwAvatar } from "@/components/yw/Avatar";
 import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadSheet";
@@ -53,7 +52,6 @@ import {
 import {
   resolveMediaUrl,
   timeAgo,
-  usePostComments,
   useMediaPost,
 } from "@/lib/social-data";
 import { usePostSaves } from "@/lib/post-actions";
@@ -84,6 +82,28 @@ function cleanMediaReference(value: unknown) {
     : "";
 }
 
+function sanitizeVideoId(value: unknown) {
+  if (typeof value !== "string") return "";
+  let decoded = value;
+  try {
+    decoded = decodeURIComponent(value);
+  } catch {
+    // Keep the raw route value and strip unsafe characters below.
+  }
+  return decoded
+    .trim()
+    .replace(/(?:\)|%29)+$/gi, "")
+    .trim()
+    .replace(/[^a-zA-Z0-9-]/g, "");
+}
+
+type ViewerVideo = NonNullable<ReturnType<typeof useMediaPost>["post"]> & {
+  video_url?: string | null;
+  creator_name?: string | null;
+  user?: { username?: string | null } | null;
+  likes_count?: number | null;
+};
+
 function formatTime(value: number) {
   const totalSeconds = Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
   const minutes = Math.floor(totalSeconds / 60);
@@ -93,20 +113,19 @@ function formatTime(value: number) {
 
 function MediaViewerPage() {
   const params = Route.useParams();
-  const rawVideoId = typeof params.videoId === "string" ? params.videoId : "";
-  const decodedVideoId = (() => {
-    try {
-      return decodeURIComponent(rawVideoId);
-    } catch {
-      return rawVideoId;
-    }
-  })();
-  const cleanId = decodedVideoId.replace(/[^a-zA-Z0-9-]/g, "");
+  const cleanId = sanitizeVideoId(params.videoId);
   const mediaPostId = cleanId || null;
   const navigate = useNavigate();
-  const { post, loading, currentUserId, toggleLike, countView, reload } = useMediaPost(mediaPostId);
+  const {
+    post: loadedPost,
+    loading,
+    error: postError,
+    currentUserId,
+    toggleLike,
+    countView,
+    reload,
+  } = useMediaPost(mediaPostId);
   const { saved, toggleSave } = usePostSaves();
-  const { comments } = usePostComments(mediaPostId);
   const [src, setSrc] = useState<string | null>(null);
   const [avatarSrc, setAvatarSrc] = useState<string | null>(null);
   const [muted, setMuted] = useState(true);
@@ -126,13 +145,21 @@ function MediaViewerPage() {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [progress, setProgress] = useState(0);
-  const postUserId = typeof post?.user_id === "string" ? post.user_id.trim() : "";
-  const mediaUrl = cleanMediaReference(post?.media_url);
-  const mediaType = typeof post?.media_type === "string" ? post.media_type : "";
-  const postCaption = typeof post?.caption === "string" ? post.caption : "";
-  const creatorUsername = post?.author?.username || "user";
-  const creatorName = post?.author?.name || creatorUsername;
-  const creator = post?.author ?? {
+  const video = loadedPost as ViewerVideo | null;
+  const postUserId = typeof video?.user_id === "string" ? video.user_id.trim() : "";
+  const mediaUrl = cleanMediaReference(video?.media_url || video?.video_url);
+  const videoUrl = src ?? "";
+  const mediaType = typeof video?.media_type === "string" ? video.media_type : "";
+  const videoTitle = typeof video?.title === "string" ? video.title : "";
+  const postCaption = typeof video?.caption === "string" ? video.caption : "";
+  const creatorUsername =
+    video?.user?.username ||
+    video?.creator_name ||
+    video?.author?.username ||
+    "user";
+  const creatorName = video?.author?.name || creatorUsername;
+  const likesCount = video?.likes_count || video?.likeCount || 0;
+  const creator = video?.author ?? {
     id: postUserId || "unknown",
     username: creatorUsername,
     name: creatorName,
@@ -140,13 +167,13 @@ function MediaViewerPage() {
   };
 
   useEffect(() => {
-    if (!post) return;
+    if (!loadedPost) return;
     let alive = true;
-    const bucket = post.kind === "reel" ? "reels" : "videos";
+    const bucket = loadedPost.kind === "reel" ? "reels" : "videos";
     setSrc(null);
     setMediaLoading(true);
     setMediaError(null);
-    void (post.kind === "reel"
+    void (loadedPost.kind === "reel"
       ? resolveMediaUrl(mediaUrl, bucket)
       : resolveLongVideoUrl(mediaUrl)
     )
@@ -166,35 +193,46 @@ function MediaViewerPage() {
       .finally(() => {
         if (alive) setMediaLoading(false);
       });
-    void resolveMediaUrl(post.authorAvatarUrl ?? "", "avatars").then(
-      (url) => alive && setAvatarSrc(url || null),
-    );
-    setTitle(post.title ?? "");
+    void resolveMediaUrl(loadedPost.authorAvatarUrl ?? "", "avatars")
+      .then((url) => alive && setAvatarSrc(url || null))
+      .catch((cause) => {
+        if (!alive) return;
+        console.error("Unable to resolve media viewer avatar", cause);
+        setAvatarSrc(null);
+      });
+    setTitle(videoTitle);
     setCaption(postCaption);
-    setLocation(post.location ?? "");
+    setLocation(loadedPost.location ?? "");
     return () => {
       alive = false;
     };
-  }, [mediaUrl, post, postCaption]);
+  }, [loadedPost, mediaUrl, postCaption, videoTitle]);
 
   useEffect(() => {
     setCurrentTime(0);
     setDuration(0);
     setProgress(0);
-  }, [post?.id]);
+  }, [loadedPost?.id]);
 
   useEffect(() => {
-    setCommentCount(comments.length);
-  }, [comments.length]);
+    setCommentCount(loadedPost?.commentCount ?? 0);
+  }, [loadedPost]);
 
   useEffect(() => {
-    if (post) void countView();
-  }, [post, countView]);
+    if (loadedPost) {
+      void countView().catch((cause) => {
+        console.error("Unable to count media viewer view", cause);
+      });
+    }
+  }, [loadedPost, countView]);
 
-  if (loading && !post) return <ViewerState label="Loading your media…" />;
-  if (!post) return <ViewerState label="Video unavailable" error />;
-  if (mediaError && !src) return <ViewerState label="Video unavailable" error />;
+  if (loading && !loadedPost) return <ViewerState label="Loading your media…" />;
+  if (postError || !video) {
+    return <ViewerState label="Video unavailable or deleted" error />;
+  }
+  if (mediaError && !src) return <ViewerState label="Video unavailable or deleted" error />;
 
+  const post = video;
   const isMine = !!postUserId && currentUserId === postUserId;
   const isSaved = !!saved[post.id];
   const isVideo =
@@ -328,8 +366,8 @@ function MediaViewerPage() {
       <section className="w-full pb-8">
         <div
           className={cn(
-            "sticky top-0 z-50 flex w-full items-center justify-center bg-black",
-            isLongVideo ? "aspect-video max-h-[40vh] sm:max-h-[50vh]" : "max-h-[75vh]",
+             "sticky top-0 z-40 flex w-full items-center justify-center bg-black",
+             isLongVideo ? "aspect-video" : "max-h-[75vh]",
           )}
           style={!isLongVideo ? { aspectRatio: String(ratio) } : undefined}
         >
@@ -346,16 +384,37 @@ function MediaViewerPage() {
             </div>
           ) : src ? (
             isVideo ? (
-              post.kind !== "reel" ? (
-                <TrackedVideoPlayer
+               post.kind !== "reel" ? (
+                 <video
                   key={post.id}
-                  src={src}
-                  title={postCaption || "YourWorld video"}
-                  poster={post.thumbnail_url}
-                  portrait={ratio < 1}
+                   ref={videoRef}
+                   data-testid="video-viewer-long-video"
+                   src={videoUrl}
+                   controls
                   autoPlay
-                  watchVideoId={post.id}
-                  watchTimeEnabled={!!currentUserId}
+                   playsInline
+                   className="w-full h-full object-contain"
+                   poster={post.thumbnail_url ?? undefined}
+                   onLoadedMetadata={(event) => {
+                     const videoElement = event.currentTarget;
+                     setDuration(Number.isFinite(videoElement.duration) ? videoElement.duration : 0);
+                     setCurrentTime(Number.isFinite(videoElement.currentTime) ? videoElement.currentTime : 0);
+                   }}
+                   onTimeUpdate={(event) => {
+                     const videoElement = event.currentTarget;
+                     const nextTime = Number.isFinite(videoElement.currentTime)
+                       ? videoElement.currentTime
+                       : 0;
+                     setCurrentTime(nextTime);
+                     if (videoElement.duration && Number.isFinite(videoElement.duration)) {
+                       setDuration(videoElement.duration);
+                       setProgress((nextTime / videoElement.duration) * 100);
+                     }
+                   }}
+                   onError={() => {
+                     setSrc(null);
+                     setMediaError("Video unavailable");
+                   }}
                 />
               ) : (
                 <video
@@ -506,7 +565,7 @@ function MediaViewerPage() {
               className="action-btn flex shrink-0 items-center gap-2 rounded-full bg-secondary px-3.5 py-2 text-xs font-semibold disabled:opacity-60"
             >
               <Heart className={cn("h-[18px] w-[18px]", post.likedByMe && "fill-primary text-primary")} />
-              {formatCount(post.likeCount)}
+             {formatCount(likesCount)}
             </button>
             <CommentsSheet
               postId={post.id}
@@ -563,11 +622,16 @@ function MediaViewerPage() {
             </button>
           </div>
 
-          {postCaption ? (
-            <p data-testid="text-viewer-caption" className="mt-4 whitespace-pre-line text-sm leading-relaxed">
-              {postCaption}
-            </p>
-          ) : null}
+           {videoTitle ? (
+             <h1 data-testid="text-viewer-title" className="mt-4 text-lg font-bold leading-tight">
+               {videoTitle}
+             </h1>
+           ) : null}
+           {postCaption ? (
+             <p data-testid="text-viewer-caption" className="mt-2 whitespace-pre-line text-sm leading-relaxed">
+               {postCaption}
+             </p>
+           ) : null}
           {post.location ? (
             <p data-testid="text-viewer-location" className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
               <MapPin className="h-3.5 w-3.5" />
@@ -714,8 +778,18 @@ function ViewerState({ label, error = false }: { label: string; error?: boolean 
           <ArrowLeft className="h-5 w-5" />
         </button>
       </header>
-      <div data-testid={error ? "status-viewer-error" : "status-viewer-loading"} className="grid place-items-center px-6 py-28 text-center text-sm text-muted-foreground">
-        {label}
+       <div data-testid={error ? "status-viewer-error" : "status-viewer-loading"} className="grid place-items-center gap-4 px-6 py-28 text-center text-sm text-muted-foreground">
+         <p>{label}</p>
+         {error ? (
+           <button
+             type="button"
+             data-testid="button-viewer-state-back"
+             onClick={() => void navigate({ to: "/profile" })}
+             className="action-btn rounded-full px-4 py-2 font-semibold text-foreground"
+           >
+             {"< Go Back"}
+           </button>
+         ) : null}
       </div>
     </main>
   );
