@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type TouchEvent as ReactTouchEvent,
+} from "react";
 import { createFileRoute, useNavigate, useParams } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -13,9 +19,12 @@ import {
   MoreHorizontal,
   Send,
   Share2,
+  Sun,
   ThumbsDown,
   ThumbsUp,
   UserPlus,
+  Volume2,
+  ZoomIn,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
@@ -68,6 +77,23 @@ type VideoComment = {
 type RecommendedVideo = Video & {
   thumbnail_url?: string | null;
   duration_seconds?: number | null;
+};
+
+type GestureFeedback = {
+  kind: "seek" | "volume" | "brightness" | "zoom";
+  value: number;
+  label: string;
+};
+
+type TouchGesture = {
+  startX: number;
+  startY: number;
+  width: number;
+  moved: boolean;
+  initialVolume: number;
+  initialBrightness: number;
+  initialDistance: number | null;
+  initialZoom: number;
 };
 
 const liveCommentsTable = (client: typeof supabase) =>
