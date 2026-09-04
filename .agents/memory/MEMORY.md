@@ -7,3 +7,4 @@
 - [Unique interaction counting](unique-interaction-counting.md) — use one database-enforced key per user/content/type and an atomic insert-before-increment RPC for views.
 - [Video playback and downloads](video-playback-downloads.md) — keep playback metadata-first and let the browser own byte ranges; use the service worker only for streamed background saves.
 - [Quality-specific downloads](quality-downloads.md) — preserve original source downloads, process smaller tiers only when selected, and keep an original fallback for legacy rows.
+- [Audio-preserving compression](audio-preserving-compression.md) — only use a local re-encode when a source audio track is attached; otherwise upload the original.

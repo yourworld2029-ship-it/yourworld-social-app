@@ -105,6 +105,7 @@ function encodeVideo(
     video.src = sourceUrl;
     video.preload = "auto";
     video.muted = true;
+    video.volume = 1;
     video.playsInline = true;
     video.crossOrigin = "anonymous";
 
@@ -119,17 +120,26 @@ function encodeVideo(
     }).captureStream?.();
 
     if (!canvasContext || !captureStream) {
+      captureStream?.getTracks().forEach((track) => track.stop());
       reject(new Error("This browser cannot optimize videos locally."));
+      return;
+    }
+
+    // Never publish a locally re-encoded video without its source audio.
+    // Some browsers expose captured audio tracks only after playback begins,
+    // so the track check and attachment happen immediately before recording.
+    if (!sourceStream) {
+      captureStream.getTracks().forEach((track) => track.stop());
+      video.removeAttribute("src");
+      video.load();
+      reject(new Error("Audio capture is unavailable during optimization."));
       return;
     }
 
     const target = targetBitrates(metadata);
     const audioBitsPerSecond = Math.floor(target.audioBitsPerSecond * bitrateFactor);
     const videoBitsPerSecond = Math.floor(target.videoBitsPerSecond * bitrateFactor);
-    const tracks = [
-      ...captureStream.getVideoTracks(),
-      ...(sourceStream?.getAudioTracks() ?? []),
-    ];
+    const tracks = [...captureStream.getVideoTracks()];
     const output = new MediaStream(tracks);
     let recorder: MediaRecorder;
     try {
@@ -148,6 +158,7 @@ function encodeVideo(
     let raf = 0;
     let settled = false;
     let lastProgress = -1;
+    let hasSourceAudio = false;
     const finish = (error?: Error) => {
       if (settled) return;
       settled = true;
@@ -183,7 +194,13 @@ function encodeVideo(
       if (event.data.size) chunks.push(event.data);
     };
     recorder.onerror = () => finish(new Error("Video optimization failed."));
-    recorder.onstop = () => finish();
+    recorder.onstop = () => {
+      if (!hasSourceAudio) {
+        finish(new Error("Audio track could not be preserved during optimization."));
+        return;
+      }
+      finish();
+    };
     video.onended = () => {
       if (recorder.state !== "inactive") recorder.stop();
     };
@@ -191,6 +208,16 @@ function encodeVideo(
 
     void video.play()
       .then(() => {
+        const sourceAudioTracks = sourceStream.getAudioTracks();
+        if (sourceAudioTracks.length === 0) {
+          finish(new Error("Audio track could not be preserved during optimization."));
+          return;
+        }
+        sourceAudioTracks.forEach((track) => {
+          output.addTrack(track);
+          tracks.push(track);
+        });
+        hasSourceAudio = true;
         recorder.start(1000);
         raf = requestAnimationFrame(draw);
       })

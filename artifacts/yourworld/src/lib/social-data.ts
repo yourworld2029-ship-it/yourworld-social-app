@@ -79,8 +79,10 @@ export const toUser = (p: DbProfile | undefined, id: string): User => ({
 });
 
 export function timeAgo(iso: string) {
-  const s = Math.max(1, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
-  if (s < 60) return `${s}s ago`;
+  const timestamp = new Date(iso).getTime();
+  if (!Number.isFinite(timestamp)) return "Just now";
+  const s = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
+  if (s < 60) return "Just now";
   if (s < 3600) return `${Math.round(s / 60)}m ago`;
   if (s < 86400) return `${Math.round(s / 3600)}h ago`;
   return `${Math.round(s / 86400)}d ago`;

@@ -104,6 +104,7 @@ function ReelsList() {
           : qualityTierFromDimensions(row.original_width, row.original_height);
       })(),
       durationSeconds: p.duration_seconds,
+      createdAt: p.created_at,
     } satisfies Reel,
     author: p.author,
     likedByMe: p.likedByMe,
@@ -157,6 +158,7 @@ function ReelsList() {
               active={i === active}
                audioEnabled={audioEnabled}
                onEnableAudio={() => setAudioEnabled(true)}
+               onDisableAudio={() => setAudioEnabled(false)}
               author={author}
               likedByMe={likedByMe}
               mediaUrl={mediaUrl}
@@ -186,8 +188,6 @@ function ReelMedia({
   active,
   mediaRef,
   muted,
-  audioEnabled,
-  onEnableAudio,
   paused = false,
   onTimeUpdate,
   onEnded,
@@ -198,8 +198,6 @@ function ReelMedia({
   active: boolean;
   mediaRef: React.MutableRefObject<HTMLElement | null>;
   muted: boolean;
-  audioEnabled?: boolean;
-  onEnableAudio?: () => void;
   paused?: boolean;
   onTimeUpdate?: (event: React.SyntheticEvent<HTMLVideoElement>) => void;
   onEnded?: (event: React.SyntheticEvent<HTMLVideoElement>) => void;
@@ -295,6 +293,7 @@ function ReelItem({
   mediaType,
   audioEnabled = false,
   onEnableAudio,
+  onDisableAudio,
   commentsDisabled = false,
   onDbLike,
 }: {
@@ -306,6 +305,7 @@ function ReelItem({
   mediaType?: string;
   audioEnabled?: boolean;
   onEnableAudio?: () => void;
+  onDisableAudio?: () => void;
   commentsDisabled?: boolean;
   onDbLike?: () => void | Promise<unknown>;
 }) {
@@ -339,7 +339,7 @@ function ReelItem({
 
   const handleTimeUpdate = useCallback((event: React.SyntheticEvent<HTMLVideoElement>) => {
     const video = event.currentTarget;
-    if (video.duration) {
+    if (video.duration && !Number.isNaN(video.duration)) {
       const currentProgress = (video.currentTime / video.duration) * 100;
       setProgress(Math.min(100, Math.max(0, currentProgress)));
     }
@@ -491,7 +491,7 @@ function ReelItem({
     if (audioEnabled) {
       const video = mediaRef.current instanceof HTMLVideoElement ? mediaRef.current : null;
       if (video) video.muted = true;
-      onEnableAudio?.();
+      onDisableAudio?.();
       return;
     }
     enableAudio();
@@ -605,7 +605,7 @@ function ReelItem({
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => setMuted((value) => !value)}
+             onClick={toggleAudio}
             className="grid h-8 w-8 place-items-center rounded-full bg-background/40 backdrop-blur"
             aria-label={muted ? "Turn sound on" : "Mute reel"}
           >
@@ -625,7 +625,12 @@ function ReelItem({
             className="flex min-w-0 items-center gap-2.5 transition-opacity active:opacity-70"
           >
             <YwAvatar user={user} size={36} className="ring-2 ring-foreground/30" />
-            <span className="truncate text-sm font-semibold drop-shadow">@{user.username}</span>
+             <span className="min-w-0 truncate text-sm font-semibold drop-shadow">
+               @{user.username}
+               <span className="ml-1.5 font-normal text-foreground/70">
+                 • {reel.createdAt ? timeAgo(reel.createdAt) : "Just now"}
+               </span>
+             </span>
           </Link>
           <button
             onClick={() => toggleFollow(user.id)}
@@ -758,7 +763,7 @@ function ReelItem({
         aria-label="Seek"
         aria-valuemin={0}
         aria-valuemax={100}
-        aria-valuenow={Math.round(progress * 100)}
+             aria-valuenow={Math.round(progress)}
         tabIndex={0}
         onPointerDown={onBarPointerDown}
         onPointerMove={onBarPointerMove}
@@ -775,7 +780,10 @@ function ReelItem({
             )}
           >
             <div
-              className="h-full rounded-full bg-foreground"
+               className={cn(
+                 "h-full rounded-full bg-foreground transition-[width] duration-100 ease-linear",
+                 scrubbing && "transition-none",
+               )}
               style={{ width: `${progress}%` }}
             />
           </div>
