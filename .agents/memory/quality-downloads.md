@@ -9,6 +9,12 @@ Quality-aware downloads should preserve the existing full-file path for the orig
 
 **How to apply:** Keep source quality metadata optional for legacy rows, derive tiers from native dimensions for new uploads, estimate sizes from duration and bitrate, and treat browser export capability as a runtime constraint.
 
+Keep quality/audio labels and selection behavior in the shared download sheet; route-specific code should only resolve the media URL and dispatch the selected choice.
+
+**Why:** Multiple video surfaces use the same browser export helpers, so duplicated sheets can drift in available tiers, source fallbacks, or extension messaging.
+
+**How to apply:** When adding a new download entry point, pass its source tier, duration, title, and download callback into the shared sheet instead of rebuilding the option list.
+
 Upload size must not be coupled to compression success. Resumable TUS should receive the original File when browser metadata, codecs, or device memory make adaptive compression unavailable.
 
 **Why:** A client-side compression ceiling turns large uploads into hard failures and defeats resumable storage; preserving the source keeps multi-gigabyte uploads possible.

@@ -15,6 +15,7 @@ import {
   ChevronDown,
   ChevronUp,
   Clock,
+  Download,
   Eye,
   Heart,
   Lock,
@@ -45,6 +46,14 @@ import { usePostComments } from "@/lib/social-data";
 import { setFollow } from "@/lib/follow-data";
 import { registerUniqueView } from "@/lib/unique-views";
 import { supabase } from "@/integrations/supabase/client";
+import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadSheet";
+import {
+  downloadAudioOnly,
+  downloadVideoAtQuality,
+  downloadVideoInBackground,
+  sanitizeDownloadName,
+} from "@/lib/yw-download";
+import { isVideoQualityTier, qualityTierFromDimensions, type VideoQualityTier } from "@/lib/video-quality";
 
 type VideoUser = {
   id?: string;
@@ -72,7 +81,11 @@ type Video = {
   likes_count?: number | null;
   like_count?: number | null;
   likes?: number | null;
+  source_quality_tier?: string | null;
+  original_width?: number | null;
+  original_height?: number | null;
   user?: VideoUser | null;
+  sourceQualityTier?: VideoQualityTier | null;
 };
 
 type RecommendedVideo = Video & {
@@ -198,6 +211,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   const [commentText, setCommentText] = useState("");
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const [disliked, setDisliked] = useState(false);
+  const [downloadOpen, setDownloadOpen] = useState(false);
   const [likeCount, setLikeCount] = useState(0);
   const [zoom, setZoom] = useState(1);
   const [displayMode, setDisplayMode] = useState<"fit" | "fill">("fit");
@@ -242,7 +256,16 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           }
         }
 
-        return { ...(data as unknown as Video), user: profile };
+        const metadata = data as unknown as {
+          source_quality_tier?: string | null;
+          original_width?: number | null;
+          original_height?: number | null;
+        };
+        const sourceQualityTier = isVideoQualityTier(metadata.source_quality_tier)
+          ? metadata.source_quality_tier
+          : qualityTierFromDimensions(metadata.original_width, metadata.original_height);
+
+        return { ...(data as unknown as Video), sourceQualityTier, user: profile };
       } catch (cause) {
         console.error("Error fetching video:", cause);
         return null;
@@ -801,6 +824,35 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
       ? user.user_metadata.avatar_url
       : undefined;
   const description = video.caption || "No description provided.";
+  const sourceQualityTier = video.sourceQualityTier ??
+    (isVideoQualityTier(video.source_quality_tier)
+      ? video.source_quality_tier
+      : qualityTierFromDimensions(video.original_width, video.original_height));
+
+  const downloadSelected = async (choice: DownloadChoice) => {
+    if (!mediaUrl) throw new Error("This video has no downloadable media");
+    const toastId = toast.loading("Preparing download... 0%");
+    const baseName = sanitizeDownloadName(video.title || "yourworld-video", `yourworld-${videoId}`);
+    try {
+      if (choice === "mp3") {
+        await downloadAudioOnly(mediaUrl, baseName, (percent) =>
+          toast.loading(`Preparing MP3 audio... ${percent}%`, { id: toastId }),
+        );
+      } else if (choice === "original" || choice === sourceQualityTier) {
+        await downloadVideoInBackground(mediaUrl, `${baseName}.mp4`, (percent) =>
+          toast.loading(`Downloading original video... ${percent}%`, { id: toastId }),
+        );
+      } else {
+        await downloadVideoAtQuality(mediaUrl, baseName, choice, (percent) =>
+          toast.loading(`Creating ${choice} video... ${percent}%`, { id: toastId }),
+        );
+      }
+      toast.success("Download started", { id: toastId });
+    } catch (cause) {
+      console.error("Video download failed:", cause);
+      toast.error("Couldn't prepare this download", { id: toastId });
+    }
+  };
 
   return (
     <div className="min-h-screen bg-black pb-20 text-white">
@@ -997,11 +1049,11 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
         </div>
 
         <div className="flex items-center gap-2 overflow-x-auto py-2 flex-nowrap whitespace-nowrap no-scrollbar">
-          <div className="flex shrink-0 items-center gap-2 rounded-full bg-white/10 px-3 py-1.5">
+          <div className="flex shrink-0 items-center gap-2 rounded-full border border-white/10 bg-white/10 px-4 py-2 text-xs font-semibold text-white shadow-sm backdrop-blur-md transition-all">
             <button
               type="button"
               onClick={handleLike}
-              className={`flex items-center gap-1.5 text-xs font-semibold transition ${
+               className={`flex items-center gap-1.5 text-xs font-semibold transition-all ${
                 liked[videoId] ? "text-pink-300" : "text-white"
               }`}
             >
@@ -1013,7 +1065,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
               type="button"
               onClick={handleDislike}
               aria-label="Dislike video"
-              className={`flex items-center text-xs ${
+               className={`flex items-center text-xs transition-all ${
                 disliked ? "text-pink-300" : "text-white"
               }`}
             >
@@ -1024,10 +1076,18 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
             type="button"
             onClick={() => void handleShare()}
             variant="outline"
-            className="shrink-0 rounded-full border-white/10 bg-white/10 px-4 text-xs text-white hover:bg-white/15"
+             className="shrink-0 rounded-full border border-white/10 bg-white/10 px-4 py-2 text-xs font-semibold text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20"
           >
             <Share2 className="mr-1.5 h-4 w-4" /> Share
           </Button>
+           <Button
+             type="button"
+             onClick={() => setDownloadOpen(true)}
+             variant="outline"
+             className="shrink-0 rounded-full border border-white/10 bg-white/10 px-4 py-2 text-xs font-semibold text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20"
+           >
+             <Download className="mr-1.5 h-4 w-4" /> Download
+           </Button>
           <Button
             type="button"
             onClick={() => {
@@ -1039,7 +1099,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
               toast.success(saved[videoId] ? "Removed from saved" : "Saved to your library");
             }}
             variant="outline"
-            className={`shrink-0 rounded-full border-white/10 bg-white/10 px-4 text-xs text-white hover:bg-white/15 ${
+             className={`shrink-0 rounded-full border border-white/10 bg-white/10 px-4 py-2 text-xs font-semibold text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20 ${
               saved[videoId] ? "text-pink-300" : ""
             }`}
           >
@@ -1047,6 +1107,15 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
             {saved[videoId] ? "Saved" : "Save"}
           </Button>
         </div>
+
+         <DownloadSheet
+           open={downloadOpen}
+           onOpenChange={setDownloadOpen}
+           title={video.title || video.caption || "YourWorld video"}
+           durationSeconds={video.duration_seconds}
+           sourceQualityTier={sourceQualityTier}
+           onDownload={downloadSelected}
+         />
 
         <div className="rounded-xl bg-white/5 p-3">
           <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-gray-400">
