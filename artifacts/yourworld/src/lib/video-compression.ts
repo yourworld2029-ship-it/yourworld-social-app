@@ -104,7 +104,10 @@ function encodeVideo(
     const video = document.createElement("video");
     video.src = sourceUrl;
     video.preload = "auto";
-    video.muted = true;
+    // Keep the source element audible so captureStream exposes the original
+    // audio instead of producing a silent optimized file.
+    video.muted = false;
+    video.defaultMuted = false;
     video.volume = 1;
     video.playsInline = true;
     video.crossOrigin = "anonymous";
@@ -139,26 +142,12 @@ function encodeVideo(
     const target = targetBitrates(metadata);
     const audioBitsPerSecond = Math.floor(target.audioBitsPerSecond * bitrateFactor);
     const videoBitsPerSecond = Math.floor(target.videoBitsPerSecond * bitrateFactor);
-    const tracks = [...captureStream.getVideoTracks()];
-    const output = new MediaStream(tracks);
-    let recorder: MediaRecorder;
-    try {
-      recorder = new MediaRecorder(output, {
-        mimeType,
-        videoBitsPerSecond: Math.max(48_000, videoBitsPerSecond),
-        audioBitsPerSecond,
-      });
-    } catch {
-      tracks.forEach((track) => track.stop());
-      reject(new Error("This browser cannot encode an optimized video."));
-      return;
-    }
-
+    let tracks: MediaStreamTrack[] = [];
+    let recorder: MediaRecorder | null = null;
     const chunks: Blob[] = [];
     let raf = 0;
     let settled = false;
     let lastProgress = -1;
-    let hasSourceAudio = false;
     const finish = (error?: Error) => {
       if (settled) return;
       settled = true;
@@ -190,20 +179,6 @@ function encodeVideo(
       raf = requestAnimationFrame(draw);
     };
 
-    recorder.ondataavailable = (event) => {
-      if (event.data.size) chunks.push(event.data);
-    };
-    recorder.onerror = () => finish(new Error("Video optimization failed."));
-    recorder.onstop = () => {
-      if (!hasSourceAudio) {
-        finish(new Error("Audio track could not be preserved during optimization."));
-        return;
-      }
-      finish();
-    };
-    video.onended = () => {
-      if (recorder.state !== "inactive") recorder.stop();
-    };
     video.onerror = () => finish(new Error("Video playback failed during optimization."));
 
     void video.play()
@@ -213,11 +188,32 @@ function encodeVideo(
           finish(new Error("Audio track could not be preserved during optimization."));
           return;
         }
-        sourceAudioTracks.forEach((track) => {
-          output.addTrack(track);
-          tracks.push(track);
-        });
-        hasSourceAudio = true;
+        // MediaRecorder snapshots the stream tracks at construction time.
+        // Attach the source audio before constructing the recorder so the
+        // optimized result cannot silently become video-only.
+        const output = new MediaStream([
+          ...captureStream.getVideoTracks(),
+          ...sourceAudioTracks,
+        ]);
+        tracks = output.getTracks();
+        try {
+          recorder = new MediaRecorder(output, {
+            mimeType,
+            videoBitsPerSecond: Math.max(48_000, videoBitsPerSecond),
+            audioBitsPerSecond,
+          });
+        } catch {
+          finish(new Error("This browser cannot encode an optimized video."));
+          return;
+        }
+        recorder.ondataavailable = (event) => {
+          if (event.data.size) chunks.push(event.data);
+        };
+        recorder.onerror = () => finish(new Error("Video optimization failed."));
+        recorder.onstop = () => finish();
+        video.onended = () => {
+          if (recorder?.state !== "inactive") recorder?.stop();
+        };
         recorder.start(1000);
         raf = requestAnimationFrame(draw);
       })

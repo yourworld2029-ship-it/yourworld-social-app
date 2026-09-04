@@ -73,7 +73,6 @@ function ReelsPage() {
 function ReelsList() {
   const { reelId } = Route.useSearch();
   const [active, setActive] = useState(0);
-  const [audioEnabled, setAudioEnabled] = useState(false);
   const nodes = useRef<(HTMLElement | null)[]>([]);
   const {
     posts: dbReels,
@@ -196,9 +195,6 @@ function ReelsList() {
             <ReelItem
               reel={reel}
               active={i === active}
-               audioEnabled={audioEnabled}
-               onEnableAudio={() => setAudioEnabled(true)}
-               onDisableAudio={() => setAudioEnabled(false)}
               author={author}
               likedByMe={likedByMe}
               mediaUrl={mediaUrl}
@@ -234,22 +230,24 @@ function ReelMedia({
   alt,
   active,
   mediaRef,
-  muted,
   paused = false,
   onLoadedMetadata,
   onTimeUpdate,
   onEnded,
+  onSoundBlocked,
+  onSoundReady,
 }: {
   url: string;
   type: string;
   alt: string;
   active: boolean;
   mediaRef: React.MutableRefObject<HTMLElement | null>;
-  muted: boolean;
   paused?: boolean;
   onLoadedMetadata?: (event: React.SyntheticEvent<HTMLVideoElement>) => void;
   onTimeUpdate?: (event: React.SyntheticEvent<HTMLVideoElement>) => void;
   onEnded?: (event: React.SyntheticEvent<HTMLVideoElement>) => void;
+  onSoundBlocked?: () => void;
+  onSoundReady?: () => void;
 }) {
   const [src, setSrc] = useState(url);
   const [asImage, setAsImage] = useState(!type.startsWith("video"));
@@ -279,19 +277,33 @@ function ReelMedia({
   }, [src, url]);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  useEffect(() => {
-    const v = videoRef.current;
-    if (!v || asImage) return;
-    v.muted = muted;
-    v.volume = 1;
-  }, [active, asImage, muted, src]);
+  const forceSound = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.muted = false;
+    video.defaultMuted = false;
+    video.volume = 1;
+  }, []);
 
   useEffect(() => {
     const v = videoRef.current;
     if (!v || asImage) return;
-    if (active && !paused) void v.play().catch(() => {});
-    else v.pause();
-  }, [active, asImage, src, paused]);
+    forceSound();
+    v.volume = 1;
+  }, [asImage, forceSound, src]);
+
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v || asImage) return;
+    if (active && !paused) {
+      forceSound();
+      void v.play()
+        .then(() => onSoundReady?.())
+        .catch(() => onSoundBlocked?.());
+    } else {
+      v.pause();
+    }
+  }, [active, asImage, forceSound, onSoundBlocked, onSoundReady, paused, src]);
 
   const className = cn(
     "h-full w-full object-cover will-change-transform [backface-visibility:hidden]",
@@ -323,9 +335,12 @@ function ReelMedia({
       }}
       src={src}
       playsInline
-      muted={muted}
       preload="metadata"
       onError={handleError}
+      onPlay={() => {
+        forceSound();
+        onSoundReady?.();
+      }}
       onLoadedMetadata={onLoadedMetadata}
       onTimeUpdate={onTimeUpdate}
       onEnded={onEnded}
@@ -341,9 +356,6 @@ function ReelItem({
   likedByMe,
   mediaUrl,
   mediaType,
-  audioEnabled = false,
-  onEnableAudio,
-  onDisableAudio,
   commentsDisabled = false,
   onDbLike,
 }: {
@@ -353,9 +365,6 @@ function ReelItem({
   likedByMe?: boolean;
   mediaUrl?: string;
   mediaType?: string;
-  audioEnabled?: boolean;
-  onEnableAudio?: () => void;
-  onDisableAudio?: () => void;
   commentsDisabled?: boolean;
   onDbLike?: () => void | Promise<unknown>;
 }) {
@@ -364,7 +373,8 @@ function ReelItem({
   const { burst, onDoubleTap } = useDoubleTapLike(reel.id);
   const [expanded, setExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const muted = !audioEnabled;
+  const [muted, setMuted] = useState(false);
+  const [soundBlocked, setSoundBlocked] = useState(false);
   const lastTap = useRef(0);
   const isLiked = !!likedByMe;
   const isSaved = !!saved[reel.id];
@@ -411,7 +421,12 @@ function ReelItem({
     setProgress(0);
     if (!active) return;
     video.currentTime = 0;
-    void video.play().catch(() => {});
+    video.muted = false;
+    video.defaultMuted = false;
+    video.volume = 1;
+    void video.play()
+      .then(() => setSoundBlocked(false))
+      .catch(() => setSoundBlocked(true));
   }, [active]);
 
   const seekFromEvent = useCallback((clientX: number) => {
@@ -528,7 +543,10 @@ function ReelItem({
   useEffect(() => () => cancelHold(), []);
 
   const handleTap = () => {
-    if (!audioEnabled) enableAudio();
+    if (soundBlocked) {
+      enableAudio();
+      return;
+    }
     const now = Date.now();
     if (now - lastTap.current < 300) {
       onDoubleTap();
@@ -541,23 +559,37 @@ function ReelItem({
   };
 
   const enableAudio = useCallback(() => {
-    onEnableAudio?.();
     const video = mediaRef.current instanceof HTMLVideoElement ? mediaRef.current : null;
     if (!video) return;
     video.muted = false;
+    video.defaultMuted = false;
     video.volume = 1;
-  }, [mediaRef, onEnableAudio]);
+    setMuted(false);
+    setSoundBlocked(false);
+    if (active && !paused) void video.play().catch(() => setSoundBlocked(true));
+  }, [active, mediaRef, paused]);
 
   const toggleAudio = () => {
-    if (audioEnabled) {
-      const video = mediaRef.current instanceof HTMLVideoElement ? mediaRef.current : null;
+    const video = mediaRef.current instanceof HTMLVideoElement ? mediaRef.current : null;
+    if (!muted) {
       if (video) video.muted = true;
-      onDisableAudio?.();
+      setMuted(true);
       return;
     }
     enableAudio();
-    const video = mediaRef.current instanceof HTMLVideoElement ? mediaRef.current : null;
-    if (video && active && !paused) void video.play().catch(() => {});
+  };
+
+  const handleSoundBlocked = useCallback(() => {
+    setSoundBlocked(true);
+  }, []);
+
+  const handleSoundReady = useCallback(() => {
+    setSoundBlocked(false);
+  }, []);
+
+  const handleTapForSound = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    enableAudio();
   };
 
   const handleDownload = async (choice?: DownloadChoice) => {
@@ -635,12 +667,22 @@ function ReelItem({
           alt={reel.caption}
           active={active}
           mediaRef={mediaRef}
-          muted={muted}
           paused={paused}
           onLoadedMetadata={handleLoadedMetadata}
           onTimeUpdate={handleTimeUpdate}
           onEnded={handleEnded}
+          onSoundBlocked={handleSoundBlocked}
+          onSoundReady={handleSoundReady}
         />
+        {soundBlocked && active ? (
+          <button
+            type="button"
+            onClick={handleTapForSound}
+            className="pointer-events-auto absolute left-1/2 top-1/2 z-20 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/75 px-4 py-2.5 text-xs font-semibold text-white shadow-xl backdrop-blur-md"
+          >
+            Tap anywhere for sound
+          </button>
+        ) : null}
         <div className="pointer-events-none absolute inset-0 veil" />
         <div
           className={cn(

@@ -287,15 +287,20 @@ export function CameraCapture({ onClose, onCapture, onPick, onDrafts, allowedMod
   const startRecording = () => {
     const stream = streamRef.current;
     if (!stream) return;
+    if (mode === "REEL" && stream.getAudioTracks().length === 0) {
+      toast.error("Microphone audio is required to record a reel.");
+      return;
+    }
     // Hardware-encoder friendly order: H.264/HEVC (native encoders) first,
     // then VP9/VP8. Bitrate scales with the negotiated resolution + fps.
     const types = [
+      "video/mp4;codecs=avc1,mp4a.40.2",
       "video/mp4;codecs=h264,aac",
-      "video/mp4;codecs=avc1.640029",
+      "video/mp4;codecs=avc1.640029,mp4a.40.2",
       "video/mp4",
-      "video/webm;codecs=h264,opus",
-      "video/webm;codecs=vp9,opus",
       "video/webm;codecs=vp8,opus",
+      "video/webm;codecs=vp9,opus",
+      "video/webm;codecs=h264,opus",
       "video/webm",
     ];
     const mimeType = types.find((t) => MediaRecorder.isTypeSupported(t));

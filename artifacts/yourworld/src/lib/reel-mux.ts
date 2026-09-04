@@ -90,13 +90,18 @@ export async function renderReelWithMusic(opts: MuxOptions): Promise<string | nu
   video.src = videoUrl;
   video.crossOrigin = "anonymous";
   video.playsInline = true;
-  video.muted = true;
+  video.muted = false;
+  video.defaultMuted = false;
+  video.volume = 1;
   video.preload = "auto";
 
   const audio = music ? new Audio() : null;
   if (audio && music) {
     audio.src = music.url;
     audio.crossOrigin = "anonymous";
+    audio.muted = false;
+    audio.defaultMuted = false;
+    audio.volume = 1;
     audio.preload = "auto";
   }
 
@@ -161,11 +166,13 @@ export async function renderReelWithMusic(opts: MuxOptions): Promise<string | nu
     const dest = actx.createMediaStreamDestination();
 
     // clip's own audio
+    let sourceAudioConnected = false;
     try {
       const vSrc = actx.createMediaElementSource(video);
       const vGain = actx.createGain();
       vGain.gain.value = 0.85;
       vSrc.connect(vGain).connect(dest);
+      sourceAudioConnected = true;
     } catch { /* video may have no audio track */ }
 
     // music
@@ -181,6 +188,9 @@ export async function renderReelWithMusic(opts: MuxOptions): Promise<string | nu
       ...canvas.captureStream(fps).getVideoTracks(),
       ...dest.stream.getAudioTracks(),
     ]);
+    if (!sourceAudioConnected && !music) {
+      throw new Error("The source video has no audio track to preserve.");
+    }
 
     const mime = pickMime();
     recorder = new MediaRecorder(
@@ -221,8 +231,8 @@ export async function renderReelWithMusic(opts: MuxOptions): Promise<string | nu
       if ("webkitPreservesPitch" in audioWithPitch) audioWithPitch.webkitPreservesPitch = true;
     }
     await actx.resume().catch(() => {});
-    recorder.start(200);
     await video.play();
+    recorder.start(200);
 
     // music scheduling relative to the clip window
     const musicSpan = music ? Math.max(0.2, music.clipEnd - music.clipStart) : 0;
