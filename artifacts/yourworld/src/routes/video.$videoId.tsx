@@ -39,6 +39,11 @@ type VideoComment = {
   user?: VideoUser | null;
 };
 
+const liveCommentsTable = (client: typeof supabase) =>
+  (client as unknown as {
+    from: (name: "comments") => ReturnType<typeof supabase.from>;
+  }).from("comments");
+
 export const Route = createFileRoute("/video/$videoId")({
   component: VideoWatchPage,
   errorComponent: () => <VideoErrorFallback />,
@@ -149,8 +154,7 @@ export default function VideoWatchPage() {
     queryFn: async () => {
       if (!cleanId) return [];
       try {
-        const { data, error } = await supabase
-          .from("comments")
+        const { data, error } = await liveCommentsTable(supabase)
           .select("*")
           .eq("post_id", cleanId)
           .order("created_at", { ascending: false });
@@ -174,8 +178,7 @@ export default function VideoWatchPage() {
       const content = text.trim();
       if (!content || !cleanId) throw new Error("Comment cannot be empty");
 
-      const { data, error } = await supabase
-        .from("comments")
+      const { data, error } = await liveCommentsTable(supabase)
         .insert({
           post_id: cleanId,
           user_id: user.id,
