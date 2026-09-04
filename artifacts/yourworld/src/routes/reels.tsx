@@ -21,7 +21,7 @@ import { YwAvatar } from "@/components/yw/Avatar";
 import { ShareSheet } from "@/components/yw/ShareSheet";
 import { CommentsSheet } from "@/components/yw/CommentsSheet";
 import { formatCount, type Reel, type User } from "@/lib/yw-data";
-import { getLocalMedia, resolveMediaUrl, useSocialPosts } from "@/lib/social-data";
+import { getLocalMedia, resolveMediaUrl, timeAgo, useSocialPosts } from "@/lib/social-data";
 import { useDoubleTapLike, useYw } from "@/lib/yw-store";
 import {
   downloadVideoInBackground,
@@ -68,6 +68,7 @@ function ReelsPage() {
 
 function ReelsList() {
   const [active, setActive] = useState(0);
+  const [audioEnabled, setAudioEnabled] = useState(false);
   const nodes = useRef<(HTMLElement | null)[]>([]);
   const {
     posts: dbReels,
@@ -154,6 +155,8 @@ function ReelsList() {
             <ReelItem
               reel={reel}
               active={i === active}
+               audioEnabled={audioEnabled}
+               onEnableAudio={() => setAudioEnabled(true)}
               author={author}
               likedByMe={likedByMe}
               mediaUrl={mediaUrl}
@@ -183,6 +186,8 @@ function ReelMedia({
   active,
   mediaRef,
   muted,
+  audioEnabled,
+  onEnableAudio,
   paused = false,
   onTimeUpdate,
   onEnded,
@@ -193,6 +198,8 @@ function ReelMedia({
   active: boolean;
   mediaRef: React.MutableRefObject<HTMLElement | null>;
   muted: boolean;
+  audioEnabled?: boolean;
+  onEnableAudio?: () => void;
   paused?: boolean;
   onTimeUpdate?: (event: React.SyntheticEvent<HTMLVideoElement>) => void;
   onEnded?: (event: React.SyntheticEvent<HTMLVideoElement>) => void;
@@ -225,6 +232,13 @@ function ReelMedia({
   }, [src, url]);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v || asImage) return;
+    v.muted = muted;
+    if (!muted) v.volume = 1;
+  }, [asImage, muted, src]);
+
   useEffect(() => {
     const v = videoRef.current;
     if (!v || asImage) return;
@@ -279,6 +293,8 @@ function ReelItem({
   likedByMe,
   mediaUrl,
   mediaType,
+  audioEnabled = false,
+  onEnableAudio,
   commentsDisabled = false,
   onDbLike,
 }: {
@@ -288,6 +304,8 @@ function ReelItem({
   likedByMe?: boolean;
   mediaUrl?: string;
   mediaType?: string;
+  audioEnabled?: boolean;
+  onEnableAudio?: () => void;
   commentsDisabled?: boolean;
   onDbLike?: () => void | Promise<unknown>;
 }) {
@@ -296,7 +314,7 @@ function ReelItem({
   const { burst, onDoubleTap } = useDoubleTapLike(reel.id);
   const [expanded, setExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [muted, setMuted] = useState(false);
+  const muted = !audioEnabled;
   const lastTap = useRef(0);
   const isLiked = !!likedByMe;
   const isSaved = !!saved[reel.id];
@@ -449,6 +467,7 @@ function ReelItem({
   useEffect(() => () => cancelHold(), []);
 
   const handleTap = () => {
+    enableAudio();
     const now = Date.now();
     if (now - lastTap.current < 300) {
       onDoubleTap();
@@ -458,6 +477,26 @@ function ReelItem({
     lastTap.current = now;
     // single tap toggles pause/play
     setTappedPause((v) => !v);
+  };
+
+  const enableAudio = useCallback(() => {
+    onEnableAudio?.();
+    const video = mediaRef.current instanceof HTMLVideoElement ? mediaRef.current : null;
+    if (!video) return;
+    video.muted = false;
+    video.volume = 1;
+  }, [mediaRef, onEnableAudio]);
+
+  const toggleAudio = () => {
+    if (audioEnabled) {
+      const video = mediaRef.current instanceof HTMLVideoElement ? mediaRef.current : null;
+      if (video) video.muted = true;
+      onEnableAudio?.();
+      return;
+    }
+    enableAudio();
+    const video = mediaRef.current instanceof HTMLVideoElement ? mediaRef.current : null;
+    if (video && active && !paused) void video.play().catch(() => {});
   };
 
   const handleDownload = async (choice?: DownloadChoice) => {

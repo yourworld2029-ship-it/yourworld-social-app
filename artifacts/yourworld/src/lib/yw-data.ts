@@ -140,6 +140,7 @@ export type Reel = {
   originalHeight?: number | null;
   sourceQualityTier?: import("@/lib/video-quality").VideoQualityTier | null;
   durationSeconds?: number | null;
+  createdAt?: string;
 };
 
 export const reels: Reel[] = [
