@@ -103,6 +103,7 @@ function MomentViewRoute() {
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const heldRef = useRef(false);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
+  const deleteInFlightRef = useRef(false);
 
   const current = items[index] ?? selected ?? null;
 
@@ -706,10 +707,17 @@ function MomentViewRoute() {
               <button
                 type="button"
                 aria-label="Delete moment"
-                onClick={() => {
-                  deleteMoment(current.id);
+                onClick={async () => {
+                  if (deleteInFlightRef.current) return;
+                  deleteInFlightRef.current = true;
+                  const result = await deleteMoment(current.id);
+                  if (result.error) {
+                    deleteInFlightRef.current = false;
+                    toast.error(result.error);
+                    return;
+                  }
                   toast.success("Moment deleted successfully");
-                  navigate({ to: "/", replace: true });
+                  await navigate({ to: "/", replace: true });
                 }}
                 className="rounded-full border border-white/20 bg-black/50 p-2.5 text-white backdrop-blur-md active:scale-90"
               >

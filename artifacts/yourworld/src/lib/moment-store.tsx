@@ -121,7 +121,7 @@ type Store = {
   archive: MyMoment[];
   loading: boolean;
   addMoment: (m: NewMoment) => Promise<{ error: string | null }>;
-  deleteMoment: (id: string) => void;
+  deleteMoment: (id: string) => Promise<{ error: string | null }>;
   archiveMoment: (id: string) => void;
   restoreMoment: (id: string) => void;
   addReply: (id: string, text: string) => Promise<{ error: string | null }>;
@@ -386,6 +386,34 @@ async function signMomentMedia(list: MyMoment[]) {
   }));
 }
 
+function storagePathFromMomentValue(value: unknown) {
+  if (typeof value !== "string" || !value || /^(blob:|data:)/.test(value)) return null;
+  if (!/^https?:\/\//.test(value)) return value;
+  try {
+    const pathname = decodeURIComponent(new URL(value).pathname);
+    const marker = "/storage/v1/object/";
+    const markerIndex = pathname.indexOf(marker);
+    if (markerIndex < 0) return null;
+    const segments = pathname.slice(markerIndex + marker.length).split("/");
+    const bucketIndex = segments.indexOf(STORAGE_BUCKETS.moments);
+    return bucketIndex >= 0 ? segments.slice(bucketIndex + 1).join("/") || null : null;
+  } catch {
+    return null;
+  }
+}
+
+async function deleteMomentRows(table: string, filters: [string, string][]) {
+  try {
+    let query = momentDb.from(table).delete();
+    for (const [column, value] of filters) query = query.eq(column, value);
+    const result = await query;
+    if (!result.error || missingTable(result.error, table)) return null;
+    return result.error.message ?? `Couldn't remove ${table}`;
+  } catch (cause) {
+    return cause instanceof Error ? cause.message : `Couldn't remove ${table}`;
+  }
+}
+
 
 export function MomentProvider({ children }: { children: ReactNode }) {
   const [moments, setMoments] = useState<MyMoment[]>([]);
@@ -393,6 +421,7 @@ export function MomentProvider({ children }: { children: ReactNode }) {
   const [now, setNow] = useState(() => Date.now());
   const uidRef = useRef<string | null>(null);
   const archivingRef = useRef(new Set<string>());
+  const deletedMomentIdsRef = useRef(new Set<string>());
 
   const load = useCallback(async () => {
     const { data: auth, error: authError } = await supabase.auth.getUser();
@@ -576,7 +605,12 @@ export function MomentProvider({ children }: { children: ReactNode }) {
       ),
     );
 
-    setMoments(await signMomentMedia(mapped));
+    const signedMoments = await signMomentMedia(
+      mapped.filter((moment) => !deletedMomentIdsRef.current.has(moment.id)),
+    );
+    setMoments(
+      signedMoments.filter((moment) => !deletedMomentIdsRef.current.has(moment.id)),
+    );
     setLoading(false);
   }, []);
 
@@ -797,35 +831,105 @@ export function MomentProvider({ children }: { children: ReactNode }) {
           return { error: message };
         });
       },
-      deleteMoment: (id) => {
+      deleteMoment: async (id) => {
         // Optimistic removal — instantly drops from feed bar, lists, viewer queue & archive
+        deletedMomentIdsRef.current.add(id);
         setMoments((p) => p.filter((m) => m.id !== id));
-        void (async () => {
-          // Remove child rows first so the delete never fails on FK constraints
-          const repliesResult = await supabase
-            .from("moment_replies")
-            .delete()
-            .eq("moment_id", id);
-          const viewsResult = await supabase
-            .from("moment_views")
-            .delete()
-            .eq("moment_id", id);
-          const childError = repliesResult.error ?? viewsResult.error;
-          if (childError) {
-            console.error("Failed to remove moment activity", childError);
-            toast.error("Couldn't delete this moment.");
+        try {
+          const { data: auth, error: authError } = await supabase.auth.getUser();
+          const uid = auth.user?.id ?? null;
+          if (authError || !uid) throw new Error("Sign in to delete this moment.");
+
+          const momentResult = await momentDb.from("moments").select("*").eq("id", id);
+          let row = (momentResult.data?.[0] ?? null) as Record<string, unknown> | null;
+          let usesPostsFallback = false;
+          if (missingTable(momentResult.error, "moments")) {
+            const postsResult = await momentDb.from("posts").select("*").eq("id", id);
+            if (postsResult.error) throw new Error(postsResult.error.message ?? "Couldn't find this moment.");
+            row = (postsResult.data?.[0] ?? null) as Record<string, unknown> | null;
+            usesPostsFallback = true;
+          } else if (momentResult.error) {
+            throw new Error(momentResult.error.message ?? "Couldn't find this moment.");
+          }
+
+          if (!row || String(row.user_id) !== uid) {
+            throw new Error("You can only delete your own moment.");
+          }
+          if (
+            usesPostsFallback &&
+            row.kind !== "moment" &&
+            row.type !== "moment"
+          ) {
+            throw new Error("This moment is no longer available.");
+          }
+
+          const payload =
+            row.payload && typeof row.payload === "object"
+              ? (row.payload as Record<string, unknown>)
+              : {};
+          const mediaPaths = [
+            storagePathFromMomentValue(row.media_url),
+            storagePathFromMomentValue(payload.musicUrl),
+            storagePathFromMomentValue(row.audio),
+          ].filter((path): path is string => !!path);
+
+          // Remove FK-backed activity before deleting the parent record.
+          const requiredChildErrors = await Promise.all([
+            deleteMomentRows("moment_replies", [["moment_id", id]]),
+            deleteMomentRows("moment_views", [["moment_id", id]]),
+          ]);
+          const requiredChildError = requiredChildErrors.find(Boolean);
+          if (requiredChildError) throw new Error(requiredChildError);
+
+          // These interaction tables are compatibility data and may be absent
+          // or protected independently of the owner's parent-row delete.
+          const optionalChildResults = await Promise.all([
+            deleteMomentRows("moment_likes", [["moment_id", id]]),
+            deleteMomentRows("unique_views", [
+              ["content_id", id],
+              ["content_type", "moment"],
+            ]),
+            deleteMomentRows("likes", [["post_id", id]]),
+            deleteMomentRows("post_views", [["post_id", id]]),
+          ]);
+          optionalChildResults.filter(Boolean).forEach((message) => {
+            console.warn("Moment interaction cleanup skipped", message);
+          });
+
+          const deleteResult = usesPostsFallback
+            ? await momentDb.from("posts").delete().eq("id", id).eq("user_id", uid)
+            : await momentDb.from("moments").delete().eq("id", id).eq("user_id", uid);
+          if (deleteResult.error) {
+            throw new Error(deleteResult.error.message ?? "Couldn't delete this moment.");
+          }
+
+          if (mediaPaths.length) {
+            const { error: storageError } = await supabase.storage
+              .from(STORAGE_BUCKETS.moments)
+              .remove([...new Set(mediaPaths)]);
+            if (storageError) {
+              throw new Error(storageError.message ?? "Couldn't delete this moment's media.");
+            }
+          }
+
+          try {
             await load();
-            return;
+          } catch (refreshError) {
+            console.error("Moment cache refresh failed after deletion", refreshError);
           }
-          const { error } = await supabase.from("moments").delete().eq("id", id);
-          if (error) {
-            console.error("Moment deletion failed", error);
-            toast.error("Couldn't delete this moment");
-            await load(); // restore truthful state
-            return;
+          return { error: null };
+        } catch (cause) {
+          deletedMomentIdsRef.current.delete(id);
+          console.error("Moment deletion failed", cause);
+          try {
+            await load();
+          } catch (refreshError) {
+            console.error("Moment cache refresh failed after deletion failure", refreshError);
           }
-          await load(); // invalidate & refetch so it never re-appears
-        })();
+          return {
+            error: cause instanceof Error ? cause.message : "Couldn't delete this moment.",
+          };
+        }
       },
       archiveMoment: (id) => {
         patch(id, (m) => ({ ...m, archived: true }));
@@ -962,7 +1066,6 @@ export function MomentProvider({ children }: { children: ReactNode }) {
             if (!likeResult.error) return;
             if (!missingTable(likeResult.error, "moment_likes")) {
               console.error("Moment like update failed", likeResult.error);
-              toast.error("Couldn't update this moment.");
               return;
             }
             // Compatibility for a deployment that has not applied the
@@ -973,7 +1076,6 @@ export function MomentProvider({ children }: { children: ReactNode }) {
                 .upsert({ post_id: id, user_id: uid }, { onConflict: "post_id,user_id" });
               if (!legacy.error) return;
               console.error("Legacy Moment like update failed", legacy.error);
-              toast.error("Couldn't update this moment.");
               return;
             }
             const legacy = await momentDb
@@ -983,7 +1085,6 @@ export function MomentProvider({ children }: { children: ReactNode }) {
               .eq("user_id", uid);
             if (legacy.error) {
               console.error("Legacy Moment unlike failed", legacy.error);
-              toast.error("Couldn't update this moment.");
             }
             return;
           }
@@ -1003,7 +1104,6 @@ export function MomentProvider({ children }: { children: ReactNode }) {
             });
           } catch (error) {
             console.error("Moment view registration failed", error);
-            toast.error("Couldn't update this moment.");
           }
         })();
       },
