@@ -459,8 +459,9 @@ function MediaViewerPage() {
             </button>
           ) : null}
         </div>
+        </div>
 
-        <div className="px-4 pt-4">
+        <div className="mx-auto w-full max-w-lg px-4 pt-4">
           <div className="flex items-center gap-3">
             <Link
               data-testid="link-viewer-creator-avatar"
@@ -584,6 +585,7 @@ function MediaViewerPage() {
           ) : null}
         </div>
       </section>
+      </div>
 
       <Sheet open={manageOpen} onOpenChange={setManageOpen}>
         <SheetContent side="bottom" className="rounded-t-3xl border-border px-0 pb-6 pt-3">
