@@ -698,7 +698,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           <div className="text-sm text-gray-500">No media URL found</div>
         )}
 
-        <div className="absolute inset-0 pointer-events-none z-[9999]">
+        <div className="z-50 pointer-events-none absolute inset-0">
           {gestureFeedback?.kind === "seek" ? (
             <div
               className={`pointer-events-none absolute top-1/2 flex -translate-y-1/2 flex-col items-center gap-2 ${
