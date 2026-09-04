@@ -59,6 +59,7 @@ export type DbPost = {
   allow_download: boolean;
   created_at: string;
   views?: number | null;
+  views_count?: number | null;
   hide_like_count?: boolean | null;
   hide_share_count?: boolean | null;
   comments_off?: boolean | null;
@@ -203,6 +204,11 @@ export async function loadSocialPosts(
   const commentRows = (comments ?? []) as Array<{ post_id: string }>;
   const next: SocialPost[] = posts.map((p) => ({
     ...(normalizePostRow(p) as DbPost),
+    views: Number(
+      p.views ??
+        (p as typeof p & { views_count?: number | null }).views_count ??
+        0,
+    ),
     author: toUser(profileById.get(p.user_id), p.user_id),
     authorAvatarUrl: profileById.get(p.user_id)?.avatar_url ?? null,
     likeCount: likeRows.filter((like) => like.post_id === p.id).length,
@@ -266,6 +272,7 @@ export function useMediaPost(postId: string | null) {
       const likeRows = (likes ?? []) as Array<{ post_id: string; user_id: string }>;
       const next: SocialPost = {
         ...normalized,
+        views: Number(normalized.views ?? normalized.views_count ?? 0),
         author: toUser(profile, normalized.user_id),
         authorAvatarUrl: profile?.avatar_url ?? null,
         likeCount: likeRows.length,

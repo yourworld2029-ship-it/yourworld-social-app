@@ -83,6 +83,12 @@ function ReelsList() {
     loading,
   } = useSocialPosts("reel");
   const viewedRef = useRef(new Set<string>());
+  const recordView = useCallback(async (id: string) => {
+    if (viewedRef.current.has(id) || !currentUserId) return false;
+    const counted = await countView(id);
+    if (counted) viewedRef.current.add(id);
+    return counted;
+  }, [countView, currentUserId]);
 
   const live = dbReels.map((p) => ({
     reel: {
@@ -93,7 +99,7 @@ function ReelsList() {
       hashtags: p.hashtags ?? [],
       audio: p.audio ?? "original audio",
       likes: p.likeCount,
-      views: p.views ?? 0,
+       views: Number(p.views ?? p.views_count ?? 0),
       commentCount: p.commentCount,
       shares: 0,
       allowDownload: p.allow_download,
@@ -129,16 +135,6 @@ function ReelsList() {
       nodes.current[targetIndex]?.scrollIntoView({ block: "start", behavior: "auto" });
     });
   }, [dbReels, loading, reelId]);
-
-  useEffect(() => {
-    const reel = dbReels[active];
-    if (!reel || viewedRef.current.has(reel.id) || !currentUserId) return;
-    void countView(reel.id)
-      .then((counted) => {
-        if (counted) viewedRef.current.add(reel.id);
-      })
-      .catch((error) => console.error("Unable to register reel view", error));
-  }, [active, countView, currentUserId, dbReels]);
 
   useEffect(() => {
     const io = new IntersectionObserver(
@@ -202,6 +198,7 @@ function ReelsList() {
               mediaType={mediaType}
                 commentsDisabled={!!dbReels[i]?.comments_off}
               onDbLike={() => toggleDbLike(reel.id)}
+              onView={() => recordView(reel.id)}
             />
           ) : null}
         </section>
@@ -359,6 +356,7 @@ function ReelItem({
   mediaType,
   commentsDisabled = false,
   onDbLike,
+  onView,
 }: {
   reel: Reel;
   active: boolean;
@@ -368,6 +366,7 @@ function ReelItem({
   mediaType?: string;
   commentsDisabled?: boolean;
   onDbLike?: () => void | Promise<unknown>;
+  onView?: () => void | Promise<unknown>;
 }) {
   const user = author;
   const { saved, following, toggleSave, toggleFollow } = useYw();
@@ -395,6 +394,15 @@ function ReelItem({
   const mediaRef = useRef<HTMLElement | null>(null);
   const seekRaf = useRef<number | null>(null);
   const pendingSeek = useRef<number | null>(null);
+  const playedSeconds = useRef(0);
+  const lastPlaybackTime = useRef<number | null>(null);
+  const viewRecorded = useRef(false);
+
+  useEffect(() => {
+    playedSeconds.current = 0;
+    lastPlaybackTime.current = null;
+    viewRecorded.current = false;
+  }, [reel.id]);
 
   useEffect(() => () => {
     if (seekRaf.current !== null) cancelAnimationFrame(seekRaf.current);
@@ -414,7 +422,21 @@ function ReelItem({
       setDuration(video.duration);
       setProgress(Math.min(100, Math.max(0, (nextTime / video.duration) * 100)));
     }
-  }, []);
+    const previous = lastPlaybackTime.current;
+    lastPlaybackTime.current = nextTime;
+    const delta = previous === null ? 0 : nextTime - previous;
+    if (active && !viewRecorded.current && delta > 0 && delta <= 2) {
+      playedSeconds.current += delta;
+      if (playedSeconds.current >= 3 && onView) {
+        viewRecorded.current = true;
+        void Promise.resolve(onView()).then((result) => {
+          if (result === false) viewRecorded.current = false;
+        }).catch(() => {
+          viewRecorded.current = false;
+        });
+      }
+    }
+  }, [active, onView]);
 
   const handleEnded = useCallback((event: React.SyntheticEvent<HTMLVideoElement>) => {
     const video = event.currentTarget;

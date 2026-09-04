@@ -106,6 +106,13 @@
       "when": 1788379200000,
       "tag": "0014_create_video_watch_events",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1788522400000,
+      "tag": "0023_real_follows_and_unique_views",
+      "breakpoints": true
     }
   ]
 }

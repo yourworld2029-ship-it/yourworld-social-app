@@ -10,7 +10,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { isRealUserId, setFollow } from "@/lib/follow-data";
+import { fetchMyFollowing, isRealUserId, setFollow } from "@/lib/follow-data";
 
 
 type Toggles = Record<string, boolean>;
@@ -54,13 +54,12 @@ const StoreContext = createContext<Store | null>(null);
 export function YwStoreProvider({ children }: { children: ReactNode }) {
   const [liked, setLiked] = useState<Toggles>({});
   const [saved, setSaved] = useState<Toggles>({});
-  const [following] = useState<Toggles>({});
+  const [following, setFollowing] = useState<Toggles>({});
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const meRef = useRef<string | null>(null);
 
 
-  // Database state is authoritative for likes and saves. Following has no
-  // relationship table in this deployment, so it is deliberately unavailable.
+  // Database state is authoritative for likes, saves, and follows.
   useEffect(() => {
     let cancelled = false;
     const sync = async () => {
@@ -71,20 +70,23 @@ export function YwStoreProvider({ children }: { children: ReactNode }) {
         if (!me || cancelled) {
           setLiked({});
           setSaved({});
+          setFollowing({});
           return;
         }
-        const [likes, saves] = await Promise.all([
+        const [likes, saves, follows] = await Promise.all([
           // The deployed Live schema calls this table `likes`; generated types
           // have not yet caught up with that schema.
           // @ts-expect-error Live schema table is not present in generated types.
           supabase.from("likes").select("post_id").eq("user_id", me),
           supabase.from("post_saves").select("post_id").eq("user_id", me),
+          fetchMyFollowing(),
         ]);
         if (cancelled) return;
         const toToggles = (rows: { post_id: string }[] | null) =>
           Object.fromEntries((rows ?? []).map((row) => [row.post_id, true]));
         setLiked(toToggles(likes.data as { post_id: string }[] | null));
         setSaved(toToggles(saves.data as { post_id: string }[] | null));
+        setFollowing(Object.fromEntries(follows.map((id) => [id, true])));
       } catch {
         /* offline / signed out */
       }
@@ -95,6 +97,7 @@ export function YwStoreProvider({ children }: { children: ReactNode }) {
       .channel("yw-interactions")
       .on("postgres_changes", { event: "*", schema: "public", table: "likes" }, () => void sync())
       .on("postgres_changes", { event: "*", schema: "public", table: "post_saves" }, () => void sync())
+      .on("postgres_changes", { event: "*", schema: "public", table: "follows" }, () => void sync())
       .subscribe();
     return () => {
       cancelled = true;
@@ -164,10 +167,13 @@ export function YwStoreProvider({ children }: { children: ReactNode }) {
     if (!isRealUserId(id)) {
       return;
     }
-    void setFollow(id, true).catch((e: unknown) => {
+    const next = !following[id];
+    setFollowing((current) => ({ ...current, [id]: next }));
+    void setFollow(id, next).catch((e: unknown) => {
+      setFollowing((current) => ({ ...current, [id]: !next }));
       toast.error(e instanceof Error ? e.message : "Couldn't update follow");
     });
-  }, []);
+  }, [following]);
   const addDraft = useCallback((d: Draft) => setDrafts((p) => [d, ...p]), []);
   const removeDraft = useCallback(
     (id: string) => setDrafts((p) => p.filter((x) => x.id !== id)),

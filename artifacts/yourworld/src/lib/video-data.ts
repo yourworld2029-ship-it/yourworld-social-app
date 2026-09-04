@@ -446,7 +446,11 @@ export function useLongVideos() {
           sourceQualityTier: isVideoQualityTier(metadata.source_quality_tier)
             ? metadata.source_quality_tier
             : qualityTierFromDimensions(metadata.original_width, metadata.original_height),
-          views: p.views ?? 0,
+          views: Number(
+            p.views ??
+              (p as typeof p & { views_count?: number | null }).views_count ??
+              0,
+          ),
           hashtags: p.hashtags ?? [],
           createdAt: p.created_at,
           scheduledAt: p.scheduled_at,
@@ -489,11 +493,12 @@ export function useLongVideos() {
   const viewedRef = useRef(new Set<string>());
 
   const countView = useCallback(async (id: string) => {
-    if (viewedRef.current.has(id)) return; // one view per user, not per watch
+    if (viewedRef.current.has(id)) return false; // one view per user, not per watch
     const counted = await registerUniqueView(id, "video");
-    if (!counted) return;
+    if (!counted) return false;
     viewedRef.current.add(id);
     setVideos((prev) => prev.map((v) => (v.id === id ? { ...v, views: v.views + 1 } : v)));
+    return true;
   }, []);
 
   const toggleLike = useCallback(

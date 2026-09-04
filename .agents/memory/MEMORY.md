@@ -9,3 +9,4 @@
 - [Quality-specific downloads](quality-downloads.md) — preserve original source downloads, process smaller tiers only when selected, and keep an original fallback for legacy rows.
 - [Audio-preserving compression](audio-preserving-compression.md) — only use a local re-encode when a source audio track is attached; otherwise upload the original.
 - [Auto-delete messages](auto-delete-messages.md) — store the setting per message so preference changes do not rewrite existing message lifetimes.
+- [Follow and view schema](follow-and-view-schema.md) — follow mutations and unique views must use live RPCs, profile counters, and posts.views_count.

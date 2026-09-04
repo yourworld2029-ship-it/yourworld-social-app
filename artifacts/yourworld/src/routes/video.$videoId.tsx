@@ -45,6 +45,8 @@ import { useAuth } from "@/lib/auth-store";
 import { useYw } from "@/lib/yw-store";
 import { formatDuration, formatViews } from "@/lib/video-data";
 import { usePostComments } from "@/lib/social-data";
+import { setFollow } from "@/lib/follow-data";
+import { registerUniqueView } from "@/lib/unique-views";
 import { supabase } from "@/integrations/supabase/client";
 
 type VideoUser = {
@@ -209,6 +211,8 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   const touchGestureRef = useRef<TouchGesture | null>(null);
   const lastTapRef = useRef<{ time: number; x: number } | null>(null);
   const feedbackTimerRef = useRef<number | null>(null);
+  const playedSecondsRef = useRef(0);
+  const lastVideoTimeRef = useRef<number | null>(null);
 
   const {
     data: video,
@@ -365,27 +369,85 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     mutationFn: async () => {
       if (!user?.id) throw new Error("Sign in to subscribe");
       if (!creatorId || creatorId === user.id) throw new Error("You can't subscribe to yourself");
-      if (subscribed) {
-        const { error } = await liveFollowsTable(supabase)
-          .delete()
-          .eq("follower_id", user.id)
-          .eq("following_id", creatorId);
-        if (error) throw error;
-      } else {
-        const { error } = await liveFollowsTable(supabase)
-          .insert({ follower_id: user.id, following_id: creatorId });
-        if (error && error.code !== "23505") throw error;
-      }
+      return setFollow(creatorId, !subscribed);
+    },
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: ["video-subscription", creatorId, user?.id] });
+      await queryClient.cancelQueries({ queryKey: ["video-subscriber-count", creatorId] });
+      const previousSubscribed = queryClient.getQueryData<boolean>([
+        "video-subscription",
+        creatorId,
+        user?.id,
+      ]);
+      const previousCount = queryClient.getQueryData<number>([
+        "video-subscriber-count",
+        creatorId,
+      ]);
+      queryClient.setQueryData(["video-subscription", creatorId, user?.id], !subscribed);
+      queryClient.setQueryData(
+        ["video-subscriber-count", creatorId],
+        Math.max(0, (previousCount ?? subscriberCount) + (subscribed ? -1 : 1)),
+      );
+      return { previousSubscribed, previousCount };
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["video-subscription", creatorId, user?.id] });
       void queryClient.invalidateQueries({ queryKey: ["video-subscriber-count", creatorId] });
       toast.success(subscribed ? "Unfollowed" : "Followed");
     },
-    onError: (cause) => {
+    onError: (cause, _variables, context) => {
+      queryClient.setQueryData(
+        ["video-subscription", creatorId, user?.id],
+        context?.previousSubscribed ?? subscribed,
+      );
+      queryClient.setQueryData(
+        ["video-subscriber-count", creatorId],
+        context?.previousCount ?? subscriberCount,
+      );
       toast.error(cause instanceof Error ? cause.message : "Couldn't update subscription");
     },
   });
+
+  const viewRecordedRef = useRef(false);
+  useEffect(() => {
+    viewRecordedRef.current = false;
+    playedSecondsRef.current = 0;
+    lastVideoTimeRef.current = null;
+  }, [videoId]);
+
+  const handleVideoTimeUpdate = (event: React.SyntheticEvent<HTMLVideoElement>) => {
+    const currentTime = Number.isFinite(event.currentTarget.currentTime)
+      ? event.currentTarget.currentTime
+      : 0;
+    const previousTime = lastVideoTimeRef.current;
+    lastVideoTimeRef.current = currentTime;
+    const delta = previousTime === null ? 0 : currentTime - previousTime;
+    if (
+      viewRecordedRef.current ||
+      !user?.id ||
+      delta <= 0 ||
+      delta > 2
+    ) return;
+    playedSecondsRef.current += delta;
+    if (playedSecondsRef.current < 3) return;
+    viewRecordedRef.current = true;
+    void registerUniqueView(videoId, "video")
+      .then((counted) => {
+        if (!counted) return;
+        queryClient.setQueryData<Video | null>(["video-detail", videoId], (current) =>
+          current
+            ? {
+                ...current,
+                views_count: Number(current.views_count ?? current.views ?? 0) + 1,
+              }
+            : current,
+        );
+      })
+      .catch((cause) => {
+        viewRecordedRef.current = false;
+        console.error("Unable to register video view", cause);
+      });
+  };
 
   useEffect(() => {
     const initialCount = video?.likes_count ?? video?.like_count ?? video?.likes ?? 0;
@@ -784,6 +846,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
             disablePictureInPicture={false}
             autoPlay
             playsInline
+             onTimeUpdate={handleVideoTimeUpdate}
             className="w-full h-full object-contain"
             style={{
               transform: `scale(${zoom})`,

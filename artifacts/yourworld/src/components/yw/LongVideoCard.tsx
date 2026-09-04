@@ -74,6 +74,7 @@ export function LongVideoCard({
   });
   const urlCache = useRef(new Map<string, string>());
   const counted = useRef(false);
+  const playedSeconds = useRef(0);
   const cardRef = useRef<HTMLElement | null>(null);
   const playingRef = useRef(false);
 
@@ -99,13 +100,6 @@ export function LongVideoCard({
     if (!playingRef.current) return; // stopped while resolving
     setSrc(url);
     setPlaying(true);
-    if (!counted.current) {
-      counted.current = true;
-      void Promise.resolve(onView(video.id)).catch((error) => {
-        counted.current = false;
-        console.error("Unable to register long-video view", error);
-      });
-    }
   };
 
   /** Fullscreen swipe → next/previous video with the SAME orientation. */
@@ -128,6 +122,11 @@ export function LongVideoCard({
     playingRef.current = false;
     setPlaying(false);
   }), [video.id]);
+
+  useEffect(() => {
+    counted.current = false;
+    playedSeconds.current = 0;
+  }, [active.id]);
 
   // Pre-buffer this card's stream well before it reaches the viewport.
   useEffect(() => {
@@ -168,6 +167,20 @@ export function LongVideoCard({
 
   const isMine = currentUserId === video.userId;
   const isFollowing = !!following[video.userId];
+  const handlePlayedSeconds = (seconds: number) => {
+    if (counted.current || !playingRef.current || seconds <= 0) return;
+    playedSeconds.current += seconds;
+    if (playedSeconds.current < 3) return;
+    counted.current = true;
+    void Promise.resolve(onView(active.id))
+      .then((result) => {
+        if (result === false) counted.current = false;
+      })
+      .catch((error) => {
+        counted.current = false;
+        console.error("Unable to register long-video view", error);
+      });
+  };
   const shareUrl =
     typeof window !== "undefined" ? `${window.location.origin}/?post=${video.id}` : undefined;
 
@@ -288,6 +301,7 @@ export function LongVideoCard({
           watchTimeEnabled={!!currentUserId}
           onOrientationChange={setPlayerPortrait}
           onSwipeQueue={swipeQueue}
+           onPlayedSeconds={handlePlayedSeconds}
           hideAuxControls
         />
       ) : (

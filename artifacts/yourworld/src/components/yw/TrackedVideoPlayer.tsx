@@ -5,6 +5,7 @@ import { PremiumVideoPlayer } from "@/components/yw/PremiumVideoPlayer";
 type Props = Omit<ComponentProps<typeof PremiumVideoPlayer>, "onWatchTime"> & {
   watchVideoId: string;
   watchTimeEnabled: boolean;
+  onPlayedSeconds?: (seconds: number) => void;
 };
 
 /**
@@ -15,8 +16,17 @@ type Props = Omit<ComponentProps<typeof PremiumVideoPlayer>, "onWatchTime"> & {
 export function TrackedVideoPlayer({
   watchVideoId,
   watchTimeEnabled,
+  onPlayedSeconds,
   ...playerProps
 }: Props) {
   const reportWatchTime = useVideoWatchTime(watchVideoId, watchTimeEnabled);
-  return <PremiumVideoPlayer {...playerProps} onWatchTime={reportWatchTime} />;
+  return (
+    <PremiumVideoPlayer
+      {...playerProps}
+      onWatchTime={(seconds) => {
+        reportWatchTime(seconds);
+        onPlayedSeconds?.(seconds);
+      }}
+    />
+  );
 }
