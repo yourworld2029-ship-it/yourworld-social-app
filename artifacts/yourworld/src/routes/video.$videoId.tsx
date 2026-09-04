@@ -13,6 +13,7 @@ import {
   Bookmark,
   Check,
   Clock,
+  Download,
   Eye,
   MessageCircle,
   MoreHorizontal,
@@ -490,6 +491,25 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     }
   };
 
+  const handleDownload = () => {
+    const mediaUrl = video?.media_url || video?.video_url || video?.url || "";
+    if (!mediaUrl) {
+      toast.error("This video has no downloadable media");
+      return;
+    }
+    try {
+      const link = document.createElement("a");
+      link.href = mediaUrl;
+      link.download = `${(video?.title || "yourworld-video").replace(/[^a-z0-9-_]+/gi, "-")}.mp4`;
+      link.target = "_blank";
+      link.rel = "noopener";
+      link.click();
+      toast.success("Download started");
+    } catch {
+      toast.error("Couldn't download this video");
+    }
+  };
+
   const showGestureFeedback = (
     kind: GestureFeedback["kind"],
     value: number,
@@ -790,23 +810,24 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           </Button>
         </div>
 
-        <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none]">
-          <div className="flex shrink-0 overflow-hidden rounded-full border border-white/10 bg-white/10">
+        <div className="flex items-center gap-2 overflow-x-auto py-2 flex-nowrap whitespace-nowrap no-scrollbar">
+          <div className="flex shrink-0 items-center gap-2 rounded-full bg-white/10 px-3 py-1.5">
             <button
               type="button"
               onClick={handleLike}
-              className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold transition ${
+              className={`flex items-center gap-1.5 text-xs font-semibold transition ${
                 liked[videoId] ? "text-pink-300" : "text-white"
               }`}
             >
               <ThumbsUp className="h-4 w-4" fill={liked[videoId] ? "currentColor" : "none"} />
               {formatViews(likeCount)}
             </button>
+            <span className="h-4 w-[1px] bg-white/20" />
             <button
               type="button"
               onClick={handleDislike}
               aria-label="Dislike video"
-              className={`border-l border-white/10 px-3 py-2 ${
+              className={`flex items-center text-xs ${
                 disliked ? "text-pink-300" : "text-white"
               }`}
             >
@@ -820,6 +841,14 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
             className="shrink-0 rounded-full border-white/10 bg-white/10 px-4 text-xs text-white hover:bg-white/15"
           >
             <Share2 className="mr-1.5 h-4 w-4" /> Share
+          </Button>
+          <Button
+            type="button"
+            onClick={handleDownload}
+            variant="outline"
+            className="shrink-0 rounded-full border-white/10 bg-white/10 px-4 text-xs text-white hover:bg-white/15"
+          >
+            <Download className="mr-1.5 h-4 w-4" /> Download
           </Button>
           <Button
             type="button"
