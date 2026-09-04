@@ -12,7 +12,7 @@ import { YwAvatar } from "@/components/yw/Avatar";
 import type { User } from "@/lib/yw-data";
 import { usePostComments, timeAgo, resolveMediaUrl, MAX_PINNED_COMMENTS } from "@/lib/social-data";
 import { useMyProfile } from "@/lib/profile-data";
-import { Pin, PinOff, SendHorizonal, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Heart, Pin, PinOff, Reply, SendHorizonal, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 type DisplayComment = {
@@ -23,6 +23,9 @@ type DisplayComment = {
   avatarUrl?: string | null;
   mine: boolean;
   pinned: boolean;
+  parentCommentId: string | null;
+  likesCount: number;
+  likedByMe: boolean;
 };
 
 function toUser(username: string, displayName: string, id: string, hue = 200): User {
@@ -74,6 +77,9 @@ export function CommentsSheet({
   const real = usePostComments(postId);
   const { profile, userId } = useMyProfile();
   const [draft, setDraft] = useState("");
+  const [replyDraft, setReplyDraft] = useState("");
+  const [replyingTo, setReplyingTo] = useState<string | null>(null);
+  const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
   const [open, setOpen] = useState(false);
   const listRef = useRef<HTMLUListElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -118,16 +124,26 @@ export function CommentsSheet({
   };
 
   const list: DisplayComment[] = real.comments.map((c) => ({
-        id: c.id,
-        user: toUser(c.username, c.displayName, c.userId),
-        body: c.body,
-        time: timeAgo(c.createdAt),
-        avatarUrl: c.avatarUrl,
-        mine: !!real.me && c.userId === real.me,
-        pinned: c.pinned,
-      }));
+    id: c.id,
+    user: toUser(c.username, c.displayName, c.userId),
+    body: c.body,
+    time: timeAgo(c.createdAt),
+    avatarUrl: c.avatarUrl,
+    mine: !!real.me && c.userId === real.me,
+    pinned: c.pinned,
+    parentCommentId: c.parentCommentId,
+    likesCount: c.likesCount,
+    likedByMe: c.likedByMe,
+  }));
 
   const count = list.length;
+  const repliesByParent = new Map<string, DisplayComment[]>();
+  list.forEach((comment) => {
+    if (!comment.parentCommentId) return;
+    const replies = repliesByParent.get(comment.parentCommentId) ?? [];
+    replies.push(comment);
+    repliesByParent.set(comment.parentCommentId, replies);
+  });
 
   useEffect(() => {
     onCountChange?.(real.comments.length);
@@ -162,6 +178,169 @@ export function CommentsSheet({
     toast.success("Comment deleted");
   };
 
+  const toggleCommentLike = (c: DisplayComment) => {
+    if (!real.me) {
+      toast.error("Sign in to like comments");
+      return;
+    }
+    void real.toggleLike(c.id).then((ok) => {
+      if (!ok) toast.error("Couldn't update comment like");
+    });
+  };
+
+  const submitReply = () => {
+    if (!replyingTo || !replyDraft.trim()) return;
+    const text = replyDraft;
+    const parentId = replyingTo;
+    setReplyDraft("");
+    void real.sendReply(text, parentId).then((ok) => {
+      if (!ok) {
+        setReplyDraft(text);
+        toast.error("Reply could not be posted");
+      } else {
+        setReplyingTo(null);
+        setExpandedThreads((current) => new Set(current).add(parentId));
+      }
+    });
+  };
+
+  const renderComment = (c: DisplayComment, depth = 0): ReactNode => {
+    const replies = repliesByParent.get(c.id) ?? [];
+    const expanded = expandedThreads.has(c.id);
+    return (
+      <li key={c.id} className={c.pinned ? "rounded-xl bg-secondary/40 p-2" : ""} style={{ marginLeft: Math.min(depth, 3) * 18 }}>
+        <div className="flex gap-3">
+          {isRealUser(c.user.id) && !c.mine ? (
+            <Link
+              to="/u/$userId"
+              params={{ userId: c.user.id }}
+              onClick={() => setOpen(false)}
+              onPointerEnter={() => prefetchProfile(c.user.id)}
+              onPointerDown={() => prefetchProfile(c.user.id)}
+              className="shrink-0"
+              aria-label={`Open @${c.user.username} profile`}
+            >
+              <CommentAvatar user={c.user} url={c.avatarUrl} />
+            </Link>
+          ) : (
+            <CommentAvatar user={c.user} url={c.avatarUrl} />
+          )}
+          <div className="min-w-0 flex-1">
+            <p className="text-xs text-muted-foreground">
+              {isRealUser(c.user.id) && !c.mine ? (
+                <Link
+                  to="/u/$userId"
+                  params={{ userId: c.user.id }}
+                  onClick={() => setOpen(false)}
+                  onPointerEnter={() => prefetchProfile(c.user.id)}
+                  onPointerDown={() => prefetchProfile(c.user.id)}
+                  className="font-semibold text-foreground transition-opacity active:opacity-60"
+                >
+                  @{c.user.username}
+                </Link>
+              ) : (
+                <span className="font-semibold text-foreground">@{c.user.username}</span>
+              )}{" "}
+              · {c.time}
+            </p>
+            <p className="text-sm">{c.body}</p>
+            {c.pinned && (
+              <p className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                <Pin className="h-3 w-3" /> Pinned
+              </p>
+            )}
+            <div className="mt-2 flex items-center gap-3 text-[11px] text-muted-foreground">
+              <button
+                type="button"
+                onClick={() => toggleCommentLike(c)}
+                className={`inline-flex items-center gap-1 transition-colors ${c.likedByMe ? "font-semibold text-rose-500" : "hover:text-foreground"}`}
+                aria-label={c.likedByMe ? "Unlike comment" : "Like comment"}
+              >
+                <Heart className="h-3.5 w-3.5" fill={c.likedByMe ? "currentColor" : "none"} />
+                {c.likesCount > 0 ? c.likesCount : "Like"}
+              </button>
+              {!commentsDisabled && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReplyingTo(c.id);
+                    setReplyDraft(`@${c.user.username} `);
+                    setExpandedThreads((current) => new Set(current).add(c.id));
+                  }}
+                  className="inline-flex items-center gap-1 hover:text-foreground"
+                >
+                  <Reply className="h-3.5 w-3.5" /> Reply
+                </button>
+              )}
+              {replies.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setExpandedThreads((current) => {
+                      const next = new Set(current);
+                      if (next.has(c.id)) next.delete(c.id);
+                      else next.add(c.id);
+                      return next;
+                    })
+                  }
+                  className="inline-flex items-center gap-1 font-semibold text-primary"
+                >
+                  {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                  {expanded ? "Hide" : "View"} {replies.length} {replies.length === 1 ? "reply" : "replies"}
+                </button>
+              )}
+            </div>
+            {replyingTo === c.id && !commentsDisabled && (
+              <div className="mt-2 flex gap-2">
+                <Input
+                  autoFocus
+                  value={replyDraft}
+                  onChange={(event) => setReplyDraft(event.target.value)}
+                  onKeyDown={(event) => event.key === "Enter" && submitReply()}
+                  placeholder="Write a reply…"
+                  className="h-9 rounded-full border-0 bg-secondary text-xs"
+                />
+                <button
+                  type="button"
+                  onClick={submitReply}
+                  aria-label="Send reply"
+                  className="grid h-9 w-9 shrink-0 place-items-center rounded-full brand-gradient"
+                >
+                  <SendHorizonal className="h-3.5 w-3.5 text-primary-foreground" />
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="mt-1 flex shrink-0 items-start gap-2">
+            {canModerate && (
+              <button
+                onClick={() => void togglePin(c)}
+                aria-label={c.pinned ? "Unpin comment" : "Pin comment"}
+                className="shrink-0 text-muted-foreground transition-colors hover:text-primary"
+              >
+                {c.pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
+              </button>
+            )}
+            {(c.mine || canModerate) && (
+              <button
+                onClick={() => remove(c)}
+                aria-label="Delete comment"
+                className="shrink-0 text-muted-foreground transition-colors hover:text-destructive"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        </div>
+        {expanded && replies.length > 0 && (
+          <ul className="mt-3 space-y-3 border-l border-border/70 pl-2">
+            {replies.map((reply) => renderComment(reply, depth + 1))}
+          </ul>
+        )}
+      </li>
+    );
+  };
+
   return (
     <Drawer open={open} onOpenChange={setOpen}>
       <DrawerTrigger asChild>{children}</DrawerTrigger>
@@ -173,71 +352,8 @@ export function CommentsSheet({
             </DrawerTitle>
           </DrawerHeader>
 
-          <ul ref={listRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pb-4">
-            {list.map((c) => (
-              <li key={c.id} className={c.pinned ? "flex gap-3 rounded-xl bg-secondary/40 p-2" : "flex gap-3"}>
-                {isRealUser(c.user.id) && !c.mine ? (
-                  <Link
-                    to="/u/$userId"
-                    params={{ userId: c.user.id }}
-                    onClick={() => setOpen(false)}
-                    onPointerEnter={() => prefetchProfile(c.user.id)}
-                    onPointerDown={() => prefetchProfile(c.user.id)}
-                    className="shrink-0"
-                    aria-label={`Open @${c.user.username} profile`}
-                  >
-                    <CommentAvatar user={c.user} url={c.avatarUrl} />
-                  </Link>
-                ) : (
-                  <CommentAvatar user={c.user} url={c.avatarUrl} />
-                )}
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs text-muted-foreground">
-                    {isRealUser(c.user.id) && !c.mine ? (
-                      <Link
-                        to="/u/$userId"
-                        params={{ userId: c.user.id }}
-                        onClick={() => setOpen(false)}
-                        onPointerEnter={() => prefetchProfile(c.user.id)}
-                        onPointerDown={() => prefetchProfile(c.user.id)}
-                        className="font-semibold text-foreground transition-opacity active:opacity-60"
-                      >
-                        @{c.user.username}
-                      </Link>
-                    ) : (
-                      <span className="font-semibold text-foreground">@{c.user.username}</span>
-                    )}{" "}
-                    · {c.time}
-                  </p>
-                  <p className="text-sm">{c.body}</p>
-                  {c.pinned && (
-                    <p className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-primary">
-                      <Pin className="h-3 w-3" /> Pinned
-                    </p>
-                  )}
-                </div>
-                <div className="mt-1 flex shrink-0 items-start gap-2">
-                {canModerate && (
-                  <button
-                    onClick={() => void togglePin(c)}
-                    aria-label={c.pinned ? "Unpin comment" : "Pin comment"}
-                    className="shrink-0 text-muted-foreground transition-colors hover:text-primary"
-                  >
-                    {c.pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
-                  </button>
-                )}
-                {(c.mine || canModerate) && (
-                  <button
-                    onClick={() => remove(c)}
-                    aria-label="Delete comment"
-                    className="shrink-0 text-muted-foreground transition-colors hover:text-destructive"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                )}
-                </div>
-              </li>
-            ))}
+           <ul ref={listRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pb-4">
+             {list.filter((comment) => !comment.parentCommentId).map((comment) => renderComment(comment))}
             {!real.loading && list.length === 0 && (
               <li className="pt-10 text-center text-sm text-muted-foreground">
                 No comments yet. Be the first.

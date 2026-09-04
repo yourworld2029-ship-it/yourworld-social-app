@@ -24,6 +24,11 @@ const liveSocialTable = (
     from: (name: "likes" | "comments") => ReturnType<typeof supabase.from>;
   }).from(table);
 
+const liveCommentLikesTable = (client: typeof supabase) =>
+  (client as unknown as {
+    from: (name: "comment_likes") => ReturnType<typeof supabase.from>;
+  }).from("comment_likes");
+
 export type DbProfile = {
   id: string;
   username: string | null;
@@ -889,6 +894,9 @@ export type PostComment = {
   createdAt: string;
   pinned: boolean;
   pinnedAt: string | null;
+  parentCommentId: string | null;
+  likesCount: number;
+  likedByMe: boolean;
 };
 
 export const MAX_PINNED_COMMENTS = 4;
@@ -898,13 +906,21 @@ export async function createPostComment(
   userId: string,
   body: string,
   client: typeof supabase = supabase,
+  parentCommentId: string | null = null,
 ) {
   const text = body.trim();
   if (!text) return { data: null, error: null };
-  const result = await liveSocialTable(client, "comments")
-    .insert({ post_id: postId, user_id: userId, content: text })
+  const basePayload = { post_id: postId, user_id: userId, content: text };
+  let result = await liveSocialTable(client, "comments")
+    .insert(parentCommentId ? { ...basePayload, parent_comment_id: parentCommentId } : basePayload)
     .select("id,created_at")
     .maybeSingle();
+  if (result.error && parentCommentId && missingColumn(result.error)) {
+    result = await liveSocialTable(client, "comments")
+      .insert(basePayload)
+      .select("id,created_at")
+      .maybeSingle();
+  }
   return {
     data: result.data as { id: string; created_at: string } | null,
     error: result.error as { message: string } | null,
@@ -944,16 +960,32 @@ export function usePostComments(postId: string | null) {
       .maybeSingle();
     setPostOwnerId(postRow?.user_id ?? null);
 
-    const { data: rows } = await liveSocialTable(supabase, "comments")
-      .select("id,post_id,user_id,content,created_at")
+    let { data: rows, error: commentsError } = await liveSocialTable(supabase, "comments")
+      .select("id,post_id,user_id,content,created_at,parent_comment_id,likes_count")
       .eq("post_id", postId)
       .order("created_at", { ascending: true });
+    if (missingColumn(commentsError)) {
+      const fallback = await liveSocialTable(supabase, "comments")
+        .select("id,post_id,user_id,content,created_at")
+        .eq("post_id", postId)
+        .order("created_at", { ascending: true });
+      rows = fallback.data;
+      commentsError = fallback.error;
+    }
+    if (commentsError) {
+      console.error("[usePostComments] unable to load comments", commentsError);
+      setComments([]);
+      setLoading(false);
+      return;
+    }
 
     const commentRows = (rows ?? []) as Array<{
       id: string;
       user_id: string;
       content: string;
       created_at: string;
+      parent_comment_id?: string | null;
+      likes_count?: number | null;
     }>;
     if (!commentRows.length) {
       setComments([]);
@@ -962,9 +994,16 @@ export function usePostComments(postId: string | null) {
     }
 
     const authorIds = [...new Set(commentRows.map((row) => row.user_id))];
-    const { data: profiles } = await supabase.rpc("get_public_profiles", {
-      ids: authorIds,
-    });
+    const [{ data: profiles }, likesResult] = await Promise.all([
+      supabase.rpc("get_public_profiles", { ids: authorIds }),
+      liveCommentLikesTable(supabase)
+        .select("comment_id,user_id")
+        .in("comment_id", commentRows.map((row) => row.id)),
+    ]);
+    const likeRows = (likesResult.data ?? []) as Array<{ comment_id: string; user_id: string }>;
+    if (likesResult.error) {
+      console.error("[usePostComments] unable to load comment likes", likesResult.error);
+    }
     const profileById = new Map(
       ((profiles ?? []) as DbProfile[]).map((p) => [p.id, p]),
     );
@@ -979,8 +1018,13 @@ export function usePostComments(postId: string | null) {
         avatarUrl: p?.avatar_url ?? null,
          body: r.content,
         createdAt: r.created_at,
-         pinned: false,
-         pinnedAt: null,
+        pinned: false,
+        pinnedAt: null,
+        parentCommentId: r.parent_comment_id ?? null,
+        likesCount:
+          likeRows.filter((like) => like.comment_id === r.id).length ||
+          Number(r.likes_count ?? 0),
+        likedByMe: !!uid && likeRows.some((like) => like.comment_id === r.id && like.user_id === uid),
       };
     });
 
@@ -1011,6 +1055,11 @@ export function usePostComments(postId: string | null) {
            { event: "*", schema: "public", table: "comments", filter: `post_id=eq.${postId}` },
           () => void load(),
         )
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "comment_likes" },
+          () => void load(),
+        )
         .subscribe();
     } catch (err) {
       console.error("[usePostComments] realtime unavailable", err);
@@ -1023,12 +1072,11 @@ export function usePostComments(postId: string | null) {
   }, [postId, load]);
 
 
-  const send = useCallback(
-    async (body: string) => {
+  const sendReply = useCallback(
+    async (body: string, parentCommentId: string | null = null) => {
       if (!postId || !me || !body.trim()) return false;
       const text = body.trim();
       const tempId = `tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      // Optimistic: show the comment instantly.
       setComments((prev) => [
         ...prev,
         {
@@ -1041,19 +1089,67 @@ export function usePostComments(postId: string | null) {
           createdAt: new Date().toISOString(),
           pinned: false,
           pinnedAt: null,
+          parentCommentId,
+          likesCount: 0,
+          likedByMe: false,
         },
       ]);
-      const { error } = await createPostComment(postId, me, text);
+      const { error } = await createPostComment(postId, me, text, supabase, parentCommentId);
       if (error) {
         setComments((prev) => prev.filter((c) => c.id !== tempId));
         return false;
-      } else {
-        // Replace the optimistic row with the real one (keeps order).
-        void load();
       }
+      void load();
       return true;
     },
     [postId, me, load],
+  );
+
+  const send = useCallback(
+    async (body: string) => sendReply(body),
+    [sendReply],
+  );
+
+  const toggleLike = useCallback(
+    async (id: string) => {
+      if (!me) return false;
+      const target = comments.find((comment) => comment.id === id);
+      if (!target || id.startsWith("tmp-")) return false;
+      const wasLiked = target.likedByMe;
+      setComments((prev) =>
+        prev.map((comment) =>
+          comment.id === id
+            ? {
+                ...comment,
+                likedByMe: !wasLiked,
+                likesCount: Math.max(0, comment.likesCount + (wasLiked ? -1 : 1)),
+              }
+            : comment,
+        ),
+      );
+      const result = wasLiked
+        ? await liveCommentLikesTable(supabase).delete().eq("comment_id", id).eq("user_id", me)
+        : await liveCommentLikesTable(supabase).upsert(
+            { comment_id: id, user_id: me },
+            { onConflict: "comment_id,user_id", ignoreDuplicates: true },
+          );
+      if (result.error) {
+        setComments((prev) =>
+          prev.map((comment) =>
+            comment.id === id
+              ? {
+                  ...comment,
+                  likedByMe: wasLiked,
+                  likesCount: Math.max(0, comment.likesCount + (wasLiked ? 1 : -1)),
+                }
+              : comment,
+          ),
+        );
+        return false;
+      }
+      return true;
+    },
+    [comments, me],
   );
 
   const isPostOwner = !!me && !!postOwnerId && me === postOwnerId;
@@ -1081,6 +1177,18 @@ export function usePostComments(postId: string | null) {
     [comments, isPostOwner],
   );
 
-  return { comments, loading, send, remove, togglePin, me, postOwnerId, isPostOwner, pinnedCount };
+  return {
+    comments,
+    loading,
+    send,
+    sendReply,
+    toggleLike,
+    remove,
+    togglePin,
+    me,
+    postOwnerId,
+    isPostOwner,
+    pinnedCount,
+  };
 }
 

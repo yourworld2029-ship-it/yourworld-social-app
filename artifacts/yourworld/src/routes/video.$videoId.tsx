@@ -4,6 +4,7 @@ import {
   useState,
   type MouseEvent as ReactMouseEvent,
   type TouchEvent as ReactTouchEvent,
+  type ReactNode,
 } from "react";
 import { createFileRoute, useNavigate, useParams } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -12,17 +13,22 @@ import {
   ArrowLeft,
   Bookmark,
   Check,
+  ChevronDown,
+  ChevronUp,
   Clock,
   Download,
   Eye,
+  Heart,
   Maximize2,
   MessageCircle,
   MoreHorizontal,
+  Reply,
   Send,
   Share2,
   Sun,
   ThumbsDown,
   ThumbsUp,
+  Trash2,
   UserPlus,
   Volume2,
   ZoomIn,
@@ -36,6 +42,7 @@ import { VideoPoster } from "@/components/yw/VideoPoster";
 import { useAuth } from "@/lib/auth-store";
 import { useYw } from "@/lib/yw-store";
 import { formatDuration, formatViews } from "@/lib/video-data";
+import { usePostComments } from "@/lib/social-data";
 import { supabase } from "@/integrations/supabase/client";
 
 type VideoUser = {
@@ -67,14 +74,6 @@ type Video = {
   user?: VideoUser | null;
 };
 
-type VideoComment = {
-  id: string;
-  content?: string | null;
-  created_at?: string | null;
-  user_id?: string | null;
-  user?: VideoUser | null;
-};
-
 type RecommendedVideo = Video & {
   thumbnail_url?: string | null;
   duration_seconds?: number | null;
@@ -101,11 +100,6 @@ type TouchPointList = {
   length: number;
   item: (index: number) => { clientX: number; clientY: number } | null;
 };
-
-const liveCommentsTable = (client: typeof supabase) =>
-  (client as unknown as {
-    from: (name: "comments") => ReturnType<typeof supabase.from>;
-  }).from("comments");
 
 const liveFollowsTable = (client: typeof supabase) =>
   (client as unknown as {
@@ -297,41 +291,18 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     enabled: Boolean(creatorId),
   });
 
-  const { data: comments = [] } = useQuery<VideoComment[]>({
-    queryKey: ["video-comments", videoId],
-    queryFn: async () => {
-      try {
-        const { data, error } = await liveCommentsTable(supabase)
-          .select("*")
-          .eq("post_id", videoId)
-          .order("created_at", { ascending: false });
+  const realComments = usePostComments(videoId);
+  const comments = realComments.comments;
+  const [replyingTo, setReplyingTo] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState("");
+  const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
 
-        if (error) {
-          console.error("Error fetching video comments:", error);
-          return [];
-        }
-        const rows = (data ?? []) as unknown as VideoComment[];
-        const userIds = [...new Set(rows.map((comment) => comment.user_id).filter(Boolean))] as string[];
-        let profileById = new Map<string, VideoUser>();
-        if (userIds.length) {
-          const { data: profiles } = await supabase.rpc("get_public_profiles", {
-            ids: userIds,
-          });
-          profileById = new Map(
-            ((profiles ?? []) as VideoUser[])
-              .filter((profile): profile is VideoUser & { id: string } => Boolean(profile.id))
-              .map((profile) => [profile.id, profile]),
-          );
-        }
-        return rows.map((comment) => ({
-          ...comment,
-          user: comment.user ?? (comment.user_id ? profileById.get(comment.user_id) ?? null : null),
-        }));
-      } catch (cause) {
-        console.error("Error fetching video comments:", cause);
-        return [];
-      }
-    },
+  const repliesByParent = new Map<string, typeof comments>();
+  comments.forEach((comment) => {
+    if (!comment.parentCommentId) return;
+    const replies = repliesByParent.get(comment.parentCommentId) ?? [];
+    replies.push(comment);
+    repliesByParent.set(comment.parentCommentId, replies);
   });
 
   const { data: relatedVideos = [] } = useQuery<RecommendedVideo[]>({
@@ -426,33 +397,137 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     [],
   );
 
-  const addCommentMutation = useMutation({
-    mutationFn: async (text: string) => {
-      if (!user) throw new Error("Must be logged in");
-      const content = text.trim();
-      if (!content) throw new Error("Comment cannot be empty");
+  const submitComment = () => {
+    if (!user || !commentText.trim()) return;
+    const text = commentText;
+    setCommentText("");
+    void realComments.send(text).then((ok) => {
+      if (!ok) {
+        setCommentText(text);
+        toast.error("Failed to post comment");
+      } else {
+        toast.success("Comment added");
+      }
+    });
+  };
 
-      const { data, error } = await liveCommentsTable(supabase)
-        .insert({
-          post_id: videoId,
-          user_id: user.id,
-          content,
-        })
-        .select()
-        .single();
+  const submitReply = () => {
+    if (!user || !replyingTo || !replyText.trim()) return;
+    const text = replyText;
+    const parentId = replyingTo;
+    setReplyText("");
+    void realComments.sendReply(text, parentId).then((ok) => {
+      if (!ok) {
+        setReplyText(text);
+        toast.error("Failed to post reply");
+      } else {
+        setReplyingTo(null);
+        setExpandedThreads((current) => new Set(current).add(parentId));
+      }
+    });
+  };
 
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: () => {
-      setCommentText("");
-      void queryClient.invalidateQueries({ queryKey: ["video-comments", videoId] });
-      toast.success("Comment added");
-    },
-    onError: () => {
-      toast.error("Failed to post comment");
-    },
-  });
+  const toggleCommentLike = (commentId: string) => {
+    if (!user) {
+      toast.error("Sign in to like comments");
+      return;
+    }
+    void realComments.toggleLike(commentId).then((ok) => {
+      if (!ok) toast.error("Couldn't update comment like");
+    });
+  };
+
+  const renderComment = (comment: (typeof comments)[number], depth = 0): ReactNode => {
+    const username = comment.username || "user";
+    const replies = repliesByParent.get(comment.id) ?? [];
+    const expanded = expandedThreads.has(comment.id);
+    return (
+      <div key={comment.id} className="space-y-2" style={{ marginLeft: Math.min(depth, 3) * 18 }}>
+        <div className="flex items-start gap-3">
+          <Avatar className="mt-0.5 h-7 w-7 shrink-0">
+            <AvatarImage src={comment.avatarUrl || undefined} />
+            <AvatarFallback className="bg-gray-700 text-xs text-white">
+              {username.charAt(0).toUpperCase() || "U"}
+            </AvatarFallback>
+          </Avatar>
+          <div className="min-w-0 flex-1 text-xs">
+            <div className="mb-0.5 flex flex-wrap items-center gap-2">
+              <span className="font-semibold text-gray-300">@{username}</span>
+              <span className="text-[10px] text-gray-500">{safeTimeAgo(comment.createdAt)}</span>
+            </div>
+            <p className="text-gray-100">{comment.body}</p>
+            <div className="mt-2 flex items-center gap-3 text-[11px] text-gray-500">
+              <button
+                type="button"
+                onClick={() => toggleCommentLike(comment.id)}
+                className={`inline-flex items-center gap-1 transition-colors ${comment.likedByMe ? "font-semibold text-rose-400" : "hover:text-white"}`}
+                aria-label={comment.likedByMe ? "Unlike comment" : "Like comment"}
+              >
+                <Heart className="h-3.5 w-3.5" fill={comment.likedByMe ? "currentColor" : "none"} />
+                {comment.likesCount > 0 ? comment.likesCount : "Like"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setReplyingTo(comment.id);
+                  setReplyText(`@${username} `);
+                  setExpandedThreads((current) => new Set(current).add(comment.id));
+                }}
+                className="inline-flex items-center gap-1 hover:text-white"
+              >
+                <Reply className="h-3.5 w-3.5" /> Reply
+              </button>
+              {replies.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setExpandedThreads((current) => {
+                      const next = new Set(current);
+                      if (next.has(comment.id)) next.delete(comment.id);
+                      else next.add(comment.id);
+                      return next;
+                    })
+                  }
+                  className="inline-flex items-center gap-1 font-semibold text-pink-300"
+                >
+                  {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                  {expanded ? "Hide" : "View"} {replies.length} {replies.length === 1 ? "reply" : "replies"}
+                </button>
+              )}
+              {comment.userId === user?.id && (
+                <button
+                  type="button"
+                  onClick={() => void realComments.remove(comment.id)}
+                  className="inline-flex items-center gap-1 hover:text-red-300"
+                  aria-label="Delete comment"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+            {replyingTo === comment.id && user && (
+              <div className="mt-2 flex gap-2">
+                <Input
+                  autoFocus
+                  value={replyText}
+                  onChange={(event) => setReplyText(event.target.value)}
+                  onKeyDown={(event) => event.key === "Enter" && submitReply()}
+                  placeholder="Write a reply..."
+                  className="h-9 rounded-full border-white/10 bg-white/5 text-xs text-white"
+                />
+                <Button type="button" size="sm" onClick={submitReply} className="h-9 rounded-full bg-pink-600 px-3 text-white">
+                  <Send className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+        {expanded && replies.length > 0 ? (
+          <div className="space-y-3 border-l border-white/10 pl-2">{replies.map((reply) => renderComment(reply, depth + 1))}</div>
+        ) : null}
+      </div>
+    );
+  };
 
   const handleShare = async () => {
     try {
@@ -946,9 +1021,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
               value={commentText}
               onChange={(event) => setCommentText(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "Enter" && commentText.trim()) {
-                  addCommentMutation.mutate(commentText);
-                }
+                if (event.key === "Enter" && commentText.trim()) submitComment();
               }}
               disabled={!user}
               placeholder={user ? "Add a comment..." : "Sign in to comment"}
@@ -956,8 +1029,8 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
             />
             <Button
               type="button"
-              disabled={!commentText.trim() || addCommentMutation.isPending}
-              onClick={() => addCommentMutation.mutate(commentText)}
+              disabled={!commentText.trim() || !user}
+              onClick={submitComment}
               size="sm"
               className="h-10 rounded-full bg-pink-600 px-4 text-white hover:bg-pink-700"
             >
@@ -966,30 +1039,10 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           </div>
 
           <div className="space-y-3">
-            {comments.map((comment) => {
-              const username = comment.user?.username || "user";
-              return (
-                <div key={comment.id} className="flex items-start gap-3">
-                  <Avatar className="mt-0.5 h-7 w-7">
-                    <AvatarImage src={comment.user?.avatar_url || undefined} />
-                    <AvatarFallback className="bg-gray-700 text-xs text-white">
-                      {username.charAt(0).toUpperCase() || "U"}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 text-xs">
-                    <div className="mb-0.5 flex flex-wrap items-center gap-2">
-                      <span className="font-semibold text-gray-300">@{username}</span>
-                      {comment.created_at ? (
-                        <span className="text-[10px] text-gray-500">
-                          {safeTimeAgo(comment.created_at)}
-                        </span>
-                      ) : null}
-                    </div>
-                    <span className="text-gray-100">{comment.content || ""}</span>
-                  </div>
-                </div>
-              );
-            })}
+            {comments.filter((comment) => !comment.parentCommentId).map((comment) => renderComment(comment))}
+            {!realComments.loading && comments.length === 0 ? (
+              <p className="py-4 text-center text-xs text-gray-500">No comments yet. Be the first.</p>
+            ) : null}
           </div>
         </div>
 
