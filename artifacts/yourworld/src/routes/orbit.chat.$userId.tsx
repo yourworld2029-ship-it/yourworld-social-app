@@ -49,6 +49,13 @@ import { useMyProfile } from "@/lib/profile-data";
 import { saveChatDisplayName, setChatNameLocal, useChatNames } from "@/lib/chat-names";
 import { saveSecretChatLock } from "@/lib/secret-chats";
 import { PinDialog } from "@/components/yw/PinDialog";
+import {
+  AUTO_DELETE_OPTIONS,
+  autoDeleteLabel,
+  autoDeleteSeconds,
+  normalizeAutoDeleteSetting,
+  type AutoDeleteSetting,
+} from "@/lib/auto-delete";
 
 // Relations added by migration 0015 are intentionally not in checked-in
 // generated Supabase types. Keep this narrow escape hatch at that boundary.
@@ -177,17 +184,6 @@ function MenuItem({
   );
 }
 
-const AUTO_DELETE_OPTIONS = [
-  { value: 0, label: "Off" },
-  { value: 3600, label: "1 hour" },
-  { value: 86400, label: "24 hours" },
-  { value: 604800, label: "7 days" },
-] as const;
-
-function autoDeleteLabel(seconds: number) {
-  return AUTO_DELETE_OPTIONS.find((o) => o.value === seconds)?.label ?? `${Math.round(seconds / 60)}m`;
-}
-
 function OrbitChatPage() {
   const { profile: myProfile } = useMyProfile();
   const currentUserName = myProfile.display_name || myProfile.username || "YourWorld user";
@@ -219,7 +215,7 @@ function OrbitChatPage() {
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [secretLock, setSecretLock] = useState(false);
   const [viewOnceMode, setViewOnceMode] = useState(false);
-  const [autoDelete, setAutoDelete] = useState(0);
+  const [autoDelete, setAutoDelete] = useState<AutoDeleteSetting>("off");
   const [screenshotAlert, setScreenshotAlert] = useState(true);
   const [recordingAlert, setRecordingAlert] = useState(true);
   const [muted, setMuted] = useState(false);
@@ -249,7 +245,7 @@ function OrbitChatPage() {
       const { data } = me
         ? await supabase
             .from("orbit_chat_settings")
-            .select("display_name,secret_lock_enabled,secret_pin_salt,secret_pin_hash,view_once_mode,auto_delete_seconds,screenshot_alert,recording_alert,muted,cleared_before")
+            .select("display_name,secret_lock_enabled,secret_pin_salt,secret_pin_hash,view_once_mode,auto_delete_setting,auto_delete_seconds,screenshot_alert,recording_alert,muted,cleared_before")
             .eq("user_id", me)
             .eq("peer_id", userId)
             .maybeSingle()
@@ -281,7 +277,7 @@ function OrbitChatPage() {
       setSecretPinHash((row?.['secret_pin_hash'] as string | null) ?? null);
       setChatUnlocked(!locked);
       setViewOnceMode(row ? !!row['view_once_mode'] : !!v['viewOnceMode']);
-      setAutoDelete(Number(row?.['auto_delete_seconds'] ?? v['autoDelete']) || 0);
+       setAutoDelete(normalizeAutoDeleteSetting(row?.['auto_delete_setting'], Number(v['autoDelete'] ?? row?.['auto_delete_seconds'] ?? 0)));
       setScreenshotAlert(row ? row['screenshot_alert'] !== false : v['screenshotAlert'] !== false);
       setRecordingAlert(row ? row['recording_alert'] !== false : v['recordingAlert'] !== false);
       setMuted(!!v['muted']);
@@ -316,7 +312,7 @@ function OrbitChatPage() {
           displayName,
           secretLock,
           viewOnceMode,
-          autoDelete,
+             autoDelete,
           screenshotAlert,
           recordingAlert,
           muted,
@@ -333,7 +329,8 @@ function OrbitChatPage() {
             peer_id: userId,
             display_name: displayName,
             view_once_mode: viewOnceMode,
-            auto_delete_seconds: autoDelete,
+             auto_delete_setting: autoDelete,
+             auto_delete_seconds: autoDeleteSeconds(autoDelete),
             screenshot_alert: screenshotAlert,
             recording_alert: recordingAlert,
             muted,
@@ -376,19 +373,29 @@ function OrbitChatPage() {
 
   // Real, database-backed Orbit conversation (live for both users).
   const chat = useOrbitChat(userId, accepted, clearedBefore);
+  const orbitMessages = chat.messages;
+  const markOrbitViewed = chat.markViewed;
   const msgScrollRef = useRef<HTMLElement>(null);
   // Local-only notes (settings changes, capture alerts) stay on this device.
   const [notes, setNotes] = useState<Msg[]>([]);
 
   const msgs: Msg[] = useMemo(
     () =>
-      [...chat.messages.map(toUiMsg), ...notes].sort((a, b) => (a.at ?? 0) - (b.at ?? 0)),
-    [chat.messages, notes],
+      [...orbitMessages.map(toUiMsg), ...notes].sort((a, b) => (a.at ?? 0) - (b.at ?? 0)),
+    [orbitMessages, notes],
   );
 
   useEffect(() => {
     if (!accepted) setNotes([]);
   }, [accepted, userId]);
+
+  useEffect(() => {
+    if (!accepted) return;
+    const ids = orbitMessages
+      .filter((message) => !message.me && message.autoDeleteSetting === "after_view")
+      .map((message) => message.id);
+    if (ids.length) void markOrbitViewed(ids);
+  }, [accepted, orbitMessages, markOrbitViewed]);
 
   const scrollToLatest = () => {
     requestAnimationFrame(() => {
@@ -431,7 +438,7 @@ function OrbitChatPage() {
     (kind) => {
       if (kind === "recording" ? !recordingAlert : !screenshotAlert) return;
        void chat
-         .insert({ kind: "system", text: `${currentUserName} took a ${kind === "recording" ? "recording" : "screenshot"}`, expiresIn: autoDelete })
+          .insert({ kind: "system", text: `${currentUserName} took a ${kind === "recording" ? "recording" : "screenshot"}`, autoDeleteSetting: "off" })
          .then((id) => {
            if (!id) toast.error("Security alert could not be delivered.");
          });
@@ -455,7 +462,7 @@ function OrbitChatPage() {
           new File([blob], `voice-${Date.now()}.webm`, { type: blob.type || "audio/webm" }),
            "audio",
            false,
-          autoDelete,
+           autoDelete,
         ).then((id) => {
           if (!id) toast.error("Voice note could not be sent. Please try again.");
         });
@@ -762,8 +769,8 @@ function OrbitChatPage() {
               />
               <MenuItem
                 icon={<Clock className="h-4 w-4 text-muted-foreground" strokeWidth={1.8} />}
-                label={autoDelete ? `Auto Delete: ${autoDeleteLabel(autoDelete)}` : "Auto Delete Messages"}
-                state={autoDelete > 0}
+                label={autoDelete === "off" ? "Auto Delete Messages" : `Auto Delete: ${autoDeleteLabel(autoDelete)}`}
+                state={autoDelete !== "off"}
                 onClick={() => {
                   setAutoDeleteOpen(true);
                   setMenuOpen(false);
@@ -908,7 +915,9 @@ function OrbitChatPage() {
                 type="button"
                 onClick={() => {
                   setAutoDelete(opt.value);
-                  pushSystem(opt.value ? `Messages auto delete after ${opt.label}` : "Auto delete turned off");
+                  pushSystem(opt.value === "off"
+                    ? "Auto-delete turned off"
+                    : `Auto-delete set to ${opt.label.toLowerCase()}`);
                   setAutoDeleteOpen(false);
                 }}
                 className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm transition-colors hover:bg-secondary ${

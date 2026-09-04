@@ -15,6 +15,10 @@ import {
   MIN_REEL_DURATION_SECONDS,
 } from "@/lib/reel-editor";
 import { qualityTierFromDimensions } from "@/lib/video-quality";
+import {
+  expiresAtForAutoDelete,
+  type AutoDeleteSetting,
+} from "@/lib/auto-delete";
 
 const liveSocialTable = (
   client: typeof supabase,
@@ -485,6 +489,10 @@ export type DbMessage = {
   media_url: string | null;
   voice_note_url: string | null;
   metadata?: Record<string, unknown> | null;
+  auto_delete_setting: AutoDeleteSetting;
+  expires_at: string | null;
+  is_viewed: boolean;
+  viewed_at: string | null;
   /** UI compatibility field derived from the messages URL columns. */
   media_type: string;
   is_read: boolean;
@@ -501,12 +509,41 @@ type PublicMessageRow = {
   metadata?: Record<string, unknown> | null;
   is_read: boolean;
   created_at: string;
+  auto_delete_setting?: AutoDeleteSetting | null;
+  expires_at?: string | null;
+  is_viewed?: boolean;
+  viewed_at?: string | null;
 };
 
 const toDbMessage = (row: PublicMessageRow): DbMessage => ({
   ...row,
+  auto_delete_setting: row.auto_delete_setting ?? "off",
+  expires_at: row.expires_at ?? null,
+  is_viewed: row.is_viewed ?? false,
+  viewed_at: row.viewed_at ?? null,
   media_type: row.voice_note_url ? "audio" : row.media_url ? "image" : "text",
 });
+
+const isRenderablePublicMessage = (
+  row: Pick<
+    PublicMessageRow,
+    | "sender_id"
+    | "receiver_id"
+    | "auto_delete_setting"
+    | "expires_at"
+    | "is_viewed"
+  >,
+  viewerId: string | null,
+  now = Date.now(),
+) =>
+  (!row.expires_at || new Date(row.expires_at).getTime() > now) &&
+  !(
+    viewerId &&
+    row.receiver_id === viewerId &&
+    row.sender_id !== viewerId &&
+    row.auto_delete_setting === "after_view" &&
+    row.is_viewed
+  );
 
 type MutationResult = Promise<{ error: { message: string } | null }>;
 // Migration 0015 is intentionally newer than generated Supabase types. Keep
@@ -716,18 +753,23 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
   const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState<string | null>(pair ? null : "Invalid chat address.");
   const messagesRef = useRef<DbMessage[]>([]);
+  const meRef = useRef<string | null>(null);
   useEffect(() => { messagesRef.current = messages; cacheSet(`thread:${threadId}`, messages.filter((m) => !m.id.startsWith("tmp-")).slice(-40)); }, [messages, threadId]);
 
   const belongs = useCallback((row: PublicMessageRow) => !!pair &&
     ((row.sender_id === pair[0] && row.receiver_id === pair[1]) || (row.sender_id === pair[1] && row.receiver_id === pair[0])), [pair]);
   const merge = useCallback((rows: PublicMessageRow[]) => setMessages((prev) => {
     const next = new Map(prev.filter((m) => m.id.startsWith("tmp-")).map((m) => [m.id, m]));
-    rows.filter(belongs).map(toDbMessage).forEach((m) => next.set(m.id, m));
+    rows
+      .filter(belongs)
+      .filter((row) => isRenderablePublicMessage(row, meRef.current))
+      .map(toDbMessage)
+      .forEach((m) => next.set(m.id, m));
     return [...next.values()].sort((a, b) => a.created_at.localeCompare(b.created_at));
   }), [belongs]);
   const queryRows = useCallback(async (before?: string) => {
     if (!pair) return [] as PublicMessageRow[];
-    let query = supabase.from("messages" as never).select("id,sender_id,receiver_id,content,media_url,voice_note_url,metadata,is_read,created_at" as never)
+    let query = supabase.from("messages" as never).select("id,sender_id,receiver_id,content,media_url,voice_note_url,metadata,is_read,created_at,auto_delete_setting,expires_at,is_viewed,viewed_at" as never)
       .or(`and(sender_id.eq.${pair[0]},receiver_id.eq.${pair[1]}),and(sender_id.eq.${pair[1]},receiver_id.eq.${pair[0]})`)
       .order("created_at", { ascending: false }).limit(PAGE_SIZE);
     if (before) query = query.lt("created_at", before);
@@ -750,8 +792,12 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     finally { setLoadingMore(false); }
   }, [queryRows, merge, loadingMore, hasMore]);
   useEffect(() => {
-    void supabase.auth.getSession().then(({ data }) => setMe(data.session?.user.id ?? null));
-    void load();
+    void supabase.auth.getSession().then(({ data }) => {
+      const id = data.session?.user.id ?? null;
+      meRef.current = id;
+      setMe(id);
+      void load();
+    });
     let alive = true;
     let retry: ReturnType<typeof setTimeout> | null = null;
     let channel: ReturnType<typeof supabase.channel> | null = null;
@@ -762,7 +808,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
         .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, (payload) => {
           const row = (payload.new ?? payload.old) as PublicMessageRow;
           if (!row?.id || !belongs(row)) return;
-          if (payload.eventType === "DELETE") setMessages((prev) => prev.filter((m) => m.id !== row.id));
+           if (payload.eventType === "DELETE" || !isRenderablePublicMessage(row, meRef.current)) setMessages((prev) => prev.filter((m) => m.id !== row.id));
           else merge([row]);
         })
         .subscribe((status) => {
@@ -794,13 +840,24 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       if (channel) void supabase.removeChannel(channel);
     };
   }, [threadId, load, belongs, merge]);
-  const send = useCallback(async (payload: { content?: string; media_url?: string | null; voice_note_url?: string | null }) => {
+  useEffect(() => {
+    const sweep = () => {
+      setMessages((prev) => prev.filter((message) => isRenderablePublicMessage(message, meRef.current)));
+      void supabase.rpc("delete_expired_chat_messages" as never);
+    };
+    sweep();
+    const timer = window.setInterval(sweep, 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const send = useCallback(async (payload: { content?: string; media_url?: string | null; voice_note_url?: string | null; autoDeleteSetting?: AutoDeleteSetting }) => {
     if (!me || !pair || !pair.includes(me)) return { error: "You are not authorized for this chat." };
     const receiverId = pair.find((id) => id !== me)!;
+    const autoDeleteSetting = payload.autoDeleteSetting ?? "off";
+    const expiresAt = expiresAtForAutoDelete(autoDeleteSetting);
     const tempId = `tmp-${Date.now()}`;
-    const optimistic = toDbMessage({ id: tempId, sender_id: me, receiver_id: receiverId, content: payload.content ?? "", media_url: payload.media_url ?? null, voice_note_url: payload.voice_note_url ?? null, metadata: {}, is_read: false, created_at: new Date().toISOString() });
+    const optimistic = toDbMessage({ id: tempId, sender_id: me, receiver_id: receiverId, content: payload.content ?? "", media_url: payload.media_url ?? null, voice_note_url: payload.voice_note_url ?? null, metadata: {}, is_read: false, created_at: new Date().toISOString(), auto_delete_setting: autoDeleteSetting, expires_at: expiresAt, is_viewed: false, viewed_at: null });
     setMessages((prev) => [...prev, optimistic]);
-    const { data, error: insertError } = await supabase.from("messages" as never).insert({ sender_id: me, receiver_id: receiverId, content: optimistic.content, media_url: optimistic.media_url, voice_note_url: optimistic.voice_note_url, metadata: {} } as never).select("*").maybeSingle();
+    const { data, error: insertError } = await supabase.from("messages" as never).insert({ sender_id: me, receiver_id: receiverId, content: optimistic.content, media_url: optimistic.media_url, voice_note_url: optimistic.voice_note_url, metadata: {}, auto_delete_setting: autoDeleteSetting, expires_at: expiresAt } as never).select("*").maybeSingle();
     if (insertError) { setMessages((prev) => prev.filter((m) => m.id !== tempId)); setError(insertError.message); return { error: insertError.message }; }
     if (data) merge([data as unknown as PublicMessageRow]);
     setMessages((prev) => prev.filter((m) => m.id !== tempId));
@@ -817,7 +874,19 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     if (!me || !ids.length) return;
     const { error: updateError } = await supabase.from("messages" as never).update({ is_read: true } as never).in("id", ids).eq("receiver_id", me);
     if (updateError) { setError(updateError.message); return; }
-    setMessages((prev) => prev.map((m) => ids.includes(m.id) && m.receiver_id === me ? { ...m, is_read: true } : m));
+    const viewedAt = new Date().toISOString();
+    const { error: viewedError } = await supabase
+      .from("messages" as never)
+      .update({ is_viewed: true, viewed_at: viewedAt } as never)
+      .in("id", ids)
+      .eq("receiver_id", me)
+      .eq("auto_delete_setting", "after_view");
+    if (viewedError) { setError(viewedError.message); return; }
+    setMessages((prev) => prev
+      .map((m) => ids.includes(m.id) && m.receiver_id === me
+        ? { ...m, is_read: true, is_viewed: m.auto_delete_setting === "after_view" ? true : m.is_viewed, viewed_at: m.auto_delete_setting === "after_view" ? viewedAt : m.viewed_at }
+        : m)
+      .filter((m) => isRenderablePublicMessage(m, me)));
   }, [me]);
   return useMemo(() => ({ messages, loading, loadingMore, hasMore, loadOlder, currentUserId: me, send, remove, markRead, error, reload: load }), [messages, loading, loadingMore, hasMore, loadOlder, me, send, remove, markRead, error, load]);
 }

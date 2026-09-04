@@ -25,6 +25,7 @@ import { useChatSettings } from "@/lib/chat-settings";
 import { hashPin, randomPinSalt, saveSecretChatLock } from "@/lib/secret-chats";
 import { PinDialog } from "@/components/yw/PinDialog";
 import { toast } from "sonner";
+import { AUTO_DELETE_OPTIONS, autoDeleteLabel } from "@/lib/auto-delete";
 import {
   STORAGE_BUCKETS,
   uploadSourceWithProgress,
@@ -189,7 +190,11 @@ function ChatThreadPage() {
   useEffect(() => {
     if (!currentUserId) return;
     const unread = dbMessages
-      .filter((m) => m.sender_id !== currentUserId && !m.is_read)
+      .filter(
+        (m) =>
+          m.sender_id !== currentUserId &&
+          (!m.is_read || (m.auto_delete_setting === "after_view" && !m.is_viewed)),
+      )
       .map((m) => m.id);
     if (unread.length) void markRead(unread);
   }, [dbMessages, currentUserId, markRead]);
@@ -236,6 +241,7 @@ function ChatThreadPage() {
   const [unlockError, setUnlockError] = useState<string | null>(null);
   const [pinMode, setPinMode] = useState<"set" | "remove" | null>(null);
   const [pinError, setPinError] = useState<string | null>(null);
+  const [autoDeleteOpen, setAutoDeleteOpen] = useState(false);
 
   const toggleSecretLock = () => {
     if (!peer.peerId) {
@@ -281,7 +287,6 @@ function ChatThreadPage() {
     }
   };
 
-  const autoDelete = settings.autoDelete;
   const screenshotAlert = settings.screenshotAlert;
   const recordingAlert = settings.recordingAlert;
   const muted = settings.muted;
@@ -369,16 +374,6 @@ function ChatThreadPage() {
     void pushSystem(`${currentUserName} took a ${kind === "recording" ? "recording" : "screenshot"}`);
   });
 
-  // Auto delete messages after the configured window
-  useEffect(() => {
-    if (!autoDelete) return;
-    const t = setInterval(() => {
-      const cutoff = Date.now() - autoDelete * 1000;
-      setLocalMessages((prev) => prev.filter((m) => m.ts >= cutoff));
-    }, 1000);
-    return () => clearInterval(t);
-  }, [autoDelete]);
-
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | undefined;
     if (isRecording) {
@@ -394,7 +389,7 @@ function ChatThreadPage() {
 
   const doSend = (currentMsg: string) => {
     if (currentUserId) {
-      void sendToDb({ content: currentMsg }).then((sent) => {
+      void sendToDb({ content: currentMsg, autoDeleteSetting: settings.autoDeleteSetting }).then((sent) => {
         if (sent.error) toast.error(sent.error);
       });
     } else {
@@ -450,6 +445,7 @@ function ChatThreadPage() {
           }
           const sent = await sendToDb({
             voice_note_url: uploaded.url,
+            autoDeleteSetting: settings.autoDeleteSetting,
           });
           if (sent.error) toast.error(sent.error);
         })();
@@ -611,10 +607,8 @@ function ChatThreadPage() {
                 void toggleSecretLock();
                 setShowOptionsMenu(false);
               }} />
-              <MenuItem icon={<Clock size={16} className="text-zinc-400" />} label={autoDelete ? `Auto Delete: ${autoDelete}s` : "Auto Delete Messages"} state={autoDelete > 0} onClick={() => {
-                const next = autoDelete === 0 ? 60 : autoDelete === 60 ? 300 : autoDelete === 300 ? 3600 : 0;
-                patch({ autoDelete: next });
-                pushSystem(next ? `Messages will auto delete after ${next}s` : "Auto delete turned off");
+              <MenuItem icon={<Clock size={16} className="text-zinc-400" />} label={settings.autoDeleteSetting === "off" ? "Auto Delete Messages" : `Auto Delete: ${autoDeleteLabel(settings.autoDeleteSetting)}`} state={settings.autoDeleteSetting !== "off"} onClick={() => {
+                setAutoDeleteOpen(true);
                 setShowOptionsMenu(false);
               }} />
               <MenuItem icon={<Camera size={16} className="text-zinc-400" />} label="Screenshot Alert" state={screenshotAlert} onClick={() => {
@@ -662,6 +656,33 @@ function ChatThreadPage() {
           </>
         )}
       </div>
+
+      {autoDeleteOpen && (
+        <div className="fixed inset-0 z-[130] grid place-items-center bg-black/70 px-6" onClick={() => setAutoDeleteOpen(false)}>
+          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-xs space-y-1 rounded-2xl border border-zinc-800 bg-zinc-900 p-4 shadow-2xl">
+            <h2 className="px-2 pb-2 text-sm font-bold text-white">Auto-delete messages</h2>
+            {AUTO_DELETE_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => {
+                  patch({ autoDeleteSetting: option.value });
+                  void pushSystem(option.value === "off"
+                    ? "Auto-delete turned off"
+                    : `Auto-delete set to ${option.label.toLowerCase()}`);
+                  setAutoDeleteOpen(false);
+                }}
+                className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm transition-colors hover:bg-zinc-800 ${
+                  settings.autoDeleteSetting === option.value ? "font-bold text-purple-300" : "text-zinc-200"
+                }`}
+              >
+                {option.label}
+                {settings.autoDeleteSetting === option.value && <CheckCheck size={16} />}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {protectionWarning !== null && (
         <div className="fixed inset-0 z-[140] grid place-items-center bg-black/70 px-6" onClick={() => setProtectionWarning(null)}>
@@ -1204,6 +1225,7 @@ function ChatThreadPage() {
               const sent = await sendToDb({
                 media_url: uploaded.url,
                 content: caption,
+                autoDeleteSetting: settings.autoDeleteSetting,
               });
               if (sent.error) {
                 toast.error(sent.error);

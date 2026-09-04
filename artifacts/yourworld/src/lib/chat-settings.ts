@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  autoDeleteSeconds,
+  normalizeAutoDeleteSetting,
+  type AutoDeleteSetting,
+} from "@/lib/auto-delete";
 
 /**
  * Per-conversation chat options (display name, secret lock, view once, auto
@@ -12,6 +17,8 @@ export type ChatSettings = {
   secretPinSalt: string | null;
   secretPinHash: string | null;
   viewOnce: boolean;
+  autoDeleteSetting: AutoDeleteSetting;
+  /** Legacy numeric value retained for older callers and rows. */
   autoDelete: number;
   screenshotAlert: boolean;
   recordingAlert: boolean;
@@ -25,6 +32,7 @@ const DEFAULTS: ChatSettings = {
   secretPinSalt: null,
   secretPinHash: null,
   viewOnce: false,
+  autoDeleteSetting: "off",
   autoDelete: 0,
   screenshotAlert: true,
   recordingAlert: true,
@@ -38,6 +46,7 @@ type Row = {
   secret_pin_salt: string | null;
   secret_pin_hash: string | null;
   view_once_mode: boolean;
+  auto_delete_setting?: string | null;
   auto_delete_seconds: number;
   screenshot_alert: boolean;
   recording_alert: boolean;
@@ -53,6 +62,7 @@ export function useChatSettings(peerId: string | null) {
   useEffect(() => {
     let alive = true;
     setReady(false);
+    setSettings(DEFAULTS);
     if (!peerId) return;
 
     void (async () => {
@@ -63,7 +73,7 @@ export function useChatSettings(peerId: string | null) {
       const { data } = await supabase
         .from("orbit_chat_settings")
         .select(
-          "display_name,secret_lock_enabled,secret_pin_salt,secret_pin_hash,view_once_mode,auto_delete_seconds,screenshot_alert,recording_alert,muted,blocked",
+          "display_name,secret_lock_enabled,secret_pin_salt,secret_pin_hash,view_once_mode,auto_delete_setting,auto_delete_seconds,screenshot_alert,recording_alert,muted,blocked",
         )
         .eq("user_id", me)
         .eq("peer_id", peerId)
@@ -77,6 +87,10 @@ export function useChatSettings(peerId: string | null) {
           secretPinSalt: row.secret_pin_salt,
           secretPinHash: row.secret_pin_hash,
           viewOnce: row.view_once_mode,
+          autoDeleteSetting: normalizeAutoDeleteSetting(
+            row.auto_delete_setting,
+            row.auto_delete_seconds,
+          ),
           autoDelete: row.auto_delete_seconds ?? 0,
           screenshotAlert: row.screenshot_alert,
           recordingAlert: row.recording_alert,
@@ -108,7 +122,8 @@ export function useChatSettings(peerId: string | null) {
               secret_pin_salt: merged.secretPinSalt,
               secret_pin_hash: merged.secretPinHash,
               view_once_mode: merged.viewOnce,
-              auto_delete_seconds: merged.autoDelete,
+              auto_delete_setting: merged.autoDeleteSetting,
+              auto_delete_seconds: autoDeleteSeconds(merged.autoDeleteSetting),
               screenshot_alert: merged.screenshotAlert,
               recording_alert: merged.recordingAlert,
               muted: merged.muted,

@@ -2,6 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { uploadOrbitMedia } from "@/lib/orbit-live";
 import { loadCachedThread, saveCachedThread, PAGE_SIZE } from "@/lib/chat-db";
+import {
+  expiresAtForAutoDelete,
+  type AutoDeleteSetting,
+} from "@/lib/auto-delete";
 
 export type OrbitMsgKind = "text" | "photo" | "video" | "audio" | "system";
 
@@ -12,6 +16,9 @@ export type OrbitMessage = {
   text?: string;
   url?: string;
   viewOnce?: boolean;
+  autoDeleteSetting?: AutoDeleteSetting;
+  isViewed?: boolean;
+  viewedAt?: number;
   /** Retained in the local cache so an expired row can never be painted offline. */
   expiresAt?: number;
   at: number;
@@ -25,7 +32,10 @@ type Row = {
   text: string | null;
   url: string | null;
   view_once: boolean;
+  auto_delete_setting: AutoDeleteSetting | null;
   expires_at: string | null;
+  is_viewed: boolean;
+  viewed_at: string | null;
   created_at: string;
 };
 
@@ -41,11 +51,34 @@ function removeOrbitMediaByUrl(url: string) {
   }
 }
 
-export const isUnexpiredOrbitRow = (r: Pick<Row, "expires_at">, now = Date.now()) =>
-  !r.expires_at || new Date(r.expires_at).getTime() > now;
+export const isUnexpiredOrbitRow = (
+  r: { expires_at: string | null } & Partial<
+    Pick<Row, "auto_delete_setting" | "is_viewed" | "sender_id" | "recipient_id">
+  >,
+  viewerOrNow?: string | null | number,
+  now = Date.now(),
+) => {
+  const viewerId = typeof viewerOrNow === "number" ? undefined : viewerOrNow;
+  const timestamp = typeof viewerOrNow === "number" ? viewerOrNow : now;
+  return (
+    (!r.expires_at || new Date(r.expires_at).getTime() > timestamp) &&
+    !(
+      viewerId &&
+      r.recipient_id === viewerId &&
+      r.sender_id !== viewerId &&
+      r.auto_delete_setting === "after_view" &&
+      r.is_viewed
+    )
+  )
+};
 
-export const isRenderableOrbitMessage = (m: Pick<OrbitMessage, "expiresAt">, now = Date.now()) =>
-  !m.expiresAt || m.expiresAt > now;
+export const isRenderableOrbitMessage = (
+  m: Pick<OrbitMessage, "expiresAt"> &
+    Partial<Pick<OrbitMessage, "autoDeleteSetting" | "isViewed" | "me">>,
+  now = Date.now(),
+) =>
+  (!m.expiresAt || m.expiresAt > now) &&
+  !(m.autoDeleteSetting === "after_view" && m.isViewed && !m.me);
 
 const toMsg = (r: Row, me: string): OrbitMessage => ({
   id: r.id,
@@ -54,6 +87,9 @@ const toMsg = (r: Row, me: string): OrbitMessage => ({
   text: r.text ?? undefined,
   url: r.url ?? undefined,
   viewOnce: r.view_once,
+  autoDeleteSetting: r.auto_delete_setting ?? "off",
+  isViewed: r.is_viewed,
+  viewedAt: r.viewed_at ? new Date(r.viewed_at).getTime() : undefined,
   expiresAt: r.expires_at ? new Date(r.expires_at).getTime() : undefined,
   at: new Date(r.created_at).getTime(),
 });
@@ -70,8 +106,8 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
   const merge = useCallback((next: OrbitMessage[]) => {
     setMessages((prev) => {
       const map = new Map(prev.map((m) => [m.id, m]));
-      for (const m of next) if (isRenderableOrbitMessage(m)) map.set(m.id, m);
-      for (const [id, m] of map) if (!isRenderableOrbitMessage(m)) map.delete(id);
+       for (const m of next) if (isRenderableOrbitMessage(m)) map.set(m.id, m);
+       for (const [id, m] of map) if (!isRenderableOrbitMessage(m)) map.delete(id);
       return [...map.values()].sort((a, b) => a.at - b.at);
     });
   }, []);
@@ -82,7 +118,7 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
     if (enabled && isUuid(peerId)) {
       saveCachedThread(
         `orbit:${peerId}`,
-        messages.filter((m) => !m.id.startsWith("temp-") && isRenderableOrbitMessage(m)),
+         messages.filter((m) => !m.id.startsWith("temp-") && isRenderableOrbitMessage(m)),
       );
     }
   }, [messages, peerId, enabled]);
@@ -106,15 +142,15 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
       meRef.current = me;
       setMeId(me);
       let query = supabase
-        .from("orbit_messages")
-        .select("id,sender_id,recipient_id,kind,text,url,view_once,expires_at,created_at")
+        .from("orbit_messages" as never)
+        .select("id,sender_id,recipient_id,kind,text,url,view_once,auto_delete_setting,expires_at,is_viewed,viewed_at,created_at")
         .or(
           `and(sender_id.eq.${me},recipient_id.eq.${peerId}),and(sender_id.eq.${peerId},recipient_id.eq.${me})`,
         );
       if (clearedBefore) query = query.gt("created_at", clearedBefore);
       const { data } = await query.order("created_at", { ascending: false }).limit(PAGE_SIZE);
       if (cancelled) return;
-       const rows = ((data ?? []) as Row[]).filter((row) => isUnexpiredOrbitRow(row));
+       const rows = ((data ?? []) as unknown as Row[]).filter((row) => isUnexpiredOrbitRow(row, me));
       setHasMore(rows.length >= PAGE_SIZE);
       merge(rows.map((r) => toMsg(r, me)));
     };
@@ -148,7 +184,7 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
           const pair =
             (row.sender_id === me && row.recipient_id === peerId) ||
             (row.sender_id === peerId && row.recipient_id === me);
-          if (!pair || !isUnexpiredOrbitRow(row) || (clearedBefore && new Date(row.created_at).getTime() <= new Date(clearedBefore).getTime())) return;
+           if (!pair || !isUnexpiredOrbitRow(row, me, Date.now()) || (clearedBefore && new Date(row.created_at).getTime() <= new Date(clearedBefore).getTime())) return;
           if (payload.eventType === "DELETE") {
             setMessages((prev) => prev.filter((m) => m.id !== row.id));
             return;
@@ -182,9 +218,11 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
   }, [peerId, enabled, merge, clearedBefore]);
 
   const insert = useCallback(
-    async (msg: { kind: OrbitMsgKind; text?: string; url?: string; viewOnce?: boolean; expiresIn?: number }) => {
+    async (msg: { kind: OrbitMsgKind; text?: string; url?: string; viewOnce?: boolean; autoDeleteSetting?: AutoDeleteSetting }) => {
       const me = meRef.current;
       if (!me || !isUuid(peerId)) return null;
+      const autoDeleteSetting = msg.autoDeleteSetting ?? "off";
+      const expiresAt = expiresAtForAutoDelete(autoDeleteSetting);
       const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
       merge([
         {
@@ -194,11 +232,14 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
           text: msg.text,
           url: msg.url,
           viewOnce: msg.viewOnce,
+           autoDeleteSetting,
+           expiresAt: expiresAt ? new Date(expiresAt).getTime() : undefined,
+           isViewed: false,
           at: Date.now(),
         },
       ]);
       const { data, error } = await supabase
-        .from("orbit_messages")
+        .from("orbit_messages" as never)
         .insert({
           sender_id: me,
           recipient_id: peerId,
@@ -206,28 +247,32 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
           text: msg.text ?? null,
           url: msg.url ?? null,
           view_once: !!msg.viewOnce,
-          expires_at: msg.expiresIn ? new Date(Date.now() + msg.expiresIn * 1000).toISOString() : null,
+          auto_delete_setting: autoDeleteSetting,
+          expires_at: expiresAt,
+          is_viewed: false,
+          viewed_at: null,
         } as never)
-        .select("id,sender_id,recipient_id,kind,text,url,view_once,expires_at,created_at")
+        .select("id,sender_id,recipient_id,kind,text,url,view_once,auto_delete_setting,expires_at,is_viewed,viewed_at,created_at")
         .maybeSingle();
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
        if (error || !data) return null;
-      merge([toMsg(data as Row, me)]);
+       merge([toMsg(data as unknown as Row, me)]);
       return (data as Row).id;
     },
     [peerId, merge],
   );
 
   const sendText = useCallback(
-    (text: string, expiresIn = 0) => insert({ kind: "text", text, expiresIn }),
+    (text: string, autoDeleteSetting: AutoDeleteSetting = "off") =>
+      insert({ kind: "text", text, autoDeleteSetting }),
     [insert],
   );
 
   const sendMedia = useCallback(
-    async (file: File, kind: "photo" | "video" | "audio", viewOnce = false, expiresIn = 0) => {
+    async (file: File, kind: "photo" | "video" | "audio", viewOnce = false, autoDeleteSetting: AutoDeleteSetting = "off") => {
       const url = await uploadOrbitMedia(file);
       if (!url) return null;
-      const id = await insert({ kind, url, viewOnce, expiresIn });
+      const id = await insert({ kind, url, viewOnce, autoDeleteSetting });
       if (!id) removeOrbitMediaByUrl(url);
       return id;
     },
@@ -252,6 +297,20 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
     return true;
   }, [peerId]);
 
+  const markViewed = useCallback(async (ids: string[]) => {
+    const me = meRef.current;
+    if (!me || !ids.length) return;
+    const viewedAt = new Date().toISOString();
+    const { error } = await supabase
+      .from("orbit_messages" as never)
+      .update({ is_viewed: true, viewed_at: viewedAt } as never)
+      .in("id", ids)
+      .eq("recipient_id", me)
+      .eq("auto_delete_setting", "after_view");
+    if (error) return;
+    setMessages((prev) => prev.filter((message) => !ids.includes(message.id) || message.me));
+  }, []);
+
   const remove = useCallback(async (ids: string[]) => {
     if (!ids.length) return;
     setMessages((prev) => prev.filter((m) => !ids.includes(m.id)));
@@ -270,15 +329,15 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
     if (!me || !oldest || loadingMore || !hasMore || !isUuid(peerId)) return;
     setLoadingMore(true);
     let query = supabase
-      .from("orbit_messages")
-      .select("id,sender_id,recipient_id,kind,text,url,view_once,expires_at,created_at")
+      .from("orbit_messages" as never)
+      .select("id,sender_id,recipient_id,kind,text,url,view_once,auto_delete_setting,expires_at,is_viewed,viewed_at,created_at")
       .or(
         `and(sender_id.eq.${me},recipient_id.eq.${peerId}),and(sender_id.eq.${peerId},recipient_id.eq.${me})`,
       )
       .lt("created_at", new Date(oldest).toISOString());
     if (clearedBefore) query = query.gt("created_at", clearedBefore);
     const { data } = await query.order("created_at", { ascending: false }).limit(PAGE_SIZE);
-    const rows = ((data ?? []) as Row[]).filter((row) => isUnexpiredOrbitRow(row));
+    const rows = ((data ?? []) as unknown as Row[]).filter((row) => isUnexpiredOrbitRow(row, me));
     setHasMore(rows.length >= PAGE_SIZE);
     if (rows.length) merge(rows.map((r) => toMsg(r, me)));
     setLoadingMore(false);
@@ -288,12 +347,12 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
     if (!enabled) return;
     const sweep = () => {
       setMessages((prev) => prev.filter((message) => isRenderableOrbitMessage(message)));
-      void supabase.rpc("delete_expired_orbit_messages" as never);
+      void supabase.rpc("delete_expired_chat_messages" as never);
     };
     sweep();
     const timer = window.setInterval(sweep, 30_000);
     return () => window.clearInterval(timer);
   }, [enabled]);
 
-  return { messages, meId, sendText, sendMedia, insert, consumeViewOnce, remove, clear, loadOlder, loadingMore, hasMore };
+  return { messages, meId, sendText, sendMedia, insert, consumeViewOnce, markViewed, remove, clear, loadOlder, loadingMore, hasMore };
 }
