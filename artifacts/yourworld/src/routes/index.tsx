@@ -2,7 +2,8 @@ import React from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { usePostSaves } from "@/lib/post-actions";
 import { LongVideoCard } from "@/components/yw/LongVideoCard";
-import { useLongVideos } from "@/lib/video-data";
+import { VerticalVideoCard } from "@/components/yw/VerticalVideoCard";
+import { useLongVideos, type LongVideo } from "@/lib/video-data";
 import { setVideoQueue } from "@/lib/video-queue";
 import { Search, Heart, Plus } from "lucide-react";
 import { useMoments } from "@/lib/moment-store";
@@ -135,6 +136,40 @@ function HomePage() {
     return list;
   }, [moments]);
 
+  const feedGroups = React.useMemo<
+    Array<
+      | { kind: "standard"; video: LongVideo }
+      | { kind: "vertical"; videos: LongVideo[] }
+    >
+  >(() => {
+    const groups: Array<
+      | { kind: "standard"; video: LongVideo }
+      | { kind: "vertical"; videos: LongVideo[] }
+    > = [];
+
+    for (const video of videos) {
+      const metadata = video as LongVideo & {
+        aspect_ratio?: string | null;
+        video_type?: string | null;
+      };
+      const isVertical =
+        video.orientation === "portrait" ||
+        metadata.aspect_ratio === "9:16" ||
+        metadata.video_type === "vertical";
+      const previous = groups[groups.length - 1];
+
+      if (isVertical && previous?.kind === "vertical") {
+        previous.videos.push(video);
+      } else if (isVertical) {
+        groups.push({ kind: "vertical", videos: [video] });
+      } else {
+        groups.push({ kind: "standard", video });
+      }
+    }
+
+    return groups;
+  }, [videos]);
+
   return (
     <div className="min-h-screen bg-black text-white pb-24">
       {/* Header */}
@@ -222,18 +257,26 @@ function HomePage() {
         ) : videos.length === 0 ? (
           <div className="text-center py-12 text-neutral-500 text-sm">No videos yet. Be the first to share!</div>
         ) : (
-          videos.map((video) => (
-            <LongVideoCard
-              key={video.id}
-              video={video}
-              currentUserId={currentUserId}
-              onView={countView}
-              onLike={toggleLike}
-              isSaved={!!saved[video.id]}
-              onToggleSave={toggleSave}
-              onDeleted={() => reload()}
-            />
-          ))
+          feedGroups.map((group) =>
+            group.kind === "vertical" ? (
+              <div key={group.videos[0]?.id} className="grid grid-cols-2 gap-2.5 px-3 py-2">
+                {group.videos.map((video) => (
+                  <VerticalVideoCard key={video.id} video={video} />
+                ))}
+              </div>
+            ) : (
+              <LongVideoCard
+                key={group.video.id}
+                video={group.video}
+                currentUserId={currentUserId}
+                onView={countView}
+                onLike={toggleLike}
+                isSaved={!!saved[group.video.id]}
+                onToggleSave={toggleSave}
+                onDeleted={() => reload()}
+              />
+            ),
+          )
         )}
 
       </main>
