@@ -133,6 +133,10 @@ function ProfilePage() {
       toast.error("This media is unavailable.");
       return;
     }
+    if (post.kind === "reel") {
+      void navigate({ to: "/reels", search: { reelId: id } });
+      return;
+    }
     void navigate({ to: "/video/$videoId", params: { videoId: id } });
   };
 

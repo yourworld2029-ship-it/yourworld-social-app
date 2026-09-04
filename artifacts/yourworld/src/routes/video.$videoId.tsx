@@ -98,15 +98,36 @@ function MediaViewerPage() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [busy, setBusy] = useState(false);
   const [commentCount, setCommentCount] = useState(0);
+  const [mediaLoading, setMediaLoading] = useState(false);
+  const [mediaError, setMediaError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!post) return;
     let alive = true;
     const bucket = post.kind === "reel" ? "reels" : "videos";
+    setSrc(null);
+    setMediaLoading(true);
+    setMediaError(null);
     void (post.kind === "reel"
       ? resolveMediaUrl(post.media_url, bucket)
       : resolveLongVideoUrl(post.media_url)
-    ).then((url) => alive && setSrc(url));
+    )
+      .then((url) => {
+        if (!alive) return;
+        if (url) {
+          setSrc(url);
+        } else {
+          setMediaError("This media is no longer available.");
+        }
+      })
+      .catch((cause) => {
+        if (!alive) return;
+        console.error("Unable to resolve media viewer source", cause);
+        setMediaError("This media could not be loaded.");
+      })
+      .finally(() => {
+        if (alive) setMediaLoading(false);
+      });
     void resolveMediaUrl(post.authorAvatarUrl ?? "", "avatars").then(
       (url) => alive && setAvatarSrc(url || null),
     );
@@ -131,7 +152,10 @@ function MediaViewerPage() {
 
   const isMine = currentUserId === post.user_id;
   const isSaved = !!saved[post.id];
-  const isVideo = post.kind === "video" || post.kind === "reel" || post.media_type.startsWith("video");
+  const isVideo =
+    post.kind === "video" ||
+    post.kind === "reel" ||
+    (post.media_type ?? "").startsWith("video");
   const ratio = mediaAspect(post);
   const shareUrl =
     typeof window !== "undefined"
@@ -255,7 +279,14 @@ function MediaViewerPage() {
           className="media-frame relative mx-3 mt-3 overflow-hidden rounded-[1.35rem] bg-black"
           style={{ aspectRatio: ratio }}
         >
-          {src ? (
+          {mediaLoading && !src ? (
+            <div
+              data-testid="status-viewer-media-loading"
+              className="grid h-full min-h-64 place-items-center text-sm text-muted-foreground"
+            >
+              Loading media…
+            </div>
+          ) : src ? (
             isVideo ? (
               post.kind !== "reel" ? (
                 <TrackedVideoPlayer
@@ -292,6 +323,13 @@ function MediaViewerPage() {
                 className="h-full w-full object-contain"
               />
             )
+          ) : mediaError ? (
+            <div
+              data-testid="status-viewer-media-error"
+              className="grid h-full min-h-64 place-items-center px-6 text-center text-sm text-muted-foreground"
+            >
+              {mediaError}
+            </div>
           ) : (
             <VideoPoster
               mediaUrl={post.media_url}

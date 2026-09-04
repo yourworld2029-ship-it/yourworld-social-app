@@ -251,6 +251,15 @@ export function LongVideoCard({
     }
   };
 
+  const openViewer = () => {
+    const id = typeof video?.id === "string" ? video.id.trim() : "";
+    if (!id) {
+      toast.error("This video is unavailable.");
+      return;
+    }
+    void navigate({ to: "/video/$videoId", params: { videoId: id } });
+  };
+
   const upcoming =
     !!video.scheduledAt && new Date(video.scheduledAt).getTime() > Date.now();
 
@@ -282,7 +291,8 @@ export function LongVideoCard({
           )}
         >
           <button
-            onClick={() => navigate({ to: "/video/$videoId", params: { videoId: video.id } })}
+            type="button"
+            onClick={openViewer}
             aria-label={`Open ${video.title}`}
             className="group relative h-full w-full"
           >

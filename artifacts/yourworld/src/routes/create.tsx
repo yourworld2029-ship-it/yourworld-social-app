@@ -295,7 +295,7 @@ function CreateStudioPage() {
     setPosting(false);
     setShowPublish(false);
     setShowExport(false);
-    navigate({ to: "/reels" });
+    navigate({ to: "/reels", search: { reelId: undefined } });
   };
 
   const [audioTrack, setAudioTrack] = useState<AudioTrackState | null>(null);

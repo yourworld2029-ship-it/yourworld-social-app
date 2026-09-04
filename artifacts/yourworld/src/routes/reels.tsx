@@ -36,6 +36,10 @@ import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadShee
 import { isVideoQualityTier, qualityTierFromDimensions } from "@/lib/video-quality";
 
 export const Route = createFileRoute("/reels")({
+  validateSearch: (search: Record<string, unknown>) => {
+    const reelId = typeof search.reelId === "string" ? search.reelId.trim() : "";
+    return { reelId: reelId || undefined };
+  },
   head: () => ({
     meta: [
       { title: "Reels — YourWorld" },
@@ -67,6 +71,7 @@ function ReelsPage() {
 }
 
 function ReelsList() {
+  const { reelId } = Route.useSearch();
   const [active, setActive] = useState(0);
   const [audioEnabled, setAudioEnabled] = useState(false);
   const nodes = useRef<(HTMLElement | null)[]>([]);
@@ -75,6 +80,7 @@ function ReelsList() {
     toggleLike: toggleDbLike,
     countView,
     currentUserId,
+    loading,
   } = useSocialPosts("reel");
   const viewedRef = useRef(new Set<string>());
 
@@ -115,6 +121,16 @@ function ReelsList() {
   const items = live;
 
   useEffect(() => {
+    if (!reelId || loading) return;
+    const targetIndex = dbReels.findIndex((reel) => reel.id === reelId);
+    if (targetIndex < 0) return;
+    setActive(targetIndex);
+    requestAnimationFrame(() => {
+      nodes.current[targetIndex]?.scrollIntoView({ block: "start", behavior: "auto" });
+    });
+  }, [dbReels, loading, reelId]);
+
+  useEffect(() => {
     const reel = dbReels[active];
     if (!reel || viewedRef.current.has(reel.id) || !currentUserId) return;
     void countView(reel.id)
@@ -139,6 +155,30 @@ function ReelsList() {
     nodes.current.forEach((n) => n && io.observe(n));
     return () => io.disconnect();
   }, [items.length]);
+
+  if (loading) {
+    return (
+      <div className="grid h-full min-h-[calc(100dvh-4.75rem)] place-items-center px-6 text-center text-sm text-muted-foreground">
+        Loading reels…
+      </div>
+    );
+  }
+
+  if (!items.length) {
+    return (
+      <div className="grid h-full min-h-[calc(100dvh-4.75rem)] place-items-center px-6 text-center text-sm text-muted-foreground">
+        No reels yet.
+      </div>
+    );
+  }
+
+  if (reelId && !items.some(({ reel }) => reel.id === reelId)) {
+    return (
+      <div className="grid h-full min-h-[calc(100dvh-4.75rem)] place-items-center px-6 text-center text-sm text-muted-foreground">
+        This reel is no longer available.
+      </div>
+    );
+  }
 
   return (
     <>
