@@ -96,6 +96,11 @@ type TouchGesture = {
   initialZoom: number;
 };
 
+type TouchPointList = {
+  length: number;
+  item: (index: number) => { clientX: number; clientY: number } | null;
+};
+
 const liveCommentsTable = (client: typeof supabase) =>
   (client as unknown as {
     from: (name: "comments") => ReturnType<typeof supabase.from>;
@@ -160,6 +165,18 @@ function safeTimeAgo(value: string | null | undefined) {
   }
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function touchDistance(touches: TouchPointList) {
+  if (touches.length < 2) return 0;
+  const first = touches.item(0);
+  const second = touches.item(1);
+  if (!first || !second) return 0;
+  return Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY);
+}
+
 function VideoWatchPage() {
   const params = useParams({ strict: false });
   const videoId = typeof params?.videoId === "string" ? params.videoId : "";
@@ -185,6 +202,13 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const [disliked, setDisliked] = useState(false);
   const [likeCount, setLikeCount] = useState(0);
+  const [zoom, setZoom] = useState(1);
+  const [displayMode, setDisplayMode] = useState<"fit" | "fill">("fit");
+  const [brightness, setBrightness] = useState(1);
+  const [gestureFeedback, setGestureFeedback] = useState<GestureFeedback | null>(null);
+  const touchGestureRef = useRef<TouchGesture | null>(null);
+  const lastTapRef = useRef<{ time: number; x: number } | null>(null);
+  const feedbackTimerRef = useRef<number | null>(null);
 
   const {
     data: video,
@@ -391,6 +415,15 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     setLikeCount(Number(initialCount));
   }, [video?.id, video?.like_count, video?.likes, video?.likes_count]);
 
+  useEffect(
+    () => () => {
+      if (feedbackTimerRef.current !== null) {
+        window.clearTimeout(feedbackTimerRef.current);
+      }
+    },
+    [],
+  );
+
   const addCommentMutation = useMutation({
     mutationFn: async (text: string) => {
       if (!user) throw new Error("Must be logged in");
@@ -477,6 +510,123 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     }
   };
 
+  const showGestureFeedback = (
+    kind: GestureFeedback["kind"],
+    value: number,
+    label: string,
+  ) => {
+    setGestureFeedback({ kind, value, label });
+    if (feedbackTimerRef.current !== null) {
+      window.clearTimeout(feedbackTimerRef.current);
+    }
+    feedbackTimerRef.current = window.setTimeout(() => {
+      setGestureFeedback(null);
+      feedbackTimerRef.current = null;
+    }, 900);
+  };
+
+  const seekBy = (seconds: number) => {
+    const player = videoRef.current;
+    if (player) {
+      const duration = Number.isFinite(player.duration) ? player.duration : Number.POSITIVE_INFINITY;
+      player.currentTime = clamp(player.currentTime + seconds, 0, duration);
+    }
+    showGestureFeedback("seek", seconds, `${seconds > 0 ? "+" : ""}${seconds}s`);
+  };
+
+  const handleDoubleTap = (event: ReactMouseEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    seekBy(x >= rect.width / 2 ? 15 : -15);
+  };
+
+  const handleTouchStart = (event: ReactTouchEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const firstTouch = event.touches.item(0);
+    if (!firstTouch) return;
+    if (event.touches.length >= 2) {
+      event.preventDefault();
+      touchGestureRef.current = {
+        startX: firstTouch.clientX - rect.left,
+        startY: firstTouch.clientY - rect.top,
+        width: rect.width,
+        moved: true,
+        initialVolume: videoRef.current?.volume ?? 1,
+        initialBrightness: brightness,
+        initialDistance: touchDistance(event.touches),
+        initialZoom: zoom,
+      };
+      return;
+    }
+    touchGestureRef.current = {
+      startX: firstTouch.clientX - rect.left,
+      startY: firstTouch.clientY - rect.top,
+      width: rect.width,
+      moved: false,
+      initialVolume: videoRef.current?.volume ?? 1,
+      initialBrightness: brightness,
+      initialDistance: null,
+      initialZoom: zoom,
+    };
+  };
+
+  const handleTouchMove = (event: ReactTouchEvent<HTMLDivElement>) => {
+    const gesture = touchGestureRef.current;
+    if (!gesture) return;
+    if (event.touches.length >= 2 && gesture.initialDistance) {
+      event.preventDefault();
+      const distance = touchDistance(event.touches);
+      if (!distance) return;
+      const nextZoom = clamp(
+        gesture.initialZoom * (distance / gesture.initialDistance),
+        1,
+        3,
+      );
+      gesture.moved = true;
+      setZoom(nextZoom);
+      setDisplayMode(nextZoom > 1.05 ? "fill" : "fit");
+      showGestureFeedback("zoom", nextZoom, `${nextZoom.toFixed(1)}×`);
+      return;
+    }
+
+    const firstTouch = event.touches.item(0);
+    if (!firstTouch) return;
+    const deltaY = firstTouch.clientY - gesture.startY;
+    const deltaX = firstTouch.clientX - (gesture.startX + event.currentTarget.getBoundingClientRect().left);
+    if (Math.abs(deltaY) < 12 || Math.abs(deltaY) < Math.abs(deltaX)) return;
+    event.preventDefault();
+    gesture.moved = true;
+
+    if (gesture.startX < gesture.width / 2) {
+      const nextBrightness = clamp(
+        gesture.initialBrightness - deltaY / 280,
+        0.3,
+        1.5,
+      );
+      setBrightness(nextBrightness);
+      showGestureFeedback("brightness", nextBrightness, `${Math.round(nextBrightness * 100)}%`);
+    } else {
+      const nextVolume = clamp(gesture.initialVolume - deltaY / 280, 0, 1);
+      if (videoRef.current) videoRef.current.volume = nextVolume;
+      showGestureFeedback("volume", nextVolume, `${Math.round(nextVolume * 100)}%`);
+    }
+  };
+
+  const handleTouchEnd = (event: ReactTouchEvent<HTMLDivElement>) => {
+    const gesture = touchGestureRef.current;
+    touchGestureRef.current = null;
+    if (!gesture || gesture.moved) return;
+    const now = Date.now();
+    const previousTap = lastTapRef.current;
+    if (previousTap && now - previousTap.time < 320 && Math.abs(gesture.startX - previousTap.x) < 48) {
+      event.preventDefault();
+      seekBy(gesture.startX >= gesture.width / 2 ? 15 : -15);
+      lastTapRef.current = null;
+      return;
+    }
+    lastTapRef.current = { time: now, x: gesture.startX };
+  };
+
   if (isLoading) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-black text-white">
@@ -507,7 +657,14 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
 
   return (
     <div className="min-h-screen bg-black pb-20 text-white">
-      <div className="sticky top-0 z-40 flex aspect-video max-h-[45vh] w-full items-center justify-center overflow-hidden bg-black shadow-lg sm:max-h-[55vh]">
+      <div
+        className="sticky top-0 z-40 flex aspect-video max-h-[45vh] w-full items-center justify-center overflow-hidden bg-black shadow-lg sm:max-h-[55vh]"
+        onDoubleClick={handleDoubleTap}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        style={{ touchAction: "none" }}
+      >
         {mediaUrl ? (
           <video
             ref={videoRef}
@@ -516,10 +673,84 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
             autoPlay
             playsInline
             className="w-full h-full object-contain"
+            style={{
+              transform: `scale(${zoom})`,
+              transformOrigin: "center center",
+              objectFit: displayMode === "fill" ? "cover" : "contain",
+              filter: `brightness(${brightness})`,
+              transition: gestureFeedback?.kind === "zoom" ? "none" : "transform 160ms ease-out",
+            }}
           />
         ) : (
           <div className="text-sm text-gray-500">No media URL found</div>
         )}
+
+        {gestureFeedback?.kind === "seek" ? (
+          <div
+            className={`pointer-events-none absolute top-1/2 flex -translate-y-1/2 flex-col items-center gap-2 ${
+              gestureFeedback.value > 0 ? "right-1/4" : "left-1/4"
+            }`}
+            aria-live="polite"
+          >
+            <span className="absolute h-20 w-20 animate-ping rounded-full border border-white/50" />
+            <span className="grid h-16 w-16 place-items-center rounded-full bg-black/65 text-sm font-bold text-white backdrop-blur-sm">
+              {gestureFeedback.label}
+            </span>
+          </div>
+        ) : null}
+
+        {gestureFeedback?.kind === "volume" ? (
+          <div className="pointer-events-none absolute right-5 top-1/2 flex -translate-y-1/2 flex-col items-center gap-2 rounded-full bg-black/60 px-2.5 py-3 text-white backdrop-blur-sm">
+            <Volume2 className="h-4 w-4" />
+            <div className="flex h-24 w-1.5 items-end overflow-hidden rounded-full bg-white/25">
+              <div
+                className="w-full rounded-full bg-white transition-[height]"
+                style={{ height: `${gestureFeedback.value * 100}%` }}
+              />
+            </div>
+            <span className="text-[10px] font-semibold">{gestureFeedback.label}</span>
+          </div>
+        ) : null}
+
+        {gestureFeedback?.kind === "brightness" ? (
+          <div className="pointer-events-none absolute left-5 top-1/2 flex -translate-y-1/2 flex-col items-center gap-2 rounded-full bg-black/60 px-2.5 py-3 text-white backdrop-blur-sm">
+            <Sun className="h-4 w-4" />
+            <div className="flex h-24 w-1.5 items-end overflow-hidden rounded-full bg-white/25">
+              <div
+                className="w-full rounded-full bg-yellow-300 transition-[height]"
+                style={{
+                  height: `${((gestureFeedback.value - 0.3) / 1.2) * 100}%`,
+                }}
+              />
+            </div>
+            <span className="text-[10px] font-semibold">{gestureFeedback.label}</span>
+          </div>
+        ) : null}
+
+        {gestureFeedback?.kind === "zoom" ? (
+          <div className="pointer-events-none absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-full bg-black/65 px-4 py-2 text-sm font-semibold text-white backdrop-blur-sm">
+            <ZoomIn className="h-4 w-4" />
+            {gestureFeedback.label}
+          </div>
+        ) : null}
+
+        <button
+          type="button"
+          onClick={() => {
+            if (zoom > 1 || displayMode === "fill") {
+              setZoom(1);
+              setDisplayMode("fit");
+            } else {
+              setDisplayMode("fill");
+            }
+          }}
+          onTouchStart={(event) => event.stopPropagation()}
+          onTouchEnd={(event) => event.stopPropagation()}
+          className="absolute right-3 top-3 z-50 rounded-full bg-black/60 px-2.5 py-1.5 text-[10px] font-semibold text-white backdrop-blur-md transition hover:bg-black/80"
+          aria-label={zoom > 1 || displayMode === "fill" ? "Fit video to screen" : "Fill video screen"}
+        >
+          {zoom > 1 || displayMode === "fill" ? "Fit" : "Fill"}
+        </button>
 
         <button
           type="button"
@@ -530,6 +761,8 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           }
           className="absolute left-3 top-3 z-50 rounded-full bg-black/60 p-2 text-white backdrop-blur-md transition-all hover:bg-black/80"
           aria-label="Go back"
+          onTouchStart={(event) => event.stopPropagation()}
+          onTouchEnd={(event) => event.stopPropagation()}
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
