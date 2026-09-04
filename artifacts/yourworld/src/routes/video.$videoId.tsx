@@ -13,7 +13,6 @@ import {
   Bookmark,
   Check,
   Clock,
-  Download,
   Eye,
   MessageCircle,
   MoreHorizontal,
@@ -403,7 +402,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["video-subscription", creatorId, user?.id] });
       void queryClient.invalidateQueries({ queryKey: ["video-subscriber-count", creatorId] });
-      toast.success(subscribed ? "Unsubscribed" : "Subscribed");
+      toast.success(subscribed ? "Unfollowed" : "Followed");
     },
     onError: (cause) => {
       toast.error(cause instanceof Error ? cause.message : "Couldn't update subscription");
@@ -488,25 +487,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     if (liked[videoId]) {
       toggleLike(videoId);
       setLikeCount((count) => Math.max(0, count - 1));
-    }
-  };
-
-  const handleDownload = () => {
-    const mediaUrl = video?.media_url || video?.video_url || video?.url || "";
-    if (!mediaUrl) {
-      toast.error("This video has no downloadable media");
-      return;
-    }
-    try {
-      const link = document.createElement("a");
-      link.href = mediaUrl;
-      link.download = `${(video?.title || "yourworld-video").replace(/[^a-z0-9-_]+/gi, "-")}.mp4`;
-      link.target = "_blank";
-      link.rel = "noopener";
-      link.click();
-      toast.success("Download started");
-    } catch {
-      toast.error("Couldn't download this video");
     }
   };
 
@@ -806,7 +786,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
             ) : (
               <UserPlus className="mr-1.5 h-3.5 w-3.5" />
             )}
-            {subscribed ? "Subscribed" : "Subscribe"}
+            {subscribed ? "Following" : "Follow"}
           </Button>
         </div>
 
@@ -858,14 +838,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           >
             <Bookmark className="mr-1.5 h-4 w-4" fill={saved[videoId] ? "currentColor" : "none"} />
             {saved[videoId] ? "Saved" : "Save"}
-          </Button>
-          <Button
-            type="button"
-            onClick={handleDownload}
-            variant="outline"
-            className="shrink-0 rounded-full border-white/10 bg-white/10 px-4 text-xs text-white hover:bg-white/15"
-          >
-            <Download className="mr-1.5 h-4 w-4" /> Download
           </Button>
           <Button
             type="button"
