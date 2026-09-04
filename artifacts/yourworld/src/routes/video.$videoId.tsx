@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import {
   Archive,
@@ -52,6 +52,7 @@ import {
 } from "@/lib/profile-data";
 import {
   resolveMediaUrl,
+  timeAgo,
   usePostComments,
   useMediaPost,
 } from "@/lib/social-data";
@@ -77,12 +78,33 @@ export const Route = createFileRoute("/video/$videoId")({
   component: MediaViewerPage,
 });
 
+function cleanMediaReference(value: unknown) {
+  return typeof value === "string"
+    ? value.trim().replace(/(?:\)|%29)+$/gi, "")
+    : "";
+}
+
+function formatTime(value: number) {
+  const totalSeconds = Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
 function MediaViewerPage() {
   const params = Route.useParams();
-  const videoId = typeof params.videoId === "string" ? params.videoId.trim() : "";
-  const mediaPostId = videoId || null;
+  const rawVideoId = typeof params.videoId === "string" ? params.videoId : "";
+  const decodedVideoId = (() => {
+    try {
+      return decodeURIComponent(rawVideoId);
+    } catch {
+      return rawVideoId;
+    }
+  })();
+  const cleanId = decodedVideoId.replace(/[^a-zA-Z0-9-]/g, "");
+  const mediaPostId = cleanId || null;
   const navigate = useNavigate();
-  const { post, loading, error, currentUserId, toggleLike, countView, reload } = useMediaPost(mediaPostId);
+  const { post, loading, currentUserId, toggleLike, countView, reload } = useMediaPost(mediaPostId);
   const { saved, toggleSave } = usePostSaves();
   const { comments } = usePostComments(mediaPostId);
   const [src, setSrc] = useState<string | null>(null);
@@ -100,8 +122,12 @@ function MediaViewerPage() {
   const [commentCount, setCommentCount] = useState(0);
   const [mediaLoading, setMediaLoading] = useState(false);
   const [mediaError, setMediaError] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [progress, setProgress] = useState(0);
   const postUserId = typeof post?.user_id === "string" ? post.user_id.trim() : "";
-  const mediaUrl = typeof post?.media_url === "string" ? post.media_url.trim() : "";
+  const mediaUrl = cleanMediaReference(post?.media_url);
   const mediaType = typeof post?.media_type === "string" ? post.media_type : "";
   const postCaption = typeof post?.caption === "string" ? post.caption : "";
   const creatorUsername = post?.author?.username || "user";
@@ -152,6 +178,12 @@ function MediaViewerPage() {
   }, [mediaUrl, post, postCaption]);
 
   useEffect(() => {
+    setCurrentTime(0);
+    setDuration(0);
+    setProgress(0);
+  }, [post?.id]);
+
+  useEffect(() => {
     setCommentCount(comments.length);
   }, [comments.length]);
 
@@ -160,7 +192,8 @@ function MediaViewerPage() {
   }, [post, countView]);
 
   if (loading && !post) return <ViewerState label="Loading your media…" />;
-  if (!post) return <ViewerState label={error ?? "This media is no longer available."} error />;
+  if (!post) return <ViewerState label="Video unavailable" error />;
+  if (mediaError && !src) return <ViewerState label="Video unavailable" error />;
 
   const isMine = !!postUserId && currentUserId === postUserId;
   const isSaved = !!saved[post.id];
@@ -264,7 +297,12 @@ function MediaViewerPage() {
             <YwAvatar user={creator} size={32} />
           )}
           <span className="min-w-0 text-left">
-            <span className="block truncate text-xs font-bold">@{creatorUsername}</span>
+            <span className="block truncate text-xs font-bold">
+              @{creatorUsername}
+              <span className="ml-2 font-normal text-muted-foreground">
+                • {post.created_at ? timeAgo(post.created_at) : "Just now"}
+              </span>
+            </span>
             <span className="block text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
               {post.kind === "reel" ? "Reel" : "Post"}
             </span>
@@ -313,6 +351,7 @@ function MediaViewerPage() {
                 />
               ) : (
                 <video
+                  ref={videoRef}
                   data-testid="video-viewer-reel"
                   src={src}
                   autoPlay
@@ -320,8 +359,35 @@ function MediaViewerPage() {
                   playsInline
                   muted={muted}
                   className="h-full w-full object-contain"
+                  onPlay={(event) => {
+                    const video = event.currentTarget;
+                    video.muted = false;
+                    video.volume = 1;
+                    setMuted(false);
+                  }}
+                  onLoadedMetadata={(event) => {
+                    const video = event.currentTarget;
+                    setDuration(Number.isFinite(video.duration) ? video.duration : 0);
+                    setCurrentTime(Number.isFinite(video.currentTime) ? video.currentTime : 0);
+                  }}
+                  onTimeUpdate={(event) => {
+                    const video = event.currentTarget;
+                    const nextTime = Number.isFinite(video.currentTime) ? video.currentTime : 0;
+                    setCurrentTime(nextTime);
+                    if (video.duration && Number.isFinite(video.duration)) {
+                      setDuration(video.duration);
+                      setProgress((nextTime / video.duration) * 100);
+                    }
+                  }}
+                  onError={() => {
+                    setSrc(null);
+                    setMediaError("Video unavailable");
+                  }}
                   onClick={(event) => {
                     const video = event.currentTarget;
+                    video.muted = false;
+                    video.volume = 1;
+                    setMuted(false);
                     if (video.paused) void video.play();
                     else video.pause();
                   }}
@@ -350,11 +416,34 @@ function MediaViewerPage() {
               className="h-full w-full object-contain"
             />
           )}
+          {post.kind === "reel" && isVideo && src ? (
+            <div className="pointer-events-none absolute inset-x-3 bottom-3 z-10">
+              <div className="mb-1 flex justify-end">
+                <span className="rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-white/90">
+                  {formatTime(currentTime)} / {formatTime(duration)}
+                </span>
+              </div>
+              <div className="h-1 overflow-hidden rounded-full bg-white/25">
+                <div
+                  className="h-1 bg-pink-500 transition-all duration-100"
+                  style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
+                />
+              </div>
+            </div>
+          ) : null}
           {post.kind === "reel" ? (
             <button
               type="button"
               data-testid="button-toggle-viewer-mute"
-              onClick={() => setMuted((value) => !value)}
+              onClick={() => {
+                const video = videoRef.current;
+                const nextMuted = video ? !video.muted : !muted;
+                if (video) {
+                  video.muted = nextMuted;
+                  video.volume = 1;
+                }
+                setMuted(nextMuted);
+              }}
               aria-label={muted ? "Unmute reel" : "Mute reel"}
               className="absolute bottom-3 right-3 z-20 grid h-9 w-9 place-items-center rounded-full bg-black/55 text-white backdrop-blur-md"
             >

@@ -208,6 +208,14 @@ export async function loadSocialPosts(
  * second data model. The profile grid and the public viewer now share the
  * same live likes/comments rows. */
 export function useMediaPost(postId: string | null) {
+  const cleanPostId = (() => {
+    if (typeof postId !== "string") return "";
+    try {
+      return decodeURIComponent(postId).replace(/[^a-zA-Z0-9-]/g, "");
+    } catch {
+      return postId.replace(/[^a-zA-Z0-9-]/g, "");
+    }
+  })();
   const [post, setPost] = useState<SocialPost | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -216,7 +224,7 @@ export function useMediaPost(postId: string | null) {
   const viewedRef = useRef(false);
 
   const load = useCallback(async () => {
-    if (!postId) {
+    if (!cleanPostId) {
       setPost(null);
       setError(null);
       setLoading(false);
@@ -231,7 +239,7 @@ export function useMediaPost(postId: string | null) {
       const { data: row, error: rowError } = await supabase
         .from("posts")
         .select("*")
-        .eq("id", postId)
+        .eq("id", cleanPostId)
         .maybeSingle();
       if (rowError || !row) {
         setPost(null);
@@ -242,8 +250,8 @@ export function useMediaPost(postId: string | null) {
       const normalized = normalizePostRow(row) as DbPost;
       const [{ data: profiles }, { data: likes }, { data: comments }] = await Promise.all([
         supabase.rpc("get_public_profiles", { ids: [normalized.user_id] }),
-        liveSocialTable(supabase, "likes").select("post_id,user_id").eq("post_id", postId),
-        liveSocialTable(supabase, "comments").select("post_id").eq("post_id", postId),
+        liveSocialTable(supabase, "likes").select("post_id,user_id").eq("post_id", cleanPostId),
+        liveSocialTable(supabase, "comments").select("post_id").eq("post_id", cleanPostId),
       ]);
       const profile = ((profiles ?? []) as DbProfile[])[0];
       const likeRows = (likes ?? []) as Array<{ post_id: string; user_id: string }>;
@@ -264,7 +272,7 @@ export function useMediaPost(postId: string | null) {
     } finally {
       setLoading(false);
     }
-  }, [postId]);
+  }, [cleanPostId]);
 
   useEffect(() => {
     viewedRef.current = false;
