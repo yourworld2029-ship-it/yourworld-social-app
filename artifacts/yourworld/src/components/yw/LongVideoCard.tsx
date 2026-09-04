@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
   Play, Eye, Heart, Clock, MessageCircle, Send, Bookmark,
-  Download, MoreHorizontal, Link2, Trash2, EyeOff,
+  MoreHorizontal, Link2, Trash2, EyeOff,
 } from "lucide-react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
@@ -28,13 +28,6 @@ import { useYw } from "@/lib/yw-store";
 import { cn } from "@/lib/utils";
 import { onStopRequested, releasePlayback, requestPlayback } from "@/lib/video-playback";
 import { getAdjacentVideo, warmVideo, type QueueItem } from "@/lib/video-queue";
-import {
-  downloadVideoInBackground,
-  downloadVideoAtQuality,
-  downloadAudioOnly,
-  sanitizeDownloadName,
-} from "@/lib/yw-download";
-import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadSheet";
 
 type Props = {
   video: LongVideo;
@@ -63,7 +56,6 @@ export function LongVideoCard({
   const [hidden, setHidden] = useState(false);
   const [commentCount, setCommentCount] = useState(video.commentCount);
   const [liking, setLiking] = useState(false);
-  const [downloadOpen, setDownloadOpen] = useState(false);
   const [playerPortrait, setPlayerPortrait] = useState(video.orientation === "portrait");
   const [active, setActive] = useState<QueueItem>({
     id: video.id,
@@ -183,36 +175,6 @@ export function LongVideoCard({
   };
   const shareUrl =
     typeof window !== "undefined" ? `${window.location.origin}/?post=${video.id}` : undefined;
-
-  const handleDownload = () => {
-    setDownloadOpen(true);
-  };
-
-  const downloadSelected = async (choice: DownloadChoice) => {
-    const toastId = toast.loading("Downloading video... 0%");
-    try {
-      const url = src ?? (await resolveLongVideoUrl(video.mediaUrl));
-      const baseName = sanitizeDownloadName(video.title, `yw-${video.id}`);
-      if (choice === "mp3") {
-        await downloadAudioOnly(url, baseName, (percent) =>
-          toast.loading(`Preparing MP3 audio... ${percent}%`, { id: toastId }),
-        );
-      } else if (choice === "original" || choice === video.sourceQualityTier) {
-        await downloadVideoInBackground(
-          url,
-          `${baseName}.mp4`,
-          (percent) => toast.loading(`Downloading ${choice} video... ${percent}%`, { id: toastId }),
-        );
-      } else {
-        await downloadVideoAtQuality(url, baseName, choice, (percent) =>
-          toast.loading(`Creating ${choice} video... ${percent}%`, { id: toastId }),
-        );
-      }
-      toast.success("Saved to your device", { id: toastId });
-    } catch {
-      toast.error("Couldn't save this video", { id: toastId });
-    }
-  };
 
   const handleSave = async () => {
     if (!onToggleSave) return;
@@ -364,9 +326,6 @@ export function LongVideoCard({
                   <Bookmark className="mr-2 h-4 w-4" />{" "}
                   {isSaved ? "Remove from saved" : "Save video"}
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleDownload}>
-                  <Download className="mr-2 h-4 w-4" /> Download
-                </DropdownMenuItem>
                 {!isMine && (
                   <DropdownMenuItem onClick={() => setHidden(true)}>
                     <EyeOff className="mr-2 h-4 w-4" /> Not interested
@@ -464,13 +423,6 @@ export function LongVideoCard({
               </button>
             </ShareSheet>
 
-            <button
-              onClick={handleDownload}
-              aria-label="Download"
-              className="text-zinc-400 transition-transform hover:text-white active:scale-75"
-            >
-              <Download size={18} />
-            </button>
           </div>
 
           <button
@@ -482,14 +434,6 @@ export function LongVideoCard({
           </button>
         </div>
       </div>
-      <DownloadSheet
-        open={downloadOpen}
-        onOpenChange={setDownloadOpen}
-        title={video.title}
-        durationSeconds={video.durationSeconds}
-        sourceQualityTier={video.sourceQualityTier}
-        onDownload={downloadSelected}
-      />
     </article>
   );
 }

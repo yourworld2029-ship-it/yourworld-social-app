@@ -2,7 +2,6 @@ import {
   useEffect,
   useRef,
   useState,
-  type MouseEvent as ReactMouseEvent,
   type TouchEvent as ReactTouchEvent,
   type ReactNode,
 } from "react";
@@ -16,13 +15,11 @@ import {
   ChevronDown,
   ChevronUp,
   Clock,
-  Download,
   Eye,
   Heart,
   Lock,
   Maximize2,
   MessageCircle,
-  MoreHorizontal,
   Reply,
   Send,
   Share2,
@@ -645,25 +642,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     }
   };
 
-  const handleDownload = () => {
-    const mediaUrl = video?.media_url || video?.video_url || video?.url || "";
-    if (!mediaUrl) {
-      toast.error("This video has no downloadable media");
-      return;
-    }
-    try {
-      const link = document.createElement("a");
-      link.href = mediaUrl;
-      link.download = `${(video?.title || "yourworld-video").replace(/[^a-z0-9-_]+/gi, "-")}.mp4`;
-      link.target = "_blank";
-      link.rel = "noopener";
-      link.click();
-      toast.success("Download started");
-    } catch {
-      toast.error("Couldn't download this video");
-    }
-  };
-
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
       void containerRef.current?.requestFullscreen?.();
@@ -692,24 +670,22 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     }, 900);
   };
 
-  const seekBy = (seconds: number) => {
-    const player = videoRef.current;
-    if (player) {
-      const duration = Number.isFinite(player.duration) ? player.duration : Number.POSITIVE_INFINITY;
-      player.currentTime = clamp(player.currentTime + seconds, 0, duration);
+  const toggleDisplayMode = () => {
+    if (zoom > 1 || displayMode === "fill") {
+      setZoom(1);
+      setDisplayMode("fit");
+    } else {
+      setDisplayMode("fill");
     }
-    showGestureFeedback("seek", seconds, `${seconds > 0 ? "+" : ""}${seconds}s`);
   };
 
-  const handleDoubleTap = (event: ReactMouseEvent<HTMLDivElement>) => {
-    if (screenLocked) return;
-    const rect = event.currentTarget.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    seekBy(x >= rect.width / 2 ? 15 : -15);
+  const handleDoubleTap = () => {
+    if (!isFullscreen || screenLocked) return;
+    toggleDisplayMode();
   };
 
   const handleTouchStart = (event: ReactTouchEvent<HTMLDivElement>) => {
-    if (screenLocked) return;
+    if (!isFullscreen || screenLocked) return;
     const rect = event.currentTarget.getBoundingClientRect();
     const firstTouch = event.touches.item(0);
     if (!firstTouch) return;
@@ -740,7 +716,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   };
 
   const handleTouchMove = (event: ReactTouchEvent<HTMLDivElement>) => {
-    if (screenLocked) return;
+    if (!isFullscreen || screenLocked) return;
     const gesture = touchGestureRef.current;
     if (!gesture) return;
     if (event.touches.length >= 2 && gesture.initialDistance) {
@@ -750,7 +726,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
       const nextZoom = clamp(
         gesture.initialZoom * (distance / gesture.initialDistance),
         1,
-        3,
+        4,
       );
       gesture.moved = true;
       setZoom(nextZoom);
@@ -783,7 +759,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   };
 
   const handleTouchEnd = (event: ReactTouchEvent<HTMLDivElement>) => {
-    if (screenLocked) return;
+    if (!isFullscreen || screenLocked) return;
     const gesture = touchGestureRef.current;
     touchGestureRef.current = null;
     if (!gesture || gesture.moved) return;
@@ -791,7 +767,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     const previousTap = lastTapRef.current;
     if (previousTap && now - previousTap.time < 320 && Math.abs(gesture.startX - previousTap.x) < 48) {
       event.preventDefault();
-      seekBy(gesture.startX >= gesture.width / 2 ? 15 : -15);
+      toggleDisplayMode();
       lastTapRef.current = null;
       return;
     }
@@ -830,7 +806,9 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     <div className="min-h-screen bg-black pb-20 text-white">
       <div
         ref={containerRef}
-        className="sticky relative top-0 z-40 flex aspect-video max-h-[45vh] w-full items-center justify-center overflow-hidden bg-black shadow-lg sm:max-h-[55vh]"
+         className={`sticky relative top-0 z-40 flex w-full items-center justify-center overflow-hidden bg-black shadow-lg ${
+           isFullscreen ? "h-screen max-h-none" : "aspect-video max-h-[45vh] sm:max-h-[55vh]"
+         }`}
         onDoubleClick={handleDoubleTap}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
@@ -841,13 +819,13 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           <video
             ref={videoRef}
             src={mediaUrl}
-            controls
+             controls={!screenLocked}
             controlsList="nodownload"
             disablePictureInPicture={false}
             autoPlay
             playsInline
              onTimeUpdate={handleVideoTimeUpdate}
-            className="w-full h-full object-contain"
+             className={`h-full w-full ${displayMode === "fill" ? "object-cover" : "object-contain"}`}
             style={{
               transform: `scale(${zoom})`,
               transformOrigin: "center center",
@@ -860,7 +838,8 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           <div className="text-sm text-gray-500">No media URL found</div>
         )}
 
-        <div className="z-50 pointer-events-none absolute inset-0">
+         {!screenLocked && (
+         <div className="pointer-events-none absolute inset-0 z-50">
           {gestureFeedback?.kind === "seek" ? (
             <div
               className={`pointer-events-none absolute top-1/2 flex -translate-y-1/2 flex-col items-center gap-2 ${
@@ -875,7 +854,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
             </div>
           ) : null}
 
-          {gestureFeedback?.kind === "volume" ? (
+           {isFullscreen && gestureFeedback?.kind === "volume" ? (
             <div className="pointer-events-none absolute right-5 top-1/2 flex -translate-y-1/2 flex-col items-center gap-2 rounded-full bg-black/60 px-2.5 py-3 text-white backdrop-blur-sm">
               <Volume2 className="h-4 w-4" />
               <div className="flex h-24 w-1.5 items-end overflow-hidden rounded-full bg-white/25">
@@ -888,7 +867,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
             </div>
           ) : null}
 
-          {gestureFeedback?.kind === "brightness" ? (
+           {isFullscreen && gestureFeedback?.kind === "brightness" ? (
             <div className="pointer-events-none absolute left-5 top-1/2 flex -translate-y-1/2 flex-col items-center gap-2 rounded-full bg-black/60 px-2.5 py-3 text-white backdrop-blur-sm">
               <Sun className="h-4 w-4" />
               <div className="flex h-24 w-1.5 items-end overflow-hidden rounded-full bg-white/25">
@@ -903,47 +882,40 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
             </div>
           ) : null}
 
-          {gestureFeedback?.kind === "zoom" ? (
+           {isFullscreen && gestureFeedback?.kind === "zoom" ? (
             <div className="pointer-events-none absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-full bg-black/65 px-4 py-2 text-sm font-semibold text-white backdrop-blur-sm">
               <ZoomIn className="h-4 w-4" />
               {gestureFeedback.label}
             </div>
-          ) : null}
+           ) : null}
         </div>
+         )}
 
         {isFullscreen && screenLocked ? (
           <div className="absolute inset-0 z-[60] flex items-center justify-center bg-black/10">
-            <button
+             <button
               type="button"
               onClick={toggleScreenLock}
               className="inline-flex items-center gap-2 rounded-full bg-black/70 px-4 py-2 text-xs font-semibold text-white shadow-lg backdrop-blur-md transition hover:bg-black/85"
               aria-label="Unlock player controls"
             >
               <Unlock className="h-4 w-4" /> Unlock controls
-            </button>
+             </button>
           </div>
         ) : null}
 
-        <button
-          type="button"
-          onClick={() => {
-            if (zoom > 1 || displayMode === "fill") {
-              setZoom(1);
-              setDisplayMode("fit");
-            } else {
-              setDisplayMode("fill");
-            }
-          }}
-          onTouchStart={(event) => event.stopPropagation()}
-          onTouchEnd={(event) => event.stopPropagation()}
-          className="absolute right-3 top-3 z-50 rounded-full bg-black/60 px-2.5 py-1.5 text-[10px] font-semibold text-white backdrop-blur-md transition hover:bg-black/80"
-          aria-label={zoom > 1 || displayMode === "fill" ? "Fit video to screen" : "Fill video screen"}
-        >
-          {zoom > 1 || displayMode === "fill" ? "Fit" : "Fill"}
-        </button>
+         {!screenLocked && <button
+           type="button"
+           onClick={toggleDisplayMode}
+           onTouchStart={(event) => event.stopPropagation()}
+           onTouchEnd={(event) => event.stopPropagation()}
+           className="absolute right-3 top-3 z-50 rounded-full bg-black/60 px-2.5 py-1.5 text-[10px] font-semibold text-white backdrop-blur-md transition hover:bg-black/80"
+           aria-label={zoom > 1 || displayMode === "fill" ? "Fit video to screen" : "Fill video screen"}
+         >
+           {zoom > 1 || displayMode === "fill" ? "Fit" : "Fill"}
+         </button>}
 
-        {isFullscreen ? (
-          <button
+         {isFullscreen && !screenLocked && <button
             type="button"
             onClick={toggleScreenLock}
             onTouchStart={(event) => event.stopPropagation()}
@@ -951,11 +923,11 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
             className="absolute right-28 top-3 z-50 rounded-full bg-black/60 p-2 text-white backdrop-blur-md transition hover:bg-black/80"
             aria-label={screenLocked ? "Unlock player controls" : "Lock player controls"}
           >
-            {screenLocked ? <Unlock className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+            <Lock className="h-4 w-4" />
           </button>
-        ) : null}
+         }
 
-        <button
+         {!screenLocked && <button
           type="button"
           onClick={toggleFullscreen}
           onTouchStart={(event) => event.stopPropagation()}
@@ -964,9 +936,9 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           aria-label="Toggle fullscreen"
         >
           <Maximize2 className="h-4 w-4" />
-        </button>
+         </button>}
 
-        <button
+         {!screenLocked && <button
           type="button"
           onClick={() =>
             window.history.length > 1
@@ -979,7 +951,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           onTouchEnd={(event) => event.stopPropagation()}
         >
           <ArrowLeft className="h-5 w-5" />
-        </button>
+         </button>}
       </div>
 
       <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col space-y-4 px-4 py-4">
@@ -1058,14 +1030,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           </Button>
           <Button
             type="button"
-            onClick={handleDownload}
-            variant="outline"
-            className="shrink-0 rounded-full border-white/10 bg-white/10 px-4 text-xs text-white hover:bg-white/15"
-          >
-            <Download className="mr-1.5 h-4 w-4" /> Download
-          </Button>
-          <Button
-            type="button"
             onClick={() => {
               if (!user) {
                 toast.error("Sign in to save videos");
@@ -1081,15 +1045,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           >
             <Bookmark className="mr-1.5 h-4 w-4" fill={saved[videoId] ? "currentColor" : "none"} />
             {saved[videoId] ? "Saved" : "Save"}
-          </Button>
-          <Button
-            type="button"
-            onClick={() => toast.message("More video options are coming soon")}
-            variant="outline"
-            className="shrink-0 rounded-full border-white/10 bg-white/10 px-3 text-white hover:bg-white/15"
-            aria-label="More options"
-          >
-            <MoreHorizontal className="h-4 w-4" />
           </Button>
         </div>
 

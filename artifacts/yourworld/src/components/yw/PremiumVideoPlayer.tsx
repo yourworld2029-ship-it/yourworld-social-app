@@ -69,8 +69,11 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
   // fullscreen-only: brightness slider + pinch zoom/pan
   const [showBrightBar, setShowBrightBar] = useState(false);
   const brightBarTimer = useRef<number | null>(null);
+  const [showVolumeBar, setShowVolumeBar] = useState(false);
+  const volumeBarTimer = useRef<number | null>(null);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [displayMode, setDisplayMode] = useState<"fit" | "fill">("fit");
   const [showZoomBadge, setShowZoomBadge] = useState(false);
   const zoomBadgeTimer = useRef<number | null>(null);
   const pinch = useRef<{ dist: number; cx: number; cy: number; zoom: number; pan: { x: number; y: number } } | null>(null);
@@ -81,7 +84,16 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
     brightBarTimer.current = window.setTimeout(() => setShowBrightBar(false), 900);
   }, []);
 
-  useEffect(() => () => { if (brightBarTimer.current) window.clearTimeout(brightBarTimer.current); }, []);
+  const flashVolumeBar = useCallback(() => {
+    setShowVolumeBar(true);
+    if (volumeBarTimer.current) window.clearTimeout(volumeBarTimer.current);
+    volumeBarTimer.current = window.setTimeout(() => setShowVolumeBar(false), 900);
+  }, []);
+
+  useEffect(() => () => {
+    if (brightBarTimer.current) window.clearTimeout(brightBarTimer.current);
+    if (volumeBarTimer.current) window.clearTimeout(volumeBarTimer.current);
+  }, []);
 
   const flash = useCallback((m: string) => {
     setToastMsg(m);
@@ -110,13 +122,6 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
       v.pause();
     }
   }, []);
-
-  const seekBy = useCallback((d: number) => {
-    const v = vidRef.current;
-    if (!v) return;
-    v.currentTime = Math.max(0, Math.min(v.duration || 0, v.currentTime + d));
-    flash(`${d > 0 ? "+" : ""}${d}s`);
-  }, [flash]);
 
   useEffect(() => {
     const v = vidRef.current;
@@ -172,8 +177,10 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
   // Zoom/pan are fullscreen-only; reset to 100% fit when leaving fullscreen.
   useEffect(() => {
     if (!fullscreen) {
+      setLocked(false);
       setZoom(1);
       setPan({ x: 0, y: 0 });
+      setDisplayMode("fit");
       setShowZoomBadge(false);
       pinch.current = null;
       if (zoomBadgeTimer.current) window.clearTimeout(zoomBadgeTimer.current);
@@ -298,7 +305,7 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
     } else if (g.mode === "vol") {
       const nv = Math.max(0, Math.min(1, volume - dy / 250));
       setVolume(nv); setMuted(nv === 0);
-      flash(`Volume ${Math.round(nv * 100)}%`);
+      if (fullscreen) flashVolumeBar(); else flash(`Volume ${Math.round(nv * 100)}%`);
     } else {
       const nb = Math.max(0.25, Math.min(1.6, brightness - dy / 250));
       setBrightness(nb);
@@ -313,7 +320,7 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
     }
   };
 
-  // ---- fullscreen-only pinch to zoom (up to 300%) + two-finger pan ----
+  // ---- fullscreen-only pinch to zoom (up to 400%) + two-finger pan ----
   const touchMid = (t: React.TouchList) => ({
     x: (t[0].clientX + t[1].clientX) / 2,
     y: (t[0].clientY + t[1].clientY) / 2,
@@ -332,7 +339,7 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
     if (!p || !fullscreen || e.touches.length !== 2) return;
     e.preventDefault();
     const m = touchMid(e.touches);
-    const next = Math.max(1, Math.min(3, p.zoom * (m.d / p.dist)));
+    const next = Math.max(1, Math.min(4, p.zoom * (m.d / p.dist)));
     setZoom(next);
     const limit = (v: number) => Math.max(-400, Math.min(400, v));
     setPan({ x: limit(p.pan.x + (m.x - p.cx)), y: limit(p.pan.y + (m.y - p.cy)) });
@@ -348,14 +355,34 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
 
   const onTapZone = (side: "l" | "c" | "r") => {
     if (locked) { poke(); return; }
-    if (side === "c") {
+    const now = Date.now();
+    if (now - lastTap.current < 300) {
+      setDisplayMode((mode) => mode === "fit" ? "fill" : "fit");
+      if (zoom > 1) {
+        setZoom(1);
+        setPan({ x: 0, y: 0 });
+      }
       lastTap.current = 0;
-      toggle();
+      poke();
       return;
     }
-    const now = Date.now();
-    if (now - lastTap.current < 300) { seekBy(side === "l" ? -10 : 10); lastTap.current = 0; }
-    else { lastTap.current = now; window.setTimeout(() => { if (lastTap.current) { lastTap.current = 0; poke(); } }, 260); }
+    if (side === "c") {
+      lastTap.current = now;
+      window.setTimeout(() => {
+        if (lastTap.current === now) {
+          lastTap.current = 0;
+          toggle();
+        }
+      }, 260);
+    } else {
+      lastTap.current = now;
+      window.setTimeout(() => {
+        if (lastTap.current === now) {
+          lastTap.current = 0;
+          poke();
+        }
+      }, 260);
+    }
   };
 
   const progress = dur ? (time / dur) * 100 : 0;
@@ -411,7 +438,7 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
         }}
         className={cn(
           "h-full w-full",
-          "object-contain",
+          displayMode === "fill" ? "object-cover" : "object-contain",
         )}
         onPlay={(e) => {
           lastPlaybackTime.current = e.currentTarget.currentTime;
@@ -492,8 +519,10 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
       )}
 
       {/* fullscreen brightness slider (left side, MX Player style) */}
-      {fullscreen && showBrightBar && !locked && (
-        <div className="pointer-events-none absolute left-6 top-1/2 z-30 flex -translate-y-1/2 flex-col items-center gap-2 rounded-full bg-black/60 px-2 py-3 backdrop-blur">
+      {fullscreen && !locked && (showBrightBar || showVolumeBar) && (
+        <div className="pointer-events-none absolute inset-0 z-50">
+          {showBrightBar && (
+        <div className="pointer-events-none absolute left-6 top-1/2 flex -translate-y-1/2 flex-col items-center gap-2 rounded-full bg-black/60 px-2 py-3 backdrop-blur">
           <Sun size={16} className="text-white" />
           <div className="relative h-32 w-1.5 overflow-hidden rounded-full bg-white/25">
             <div
@@ -502,6 +531,20 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
             />
           </div>
           <span className="text-[10px] font-semibold tabular-nums text-white">{Math.round(brightness * 100)}%</span>
+        </div>
+          )}
+          {showVolumeBar && (
+            <div className="pointer-events-none absolute right-6 top-1/2 flex -translate-y-1/2 flex-col items-center gap-2 rounded-full bg-black/60 px-2 py-3 backdrop-blur">
+              <Volume2 size={16} className="text-white" />
+              <div className="relative h-32 w-1.5 overflow-hidden rounded-full bg-white/25">
+                <div
+                  className="absolute bottom-0 w-full rounded-full bg-white transition-[height] duration-100"
+                  style={{ height: `${Math.round(volume * 100)}%` }}
+                />
+              </div>
+              <span className="text-[10px] font-semibold tabular-nums text-white">{Math.round(volume * 100)}%</span>
+            </div>
+          )}
         </div>
       )}
 
@@ -513,7 +556,7 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
       )}
 
       {/* lock overlay — blocks every player-area touch (back, seek, tap zones) */}
-      {locked && (
+      {fullscreen && locked && (
         <div
           className="absolute inset-0 z-[55]"
           onClick={(e) => e.stopPropagation()}
@@ -541,7 +584,9 @@ export function PremiumVideoPlayer({ src, poster, title, portrait, autoPlay, cla
           {/* top bar */}
           <div className="pointer-events-auto flex items-start justify-end gap-2 bg-gradient-to-b from-black/80 to-transparent p-3">
             <div className="relative z-10 flex items-center gap-1">
-              <IconBtn label="Lock screen" onClick={() => { setLocked(true); flash("Locked"); }}><Lock size={16} /></IconBtn>
+              {fullscreen ? (
+                <IconBtn label="Lock screen" onClick={() => { setLocked(true); flash("Locked"); }}><Lock size={16} /></IconBtn>
+              ) : null}
               <IconBtn label="Cast" onClick={() => { void cast(); }}><Cast size={16} /></IconBtn>
               <IconBtn label="Settings" onClick={() => setMenu(menu ? null : "root")}><Settings size={16} /></IconBtn>
             </div>
