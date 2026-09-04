@@ -218,45 +218,52 @@ export function useMediaPost(postId: string | null) {
   const load = useCallback(async () => {
     if (!postId) {
       setPost(null);
+      setError(null);
       setLoading(false);
       return;
     }
     setLoading(true);
-    const { data: sessionData } = await supabase.auth.getSession();
-    const uid = sessionData.session?.user.id ?? null;
-    setMe(uid);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const uid = sessionData.session?.user.id ?? null;
+      setMe(uid);
 
-    const { data: row, error: rowError } = await supabase
-      .from("posts")
-      .select("*")
-      .eq("id", postId)
-      .maybeSingle();
-    if (rowError || !row) {
+      const { data: row, error: rowError } = await supabase
+        .from("posts")
+        .select("*")
+        .eq("id", postId)
+        .maybeSingle();
+      if (rowError || !row) {
+        setPost(null);
+        setError(rowError?.message ?? "This post is no longer available.");
+        return;
+      }
+
+      const normalized = normalizePostRow(row) as DbPost;
+      const [{ data: profiles }, { data: likes }, { data: comments }] = await Promise.all([
+        supabase.rpc("get_public_profiles", { ids: [normalized.user_id] }),
+        liveSocialTable(supabase, "likes").select("post_id,user_id").eq("post_id", postId),
+        liveSocialTable(supabase, "comments").select("post_id").eq("post_id", postId),
+      ]);
+      const profile = ((profiles ?? []) as DbProfile[])[0];
+      const likeRows = (likes ?? []) as Array<{ post_id: string; user_id: string }>;
+      const next: SocialPost = {
+        ...normalized,
+        author: toUser(profile, normalized.user_id),
+        authorAvatarUrl: profile?.avatar_url ?? null,
+        likeCount: likeRows.length,
+        commentCount: ((comments ?? []) as Array<{ post_id: string }>).length,
+        likedByMe: !!uid && likeRows.some((like) => like.user_id === uid),
+      };
+      setPost(next);
+      setError(null);
+    } catch (cause) {
+      console.error("Unable to load media viewer post", cause);
       setPost(null);
-      setError(rowError?.message ?? "This post is no longer available.");
+      setError(cause instanceof Error ? cause.message : "This media could not be loaded.");
+    } finally {
       setLoading(false);
-      return;
     }
-
-    const normalized = normalizePostRow(row) as DbPost;
-    const [{ data: profiles }, { data: likes }, { data: comments }] = await Promise.all([
-      supabase.rpc("get_public_profiles", { ids: [normalized.user_id] }),
-      liveSocialTable(supabase, "likes").select("post_id,user_id").eq("post_id", postId),
-      liveSocialTable(supabase, "comments").select("post_id").eq("post_id", postId),
-    ]);
-    const profile = ((profiles ?? []) as DbProfile[])[0];
-    const likeRows = (likes ?? []) as Array<{ post_id: string; user_id: string }>;
-    const next: SocialPost = {
-      ...normalized,
-      author: toUser(profile, normalized.user_id),
-      authorAvatarUrl: profile?.avatar_url ?? null,
-      likeCount: likeRows.length,
-      commentCount: ((comments ?? []) as Array<{ post_id: string }>).length,
-      likedByMe: !!uid && likeRows.some((like) => like.user_id === uid),
-    };
-    setPost(next);
-    setError(null);
-    setLoading(false);
   }, [postId]);
 
   useEffect(() => {

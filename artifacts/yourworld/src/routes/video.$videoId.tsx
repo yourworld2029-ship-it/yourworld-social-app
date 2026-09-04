@@ -78,11 +78,13 @@ export const Route = createFileRoute("/video/$videoId")({
 });
 
 function MediaViewerPage() {
-  const { videoId } = Route.useParams();
+  const params = Route.useParams();
+  const videoId = typeof params.videoId === "string" ? params.videoId.trim() : "";
+  const mediaPostId = videoId || null;
   const navigate = useNavigate();
-  const { post, loading, error, currentUserId, toggleLike, countView, reload } = useMediaPost(videoId);
+  const { post, loading, error, currentUserId, toggleLike, countView, reload } = useMediaPost(mediaPostId);
   const { saved, toggleSave } = usePostSaves();
-  const { comments } = usePostComments(videoId);
+  const { comments } = usePostComments(mediaPostId);
   const [src, setSrc] = useState<string | null>(null);
   const [avatarSrc, setAvatarSrc] = useState<string | null>(null);
   const [muted, setMuted] = useState(true);

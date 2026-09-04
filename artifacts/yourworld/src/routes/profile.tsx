@@ -128,7 +128,12 @@ function ProfilePage() {
     [...list].sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned));
 
   const openViewer = (post: DbPost) => {
-    void navigate({ to: "/video/$videoId", params: { videoId: post.id } });
+    const id = typeof post?.id === "string" ? post.id.trim() : "";
+    if (!id) {
+      toast.error("This media is unavailable.");
+      return;
+    }
+    void navigate({ to: "/video/$videoId", params: { videoId: id } });
   };
 
 
@@ -743,7 +748,11 @@ function MediaGrid({
                 type="button"
                  aria-label={`Open ${it.post.kind === "reel" ? "reel" : "post"}`}
                  data-testid={`button-open-media-${it.post.id}`}
-                 onClick={() => onOpen(it.post!)}
+                  onClick={() => {
+                    const post = it.post;
+                    if (!post || typeof post.id !== "string" || !post.id.trim()) return;
+                    onOpen(post);
+                  }}
                  className="absolute inset-0 z-10"
               />
                {onManage ? (
