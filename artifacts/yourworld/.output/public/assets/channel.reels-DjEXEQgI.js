@@ -1,0 +1,1 @@
+import{t as e}from"./jsx-runtime-NZYk81nU.js";import{r as t}from"./channel-data-ON1uYi-d.js";import{t as n}from"./ChannelContentList-CTVXkl7C.js";var r=e();function i(){let{reels:e}=t();return(0,r.jsx)(n,{title:`Reels`,items:e,emptyLabel:`No reels published yet.`})}export{i as component};

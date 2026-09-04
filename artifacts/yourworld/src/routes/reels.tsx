@@ -215,6 +215,13 @@ function ReelsList() {
 
 const REEL_DURATION = 15;
 
+function formatTime(value: number) {
+  const totalSeconds = Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
 /**
  * Renders reel media with graceful recovery: if the stored URL fails to load
  * (expired signed URL, missing public URL) we retry with a freshly resolved
@@ -229,6 +236,7 @@ function ReelMedia({
   mediaRef,
   muted,
   paused = false,
+  onLoadedMetadata,
   onTimeUpdate,
   onEnded,
 }: {
@@ -239,6 +247,7 @@ function ReelMedia({
   mediaRef: React.MutableRefObject<HTMLElement | null>;
   muted: boolean;
   paused?: boolean;
+  onLoadedMetadata?: (event: React.SyntheticEvent<HTMLVideoElement>) => void;
   onTimeUpdate?: (event: React.SyntheticEvent<HTMLVideoElement>) => void;
   onEnded?: (event: React.SyntheticEvent<HTMLVideoElement>) => void;
 }) {
@@ -274,8 +283,8 @@ function ReelMedia({
     const v = videoRef.current;
     if (!v || asImage) return;
     v.muted = muted;
-    if (!muted) v.volume = 1;
-  }, [asImage, muted, src]);
+    v.volume = 1;
+  }, [active, asImage, muted, src]);
 
   useEffect(() => {
     const v = videoRef.current;
@@ -317,6 +326,7 @@ function ReelMedia({
       muted={muted}
       preload="metadata"
       onError={handleError}
+      onLoadedMetadata={onLoadedMetadata}
       onTimeUpdate={onTimeUpdate}
       onEnded={onEnded}
       className={className}
@@ -363,6 +373,8 @@ function ReelItem({
 
   // ---- playback timeline -------------------------------------------------
   const [progress, setProgress] = useState(0); // 0..100
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
   const [scrubbing, setScrubbing] = useState(false);
   // Single tap toggles pause/play; press-and-hold keeps it paused.
   const [held, setHeld] = useState(false);
@@ -377,16 +389,25 @@ function ReelItem({
     if (seekRaf.current !== null) cancelAnimationFrame(seekRaf.current);
   }, []);
 
+  const handleLoadedMetadata = useCallback((event: React.SyntheticEvent<HTMLVideoElement>) => {
+    const video = event.currentTarget;
+    setCurrentTime(Number.isFinite(video.currentTime) ? video.currentTime : 0);
+    setDuration(Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0);
+  }, []);
+
   const handleTimeUpdate = useCallback((event: React.SyntheticEvent<HTMLVideoElement>) => {
     const video = event.currentTarget;
-    if (video.duration && !Number.isNaN(video.duration)) {
-      const currentProgress = (video.currentTime / video.duration) * 100;
-      setProgress(Math.min(100, Math.max(0, currentProgress)));
+    const nextTime = Number.isFinite(video.currentTime) ? video.currentTime : 0;
+    setCurrentTime(nextTime);
+    if (video.duration && Number.isFinite(video.duration)) {
+      setDuration(video.duration);
+      setProgress(Math.min(100, Math.max(0, (nextTime / video.duration) * 100)));
     }
   }, []);
 
   const handleEnded = useCallback((event: React.SyntheticEvent<HTMLVideoElement>) => {
     const video = event.currentTarget;
+    setCurrentTime(0);
     setProgress(0);
     if (!active) return;
     video.currentTime = 0;
@@ -507,7 +528,7 @@ function ReelItem({
   useEffect(() => () => cancelHold(), []);
 
   const handleTap = () => {
-    enableAudio();
+    if (!audioEnabled) enableAudio();
     const now = Date.now();
     if (now - lastTap.current < 300) {
       onDoubleTap();
@@ -616,6 +637,7 @@ function ReelItem({
           mediaRef={mediaRef}
           muted={muted}
           paused={paused}
+          onLoadedMetadata={handleLoadedMetadata}
           onTimeUpdate={handleTimeUpdate}
           onEnded={handleEnded}
         />
@@ -667,7 +689,7 @@ function ReelItem({
             <YwAvatar user={user} size={36} className="ring-2 ring-foreground/30" />
              <span className="min-w-0 truncate text-sm font-semibold drop-shadow">
                @{user.username}
-               <span className="ml-1.5 font-normal text-foreground/70">
+               <span className="ml-2 text-xs font-normal text-gray-300">
                  • {reel.createdAt ? timeAgo(reel.createdAt) : "Just now"}
                </span>
              </span>
@@ -813,6 +835,9 @@ function ReelItem({
         className="absolute inset-x-0 bottom-0 flex touch-none cursor-pointer items-end px-3 pb-3 pt-6"
       >
         <div className="relative w-full">
+          <span className="pointer-events-none absolute bottom-2 right-0 rounded bg-black/55 px-1.5 py-0.5 text-[10px] font-medium text-white/90">
+            {formatTime(currentTime)} / {formatTime(duration)}
+          </span>
           <div
             className={cn(
               "w-full overflow-hidden rounded-full bg-foreground/20 transition-all duration-200",
@@ -821,7 +846,7 @@ function ReelItem({
           >
             <div
                className={cn(
-                 "h-full rounded-full bg-foreground transition-[width] duration-100 ease-linear",
+                  "h-full rounded-full bg-pink-500 transition-[width] duration-100 ease-linear",
                  scrubbing && "transition-none",
                )}
               style={{ width: `${progress}%` }}
