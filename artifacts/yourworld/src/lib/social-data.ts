@@ -793,9 +793,9 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     if (!me || !pair || !pair.includes(me)) return { error: "You are not authorized for this chat." };
     const receiverId = pair.find((id) => id !== me)!;
     const tempId = `tmp-${Date.now()}`;
-    const optimistic = toDbMessage({ id: tempId, sender_id: me, receiver_id: receiverId, content: payload.content ?? "", media_url: payload.media_url ?? null, voice_note_url: payload.voice_note_url ?? null, metadata: null, is_read: false, created_at: new Date().toISOString() });
+    const optimistic = toDbMessage({ id: tempId, sender_id: me, receiver_id: receiverId, content: payload.content ?? "", media_url: payload.media_url ?? null, voice_note_url: payload.voice_note_url ?? null, metadata: {}, is_read: false, created_at: new Date().toISOString() });
     setMessages((prev) => [...prev, optimistic]);
-    const { data, error: insertError } = await supabase.from("messages" as never).insert({ sender_id: me, receiver_id: receiverId, content: optimistic.content, media_url: optimistic.media_url, voice_note_url: optimistic.voice_note_url, metadata: null } as never).select("*").maybeSingle();
+    const { data, error: insertError } = await supabase.from("messages" as never).insert({ sender_id: me, receiver_id: receiverId, content: optimistic.content, media_url: optimistic.media_url, voice_note_url: optimistic.voice_note_url, metadata: {} } as never).select("*").maybeSingle();
     if (insertError) { setMessages((prev) => prev.filter((m) => m.id !== tempId)); setError(insertError.message); return { error: insertError.message }; }
     if (data) merge([data as unknown as PublicMessageRow]);
     setMessages((prev) => prev.filter((m) => m.id !== tempId));

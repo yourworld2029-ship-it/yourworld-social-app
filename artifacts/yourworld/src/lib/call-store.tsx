@@ -654,6 +654,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
             content: text,
             media_url: null,
             voice_note_url: null,
+            metadata: {},
           } as never);
         } else {
           await supabase.from("orbit_messages").insert({

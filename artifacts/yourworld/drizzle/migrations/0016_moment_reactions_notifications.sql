@@ -2,7 +2,7 @@
 -- schema. Keep this table independent of posts so the app can later move
 -- Moments to their own table without changing the client contract.
 alter table if exists public.messages
-  add column if not exists metadata jsonb not null default '{}'::jsonb;
+  add column if not exists metadata jsonb default '{}'::jsonb;
 
 create table if not exists public.moment_likes (
   id uuid primary key default gen_random_uuid(),
