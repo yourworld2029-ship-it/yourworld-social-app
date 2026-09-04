@@ -1,7 +1,24 @@
 import { useRef, useState } from "react";
 import { toast } from "sonner";
-import { uploadOrbitMedia, isLocalObjectUrl } from "@/lib/orbit-live";
-import { Plus, X, Lock, Camera, Sparkles, Wand2, Video, Star, Globe2, type LucideIcon } from "lucide-react";
+import {
+  isLocalObjectUrl,
+  isOrbitVideoDurationValid,
+  saveOrbitPhotosRemote,
+  uploadOrbitMedia,
+} from "@/lib/orbit-live";
+import {
+  Plus,
+  X,
+  Lock,
+  Camera,
+  Sparkles,
+  Wand2,
+  Video,
+  Star,
+  Globe2,
+  Loader2,
+  type LucideIcon,
+} from "lucide-react";
 import {
   ORBIT_PHOTO_MAX,
   type OrbitPhoto,
@@ -64,26 +81,52 @@ export function OrbitPhotos({
     const room = ORBIT_PHOTO_MAX - photos.length;
     const picked = Array.from(files).slice(0, room);
     if (!picked.length) return;
+    if (kind === "video" && !(await isOrbitVideoDurationValid(picked[0]))) {
+      toast.error("Video duration must be 1 to 15 seconds.");
+      return;
+    }
     setBusy(true);
     const toastId = toast.loading(kind === "video" ? "Uploading video…" : "Uploading…");
-    const next: OrbitPhoto[] = [];
-    for (const f of picked) {
-      const url = await uploadOrbitMedia(f);
-      if (!url) continue;
-      next.push({
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        url,
-        style: "real" as OrbitPhotoStyle,
-        kind,
-      });
+    let workingPhotos = [...photos];
+    let saved = 0;
+    let usedFallback = false;
+    try {
+      for (const f of picked) {
+        const url = await uploadOrbitMedia(f);
+        if (!url) continue;
+        usedFallback ||= url.startsWith("data:");
+        const media: OrbitPhoto = {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          url,
+          style: "real" as OrbitPhotoStyle,
+          kind,
+        };
+        workingPhotos = [...workingPhotos, media];
+        saved += 1;
+        // Make the preview visible and save only the media array immediately.
+        onChange(workingPhotos);
+        void saveOrbitPhotosRemote(workingPhotos);
+      }
+    } catch (error) {
+      console.error("[orbit] media picker failed", { kind, fileCount: picked.length, error });
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
-    if (!next.length) {
-      toast.error("Upload failed. Please try again.", { id: toastId });
+    if (!saved) {
+      toast.error("We couldn’t save this media. Please try again.", {
+        id: toastId,
+        description: "Storage was unavailable and a temporary preview could not be created.",
+      });
+      return;
+    }
+    if (usedFallback) {
+      toast.warning(kind === "video" ? "Video added with a temporary fallback." : "Photo added with a temporary fallback.", {
+        id: toastId,
+        description: "Storage was unavailable, so this preview is kept directly in your profile.",
+      });
       return;
     }
     toast.success(kind === "video" ? "Video added" : "Uploaded", { id: toastId });
-    onChange([...photos, ...next]);
   };
 
   const remove = (id: string) => onChange(photos.filter((p) => p.id !== id));
@@ -157,10 +200,27 @@ export function OrbitPhotos({
           );
         })}
 
+        {busy && (
+          <div
+            role="status"
+            aria-label="Uploading media"
+            className="relative grid aspect-[3/4] place-items-center overflow-hidden rounded-2xl border border-primary/30 bg-secondary/70"
+          >
+            <div className="flex flex-col items-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin text-primary" />
+              Uploading…
+              <div className="absolute inset-x-3 bottom-3 h-1 overflow-hidden rounded-full bg-background/70">
+                <div className="h-full w-2/5 animate-pulse rounded-full bg-primary" />
+              </div>
+            </div>
+          </div>
+        )}
+
         {!full && (
           <button
             type="button"
             onClick={() => !busy && input.current?.click()}
+            disabled={busy}
             className="grid aspect-[3/4] place-items-center rounded-2xl border border-dashed border-border bg-secondary/40 text-muted-foreground transition-transform active:scale-95"
           >
             <span className="flex flex-col items-center gap-1">
@@ -174,6 +234,7 @@ export function OrbitPhotos({
           <button
             type="button"
             onClick={() => !busy && videoInput.current?.click()}
+            disabled={busy}
             className="grid aspect-[3/4] place-items-center rounded-2xl border border-dashed border-border bg-secondary/40 text-muted-foreground transition-transform active:scale-95"
           >
             <span className="flex flex-col items-center gap-1">

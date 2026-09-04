@@ -1,44 +1,15 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ChevronLeft, Pencil, MapPin, ImagePlus, Video, Sparkles } from "lucide-react";
+import { ChevronLeft, Pencil, MapPin, ImagePlus, Video, Sparkles, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useOrbit, ORBIT_PHOTO_MAX, type OrbitPhoto } from "@/lib/orbit-store";
 import { moodById } from "@/lib/orbit-mood";
-import { uploadOrbitMedia, isLocalObjectUrl } from "@/lib/orbit-live";
-
-const validateOrbitVideoDuration = (file: File) =>
-  new Promise<boolean>((resolve) => {
-    const video = document.createElement("video");
-    const objectUrl = URL.createObjectURL(file);
-    video.preload = "metadata";
-    video.src = objectUrl;
-
-    const finish = (valid: boolean) => {
-      window.URL.revokeObjectURL(video.src);
-      video.removeAttribute("src");
-      video.load();
-      resolve(valid);
-    };
-
-    video.onloadedmetadata = () => {
-      if (video.duration < 1 || video.duration > 15.5 || !Number.isFinite(video.duration)) {
-        toast.error("Video duration must be between 1 and 15 seconds.", {
-          description: "Please upload a video between 1 and 15 seconds long.",
-        });
-        finish(false);
-        return;
-      }
-      finish(true);
-    };
-
-    video.onerror = () => {
-      toast.error("Video duration must be between 1 and 15 seconds.", {
-        description: "Please upload a video between 1 and 15 seconds long.",
-      });
-      finish(false);
-    };
-  });
+import {
+  isOrbitVideoDurationValid,
+  isLocalObjectUrl,
+  uploadOrbitMedia,
+} from "@/lib/orbit-live";
 
 export const Route = createFileRoute("/orbit/me")({
   head: () => ({
@@ -66,6 +37,7 @@ function OrbitMyProfile() {
   const navigate = useNavigate();
   const photoInput = useRef<HTMLInputElement>(null);
   const videoInput = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
   const p = orbit.profile;
 
   if (!p) {
@@ -99,26 +71,39 @@ function OrbitMyProfile() {
       return;
     }
     const picked = Array.from(files).slice(0, room);
-    if (kind === "video" && !(await validateOrbitVideoDuration(picked[0]))) {
+    if (kind === "video" && !(await isOrbitVideoDurationValid(picked[0]))) {
+      toast.error("Video duration must be 1 to 15 seconds.");
       return;
     }
     const toastId = toast.loading(kind === "video" ? "Uploading video…" : "Uploading photo…");
-    const next: OrbitPhoto[] = [];
-    for (const f of picked) {
-      const url = await uploadOrbitMedia(f);
-      if (!url) continue;
-      next.push({
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        url,
-        style: "real",
-        kind,
-      });
+    setBusy(true);
+    let saved = 0;
+    let workingPhotos = [...p.photos];
+    try {
+      for (const f of picked) {
+        const url = await uploadOrbitMedia(f);
+        if (!url) continue;
+        const media: OrbitPhoto = {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          url,
+          style: "real",
+          kind,
+        };
+        workingPhotos = [...workingPhotos, media];
+        saved += 1;
+        // Update the preview and persist each item as soon as it is ready.
+        orbit.saveProfile({ ...p, photos: workingPhotos });
+      }
+    } finally {
+      setBusy(false);
     }
-    if (!next.length) {
-      toast.error("Upload failed. Please try again.", { id: toastId });
+    if (!saved) {
+      toast.error("We couldn’t save this media. Please try again.", {
+        id: toastId,
+        description: "Storage was unavailable and a temporary preview could not be created.",
+      });
       return;
     }
-    orbit.saveProfile({ ...p, photos: [...p.photos, ...next] });
     toast.success(kind === "video" ? "Video added to your Orbit profile" : "Photo added", {
       id: toastId,
     });
@@ -233,12 +218,28 @@ function OrbitMyProfile() {
                 </button>
               </div>
             ))}
+            {busy && (
+              <div
+                role="status"
+                aria-label="Uploading media"
+                className="relative grid aspect-[3/4] place-items-center overflow-hidden rounded-2xl border border-primary/30 bg-secondary/70"
+              >
+                <div className="flex flex-col items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                  Uploading…
+                  <div className="absolute inset-x-3 bottom-3 h-1 overflow-hidden rounded-full bg-background/70">
+                    <div className="h-full w-2/5 animate-pulse rounded-full bg-primary" />
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3 pt-3">
             <Button
               variant="secondary"
               className="h-11 rounded-full"
+              disabled={busy}
               onClick={() => photoInput.current?.click()}
             >
               <ImagePlus className="mr-1.5 h-4 w-4" strokeWidth={1.8} />
@@ -247,6 +248,7 @@ function OrbitMyProfile() {
             <Button
               variant="secondary"
               className="h-11 rounded-full"
+              disabled={busy}
               onClick={() => videoInput.current?.click()}
             >
               <Video className="mr-1.5 h-4 w-4" strokeWidth={1.8} />

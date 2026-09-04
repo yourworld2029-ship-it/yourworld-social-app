@@ -422,9 +422,8 @@ const ORBIT_BUCKET = "orbit-media";
 /** Long-lived signed link so profile media renders without extra round trips. */
 const ORBIT_SIGN_SECONDS = 60 * 60 * 24 * 365 * 5;
 
-/** A url that only exists in this browser tab and can never load for anyone else. */
-export const isLocalObjectUrl = (url: string) =>
-  url.startsWith("blob:") || url.startsWith("data:");
+/** Blob URLs only exist in this browser tab; Data URLs are persistent fallbacks. */
+export const isLocalObjectUrl = (url: string) => url.startsWith("blob:");
 
 /**
  * Uploads one Orbit photo/video to storage and returns a durable signed url.
@@ -435,19 +434,151 @@ export async function uploadOrbitMedia(file: File): Promise<string | null> {
   if (!id) return null;
   const ext = (file.name.split(".").pop() ?? "").toLowerCase().replace(/[^a-z0-9]/g, "") || "bin";
   const path = `${id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-  const { error } = await supabase.storage
-    .from(ORBIT_BUCKET)
-    .upload(path, file, { contentType: file.type || undefined, upsert: false });
+  const buckets = await orbitBucketCandidates();
+  let lastError = "No Orbit storage bucket accepted this upload.";
+
+  for (const bucket of buckets) {
+    try {
+      const { error } = await supabase.storage
+        .from(bucket)
+        .upload(path, file, { contentType: file.type || undefined, upsert: false });
+      if (error) {
+        lastError = error.message;
+        console.error("[orbit] media upload rejected", {
+          bucket,
+          fileName: file.name,
+          fileType: file.type,
+          path,
+          code: error.name,
+          statusCode: error.statusCode,
+          message: error.message,
+        });
+        continue;
+      }
+
+      const { data, error: signError } = await supabase.storage
+        .from(bucket)
+        .createSignedUrl(path, ORBIT_SIGN_SECONDS);
+      if (signError || !data?.signedUrl) {
+        lastError = signError?.message ?? `Bucket "${bucket}" returned no signed URL.`;
+        console.error("[orbit] media signing rejected", {
+          bucket,
+          fileName: file.name,
+          path,
+          code: signError?.name,
+          statusCode: signError?.statusCode,
+          message: lastError,
+        });
+        continue;
+      }
+      return data.signedUrl;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+      console.error("[orbit] media upload threw", {
+        bucket,
+        fileName: file.name,
+        fileType: file.type,
+        path,
+        error,
+      });
+    }
+  }
+
+  try {
+    const dataUrl = await fileAsDataUrl(file);
+    console.warn("[orbit] storage unavailable; using a temporary Data URL fallback", {
+      fileName: file.name,
+      fileType: file.type,
+      attemptedBuckets: buckets,
+      lastError,
+    });
+    return dataUrl;
+  } catch (error) {
+    console.error("[orbit] Data URL fallback failed", {
+      fileName: file.name,
+      fileType: file.type,
+      attemptedBuckets: buckets,
+      lastStorageError: lastError,
+      error,
+    });
+    return null;
+  }
+}
+
+const ORBIT_BUCKETS = [ORBIT_BUCKET, "avatars", "media", "videos", "public"] as const;
+
+async function orbitBucketCandidates() {
+  try {
+    const { data, error } = await supabase.storage.listBuckets();
+    if (!error && data?.length) {
+      const active = new Set(data.map((bucket) => bucket.name));
+      const available = ORBIT_BUCKETS.filter((bucket) => active.has(bucket));
+      if (available.length) return available;
+    }
+    if (error) {
+      console.warn("[orbit] storage bucket discovery failed; trying configured fallbacks", {
+        message: error.message,
+        statusCode: error.statusCode,
+      });
+    }
+  } catch (error) {
+    console.warn("[orbit] storage bucket discovery threw; trying configured fallbacks", error);
+  }
+  return [...ORBIT_BUCKETS];
+}
+
+function fileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string" && reader.result) {
+        resolve(reader.result);
+      } else {
+        reject(new Error("The browser returned an empty media preview."));
+      }
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("The browser could not read this file."));
+    reader.readAsDataURL(file);
+  });
+}
+
+/** Client-side metadata check shared by the create and edit Orbit media pickers. */
+export function isOrbitVideoDurationValid(file: File) {
+  return new Promise<boolean>((resolve) => {
+    const video = document.createElement("video");
+    const objectUrl = URL.createObjectURL(file);
+    video.preload = "metadata";
+    video.src = objectUrl;
+
+    const finish = (valid: boolean) => {
+      URL.revokeObjectURL(objectUrl);
+      video.removeAttribute("src");
+      video.load();
+      resolve(valid);
+    };
+
+    video.onloadedmetadata = () => {
+      finish(video.duration >= 1 && video.duration <= 15.5 && Number.isFinite(video.duration));
+    };
+    video.onerror = () => finish(false);
+  });
+}
+
+/** Persists only the media array for an already-created profile. */
+export async function saveOrbitPhotosRemote(photos: OrbitPhoto[]) {
+  const id = await uid();
+  if (!id) return;
+  const { error } = await supabase
+    .from("orbit_profiles")
+    .update({ photos: photos as unknown as never } as never)
+    .eq("user_id", id);
   if (error) {
-    console.error("[orbit] media upload failed", error.message);
-    return null;
+    console.error("[orbit] media array save failed", {
+      userId: id,
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+    });
   }
-  const { data, error: signError } = await supabase.storage
-    .from(ORBIT_BUCKET)
-    .createSignedUrl(path, ORBIT_SIGN_SECONDS);
-  if (signError) {
-    console.error("[orbit] media signing failed", signError.message);
-    return null;
-  }
-  return data?.signedUrl ?? null;
 }
