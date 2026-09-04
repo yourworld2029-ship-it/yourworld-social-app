@@ -685,54 +685,56 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           <div className="text-sm text-gray-500">No media URL found</div>
         )}
 
-        {gestureFeedback?.kind === "seek" ? (
-          <div
-            className={`pointer-events-none absolute top-1/2 flex -translate-y-1/2 flex-col items-center gap-2 ${
-              gestureFeedback.value > 0 ? "right-1/4" : "left-1/4"
-            }`}
-            aria-live="polite"
-          >
-            <span className="absolute h-20 w-20 animate-ping rounded-full border border-white/50" />
-            <span className="grid h-16 w-16 place-items-center rounded-full bg-black/65 text-sm font-bold text-white backdrop-blur-sm">
+        <div className="absolute inset-0 pointer-events-none z-[9999]">
+          {gestureFeedback?.kind === "seek" ? (
+            <div
+              className={`pointer-events-none absolute top-1/2 flex -translate-y-1/2 flex-col items-center gap-2 ${
+                gestureFeedback.value > 0 ? "right-1/4" : "left-1/4"
+              }`}
+              aria-live="polite"
+            >
+              <span className="absolute h-20 w-20 animate-ping rounded-full border border-white/50" />
+              <span className="grid h-16 w-16 place-items-center rounded-full bg-black/65 text-sm font-bold text-white backdrop-blur-sm">
+                {gestureFeedback.label}
+              </span>
+            </div>
+          ) : null}
+
+          {gestureFeedback?.kind === "volume" ? (
+            <div className="pointer-events-none absolute right-5 top-1/2 flex -translate-y-1/2 flex-col items-center gap-2 rounded-full bg-black/60 px-2.5 py-3 text-white backdrop-blur-sm">
+              <Volume2 className="h-4 w-4" />
+              <div className="flex h-24 w-1.5 items-end overflow-hidden rounded-full bg-white/25">
+                <div
+                  className="w-full rounded-full bg-white transition-[height]"
+                  style={{ height: `${gestureFeedback.value * 100}%` }}
+                />
+              </div>
+              <span className="text-[10px] font-semibold">{gestureFeedback.label}</span>
+            </div>
+          ) : null}
+
+          {gestureFeedback?.kind === "brightness" ? (
+            <div className="pointer-events-none absolute left-5 top-1/2 flex -translate-y-1/2 flex-col items-center gap-2 rounded-full bg-black/60 px-2.5 py-3 text-white backdrop-blur-sm">
+              <Sun className="h-4 w-4" />
+              <div className="flex h-24 w-1.5 items-end overflow-hidden rounded-full bg-white/25">
+                <div
+                  className="w-full rounded-full bg-yellow-300 transition-[height]"
+                  style={{
+                    height: `${((gestureFeedback.value - 0.3) / 1.2) * 100}%`,
+                  }}
+                />
+              </div>
+              <span className="text-[10px] font-semibold">{gestureFeedback.label}</span>
+            </div>
+          ) : null}
+
+          {gestureFeedback?.kind === "zoom" ? (
+            <div className="pointer-events-none absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-full bg-black/65 px-4 py-2 text-sm font-semibold text-white backdrop-blur-sm">
+              <ZoomIn className="h-4 w-4" />
               {gestureFeedback.label}
-            </span>
-          </div>
-        ) : null}
-
-        {gestureFeedback?.kind === "volume" ? (
-          <div className="pointer-events-none absolute right-5 top-1/2 flex -translate-y-1/2 flex-col items-center gap-2 rounded-full bg-black/60 px-2.5 py-3 text-white backdrop-blur-sm">
-            <Volume2 className="h-4 w-4" />
-            <div className="flex h-24 w-1.5 items-end overflow-hidden rounded-full bg-white/25">
-              <div
-                className="w-full rounded-full bg-white transition-[height]"
-                style={{ height: `${gestureFeedback.value * 100}%` }}
-              />
             </div>
-            <span className="text-[10px] font-semibold">{gestureFeedback.label}</span>
-          </div>
-        ) : null}
-
-        {gestureFeedback?.kind === "brightness" ? (
-          <div className="pointer-events-none absolute left-5 top-1/2 flex -translate-y-1/2 flex-col items-center gap-2 rounded-full bg-black/60 px-2.5 py-3 text-white backdrop-blur-sm">
-            <Sun className="h-4 w-4" />
-            <div className="flex h-24 w-1.5 items-end overflow-hidden rounded-full bg-white/25">
-              <div
-                className="w-full rounded-full bg-yellow-300 transition-[height]"
-                style={{
-                  height: `${((gestureFeedback.value - 0.3) / 1.2) * 100}%`,
-                }}
-              />
-            </div>
-            <span className="text-[10px] font-semibold">{gestureFeedback.label}</span>
-          </div>
-        ) : null}
-
-        {gestureFeedback?.kind === "zoom" ? (
-          <div className="pointer-events-none absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-full bg-black/65 px-4 py-2 text-sm font-semibold text-white backdrop-blur-sm">
-            <ZoomIn className="h-4 w-4" />
-            {gestureFeedback.label}
-          </div>
-        ) : null}
+          ) : null}
+        </div>
 
         <button
           type="button"
