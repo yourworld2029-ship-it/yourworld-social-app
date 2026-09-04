@@ -206,6 +206,7 @@ function MediaViewerPage() {
     typeof window !== "undefined"
       ? `${window.location.origin}/video/${post.id}`
       : undefined;
+  const isLongVideo = isVideo && post.kind !== "reel";
 
   const back = () => {
     void navigate({ to: "/profile" });
@@ -270,8 +271,8 @@ function MediaViewerPage() {
   };
 
   return (
-    <main className="min-h-[100dvh] bg-background pb-8">
-      <header className="header-lux sticky top-0 z-50 flex items-center justify-between px-3 py-2.5">
+    <main className="flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-background">
+      <header className="header-lux flex shrink-0 items-center justify-between px-3 py-2.5">
         <button
           type="button"
           data-testid="button-viewer-back"
@@ -323,11 +324,18 @@ function MediaViewerPage() {
         )}
       </header>
 
-      <section className="mx-auto max-w-lg">
+      <div className="min-h-0 w-full flex-1 overflow-y-auto overscroll-contain">
+      <section className="w-full pb-8">
+        <div
+          className={cn(
+            "sticky top-0 z-50 flex w-full items-center justify-center bg-black",
+            isLongVideo ? "aspect-video max-h-[40vh] sm:max-h-[50vh]" : "max-h-[75vh]",
+          )}
+          style={!isLongVideo ? { aspectRatio: String(ratio) } : undefined}
+        >
         <div
           data-testid="media-viewer-stage"
-          className="media-frame relative mx-3 mt-3 overflow-hidden rounded-[1.35rem] bg-black"
-          style={{ aspectRatio: ratio }}
+          className="media-frame relative h-full w-full overflow-hidden bg-black"
         >
           {mediaLoading && !src ? (
             <div
