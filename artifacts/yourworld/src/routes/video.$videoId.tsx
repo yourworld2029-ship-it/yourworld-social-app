@@ -19,6 +19,7 @@ import {
   Download,
   Eye,
   Heart,
+  Lock,
   Maximize2,
   MessageCircle,
   MoreHorizontal,
@@ -29,6 +30,7 @@ import {
   ThumbsDown,
   ThumbsUp,
   Trash2,
+  Unlock,
   UserPlus,
   Volume2,
   ZoomIn,
@@ -201,6 +203,8 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   const [zoom, setZoom] = useState(1);
   const [displayMode, setDisplayMode] = useState<"fit" | "fill">("fit");
   const [brightness, setBrightness] = useState(1);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [screenLocked, setScreenLocked] = useState(false);
   const [gestureFeedback, setGestureFeedback] = useState<GestureFeedback | null>(null);
   const touchGestureRef = useRef<TouchGesture | null>(null);
   const lastTapRef = useRef<{ time: number; x: number } | null>(null);
@@ -396,6 +400,17 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     },
     [],
   );
+
+  useEffect(() => {
+    const syncFullscreenState = () => {
+      const fullscreen = document.fullscreenElement === containerRef.current;
+      setIsFullscreen(fullscreen);
+      if (!fullscreen) setScreenLocked(false);
+    };
+    document.addEventListener("fullscreenchange", syncFullscreenState);
+    syncFullscreenState();
+    return () => document.removeEventListener("fullscreenchange", syncFullscreenState);
+  }, []);
 
   const submitComment = () => {
     if (!user || !commentText.trim()) return;
@@ -595,6 +610,11 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     }
   };
 
+  const toggleScreenLock = () => {
+    if (!isFullscreen) return;
+    setScreenLocked((locked) => !locked);
+  };
+
   const showGestureFeedback = (
     kind: GestureFeedback["kind"],
     value: number,
@@ -620,12 +640,14 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   };
 
   const handleDoubleTap = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (screenLocked) return;
     const rect = event.currentTarget.getBoundingClientRect();
     const x = event.clientX - rect.left;
     seekBy(x >= rect.width / 2 ? 15 : -15);
   };
 
   const handleTouchStart = (event: ReactTouchEvent<HTMLDivElement>) => {
+    if (screenLocked) return;
     const rect = event.currentTarget.getBoundingClientRect();
     const firstTouch = event.touches.item(0);
     if (!firstTouch) return;
@@ -656,6 +678,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   };
 
   const handleTouchMove = (event: ReactTouchEvent<HTMLDivElement>) => {
+    if (screenLocked) return;
     const gesture = touchGestureRef.current;
     if (!gesture) return;
     if (event.touches.length >= 2 && gesture.initialDistance) {
@@ -698,6 +721,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   };
 
   const handleTouchEnd = (event: ReactTouchEvent<HTMLDivElement>) => {
+    if (screenLocked) return;
     const gesture = touchGestureRef.current;
     touchGestureRef.current = null;
     if (!gesture || gesture.moved) return;
@@ -824,6 +848,19 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           ) : null}
         </div>
 
+        {isFullscreen && screenLocked ? (
+          <div className="absolute inset-0 z-[60] flex items-center justify-center bg-black/10">
+            <button
+              type="button"
+              onClick={toggleScreenLock}
+              className="inline-flex items-center gap-2 rounded-full bg-black/70 px-4 py-2 text-xs font-semibold text-white shadow-lg backdrop-blur-md transition hover:bg-black/85"
+              aria-label="Unlock player controls"
+            >
+              <Unlock className="h-4 w-4" /> Unlock controls
+            </button>
+          </div>
+        ) : null}
+
         <button
           type="button"
           onClick={() => {
@@ -841,6 +878,19 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
         >
           {zoom > 1 || displayMode === "fill" ? "Fit" : "Fill"}
         </button>
+
+        {isFullscreen ? (
+          <button
+            type="button"
+            onClick={toggleScreenLock}
+            onTouchStart={(event) => event.stopPropagation()}
+            onTouchEnd={(event) => event.stopPropagation()}
+            className="absolute right-28 top-3 z-50 rounded-full bg-black/60 p-2 text-white backdrop-blur-md transition hover:bg-black/80"
+            aria-label={screenLocked ? "Unlock player controls" : "Lock player controls"}
+          >
+            {screenLocked ? <Unlock className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+          </button>
+        ) : null}
 
         <button
           type="button"
