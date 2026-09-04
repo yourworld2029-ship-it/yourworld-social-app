@@ -1,0 +1,41 @@
+TASK: Implement Real Follow/Unfollow & Real Unique Views (1 User = 1 View)
+
+1. REAL FOLLOW / UNFOLLOW SYSTEM:
+   - Ensure `follows` table exists in Supabase:
+     - `id` (UUID, primary key)
+     - `follower_id` (UUID references auth.users(id) / profiles(id) ON DELETE CASCADE)
+     - `following_id` (UUID references auth.users(id) / profiles(id) ON DELETE CASCADE)
+     - UNIQUE constraint on `(follower_id, following_id)`.
+   - Mutation Logic:
+     - If following -> delete record from `follows`, decrement `followers_count` of creator and `following_count` of current user.
+     - If not following -> insert into `follows`, increment `followers_count` of creator and `following_count` of current user.
+   - Sync UI state on Video page (`video.$videoId.tsx`), Reel page, Profile page, and Orbit/Chat instantly with optimistic updates.
+
+2. REAL UNIQUE VIEW TRACKING (1 ID = Exactly 1 View):
+   - Ensure `post_views` table exists in Supabase:
+     - `id` (UUID, primary key)
+     - `post_id` (UUID references posts(id) ON DELETE CASCADE)
+     - `user_id` (UUID references profiles(id) ON DELETE CASCADE, nullable for guests)
+     - `created_at` (timestamp default now())
+     - UNIQUE constraint on `(post_id, user_id)` (or session hash).
+   - View Recording Logic:
+     - When a video/reel starts playing for >= 3 seconds, fire a safe view recording RPC or upsert query:
+       ```ts
+       const recordUniqueView = async (postId: string, userId?: string) => {
+         if (!postId || !userId) return;
+         // Upsert to ignore duplicates
+         const { error } = await supabase
+           .from('post_views')
+           .upsert({ post_id: postId, user_id: userId }, { onConflict: 'post_id, user_id', ignoreDuplicates: true });
+         
+         if (!error) {
+           // Increment views_count in posts table safely
+           await supabase.rpc('increment_post_views', { post_id_arg: postId });
+         }
+       };
+       ```
+     - If RPC does not exist, use a Supabase query trigger/count aggregation so multiple views from the same user ID are never counted more than once.
+
+3. Update all video players (`video.$videoId.tsx`, `ReelCard.tsx`, Feed items) to trigger this unique view logic only once per session.
+
+Run production build and confirm.
