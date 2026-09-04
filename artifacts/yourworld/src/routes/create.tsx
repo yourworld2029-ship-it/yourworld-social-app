@@ -12,6 +12,7 @@ import { LightTimeline } from "@/components/yw/editor/LightTimeline";
 import { GpuVideoPreview } from "@/components/yw/editor/GpuVideoPreview";
 import { NO_COPYRIGHT_MUSIC } from "@/components/yw/MusicVault";
 import { publishReel } from "@/lib/social-data";
+import { trackEvent } from "@/lib/analytics";
 import { useUploads } from "@/lib/upload-progress";
 import { canMuxReel, renderReel } from "@/lib/reel-mux";
 import { ReelPublishSheet, type ReelPublishMeta } from "@/components/yw/ReelPublishSheet";
@@ -284,6 +285,13 @@ function CreateStudioPage() {
     ).then(({ error }) => {
       if (error) toast.error(error);
       else {
+        trackEvent("reel_published", {
+          surface: "create_studio",
+          clip_count: clips.length,
+          has_music: Boolean(audioTrack),
+          export_resolution: exportedUrl ? exportRes : "source",
+          scheduled: false,
+        });
         if (exportedUrl) {
           backgroundExportUrls.current.delete(exportedUrl);
           URL.revokeObjectURL(exportedUrl);

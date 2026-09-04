@@ -34,6 +34,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadSheet";
 import { isVideoQualityTier, qualityTierFromDimensions } from "@/lib/video-quality";
+import { trackEvent } from "@/lib/analytics";
 
 export const Route = createFileRoute("/reels")({
   validateSearch: (search: Record<string, unknown>) => {
@@ -566,7 +567,13 @@ function ReelItem({
     video.volume = 1;
     setMuted(false);
     setSoundBlocked(false);
-    if (active && !paused) void video.play().catch(() => setSoundBlocked(true));
+    if (active && !paused) {
+      void video.play()
+        .then(() => trackEvent("reel_sound_enabled", { surface: "reels_feed" }))
+        .catch(() => setSoundBlocked(true));
+    } else {
+      trackEvent("reel_sound_enabled", { surface: "reels_feed" });
+    }
   }, [active, mediaRef, paused]);
 
   const toggleAudio = () => {
@@ -624,9 +631,19 @@ function ReelItem({
             toast.loading(`Creating ${choice} video... ${percent}%`, { id: toastId }),
           );
         }
+        trackEvent("reel_downloaded", {
+          surface: "reels_feed",
+          media_type: "video",
+          download_type: choice === "mp3" ? "audio" : choice || "original",
+        });
         toast.success("Saved to your device", { id: toastId });
       } else {
         await downloadWithWatermark(reel.poster, user.username, `yw-reel-${reel.id}.jpg`);
+        trackEvent("reel_downloaded", {
+          surface: "reels_feed",
+          media_type: "image",
+          download_type: "watermarked_image",
+        });
         toast.success("Downloaded in original quality with YW watermark", { id: toastId });
       }
     } catch {
@@ -639,11 +656,23 @@ function ReelItem({
     setLiking(true);
     try {
       await onDbLike();
+      trackEvent("reel_like_toggled", {
+        surface: "reels_feed",
+        liked: !isLiked,
+      });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Couldn't update like");
     } finally {
       setLiking(false);
     }
+  };
+
+  const handleSave = () => {
+    toggleSave(reel.id);
+    trackEvent("reel_save_toggled", {
+      surface: "reels_feed",
+      saved: !isSaved,
+    });
   };
 
   if (!user) return null;
@@ -787,7 +816,7 @@ function ReelItem({
           </Action>
         </CommentsSheet>
 
-        <Action onClick={() => toggleSave(reel.id)} label="Save" active={isSaved}>
+        <Action onClick={handleSave} label="Save" active={isSaved}>
           <Bookmark
             strokeWidth={1.8}
             className={cn("h-[18px] w-[18px]", isSaved && "fill-foreground")}

@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Lock, Mail, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
+import { trackEvent } from "@/lib/analytics";
 
 export const Route = createFileRoute("/auth")({
   component: AuthPage,
@@ -58,6 +59,7 @@ function AuthPage() {
 
   // Social Logins
   const handleSocialLogin = async (provider: 'google' | 'apple') => {
+    trackEvent("auth_started", { method: provider, mode: "signin" });
     setLoading(true);
     const configuredAppUrl = import.meta.env['VITE_APP_URL'];
     const appOrigin = configuredAppUrl || window.location.origin;
@@ -105,6 +107,10 @@ function AuthPage() {
     }
 
     if (mode === "signup" && !data.session) {
+      trackEvent("account_created", {
+        method: "email",
+        email_confirmation_required: true,
+      });
       toast.success("Account created. Check your email to confirm your address.");
       setMode("signin");
       setPassword("");
@@ -112,6 +118,13 @@ function AuthPage() {
       return;
     }
 
+    if (mode === "signup") {
+      trackEvent("account_created", {
+        method: "email",
+        email_confirmation_required: false,
+      });
+    }
+    trackEvent("auth_completed", { method: "email", mode });
     toast.success("Welcome back.");
     await navigate({ to: "/", replace: true });
   };

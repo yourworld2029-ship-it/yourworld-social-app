@@ -12,6 +12,7 @@ import {
   publishLongVideo,
 } from "@/lib/video-data";
 import { useUploads } from "@/lib/upload-progress";
+import { trackEvent } from "@/lib/analytics";
 
 type AccessOption = "public" | "vip" | "paid";
 
@@ -163,6 +164,13 @@ function VideoUploadPage() {
         toast.error(error);
         return;
       }
+      trackEvent("video_published", {
+        surface: "long_video_upload",
+        orientation,
+        scheduled: Boolean(scheduledAt),
+        has_thumbnail: Boolean(thumb),
+        paid_promotion: paidPromotion,
+      });
       toast.success(
         scheduledAt
           ? `Scheduled for ${scheduledAt.toLocaleString()}`
