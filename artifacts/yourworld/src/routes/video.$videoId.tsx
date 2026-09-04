@@ -98,9 +98,22 @@ function safeTimeAgo(value: string | null | undefined) {
   }
 }
 
-export default function VideoWatchPage() {
-  const params = useParams({ strict: false }) as { videoId?: string };
-  const cleanId = cleanVideoId(params?.videoId);
+function VideoWatchPage() {
+  const params = useParams({ strict: false });
+  const videoId = typeof params?.videoId === "string" ? params.videoId : "";
+  if (!videoId) {
+    return <VideoErrorFallback />;
+  }
+
+  const cleanId = cleanVideoId(videoId);
+  if (!cleanId) {
+    return <VideoErrorFallback />;
+  }
+
+  return <VideoWatchContent videoId={cleanId} />;
+}
+
+function VideoWatchContent({ videoId }: { videoId: string }) {
   const navigate = useNavigate();
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -112,14 +125,13 @@ export default function VideoWatchPage() {
     isLoading,
     isError,
   } = useQuery<Video | null>({
-    queryKey: ["video-detail", cleanId],
+    queryKey: ["video-detail", videoId],
     queryFn: async () => {
-      if (!cleanId) return null;
       try {
         const { data, error } = await supabase
           .from("posts")
           .select("*")
-          .eq("id", cleanId)
+          .eq("id", videoId)
           .maybeSingle();
 
         if (error || !data) {
@@ -145,18 +157,16 @@ export default function VideoWatchPage() {
         return null;
       }
     },
-    enabled: Boolean(cleanId),
     retry: 1,
   });
 
   const { data: comments = [] } = useQuery<VideoComment[]>({
-    queryKey: ["video-comments", cleanId],
+    queryKey: ["video-comments", videoId],
     queryFn: async () => {
-      if (!cleanId) return [];
       try {
         const { data, error } = await liveCommentsTable(supabase)
           .select("*")
-          .eq("post_id", cleanId)
+          .eq("post_id", videoId)
           .order("created_at", { ascending: false });
 
         if (error) {
@@ -169,18 +179,17 @@ export default function VideoWatchPage() {
         return [];
       }
     },
-    enabled: Boolean(cleanId),
   });
 
   const addCommentMutation = useMutation({
     mutationFn: async (text: string) => {
       if (!user) throw new Error("Must be logged in");
       const content = text.trim();
-      if (!content || !cleanId) throw new Error("Comment cannot be empty");
+      if (!content) throw new Error("Comment cannot be empty");
 
       const { data, error } = await liveCommentsTable(supabase)
         .insert({
-          post_id: cleanId,
+          post_id: videoId,
           user_id: user.id,
           content,
         })
@@ -192,7 +201,7 @@ export default function VideoWatchPage() {
     },
     onSuccess: () => {
       setCommentText("");
-      void queryClient.invalidateQueries({ queryKey: ["video-comments", cleanId] });
+      void queryClient.invalidateQueries({ queryKey: ["video-comments", videoId] });
       toast.success("Comment added");
     },
     onError: () => {

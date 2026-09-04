@@ -252,12 +252,19 @@ export function LongVideoCard({
   };
 
   const openViewer = () => {
-    const id = typeof video?.id === "string" ? video.id.trim() : "";
-    if (!id) {
+    const legacyVideo = video as LongVideo & {
+      post_id?: string | number | null;
+      _id?: string | number | null;
+    };
+    const targetId = video.id || legacyVideo.post_id || legacyVideo._id;
+    if (!targetId) {
       toast.error("This video is unavailable.");
       return;
     }
-    void navigate({ to: "/video/$videoId", params: { videoId: id } });
+    void navigate({
+      to: "/video/$videoId",
+      params: { videoId: String(targetId) },
+    });
   };
 
   const upcoming =
