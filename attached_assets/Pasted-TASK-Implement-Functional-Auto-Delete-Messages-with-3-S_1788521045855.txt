@@ -1,0 +1,32 @@
+TASK: Implement Functional "Auto-Delete Messages" with 3 Specific Timer Options in Chat/Orbit
+
+1. Database / Schema Configuration:
+   - In `conversations` (or `chats`) table, add/ensure:
+     - `auto_delete_setting` (text, default 'off') -> Allowed values: 'off', 'after_view', '6_hours', '24_hours'
+   - In `messages` table, add/ensure:
+     - `expires_at` (timestamp with time zone, nullable)
+     - `is_viewed` (boolean, default false)
+     - `viewed_at` (timestamp with time zone, nullable)
+
+2. Chat Settings Modal - 3 Timer Options:
+   - When user clicks/toggles "Auto Delete Messages" in the chat settings menu, open a clean selector popup with 4 options:
+     1. "Off" (Messages stay forever)
+     2. "After View" (Disappears immediately after receiver opens/reads it)
+     3. "6 Hours" (Deletes 6 hours after sending)
+     4. "24 Hours" (Deletes 24 hours after sending)
+   - Updating the selection saves `auto_delete_setting` to Supabase for this conversation and posts a system message in chat (e.g. "Auto-delete set to 6 hours").
+
+3. Real Message Expiry Calculation on Send:
+   - When a new message is inserted:
+     - If setting === '6_hours' -> `expires_at = new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString()`
+     - If setting === '24_hours' -> `expires_at = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()`
+     - If setting === 'after_view' -> `expires_at = null`, but when receiver views the message, update `is_viewed = true, viewed_at = now()` and purge/hide the message.
+
+4. Client-side Realtime Filtering & Database Cleanup:
+   - In message query hook/subscription:
+     - Filter out expired messages in real time: exclude any message where `(expires_at && new Date(expires_at) <= new Date())` OR `(auto_delete_setting === 'after_view' && is_viewed === true && viewer !== sender)`.
+   - Add a tiny background cleanup / Supabase delete query to remove expired rows permanently from `messages`.
+
+5. Update both Social Chat & Orbit Chat screens.
+
+Run production build and confirm.
