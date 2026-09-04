@@ -151,14 +151,21 @@ function HomePage() {
       const metadata = video as LongVideo & {
         aspect_ratio?: string | null;
         video_type?: string | null;
+          is_reel?: boolean | null;
+          media_type?: string | null;
       };
+        const title = video.title.toLowerCase();
       const isVertical =
         video.orientation === "portrait" ||
         metadata.aspect_ratio === "9:16" ||
-        metadata.video_type === "vertical";
+          metadata.video_type === "vertical" ||
+          metadata.is_reel === true ||
+          metadata.media_type === "reel" ||
+          title.includes("#shorts") ||
+          title.includes("#reel");
       const previous = groups[groups.length - 1];
 
-      if (isVertical && previous?.kind === "vertical") {
+        if (isVertical && previous?.kind === "vertical" && previous.videos.length < 2) {
         previous.videos.push(video);
       } else if (isVertical) {
         groups.push({ kind: "vertical", videos: [video] });
