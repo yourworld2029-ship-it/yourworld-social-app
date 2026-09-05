@@ -2,10 +2,9 @@ import React from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { usePostSaves } from "@/lib/post-actions";
 import { LongVideoCard } from "@/components/yw/LongVideoCard";
-import { VerticalVideoCard } from "@/components/yw/VerticalVideoCard";
 import { useLongVideos, type LongVideo } from "@/lib/video-data";
 import { setVideoQueue } from "@/lib/video-queue";
-import { Search, Heart, Plus } from "lucide-react";
+import { Search, Heart, Plus, MoreVertical } from "lucide-react";
 import { useMoments } from "@/lib/moment-store";
 import { useAlertsCount } from "@/lib/alerts-count";
 import { useAuth } from "@/lib/auth-store";
@@ -152,15 +151,17 @@ function HomePage() {
         aspect_ratio?: string | null;
         video_type?: string | null;
           is_reel?: boolean | null;
-          media_type?: string | null;
+          type?: string | null;
+          media_url?: string | null;
       };
         const title = video.title.toLowerCase();
       const isVertical =
-        video.orientation === "portrait" ||
         metadata.aspect_ratio === "9:16" ||
           metadata.video_type === "vertical" ||
-          metadata.is_reel === true ||
-          metadata.media_type === "reel" ||
+          Boolean(metadata.is_reel) ||
+          metadata.type === "vertical" ||
+          Boolean(metadata.media_url && !metadata.media_url.includes("16_9")) ||
+          video.orientation === "portrait" ||
           title.includes("#shorts") ||
           title.includes("#reel");
       const previous = groups[groups.length - 1];
@@ -266,10 +267,54 @@ function HomePage() {
         ) : (
           feedGroups.map((group) =>
             group.kind === "vertical" ? (
-              <div key={group.videos[0]?.id} className="grid grid-cols-2 gap-2.5 px-3 py-2">
-                {group.videos.map((video) => (
-                  <VerticalVideoCard key={video.id} video={video} />
-                ))}
+              <div key={group.videos[0]?.id} className="w-full px-3 py-2">
+                <div className="grid grid-cols-2 gap-2.5">
+                  {group.videos.map((video) => (
+                    <div
+                      key={video.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() =>
+                        navigate({ to: "/video/$videoId", params: { videoId: video.id } })
+                      }
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          navigate({ to: "/video/$videoId", params: { videoId: video.id } });
+                        }
+                      }}
+                      className="group relative aspect-[9/16] w-full cursor-pointer overflow-hidden rounded-2xl border border-white/10 bg-zinc-900 shadow-lg transition-transform active:scale-95"
+                    >
+                      {video.thumbnailUrl ? (
+                        <img
+                          src={video.thumbnailUrl}
+                          alt=""
+                          className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                        />
+                      ) : (
+                        <video
+                          src={video.mediaUrl}
+                          className="pointer-events-none h-full w-full object-cover"
+                          muted
+                          preload="metadata"
+                        />
+                      )}
+
+                      <div className="absolute right-2 top-2 rounded-full bg-black/40 p-1 text-white/90">
+                        <MoreVertical className="h-3.5 w-3.5" />
+                      </div>
+
+                      <div className="absolute inset-x-0 bottom-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/40 to-transparent p-2.5">
+                        <p className="line-clamp-2 text-xs font-semibold leading-tight text-white drop-shadow-sm">
+                          {video.title || video.caption || "Shorts"}
+                        </p>
+                        <span className="mt-1 text-[10px] text-zinc-300">
+                          {video.views.toLocaleString()} views
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             ) : (
               <LongVideoCard
