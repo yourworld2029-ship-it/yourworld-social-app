@@ -138,38 +138,42 @@ function HomePage() {
   const feedGroups = React.useMemo<
     Array<
       | { kind: "standard"; video: LongVideo }
-      | { kind: "vertical"; videos: LongVideo[] }
+      | { kind: "vertical"; verticalPostsGroup: LongVideo[] }
     >
   >(() => {
     const groups: Array<
       | { kind: "standard"; video: LongVideo }
-      | { kind: "vertical"; videos: LongVideo[] }
+      | { kind: "vertical"; verticalPostsGroup: LongVideo[] }
     > = [];
 
     for (const video of videos) {
       const metadata = video as LongVideo & {
         aspect_ratio?: string | null;
         video_type?: string | null;
-          is_reel?: boolean | null;
-          type?: string | null;
-          media_url?: string | null;
+        is_reel?: boolean | null;
+        type?: string | null;
+        media_url?: string | null;
       };
-        const title = video.title.toLowerCase();
+      const title = video.title.toLowerCase();
       const isVertical =
         metadata.aspect_ratio === "9:16" ||
-          metadata.video_type === "vertical" ||
-          Boolean(metadata.is_reel) ||
-          metadata.type === "vertical" ||
-          Boolean(metadata.media_url && !metadata.media_url.includes("16_9")) ||
-          video.orientation === "portrait" ||
-          title.includes("#shorts") ||
-          title.includes("#reel");
+        metadata.video_type === "vertical" ||
+        Boolean(metadata.is_reel) ||
+        metadata.type === "vertical" ||
+        Boolean(metadata.media_url && !metadata.media_url.includes("16_9")) ||
+        video.orientation === "portrait" ||
+        title.includes("#shorts") ||
+        title.includes("#reel");
       const previous = groups[groups.length - 1];
 
-        if (isVertical && previous?.kind === "vertical" && previous.videos.length < 2) {
-        previous.videos.push(video);
+      if (
+        isVertical &&
+        previous?.kind === "vertical" &&
+        previous.verticalPostsGroup.length < 2
+      ) {
+        previous.verticalPostsGroup.push(video);
       } else if (isVertical) {
-        groups.push({ kind: "vertical", videos: [video] });
+        groups.push({ kind: "vertical", verticalPostsGroup: [video] });
       } else {
         groups.push({ kind: "standard", video });
       }
@@ -267,54 +271,46 @@ function HomePage() {
         ) : (
           feedGroups.map((group) =>
             group.kind === "vertical" ? (
-              <div key={group.videos[0]?.id} className="w-full px-3 py-2">
-                <div className="grid grid-cols-2 gap-2.5">
-                  {group.videos.map((video) => (
+              <div
+                key={group.verticalPostsGroup[0]?.id}
+                className="grid grid-cols-2 gap-2.5 px-3 py-3 w-full bg-black"
+              >
+                {group.verticalPostsGroup.map((video) => {
+                  const post = video as LongVideo & {
+                    media_url?: string | null;
+                    thumbnail_url?: string | null;
+                    poster_url?: string | null;
+                    views_count?: number | null;
+                  };
+                  return (
                     <div
-                      key={video.id}
-                      role="button"
-                      tabIndex={0}
+                      key={post.id}
                       onClick={() =>
-                        navigate({ to: "/video/$videoId", params: { videoId: video.id } })
+                        navigate({ to: "/video/$videoId", params: { videoId: post.id } })
                       }
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          navigate({ to: "/video/$videoId", params: { videoId: video.id } });
-                        }
-                      }}
-                      className="group relative aspect-[9/16] w-full cursor-pointer overflow-hidden rounded-2xl border border-white/10 bg-zinc-900 shadow-lg transition-transform active:scale-95"
+                      className="relative aspect-[9/16] w-full rounded-2xl overflow-hidden bg-zinc-900 border border-white/10 shadow-lg cursor-pointer active:scale-95 transition-transform"
                     >
-                      {video.thumbnailUrl ? (
-                        <img
-                          src={video.thumbnailUrl}
-                          alt=""
-                          className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                        />
-                      ) : (
-                        <video
-                          src={video.mediaUrl}
-                          className="pointer-events-none h-full w-full object-cover"
-                          muted
-                          preload="metadata"
-                        />
-                      )}
-
-                      <div className="absolute right-2 top-2 rounded-full bg-black/40 p-1 text-white/90">
-                        <MoreVertical className="h-3.5 w-3.5" />
+                      <video
+                        src={post.media_url || post.mediaUrl}
+                        poster={post.thumbnail_url || post.poster_url || post.thumbnailUrl || undefined}
+                        className="w-full h-full object-cover pointer-events-none"
+                        muted
+                        preload="metadata"
+                      />
+                      <div className="absolute top-2 right-2 p-1 rounded-full bg-black/40 backdrop-blur-sm text-white/90">
+                        <MoreVertical className="w-3.5 h-3.5" />
                       </div>
-
-                      <div className="absolute inset-x-0 bottom-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/40 to-transparent p-2.5">
-                        <p className="line-clamp-2 text-xs font-semibold leading-tight text-white drop-shadow-sm">
-                          {video.title || video.caption || "Shorts"}
+                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-2.5 flex flex-col justify-end">
+                        <p className="text-xs font-semibold text-white line-clamp-2 leading-tight">
+                          {post.title || "Shorts"}
                         </p>
-                        <span className="mt-1 text-[10px] text-zinc-300">
-                          {video.views.toLocaleString()} views
+                        <span className="text-[10px] text-zinc-300 mt-1">
+                          {post.views_count || post.views || 0} views
                         </span>
                       </div>
                     </div>
-                  ))}
-                </div>
+                  );
+                })}
               </div>
             ) : (
               <LongVideoCard
