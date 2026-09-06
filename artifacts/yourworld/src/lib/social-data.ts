@@ -675,6 +675,76 @@ export async function publishReel(opts: {
   return { error: error?.message ?? null };
 }
 
+/** Uploads the original reel file without client-side re-encoding or rendering. */
+export async function publishDirectReel(opts: {
+  file: File;
+  title: string;
+  caption?: string;
+  hashtags?: string[];
+  durationSeconds: number;
+  originalWidth?: number | null;
+  originalHeight?: number | null;
+  onProgress?: ProgressFn;
+}): Promise<{ error: string | null }> {
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError) {
+    console.error("Could not authorize direct reel publishing", sessionError);
+    return { error: sessionError.message };
+  }
+
+  const uid = sessionData.session?.user.id;
+  if (!uid) return { error: "You need to sign in to post a reel." };
+  if (opts.durationSeconds < MIN_REEL_DURATION_SECONDS) {
+    return { error: MIN_REEL_DURATION_MESSAGE };
+  }
+  if (opts.durationSeconds > MAX_REEL_DURATION_SECONDS) {
+    return { error: MAX_REEL_DURATION_MESSAGE };
+  }
+
+  const extension = opts.file.name.split(".").pop()?.toLowerCase() || "mp4";
+  const path = `${uid}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${extension}`;
+  const { url: mediaUrl, error: uploadError } = await uploadWithProgress(
+    STORAGE_BUCKETS.reels,
+    path,
+    opts.file,
+    opts.file.type || "video/mp4",
+    opts.onProgress,
+  );
+  if (uploadError || !mediaUrl) {
+    console.error("Direct reel storage upload failed", uploadError);
+    return { error: uploadError ?? "Upload failed" };
+  }
+
+  const { error } = await writeCompat(
+    (payload) => supabase.from("posts").insert(payload as never),
+    {
+      user_id: uid,
+      kind: "reel",
+      is_reel: true,
+      media_url: mediaUrl,
+      media_type: "video",
+      title: opts.title.trim(),
+      caption: opts.caption?.trim() ?? "",
+      hashtags: opts.hashtags ?? [],
+      audio: null,
+      allow_download: true,
+      audience: "everyone",
+      tagged_user_ids: [],
+      viewer_user_ids: [],
+      duration_seconds: Math.round(opts.durationSeconds),
+      original_width: opts.originalWidth ?? null,
+      original_height: opts.originalHeight ?? null,
+      source_quality_tier: qualityTierFromDimensions(
+        opts.originalWidth,
+        opts.originalHeight,
+      ),
+    },
+    { kind: "type" },
+  );
+  if (error) console.error("Direct reel database insert failed", error);
+  return { error: error?.message ?? null };
+}
+
 /** Uploads a photo/video and inserts it into the posts table (kind = "post"). */
 export async function publishPost(opts: {
   fileUrl: string;
