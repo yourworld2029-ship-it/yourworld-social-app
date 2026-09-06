@@ -273,7 +273,7 @@ function HomePage() {
             group.kind === "vertical" ? (
               <div
                 key={group.verticalPostsGroup[0]?.id}
-                className="grid grid-cols-2 gap-2.5 px-3 py-3 w-full bg-black"
+                className="grid grid-cols-2 gap-2.5 px-3 py-3 w-full"
               >
                 {group.verticalPostsGroup.map((video) => {
                   const post = video as LongVideo & {
@@ -288,7 +288,7 @@ function HomePage() {
                       onClick={() =>
                         navigate({ to: "/video/$videoId", params: { videoId: post.id } })
                       }
-                      className="relative aspect-[9/16] w-full rounded-2xl overflow-hidden bg-zinc-900 border border-white/10 shadow-lg cursor-pointer active:scale-95 transition-transform"
+                      className="relative aspect-[9/16] w-full rounded-2xl overflow-hidden bg-zinc-900 border border-white/10"
                     >
                       <video
                         src={post.media_url || post.mediaUrl}
