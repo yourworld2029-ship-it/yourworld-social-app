@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, CheckCircle2, Loader2, Upload, Video } from "lucide-react";
+import {
+  ArrowLeft,
+  CheckCircle2,
+  Loader2,
+  Pause,
+  Play,
+  Upload,
+  Video,
+} from "lucide-react";
 import { toast } from "sonner";
 import { publishDirectReel } from "@/lib/social-data";
 
@@ -26,9 +34,12 @@ export const Route = createFileRoute("/create")({
 function DirectReelUploadPage() {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [duration, setDuration] = useState<number | null>(null);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [title, setTitle] = useState("");
   const [caption, setCaption] = useState("");
@@ -51,6 +62,8 @@ function DirectReelUploadPage() {
     setFile(null);
     setDuration(null);
     setDimensions({ width: 0, height: 0 });
+    setCurrentTime(0);
+    setIsPlaying(false);
     setError(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
@@ -64,6 +77,8 @@ function DirectReelUploadPage() {
     setError(null);
     setDuration(null);
     setDimensions({ width: 0, height: 0 });
+    setCurrentTime(0);
+    setIsPlaying(false);
     setFile(nextFile);
   };
 
@@ -79,6 +94,20 @@ function DirectReelUploadPage() {
     } else {
       setError(null);
     }
+  };
+
+  const togglePlayback = async () => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (video.paused) {
+      await video.play();
+    } else {
+      video.pause();
+    }
+  };
+
+  const handleTimeUpdate = (event: React.SyntheticEvent<HTMLVideoElement>) => {
+    setCurrentTime(event.currentTarget.currentTime);
   };
 
   const publish = async () => {
@@ -147,22 +176,53 @@ function DirectReelUploadPage() {
 
         <section className="space-y-5 rounded-3xl border border-white/10 bg-zinc-950 p-4 shadow-2xl">
           {previewUrl ? (
-            <div className="relative mx-auto aspect-[9/16] w-full max-w-sm overflow-hidden rounded-2xl bg-zinc-900">
+            <div className="group relative mx-auto aspect-[9/16] w-full max-w-sm overflow-hidden rounded-3xl border border-white/10 bg-zinc-950 shadow-2xl ring-1 ring-white/5">
               <video
+                ref={videoRef}
                 src={previewUrl}
                 className="h-full w-full object-cover"
-                controls
+                controlsList="nodownload noplaybackrate nofullscreen"
+                disablePictureInPicture
+                disableRemotePlayback
                 playsInline
                 preload="metadata"
                 onLoadedMetadata={handleMetadata}
+                onTimeUpdate={handleTimeUpdate}
+                onPlay={() => setIsPlaying(true)}
+                onPause={() => setIsPlaying(false)}
+                onEnded={() => setIsPlaying(false)}
               />
               <button
                 type="button"
+                onClick={togglePlayback}
+                className="absolute inset-0 flex items-center justify-center text-white transition-opacity duration-300"
+                aria-label={isPlaying ? "Pause preview" : "Play preview"}
+              >
+                <span className="flex h-14 w-14 items-center justify-center rounded-full border border-white/20 bg-black/40 text-white shadow-xl backdrop-blur-md transition-all duration-300 hover:scale-105 hover:bg-black/55 active:scale-95">
+                  {isPlaying ? (
+                    <Pause className="h-5 w-5 fill-current" />
+                  ) : (
+                    <Play className="ml-0.5 h-5 w-5 fill-current" />
+                  )}
+                </span>
+              </button>
+              <button
+                type="button"
                 onClick={resetVideo}
-                className="absolute right-3 top-3 rounded-full bg-black/70 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur"
+                className="absolute right-3 top-3 rounded-full border border-white/15 bg-black/60 px-3.5 py-1.5 text-xs font-medium text-white/90 backdrop-blur-md transition hover:bg-black/80"
               >
                 Replace
               </button>
+              <div className="pointer-events-none absolute inset-x-4 bottom-4 h-1 overflow-hidden rounded-full bg-white/20">
+                <div
+                  className="h-full rounded-full bg-white shadow-[0_0_12px_rgba(255,255,255,0.7)] transition-[width] duration-150"
+                  style={{
+                    width: duration && duration > 0
+                      ? `${Math.min(100, (currentTime / duration) * 100)}%`
+                      : "0%",
+                  }}
+                />
+              </div>
             </div>
           ) : (
             <button
@@ -187,7 +247,7 @@ function DirectReelUploadPage() {
           />
 
           {duration != null && (
-            <div className="flex items-center gap-2 text-xs text-zinc-400">
+            <div className="mx-auto inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-400">
               <CheckCircle2 className="h-4 w-4 text-emerald-400" />
               {duration.toFixed(1)} seconds
               {dimensions.width > 0 && ` · ${dimensions.width}×${dimensions.height}`}
@@ -201,7 +261,7 @@ function DirectReelUploadPage() {
               onChange={(event) => setTitle(event.target.value)}
               placeholder="Give your Reel a title"
               maxLength={120}
-              className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none transition placeholder:text-zinc-600 focus:border-pink-500"
+              className="w-full rounded-2xl border border-zinc-800 bg-zinc-900/90 p-3.5 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
             />
           </label>
 
@@ -213,7 +273,7 @@ function DirectReelUploadPage() {
               placeholder="Tell people about this Reel"
               rows={4}
               maxLength={2200}
-              className="w-full resize-none rounded-2xl border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none transition placeholder:text-zinc-600 focus:border-pink-500"
+              className="w-full resize-none rounded-2xl border border-zinc-800 bg-zinc-900/90 p-3.5 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
             />
           </label>
 
@@ -223,7 +283,7 @@ function DirectReelUploadPage() {
               value={hashtags}
               onChange={(event) => setHashtags(event.target.value)}
               placeholder="#travel #music"
-              className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none transition placeholder:text-zinc-600 focus:border-pink-500"
+              className="w-full rounded-2xl border border-zinc-800 bg-zinc-900/90 p-3.5 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
             />
           </label>
 
@@ -233,7 +293,7 @@ function DirectReelUploadPage() {
             type="button"
             onClick={publish}
             disabled={publishing || !file || duration == null || duration < MIN_REEL_SECONDS || duration > MAX_REEL_SECONDS}
-            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-pink-500 to-purple-600 px-4 py-3.5 text-sm font-bold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-violet-600 via-fuchsia-600 to-pink-600 px-4 py-3.5 text-sm font-bold text-white shadow-lg shadow-fuchsia-500/20 transition hover:brightness-110 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {publishing ? (
               <>
