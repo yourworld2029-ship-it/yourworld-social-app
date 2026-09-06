@@ -47,6 +47,10 @@ export type LongVideo = {
   mediaUrl: string;
   thumbnailUrl: string | null;
   orientation: "landscape" | "portrait";
+  aspectRatio?: string | null;
+  videoType?: string | null;
+  isReel?: boolean | null;
+  postType?: string | null;
   durationSeconds: number | null;
   originalWidth?: number | null;
   originalHeight?: number | null;
@@ -424,42 +428,50 @@ export function useLongVideos() {
     const byId = new Map(((profiles ?? []) as DbProfile[]).map((p) => [p.id, p]));
 
     const next: LongVideo[] = visible.map((p) => {
-        const metadata = p as typeof p & {
-          original_width?: number | null;
-          original_height?: number | null;
-          source_quality_tier?: string | null;
-        };
-        const prof = byId.get(p.user_id);
-        const username = prof?.username ?? `user${p.user_id.slice(0, 4)}`;
-        const name = prof?.display_name ?? username;
-        return {
-          id: p.id,
-          userId: p.user_id,
-          title: p.title || p.caption || "Untitled video",
-          caption: p.caption ?? "",
-          mediaUrl: p.media_url,
-          thumbnailUrl: p.thumbnail_url,
-          orientation: p.orientation === "portrait" ? "portrait" : "landscape",
-          durationSeconds: p.duration_seconds,
-          originalWidth: typeof metadata.original_width === "number" ? metadata.original_width : null,
-          originalHeight: typeof metadata.original_height === "number" ? metadata.original_height : null,
-          sourceQualityTier: isVideoQualityTier(metadata.source_quality_tier)
-            ? metadata.source_quality_tier
-            : qualityTierFromDimensions(metadata.original_width, metadata.original_height),
-          views: Number(
-            p.views ??
-              (p as typeof p & { views_count?: number | null }).views_count ??
-              0,
-          ),
-          hashtags: p.hashtags ?? [],
-          createdAt: p.created_at,
-          scheduledAt: p.scheduled_at,
-          author: { name, username, letter: (name || "Y").charAt(0).toUpperCase() },
-          likeCount: (likes ?? []).filter((l) => l.post_id === p.id).length,
-          commentCount: (comments ?? []).filter((c) => c.post_id === p.id).length,
-          likedByMe: !!uid && (likes ?? []).some((l) => l.post_id === p.id && l.user_id === uid),
-          commentsOff: !!(p as typeof p & { comments_off?: boolean }).comments_off,
-        } satisfies LongVideo;
+      const metadata = p as typeof p & {
+        aspect_ratio?: string | null;
+        video_type?: string | null;
+        is_reel?: boolean | null;
+        original_width?: number | null;
+        original_height?: number | null;
+        source_quality_tier?: string | null;
+        type?: string | null;
+      };
+      const prof = byId.get(p.user_id);
+      const username = prof?.username ?? `user${p.user_id.slice(0, 4)}`;
+      const name = prof?.display_name ?? username;
+      return {
+        id: p.id,
+        userId: p.user_id,
+        title: p.title || p.caption || "Untitled video",
+        caption: p.caption ?? "",
+        mediaUrl: p.media_url,
+        thumbnailUrl: p.thumbnail_url,
+        orientation: p.orientation === "portrait" ? "portrait" : "landscape",
+        aspectRatio: metadata.aspect_ratio ?? null,
+        videoType: metadata.video_type ?? null,
+        isReel: metadata.is_reel ?? null,
+        postType: metadata.type ?? p.kind ?? null,
+        durationSeconds: p.duration_seconds,
+        originalWidth: typeof metadata.original_width === "number" ? metadata.original_width : null,
+        originalHeight: typeof metadata.original_height === "number" ? metadata.original_height : null,
+        sourceQualityTier: isVideoQualityTier(metadata.source_quality_tier)
+          ? metadata.source_quality_tier
+          : qualityTierFromDimensions(metadata.original_width, metadata.original_height),
+        views: Number(
+          p.views ??
+            (p as typeof p & { views_count?: number | null }).views_count ??
+            0,
+        ),
+        hashtags: p.hashtags ?? [],
+        createdAt: p.created_at,
+        scheduledAt: p.scheduled_at,
+        author: { name, username, letter: (name || "Y").charAt(0).toUpperCase() },
+        likeCount: (likes ?? []).filter((l) => l.post_id === p.id).length,
+        commentCount: (comments ?? []).filter((c) => c.post_id === p.id).length,
+        likedByMe: !!uid && (likes ?? []).some((l) => l.post_id === p.id && l.user_id === uid),
+        commentsOff: !!(p as typeof p & { comments_off?: boolean }).comments_off,
+      } satisfies LongVideo;
     });
     setVideos(next);
     setLoading(false);

@@ -147,20 +147,17 @@ function HomePage() {
     > = [];
 
     for (const video of videos) {
-      const metadata = video as LongVideo & {
-        aspect_ratio?: string | null;
-        video_type?: string | null;
-        is_reel?: boolean | null;
-        type?: string | null;
-        media_url?: string | null;
-      };
       const title = video.title.toLowerCase();
+      const hasPortraitDimensions =
+        typeof video.originalWidth === "number" &&
+        typeof video.originalHeight === "number" &&
+        video.originalHeight > video.originalWidth;
       const isVertical =
-        metadata.aspect_ratio === "9:16" ||
-        metadata.video_type === "vertical" ||
-        Boolean(metadata.is_reel) ||
-        metadata.type === "vertical" ||
-        Boolean(metadata.media_url && !metadata.media_url.includes("16_9")) ||
+        video.aspectRatio === "9:16" ||
+        video.videoType === "vertical" ||
+        Boolean(video.isReel) ||
+        video.postType === "vertical" ||
+        hasPortraitDimensions ||
         video.orientation === "portrait" ||
         title.includes("#shorts") ||
         title.includes("#reel");
@@ -273,7 +270,7 @@ function HomePage() {
             group.kind === "vertical" ? (
               <div
                 key={group.verticalPostsGroup[0]?.id}
-                className="grid grid-cols-2 gap-2.5 px-3 py-3 w-full"
+                className="grid grid-cols-2 gap-2.5 px-3 py-2 w-full"
               >
                 {group.verticalPostsGroup.map((video) => {
                   const post = video as LongVideo & {
@@ -288,7 +285,7 @@ function HomePage() {
                       onClick={() =>
                         navigate({ to: "/video/$videoId", params: { videoId: post.id } })
                       }
-                      className="relative aspect-[9/16] w-full rounded-2xl overflow-hidden bg-zinc-900 border border-white/10"
+                      className="relative aspect-[9/16] rounded-2xl overflow-hidden bg-zinc-900"
                     >
                       <video
                         src={post.media_url || post.mediaUrl}
