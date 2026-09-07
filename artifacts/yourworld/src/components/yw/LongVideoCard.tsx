@@ -3,7 +3,7 @@ import {
   Play, Eye, Heart, Clock, MessageCircle, Send, Bookmark,
   MoreHorizontal, Link2, Trash2, EyeOff,
 } from "lucide-react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import {
   formatDuration,
@@ -45,12 +45,10 @@ export function LongVideoCard({
   onDeleted,
 }: Props) {
   const { following, toggleFollow } = useYw();
-  const navigate = useNavigate();
   const [hidden, setHidden] = useState(false);
   const [commentCount, setCommentCount] = useState(video.commentCount);
   const [liking, setLiking] = useState(false);
   const cardRef = useRef<HTMLElement | null>(null);
-  const lastTouchEnd = useRef(0);
 
   const isMine = currentUserId === video.userId;
   const isFollowing = !!following[video.userId];
@@ -107,24 +105,9 @@ export function LongVideoCard({
     }
   };
 
-  const handleNavigateToWatch = (
-    event: MouseEvent<HTMLDivElement> | TouchEvent<HTMLDivElement>,
-  ) => {
-    event.preventDefault();
+  const openWatchPage = (event: MouseEvent | TouchEvent) => {
     event.stopPropagation();
-
-    const isTouch = "changedTouches" in event;
-    const now = Date.now();
-    if (isTouch) {
-      lastTouchEnd.current = now;
-    } else if (now - lastTouchEnd.current < 750) {
-      return;
-    }
-
-    void navigate({
-      to: "/video/$videoId",
-      params: { videoId: video.id },
-    });
+    window.location.href = `/video/${video.id}`;
   };
 
   const upcoming =
@@ -141,15 +124,12 @@ export function LongVideoCard({
         role="link"
         tabIndex={0}
         aria-label={`Open ${video.title}`}
-        onClick={handleNavigateToWatch}
-        onTouchEnd={handleNavigateToWatch}
+        onClick={openWatchPage}
+        onTouchEnd={openWatchPage}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
-            void navigate({
-              to: "/video/$videoId",
-              params: { videoId: video.id },
-            });
+            window.location.href = `/video/${video.id}`;
           }
         }}
         className="block w-full cursor-pointer touch-manipulation select-none"
@@ -181,7 +161,13 @@ export function LongVideoCard({
 
       <div className="space-y-2 px-3 pb-3">
         <div className="flex items-start justify-between gap-2">
-          <h3 className="text-sm font-bold leading-snug text-white">{video.title}</h3>
+          <h3
+            onClick={openWatchPage}
+            onTouchEnd={openWatchPage}
+            className="cursor-pointer select-none text-sm font-bold leading-snug text-white"
+          >
+            {video.title}
+          </h3>
           <div className="flex shrink-0 items-center gap-1.5">
             {!isMine && (
               <button
