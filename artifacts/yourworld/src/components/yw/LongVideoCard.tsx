@@ -243,49 +243,50 @@ export function LongVideoCard({
       ref={cardRef}
       className="space-y-3 overflow-hidden border-y border-zinc-800/80 bg-[#141418] shadow-2xl"
     >
-      {playing && src ? (
-        <TrackedVideoPlayer
-          key={active.id}
-          src={src}
-          title={active.title}
-          poster={active.thumbnailUrl}
-          portrait={active.portrait}
-          watchVideoId={active.id}
-          watchTimeEnabled={!!currentUserId}
-          onOrientationChange={setPlayerPortrait}
-          onSwipeQueue={swipeQueue}
-           onPlayedSeconds={handlePlayedSeconds}
-          hideAuxControls
-        />
-      ) : (
-        <div
-          className={cn(
-            "relative mx-auto w-full overflow-hidden bg-black",
-            playerPortrait ? "max-h-[75vh] aspect-[9/16]" : "aspect-[16/9]",
-          )}
-        >
-          <button
-            type="button"
-            onClick={openViewer}
-            aria-label={`Open ${video.title}`}
-            className="group relative h-full w-full"
+      <div onClick={openViewer}>
+        {playing && src ? (
+          <TrackedVideoPlayer
+            key={active.id}
+            src={src}
+            title={active.title}
+            poster={active.thumbnailUrl}
+            portrait={active.portrait}
+            watchVideoId={active.id}
+            watchTimeEnabled={!!currentUserId}
+            onOrientationChange={setPlayerPortrait}
+            onSwipeQueue={swipeQueue}
+            onPlayedSeconds={handlePlayedSeconds}
+            hideAuxControls
+          />
+        ) : (
+          <div
+            className={cn(
+              "relative mx-auto w-full overflow-hidden bg-black",
+              playerPortrait ? "max-h-[75vh] aspect-[9/16]" : "aspect-[16/9]",
+            )}
           >
-            <VideoPoster
-              thumbnailUrl={video.thumbnailUrl}
-              mediaUrl={video.mediaUrl}
-              alt={video.title}
-            />
-            <span className="absolute inset-0 grid place-items-center bg-black/25">
-              <span className="grid h-14 w-14 place-items-center rounded-full bg-white/90 text-black transition-transform group-active:scale-90">
-                <Play size={22} className="ml-0.5 fill-black" />
+            <button
+              type="button"
+              aria-label={`Open ${video.title}`}
+              className="group relative h-full w-full"
+            >
+              <VideoPoster
+                thumbnailUrl={video.thumbnailUrl}
+                mediaUrl={video.mediaUrl}
+                alt={video.title}
+              />
+              <span className="absolute inset-0 grid place-items-center bg-black/25">
+                <span className="grid h-14 w-14 place-items-center rounded-full bg-white/90 text-black transition-transform group-active:scale-90">
+                  <Play size={22} className="ml-0.5 fill-black" />
+                </span>
               </span>
-            </span>
-            <span className="absolute bottom-2 right-2 rounded-md bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold">
-              {formatDuration(video.durationSeconds)}
-            </span>
-          </button>
-        </div>
-      )}
+              <span className="absolute bottom-2 right-2 rounded-md bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold">
+                {formatDuration(video.durationSeconds)}
+              </span>
+            </button>
+          </div>
+        )}
+      </div>
 
       <div className="space-y-2 px-3 pb-3">
         <div className="flex items-start justify-between gap-2">
