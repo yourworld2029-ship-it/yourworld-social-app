@@ -280,11 +280,16 @@ function HomePage() {
                     views_count?: number | null;
                   };
                   return (
-                    <a
+                    <button
+                      type="button"
                       key={post.id}
-                      href={`/video/${post.id}`}
                       aria-label={`Open ${post.title || "Shorts"}`}
-                      className="group relative z-20 block aspect-[9/16] cursor-pointer touch-manipulation select-none overflow-hidden rounded-2xl bg-zinc-900"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        window.location.assign(`/video/${post.id}`);
+                      }}
+                      className="group relative z-20 block aspect-[9/16] w-full cursor-pointer touch-manipulation select-none overflow-hidden rounded-2xl border-0 bg-zinc-900 p-0 text-left"
                     >
                       <VideoPoster
                         mediaUrl={post.media_url || post.mediaUrl}
@@ -305,7 +310,7 @@ function HomePage() {
                           {post.views_count || post.views || 0} views
                         </span>
                       </div>
-                    </a>
+                    </button>
                   );
                 })}
               </div>

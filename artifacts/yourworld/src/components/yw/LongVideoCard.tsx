@@ -115,10 +115,15 @@ export function LongVideoCard({
       ref={cardRef}
       className="space-y-3 overflow-hidden border-y border-zinc-800/80 bg-[#141418] shadow-2xl"
     >
-      <a
-        href={`/video/${video.id}`}
+      <button
+        type="button"
         aria-label={`Open ${video.title}`}
-        className="group relative z-20 block w-full cursor-pointer touch-manipulation select-none"
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          window.location.assign(`/video/${video.id}`);
+        }}
+        className="group relative z-20 block w-full cursor-pointer touch-manipulation select-none border-0 bg-black p-0 text-left"
       >
         <div
           className={cn(
@@ -143,7 +148,7 @@ export function LongVideoCard({
             {formatDuration(video.durationSeconds)}
           </span>
         </div>
-      </a>
+      </button>
 
       <div className="space-y-2 px-3 pb-3">
         <div className="flex items-start justify-between gap-2">
