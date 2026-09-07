@@ -1,0 +1,1 @@
+function e(e){if(!e||e<=30)return[{start:0,end:e||0}];let t=Math.ceil(e/30);return Array.from({length:t},(t,n)=>({start:n*30,end:Math.min(e,(n+1)*30)}))}export{e as t};

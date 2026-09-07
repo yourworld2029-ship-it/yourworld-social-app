@@ -121,7 +121,7 @@ export function LongVideoCard({
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
-          window.location.assign(`/video/${video.id}`);
+          window.location.href = `/video/${video.id}`;
         }}
         className="group relative z-20 block w-full cursor-pointer touch-manipulation select-none border-0 bg-black p-0 text-left"
       >
@@ -152,12 +152,17 @@ export function LongVideoCard({
 
       <div className="space-y-2 px-3 pb-3">
         <div className="flex items-start justify-between gap-2">
-          <a
-            href={`/video/${video.id}`}
-            className="cursor-pointer select-none text-sm font-bold leading-snug text-white"
+          <button
+            type="button"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              window.location.href = `/video/${video.id}`;
+            }}
+            className="cursor-pointer select-none text-left text-sm font-bold leading-snug text-white"
           >
             {video.title}
-          </a>
+          </button>
           <div className="flex shrink-0 items-center gap-1.5">
             {!isMine && (
               <button

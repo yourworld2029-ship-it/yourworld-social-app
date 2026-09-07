@@ -56,7 +56,7 @@ export function VideoPoster({ thumbnailUrl, mediaUrl, alt, className }: Props) {
         alt={alt}
         loading="lazy"
         onError={() => setThumbnailFailed(true)}
-        className={cn("h-full w-full object-cover", className)}
+        className={cn("pointer-events-none h-full w-full object-cover", className)}
       />
     );
   }
@@ -67,11 +67,11 @@ export function VideoPoster({ thumbnailUrl, mediaUrl, alt, className }: Props) {
         src={frameUrl}
         muted
         playsInline
-        preload="none"
+        preload="metadata"
         tabIndex={-1}
         aria-label={alt}
         onError={() => setFrameFailed(true)}
-        className={cn("h-full w-full object-cover", className)}
+        className={cn("pointer-events-none h-full w-full object-cover", className)}
       />
     );
   }

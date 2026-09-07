@@ -1,15 +1,18 @@
-import { Link } from "@tanstack/react-router";
-import { MoreVertical } from "lucide-react";
+import { MoreVertical, Play } from "lucide-react";
 import { VideoPoster } from "@/components/yw/VideoPoster";
 import { formatViews, type LongVideo } from "@/lib/video-data";
 
 export function VerticalVideoCard({ video }: { video: LongVideo }) {
   return (
-    <Link
-      to="/video/$videoId"
-      params={{ videoId: video.id }}
+    <button
+      type="button"
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        window.location.href = `/video/${video.id}`;
+      }}
       aria-label={`Watch ${video.title}`}
-      className="relative aspect-[9/16] w-full rounded-2xl overflow-hidden bg-zinc-900 shadow-md"
+      className="group relative aspect-[9/16] w-full overflow-hidden rounded-2xl bg-zinc-900 p-0 text-left shadow-md"
     >
       <VideoPoster
         thumbnailUrl={video.thumbnailUrl}
@@ -17,6 +20,12 @@ export function VerticalVideoCard({ video }: { video: LongVideo }) {
         alt={video.title}
         className="w-full h-full object-cover"
       />
+
+      <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/15">
+        <span className="grid h-12 w-12 place-items-center rounded-full bg-black/70 text-white shadow-lg">
+          <Play className="h-6 w-6 translate-x-0.5 fill-white text-white" />
+        </span>
+      </span>
 
       <span
         aria-hidden="true"
@@ -31,6 +40,6 @@ export function VerticalVideoCard({ video }: { video: LongVideo }) {
         </span>
         <span className="text-[10px] text-white/70 mt-0.5">{formatViews(video.views)}</span>
       </span>
-    </Link>
+    </button>
   );
 }

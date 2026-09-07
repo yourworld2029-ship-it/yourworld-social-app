@@ -5,7 +5,7 @@ import { LongVideoCard } from "@/components/yw/LongVideoCard";
 import { VideoPoster } from "@/components/yw/VideoPoster";
 import { useLongVideos, type LongVideo } from "@/lib/video-data";
 import { setVideoQueue } from "@/lib/video-queue";
-import { Search, Heart, Plus, MoreVertical } from "lucide-react";
+import { Search, Heart, Plus, MoreVertical, Play } from "lucide-react";
 import { useMoments } from "@/lib/moment-store";
 import { useAlertsCount } from "@/lib/alerts-count";
 import { useAuth } from "@/lib/auth-store";
@@ -287,7 +287,7 @@ function HomePage() {
                       onClick={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
-                        window.location.assign(`/video/${post.id}`);
+                        window.location.href = `/video/${post.id}`;
                       }}
                       className="group relative z-20 block aspect-[9/16] w-full cursor-pointer touch-manipulation select-none overflow-hidden rounded-2xl border-0 bg-zinc-900 p-0 text-left"
                     >
@@ -299,6 +299,11 @@ function HomePage() {
                         alt={post.title || "Shorts"}
                         className="pointer-events-none select-none"
                       />
+                      <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/15">
+                        <span className="grid h-12 w-12 place-items-center rounded-full bg-black/70 text-white shadow-lg">
+                          <Play className="h-6 w-6 translate-x-0.5 fill-white text-white" />
+                        </span>
+                      </span>
                       <div className="pointer-events-none absolute top-2 right-2 p-1 rounded-full bg-black/40 backdrop-blur-sm text-white/90">
                         <MoreVertical className="w-3.5 h-3.5" />
                       </div>
