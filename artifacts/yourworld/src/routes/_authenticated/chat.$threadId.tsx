@@ -346,7 +346,7 @@ function ChatThreadPage() {
       return;
     }
     scrollToLatest();
-  }, [messages, isRecording]);
+   }, [messages, isRecording, peerTyping]);
 
   useEffect(() => {
     const viewport = window.visualViewport;
@@ -388,6 +388,7 @@ function ChatThreadPage() {
 
 
   const doSend = (currentMsg: string) => {
+    setTyping(false);
     if (currentUserId) {
       void sendToDb({ content: currentMsg, autoDeleteSetting: settings.autoDeleteSetting }).then((sent) => {
         if (sent.error) toast.error(sent.error);
@@ -836,7 +837,7 @@ function ChatThreadPage() {
                 m.local ? (
                   <Check size={12} className="text-zinc-500" />
                 ) : m.read ? (
-                  <CheckCheck size={12} className="text-sky-400" />
+                   <CheckCheck size={12} className="text-emerald-500" />
                 ) : (
                   <CheckCheck size={12} className="text-zinc-500" />
                 )
@@ -844,7 +845,20 @@ function ChatThreadPage() {
             </span>
           </div>
         ))}
-        <div ref={messagesEndRef} />
+         {peerTyping ? (
+           <div className="flex items-end gap-2" aria-live="polite" aria-label="The other person is typing">
+             <div className="flex items-center gap-1 rounded-2xl rounded-bl-sm border border-zinc-700/60 bg-zinc-800/90 px-4 py-3">
+               {[0, 1, 2].map((delay) => (
+                 <span
+                   key={delay}
+                   className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-400"
+                   style={{ animationDelay: `${delay * 140}ms` }}
+                 />
+               ))}
+             </div>
+           </div>
+         ) : null}
+         <div ref={messagesEndRef} />
       </div>
 
       {/* LONG-PRESS ACTION SHEET */}

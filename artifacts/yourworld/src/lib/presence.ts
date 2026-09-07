@@ -12,6 +12,8 @@ export function useThreadPresence(threadId: string, me: string | null) {
   const [peerTyping, setPeerTyping] = useState(false);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const typingUntil = useRef(0);
+  const lastTypingSentAt = useRef(0);
+  const typingStopTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tick = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -45,22 +47,50 @@ export function useThreadPresence(threadId: string, me: string | null) {
 
     return () => {
       if (tick.current) clearInterval(tick.current);
+      if (typingStopTimer.current) clearTimeout(typingStopTimer.current);
+      typingStopTimer.current = null;
       channelRef.current = null;
       void supabase.removeChannel(channel);
     };
   }, [threadId, me]);
 
-  /** Call on every keystroke — throttled to one track() per second. */
+  /** Call on every keystroke — broadcasts while active and ends after 2s idle. */
   const setTyping = useCallback(
     (typing: boolean) => {
       const channel = channelRef.current;
       if (!channel || !me) return;
       const now = Date.now();
-      if (typing && now < typingUntil.current - 2000) return;
-      typingUntil.current = typing ? now + 3000 : 0;
+      if (typing) {
+        if (typingStopTimer.current) clearTimeout(typingStopTimer.current);
+        if (now - lastTypingSentAt.current >= 1000) {
+          lastTypingSentAt.current = now;
+          typingUntil.current = now + 2000;
+          void channel.track({
+            user_id: me,
+            typing_until: typingUntil.current,
+            online_at: new Date().toISOString(),
+          });
+        }
+        typingStopTimer.current = setTimeout(() => {
+          typingUntil.current = 0;
+          lastTypingSentAt.current = 0;
+          typingStopTimer.current = null;
+          void channel.track({
+            user_id: me,
+            typing_until: 0,
+            online_at: new Date().toISOString(),
+          });
+        }, 2000);
+        return;
+      }
+
+      if (typingStopTimer.current) clearTimeout(typingStopTimer.current);
+      typingStopTimer.current = null;
+      typingUntil.current = 0;
+      lastTypingSentAt.current = 0;
       void channel.track({
         user_id: me,
-        typing_until: typingUntil.current,
+        typing_until: 0,
         online_at: new Date().toISOString(),
       });
     },
