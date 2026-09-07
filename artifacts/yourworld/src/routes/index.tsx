@@ -74,14 +74,6 @@ function HomePage() {
   const { count: alertCount } = useAlertsCount();
   React.useEffect(() => setHydrated(true), []);
 
-  const openWatchPage = (
-    event: React.MouseEvent | React.TouchEvent,
-    videoId: string,
-  ) => {
-    event.stopPropagation();
-    window.location.href = `/video/${videoId}`;
-  };
-
   // Keep the fullscreen swipe queue in sync with the feed.
   React.useEffect(() => {
     setVideoQueue(
@@ -288,12 +280,11 @@ function HomePage() {
                     views_count?: number | null;
                   };
                   return (
-                    <div
+                    <a
                       key={post.id}
+                      href={`/video/${post.id}`}
                       aria-label={`Open ${post.title || "Shorts"}`}
-                      onClick={(event) => openWatchPage(event, post.id)}
-                      onTouchEnd={(event) => openWatchPage(event, post.id)}
-                      className="relative aspect-[9/16] cursor-pointer touch-manipulation select-none overflow-hidden rounded-2xl bg-zinc-900"
+                      className="group relative z-20 block aspect-[9/16] cursor-pointer touch-manipulation select-none overflow-hidden rounded-2xl bg-zinc-900"
                     >
                       <VideoPoster
                         mediaUrl={post.media_url || post.mediaUrl}
@@ -314,7 +305,7 @@ function HomePage() {
                           {post.views_count || post.views || 0} views
                         </span>
                       </div>
-                    </div>
+                    </a>
                   );
                 })}
               </div>

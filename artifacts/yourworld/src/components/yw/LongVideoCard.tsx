@@ -1,4 +1,4 @@
-import { useRef, useState, type MouseEvent, type TouchEvent } from "react";
+import { useRef, useState } from "react";
 import {
   Play, Eye, Heart, Clock, MessageCircle, Send, Bookmark,
   MoreHorizontal, Link2, Trash2, EyeOff,
@@ -105,11 +105,6 @@ export function LongVideoCard({
     }
   };
 
-  const openWatchPage = (event: MouseEvent | TouchEvent) => {
-    event.stopPropagation();
-    window.location.href = `/video/${video.id}`;
-  };
-
   const upcoming =
     !!video.scheduledAt && new Date(video.scheduledAt).getTime() > Date.now();
 
@@ -120,19 +115,10 @@ export function LongVideoCard({
       ref={cardRef}
       className="space-y-3 overflow-hidden border-y border-zinc-800/80 bg-[#141418] shadow-2xl"
     >
-      <div
-        role="link"
-        tabIndex={0}
+      <a
+        href={`/video/${video.id}`}
         aria-label={`Open ${video.title}`}
-        onClick={openWatchPage}
-        onTouchEnd={openWatchPage}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            window.location.href = `/video/${video.id}`;
-          }
-        }}
-        className="block w-full cursor-pointer touch-manipulation select-none"
+        className="group relative z-20 block w-full cursor-pointer touch-manipulation select-none"
       >
         <div
           className={cn(
@@ -148,8 +134,8 @@ export function LongVideoCard({
             alt={video.title}
             className="pointer-events-none select-none"
           />
-          <span className="pointer-events-none absolute inset-0 grid place-items-center bg-black/25">
-            <span className="grid h-14 w-14 items-center justify-center rounded-full bg-white/90 text-black">
+          <span className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+            <span className="grid h-14 w-14 items-center justify-center rounded-full bg-white/90 text-black shadow-lg">
               <Play size={22} className="ml-0.5 fill-black" />
             </span>
           </span>
@@ -157,17 +143,16 @@ export function LongVideoCard({
             {formatDuration(video.durationSeconds)}
           </span>
         </div>
-      </div>
+      </a>
 
       <div className="space-y-2 px-3 pb-3">
         <div className="flex items-start justify-between gap-2">
-          <h3
-            onClick={openWatchPage}
-            onTouchEnd={openWatchPage}
+          <a
+            href={`/video/${video.id}`}
             className="cursor-pointer select-none text-sm font-bold leading-snug text-white"
           >
             {video.title}
-          </h3>
+          </a>
           <div className="flex shrink-0 items-center gap-1.5">
             {!isMine && (
               <button
