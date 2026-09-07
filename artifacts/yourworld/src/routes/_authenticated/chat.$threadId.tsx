@@ -20,6 +20,7 @@ import { useThreadMessages, useThreadPeer, dmThreadId, reportSocialUser, setUser
 import { supabase } from "@/integrations/supabase/client";
 import { useThreadPresence } from "@/lib/presence";
 import { useCall } from "@/lib/call-store";
+import { useMoments } from "@/lib/moment-store";
 import { useChatNames, saveChatDisplayName } from "@/lib/chat-names";
 import { useChatSettings } from "@/lib/chat-settings";
 import { hashPin, randomPinSalt, saveSecretChatLock } from "@/lib/secret-chats";
@@ -49,6 +50,10 @@ type Message = {
   read?: boolean;
   viewOnce?: boolean;
   opened?: boolean;
+  momentId?: string;
+  momentMediaUrl?: string;
+  momentCreatedAt?: string;
+  momentKind?: "photo" | "video" | "text";
 };
 
 const CALL_LOG_PATTERN = /^(Missed (Audio|Video) Call|(Audio|Video) Call ended • \d{2}:\d{2})$/;
@@ -82,6 +87,7 @@ function MenuItem({
 
 function ChatThreadPage() {
   const { profile: myProfile } = useMyProfile();
+  const { moments } = useMoments();
   const currentUserName = myProfile.display_name || myProfile.username || "YourWorld user";
   const currentUsername = myProfile.username || "user";
   const navigate = useNavigate();
@@ -180,11 +186,37 @@ function ChatThreadPage() {
       read: m.is_read,
       viewOnce: false,
       opened: false,
+      momentId: m.moment_id ?? undefined,
+      momentMediaUrl: m.moment_media_url ?? undefined,
+      momentCreatedAt: m.moment_created_at ?? undefined,
+      momentKind:
+        m.metadata &&
+        typeof m.metadata.preview === "object" &&
+        m.metadata.preview !== null &&
+        "kind" in m.metadata.preview &&
+        (m.metadata.preview.kind === "photo" ||
+          m.metadata.preview.kind === "video" ||
+          m.metadata.preview.kind === "text")
+          ? m.metadata.preview.kind
+          : undefined,
     }));
     return [...fromDb, ...localMessages]
       .filter((m) => !hiddenIds.includes(m.id))
       .sort((a, b) => a.ts - b.ts);
   }, [dbMessages, localMessages, hiddenIds, currentUserId]);
+
+  const openMomentReply = (message: Message) => {
+    if (!message.momentId) return;
+    const moment = moments.find((candidate) => candidate.id === message.momentId);
+    if (!moment || moment.archived || (moment.expiresAt != null && moment.expiresAt <= Date.now())) {
+      toast.error("This moment is no longer available (expired)");
+      return;
+    }
+    void navigate({
+      to: "/moment/$momentId",
+      params: { momentId: message.momentId },
+    });
+  };
 
   // Read receipts: any visible incoming message is marked read.
   useEffect(() => {
@@ -771,6 +803,49 @@ function ChatThreadPage() {
               <div className={`max-w-[78%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
                 m.sender === "me" ? "bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-br-xs" : "bg-zinc-800/90 text-zinc-100 rounded-bl-xs border border-zinc-700/50"
               }`}>
+                {m.momentId ? (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openMomentReply(m);
+                    }}
+                    className="group mb-2 flex w-full items-center gap-2 rounded-xl border border-white/15 bg-black/20 p-2 text-left transition hover:border-white/35 hover:bg-black/30 focus:outline-none focus:ring-2 focus:ring-white/60"
+                    aria-label="Open replied Moment"
+                  >
+                    <span className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-zinc-900 ring-1 ring-white/15">
+                      {m.momentMediaUrl ? (
+                        m.momentKind === "video" ? (
+                          <video
+                            src={m.momentMediaUrl}
+                            muted
+                            playsInline
+                            preload="metadata"
+                            className="h-full w-full object-cover transition duration-200 group-hover:scale-105"
+                          />
+                        ) : (
+                          <img
+                            src={m.momentMediaUrl}
+                            alt=""
+                            className="h-full w-full object-cover transition duration-200 group-hover:scale-105"
+                          />
+                        )
+                      ) : (
+                        <span className="grid h-full w-full place-items-center text-[10px] text-zinc-500">Text</span>
+                      )}
+                      <span className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[10px] font-bold uppercase tracking-[0.12em] text-white/65">
+                        Replying to Moment
+                      </span>
+                      <span className="mt-0.5 block truncate text-xs font-semibold text-white/90">
+                        Tap to view
+                      </span>
+                    </span>
+                    <span className="text-lg leading-none text-white/60 transition-transform group-hover:translate-x-0.5">›</span>
+                  </button>
+                ) : null}
                 {m.text}
               </div>
             )}
@@ -786,7 +861,7 @@ function ChatThreadPage() {
                 <span className="w-5 h-5 rounded-full border border-emerald-500 flex items-center justify-center">1</span>
                 Tap to view once
               </button>
-            ) : m.image && !(m.viewOnce && (m.opened || openedOnce.includes(m.id))) ? (
+            ) : m.image && !m.momentId && !(m.viewOnce && (m.opened || openedOnce.includes(m.id))) ? (
               <div className="max-w-[75%] rounded-2xl overflow-hidden border border-zinc-800 shadow-lg">
                 <LazyImage
                   src={m.image}

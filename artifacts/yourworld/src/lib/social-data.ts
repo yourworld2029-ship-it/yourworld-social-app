@@ -501,6 +501,9 @@ export type DbMessage = {
   expires_at: string | null;
   is_viewed: boolean;
   viewed_at: string | null;
+  moment_id?: string | null;
+  moment_media_url?: string | null;
+  moment_created_at?: string | null;
   /** UI compatibility field derived from the messages URL columns. */
   media_type: string;
   is_read: boolean;
@@ -521,10 +524,55 @@ type PublicMessageRow = {
   expires_at?: string | null;
   is_viewed?: boolean;
   viewed_at?: string | null;
+  moment_id?: string | null;
+  moment_media_url?: string | null;
+  moment_created_at?: string | null;
 };
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+function momentContextFromRow(row: PublicMessageRow) {
+  const metadata = asRecord(row.metadata);
+  const preview = asRecord(metadata?.preview);
+  const momentId =
+    typeof row.moment_id === "string"
+      ? row.moment_id
+      : typeof metadata?.moment_id === "string"
+        ? metadata.moment_id
+        : null;
+  if (!momentId) {
+    return {
+      moment_id: null,
+      moment_media_url: null,
+      moment_created_at: null,
+    };
+  }
+  return {
+    moment_id: momentId,
+    moment_media_url:
+      typeof row.moment_media_url === "string"
+        ? row.moment_media_url
+        : typeof metadata?.moment_media_url === "string"
+          ? metadata.moment_media_url
+          : typeof preview?.media_url === "string"
+            ? preview.media_url
+            : null,
+    moment_created_at:
+      typeof row.moment_created_at === "string"
+        ? row.moment_created_at
+        : typeof metadata?.moment_created_at === "string"
+          ? metadata.moment_created_at
+          : typeof preview?.created_at === "string"
+            ? preview.created_at
+            : null,
+  };
+}
 
 const toDbMessage = (row: PublicMessageRow): DbMessage => ({
   ...row,
+  ...momentContextFromRow(row),
   auto_delete_setting: row.auto_delete_setting ?? "off",
   expires_at: row.expires_at ?? null,
   is_viewed: row.is_viewed ?? false,
@@ -872,7 +920,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
   }), [belongs]);
   const queryRows = useCallback(async (before?: string) => {
     if (!pair) return [] as PublicMessageRow[];
-    let query = supabase.from("messages" as never).select("id,sender_id,receiver_id,content,media_url,voice_note_url,metadata,is_read,created_at,auto_delete_setting,expires_at,is_viewed,viewed_at" as never)
+    let query = supabase.from("messages" as never).select("*" as never)
       .or(`and(sender_id.eq.${pair[0]},receiver_id.eq.${pair[1]}),and(sender_id.eq.${pair[1]},receiver_id.eq.${pair[0]})`)
       .order("created_at", { ascending: false }).limit(PAGE_SIZE);
     if (before) query = query.lt("created_at", before);
