@@ -855,13 +855,13 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   };
 
   return (
-    <div className="min-h-screen bg-black pb-20 text-white">
+    <div className="min-h-screen bg-black text-white pb-24">
       <div
         ref={containerRef}
         className={
           isFullscreen
             ? "relative z-40 flex h-screen w-full items-center justify-center overflow-hidden bg-black shadow-lg"
-            : "w-full aspect-video bg-black sticky top-0 z-30"
+            : "w-full aspect-video sticky top-0 z-30 bg-black"
         }
         onDoubleClick={handleDoubleTap}
         onTouchStart={handleTouchStart}
