@@ -858,11 +858,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     <div className="min-h-screen bg-black text-white pb-24">
       <div
         ref={containerRef}
-        className={
-          isFullscreen
-            ? "relative z-40 flex h-screen w-full items-center justify-center overflow-hidden bg-black shadow-lg"
-            : "w-full aspect-video sticky top-0 z-30 bg-black"
-        }
+        className="w-full aspect-video sticky top-0 z-30 bg-black"
         onDoubleClick={handleDoubleTap}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
