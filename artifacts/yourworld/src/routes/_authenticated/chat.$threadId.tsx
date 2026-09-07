@@ -225,7 +225,7 @@ function ChatThreadPage() {
       .filter(
         (m) =>
           m.sender_id !== currentUserId &&
-          (!m.is_read || (m.auto_delete_setting === "after_view" && !m.is_viewed)),
+          (!m.is_read || (m.auto_delete_mode === "after_view" && !m.is_viewed)),
       )
       .map((m) => m.id);
     if (unread.length) void markRead(unread);
@@ -422,7 +422,7 @@ function ChatThreadPage() {
   const doSend = (currentMsg: string) => {
     setTyping(false);
     if (currentUserId) {
-      void sendToDb({ content: currentMsg, autoDeleteSetting: settings.autoDeleteSetting }).then((sent) => {
+      void sendToDb({ content: currentMsg, autoDeleteMode: settings.autoDeleteSetting }).then((sent) => {
         if (sent.error) toast.error(sent.error);
       });
     } else {
@@ -478,7 +478,7 @@ function ChatThreadPage() {
           }
           const sent = await sendToDb({
             voice_note_url: uploaded.url,
-            autoDeleteSetting: settings.autoDeleteSetting,
+            autoDeleteMode: settings.autoDeleteSetting,
           });
           if (sent.error) toast.error(sent.error);
         })();
@@ -1314,7 +1314,7 @@ function ChatThreadPage() {
               const sent = await sendToDb({
                 media_url: uploaded.url,
                 content: caption,
-                autoDeleteSetting: settings.autoDeleteSetting,
+                autoDeleteMode: settings.autoDeleteSetting,
               });
               if (sent.error) {
                 toast.error(sent.error);

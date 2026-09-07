@@ -5,6 +5,7 @@ import {
   normalizeAutoDeleteSetting,
   type AutoDeleteSetting,
 } from "@/lib/auto-delete";
+import { writeCompat } from "@/lib/supabase-compat";
 
 /**
  * Per-conversation chat options (display name, secret lock, view once, auto
@@ -47,6 +48,7 @@ type Row = {
   secret_pin_hash: string | null;
   view_once_mode: boolean;
   auto_delete_setting?: string | null;
+  auto_delete_mode?: string | null;
   auto_delete_seconds: number;
   screenshot_alert: boolean;
   recording_alert: boolean;
@@ -58,6 +60,7 @@ export function useChatSettings(peerId: string | null) {
   const [settings, setSettings] = useState<ChatSettings>(DEFAULTS);
   const [ready, setReady] = useState(false);
   const meRef = useRef<string | null>(null);
+  const settingsChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -72,9 +75,7 @@ export function useChatSettings(peerId: string | null) {
       if (!me || !alive) return;
       const { data } = await supabase
         .from("orbit_chat_settings")
-        .select(
-          "display_name,secret_lock_enabled,secret_pin_salt,secret_pin_hash,view_once_mode,auto_delete_setting,auto_delete_seconds,screenshot_alert,recording_alert,muted,blocked",
-        )
+        .select("*")
         .eq("user_id", me)
         .eq("peer_id", peerId)
         .maybeSingle();
@@ -88,7 +89,7 @@ export function useChatSettings(peerId: string | null) {
           secretPinHash: row.secret_pin_hash,
           viewOnce: row.view_once_mode,
           autoDeleteSetting: normalizeAutoDeleteSetting(
-            row.auto_delete_setting,
+            row.auto_delete_mode ?? row.auto_delete_setting,
             row.auto_delete_seconds,
           ),
           autoDelete: row.auto_delete_seconds ?? 0,
@@ -98,11 +99,29 @@ export function useChatSettings(peerId: string | null) {
           blocked: !!row.blocked,
         });
       }
+      const channelName = `chat-settings-${[me, peerId].sort().join("_")}`;
+      const channel = supabase
+        .channel(channelName)
+        .on("broadcast", { event: "auto_delete_setting" }, ({ payload }) => {
+          const incoming = (payload ?? {}) as { auto_delete_mode?: unknown };
+          const mode = normalizeAutoDeleteSetting(incoming.auto_delete_mode);
+          setSettings((current) => ({
+            ...current,
+            autoDeleteSetting: mode,
+            autoDelete: autoDeleteSeconds(mode),
+          }));
+        })
+        .subscribe();
+      settingsChannelRef.current = channel;
       setReady(true);
     })();
 
     return () => {
       alive = false;
+      if (settingsChannelRef.current) {
+        void supabase.removeChannel(settingsChannelRef.current);
+        settingsChannelRef.current = null;
+      }
     };
   }, [peerId]);
 
@@ -113,7 +132,11 @@ export function useChatSettings(peerId: string | null) {
         const merged = { ...prev, ...next };
         const me = meRef.current;
         if (me && peerId) {
-          void supabase.from("orbit_chat_settings").upsert(
+          void writeCompat(
+            (payload) =>
+              supabase
+                .from("orbit_chat_settings")
+                .upsert(payload as never, { onConflict: "user_id,peer_id" }),
             {
               user_id: me,
               peer_id: peerId,
@@ -123,14 +146,24 @@ export function useChatSettings(peerId: string | null) {
               secret_pin_hash: merged.secretPinHash,
               view_once_mode: merged.viewOnce,
               auto_delete_setting: merged.autoDeleteSetting,
+              auto_delete_mode: merged.autoDeleteSetting,
               auto_delete_seconds: autoDeleteSeconds(merged.autoDeleteSetting),
               screenshot_alert: merged.screenshotAlert,
               recording_alert: merged.recordingAlert,
               muted: merged.muted,
               blocked: merged.blocked,
-            } as never,
-            { onConflict: "user_id,peer_id" },
+            },
           );
+          if (
+            next.autoDeleteSetting !== undefined &&
+            next.autoDeleteSetting !== prev.autoDeleteSetting
+          ) {
+            void settingsChannelRef.current?.send({
+              type: "broadcast",
+              event: "auto_delete_setting",
+              payload: { auto_delete_mode: merged.autoDeleteSetting },
+            });
+          }
         }
         return merged;
       });

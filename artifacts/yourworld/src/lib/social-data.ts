@@ -498,7 +498,9 @@ export type DbMessage = {
   voice_note_url: string | null;
   metadata?: Record<string, unknown> | null;
   auto_delete_setting: AutoDeleteSetting;
+  auto_delete_mode: AutoDeleteSetting;
   expires_at: string | null;
+  is_deleted: boolean;
   is_viewed: boolean;
   viewed_at: string | null;
   moment_id?: string | null;
@@ -521,7 +523,9 @@ type PublicMessageRow = {
   is_read: boolean;
   created_at: string;
   auto_delete_setting?: AutoDeleteSetting | null;
+  auto_delete_mode?: AutoDeleteSetting | null;
   expires_at?: string | null;
+  is_deleted?: boolean | null;
   is_viewed?: boolean;
   viewed_at?: string | null;
   moment_id?: string | null;
@@ -574,7 +578,9 @@ const toDbMessage = (row: PublicMessageRow): DbMessage => ({
   ...row,
   ...momentContextFromRow(row),
   auto_delete_setting: row.auto_delete_setting ?? "off",
+  auto_delete_mode: row.auto_delete_mode ?? row.auto_delete_setting ?? "off",
   expires_at: row.expires_at ?? null,
+  is_deleted: row.is_deleted ?? false,
   is_viewed: row.is_viewed ?? false,
   viewed_at: row.viewed_at ?? null,
   media_type: row.voice_note_url ? "audio" : row.media_url ? "image" : "text",
@@ -585,21 +591,17 @@ const isRenderablePublicMessage = (
     PublicMessageRow,
     | "sender_id"
     | "receiver_id"
-    | "auto_delete_setting"
+     | "auto_delete_setting"
+     | "auto_delete_mode"
     | "expires_at"
+     | "is_deleted"
     | "is_viewed"
   >,
-  viewerId: string | null,
+  _viewerId: string | null,
   now = Date.now(),
 ) =>
   (!row.expires_at || new Date(row.expires_at).getTime() > now) &&
-  !(
-    viewerId &&
-    row.receiver_id === viewerId &&
-    row.sender_id !== viewerId &&
-    row.auto_delete_setting === "after_view" &&
-    row.is_viewed
-  );
+  row.is_deleted !== true;
 
 type MutationResult = Promise<{ error: { message: string } | null }>;
 // Migration 0015 is intentionally newer than generated Supabase types. Keep
@@ -905,6 +907,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
   const [error, setError] = useState<string | null>(pair ? null : "Invalid chat address.");
   const messagesRef = useRef<DbMessage[]>([]);
   const meRef = useRef<string | null>(null);
+  const afterViewTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   useEffect(() => { messagesRef.current = messages; cacheSet(`thread:${threadId}`, messages.filter((m) => !m.id.startsWith("tmp-")).slice(-40)); }, [messages, threadId]);
 
   const belongs = useCallback((row: PublicMessageRow) => !!pair &&
@@ -920,8 +923,11 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
   }), [belongs]);
   const queryRows = useCallback(async (before?: string) => {
     if (!pair) return [] as PublicMessageRow[];
+    const now = new Date().toISOString();
     let query = supabase.from("messages" as never).select("*" as never)
       .or(`and(sender_id.eq.${pair[0]},receiver_id.eq.${pair[1]}),and(sender_id.eq.${pair[1]},receiver_id.eq.${pair[0]})`)
+      .or(`expires_at.is.null,expires_at.gt.${now}`)
+      .eq("is_deleted", false)
       .order("created_at", { ascending: false }).limit(PAGE_SIZE);
     if (before) query = query.lt("created_at", before);
     const { data, error: queryError } = await query;
@@ -1000,15 +1006,92 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     const timer = window.setInterval(sweep, 30_000);
     return () => window.clearInterval(timer);
   }, []);
-  const send = useCallback(async (payload: { content?: string; media_url?: string | null; voice_note_url?: string | null; autoDeleteSetting?: AutoDeleteSetting }) => {
+
+  const deleteAfterView = useCallback(async (id: string) => {
+    if (!me) return;
+    const { error: deleteError } = await supabase
+      .from("messages" as never)
+      .update({ is_deleted: true } as never)
+      .eq("id", id)
+      .eq("receiver_id", me)
+      .eq("auto_delete_mode", "after_view")
+      .eq("is_deleted", false);
+    if (deleteError) {
+      setError(deleteError.message);
+      return;
+    }
+    setMessages((prev) => prev.filter((message) => message.id !== id));
+  }, [me]);
+
+  useEffect(() => {
+    if (!me) return;
+    messages.forEach((message) => {
+      if (
+        message.receiver_id !== me ||
+        message.auto_delete_mode !== "after_view" ||
+        !message.is_viewed ||
+        message.is_deleted ||
+        afterViewTimersRef.current.has(message.id)
+      ) {
+        return;
+      }
+      const viewedAt = message.viewed_at ? Date.parse(message.viewed_at) : Date.now();
+      const delay = Math.max(0, 3_000 - Math.max(0, Date.now() - viewedAt));
+      const timer = setTimeout(() => {
+        afterViewTimersRef.current.delete(message.id);
+        void deleteAfterView(message.id);
+      }, delay);
+      afterViewTimersRef.current.set(message.id, timer);
+    });
+  }, [messages, me, deleteAfterView]);
+
+  useEffect(() => () => {
+    afterViewTimersRef.current.forEach((timer) => clearTimeout(timer));
+    afterViewTimersRef.current.clear();
+  }, []);
+
+  const send = useCallback(async (payload: {
+    content?: string;
+    media_url?: string | null;
+    voice_note_url?: string | null;
+    autoDeleteSetting?: AutoDeleteSetting;
+    autoDeleteMode?: AutoDeleteSetting;
+  }) => {
     if (!me || !pair || !pair.includes(me)) return { error: "You are not authorized for this chat." };
     const receiverId = pair.find((id) => id !== me)!;
-    const autoDeleteSetting = payload.autoDeleteSetting ?? "off";
-    const expiresAt = expiresAtForAutoDelete(autoDeleteSetting);
+    const autoDeleteMode = payload.autoDeleteMode ?? payload.autoDeleteSetting ?? "off";
+    const expiresAt = expiresAtForAutoDelete(autoDeleteMode);
     const tempId = `tmp-${Date.now()}`;
-    const optimistic = toDbMessage({ id: tempId, sender_id: me, receiver_id: receiverId, content: payload.content ?? "", media_url: payload.media_url ?? null, voice_note_url: payload.voice_note_url ?? null, metadata: {}, is_read: false, created_at: new Date().toISOString(), auto_delete_setting: autoDeleteSetting, expires_at: expiresAt, is_viewed: false, viewed_at: null });
+    const optimistic = toDbMessage({
+      id: tempId,
+      sender_id: me,
+      receiver_id: receiverId,
+      content: payload.content ?? "",
+      media_url: payload.media_url ?? null,
+      voice_note_url: payload.voice_note_url ?? null,
+      metadata: {},
+      is_read: false,
+      created_at: new Date().toISOString(),
+      auto_delete_setting: autoDeleteMode,
+      auto_delete_mode: autoDeleteMode,
+      expires_at: expiresAt,
+      is_deleted: false,
+      is_viewed: false,
+      viewed_at: null,
+    });
     setMessages((prev) => [...prev, optimistic]);
-    const { data, error: insertError } = await supabase.from("messages" as never).insert({ sender_id: me, receiver_id: receiverId, content: optimistic.content, media_url: optimistic.media_url, voice_note_url: optimistic.voice_note_url, metadata: {}, auto_delete_setting: autoDeleteSetting, expires_at: expiresAt } as never).select("*").maybeSingle();
+    const { data, error: insertError } = await supabase.from("messages" as never).insert({
+      sender_id: me,
+      receiver_id: receiverId,
+      content: optimistic.content,
+      media_url: optimistic.media_url,
+      voice_note_url: optimistic.voice_note_url,
+      metadata: {},
+      auto_delete_setting: autoDeleteMode,
+      auto_delete_mode: autoDeleteMode,
+      expires_at: expiresAt,
+      is_deleted: false,
+    } as never).select("*").maybeSingle();
     if (insertError) { setMessages((prev) => prev.filter((m) => m.id !== tempId)); setError(insertError.message); return { error: insertError.message }; }
     if (data) merge([data as unknown as PublicMessageRow]);
     setMessages((prev) => prev.filter((m) => m.id !== tempId));
@@ -1031,13 +1114,19 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       .update({ is_viewed: true, viewed_at: viewedAt } as never)
       .in("id", ids)
       .eq("receiver_id", me)
-      .eq("auto_delete_setting", "after_view");
+      .eq("auto_delete_mode", "after_view")
+      .eq("is_deleted", false);
     if (viewedError) { setError(viewedError.message); return; }
     setMessages((prev) => prev
       .map((m) => ids.includes(m.id) && m.receiver_id === me
-        ? { ...m, is_read: true, is_viewed: m.auto_delete_setting === "after_view" ? true : m.is_viewed, viewed_at: m.auto_delete_setting === "after_view" ? viewedAt : m.viewed_at }
+        ? {
+            ...m,
+            is_read: true,
+            is_viewed: m.auto_delete_mode === "after_view" ? true : m.is_viewed,
+            viewed_at: m.auto_delete_mode === "after_view" ? viewedAt : m.viewed_at,
+          }
         : m)
-      .filter((m) => isRenderablePublicMessage(m, me)));
+      );
   }, [me]);
   return useMemo(() => ({ messages, loading, loadingMore, hasMore, loadOlder, currentUserId: me, send, remove, markRead, error, reload: load }), [messages, loading, loadingMore, hasMore, loadOlder, me, send, remove, markRead, error, load]);
 }
