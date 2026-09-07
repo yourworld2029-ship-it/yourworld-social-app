@@ -19,7 +19,6 @@ import {
   Eye,
   Heart,
   Lock,
-  Maximize2,
   MessageCircle,
   Reply,
   Send,
@@ -665,14 +664,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     }
   };
 
-  const toggleFullscreen = () => {
-    if (!document.fullscreenElement) {
-      void containerRef.current?.requestFullscreen?.();
-    } else {
-      void document.exitFullscreen?.();
-    }
-  };
-
   const toggleScreenLock = () => {
     if (!isFullscreen) return;
     setScreenLocked((locked) => !locked);
@@ -954,17 +945,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           </div>
         ) : null}
 
-         {!screenLocked && <button
-           type="button"
-           onClick={toggleDisplayMode}
-           onTouchStart={(event) => event.stopPropagation()}
-           onTouchEnd={(event) => event.stopPropagation()}
-           className="absolute right-3 top-3 z-50 rounded-full bg-black/60 px-2.5 py-1.5 text-[10px] font-semibold text-white backdrop-blur-md transition hover:bg-black/80"
-           aria-label={zoom > 1 || displayMode === "fill" ? "Fit video to screen" : "Fill video screen"}
-         >
-           {zoom > 1 || displayMode === "fill" ? "Fit" : "Fill"}
-         </button>}
-
          {isFullscreen && !screenLocked && <button
             type="button"
             onClick={toggleScreenLock}
@@ -976,17 +956,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
             <Lock className="h-4 w-4" />
           </button>
          }
-
-         {!screenLocked && <button
-          type="button"
-          onClick={toggleFullscreen}
-          onTouchStart={(event) => event.stopPropagation()}
-          onTouchEnd={(event) => event.stopPropagation()}
-          className="absolute right-16 top-3 z-50 rounded-full bg-black/60 p-2 text-white backdrop-blur-md transition hover:bg-black/80"
-          aria-label="Toggle fullscreen"
-        >
-          <Maximize2 className="h-4 w-4" />
-         </button>}
 
          {!screenLocked && <button
           type="button"
