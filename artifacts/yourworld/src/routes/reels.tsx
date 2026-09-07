@@ -11,7 +11,6 @@ import {
   Lock,
   MoreVertical,
   EyeOff,
-  Eye,
   UserX,
   Flag,
   VolumeX,
@@ -823,10 +822,6 @@ function ReelItem({
             strokeWidth={1.8}
             className={cn("h-[18px] w-[18px]", isLiked && "fill-primary text-primary")}
           />
-        </Action>
-
-        <Action label={`${formatCount(reel.views ?? 0)} views`}>
-          <Eye strokeWidth={1.8} className="h-[18px] w-[18px]" />
         </Action>
 
         <CommentsSheet

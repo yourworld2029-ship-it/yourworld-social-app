@@ -728,15 +728,20 @@ function MediaGrid({
           ) : (
             <img src={it.src} alt="" loading="lazy" className="h-full w-full object-cover" />
           )}
-          {it.post?.kind === "video" || it.post?.kind === "reel" || it.type?.startsWith("video") ? (
-             <span className="absolute left-2 top-2 grid h-6 w-6 place-items-center rounded-full bg-black/45 text-white backdrop-blur-sm">
-               <Play className="h-3.5 w-3.5 fill-current" />
-             </span>
+          {it.post?.kind === "reel" ? (
+            <span className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
+              <Play className="h-3 w-3 fill-current" />
+              {formatCount(it.post.views_count ?? it.post.views ?? 0)}
+            </span>
+          ) : it.post?.kind === "video" || it.type?.startsWith("video") ? (
+            <span className="absolute left-2 top-2 grid h-6 w-6 place-items-center rounded-full bg-black/45 text-white backdrop-blur-sm">
+              <Play className="h-3.5 w-3.5 fill-current" />
+            </span>
           ) : null}
           {it.post?.pinned ? (
             <Pin className="absolute bottom-1.5 left-1.5 h-4 w-4 fill-current text-white drop-shadow" />
           ) : null}
-          {it.post?.views != null ? (
+          {it.post?.kind !== "reel" && it.post?.views != null ? (
             <span className="absolute bottom-1.5 right-1.5 rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
               {formatCount(it.post.views)} views
             </span>
