@@ -78,3 +78,83 @@ export async function sampleVideoFrames(src: string, count = 3): Promise<string[
     video.load();
   }
 }
+
+/**
+ * Creates a durable JPEG poster from a local video file.
+ *
+ * This intentionally samples at 1.5 seconds instead of the first frame:
+ * opening frames are often black, contain a fade-in, or have not rendered a
+ * useful subject yet. Callers can upload the returned Blob to storage.
+ */
+export async function generateVideoThumbnail(
+  videoFile: Blob,
+  requestedTime = 1.5,
+): Promise<Blob | null> {
+  if (typeof document === "undefined" || !videoFile.size) return null;
+
+  const video = document.createElement("video");
+  const objectUrl = URL.createObjectURL(videoFile);
+  video.preload = "metadata";
+  video.muted = true;
+  video.playsInline = true;
+  video.src = objectUrl;
+
+  const waitFor = (
+    eventName: "loadedmetadata" | "seeked",
+    timeoutMs: number,
+  ) =>
+    new Promise<boolean>((resolve) => {
+      let settled = false;
+      const finish = (ok: boolean) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeout);
+        video.removeEventListener(eventName, onEvent);
+        video.removeEventListener("error", onError);
+        resolve(ok);
+      };
+      const onEvent = () => finish(true);
+      const onError = () => finish(false);
+      const timeout = window.setTimeout(() => finish(false), timeoutMs);
+      video.addEventListener(eventName, onEvent, { once: true });
+      video.addEventListener("error", onError, { once: true });
+    });
+
+  try {
+    if (!(await waitFor("loadedmetadata", 8_000))) return null;
+    if (!Number.isFinite(video.duration) || video.duration <= 0) return null;
+
+    const target = Math.min(
+      Math.max(0, requestedTime),
+      Math.max(0, video.duration - 0.1),
+    );
+    try {
+      video.currentTime = target;
+    } catch {
+      return null;
+    }
+    if (!(await waitFor("seeked", 8_000))) return null;
+
+    const width = video.videoWidth || 640;
+    const height = video.videoHeight || 360;
+    const scale = Math.min(1, 1280 / Math.max(width, height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(2, Math.round(width * scale));
+    canvas.height = Math.max(2, Math.round(height * scale));
+    const context = canvas.getContext("2d");
+    if (!context) return null;
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    return await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(resolve, "image/jpeg", 0.85);
+    });
+  } catch (error) {
+    console.warn("Could not generate video thumbnail", error);
+    return null;
+  } finally {
+    video.pause();
+    video.removeAttribute("src");
+    video.load();
+    URL.revokeObjectURL(objectUrl);
+  }
+}

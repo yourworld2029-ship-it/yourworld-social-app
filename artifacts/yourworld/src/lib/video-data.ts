@@ -9,7 +9,7 @@ import {
 } from "@/lib/social-data";
 import { STORAGE_BUCKETS, uploadWithProgress, type ProgressFn } from "@/lib/storage-upload";
 import { optimizeVideoBlob } from "@/lib/video-compression";
-import { sampleVideoFrames } from "@/lib/video-frames";
+import { generateVideoThumbnail, sampleVideoFrames } from "@/lib/video-frames";
 import { scanVideoContent, type ModerationVerdict } from "@/lib/moderation.functions";
 import { missingColumn, normalizePostRow, postKind, writeCompat } from "@/lib/supabase-compat";
 import { registerUniqueView } from "@/lib/unique-views";
@@ -284,6 +284,24 @@ export async function publishLongVideo(opts: {
   if (thumb && /^(blob:|data:)/.test(thumb)) {
     thumb = await uploadToStorage(thumb, uid, "jpg", "image/jpeg");
     if (!thumb) return { error: "Thumbnail upload failed. Please try again." };
+  }
+  if (!thumb) {
+    try {
+      const sourceBlob = opts.file ?? (
+        /^(blob:|data:)/.test(opts.fileUrl)
+          ? await (await fetch(opts.fileUrl)).blob()
+          : null
+      );
+      if (sourceBlob) {
+        const generated = await generateVideoThumbnail(sourceBlob);
+        if (generated) {
+          thumb = await uploadToStorage(generated, uid, "jpg", "image/jpeg");
+          if (!thumb) return { error: "Generated thumbnail upload failed. Please try again." };
+        }
+      }
+    } catch (error) {
+      console.warn("Automatic long-video thumbnail generation failed", error);
+    }
   }
 
   // Automated content scan (safety + brand/sponsorship detection) before publishing.

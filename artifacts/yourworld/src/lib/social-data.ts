@@ -4,6 +4,7 @@ import { cacheGet, cacheSet } from "@/lib/local-cache";
 import { PAGE_SIZE } from "@/lib/chat-db";
 import { STORAGE_BUCKETS, uploadWithProgress, type ProgressFn } from "@/lib/storage-upload";
 import { optimizeVideoBlob } from "@/lib/video-compression";
+import { generateVideoThumbnail } from "@/lib/video-frames";
 import { flagChatMessage } from "@/lib/chat-compliance";
 import type { User } from "@/lib/yw-data";
 import { missingColumn, normalizePostRow, postKind, writeCompat } from "@/lib/supabase-compat";
@@ -684,6 +685,7 @@ export async function publishDirectReel(opts: {
   durationSeconds: number;
   originalWidth?: number | null;
   originalHeight?: number | null;
+  thumbnail?: Blob | null;
   onProgress?: ProgressFn;
 }): Promise<{ error: string | null }> {
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
@@ -708,11 +710,33 @@ export async function publishDirectReel(opts: {
     path,
     opts.file,
     opts.file.type || "video/mp4",
-    opts.onProgress,
+    (percent, detail) => opts.onProgress?.(Math.min(88, Math.round(percent * 0.88)), detail),
   );
   if (uploadError || !mediaUrl) {
     console.error("Direct reel storage upload failed", uploadError);
     return { error: uploadError ?? "Upload failed" };
+  }
+
+  let thumbnailUrl: string | null = null;
+  try {
+    const thumbnail = opts.thumbnail ?? await generateVideoThumbnail(opts.file);
+    if (thumbnail) {
+      const thumbnailPath = `${uid}/thumb-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+      const thumbnailUpload = await uploadWithProgress(
+        STORAGE_BUCKETS.videos,
+        thumbnailPath,
+        thumbnail,
+        "image/jpeg",
+        (percent, detail) => opts.onProgress?.(88 + Math.round(percent * 0.1), detail),
+      );
+      if (thumbnailUpload.error || !thumbnailUpload.url) {
+        console.warn("Direct reel thumbnail upload failed", thumbnailUpload.error);
+      } else {
+        thumbnailUrl = thumbnailUpload.url;
+      }
+    }
+  } catch (error) {
+    console.warn("Automatic reel thumbnail generation failed", error);
   }
 
   const { error } = await writeCompat(
@@ -723,6 +747,7 @@ export async function publishDirectReel(opts: {
       is_reel: true,
       media_url: mediaUrl,
       media_type: "video",
+      thumbnail_url: thumbnailUrl,
       title: opts.title.trim(),
       caption: opts.caption?.trim() ?? "",
       hashtags: opts.hashtags ?? [],
@@ -741,6 +766,7 @@ export async function publishDirectReel(opts: {
     },
     { kind: "type" },
   );
+  opts.onProgress?.(100);
   if (error) console.error("Direct reel database insert failed", error);
   return { error: error?.message ?? null };
 }
