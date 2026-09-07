@@ -67,7 +67,8 @@ export function VideoPoster({ thumbnailUrl, mediaUrl, alt, className }: Props) {
         src={frameUrl}
         muted
         playsInline
-        preload="metadata"
+        preload="none"
+        tabIndex={-1}
         aria-label={alt}
         onError={() => setFrameFailed(true)}
         className={cn("h-full w-full object-cover", className)}

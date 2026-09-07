@@ -2,6 +2,7 @@ import React from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { usePostSaves } from "@/lib/post-actions";
 import { LongVideoCard } from "@/components/yw/LongVideoCard";
+import { VideoPoster } from "@/components/yw/VideoPoster";
 import { useLongVideos, type LongVideo } from "@/lib/video-data";
 import { setVideoQueue } from "@/lib/video-queue";
 import { Search, Heart, Plus, MoreVertical } from "lucide-react";
@@ -71,8 +72,30 @@ function HomePage() {
   const { moments } = useMoments();
   const { user } = useAuth();
   const { count: alertCount } = useAlertsCount();
+  const lastFeedTouchEnd = React.useRef(0);
 
   React.useEffect(() => setHydrated(true), []);
+
+  const handleNavigateToWatch = (
+    event: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>,
+    videoId: string,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const isTouch = "changedTouches" in event;
+    const now = Date.now();
+    if (isTouch) {
+      lastFeedTouchEnd.current = now;
+    } else if (now - lastFeedTouchEnd.current < 750) {
+      return;
+    }
+
+    void navigate({
+      to: "/video/$videoId",
+      params: { videoId },
+    });
+  };
 
   // Keep the fullscreen swipe queue in sync with the feed.
   React.useEffect(() => {
@@ -287,23 +310,30 @@ function HomePage() {
                       aria-label={`Open ${post.title || "Shorts"}`}
                       className="relative aspect-[9/16] rounded-2xl overflow-hidden bg-zinc-900"
                     >
-                      <video
-                        src={post.media_url || post.mediaUrl}
-                        poster={post.thumbnail_url || post.poster_url || post.thumbnailUrl || undefined}
-                        className="w-full h-full object-cover pointer-events-none"
-                        muted
-                        preload="metadata"
-                      />
-                      <div className="pointer-events-none absolute top-2 right-2 p-1 rounded-full bg-black/40 backdrop-blur-sm text-white/90">
-                        <MoreVertical className="w-3.5 h-3.5" />
-                      </div>
-                      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-2.5 flex flex-col justify-end">
-                        <p className="text-xs font-semibold text-white line-clamp-2 leading-tight">
-                          {post.title || "Shorts"}
-                        </p>
-                        <span className="text-[10px] text-zinc-300 mt-1">
-                          {post.views_count || post.views || 0} views
-                        </span>
+                      <div
+                        onClick={(event) => handleNavigateToWatch(event, post.id)}
+                        onTouchEnd={(event) => handleNavigateToWatch(event, post.id)}
+                        className="relative h-full w-full cursor-pointer touch-manipulation select-none"
+                      >
+                        <VideoPoster
+                          mediaUrl={post.media_url || post.mediaUrl}
+                          thumbnailUrl={
+                            post.thumbnail_url || post.poster_url || post.thumbnailUrl || undefined
+                          }
+                          alt={post.title || "Shorts"}
+                          className="pointer-events-none select-none"
+                        />
+                        <div className="pointer-events-none absolute top-2 right-2 p-1 rounded-full bg-black/40 backdrop-blur-sm text-white/90">
+                          <MoreVertical className="w-3.5 h-3.5" />
+                        </div>
+                        <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-2.5 flex flex-col justify-end">
+                          <p className="text-xs font-semibold text-white line-clamp-2 leading-tight">
+                            {post.title || "Shorts"}
+                          </p>
+                          <span className="text-[10px] text-zinc-300 mt-1">
+                            {post.views_count || post.views || 0} views
+                          </span>
+                        </div>
                       </div>
                     </Link>
                   );

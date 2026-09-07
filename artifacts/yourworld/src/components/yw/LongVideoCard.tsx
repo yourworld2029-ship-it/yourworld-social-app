@@ -1,9 +1,9 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type MouseEvent, type TouchEvent } from "react";
 import {
   Play, Eye, Heart, Clock, MessageCircle, Send, Bookmark,
   MoreHorizontal, Link2, Trash2, EyeOff,
 } from "lucide-react";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import {
   formatDuration,
@@ -45,10 +45,12 @@ export function LongVideoCard({
   onDeleted,
 }: Props) {
   const { following, toggleFollow } = useYw();
+  const navigate = useNavigate();
   const [hidden, setHidden] = useState(false);
   const [commentCount, setCommentCount] = useState(video.commentCount);
   const [liking, setLiking] = useState(false);
   const cardRef = useRef<HTMLElement | null>(null);
+  const lastTouchEnd = useRef(0);
 
   const isMine = currentUserId === video.userId;
   const isFollowing = !!following[video.userId];
@@ -105,6 +107,26 @@ export function LongVideoCard({
     }
   };
 
+  const handleNavigateToWatch = (
+    event: MouseEvent<HTMLDivElement> | TouchEvent<HTMLDivElement>,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const isTouch = "changedTouches" in event;
+    const now = Date.now();
+    if (isTouch) {
+      lastTouchEnd.current = now;
+    } else if (now - lastTouchEnd.current < 750) {
+      return;
+    }
+
+    void navigate({
+      to: "/video/$videoId",
+      params: { videoId: video.id },
+    });
+  };
+
   const upcoming =
     !!video.scheduledAt && new Date(video.scheduledAt).getTime() > Date.now();
 
@@ -115,11 +137,22 @@ export function LongVideoCard({
       ref={cardRef}
       className="space-y-3 overflow-hidden border-y border-zinc-800/80 bg-[#141418] shadow-2xl"
     >
-      <Link
-        to="/video/$videoId"
-        params={{ videoId: video.id }}
+      <div
+        role="link"
+        tabIndex={0}
         aria-label={`Open ${video.title}`}
-        className="block w-full cursor-pointer"
+        onClick={handleNavigateToWatch}
+        onTouchEnd={handleNavigateToWatch}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            void navigate({
+              to: "/video/$videoId",
+              params: { videoId: video.id },
+            });
+          }
+        }}
+        className="block w-full cursor-pointer touch-manipulation select-none"
       >
         <div
           className={cn(
@@ -133,7 +166,7 @@ export function LongVideoCard({
             thumbnailUrl={video.thumbnailUrl}
             mediaUrl={video.mediaUrl}
             alt={video.title}
-            className="pointer-events-none"
+            className="pointer-events-none select-none"
           />
           <span className="pointer-events-none absolute inset-0 grid place-items-center bg-black/25">
             <span className="grid h-14 w-14 items-center justify-center rounded-full bg-white/90 text-black">
@@ -144,7 +177,7 @@ export function LongVideoCard({
             {formatDuration(video.durationSeconds)}
           </span>
         </div>
-      </Link>
+      </div>
 
       <div className="space-y-2 px-3 pb-3">
         <div className="flex items-start justify-between gap-2">
@@ -164,7 +197,11 @@ export function LongVideoCard({
             )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button aria-label="More options" className="p-1 text-zinc-400 hover:text-white">
+                <button
+                  aria-label="More options"
+                  onClick={(event) => event.stopPropagation()}
+                  className="p-1 text-zinc-400 hover:text-white"
+                >
                   <MoreHorizontal size={18} />
                 </button>
               </DropdownMenuTrigger>
@@ -198,6 +235,7 @@ export function LongVideoCard({
           <Link
             to="/u/$userId"
             params={{ userId: video.userId }}
+            onClick={(event) => event.stopPropagation()}
             className="flex items-center gap-2 transition-opacity active:opacity-70"
           >
             <span className="grid h-6 w-6 place-items-center rounded-full bg-[#8b2fc9] text-[11px] font-bold text-white">
