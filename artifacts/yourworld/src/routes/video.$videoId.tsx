@@ -486,7 +486,11 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     const syncFullscreenState = () => {
       const fullscreen = document.fullscreenElement === containerRef.current;
       setIsFullscreen(fullscreen);
-      if (!fullscreen) setScreenLocked(false);
+      if (!fullscreen) {
+        setScreenLocked(false);
+        setBrightness(1);
+        setGestureFeedback(null);
+      }
     };
     document.addEventListener("fullscreenchange", syncFullscreenState);
     syncFullscreenState();
@@ -681,7 +685,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     feedbackTimerRef.current = window.setTimeout(() => {
       setGestureFeedback(null);
       feedbackTimerRef.current = null;
-    }, 900);
+    }, 1000);
   };
 
   const toggleDisplayMode = () => {
@@ -757,11 +761,11 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     event.preventDefault();
     gesture.moved = true;
 
-    if (gesture.startX < gesture.width / 2) {
+    if (gesture.startX < gesture.width * 0.4) {
       const nextBrightness = clamp(
         gesture.initialBrightness - deltaY / 280,
-        0.3,
-        1.5,
+        0.1,
+        1,
       );
       setBrightness(nextBrightness);
       showGestureFeedback("brightness", nextBrightness, `${Math.round(nextBrightness * 100)}%`);
@@ -915,7 +919,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
                 <div
                   className="w-full rounded-full bg-yellow-300 transition-[height]"
                   style={{
-                    height: `${((gestureFeedback.value - 0.3) / 1.2) * 100}%`,
+                    height: `${gestureFeedback.value * 100}%`,
                   }}
                 />
               </div>
