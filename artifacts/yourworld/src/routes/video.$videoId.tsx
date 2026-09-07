@@ -858,9 +858,11 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     <div className="min-h-screen bg-black pb-20 text-white">
       <div
         ref={containerRef}
-         className={`sticky relative top-0 z-40 flex w-full items-center justify-center overflow-hidden bg-black shadow-lg ${
-           isFullscreen ? "h-screen max-h-none" : "aspect-video max-h-[45vh] sm:max-h-[55vh]"
-         }`}
+        className={`relative z-40 flex w-full items-center justify-center overflow-hidden bg-black shadow-lg ${
+          isFullscreen
+            ? "h-screen"
+            : "sticky top-0 aspect-video"
+        }`}
         onDoubleClick={handleDoubleTap}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
