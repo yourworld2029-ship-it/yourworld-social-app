@@ -280,11 +280,11 @@ function HomePage() {
                     views_count?: number | null;
                   };
                   return (
-                    <div
+                    <Link
                       key={post.id}
-                      onClick={() =>
-                        navigate({ to: "/video/$videoId", params: { videoId: post.id } })
-                      }
+                      to="/video/$videoId"
+                      params={{ videoId: post.id }}
+                      aria-label={`Open ${post.title || "Shorts"}`}
                       className="relative aspect-[9/16] rounded-2xl overflow-hidden bg-zinc-900"
                     >
                       <video
@@ -294,10 +294,10 @@ function HomePage() {
                         muted
                         preload="metadata"
                       />
-                      <div className="absolute top-2 right-2 p-1 rounded-full bg-black/40 backdrop-blur-sm text-white/90">
+                      <div className="pointer-events-none absolute top-2 right-2 p-1 rounded-full bg-black/40 backdrop-blur-sm text-white/90">
                         <MoreVertical className="w-3.5 h-3.5" />
                       </div>
-                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-2.5 flex flex-col justify-end">
+                      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-2.5 flex flex-col justify-end">
                         <p className="text-xs font-semibold text-white line-clamp-2 leading-tight">
                           {post.title || "Shorts"}
                         </p>
@@ -305,7 +305,7 @@ function HomePage() {
                           {post.views_count || post.views || 0} views
                         </span>
                       </div>
-                    </div>
+                    </Link>
                   );
                 })}
               </div>

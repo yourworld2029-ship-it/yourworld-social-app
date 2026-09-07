@@ -1,19 +1,17 @@
-import React, { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import {
   Play, Eye, Heart, Clock, MessageCircle, Send, Bookmark,
   MoreHorizontal, Link2, Trash2, EyeOff,
 } from "lucide-react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import {
   formatDuration,
   formatViews,
-  resolveLongVideoUrl,
   timeAgo,
   type LongVideo,
 } from "@/lib/video-data";
 import { deletePost } from "@/lib/post-actions";
-import { TrackedVideoPlayer } from "@/components/yw/TrackedVideoPlayer";
 import { CommentsSheet } from "@/components/yw/CommentsSheet";
 import { ShareSheet } from "@/components/yw/ShareSheet";
 import { VideoPoster } from "@/components/yw/VideoPoster";
@@ -26,8 +24,6 @@ import {
 import { formatCount } from "@/lib/yw-data";
 import { useYw } from "@/lib/yw-store";
 import { cn } from "@/lib/utils";
-import { onStopRequested, releasePlayback, requestPlayback } from "@/lib/video-playback";
-import { getAdjacentVideo, warmVideo, type QueueItem } from "@/lib/video-queue";
 
 type Props = {
   video: LongVideo;
@@ -42,7 +38,6 @@ type Props = {
 /** Feed card for long-form videos — supports 16:9 and 9:16 playback. */
 export function LongVideoCard({
   video,
-  onView,
   onLike,
   currentUserId = null,
   isSaved = false,
@@ -50,129 +45,13 @@ export function LongVideoCard({
   onDeleted,
 }: Props) {
   const { following, toggleFollow } = useYw();
-  const navigate = useNavigate();
-  const [playing, setPlaying] = useState(false);
-  const [src, setSrc] = useState<string | null>(null);
   const [hidden, setHidden] = useState(false);
   const [commentCount, setCommentCount] = useState(video.commentCount);
   const [liking, setLiking] = useState(false);
-  const [playerPortrait, setPlayerPortrait] = useState(video.orientation === "portrait");
-  const [active, setActive] = useState<QueueItem>({
-    id: video.id,
-    title: video.title,
-    mediaUrl: video.mediaUrl,
-    thumbnailUrl: video.thumbnailUrl,
-    portrait: video.orientation === "portrait",
-  });
-  const urlCache = useRef(new Map<string, string>());
-  const counted = useRef(false);
-  const playedSeconds = useRef(0);
   const cardRef = useRef<HTMLElement | null>(null);
-  const playingRef = useRef(false);
-
-  /** Resolve + warm a media URL once, so a click plays instantly. */
-  const prefetch = React.useCallback(async (mediaUrl: string) => {
-    const cached = urlCache.current.get(mediaUrl);
-    if (cached) return cached;
-    const url = await resolveLongVideoUrl(mediaUrl);
-    urlCache.current.set(mediaUrl, url);
-    warmVideo(url);
-    return url;
-  }, []);
-
-  const start = async () => {
-    requestPlayback(video.id); // stops any other playing video
-    playingRef.current = true;
-    const ready = urlCache.current.get(active.mediaUrl);
-    if (ready) {
-      setSrc(ready); // instant: no await on the click path
-      setPlaying(true);
-    }
-    const url = ready ?? (await prefetch(active.mediaUrl));
-    if (!playingRef.current) return; // stopped while resolving
-    setSrc(url);
-    setPlaying(true);
-  };
-
-  /** Fullscreen swipe → next/previous video with the SAME orientation. */
-  const swipeQueue = async (dir: 1 | -1, portraitMode: boolean) => {
-    const next = getAdjacentVideo(active.id, portraitMode, dir);
-    if (!next) return;
-    const url = await prefetch(next.mediaUrl);
-    setActive(next);
-    setPlayerPortrait(next.portrait);
-    setSrc(url);
-    setPlaying(true);
-    const after = getAdjacentVideo(next.id, portraitMode, dir);
-    if (after) void prefetch(after.mediaUrl);
-  };
-  const startRef = useRef(start);
-  startRef.current = start;
-
-  // Another card started playing → stop this one.
-  useEffect(() => onStopRequested(video.id, () => {
-    playingRef.current = false;
-    setPlaying(false);
-  }), [video.id]);
-
-  useEffect(() => {
-    counted.current = false;
-    playedSeconds.current = 0;
-  }, [active.id]);
-
-  // Pre-buffer this card's stream well before it reaches the viewport.
-  useEffect(() => {
-    const el = cardRef.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          void prefetch(video.mediaUrl);
-          observer.disconnect();
-        }
-      },
-      { rootMargin: "800px 0px" },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [prefetch, video.mediaUrl]);
-
-  // Scroll behavior: auto-start when centered (>=60% visible), stop when scrolled away.
-  useEffect(() => {
-    const el = cardRef.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.intersectionRatio >= 0.6) {
-          if (!playingRef.current) void startRef.current();
-        } else if (entry.intersectionRatio < 0.35 && playingRef.current) {
-          playingRef.current = false;
-          setPlaying(false);
-          releasePlayback(video.id);
-        }
-      },
-      { threshold: [0, 0.35, 0.6, 1] },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [video.id]);
 
   const isMine = currentUserId === video.userId;
   const isFollowing = !!following[video.userId];
-  const handlePlayedSeconds = (seconds: number) => {
-    if (counted.current || !playingRef.current || seconds <= 0) return;
-    playedSeconds.current += seconds;
-    if (playedSeconds.current < 3) return;
-    counted.current = true;
-    void Promise.resolve(onView(active.id))
-      .then((result) => {
-        if (result === false) counted.current = false;
-      })
-      .catch((error) => {
-        counted.current = false;
-        console.error("Unable to register long-video view", error);
-      });
-  };
   const shareUrl =
     typeof window !== "undefined" ? `${window.location.origin}/?post=${video.id}` : undefined;
 
@@ -226,13 +105,6 @@ export function LongVideoCard({
     }
   };
 
-  const openViewer = () => {
-    void navigate({
-      to: "/video/$videoId",
-      params: { videoId: video.id },
-    });
-  };
-
   const upcoming =
     !!video.scheduledAt && new Date(video.scheduledAt).getTime() > Date.now();
 
@@ -243,50 +115,36 @@ export function LongVideoCard({
       ref={cardRef}
       className="space-y-3 overflow-hidden border-y border-zinc-800/80 bg-[#141418] shadow-2xl"
     >
-      <div onClick={openViewer}>
-        {playing && src ? (
-          <TrackedVideoPlayer
-            key={active.id}
-            src={src}
-            title={active.title}
-            poster={active.thumbnailUrl}
-            portrait={active.portrait}
-            watchVideoId={active.id}
-            watchTimeEnabled={!!currentUserId}
-            onOrientationChange={setPlayerPortrait}
-            onSwipeQueue={swipeQueue}
-            onPlayedSeconds={handlePlayedSeconds}
-            hideAuxControls
+      <Link
+        to="/video/$videoId"
+        params={{ videoId: video.id }}
+        aria-label={`Open ${video.title}`}
+        className="block w-full cursor-pointer"
+      >
+        <div
+          className={cn(
+            "relative mx-auto w-full overflow-hidden bg-black",
+            video.orientation === "portrait"
+              ? "max-h-[75vh] aspect-[9/16]"
+              : "aspect-[16/9]",
+          )}
+        >
+          <VideoPoster
+            thumbnailUrl={video.thumbnailUrl}
+            mediaUrl={video.mediaUrl}
+            alt={video.title}
+            className="pointer-events-none"
           />
-        ) : (
-          <div
-            className={cn(
-              "relative mx-auto w-full overflow-hidden bg-black",
-              playerPortrait ? "max-h-[75vh] aspect-[9/16]" : "aspect-[16/9]",
-            )}
-          >
-            <button
-              type="button"
-              aria-label={`Open ${video.title}`}
-              className="group relative h-full w-full"
-            >
-              <VideoPoster
-                thumbnailUrl={video.thumbnailUrl}
-                mediaUrl={video.mediaUrl}
-                alt={video.title}
-              />
-              <span className="absolute inset-0 grid place-items-center bg-black/25">
-                <span className="grid h-14 w-14 place-items-center rounded-full bg-white/90 text-black transition-transform group-active:scale-90">
-                  <Play size={22} className="ml-0.5 fill-black" />
-                </span>
-              </span>
-              <span className="absolute bottom-2 right-2 rounded-md bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold">
-                {formatDuration(video.durationSeconds)}
-              </span>
-            </button>
-          </div>
-        )}
-      </div>
+          <span className="pointer-events-none absolute inset-0 grid place-items-center bg-black/25">
+            <span className="grid h-14 w-14 items-center justify-center rounded-full bg-white/90 text-black">
+              <Play size={22} className="ml-0.5 fill-black" />
+            </span>
+          </span>
+          <span className="pointer-events-none absolute bottom-2 right-2 rounded-md bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold">
+            {formatDuration(video.durationSeconds)}
+          </span>
+        </div>
+      </Link>
 
       <div className="space-y-2 px-3 pb-3">
         <div className="flex items-start justify-between gap-2">
@@ -409,7 +267,7 @@ export function LongVideoCard({
               </button>
             </CommentsSheet>
 
-            <ShareSheet title={video.title} url={shareUrl} media={src ?? undefined} mediaKind="video">
+            <ShareSheet title={video.title} url={shareUrl} media={video.mediaUrl} mediaKind="video">
               <button aria-label="Share" className="text-zinc-300 transition-transform active:scale-75">
                 <Send size={18} />
               </button>
