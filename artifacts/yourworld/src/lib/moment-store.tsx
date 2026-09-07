@@ -421,6 +421,7 @@ export function MomentProvider({ children }: { children: ReactNode }) {
   const [now, setNow] = useState(() => Date.now());
   const uidRef = useRef<string | null>(null);
   const archivingRef = useRef(new Set<string>());
+  const expiredArchiveCheckedRef = useRef(false);
   const deletedMomentIdsRef = useRef(new Set<string>());
 
   const load = useCallback(async () => {
@@ -645,14 +646,20 @@ export function MomentProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(t);
   }, []);
 
-  // Auto-archive my own expired moments in the DB so they stop being served
+  // Auto-archive my own expired moments once per app launch. This is a silent
+  // best-effort cleanup; expiry is already enforced in the visible lists, so a
+  // failed background write must never interrupt the user with a toast or loop.
   useEffect(() => {
+    if (expiredArchiveCheckedRef.current || !moments.length) return;
+    expiredArchiveCheckedRef.current = true;
+    const currentTime = Date.now();
+
     const expiredMine = moments.filter(
       (m) =>
         m.mine &&
         !m.archived &&
         m.expiresAt &&
-        m.expiresAt <= now &&
+        m.expiresAt <= currentTime &&
         !m.id.startsWith("pending-") &&
         !archivingRef.current.has(m.id),
     );
@@ -664,19 +671,17 @@ export function MomentProvider({ children }: { children: ReactNode }) {
     setMoments((current) =>
       current.map((moment) => (ids.includes(moment.id) ? { ...moment, archived: true } : moment)),
     );
-    void supabase
-      .from("moments")
-      .update({ archived: true })
-      .in("id", ids)
-      .then(({ error }) => {
+    void (async () => {
+      try {
+        await supabase.from("moments").update({ archived: true }).in("id", ids);
+      } catch {
+        // Expiry is already handled locally. Never surface or rethrow a
+        // best-effort background archive failure.
+      } finally {
         ids.forEach((id) => archivingRef.current.delete(id));
-        if (error) {
-          console.error("Automatic moment archive failed", error);
-          toast.error("Couldn't archive an expired moment.");
-          void load();
-        }
-      });
-  }, [moments, now, load]);
+      }
+    })();
+  }, [moments]);
 
   const patch = useCallback(
     (id: string, fn: (m: MyMoment) => MyMoment) =>

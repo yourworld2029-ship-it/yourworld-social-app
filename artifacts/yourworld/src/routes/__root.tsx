@@ -8,6 +8,7 @@ import {
   Scripts,
 } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 import appCss from "../styles.css?url";
@@ -156,6 +157,7 @@ function RootComponent() {
 
   useEffect(() => {
     setCreateOpen(false);
+    toast.dismiss();
   }, [pathname]);
 
   // Catch unhandled errors / promise rejections so they don't silently
