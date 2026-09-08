@@ -1488,6 +1488,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
                     ? "absolute right-4 top-28 z-20 h-40 w-28 cursor-pointer rounded-2xl border border-white/20 object-cover shadow-2xl transition-all active:scale-95"
                     : "absolute inset-0 z-0 h-full w-full object-cover"
                 }
+                 style={{ transform: "translateZ(0)" }}
               />
               <video
                 ref={localVideo}
@@ -1504,6 +1505,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
                     ? "absolute inset-0 z-0 h-full w-full object-cover"
                     : "absolute right-4 top-28 z-20 h-40 w-28 cursor-pointer rounded-2xl border border-white/20 object-cover shadow-2xl transition-all active:scale-95"
                 }
+                 style={{ transform: "translateZ(0)" }}
               />
               {phase !== "incoming" && (
                 <div className="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-b from-black/55 via-transparent to-black/75" />
@@ -1515,13 +1517,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
                   }`}
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <button
-                    onClick={toggleSpeaker}
-                    className="grid h-9 w-9 place-items-center rounded-full text-white/90 transition-colors hover:bg-white/10 active:scale-90"
-                    aria-label={speakerOn ? "Mute other user" : "Unmute other user"}
-                  >
-                    {speakerOn ? <Volume2 size={17} /> : <VolumeX size={17} />}
-                  </button>
                   <button
                     onClick={() => void toggleFlash()}
                     className="grid h-9 w-9 place-items-center rounded-full text-white/90 transition-colors hover:bg-white/10 active:scale-90"

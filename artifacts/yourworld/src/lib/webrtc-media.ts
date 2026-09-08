@@ -136,7 +136,7 @@ type TunedEncoding = RTCRtpEncodingParameters & {
 };
 
 /**
- * Keep one full-resolution video layer with a predictable 3.5 Mbps ceiling.
+ * Keep one full-resolution video layer with a predictable 4.5 Mbps ceiling.
  * The fallback removes networkPriority for browsers that reject that optional
  * encoding field while preserving the bitrate and priority settings.
  */
@@ -148,7 +148,7 @@ export async function tuneCallVideoSender(sender: RTCRtpSender): Promise<void> {
     (encoding) =>
       ({
         ...encoding,
-        maxBitrate: 3_500_000,
+        maxBitrate: 4_500_000,
         maxFramerate: 60,
         priority: "high",
         networkPriority: "high",
