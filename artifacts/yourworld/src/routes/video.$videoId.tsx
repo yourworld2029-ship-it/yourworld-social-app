@@ -18,7 +18,6 @@ import {
   Download,
   Eye,
   Heart,
-  Lock,
   MessageCircle,
   Reply,
   Send,
@@ -949,18 +948,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           </div>
         ) : null}
 
-         {isFullscreen && !screenLocked && <button
-            type="button"
-            onClick={toggleScreenLock}
-            onTouchStart={(event) => event.stopPropagation()}
-            onTouchEnd={(event) => event.stopPropagation()}
-            className="absolute right-28 top-3 z-50 rounded-full bg-black/60 p-2 text-white backdrop-blur-md transition hover:bg-black/80"
-            aria-label={screenLocked ? "Unlock player controls" : "Lock player controls"}
-          >
-            <Lock className="h-4 w-4" />
-          </button>
-         }
-
          {!screenLocked && <button
           type="button"
           onClick={() =>
@@ -1019,12 +1006,12 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           </Button>
         </div>
 
-        <div className="flex items-center gap-2 overflow-x-auto py-2 flex-nowrap whitespace-nowrap no-scrollbar">
-          <div className="flex shrink-0 items-center gap-2 rounded-full border border-white/10 bg-white/10 px-4 py-2 text-xs font-semibold text-white shadow-sm backdrop-blur-md transition-all">
+        <div className="flex w-full items-center justify-between px-1 py-2">
+          <div className="flex shrink-0 items-center gap-1 rounded-full border border-white/10 bg-white/10 px-1.5 py-1.5 text-[11px] font-semibold text-white shadow-sm backdrop-blur-md transition-all">
             <button
               type="button"
               onClick={handleLike}
-               className={`flex items-center gap-1.5 text-xs font-semibold transition-all ${
+               className={`flex items-center gap-1 text-[11px] font-semibold transition-all ${
                 liked[videoId] ? "text-pink-300" : "text-white"
               }`}
             >
@@ -1036,7 +1023,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
               type="button"
               onClick={handleDislike}
               aria-label="Dislike video"
-               className={`flex items-center text-xs transition-all ${
+               className={`flex items-center text-[11px] transition-all ${
                 disliked ? "text-pink-300" : "text-white"
               }`}
             >
@@ -1047,17 +1034,17 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
             type="button"
             onClick={() => void handleShare()}
             variant="outline"
-             className="shrink-0 rounded-full border border-white/10 bg-white/10 px-4 py-2 text-xs font-semibold text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20"
+             className="shrink-0 rounded-full border border-white/10 bg-white/10 px-1.5 py-1.5 text-[11px] font-semibold text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20"
           >
-            <Share2 className="mr-1.5 h-4 w-4" /> Share
+            <Share2 className="mr-1 h-4 w-4" /> Share
           </Button>
            <Button
              type="button"
              onClick={() => setDownloadOpen(true)}
              variant="outline"
-             className="shrink-0 rounded-full border border-white/10 bg-white/10 px-4 py-2 text-xs font-semibold text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20"
+             className="shrink-0 rounded-full border border-white/10 bg-white/10 px-1.5 py-1.5 text-[11px] font-semibold text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20"
            >
-             <Download className="mr-1.5 h-4 w-4" /> Download
+             <Download className="mr-1 h-4 w-4" /> Download
            </Button>
           <Button
             type="button"
@@ -1070,11 +1057,11 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
               toast.success(saved[videoId] ? "Removed from saved" : "Saved to your library");
             }}
             variant="outline"
-             className={`shrink-0 rounded-full border border-white/10 bg-white/10 px-4 py-2 text-xs font-semibold text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20 ${
+             className={`shrink-0 rounded-full border border-white/10 bg-white/10 px-1.5 py-1.5 text-[11px] font-semibold text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20 ${
               saved[videoId] ? "text-pink-300" : ""
             }`}
           >
-            <Bookmark className="mr-1.5 h-4 w-4" fill={saved[videoId] ? "currentColor" : "none"} />
+            <Bookmark className="mr-1 h-4 w-4" fill={saved[videoId] ? "currentColor" : "none"} />
             {saved[videoId] ? "Saved" : "Save"}
           </Button>
         </div>
