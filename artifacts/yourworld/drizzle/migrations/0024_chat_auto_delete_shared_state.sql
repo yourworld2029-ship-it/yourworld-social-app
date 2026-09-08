@@ -1,6 +1,15 @@
 -- Make Social Chat auto-delete state explicit and visible to both participants.
 -- Legacy auto_delete_setting is retained for older clients and rows.
 
+alter table public.conversations
+  add column if not exists auto_delete_setting text not null default 'off';
+
+alter table public.conversations
+  drop constraint if exists conversations_auto_delete_setting_check;
+alter table public.conversations
+  add constraint conversations_auto_delete_setting_check
+  check (auto_delete_setting in ('off', 'after_view', '6_hours', '24_hours'));
+
 alter table public.orbit_chat_settings
   add column if not exists auto_delete_mode text not null default 'off';
 

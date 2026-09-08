@@ -603,6 +603,17 @@ const isRenderablePublicMessage = (
   (!row.expires_at || new Date(row.expires_at).getTime() > now) &&
   row.is_deleted !== true;
 
+function isMissingAutoDeleteColumn(error: unknown): boolean {
+  const text =
+    typeof error === "string"
+      ? error
+      : error && typeof error === "object"
+        ? String((error as { message?: unknown }).message ?? "")
+        : "";
+  return /schema cache|does not exist/i.test(text) &&
+    /\b(auto_delete_mode|expires_at|is_deleted)\b/i.test(text);
+}
+
 type MutationResult = Promise<{ error: { message: string } | null }>;
 // Migration 0015 is intentionally newer than generated Supabase types. Keep
 // that boundary narrow rather than changing generated files.
@@ -924,13 +935,23 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
   const queryRows = useCallback(async (before?: string) => {
     if (!pair) return [] as PublicMessageRow[];
     const now = new Date().toISOString();
-    let query = supabase.from("messages" as never).select("*" as never)
-      .or(`and(sender_id.eq.${pair[0]},receiver_id.eq.${pair[1]}),and(sender_id.eq.${pair[1]},receiver_id.eq.${pair[0]})`)
-      .or(`expires_at.is.null,expires_at.gt.${now}`)
-      .eq("is_deleted", false)
-      .order("created_at", { ascending: false }).limit(PAGE_SIZE);
-    if (before) query = query.lt("created_at", before);
-    const { data, error: queryError } = await query;
+    const fetchRows = async (withExpiryFilter: boolean, withDeletedFilter: boolean) => {
+      let query = supabase.from("messages" as never).select("*" as never)
+        .or(`and(sender_id.eq.${pair[0]},receiver_id.eq.${pair[1]}),and(sender_id.eq.${pair[1]},receiver_id.eq.${pair[0]})`);
+      if (withExpiryFilter) query = query.or(`expires_at.is.null,expires_at.gt.${now}`);
+      if (withDeletedFilter) query = query.eq("is_deleted", false);
+      query = query.order("created_at", { ascending: false }).limit(PAGE_SIZE);
+      if (before) query = query.lt("created_at", before);
+      return await query;
+    };
+
+    let result = await fetchRows(true, true);
+    if (result.error && isMissingAutoDeleteColumn(result.error)) {
+      // Older schemas can still serve messages safely; renderability checks
+      // below continue to protect the client when these fields are absent.
+      result = await fetchRows(false, false);
+    }
+    const { data, error: queryError } = result;
     if (queryError) throw queryError;
     return (data ?? []) as unknown as PublicMessageRow[];
   }, [pair]);

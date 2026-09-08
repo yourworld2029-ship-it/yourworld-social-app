@@ -79,7 +79,7 @@ function ChatListPage() {
          .select("id,sender_id,receiver_id,content,media_url,voice_note_url,is_read,created_at" as never)
          .or(`sender_id.eq.${me},receiver_id.eq.${me}`)
          .order("created_at", { ascending: false })
-         .limit(2000);
+          .limit(50);
 
       if (!error && data) {
         const map = new Map<string, ChatThread>();
