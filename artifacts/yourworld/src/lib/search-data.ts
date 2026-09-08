@@ -155,20 +155,18 @@ export async function searchPublicProfiles(
   search: string,
   client: typeof supabase = supabase,
 ): Promise<PublicSearchProfile[]> {
-  const term = search.trim().replace(/^[@#]+/, "");
-  if (!term) return [];
+  const searchTerm = search.trim().replace(/^[@#]+/, "");
+  if (!searchTerm) return [];
 
-  const pattern = escapeILikePattern(term);
+  const pattern = escapeILikePattern(searchTerm);
   const [{ data, error }, orbitUsers] = await Promise.all([
     client
       .from("profiles")
-      .select("id,username,full_name,display_name,avatar_url,is_verified,category")
-      .or(
-        `username.ilike.%${pattern}%,display_name.ilike.%${pattern}%,full_name.ilike.%${pattern}%`,
-      )
+      .select("*")
+      .ilike("username", `%${pattern}%`)
       .order("updated_at", { ascending: false })
       .limit(50),
-    searchOrbitProfiles(term, client),
+    searchOrbitProfiles(searchTerm, client),
   ]);
   if (error) throw error;
 

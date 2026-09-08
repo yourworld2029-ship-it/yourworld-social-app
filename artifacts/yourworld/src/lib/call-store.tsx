@@ -1387,7 +1387,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
         : phase === "connecting"
           ? "Connecting…"
           : "Connected";
-  const callerAvatar = call?.avatarUrl ?? peerAvatar;
+  const caller = call
+    ? { name: call.peerName, avatar_url: call.avatarUrl ?? peerAvatar }
+    : null;
   const callClock = `${String(Math.floor(elapsedSeconds / 60)).padStart(2, "0")}:${String(
     elapsedSeconds % 60,
   ).padStart(2, "0")}`;
@@ -1435,7 +1437,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         <div
           className={`fixed inset-0 z-[100] flex flex-col justify-between overflow-hidden p-6 text-white ${
             phase === "incoming"
-              ? "bg-black/90 backdrop-blur-3xl"
+              ? "bg-zinc-950/95 backdrop-blur-xl"
               : "bg-zinc-950"
           }`}
           onClick={phase === "incoming" ? undefined : pokeControls}
@@ -1541,9 +1543,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
             <>
               {/* Ultra-luxury cyber-glass caller backdrop */}
               <div className="absolute inset-0 z-0 overflow-hidden bg-[radial-gradient(circle_at_50%_38%,rgba(168,85,247,0.34),transparent_36%),radial-gradient(circle_at_50%_72%,rgba(6,182,212,0.12),transparent_48%)]">
-                {callerAvatar ? (
+                {caller?.avatar_url ? (
                   <img
-                    src={callerAvatar}
+                    src={caller.avatar_url}
                     alt=""
                     aria-hidden
                     className="h-full w-full scale-125 object-cover opacity-20 blur-3xl"
@@ -1561,15 +1563,15 @@ export function CallProvider({ children }: { children: ReactNode }) {
                   />
                   <span className="absolute h-44 w-44 rounded-full border border-white/15 bg-white/5 shadow-[0_0_70px_rgba(168,85,247,0.28)] backdrop-blur-xl" />
                   <div className="relative grid h-36 w-36 place-items-center overflow-hidden rounded-full border-2 border-white/40 shadow-[0_0_50px_rgba(168,85,247,0.4)]">
-                    {callerAvatar ? (
+                    {caller?.avatar_url ? (
                       <img
-                        src={callerAvatar}
-                        alt={call.peerName}
-                        className="h-full w-full rounded-full object-cover"
+                        src={caller.avatar_url}
+                        alt={caller.name}
+                        className="h-28 w-28 rounded-full object-cover border-2 border-white/40"
                       />
                     ) : (
-                      <div className="flex h-full w-full items-center justify-center rounded-full bg-gradient-to-tr from-fuchsia-600 via-purple-600 to-cyan-500 text-5xl font-black text-white shadow-[0_0_50px_rgba(217,70,239,0.5)]">
-                        {call.peerName?.charAt(0)?.toUpperCase() || "?"}
+                      <div className="flex h-28 w-28 items-center justify-center rounded-full bg-gradient-to-tr from-fuchsia-600 via-purple-600 to-cyan-500 text-5xl font-black text-white shadow-[0_0_50px_rgba(217,70,239,0.5)]">
+                        {(caller?.name || "U").charAt(0).toUpperCase()}
                       </div>
                     )}
                   </div>
