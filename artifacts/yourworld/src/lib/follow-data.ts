@@ -44,23 +44,73 @@ export async function fetchMyFollowing(): Promise<string[]> {
   return (data ?? []).map((row) => row.following_id);
 }
 
-/** Follow / unfollow a real user. Throws when signed out or on a DB error. */
+/** Read whether the current user (or an explicitly supplied user) follows a target. */
+export async function fetchIsFollowing(targetId: string, followerId?: string | null): Promise<boolean> {
+  const { data: s } = await supabase.auth.getSession();
+  const uid = followerId ?? s.session?.user.id;
+  if (!uid || !isRealUserId(targetId) || uid === targetId) return false;
+
+  const { data, error } = await supabase
+    .from("follows")
+    .select("id")
+    .eq("follower_id", uid)
+    .eq("following_id", targetId)
+    .maybeSingle();
+  if (error) throw error;
+  return Boolean(data);
+}
+
+/** Follow / unfollow a real user with an idempotent row mutation. */
 export async function setFollow(targetId: string, on: boolean) {
   const { data: s } = await supabase.auth.getSession();
   const uid = s.session?.user.id;
   if (!uid) throw new Error("Sign in to follow people");
   if (uid === targetId) throw new Error("You can't follow yourself");
-  const { data, error } = await (supabase as unknown as {
-    rpc: (
-      name: string,
-      args: { _following_id: string; _on: boolean },
-    ) => PromiseLike<{
-      data: Array<{ following: boolean; followers: number; following_count: number }> | null;
-      error: { message: string } | null;
-    }>;
-  }).rpc("set_follow", { _following_id: targetId, _on: on });
-  if (error) throw error;
-  return data?.[0] ?? { following: on, followers: 0, following_count: 0 };
+  if (!isRealUserId(targetId)) throw new Error("Invalid user");
+
+  const { data: existing, error: lookupError } = await supabase
+    .from("follows")
+    .select("id")
+    .eq("follower_id", uid)
+    .eq("following_id", targetId)
+    .maybeSingle();
+  if (lookupError) throw lookupError;
+
+  if (on && !existing) {
+    const { error } = await supabase.from("follows").insert({
+      follower_id: uid,
+      following_id: targetId,
+    });
+    if (error && error.code !== "23505") throw error;
+  } else if (!on && existing) {
+    const { error } = await supabase
+      .from("follows")
+      .delete()
+      .eq("follower_id", uid)
+      .eq("following_id", targetId);
+    if (error) throw error;
+  }
+
+  // Counts are derived from the source-of-truth rows. A count refresh failure
+  // must not report a successful follow mutation as failed.
+  let followers = 0;
+  let following_count = 0;
+  try {
+    const { data: rows, error } = await (supabase as unknown as {
+      rpc: (name: string, args: { ids: string[] }) => PromiseLike<{
+        data: Array<{ id: string; followers: number; following: number }> | null;
+        error: { message: string } | null;
+      }>;
+    }).rpc("get_follow_counts", { ids: [targetId, uid] });
+    if (!error) {
+      followers = Number(rows?.find((row) => row.id === targetId)?.followers ?? 0);
+      following_count = Number(rows?.find((row) => row.id === uid)?.following ?? 0);
+    }
+  } catch {
+    // The row mutation already succeeded; realtime/count hooks will retry.
+  }
+
+  return { following: on, followers, following_count };
 }
 
 /** Live follower / following counts for a user, kept fresh via realtime. */

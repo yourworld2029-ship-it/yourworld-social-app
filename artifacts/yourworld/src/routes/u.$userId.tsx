@@ -6,7 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { dmThreadId } from "@/lib/social-data";
 import { resolveMediaUrl, type DbPost } from "@/lib/social-data";
 import { useResolvedMedia } from "@/lib/profile-data";
-import { useFollowCounts, setFollow, isRealUserId } from "@/lib/follow-data";
+import { fetchIsFollowing, useFollowCounts, setFollow, isRealUserId } from "@/lib/follow-data";
 import { FollowListDialog } from "@/components/yw/FollowListDialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatCount } from "@/lib/yw-data";
@@ -64,7 +64,7 @@ function PublicProfilePage() {
     const uid = s.session?.user.id ?? null;
     setMe(uid);
 
-    const [{ data: rows }, { data: myPosts }] = await Promise.all([
+    const [{ data: rows }, { data: myPosts }, followsTarget] = await Promise.all([
       supabase.rpc("get_public_profiles", { ids: [userId] }),
       supabase
         .from("posts")
@@ -72,6 +72,9 @@ function PublicProfilePage() {
         .eq("user_id", userId)
         .order("created_at", { ascending: false })
         .limit(100),
+      uid && uid !== userId
+        ? fetchIsFollowing(userId, uid).catch(() => false)
+        : Promise.resolve(false),
     ]);
 
     const row = (rows ?? [])[0] as
@@ -87,7 +90,7 @@ function PublicProfilePage() {
     };
     setProfile(next);
     setPosts((myPosts ?? []) as DbPost[]);
-    setIsFollowing(false);
+    setIsFollowing(followsTarget);
     setAvatarSrc(next.avatar_url ? await resolveMediaUrl(next.avatar_url, "avatars") : null);
     setLoading(false);
   }, [userId]);

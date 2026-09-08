@@ -41,7 +41,7 @@ import { useAuth } from "@/lib/auth-store";
 import { useYw } from "@/lib/yw-store";
 import { formatDuration, formatViews } from "@/lib/video-data";
 import { usePostComments } from "@/lib/social-data";
-import { setFollow } from "@/lib/follow-data";
+import { fetchIsFollowing, setFollow } from "@/lib/follow-data";
 import { registerUniqueView } from "@/lib/unique-views";
 import { supabase } from "@/integrations/supabase/client";
 import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadSheet";
@@ -112,11 +112,6 @@ type TouchPointList = {
   length: number;
   item: (index: number) => { clientX: number; clientY: number } | null;
 };
-
-const liveFollowsTable = (client: typeof supabase) =>
-  (client as unknown as {
-    from: (name: "follows") => ReturnType<typeof supabase.from>;
-  }).from("follows");
 
 export const Route = createFileRoute("/video/$videoId")({
   component: VideoWatchPage,
@@ -278,16 +273,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     queryFn: async () => {
       if (!creatorId || !user?.id || creatorId === user.id) return false;
       try {
-        const { data, error } = await liveFollowsTable(supabase)
-          .select("id")
-          .eq("follower_id", user.id)
-          .eq("following_id", creatorId)
-          .maybeSingle();
-        if (error) {
-          console.error("Error fetching subscription:", error);
-          return false;
-        }
-        return Boolean(data);
+        return await fetchIsFollowing(creatorId, user.id);
       } catch (cause) {
         console.error("Error fetching subscription:", cause);
         return false;
