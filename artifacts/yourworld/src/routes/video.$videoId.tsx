@@ -962,7 +962,22 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
         </div>
 
         <div className="flex items-center justify-between gap-3 border-b border-white/10 py-3">
-          <div className="flex items-center gap-3">
+          <div
+            className="flex cursor-pointer items-center gap-3 transition-opacity hover:opacity-80"
+            onClick={() => {
+              if (creatorId) {
+                void navigate({ to: "/u/$userId", params: { userId: creatorId } });
+              }
+            }}
+            role="link"
+            tabIndex={creatorId ? 0 : -1}
+            onKeyDown={(event) => {
+              if (creatorId && (event.key === "Enter" || event.key === " ")) {
+                event.preventDefault();
+                void navigate({ to: "/u/$userId", params: { userId: creatorId } });
+              }
+            }}
+          >
             <Avatar className="h-10 w-10 border border-white/10">
               <AvatarImage src={video.user?.avatar_url || undefined} />
               <AvatarFallback className="bg-pink-600 font-bold text-white">
@@ -979,7 +994,10 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
 
           <Button
             className="shrink-0 rounded-full bg-pink-600 px-3 text-xs text-white hover:bg-pink-700 disabled:opacity-50"
-            onClick={() => subscribeMutation.mutate()}
+            onClick={(event) => {
+              event.stopPropagation();
+              subscribeMutation.mutate();
+            }}
             disabled={!user || creatorId === user.id || subscribeMutation.isPending}
             size="sm"
           >
