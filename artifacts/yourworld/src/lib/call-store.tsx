@@ -1435,7 +1435,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         <div
           className={`fixed inset-0 z-[100] flex flex-col justify-between overflow-hidden p-6 text-white ${
             phase === "incoming"
-              ? "bg-gradient-to-b from-zinc-950 via-zinc-900 to-black"
+              ? "bg-black/90 backdrop-blur-3xl"
               : "bg-zinc-950"
           }`}
           onClick={phase === "incoming" ? undefined : pokeControls}
@@ -1539,50 +1539,48 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
           {phase === "incoming" ? (
             <>
-              {/* Premium blurred caller backdrop */}
-              <div className="absolute inset-0 z-0 overflow-hidden">
+              {/* Ultra-luxury cyber-glass caller backdrop */}
+              <div className="absolute inset-0 z-0 overflow-hidden bg-[radial-gradient(circle_at_50%_38%,rgba(168,85,247,0.34),transparent_36%),radial-gradient(circle_at_50%_72%,rgba(6,182,212,0.12),transparent_48%)]">
                 {callerAvatar ? (
                   <img
                     src={callerAvatar}
                     alt=""
                     aria-hidden
-                    className="h-full w-full scale-125 object-cover opacity-30 blur-3xl"
+                    className="h-full w-full scale-125 object-cover opacity-20 blur-3xl"
                   />
-                ) : (
-                  <div className="h-full w-full bg-[radial-gradient(circle_at_50%_30%,rgba(168,85,247,0.32),transparent_55%),radial-gradient(circle_at_20%_70%,rgba(16,185,129,0.18),transparent_45%)]" />
-                )}
-                <div className="absolute inset-0 bg-gradient-to-b from-black/45 via-zinc-950/60 to-black/90 backdrop-blur-3xl" />
+                ) : null}
+                <div className="absolute inset-0 bg-black/45 backdrop-blur-3xl" />
               </div>
 
               <div className="relative z-10 flex flex-1 flex-col items-center justify-center px-4 pb-24 pt-12">
-                <div className="relative flex h-48 w-48 items-center justify-center">
-                  <span className="absolute -inset-2 animate-ping rounded-full bg-emerald-400/10" />
+                <div className="relative flex h-52 w-52 items-center justify-center">
+                  <span className="absolute h-36 w-36 scale-125 animate-pulse rounded-full border border-fuchsia-400/50 bg-fuchsia-500/10 opacity-40 shadow-[0_0_55px_rgba(217,70,239,0.5)]" />
                   <span
-                    className="absolute inset-1 animate-ping rounded-full border border-emerald-300/30 bg-emerald-400/10"
-                    style={{ animationDelay: "0.7s", animationDuration: "2.4s" }}
+                    className="absolute h-36 w-36 scale-[1.45] animate-pulse rounded-full border border-cyan-300/40 bg-cyan-400/5 opacity-40 shadow-[0_0_70px_rgba(34,211,238,0.35)]"
+                    style={{ animationDelay: "0.7s" }}
                   />
-                  <span className="absolute inset-6 rounded-full border border-white/20 bg-white/5 shadow-[0_0_55px_rgba(52,211,153,0.25)] backdrop-blur-xl" />
-                  <div className="relative grid h-32 w-32 place-items-center overflow-hidden rounded-full border-2 border-white/20 shadow-2xl shadow-emerald-500/30">
+                  <span className="absolute h-44 w-44 rounded-full border border-white/15 bg-white/5 shadow-[0_0_70px_rgba(168,85,247,0.28)] backdrop-blur-xl" />
+                  <div className="relative grid h-36 w-36 place-items-center overflow-hidden rounded-full border-2 border-white/40 shadow-[0_0_50px_rgba(168,85,247,0.4)]">
                     {callerAvatar ? (
                       <img
                         src={callerAvatar}
                         alt={call.peerName}
-                        className="h-full w-full object-cover"
+                        className="h-full w-full rounded-full object-cover"
                       />
                     ) : (
-                      <div className="grid h-full w-full place-items-center bg-gradient-to-br from-fuchsia-500 via-violet-500 to-emerald-400 text-5xl font-bold text-white">
+                      <div className="flex h-full w-full items-center justify-center rounded-full bg-gradient-to-tr from-fuchsia-600 via-purple-600 to-cyan-500 text-5xl font-black text-white shadow-[0_0_50px_rgba(217,70,239,0.5)]">
                         {call.peerName?.charAt(0)?.toUpperCase() || "?"}
                       </div>
                     )}
                   </div>
                 </div>
                 <div className="mt-4 flex flex-col items-center gap-3 text-center">
-                  <h2 className="text-2xl font-bold tracking-wide text-white drop-shadow-lg">
+                  <h2 className="mt-6 text-3xl font-extrabold tracking-wider text-white drop-shadow-md">
                     {call.peerName}
                   </h2>
-                  <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-medium text-white/80 shadow-lg shadow-black/20 backdrop-blur-2xl">
+                  <div className="inline-flex items-center gap-2 rounded-full border border-fuchsia-300/30 bg-white/10 px-4 py-2 text-sm font-semibold text-white/90 shadow-[0_0_24px_rgba(168,85,247,0.25)] backdrop-blur-2xl">
                     {call.mode === "video" ? (
-                      <Video className="h-4 w-4 text-emerald-300 drop-shadow-[0_0_8px_rgba(110,231,183,0.8)]" />
+                      <Video className="h-4 w-4 text-cyan-300 drop-shadow-[0_0_8px_rgba(103,232,249,0.9)]" />
                     ) : (
                       <Phone className="h-4 w-4 text-violet-300 drop-shadow-[0_0_8px_rgba(196,181,253,0.8)]" />
                     )}
@@ -1609,20 +1607,20 @@ export function CallProvider({ children }: { children: ReactNode }) {
               <div className="flex w-full items-center justify-center gap-16 px-4">
                 <button
                   onClick={() => void hangup()}
-                  className="flex flex-col items-center gap-2.5 text-white/75 transition-transform active:scale-90"
+                  className="flex flex-col items-center gap-2.5 text-white/80 transition-transform active:scale-90"
                   aria-label="Decline call"
                 >
-                  <span className="grid h-16 w-16 place-items-center rounded-full border border-white/15 bg-red-500/95 shadow-[0_0_25px_rgba(239,68,68,0.48)]">
+                  <span className="grid h-16 w-16 place-items-center rounded-full border border-red-500/50 bg-red-500/20 text-red-400 shadow-[0_0_30px_rgba(239,68,68,0.4)] transition-colors hover:bg-red-600">
                     <PhoneOff size={26} />
                   </span>
                   <span className="text-xs font-medium">Decline</span>
                 </button>
                 <button
                   onClick={() => void accept()}
-                  className="flex flex-col items-center gap-2.5 text-white/75 transition-transform active:scale-90"
+                  className="flex flex-col items-center gap-2.5 text-white transition-transform active:scale-90"
                   aria-label="Accept call"
                 >
-                  <span className="grid h-16 w-16 place-items-center rounded-full border border-white/15 bg-emerald-500/95 shadow-[0_0_25px_rgba(34,197,94,0.55)]">
+                  <span className="grid h-16 w-16 place-items-center rounded-full bg-emerald-500 text-white shadow-[0_0_35px_rgba(16,185,129,0.6)] transition-colors hover:bg-emerald-600">
                     <Phone size={26} />
                   </span>
                   <span className="text-xs font-medium">Accept</span>
