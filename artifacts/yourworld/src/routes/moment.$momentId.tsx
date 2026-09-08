@@ -492,21 +492,23 @@ function MomentViewRoute() {
         {/* PROGRESS */}
         <div
           className={cn(
-            "pointer-events-none absolute left-3 right-3 top-3 z-[10002] flex gap-1.5 transition-opacity duration-300",
+            "pointer-events-none absolute inset-x-0 top-0 z-[10002] w-full bg-gradient-to-b from-black/70 via-black/30 to-transparent px-2.5 pb-2 pt-3 transition-opacity duration-300",
             "opacity-100",
           )}
         >
-          {Array.from({ length: segments }).map((_, idx) => (
-            <div key={idx} className="h-1 flex-1 overflow-hidden rounded-full bg-white/40">
-              <div
-                className="h-full rounded-full bg-white shadow-[0_1px_2px_rgba(0,0,0,0.8)]"
-                style={{
-                  width: idx < chunk ? "100%" : idx === chunk ? `${progress}%` : "0%",
-                  transition: idx === chunk ? "width 80ms linear" : undefined,
-                }}
-              />
-            </div>
-          ))}
+          <div className="z-50 flex w-full gap-1.5">
+            {Array.from({ length: segments }).map((_, idx) => (
+              <div key={idx} className="h-1 flex-1 overflow-hidden rounded-full bg-white/35 backdrop-blur-sm">
+                <div
+                  className="h-full rounded-full bg-white shadow-[0_0_8px_rgba(255,255,255,0.8)]"
+                  style={{
+                    width: idx < chunk ? "100%" : idx === chunk ? `${progress}%` : "0%",
+                    transition: idx === chunk ? "width 80ms linear" : undefined,
+                  }}
+                />
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* HEADER */}
