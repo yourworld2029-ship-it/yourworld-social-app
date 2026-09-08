@@ -497,9 +497,9 @@ function MomentViewRoute() {
           )}
         >
           {Array.from({ length: segments }).map((_, idx) => (
-            <div key={idx} className="h-1 flex-1 overflow-hidden rounded-full bg-white/30">
+            <div key={idx} className="h-1 flex-1 overflow-hidden rounded-full bg-white/40">
               <div
-                className="h-full rounded-full bg-white"
+                className="h-full rounded-full bg-white shadow-[0_1px_2px_rgba(0,0,0,0.8)]"
                 style={{
                   width: idx < chunk ? "100%" : idx === chunk ? `${progress}%` : "0%",
                   transition: idx === chunk ? "width 80ms linear" : undefined,
