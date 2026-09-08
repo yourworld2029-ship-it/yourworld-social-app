@@ -139,6 +139,7 @@ type CallState = {
   mode: CallMode;
   peerId: string;
   peerName: string;
+  avatarUrl?: string | null;
   incoming: boolean;
   /** Social chat thread the call was started from (when known). */
   threadId?: string | null;
@@ -903,11 +904,18 @@ export function CallProvider({ children }: { children: ReactNode }) {
       }
       const { data: callerProfile } = await supabase
         .from("profiles")
-        .select("display_name,username")
+        .select("display_name,username,avatar_url")
         .eq("id", row.caller_id)
         .maybeSingle();
       const peerName = callerProfile?.display_name || callerProfile?.username || "YourWorld caller";
-      const nextCall = { callId: row.id, mode: row.call_type, peerId: row.caller_id, peerName, incoming: true };
+      const nextCall = {
+        callId: row.id,
+        mode: row.call_type,
+        peerId: row.caller_id,
+        peerName,
+        avatarUrl: callerProfile?.avatar_url ?? null,
+        incoming: true,
+      };
       setCall(nextCall);
       callRef.current = nextCall;
       setPhase("incoming");
@@ -1379,6 +1387,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         : phase === "connecting"
           ? "Connecting…"
           : "Connected";
+  const callerAvatar = call?.avatarUrl ?? peerAvatar;
   const callClock = `${String(Math.floor(elapsedSeconds / 60)).padStart(2, "0")}:${String(
     elapsedSeconds % 60,
   ).padStart(2, "0")}`;
@@ -1424,7 +1433,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
       )}
       {call && phase !== "idle" && (
         <div
-          className="fixed inset-0 z-[100] flex flex-col justify-between overflow-hidden bg-zinc-950 p-6 text-white"
+          className={`fixed inset-0 z-[100] flex flex-col justify-between overflow-hidden p-6 text-white ${
+            phase === "incoming"
+              ? "bg-gradient-to-b from-zinc-950 via-zinc-900 to-black"
+              : "bg-zinc-950"
+          }`}
           onClick={phase === "incoming" ? undefined : pokeControls}
         >
           {phase !== "incoming" && call.mode === "audio" && (
@@ -1531,48 +1544,55 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
           {phase === "incoming" ? (
             <>
-              {/* Blurred caller backdrop */}
+              {/* Premium blurred caller backdrop */}
               <div className="absolute inset-0 z-0 overflow-hidden">
-                {peerAvatar ? (
+                {callerAvatar ? (
                   <img
-                    src={peerAvatar}
+                    src={callerAvatar}
                     alt=""
                     aria-hidden
-                    className="h-full w-full scale-125 object-cover opacity-60 blur-3xl"
+                    className="h-full w-full scale-125 object-cover opacity-30 blur-3xl"
                   />
                 ) : (
-                  <div className="h-full w-full bg-[radial-gradient(circle_at_50%_30%,rgba(16,185,129,0.35),transparent_65%)]" />
+                  <div className="h-full w-full bg-[radial-gradient(circle_at_50%_30%,rgba(168,85,247,0.32),transparent_55%),radial-gradient(circle_at_20%_70%,rgba(16,185,129,0.18),transparent_45%)]" />
                 )}
-                <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/40 to-black/85" />
+                <div className="absolute inset-0 bg-gradient-to-b from-black/45 via-zinc-950/60 to-black/90 backdrop-blur-3xl" />
               </div>
 
-              <div className="relative z-10 flex flex-1 flex-col items-center justify-center gap-6">
-                <div className="relative flex h-40 w-40 items-center justify-center">
-                  <span className="absolute inset-0 animate-ping rounded-full bg-emerald-400/20" />
+              <div className="relative z-10 flex flex-1 flex-col items-center justify-center px-4 pb-24 pt-12">
+                <div className="relative flex h-48 w-48 items-center justify-center">
+                  <span className="absolute -inset-2 animate-ping rounded-full bg-emerald-400/10" />
                   <span
-                    className="absolute inset-4 animate-ping rounded-full bg-emerald-400/25"
-                    style={{ animationDelay: "0.6s" }}
+                    className="absolute inset-1 animate-ping rounded-full border border-emerald-300/30 bg-emerald-400/10"
+                    style={{ animationDelay: "0.7s", animationDuration: "2.4s" }}
                   />
-                  <span className="absolute inset-6 rounded-full ring-1 ring-white/25" />
-                  {peerAvatar ? (
-                    <img
-                      src={peerAvatar}
-                      alt={call.peerName}
-                      className="relative h-28 w-28 rounded-full object-cover shadow-[0_0_40px_rgba(16,185,129,0.45)]"
-                    />
-                  ) : (
-                    <div className="relative grid h-28 w-28 place-items-center rounded-full bg-white/10 text-4xl font-bold backdrop-blur-md shadow-[0_0_40px_rgba(16,185,129,0.45)]">
-                      {call.peerName?.charAt(0)?.toUpperCase() || "?"}
-                    </div>
-                  )}
+                  <span className="absolute inset-6 rounded-full border border-white/20 bg-white/5 shadow-[0_0_55px_rgba(52,211,153,0.25)] backdrop-blur-xl" />
+                  <div className="relative grid h-32 w-32 place-items-center overflow-hidden rounded-full border-2 border-white/20 shadow-2xl shadow-emerald-500/30">
+                    {callerAvatar ? (
+                      <img
+                        src={callerAvatar}
+                        alt={call.peerName}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="grid h-full w-full place-items-center bg-gradient-to-br from-fuchsia-500 via-violet-500 to-emerald-400 text-5xl font-bold text-white">
+                        {call.peerName?.charAt(0)?.toUpperCase() || "?"}
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="flex flex-col items-center gap-2">
-                  <h2 className="text-2xl font-semibold tracking-tight drop-shadow-lg">
+                <div className="mt-4 flex flex-col items-center gap-3 text-center">
+                  <h2 className="text-2xl font-bold tracking-wide text-white drop-shadow-lg">
                     {call.peerName}
                   </h2>
-                  <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white/80 backdrop-blur-md">
-                    {call.mode === "video" ? "Incoming video call" : "Incoming audio call"}
-                  </span>
+                  <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-medium text-white/80 shadow-lg shadow-black/20 backdrop-blur-2xl">
+                    {call.mode === "video" ? (
+                      <Video className="h-4 w-4 text-emerald-300 drop-shadow-[0_0_8px_rgba(110,231,183,0.8)]" />
+                    ) : (
+                      <Phone className="h-4 w-4 text-violet-300 drop-shadow-[0_0_8px_rgba(196,181,253,0.8)]" />
+                    )}
+                    <span>{call.mode === "video" ? "Incoming Video Call..." : "Incoming Audio Call..."}</span>
+                  </div>
                 </div>
               </div>
             </>
@@ -1591,26 +1611,26 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
           <div className="relative z-10 mb-[max(1.5rem,env(safe-area-inset-bottom,0px))] flex items-center justify-center gap-6">
             {phase === "incoming" ? (
-              <div className="flex w-full items-center justify-between px-6">
+              <div className="flex w-full items-center justify-center gap-16 px-4">
                 <button
                   onClick={() => void hangup()}
-                  className="flex flex-col items-center gap-2"
+                  className="flex flex-col items-center gap-2.5 text-white/75 transition-transform active:scale-90"
                   aria-label="Decline call"
                 >
-                  <span className="grid h-16 w-16 place-items-center rounded-full bg-red-600 shadow-[0_10px_30px_-6px_rgba(220,38,38,0.8)] transition-transform active:scale-90">
+                  <span className="grid h-16 w-16 place-items-center rounded-full border border-white/15 bg-red-500/95 shadow-[0_0_25px_rgba(239,68,68,0.48)]">
                     <PhoneOff size={26} />
                   </span>
-                  <span className="text-xs text-white/70">Decline</span>
+                  <span className="text-xs font-medium">Decline</span>
                 </button>
                 <button
                   onClick={() => void accept()}
-                  className="flex flex-col items-center gap-2"
+                  className="flex flex-col items-center gap-2.5 text-white/75 transition-transform active:scale-90"
                   aria-label="Accept call"
                 >
-                  <span className="grid h-16 w-16 animate-bounce place-items-center rounded-full bg-emerald-500 shadow-[0_10px_30px_-6px_rgba(16,185,129,0.85)] transition-transform active:scale-90">
+                  <span className="grid h-16 w-16 place-items-center rounded-full border border-white/15 bg-emerald-500/95 shadow-[0_0_25px_rgba(34,197,94,0.55)]">
                     <Phone size={26} />
                   </span>
-                  <span className="text-xs text-white/70">Accept</span>
+                  <span className="text-xs font-medium">Accept</span>
                 </button>
               </div>
             ) : (
