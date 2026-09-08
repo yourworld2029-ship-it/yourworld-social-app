@@ -18,6 +18,7 @@ import {
 import { qualityTierFromDimensions } from "@/lib/video-quality";
 import {
   expiresAtForAutoDelete,
+  normalizeAutoDeleteSetting,
   type AutoDeleteSetting,
 } from "@/lib/auto-delete";
 
@@ -503,6 +504,8 @@ export type DbMessage = {
   is_deleted: boolean;
   is_viewed: boolean;
   viewed_at: string | null;
+  is_system_message: boolean;
+  conversation_id: string | null;
   moment_id?: string | null;
   moment_media_url?: string | null;
   moment_created_at?: string | null;
@@ -528,6 +531,8 @@ type PublicMessageRow = {
   is_deleted?: boolean | null;
   is_viewed?: boolean;
   viewed_at?: string | null;
+  is_system_message?: boolean | null;
+  conversation_id?: string | null;
   moment_id?: string | null;
   moment_media_url?: string | null;
   moment_created_at?: string | null;
@@ -591,6 +596,8 @@ const toDbMessage = (row: PublicMessageRow): DbMessage => ({
   is_deleted: row.is_deleted === true,
   is_viewed: row.is_viewed === true,
   viewed_at: row.viewed_at ?? null,
+  is_system_message: row.is_system_message === true,
+  conversation_id: row.conversation_id ?? null,
   media_type: row.voice_note_url ? "audio" : row.media_url ? "image" : "text",
 });
 
@@ -915,10 +922,51 @@ export async function publishPost(opts: {
   return { error: error?.message ?? null };
 }
 
+type ConversationRow = {
+  id: string;
+  auto_delete_setting?: string | null;
+};
+
+export async function ensureThreadConversation(
+  threadId: string,
+  pair: [string, string],
+): Promise<ConversationRow | null> {
+  const [participantOneId, participantTwoId] = [...pair].sort();
+  const existing = await supabase
+    .from("conversations" as never)
+    .select("id,auto_delete_setting" as never)
+    .eq("thread_id" as never, threadId)
+    .maybeSingle();
+  if (!existing.error && existing.data) {
+    return existing.data as unknown as ConversationRow;
+  }
+  if (existing.error && !/thread_id|schema cache|does not exist/i.test(existing.error.message)) {
+    console.error("[social-chat] conversation lookup failed", existing.error);
+    return null;
+  }
+
+  const created = await supabase
+    .from("conversations" as never)
+    .upsert({
+      thread_id: threadId,
+      participant_one_id: participantOneId,
+      participant_two_id: participantTwoId,
+      auto_delete_setting: "off",
+    } as never, { onConflict: "thread_id" })
+    .select("id,auto_delete_setting" as never)
+    .maybeSingle();
+  if (created.error || !created.data) {
+    console.error("[social-chat] conversation create failed", created.error);
+    return null;
+  }
+  return created.data as unknown as ConversationRow;
+}
+
 /** Live public.messages records for the canonical two-person route id. */
 export function useThreadMessages(threadId: string, _opts: { staleTime?: number } = {}) {
   const pair = useMemo(() => dmThreadPair(threadId), [threadId]);
   const [messages, setMessages] = useState<DbMessage[]>(() => cacheGet<DbMessage[]>(`thread:${threadId}`) ?? []);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const [me, setMe] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -1011,6 +1059,13 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
         const id = data.session?.user.id ?? null;
         meRef.current = id;
         setMe(id);
+        if (id && pair) {
+          const conversation = await ensureThreadConversation(threadId, pair);
+          if (!alive) return;
+          setConversationId(conversation?.id ?? null);
+        } else {
+          setConversationId(null);
+        }
         void load();
       } catch (cause) {
         console.error("[social-chat] session/bootstrap failed", cause);
@@ -1062,7 +1117,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
         void supabase.removeChannel(channel);
       }
     };
-  }, [threadId, load, belongs, merge]);
+  }, [threadId, pair, load, belongs, merge]);
   useEffect(() => {
     const sweep = () => {
       setMessages((prev) => prev.filter((message) => isRenderablePublicMessage(message, meRef.current)));
@@ -1122,10 +1177,23 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     voice_note_url?: string | null;
     autoDeleteSetting?: AutoDeleteSetting;
     autoDeleteMode?: AutoDeleteSetting;
+    isSystemMessage?: boolean;
   }) => {
     if (!me || !pair || !pair.includes(me)) return { error: "You are not authorized for this chat." };
+    if (!conversationId) return { error: "Chat is still syncing. Try again in a moment." };
     const receiverId = pair.find((id) => id !== me)!;
-    const autoDeleteMode = payload.autoDeleteMode ?? payload.autoDeleteSetting ?? "off";
+    const conversationResult = await supabase
+      .from("conversations" as never)
+      .select("auto_delete_setting" as never)
+      .eq("id" as never, conversationId)
+      .maybeSingle();
+    if (conversationResult.error || !conversationResult.data) {
+      return { error: conversationResult.error?.message ?? "Could not read chat settings." };
+    }
+    const conversation = conversationResult.data as unknown as ConversationRow;
+    const autoDeleteMode = payload.isSystemMessage
+      ? "off"
+      : normalizeAutoDeleteSetting(conversation.auto_delete_setting);
     const expiresAt = expiresAtForAutoDelete(autoDeleteMode);
     const tempId = `tmp-${Date.now()}`;
     const optimistic = toDbMessage({
@@ -1144,6 +1212,8 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       is_deleted: false,
       is_viewed: false,
       viewed_at: null,
+      is_system_message: payload.isSystemMessage === true,
+      conversation_id: conversationId,
     });
     setMessages((prev) => [...prev, optimistic]);
     const { data, error: insertError } = await supabase.from("messages" as never).insert({
@@ -1153,6 +1223,8 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       media_url: optimistic.media_url,
       voice_note_url: optimistic.voice_note_url,
       metadata: {},
+      conversation_id: conversationId,
+      is_system_message: payload.isSystemMessage === true,
       auto_delete_setting: autoDeleteMode,
       auto_delete_mode: autoDeleteMode,
       expires_at: expiresAt,
@@ -1163,7 +1235,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     setMessages((prev) => prev.filter((m) => m.id !== tempId));
     flagChatMessage({ surface: "social", text: payload.content, threadId, messageId: (data as PublicMessageRow | null)?.id ?? null });
     return { error: null };
-  }, [me, pair, threadId, merge]);
+  }, [me, pair, threadId, conversationId, merge]);
   const remove = useCallback(async (ids: string[]) => {
     if (!me || !ids.length) return;
     const { error: deleteError } = await supabase.from("messages" as never).delete().in("id", ids).eq("sender_id", me);
@@ -1194,7 +1266,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
         : m)
       );
   }, [me]);
-  return useMemo(() => ({ messages, loading, loadingMore, hasMore, loadOlder, currentUserId: me, send, remove, markRead, error, reload: load }), [messages, loading, loadingMore, hasMore, loadOlder, me, send, remove, markRead, error, load]);
+  return useMemo(() => ({ messages, loading, loadingMore, hasMore, loadOlder, currentUserId: me, conversationId, send, remove, markRead, error, reload: load }), [messages, loading, loadingMore, hasMore, loadOlder, me, conversationId, send, remove, markRead, error, load]);
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

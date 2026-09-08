@@ -20,12 +20,19 @@ export function autoDeleteSeconds(setting: AutoDeleteSetting) {
   return 0;
 }
 
-export function expiresAtForAutoDelete(
+export function autoDeleteExpiresAt(
   setting: AutoDeleteSetting,
   now = Date.now(),
 ) {
   const seconds = autoDeleteSeconds(setting);
   return seconds ? new Date(now + seconds * 1000).toISOString() : null;
+}
+
+export function expiresAtForAutoDelete(
+  setting: AutoDeleteSetting,
+  now = Date.now(),
+) {
+  return autoDeleteExpiresAt(setting, now);
 }
 
 export function normalizeAutoDeleteSetting(

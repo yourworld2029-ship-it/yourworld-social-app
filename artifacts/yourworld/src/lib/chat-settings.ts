@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   autoDeleteSeconds,
   normalizeAutoDeleteSetting,
+  autoDeleteLabel,
   type AutoDeleteSetting,
 } from "@/lib/auto-delete";
 import { writeCompat } from "@/lib/supabase-compat";
@@ -56,7 +57,7 @@ type Row = {
   blocked: boolean | null;
 };
 
-export function useChatSettings(peerId: string | null) {
+export function useChatSettings(peerId: string | null, conversationId: string | null = null) {
   const [settings, setSettings] = useState<ChatSettings>(DEFAULTS);
   const [ready, setReady] = useState(false);
   const meRef = useRef<string | null>(null);
@@ -81,37 +82,69 @@ export function useChatSettings(peerId: string | null) {
         .maybeSingle();
       if (!alive) return;
       const row = data as Row | null;
-      if (row) {
+      let conversationSetting: AutoDeleteSetting | null = null;
+      if (conversationId) {
+        const conversationResult = await supabase
+          .from("conversations" as never)
+          .select("auto_delete_setting" as never)
+          .eq("id" as never, conversationId)
+          .maybeSingle();
+        if (!conversationResult.error && conversationResult.data) {
+          conversationSetting = normalizeAutoDeleteSetting(
+            (conversationResult.data as { auto_delete_setting?: unknown }).auto_delete_setting,
+          );
+        }
+      }
+      if (row || conversationSetting) {
         setSettings({
-          displayName: row.display_name,
-          secretLock: row.secret_lock_enabled,
-          secretPinSalt: row.secret_pin_salt,
-          secretPinHash: row.secret_pin_hash,
-          viewOnce: row.view_once_mode,
-          autoDeleteSetting: normalizeAutoDeleteSetting(
-            row.auto_delete_mode ?? row.auto_delete_setting,
-            row.auto_delete_seconds,
-          ),
-          autoDelete: row.auto_delete_seconds ?? 0,
-          screenshotAlert: row.screenshot_alert,
-          recordingAlert: row.recording_alert,
-          muted: row.muted,
-          blocked: !!row.blocked,
+          displayName: row?.display_name ?? DEFAULTS.displayName,
+          secretLock: row?.secret_lock_enabled ?? DEFAULTS.secretLock,
+          secretPinSalt: row?.secret_pin_salt ?? DEFAULTS.secretPinSalt,
+          secretPinHash: row?.secret_pin_hash ?? DEFAULTS.secretPinHash,
+          viewOnce: row?.view_once_mode ?? DEFAULTS.viewOnce,
+          autoDeleteSetting: conversationSetting ??
+            normalizeAutoDeleteSetting(
+              row?.auto_delete_mode ?? row?.auto_delete_setting,
+              row?.auto_delete_seconds,
+            ),
+          autoDelete: conversationSetting ? autoDeleteSeconds(conversationSetting) : row?.auto_delete_seconds ?? 0,
+          screenshotAlert: row?.screenshot_alert ?? DEFAULTS.screenshotAlert,
+          recordingAlert: row?.recording_alert ?? DEFAULTS.recordingAlert,
+          muted: row?.muted ?? DEFAULTS.muted,
+          blocked: !!row?.blocked,
         });
       }
-      const channelName = `chat-settings-${[me, peerId].sort().join("_")}`;
-      const channel = supabase
+      const channelName = conversationId
+        ? `conversation-settings-${conversationId}`
+        : `chat-settings-${[me, peerId].sort().join("_")}`;
+      const channelBuilder = supabase
         .channel(channelName)
-        .on("broadcast", { event: "auto_delete_setting" }, ({ payload }) => {
-          const incoming = (payload ?? {}) as { auto_delete_mode?: unknown };
-          const mode = normalizeAutoDeleteSetting(incoming.auto_delete_mode);
+        .on("broadcast", { event: "auto_delete_updated" }, ({ payload }) => {
+          const incoming = (payload ?? {}) as { auto_delete_setting?: unknown; new_setting?: unknown };
+          const mode = normalizeAutoDeleteSetting(incoming.auto_delete_setting ?? incoming.new_setting);
           setSettings((current) => ({
             ...current,
             autoDeleteSetting: mode,
             autoDelete: autoDeleteSeconds(mode),
           }));
-        })
-        .subscribe();
+        });
+      if (conversationId) {
+        channelBuilder.on(
+          "postgres_changes",
+          { event: "UPDATE", schema: "public", table: "conversations", filter: `id=eq.${conversationId}` },
+          (payload) => {
+            const mode = normalizeAutoDeleteSetting(
+              (payload.new as { auto_delete_setting?: unknown }).auto_delete_setting,
+            );
+            setSettings((current) => ({
+              ...current,
+              autoDeleteSetting: mode,
+              autoDelete: autoDeleteSeconds(mode),
+            }));
+          },
+        );
+      }
+      const channel = channelBuilder.subscribe();
       settingsChannelRef.current = channel;
       setReady(true);
     })();
@@ -123,7 +156,7 @@ export function useChatSettings(peerId: string | null) {
         settingsChannelRef.current = null;
       }
     };
-  }, [peerId]);
+  }, [peerId, conversationId]);
 
   /** Optimistic local update + background upsert so toggles feel instant. */
   const patch = useCallback(
@@ -145,25 +178,12 @@ export function useChatSettings(peerId: string | null) {
               secret_pin_salt: merged.secretPinSalt,
               secret_pin_hash: merged.secretPinHash,
               view_once_mode: merged.viewOnce,
-              auto_delete_setting: merged.autoDeleteSetting,
-              auto_delete_mode: merged.autoDeleteSetting,
-              auto_delete_seconds: autoDeleteSeconds(merged.autoDeleteSetting),
               screenshot_alert: merged.screenshotAlert,
               recording_alert: merged.recordingAlert,
               muted: merged.muted,
               blocked: merged.blocked,
             },
           );
-          if (
-            next.autoDeleteSetting !== undefined &&
-            next.autoDeleteSetting !== prev.autoDeleteSetting
-          ) {
-            void settingsChannelRef.current?.send({
-              type: "broadcast",
-              event: "auto_delete_setting",
-              payload: { auto_delete_mode: merged.autoDeleteSetting },
-            });
-          }
         }
         return merged;
       });
@@ -171,5 +191,55 @@ export function useChatSettings(peerId: string | null) {
     [peerId],
   );
 
-  return { settings, ready, patch };
+  const setAutoDeleteSetting = useCallback(async (setting: AutoDeleteSetting) => {
+    const me = meRef.current;
+    if (!me || !peerId || !conversationId) {
+      return { error: "Chat is still syncing. Try again in a moment." };
+    }
+    const previous = settings.autoDeleteSetting;
+    setSettings((current) => ({
+      ...current,
+      autoDeleteSetting: setting,
+      autoDelete: autoDeleteSeconds(setting),
+    }));
+    const { error: updateError } = await supabase
+      .from("conversations" as never)
+      .update({ auto_delete_setting: setting, updated_at: new Date().toISOString() } as never)
+      .eq("id" as never, conversationId);
+    if (updateError) {
+      setSettings((current) => ({
+        ...current,
+        autoDeleteSetting: previous,
+        autoDelete: autoDeleteSeconds(previous),
+      }));
+      return { error: updateError.message };
+    }
+    const { error: noticeError } = await supabase
+      .from("messages" as never)
+      .insert({
+        sender_id: me,
+        receiver_id: peerId,
+        conversation_id: conversationId,
+        content: `Auto-delete set to ${autoDeleteLabel(setting)}`,
+        is_system_message: true,
+        auto_delete_setting: "off",
+        auto_delete_mode: "off",
+        expires_at: null,
+        is_deleted: false,
+      } as never);
+    if (noticeError) {
+      return { error: noticeError.message };
+    }
+    await settingsChannelRef.current?.send({
+      type: "broadcast",
+      event: "auto_delete_updated",
+      payload: {
+        conversation_id: conversationId,
+        auto_delete_setting: setting,
+      },
+    });
+    return { error: null };
+  }, [conversationId, peerId, settings.autoDeleteSetting]);
+
+  return { settings, ready, patch, setAutoDeleteSetting };
 }

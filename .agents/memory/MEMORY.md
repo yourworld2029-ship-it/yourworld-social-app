@@ -8,7 +8,7 @@
 - [Video playback and downloads](video-playback-downloads.md) — keep playback metadata-first and let the browser own byte ranges; use the service worker only for streamed background saves.
 - [Quality-specific downloads](quality-downloads.md) — preserve original source downloads, process smaller tiers only when selected, and keep an original fallback for legacy rows.
 - [Audio-preserving compression](audio-preserving-compression.md) — only use a local re-encode when a source audio track is attached; otherwise upload the original.
-- [Auto-delete messages](auto-delete-messages.md) — store the setting per message so preference changes do not rewrite existing message lifetimes.
+- [Auto-delete messages](auto-delete-messages.md) — use one shared conversation setting while snapshotting it onto each new message.
 - [Follow and view schema](follow-and-view-schema.md) — follow mutations and unique views must use live RPCs, profile counters, and posts.views_count.
 - [Fullscreen player controls](fullscreen-player-controls.md) — gate lock state, gestures, and HUD overlays to fullscreen and keep JSX control wrappers explicit.
 - [Orbit runtime schema](orbit-runtime-schema.md) — generated Orbit types can outpace Supabase; keep the table/RPC migration and client discovery fallback aligned.

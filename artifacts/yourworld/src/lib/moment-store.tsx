@@ -15,9 +15,8 @@ import type { ProgressFn } from "@/lib/storage-upload";
 import { isAuthSessionMissing } from "@/lib/auth-errors";
 import { missingTable, writeCompat } from "@/lib/supabase-compat";
 import { getRegisteredBlob } from "@/lib/blob-registry";
-import { dmThreadId } from "@/lib/social-data";
+import { dmThreadId, ensureThreadConversation } from "@/lib/social-data";
 import {
-  expiresAtForAutoDelete,
   normalizeAutoDeleteSetting,
 } from "@/lib/auto-delete";
 import { optimizeVideoBlob } from "@/lib/video-compression";
@@ -990,17 +989,11 @@ export function MomentProvider({ children }: { children: ReactNode }) {
         // Social chat reads public.messages. Keep the preview in metadata so
         // the chat can identify this as a reply without a second legacy thread.
         const threadId = dmThreadId(uid, ownerId);
-        const { data: roomSettings } = await supabase
-          .from("orbit_chat_settings")
-          .select("*")
-          .eq("user_id", uid)
-          .eq("peer_id", ownerId)
-          .maybeSingle();
-        const settingRow = (roomSettings ?? {}) as Record<string, unknown>;
-        const autoDeleteMode = normalizeAutoDeleteSetting(
-          settingRow.auto_delete_mode ?? settingRow.auto_delete_setting,
-          Number(settingRow.auto_delete_seconds ?? 0),
-        );
+        const conversation = await ensureThreadConversation(threadId, [uid, ownerId]);
+        if (!conversation) {
+          return { error: "Chat conversation could not be synchronized." };
+        }
+        const autoDeleteMode = normalizeAutoDeleteSetting(conversation.auto_delete_setting);
         const messageResult = await writeCompat(
           (payload) => momentDb.from("messages").insert(payload),
           {
@@ -1011,9 +1004,10 @@ export function MomentProvider({ children }: { children: ReactNode }) {
             moment_id: id,
             moment_media_url: target.media || null,
             moment_created_at: new Date(target.createdAt).toISOString(),
+            conversation_id: conversation.id,
+            is_system_message: false,
             auto_delete_setting: autoDeleteMode,
             auto_delete_mode: autoDeleteMode,
-            expires_at: expiresAtForAutoDelete(autoDeleteMode),
             is_deleted: false,
             metadata: {
               type: "moment_reply",
