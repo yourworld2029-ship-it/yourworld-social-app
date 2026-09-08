@@ -349,7 +349,7 @@ function MomentViewRoute() {
         }
       }}
     >
-      <div className="relative flex h-full w-full max-w-md items-center justify-center overflow-hidden bg-black">
+      <div className="relative flex h-full w-full max-w-md items-center justify-center bg-black">
         {/* MEDIA */}
         <div className="pointer-events-none flex h-full w-full items-center justify-center">
           {current.kind === "video" && current.media ? (
