@@ -1,0 +1,40 @@
+CRITICAL FIX: Fix "Couldn't update follow" Error & Make Follow/Unfollow Functional App-Wide
+
+Target Files: Supabase database migrations, `useFollow.ts` (or follow hooks), `ProfileHeader.tsx`, `video.$videoId.tsx`, and user follow buttons.
+
+Instructions:
+
+1. DATABASE SCHEMA & RLS POLICIES FOR FOLLOWS:
+   - Ensure the `follows` table exists with exact columns:
+     ```sql
+     CREATE TABLE IF NOT EXISTS follows (
+       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+       follower_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+       following_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+       created_at TIMESTAMPTZ DEFAULT NOW(),
+       UNIQUE(follower_id, following_id)
+     );
+
+     ALTER TABLE follows ENABLE ROW LEVEL SECURITY;
+
+     CREATE POLICY "Anyone can read follows" ON follows FOR SELECT USING (true);
+     CREATE POLICY "Users can follow" ON follows FOR INSERT WITH CHECK (auth.uid() = follower_id);
+     CREATE POLICY "Users can unfollow" ON follows FOR DELETE USING (auth.uid() = follower_id);
+     ```
+
+2. FIX FOLLOW/UNFOLLOW LOGIC & OPTIMISTIC UI:
+   - In the follow handler/hook:
+     - Check if already following (`SELECT id FROM follows WHERE follower_id = user.id AND following_id = targetUserId`).
+     - IF FOLLOWING: Execute `DELETE FROM follows WHERE follower_id = user.id AND following_id = targetUserId`. Toggle state to "Follow" and decrement follower count by 1 immediately.
+     - IF NOT FOLLOWING: Execute `INSERT INTO follows (follower_id, following_id) VALUES (user.id, targetUserId)`. Toggle state to "Following" and increment follower count by 1 immediately.
+   - Handle errors gracefully without throwing unhandled exceptions.
+
+3. SYNC FOLLOWER & FOLLOWING COUNTS:
+   - Make sure `Followers` and `Following` count numbers on the profile automatically refresh and stay synced when follow/unfollow is clicked.
+
+4. APPLY TO ALL FOLLOW BUTTONS:
+   - Profile page (`ProfileHeader.tsx`)
+   - Video Watch page channel follow button (`video.$videoId.tsx`)
+   - Home Feed / Explore user cards
+
+Save, migrate database, build, and verify.
