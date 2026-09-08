@@ -31,13 +31,66 @@ type Row = {
   kind: string;
   text: string | null;
   url: string | null;
-  view_once: boolean;
-  auto_delete_setting: AutoDeleteSetting | null;
-  expires_at: string | null;
-  is_viewed: boolean;
-  viewed_at: string | null;
+  view_once?: boolean | null;
+  auto_delete_setting?: AutoDeleteSetting | null;
+  expires_at?: string | null;
+  is_viewed?: boolean | null;
+  viewed_at?: string | null;
   created_at: string;
 };
+
+const ORBIT_MESSAGE_COLUMNS =
+  "id,sender_id,recipient_id,kind,text,url,view_once,auto_delete_setting,expires_at,is_viewed,viewed_at,created_at";
+const ORBIT_BASE_MESSAGE_COLUMNS =
+  "id,sender_id,recipient_id,kind,text,url,created_at";
+
+function isMissingOptionalOrbitColumn(error: unknown) {
+  const text =
+    error && typeof error === "object"
+      ? String((error as { message?: unknown }).message ?? "")
+      : String(error ?? "");
+  return /schema cache|does not exist/i.test(text) &&
+    /\b(view_once|auto_delete_setting|expires_at|is_viewed|viewed_at)\b/i.test(text);
+}
+
+async function fetchOrbitRows({
+  me,
+  peerId,
+  clearedBefore,
+  before,
+}: {
+  me: string;
+  peerId: string;
+  clearedBefore?: string | null;
+  before?: string;
+}): Promise<Row[] | null> {
+  const run = async (columns: string) => {
+    let query = supabase
+      .from("orbit_messages" as never)
+      .select(columns)
+      .or(
+        `and(sender_id.eq.${me},recipient_id.eq.${peerId}),and(sender_id.eq.${peerId},recipient_id.eq.${me})`,
+      );
+    if (clearedBefore) query = query.gt("created_at", clearedBefore);
+    if (before) query = query.lt("created_at", before);
+    return query.order("created_at", { ascending: false }).limit(PAGE_SIZE);
+  };
+
+  try {
+    let result = await run(ORBIT_MESSAGE_COLUMNS);
+    if (result.error && isMissingOptionalOrbitColumn(result.error)) {
+      result = await run(ORBIT_BASE_MESSAGE_COLUMNS);
+    }
+    if (result.error) {
+      console.error("[orbit-chat] message fetch failed", result.error);
+      return null;
+    }
+    return ((result.data ?? []) as unknown as Row[]).filter((row) => row?.id && row.sender_id && row.recipient_id);
+  } catch (cause) {
+    console.error("[orbit-chat] message fetch threw", cause);
+    return null;
+  }
+}
 
 const isUuid = (v: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
@@ -52,7 +105,7 @@ function removeOrbitMediaByUrl(url: string) {
 }
 
 export const isUnexpiredOrbitRow = (
-  r: { expires_at: string | null } & Partial<
+  r: { expires_at?: string | null } & Partial<
     Pick<Row, "auto_delete_setting" | "is_viewed" | "sender_id" | "recipient_id">
   >,
   viewerOrNow?: string | null | number,
@@ -86,9 +139,9 @@ const toMsg = (r: Row, me: string): OrbitMessage => ({
   kind: (r.kind as OrbitMsgKind) ?? "text",
   text: r.text ?? undefined,
   url: r.url ?? undefined,
-  viewOnce: r.view_once,
+  viewOnce: r.view_once === true,
   autoDeleteSetting: r.auto_delete_setting ?? "off",
-  isViewed: r.is_viewed,
+  isViewed: r.is_viewed === true,
   viewedAt: r.viewed_at ? new Date(r.viewed_at).getTime() : undefined,
   expiresAt: r.expires_at ? new Date(r.expires_at).getTime() : undefined,
   at: new Date(r.created_at).getTime(),
@@ -98,6 +151,7 @@ const toMsg = (r: Row, me: string): OrbitMessage => ({
 export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: string | null) {
   const [messages, setMessages] = useState<OrbitMessage[]>([]);
   const [meId, setMeId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const meRef = useRef<string | null>(null);
@@ -126,9 +180,11 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
   useEffect(() => {
     if (!enabled || !isUuid(peerId)) {
       setMessages([]);
+      setLoading(false);
       return;
     }
     let cancelled = false;
+    setLoading(true);
 
     void loadCachedThread<OrbitMessage>(`orbit:${peerId}`).then((rows) => {
       if (cancelled || !rows?.length) return;
@@ -136,23 +192,24 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
     });
 
     const load = async () => {
-      const { data: auth } = await supabase.auth.getUser();
-      const me = auth.user?.id;
-      if (!me || cancelled) return;
-      meRef.current = me;
-      setMeId(me);
-      let query = supabase
-        .from("orbit_messages" as never)
-        .select("id,sender_id,recipient_id,kind,text,url,view_once,auto_delete_setting,expires_at,is_viewed,viewed_at,created_at")
-        .or(
-          `and(sender_id.eq.${me},recipient_id.eq.${peerId}),and(sender_id.eq.${peerId},recipient_id.eq.${me})`,
-        );
-      if (clearedBefore) query = query.gt("created_at", clearedBefore);
-      const { data } = await query.order("created_at", { ascending: false }).limit(PAGE_SIZE);
-      if (cancelled) return;
-       const rows = ((data ?? []) as unknown as Row[]).filter((row) => isUnexpiredOrbitRow(row, me));
-      setHasMore(rows.length >= PAGE_SIZE);
-      merge(rows.map((r) => toMsg(r, me)));
+      try {
+        const { data: auth } = await supabase.auth.getUser();
+        const me = auth.user?.id;
+        if (!me || cancelled) return;
+        meRef.current = me;
+        setMeId(me);
+        const fetched = await fetchOrbitRows({ me, peerId, clearedBefore });
+        if (fetched === null) return;
+        const rows = fetched
+          .filter((row) => isUnexpiredOrbitRow(row, me));
+        if (cancelled) return;
+        setHasMore(rows.length >= PAGE_SIZE);
+        merge(rows.map((r) => toMsg(r, me)));
+      } catch (cause) {
+        console.error("[orbit-chat] message load failed", cause);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     };
 
     void load();
@@ -213,7 +270,10 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
       if (retryTimer !== null) window.clearTimeout(retryTimer);
       window.removeEventListener("online", resync);
       document.removeEventListener("visibilitychange", resync);
-      if (channel) void supabase.removeChannel(channel);
+      if (channel) {
+        void channel.unsubscribe();
+        void supabase.removeChannel(channel);
+      }
     };
   }, [peerId, enabled, merge, clearedBefore]);
 
@@ -328,19 +388,22 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
     const oldest = messagesRef.current.find((m) => !m.id.startsWith("temp-"))?.at;
     if (!me || !oldest || loadingMore || !hasMore || !isUuid(peerId)) return;
     setLoadingMore(true);
-    let query = supabase
-      .from("orbit_messages" as never)
-      .select("id,sender_id,recipient_id,kind,text,url,view_once,auto_delete_setting,expires_at,is_viewed,viewed_at,created_at")
-      .or(
-        `and(sender_id.eq.${me},recipient_id.eq.${peerId}),and(sender_id.eq.${peerId},recipient_id.eq.${me})`,
-      )
-      .lt("created_at", new Date(oldest).toISOString());
-    if (clearedBefore) query = query.gt("created_at", clearedBefore);
-    const { data } = await query.order("created_at", { ascending: false }).limit(PAGE_SIZE);
-    const rows = ((data ?? []) as unknown as Row[]).filter((row) => isUnexpiredOrbitRow(row, me));
-    setHasMore(rows.length >= PAGE_SIZE);
-    if (rows.length) merge(rows.map((r) => toMsg(r, me)));
-    setLoadingMore(false);
+    try {
+      const fetched = await fetchOrbitRows({
+        me,
+        peerId,
+        clearedBefore,
+        before: new Date(oldest).toISOString(),
+      });
+      if (fetched === null) return;
+      const rows = fetched.filter((row) => isUnexpiredOrbitRow(row, me));
+      setHasMore(rows.length >= PAGE_SIZE);
+      if (rows.length) merge(rows.map((r) => toMsg(r, me)));
+    } catch (cause) {
+      console.error("[orbit-chat] older message load failed", cause);
+    } finally {
+      setLoadingMore(false);
+    }
   }, [peerId, clearedBefore, loadingMore, hasMore, merge]);
 
   useEffect(() => {
@@ -354,5 +417,5 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
     return () => window.clearInterval(timer);
   }, [enabled]);
 
-  return { messages, meId, sendText, sendMedia, insert, consumeViewOnce, markViewed, remove, clear, loadOlder, loadingMore, hasMore };
+  return { messages, meId, sendText, sendMedia, insert, consumeViewOnce, markViewed, remove, clear, loadOlder, loading, loadingMore, hasMore };
 }

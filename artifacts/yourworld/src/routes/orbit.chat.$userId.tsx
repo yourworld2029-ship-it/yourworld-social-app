@@ -384,6 +384,7 @@ function OrbitChatPage() {
       [...orbitMessages.map(toUiMsg), ...notes].sort((a, b) => (a.at ?? 0) - (b.at ?? 0)),
     [orbitMessages, notes],
   );
+  const lastMessageKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!accepted) setNotes([]);
@@ -405,16 +406,13 @@ function OrbitChatPage() {
   };
 
   useEffect(() => {
-    const viewport = window.visualViewport;
-    if (!viewport) return;
-    const onViewportChange = () => scrollToLatest();
-    viewport.addEventListener("resize", onViewportChange);
-    viewport.addEventListener("scroll", onViewportChange);
-    return () => {
-      viewport.removeEventListener("resize", onViewportChange);
-      viewport.removeEventListener("scroll", onViewportChange);
-    };
-  }, []);
+    const newest = msgs[msgs.length - 1];
+    const nextKey = newest ? `${newest.id}:${newest.at ?? 0}` : null;
+    const isInitialLoad = lastMessageKeyRef.current === null && nextKey !== null;
+    const isNewMessage = nextKey !== null && nextKey !== lastMessageKeyRef.current;
+    lastMessageKeyRef.current = nextKey;
+    if (isInitialLoad || isNewMessage) scrollToLatest();
+  }, [msgs]);
 
   // Landing on the chat (e.g. tapping Message on a profile) focuses the
   // composer so the user is straight in the message box, ready to type.
@@ -1046,7 +1044,12 @@ function OrbitChatPage() {
             toast.success("Request declined");
           }}
         />
-        {allMsgs.length === 0 ? (
+        {chat.loading && accepted && allMsgs.length === 0 ? (
+          <p className="flex items-center justify-center gap-2 pt-10 text-xs text-muted-foreground" aria-live="polite">
+            <span className="h-3.5 w-3.5 animate-spin rounded-full border border-muted-foreground/40 border-t-foreground" />
+            Loading messages…
+          </p>
+        ) : allMsgs.length === 0 ? (
           <p className="pt-10 text-center text-xs text-muted-foreground">
             {accepted
               ? `Say hello to ${p.name} — messages here stay inside Orbit.`

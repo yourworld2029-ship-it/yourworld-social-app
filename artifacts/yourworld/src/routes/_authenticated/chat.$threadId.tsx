@@ -152,7 +152,6 @@ function ChatThreadPage() {
     send: sendToDb,
     remove: removeFromDb,
     markRead,
-    error: messagesError,
     loading: messagesLoading,
     loadingMore,
     hasMore,
@@ -360,6 +359,7 @@ function ChatThreadPage() {
   const EMOJIS = ["Like", "Heart", "Laugh", "Flame", "Celebrate", "Love", "Applause", "Support", "Launch", "Perfect"];
 
   const didFirstScroll = useRef(false);
+  const lastMessageKeyRef = useRef<string | null>(null);
   const scrollToLatest = () => {
     requestAnimationFrame(() => {
       messagesEndRef.current?.scrollIntoView({
@@ -377,20 +377,13 @@ function ChatThreadPage() {
       keepScrollRef.current = null;
       return;
     }
-    scrollToLatest();
-   }, [messages, isRecording, peerTyping]);
-
-  useEffect(() => {
-    const viewport = window.visualViewport;
-    if (!viewport) return;
-    const onViewportChange = () => scrollToLatest();
-    viewport.addEventListener("resize", onViewportChange);
-    viewport.addEventListener("scroll", onViewportChange);
-    return () => {
-      viewport.removeEventListener("resize", onViewportChange);
-      viewport.removeEventListener("scroll", onViewportChange);
-    };
-  }, []);
+    const newest = messages[messages.length - 1];
+    const nextKey = newest ? `${newest.id}:${newest.ts}` : null;
+    const isInitialLoad = lastMessageKeyRef.current === null && nextKey !== null;
+    const isNewMessage = nextKey !== null && nextKey !== lastMessageKeyRef.current;
+    lastMessageKeyRef.current = nextKey;
+    if (isInitialLoad || isNewMessage) scrollToLatest();
+  }, [messages]);
 
   const onScrollMessages = () => {
     const el = scrollRef.current;
@@ -757,7 +750,12 @@ function ChatThreadPage() {
 
       <div ref={scrollRef} onScroll={onScrollMessages} className="relative min-h-0 flex-1 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] p-4 space-y-3.5 bg-zinc-950/50" onClick={() => setShowOptionsMenu(false)}>
         <UserWatermark username={currentUsername} className="fixed text-white" />
-        {messagesError ? <p role="alert" className="rounded-lg border border-red-900 bg-red-950/40 px-3 py-2 text-center text-xs text-red-300">{messagesError}</p> : null}
+        {messagesLoading && messages.length > 0 ? (
+          <p className="flex items-center justify-center gap-2 py-1 text-[11px] text-zinc-500" aria-live="polite">
+            <span className="h-3 w-3 animate-spin rounded-full border border-zinc-600 border-t-zinc-300" />
+            Syncing messages…
+          </p>
+        ) : null}
         {loadingMore ? (
           <p className="py-1 text-center text-[11px] text-zinc-500">Loading older messages…</p>
         ) : null}

@@ -575,13 +575,21 @@ function momentContextFromRow(row: PublicMessageRow) {
 }
 
 const toDbMessage = (row: PublicMessageRow): DbMessage => ({
-  ...row,
+  id: typeof row.id === "string" ? row.id : "",
+  sender_id: typeof row.sender_id === "string" ? row.sender_id : "",
+  receiver_id: typeof row.receiver_id === "string" ? row.receiver_id : "",
+  content: typeof row.content === "string" ? row.content : "",
+  media_url: typeof row.media_url === "string" ? row.media_url : null,
+  voice_note_url: typeof row.voice_note_url === "string" ? row.voice_note_url : null,
+  metadata: asRecord(row.metadata),
+  is_read: row.is_read === true,
+  created_at: typeof row.created_at === "string" ? row.created_at : new Date(0).toISOString(),
   ...momentContextFromRow(row),
   auto_delete_setting: row.auto_delete_setting ?? "off",
   auto_delete_mode: row.auto_delete_mode ?? row.auto_delete_setting ?? "off",
   expires_at: row.expires_at ?? null,
-  is_deleted: row.is_deleted ?? false,
-  is_viewed: row.is_viewed ?? false,
+  is_deleted: row.is_deleted === true,
+  is_viewed: row.is_viewed === true,
   viewed_at: row.viewed_at ?? null,
   media_type: row.voice_note_url ? "audio" : row.media_url ? "image" : "text",
 });
@@ -909,7 +917,7 @@ export async function publishPost(opts: {
 
 /** Live public.messages records for the canonical two-person route id. */
 export function useThreadMessages(threadId: string, _opts: { staleTime?: number } = {}) {
-  const pair = dmThreadPair(threadId);
+  const pair = useMemo(() => dmThreadPair(threadId), [threadId]);
   const [messages, setMessages] = useState<DbMessage[]>(() => cacheGet<DbMessage[]>(`thread:${threadId}`) ?? []);
   const [me, setMe] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -934,51 +942,82 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
   }), [belongs]);
   const queryRows = useCallback(async (before?: string) => {
     if (!pair) return [] as PublicMessageRow[];
-    const now = new Date().toISOString();
-    const fetchRows = async (withExpiryFilter: boolean, withDeletedFilter: boolean) => {
-      let query = supabase.from("messages" as never).select("*" as never)
-        .or(`and(sender_id.eq.${pair[0]},receiver_id.eq.${pair[1]}),and(sender_id.eq.${pair[1]},receiver_id.eq.${pair[0]})`);
-      if (withExpiryFilter) query = query.or(`expires_at.is.null,expires_at.gt.${now}`);
-      if (withDeletedFilter) query = query.eq("is_deleted", false);
-      query = query.order("created_at", { ascending: false }).limit(PAGE_SIZE);
-      if (before) query = query.lt("created_at", before);
-      return await query;
-    };
+    try {
+      const now = new Date().toISOString();
+      const fetchRows = async (withExpiryFilter: boolean, withDeletedFilter: boolean) => {
+        let query = supabase.from("messages" as never).select("*" as never)
+          .or(`and(sender_id.eq.${pair[0]},receiver_id.eq.${pair[1]}),and(sender_id.eq.${pair[1]},receiver_id.eq.${pair[0]})`);
+        if (withExpiryFilter) query = query.or(`expires_at.is.null,expires_at.gt.${now}`);
+        if (withDeletedFilter) query = query.eq("is_deleted", false);
+        query = query.order("created_at", { ascending: false }).limit(PAGE_SIZE);
+        if (before) query = query.lt("created_at", before);
+        return await query;
+      };
 
-    let result = await fetchRows(true, true);
-    if (result.error && isMissingAutoDeleteColumn(result.error)) {
-      // Older schemas can still serve messages safely; renderability checks
-      // below continue to protect the client when these fields are absent.
-      result = await fetchRows(false, false);
+      let result = await fetchRows(true, true);
+      if (result.error && isMissingAutoDeleteColumn(result.error)) {
+        // Older schemas can still serve messages safely; renderability checks
+        // below continue to protect the client when these fields are absent.
+        result = await fetchRows(false, false);
+      }
+      if (result.error) {
+        console.error("[social-chat] message fetch failed", result.error);
+        return null;
+      }
+      return (result.data ?? []) as unknown as PublicMessageRow[];
+    } catch (cause) {
+      console.error("[social-chat] message fetch threw", cause);
+      return null;
     }
-    const { data, error: queryError } = result;
-    if (queryError) throw queryError;
-    return (data ?? []) as unknown as PublicMessageRow[];
   }, [pair]);
   const load = useCallback(async () => {
     if (!pair) { setLoading(false); return; }
-    try { const rows = await queryRows(); merge(rows); setHasMore(rows.length >= PAGE_SIZE); setError(null); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to load messages."); }
+    try {
+      const rows = await queryRows();
+      if (rows === null) return;
+      merge(rows);
+      setHasMore(rows.length >= PAGE_SIZE);
+      setError(null);
+    } catch (cause) {
+      console.error("[social-chat] message load failed", cause);
+      setError(null);
+    }
     finally { setLoading(false); }
   }, [pair, queryRows, merge]);
   const loadOlder = useCallback(async () => {
     const oldest = messagesRef.current.filter((m) => !m.id.startsWith("tmp-")).sort((a, b) => a.created_at.localeCompare(b.created_at))[0]?.created_at;
     if (!oldest || loadingMore || !hasMore) return;
     setLoadingMore(true);
-    try { const rows = await queryRows(oldest); merge(rows); setHasMore(rows.length >= PAGE_SIZE); setError(null); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to load older messages."); }
+    try {
+      const rows = await queryRows(oldest);
+      if (rows === null) return;
+      merge(rows);
+      setHasMore(rows.length >= PAGE_SIZE);
+      setError(null);
+    } catch (cause) {
+      console.error("[social-chat] older message load failed", cause);
+      setError(null);
+    }
     finally { setLoadingMore(false); }
   }, [queryRows, merge, loadingMore, hasMore]);
   useEffect(() => {
-    void supabase.auth.getSession().then(({ data }) => {
-      const id = data.session?.user.id ?? null;
-      meRef.current = id;
-      setMe(id);
-      void load();
-    });
     let alive = true;
     let retry: ReturnType<typeof setTimeout> | null = null;
     let channel: ReturnType<typeof supabase.channel> | null = null;
+    const bootstrap = async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (!alive) return;
+        const id = data.session?.user.id ?? null;
+        meRef.current = id;
+        setMe(id);
+        void load();
+      } catch (cause) {
+        console.error("[social-chat] session/bootstrap failed", cause);
+        if (alive) setLoading(false);
+      }
+    };
+    void bootstrap();
     const subscribe = () => {
       if (!alive) return;
       channel = supabase
@@ -997,7 +1036,10 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
           if (!["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(status) || !alive || retry) return;
           retry = setTimeout(() => {
             retry = null;
-            if (channel) void supabase.removeChannel(channel);
+            if (channel) {
+              void channel.unsubscribe();
+              void supabase.removeChannel(channel);
+            }
             channel = null;
             subscribe();
           }, 1500);
@@ -1015,7 +1057,10 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       if (retry) clearTimeout(retry);
       document.removeEventListener("visibilitychange", resyncOnVisible);
       window.removeEventListener("online", resyncOnOnline);
-      if (channel) void supabase.removeChannel(channel);
+      if (channel) {
+        void channel.unsubscribe();
+        void supabase.removeChannel(channel);
+      }
     };
   }, [threadId, load, belongs, merge]);
   useEffect(() => {
