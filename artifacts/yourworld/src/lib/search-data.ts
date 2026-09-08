@@ -18,7 +18,22 @@ type ProfileRow = {
   username: string | null;
   full_name?: string | null;
   display_name: string | null;
+  avatar_url?: string | null;
+  is_verified?: boolean | null;
   category: string | null;
+};
+
+type OrbitSearchRow = {
+  user_id: string;
+  name: string | null;
+  city: string | null;
+  state: string | null;
+  country: string | null;
+  about: string | null;
+  hobbies: string[] | null;
+  looking_for: string | null;
+  gender: string | null;
+  photos: unknown;
 };
 
 type SearchPostRow = {
@@ -56,10 +71,68 @@ function toSearchUsers(
         profile.username?.trim() ||
         "",
       category: profile.category || undefined,
+      verified: Boolean(profile.is_verified),
       hue: hueOf(profile.id),
       ...(followerCount === undefined ? {} : { followerCount }),
     };
   });
+}
+
+function orbitPhotoUrl(photos: unknown) {
+  if (!Array.isArray(photos)) return "";
+  const photo = photos.find(
+    (item): item is { url?: unknown } =>
+      typeof item === "object" && item !== null && "url" in item,
+  );
+  return typeof photo?.url === "string" && !/^(blob|data):/.test(photo.url)
+    ? photo.url
+    : "";
+}
+
+function toOrbitSearchUsers(rows: OrbitSearchRow[]): SearchUser[] {
+  return rows.map((row) => {
+    const name = row.name?.trim() || "Orbit user";
+    return {
+      id: row.user_id,
+      username: name.toLowerCase().replace(/\s+/g, "."),
+      name,
+      category: "Orbit",
+      hue: hueOf(row.user_id),
+      bio: row.about?.trim() || undefined,
+      location: [row.city, row.state, row.country].filter(Boolean).join(", "),
+      avatar_url: orbitPhotoUrl(row.photos),
+    } as SearchUser;
+  });
+}
+
+async function searchOrbitProfiles(
+  term: string,
+  client: typeof supabase,
+): Promise<SearchUser[]> {
+  const pattern = escapeILikePattern(term);
+  const { data, error } = await client
+    .from("orbit_profiles")
+    .select("user_id,name,city,state,country,about,hobbies,looking_for,gender,photos")
+    .or(
+      [
+        `name.ilike.%${pattern}%`,
+        `city.ilike.%${pattern}%`,
+        `state.ilike.%${pattern}%`,
+        `country.ilike.%${pattern}%`,
+        `about.ilike.%${pattern}%`,
+        `looking_for.ilike.%${pattern}%`,
+        `gender.ilike.%${pattern}%`,
+        `mood.ilike.%${pattern}%`,
+      ].join(","),
+    )
+    .eq("orbit_enabled", true)
+    .eq("visible", true)
+    .limit(50);
+  if (error) {
+    console.warn("[search] Orbit profile search unavailable", error.message);
+    return [];
+  }
+  return toOrbitSearchUsers((data ?? []) as unknown as OrbitSearchRow[]);
 }
 
 async function loadFollowerCounts(
@@ -86,14 +159,17 @@ export async function searchPublicProfiles(
   if (!term) return [];
 
   const pattern = escapeILikePattern(term);
-  const { data, error } = await client
-    .from("profiles")
-    // full_name is maintained for public profile search; display_name supports
-    // older profiles whose public name predates that field.
-    .select("id,username,full_name,display_name,category")
-    .or(`username.ilike.%${pattern}%,full_name.ilike.%${pattern}%`)
-    .order("updated_at", { ascending: false })
-    .limit(50);
+  const [{ data, error }, orbitUsers] = await Promise.all([
+    client
+      .from("profiles")
+      .select("id,username,full_name,display_name,avatar_url,is_verified,category")
+      .or(
+        `username.ilike.%${pattern}%,display_name.ilike.%${pattern}%,full_name.ilike.%${pattern}%`,
+      )
+      .order("updated_at", { ascending: false })
+      .limit(50),
+    searchOrbitProfiles(term, client),
+  ]);
   if (error) throw error;
 
   const profiles = (data ?? []) as unknown as ProfileRow[];
@@ -101,7 +177,13 @@ export async function searchPublicProfiles(
     profiles.map((profile) => profile.id),
     client,
   );
-  return toSearchUsers(profiles, followersById);
+  const standardUsers = toSearchUsers(profiles, followersById);
+  const merged = new Map(standardUsers.map((user) => [user.id, user]));
+  for (const orbitUser of orbitUsers) {
+    const existing = merged.get(orbitUser.id);
+    merged.set(orbitUser.id, existing ? { ...orbitUser, ...existing } : orbitUser);
+  }
+  return [...merged.values()].slice(0, 50);
 }
 
 /** Loads the current public search data directly from Supabase. */
@@ -111,7 +193,7 @@ export async function loadSearchData(
   const [{ data: profiles, error: profilesError }, { data: posts, error: postsError }] = await Promise.all([
     client
       .from("profiles")
-      .select("id,username,full_name,display_name,category")
+      .select("id,username,full_name,display_name,avatar_url,is_verified,category")
       .order("updated_at", { ascending: false })
       .limit(100),
     // The live project has both legacy and current post shapes. Selecting the

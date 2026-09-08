@@ -31,6 +31,9 @@ export type OrbitProfileRow = {
   visible: boolean;
 };
 
+const ORBIT_PUBLIC_COLUMNS =
+  "user_id,name,age,country,state,city,about,hobbies,looking_for,gender,photos,original_photo_privacy,mood,orbit_enabled,visible,updated_at";
+
 /** Stable pseudo-random number from an id, so hue/distance never jump around. */
 function hashOf(id: string) {
   let h = 0;
@@ -64,6 +67,34 @@ export function rowToOrbitProfile(row: OrbitProfileRow): OrbitProfile {
     hue: h % 360,
     mood: (row.mood as OrbitMoodId | null) ?? undefined,
   };
+}
+
+async function discoverOrbitRows(ids?: string[] | null): Promise<OrbitProfileRow[]> {
+  const { data, error } = await supabase.rpc("discover_orbit_profiles" as never, {
+    ids: ids ?? null,
+  } as never);
+  if (!error && data) return data as unknown as OrbitProfileRow[];
+
+  // Keep the client compatible with deployments where the RPC was not yet
+  // installed, while still respecting the public visibility flags.
+  let query = supabase
+    .from("orbit_profiles")
+    .select(ORBIT_PUBLIC_COLUMNS)
+    .eq("orbit_enabled", true)
+    .eq("visible", true);
+  if (ids?.length) query = query.in("user_id", ids);
+  if (ids && ids.length === 0) return [];
+  const fallback = await query;
+  if (fallback.error) {
+    console.error("[orbit] profile discovery failed", fallback.error);
+    return [];
+  }
+  return (fallback.data ?? []) as unknown as OrbitProfileRow[];
+}
+
+export async function fetchOrbitProfileRow(id: string): Promise<OrbitProfileRow | null> {
+  const rows = await discoverOrbitRows([id]);
+  return rows[0] ?? null;
 }
 
 export function draftToRow(user_id: string, p: OrbitProfileDraft, privacy?: OrbitPrivacy) {
@@ -112,16 +143,8 @@ export function useOrbitProfiles() {
     const load = async () => {
       const { data: auth } = await supabase.auth.getUser();
       const me = auth.user?.id;
-      const { data, error } = await supabase.rpc("discover_orbit_profiles" as never, {
-        ids: null,
-      } as never);
-
       if (cancelled) return;
-      if (error || !data) {
-        setLoading(false);
-        return;
-      }
-      const list = (data as unknown as OrbitProfileRow[])
+      const list = (await discoverOrbitRows())
         .filter((r) => r.user_id !== me)
         .map(rowToOrbitProfile);
       registerOrbitProfiles(list);
@@ -394,11 +417,9 @@ export function useOrbitProfile(id: string) {
     }
     setLoading(true);
     void (async () => {
-      const { data } = await supabase.rpc("discover_orbit_profiles" as never, {
-        ids: [id],
-      } as never);
       if (cancelled) return;
-      const row = (data as unknown as OrbitProfileRow[] | null)?.[0];
+      const row = await fetchOrbitProfileRow(id);
+      if (cancelled) return;
       if (row) {
         const mapped = rowToOrbitProfile(row);
         registerOrbitProfiles([mapped]);

@@ -237,8 +237,8 @@ function OrbitBrowse() {
             style={{ animationDelay: `${i * 40}ms` }}
           >
             <Link
-              to="/orbit/$profileId"
-              params={{ profileId: p.id }}
+              to="/u/$userId"
+              params={{ userId: p.id }}
               aria-label={`Open ${p.name}'s Orbit profile`}
               className="relative block aspect-[4/5] w-full overflow-hidden"
             >

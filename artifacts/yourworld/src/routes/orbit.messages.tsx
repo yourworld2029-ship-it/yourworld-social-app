@@ -498,8 +498,8 @@ function OrbitMessagesPage() {
               {matchList.map(({ p, mutual: isMutual, theyLiked }) => (
                 <li key={p.id} className="surface-card flex items-center gap-3 rounded-2xl px-3 py-2.5">
                   <Link
-                    to="/orbit/$profileId"
-                    params={{ profileId: p.id }}
+                    to="/u/$userId"
+                    params={{ userId: p.id }}
                     className="flex min-w-0 flex-1 items-center gap-3"
                   >
                     <Avatar p={p} size={44} />

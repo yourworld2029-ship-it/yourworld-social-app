@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatCount } from "@/lib/yw-data";
 import { cn } from "@/lib/utils";
 import { useChatNames } from "@/lib/chat-names";
+import { fetchOrbitProfileRow, rowToOrbitProfile } from "@/lib/orbit-live";
 
 export const Route = createFileRoute("/u/$userId")({
   head: () => ({
@@ -64,7 +65,7 @@ function PublicProfilePage() {
     const uid = s.session?.user.id ?? null;
     setMe(uid);
 
-    const [{ data: rows }, { data: myPosts }, followsTarget] = await Promise.all([
+    const [{ data: rows }, { data: myPosts }, orbitRow, followsTarget] = await Promise.all([
       supabase.rpc("get_public_profiles", { ids: [userId] }),
       supabase
         .from("posts")
@@ -72,6 +73,7 @@ function PublicProfilePage() {
         .eq("user_id", userId)
         .order("created_at", { ascending: false })
         .limit(100),
+      fetchOrbitProfileRow(userId),
       uid && uid !== userId
         ? fetchIsFollowing(userId, uid).catch(() => false)
         : Promise.resolve(false),
@@ -81,12 +83,20 @@ function PublicProfilePage() {
       | { id: string; username: string | null; display_name: string | null; avatar_url: string | null; bio?: string | null }
       | undefined;
 
+    const orbitProfile = orbitRow ? rowToOrbitProfile(orbitRow) : null;
     const next: PublicProfile = {
       id: userId,
-      username: row?.username ?? `user${userId.slice(0, 4)}`,
-      display_name: row?.display_name ?? row?.username ?? "YourWorld user",
-      bio: row?.bio ?? "",
-      avatar_url: row?.avatar_url ?? null,
+      username:
+        row?.username ??
+        orbitProfile?.handle ??
+        `user${userId.slice(0, 4)}`,
+      display_name:
+        row?.display_name ??
+        row?.username ??
+        orbitProfile?.name ??
+        "YourWorld user",
+      bio: row?.bio ?? orbitProfile?.about ?? "",
+      avatar_url: row?.avatar_url ?? orbitProfile?.photo ?? null,
     };
     setProfile(next);
     setPosts((myPosts ?? []) as DbPost[]);

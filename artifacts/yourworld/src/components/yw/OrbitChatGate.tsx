@@ -39,8 +39,8 @@ export const OrbitChatGate: React.FC<Props> = ({
           <p className="text-xs text-zinc-400">Orbit Chat Request</p>
         </div>
         <Link
-          to="/orbit/$profileId"
-          params={{ profileId }}
+          to="/u/$userId"
+          params={{ userId: profileId }}
           className="rounded-full border border-zinc-700 px-3 py-1.5 text-xs"
         >
           View Profile
