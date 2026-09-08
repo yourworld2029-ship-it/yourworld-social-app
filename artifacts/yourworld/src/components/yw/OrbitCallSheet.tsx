@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import { getCallMedia } from "@/lib/webrtc-media";
 
 export type OrbitCallMode = "voice" | "video";
 
@@ -46,32 +47,7 @@ export function OrbitCallSheet({
 
     (async () => {
       try {
-        const hiRes: MediaTrackConstraints = {
-          facingMode: facing,
-          width: { ideal: 3840, max: 3840 },
-          height: { ideal: 2160, max: 2160 },
-          frameRate: { ideal: 60, max: 60 },
-        };
-        let stream: MediaStream;
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({
-            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-            video: mode === "video" ? hiRes : false,
-          });
-        } catch {
-          stream = await navigator.mediaDevices.getUserMedia({
-            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-            video:
-              mode === "video"
-                ? {
-                    facingMode: facing,
-                    width: { ideal: 1920 },
-                    height: { ideal: 1080 },
-                    frameRate: { ideal: 30 },
-                  }
-                : false,
-          });
-        }
+        const stream = await getCallMedia(mode === "video" ? "video" : "audio", facing);
         if (cancelled) {
           stream.getTracks().forEach((t) => t.stop());
           return;

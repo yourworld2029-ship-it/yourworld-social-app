@@ -20,6 +20,12 @@ import {
   showIncomingCallNotification,
   type CallNotificationAction,
 } from "@/lib/call-notifications";
+import {
+  CALL_ICE_SERVERS,
+  getCallMedia,
+  getCallVideo,
+  tuneCallVideoSender,
+} from "@/lib/webrtc-media";
 
 /**
  * The deployed calls/user_blocks schema is newer than generated Supabase types.
@@ -82,41 +88,6 @@ function asIceCandidate(value: unknown): RTCIceCandidateInit | null {
   return candidate as RTCIceCandidateInit;
 }
 
-const ICE_SERVERS: RTCIceServer[] = [
-  { urls: "stun:stun.l.google.com:19302" },
-  { urls: "stun:stun.relay.metered.ca:80" },
-  {
-    urls: "turn:openrelay.metered.ca:80",
-    username: "openrelayproject",
-    credential: "openrelayproject",
-  },
-  {
-    urls: "turn:openrelay.metered.ca:443",
-    username: "openrelayproject",
-    credential: "openrelayproject",
-  },
-  {
-    urls: "turn:openrelay.metered.ca:443?transport=tcp",
-    username: "openrelayproject",
-    credential: "openrelayproject",
-  },
-];
-
-const AUDIO_CONSTRAINTS: MediaTrackConstraints = {
-  echoCancellation: true,
-  noiseSuppression: true,
-  autoGainControl: true,
-};
-
-function videoConstraints(facingMode: "user" | "environment", width: number, height: number, frameRate: number): MediaTrackConstraints {
-  return {
-    facingMode,
-    width: { ideal: width, max: width },
-    height: { ideal: height, max: height },
-    frameRate: { ideal: frameRate, max: frameRate },
-  };
-}
-
 function optimizeVideoSdp(sdp: string) {
   const lines = sdp.split("\r\n");
   const qualityPayloads = new Set<string>();
@@ -127,7 +98,7 @@ function optimizeVideoSdp(sdp: string) {
     if (line.startsWith("m=")) inVideoSection = line.startsWith("m=video ");
     if (inVideoSection && line.startsWith("m=video ")) {
       output.push(line);
-      output.push("b=AS:50000");
+      output.push("b=AS:3500");
       hasVideoBitrate = true;
       continue;
     }
@@ -139,7 +110,7 @@ function optimizeVideoSdp(sdp: string) {
     }
     if (inVideoSection && line.startsWith("b=")) {
       if (line.startsWith("b=AS:")) {
-        if (!hasVideoBitrate) output.push("b=AS:50000");
+        if (!hasVideoBitrate) output.push("b=AS:3500");
         hasVideoBitrate = true;
       } else {
         output.push(line);
@@ -152,7 +123,7 @@ function optimizeVideoSdp(sdp: string) {
         const params = match[2];
         if (!params.includes("x-google-max-bitrate")) {
           output.push(
-            `${line};x-google-start-bitrate=12000;x-google-min-bitrate=3000;x-google-max-bitrate=50000`,
+            `${line};x-google-start-bitrate=2500;x-google-min-bitrate=1000;x-google-max-bitrate=3500`,
           );
           continue;
         }
@@ -568,25 +539,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const getMedia = useCallback(async (mode: CallMode) => {
-    const videoProfiles = [
-      videoConstraints(facingMode, 3840, 2160, 60),
-      videoConstraints(facingMode, 1920, 1080, 60),
-      videoConstraints(facingMode, 1280, 720, 30),
-    ];
-    let stream: MediaStream | null = null;
-    let lastError: unknown = null;
-    for (const video of mode === "video" ? videoProfiles : [false]) {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: AUDIO_CONSTRAINTS,
-          video,
-        });
-        break;
-      } catch (error) {
-        lastError = error;
-      }
-    }
-    if (!stream) throw lastError ?? new Error("Unable to access camera and microphone");
+    const stream = await getCallMedia(mode, facingMode);
     for (const track of stream.getVideoTracks()) {
       track.contentHint = "detail";
     }
@@ -674,21 +627,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const createPeer = useCallback(
     (stream: MediaStream) => {
       // Pre-gather ICE candidates so the call connects near-instantly.
-      const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS, iceCandidatePoolSize: 4 });
+      const pc = new RTCPeerConnection({
+        iceServers: CALL_ICE_SERVERS,
+        iceCandidatePoolSize: 4,
+      });
       pcRef.current = pc;
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
       for (const sender of pc.getSenders()) {
-        if (sender.track?.kind !== "video") continue;
-        const parameters = sender.getParameters();
-        if (parameters.encodings?.length) {
-          parameters.encodings = parameters.encodings.map((encoding) => ({
-            ...encoding,
-            maxBitrate: 50_000_000,
-            maxFramerate: 60,
-            scaleResolutionDownBy: 1,
-          }));
-          void sender.setParameters(parameters).catch(() => {});
-        }
+        void tuneCallVideoSender(sender);
       }
       pc.onicecandidate = (e) => {
         if (!e.candidate) return;
@@ -1354,21 +1300,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
     setFlashOn(false);
     try {
-      const profiles = [
-        videoConstraints(next, 3840, 2160, 60),
-        videoConstraints(next, 1920, 1080, 60),
-        videoConstraints(next, 1280, 720, 30),
-      ];
-      let newStream: MediaStream | null = null;
-      for (const video of profiles) {
-        try {
-          newStream = await navigator.mediaDevices.getUserMedia({ audio: false, video });
-          break;
-        } catch {
-          // Try the next supported camera profile.
-        }
-      }
-      if (!newStream) throw new Error("No supported camera profile");
+      const newStream = await getCallVideo(next);
       const newVideoTrack = newStream.getVideoTracks()[0];
       newVideoTrack.contentHint = "detail";
       const sender = pcRef.current
@@ -1376,6 +1308,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         .find((s) => s.track?.kind === "video");
       if (sender && newVideoTrack) {
         await sender.replaceTrack(newVideoTrack);
+        await tuneCallVideoSender(sender);
       }
       if (localStream.current && newVideoTrack) {
         localStream.current.addTrack(newVideoTrack);
@@ -1386,13 +1319,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
       toast.error("Couldn't switch camera");
       // try to restore the previous camera so the call keeps video
       try {
-        const back = await navigator.mediaDevices.getUserMedia({
-          audio: false,
-          video: videoConstraints(facingMode, 1280, 720, 30),
-        });
+        const back = await getCallVideo(facingMode);
         const t = back.getVideoTracks()[0];
         const sender = pcRef.current?.getSenders().find((s) => s.track?.kind === "video");
-        if (sender && t) await sender.replaceTrack(t);
+        if (sender && t) {
+          await sender.replaceTrack(t);
+          await tuneCallVideoSender(sender);
+        }
         if (localStream.current && t) localStream.current.addTrack(t);
         attachStreams();
       } catch { /* ignore */ }

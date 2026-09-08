@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { PhoneOff, Mic, MicOff } from 'lucide-react';
+import { CALL_ICE_SERVERS, getCallMedia, tuneCallVideoSender } from '@/lib/webrtc-media';
 
 interface RtcCallSheetProps {
   isOpen: boolean;
@@ -23,13 +24,17 @@ export const RtcCallSheet: React.FC<RtcCallSheetProps> = ({
     if (!isOpen) return;
 
     const peer = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+      iceServers: CALL_ICE_SERVERS,
+      iceCandidatePoolSize: 4,
     });
     pc.current = peer;
 
-    navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
-      stream.getTracks().forEach((track) => peer.addTrack(track, stream));
-    });
+    void getCallMedia("audio")
+      .then((stream) => {
+        stream.getTracks().forEach((track) => peer.addTrack(track, stream));
+        peer.getSenders().forEach((sender) => void tuneCallVideoSender(sender));
+      })
+      .catch(() => setCallStatus("Microphone permission declined"));
 
     const channel = supabase.channel(`call_${targetUserId}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
