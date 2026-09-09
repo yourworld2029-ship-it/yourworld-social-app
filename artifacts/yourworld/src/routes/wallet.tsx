@@ -32,7 +32,7 @@ export const Route = createFileRoute("/wallet")({
 });
 
 const MIN_WITHDRAW = 5000;
-const REQ = { followers: 700, watchHours: 2500, reelViews: 50000 };
+const REQ = { followers: 8000, watchHours: 2500, videoViews: 100000 };
 
 type PayoutRow = {
   id: string;
@@ -80,7 +80,7 @@ function WalletPage() {
   const [schedule, setSchedule] = useState<"15" | "30">("15");
   const [eligible, setEligible] = useState(false);
   const [simulate, setSimulate] = useState(false);
-  const [stats, setStats] = useState({ followers: 0, watchHours: 0, reelViews: 0 });
+  const [stats, setStats] = useState({ followers: 0, watchHours: 0, videoViews: 0 });
   const [profile, setProfile] = useState<{ display_name: string; username: string }>({
     display_name: "",
     username: "",
@@ -136,17 +136,19 @@ function WalletPage() {
       setPayouts((hist ?? []) as PayoutRow[]);
 
       let watchSeconds = 0;
-      let reelViews = 0;
+      let videoViews = 0;
       for (const p of myPosts ?? []) {
         const views = Number(p.views ?? 0);
         const kind = postKind(p);
-        if (kind === "video") watchSeconds += views * Number(p.duration_seconds ?? 0);
-        else if (kind === "reel") reelViews += views;
+        if (kind === "video") {
+          watchSeconds += views * Number(p.duration_seconds ?? 0);
+          videoViews += views;
+        }
       }
       setStats({
         followers: Number(counts?.followers ?? 0),
         watchHours: Math.round(watchSeconds / 3600),
-        reelViews,
+        videoViews,
       });
     })();
     return () => {
@@ -158,7 +160,7 @@ function WalletPage() {
   const showWallet = eligible || simulate;
   const canApply =
     stats.followers >= REQ.followers &&
-    (stats.watchHours >= REQ.watchHours || stats.reelViews >= REQ.reelViews);
+    (stats.watchHours >= REQ.watchHours || stats.videoViews >= REQ.videoViews);
 
   const statementInfo = (p: {
     statement_id: string;
@@ -245,7 +247,7 @@ function WalletPage() {
   const trackers = [
     { label: "Followers", value: stats.followers, target: REQ.followers, unit: "Followers" },
     { label: "Watch Hours", value: stats.watchHours, target: REQ.watchHours, unit: "Hours" },
-    { label: "Reels / Shorts Views", value: stats.reelViews, target: REQ.reelViews, unit: "Views" },
+    { label: "Video Views", value: stats.videoViews, target: REQ.videoViews, unit: "Views" },
   ];
 
   return (
@@ -294,12 +296,15 @@ function WalletPage() {
               <p className="pt-2 text-sm text-zinc-300">
                 Reach {REQ.followers.toLocaleString("en-IN")} followers and either{" "}
                 {REQ.watchHours.toLocaleString("en-IN")} watch hours or{" "}
-                {REQ.reelViews.toLocaleString("en-IN")} reels views to join the program.
+                {REQ.videoViews.toLocaleString("en-IN")} video views to join the program.
               </p>
             </section>
 
             {trackers.map((t) => {
-              const pct = Math.min(100, Math.round((t.value / t.target) * 100));
+              const pct =
+                t.label === "Video Views"
+                  ? Math.min(100, (stats.videoViews / 100000) * 100)
+                  : Math.min(100, Math.round((t.value / t.target) * 100));
               return (
                 <section
                   key={t.label}
