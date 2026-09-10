@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from "react";
+import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
 import {
   ArrowLeft, Phone, Video, MoreVertical, Image as ImageIcon,
@@ -185,7 +185,7 @@ function ChatThreadPage() {
       time: fmtTime(m.created_at),
       ts: new Date(m.created_at).getTime(),
       read: m.is_read,
-      viewOnce: false,
+       viewOnce: m.metadata?.view_once === true,
       opened: false,
       momentId: m.moment_id ?? undefined,
       momentMediaUrl: m.moment_media_url ?? undefined,
@@ -226,7 +226,13 @@ function ChatThreadPage() {
       .filter(
         (m) =>
           m.sender_id !== currentUserId &&
-          (!m.is_read || (m.auto_delete_mode === "after_view" && !m.is_viewed)),
+          ((!m.is_read &&
+            (m.auto_delete_mode !== "after_view" ||
+              m.metadata?.view_once !== true ||
+              m.is_viewed)) ||
+            (m.auto_delete_mode === "after_view" &&
+              m.metadata?.view_once !== true &&
+              !m.is_viewed)),
       )
       .map((m) => m.id);
     if (unread.length) void markRead(unread);
@@ -327,14 +333,14 @@ function ChatThreadPage() {
   const blocked = settings.blocked;
   const [reported, setReported] = useState(false);
 
-  const pushSystem = async (text: string) => {
+  const pushSystem = useCallback(async (text: string) => {
     if (currentUserId) {
        const sent = await sendToDb({ content: text, isSystemMessage: true });
       if (sent.error) toast.error(sent.error);
       return;
     }
     toast.error("Sign in to send messages.");
-  };
+  }, [currentUserId, sendToDb]);
 
   const startLongPress = (id: string) => {
     if (longPressRef.current) clearTimeout(longPressRef.current);
@@ -408,10 +414,51 @@ function ChatThreadPage() {
   };
 
 
-  // Screenshot / recording detection posts an in-chat system note for both sides.
-  useCaptureDetect(true, (kind) => {
-    if (kind === "recording" ? !recordingAlert : !screenshotAlert) return;
-    void pushSystem(`${currentUserName} took a ${kind === "recording" ? "recording" : "screenshot"}`);
+  const captureChannelName = conversationId ? `social-chat-capture-${conversationId}` : null;
+
+  // Capture alerts are broadcast immediately. The recipient decides locally
+  // whether their alert and mute preferences allow the alert to be shown.
+  useEffect(() => {
+    if (!captureChannelName || !currentUserId) return;
+    const channel = supabase
+      .channel(captureChannelName)
+      .on("broadcast", { event: "capture_alert" }, ({ payload }) => {
+        if (payload?.senderId === currentUserId) return;
+        const kind = payload?.kind === "recording" ? "recording" : "screenshot";
+        if (muted || (kind === "recording" ? !recordingAlert : !screenshotAlert)) return;
+        void pushSystem(
+          `${String(payload?.actorName ?? "Someone")} took a ${
+            kind === "recording" ? "recording" : "screenshot"
+          }`,
+        );
+      })
+      .subscribe();
+    return () => {
+      void channel.unsubscribe();
+      void supabase.removeChannel(channel);
+    };
+  }, [
+    captureChannelName,
+    currentUserId,
+    muted,
+    recordingAlert,
+    screenshotAlert,
+    pushSystem,
+  ]);
+
+  useCaptureDetect(Boolean(captureChannelName && currentUserId), (kind) => {
+    if (!captureChannelName || !currentUserId) return;
+    const channel = supabase.channel(captureChannelName);
+    channel.subscribe((status) => {
+      if (status !== "SUBSCRIBED") return;
+      void channel
+        .send({
+          type: "broadcast",
+          event: "capture_alert",
+          payload: { senderId: currentUserId, actorName: currentUserName, kind },
+        })
+        .finally(() => void supabase.removeChannel(channel));
+    });
   });
 
   useEffect(() => {
@@ -486,6 +533,8 @@ function ChatThreadPage() {
           }
           const sent = await sendToDb({
             voice_note_url: uploaded.url,
+            viewOnce: settings.viewOnce,
+            expiringMedia: settings.viewOnce,
           });
           if (sent.error) toast.error(sent.error);
         })();
@@ -645,6 +694,10 @@ function ChatThreadPage() {
               }} />
               <MenuItem icon={<Lock size={16} className="text-zinc-400" />} label="Secret Lock Chat" state={secretLock} onClick={() => {
                 void toggleSecretLock();
+                setShowOptionsMenu(false);
+              }} />
+              <MenuItem icon={<EyeOff size={16} className="text-zinc-400" />} label="View Once Media" state={settings.viewOnce} onClick={() => {
+                patch({ viewOnce: !settings.viewOnce });
                 setShowOptionsMenu(false);
               }} />
               <MenuItem icon={<Clock size={16} className="text-zinc-400" />} label={settings.autoDeleteSetting === "off" ? "Auto Delete Messages" : `Auto Delete: ${autoDeleteLabel(settings.autoDeleteSetting)}`} state={settings.autoDeleteSetting !== "off"} onClick={() => {
@@ -1065,7 +1118,7 @@ function ChatThreadPage() {
         onLoad={() => {
           const openedId = viewOnceOpen.id;
           setOpenedOnce((prev) => (prev.includes(openedId) ? prev : [...prev, openedId]));
-          setOpenedOnce((prev) => (prev.includes(openedId) ? prev : [...prev, openedId]));
+          void markRead([openedId]);
         }}
         wrapperClassName="max-h-full max-w-full"
         className="max-h-full max-w-full object-contain rounded-lg"
@@ -1326,6 +1379,8 @@ function ChatThreadPage() {
               const sent = await sendToDb({
                 media_url: uploaded.url,
                 content: caption,
+                 viewOnce: settings.viewOnce,
+                 expiringMedia: settings.viewOnce,
               });
               if (sent.error) {
                 toast.error(sent.error);

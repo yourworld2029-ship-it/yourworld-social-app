@@ -329,6 +329,9 @@ function OrbitChatPage() {
             user_id: me,
             peer_id: userId,
             display_name: displayName,
+             secret_lock_enabled: secretLock,
+             secret_pin_salt: secretPinSalt,
+             secret_pin_hash: secretPinHash,
             view_once_mode: viewOnceMode,
              auto_delete_setting: autoDelete,
              auto_delete_seconds: autoDeleteSeconds(autoDelete),
@@ -359,6 +362,51 @@ function OrbitChatPage() {
     clearedBefore,
     userId,
   ]);
+
+  // Settings are shared per user/peer, so a second tab or device updates this
+  // chat immediately instead of waiting for a reload.
+  useEffect(() => {
+    if (!settingsReady) return;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let cancelled = false;
+    void supabase.auth.getUser().then(({ data }) => {
+      const me = data.user?.id;
+      if (!me || cancelled) return;
+      channel = supabase
+        .channel(`orbit-chat-settings-${me}-${userId}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "orbit_chat_settings",
+            filter: `user_id=eq.${me}`,
+          },
+          (payload) => {
+            const row = payload.new as Record<string, unknown> | null;
+            if (!row || row.peer_id !== userId) return;
+            setDisplayName((row.display_name as string | null) ?? null);
+            setChatNameLocal(userId, (row.display_name as string | null) ?? null);
+            setSecretLock(row.secret_lock_enabled === true);
+            setSecretPinSalt((row.secret_pin_salt as string | null) ?? null);
+            setSecretPinHash((row.secret_pin_hash as string | null) ?? null);
+            setViewOnceMode(row.view_once_mode === true);
+            setAutoDelete(normalizeAutoDeleteSetting(row.auto_delete_setting));
+            setScreenshotAlert(row.screenshot_alert !== false);
+            setRecordingAlert(row.recording_alert !== false);
+            setMuted(row.muted === true);
+          },
+        )
+        .subscribe();
+    });
+    return () => {
+      cancelled = true;
+      if (channel) {
+        void channel.unsubscribe();
+        void supabase.removeChannel(channel);
+      }
+    };
+  }, [settingsReady, userId]);
 
 
   const request = orbit.requests[userId];
@@ -394,7 +442,13 @@ function OrbitChatPage() {
   useEffect(() => {
     if (!accepted) return;
     const ids = orbitMessages
-      .filter((message) => !message.me && message.autoDeleteSetting === "after_view")
+      .filter(
+        (message) =>
+          !message.me &&
+          message.autoDeleteSetting === "after_view" &&
+          message.kind !== "text" &&
+          message.kind !== "system",
+      )
       .map((message) => message.id);
     if (ids.length) void markOrbitViewed(ids);
   }, [accepted, orbitMessages, markOrbitViewed]);
@@ -431,18 +485,42 @@ function OrbitChatPage() {
     setNotes((n) => [...n, { id: `note-${seq.current}`, me: false, system: true, text, at: Date.now() }]);
   };
 
-  // Screenshot / recording detection posts an in-chat system note for both sides.
-  useCaptureDetect(
-    accepted && orbit.privacy.screenshotAlerts && (screenshotAlert || recordingAlert),
-    (kind) => {
-      if (kind === "recording" ? !recordingAlert : !screenshotAlert) return;
-       void chat
-          .insert({ kind: "system", text: `${currentUserName} took a ${kind === "recording" ? "recording" : "screenshot"}`, autoDeleteSetting: "off" })
-         .then((id) => {
-           if (!id) toast.error("Security alert could not be delivered.");
-         });
-    },
-  );
+  const captureChannelName = `orbit-chat-capture-${[chat.meId, userId].sort().join("-")}`;
+  useEffect(() => {
+    if (!accepted || !chat.meId) return;
+    const channel = supabase
+      .channel(captureChannelName)
+      .on("broadcast", { event: "capture_alert" }, ({ payload }) => {
+        if (payload?.senderId === chat.meId) return;
+        const kind = payload?.kind === "recording" ? "recording" : "screenshot";
+        if (muted || (kind === "recording" ? !recordingAlert : !screenshotAlert)) return;
+        pushSystem(
+          `${String(payload?.actorName ?? "Someone")} took a ${
+            kind === "recording" ? "recording" : "screenshot"
+          }`,
+        );
+      })
+      .subscribe();
+    return () => {
+      void channel.unsubscribe();
+      void supabase.removeChannel(channel);
+    };
+  }, [accepted, captureChannelName, chat.meId, muted, recordingAlert, screenshotAlert]);
+
+  useCaptureDetect(Boolean(accepted && chat.meId), (kind) => {
+    if (!chat.meId) return;
+    const channel = supabase.channel(captureChannelName);
+    channel.subscribe((status) => {
+      if (status !== "SUBSCRIBED") return;
+      void channel
+        .send({
+          type: "broadcast",
+          event: "capture_alert",
+          payload: { senderId: chat.meId, actorName: currentUserName, kind },
+        })
+        .finally(() => void supabase.removeChannel(channel));
+    });
+  });
 
   const startRecording = async () => {
     if (!accepted) {
@@ -460,7 +538,7 @@ function OrbitChatPage() {
         void chat.sendMedia(
           new File([blob], `voice-${Date.now()}.webm`, { type: blob.type || "audio/webm" }),
            "audio",
-           false,
+            viewOnceMode,
            autoDelete,
         ).then((id) => {
           if (!id) toast.error("Voice note could not be sent. Please try again.");

@@ -120,18 +120,25 @@ export const isUnexpiredOrbitRow = (
       r.recipient_id === viewerId &&
       r.sender_id !== viewerId &&
       r.auto_delete_setting === "after_view" &&
-      r.is_viewed
+      r.is_viewed &&
+      (r as Row).kind !== "text" &&
+      (r as Row).kind !== "system"
     )
   )
 };
 
 export const isRenderableOrbitMessage = (
   m: Pick<OrbitMessage, "expiresAt"> &
-    Partial<Pick<OrbitMessage, "autoDeleteSetting" | "isViewed" | "me">>,
+    Partial<Pick<OrbitMessage, "autoDeleteSetting" | "isViewed" | "me" | "kind" | "viewOnce">>,
   now = Date.now(),
 ) =>
   (!m.expiresAt || m.expiresAt > now) &&
-  !(m.autoDeleteSetting === "after_view" && m.isViewed && !m.me);
+  !(
+    m.autoDeleteSetting === "after_view" &&
+    m.isViewed &&
+    !m.me &&
+    (m.kind === "photo" || m.kind === "video" || m.kind === "audio" || m.viewOnce)
+  );
 
 const toMsg = (r: Row, me: string): OrbitMessage => ({
   id: r.id,
@@ -301,7 +308,14 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
     async (msg: { kind: OrbitMsgKind; text?: string; url?: string; viewOnce?: boolean; autoDeleteSetting?: AutoDeleteSetting }) => {
       const me = meRef.current;
       if (!me || !isUuid(peerId)) return null;
-      const autoDeleteSetting = msg.autoDeleteSetting ?? "off";
+       const autoDeleteSetting =
+         msg.viewOnce ||
+         ((msg.kind === "photo" || msg.kind === "video" || msg.kind === "audio") &&
+           msg.autoDeleteSetting === "after_view")
+           ? "after_view"
+           : msg.kind === "text" && msg.autoDeleteSetting === "after_view"
+             ? "off"
+             : msg.autoDeleteSetting ?? "off";
       const expiresAt = expiresAtForAutoDelete(autoDeleteSetting);
       const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
       merge([
@@ -380,15 +394,25 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
   const markViewed = useCallback(async (ids: string[]) => {
     const me = meRef.current;
     if (!me || !ids.length) return;
+    const expiringIds = ids.filter((id) => {
+      const message = messagesRef.current.find((candidate) => candidate.id === id);
+      return Boolean(
+        message &&
+          message.kind !== "text" &&
+          message.kind !== "system" &&
+          message.autoDeleteSetting === "after_view",
+      );
+    });
+    if (!expiringIds.length) return;
     const viewedAt = new Date().toISOString();
     const { error } = await supabase
       .from("orbit_messages" as never)
       .update({ is_viewed: true, viewed_at: viewedAt } as never)
-      .in("id", ids)
+      .in("id", expiringIds)
       .eq("recipient_id", me)
       .eq("auto_delete_setting", "after_view");
     if (error) return;
-    setMessages((prev) => prev.filter((message) => !ids.includes(message.id) || message.me));
+     setMessages((prev) => prev.filter((message) => !expiringIds.includes(message.id) || message.me));
   }, []);
 
   const remove = useCallback(async (ids: string[]) => {

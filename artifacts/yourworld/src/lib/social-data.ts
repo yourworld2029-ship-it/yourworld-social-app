@@ -542,6 +542,18 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
 }
 
+function isExpiringMediaMessage(
+  row: Pick<PublicMessageRow, "media_url" | "voice_note_url" | "metadata">,
+) {
+  const metadata = asRecord(row.metadata);
+  return Boolean(
+    row.media_url ||
+      row.voice_note_url ||
+      metadata?.expiring_media === true ||
+      metadata?.view_once === true,
+  );
+}
+
 function momentContextFromRow(row: PublicMessageRow) {
   const metadata = asRecord(row.metadata);
   const preview = asRecord(metadata?.preview);
@@ -611,6 +623,9 @@ const isRenderablePublicMessage = (
     | "expires_at"
      | "is_deleted"
     | "is_viewed"
+     | "media_url"
+     | "voice_note_url"
+     | "metadata"
   >,
   _viewerId: string | null,
   now = Date.now(),
@@ -1156,6 +1171,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       .eq("id", id)
       .eq("receiver_id", me)
       .eq("auto_delete_mode", "after_view")
+      .eq("is_viewed", true)
       .eq("is_deleted", false);
     if (deleteError) {
       setError(deleteError.message);
@@ -1170,6 +1186,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       if (
         message.receiver_id !== me ||
         message.auto_delete_mode !== "after_view" ||
+        !isExpiringMediaMessage(message) ||
         !message.is_viewed ||
         message.is_deleted ||
         afterViewTimersRef.current.has(message.id)
@@ -1195,6 +1212,9 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     content?: string;
     media_url?: string | null;
     voice_note_url?: string | null;
+    metadata?: Record<string, unknown> | null;
+    expiringMedia?: boolean;
+    viewOnce?: boolean;
     autoDeleteSetting?: AutoDeleteSetting;
     autoDeleteMode?: AutoDeleteSetting;
     isSystemMessage?: boolean;
@@ -1211,9 +1231,28 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       return { error: conversationResult.error?.message ?? "Could not read chat settings." };
     }
     const conversation = conversationResult.data as unknown as ConversationRow;
+    const expiringMedia = Boolean(
+      payload.expiringMedia ||
+        payload.viewOnce ||
+        payload.media_url ||
+        payload.voice_note_url,
+    );
+    const requestedMode =
+      payload.autoDeleteMode ??
+      payload.autoDeleteSetting ??
+      normalizeAutoDeleteSetting(conversation.auto_delete_setting);
     const autoDeleteMode = payload.isSystemMessage
       ? "off"
-      : normalizeAutoDeleteSetting(conversation.auto_delete_setting);
+      : requestedMode === "after_view" && !expiringMedia
+        ? "off"
+        : payload.viewOnce || payload.expiringMedia
+          ? "after_view"
+          : requestedMode;
+    const metadata = {
+      ...(payload.metadata ?? {}),
+      ...(expiringMedia ? { expiring_media: true } : {}),
+      ...(payload.viewOnce ? { view_once: true } : {}),
+    };
     const expiresAt = expiresAtForAutoDelete(autoDeleteMode);
     const tempId = `tmp-${Date.now()}`;
     const optimistic = toDbMessage({
@@ -1223,7 +1262,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       content: payload.content ?? "",
       media_url: payload.media_url ?? null,
       voice_note_url: payload.voice_note_url ?? null,
-      metadata: {},
+      metadata,
       is_read: false,
       created_at: new Date().toISOString(),
       auto_delete_setting: autoDeleteMode,
@@ -1242,7 +1281,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       content: optimistic.content,
       media_url: optimistic.media_url,
       voice_note_url: optimistic.voice_note_url,
-      metadata: {},
+       metadata,
       conversation_id: conversationId,
       is_system_message: payload.isSystemMessage === true,
       auto_delete_setting: autoDeleteMode,

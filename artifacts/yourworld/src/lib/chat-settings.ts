@@ -128,6 +128,26 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
             autoDelete: autoDeleteSeconds(mode),
           }));
         });
+      channelBuilder.on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "orbit_chat_settings", filter: `user_id=eq.${me}` },
+        (payload) => {
+          const row = payload.new as Partial<Row> & { peer_id?: string };
+          if (!row || row.peer_id !== peerId) return;
+          setSettings((current) => ({
+            ...current,
+            displayName: row.display_name ?? current.displayName,
+            secretLock: row.secret_lock_enabled ?? current.secretLock,
+            secretPinSalt: row.secret_pin_salt ?? current.secretPinSalt,
+            secretPinHash: row.secret_pin_hash ?? current.secretPinHash,
+            viewOnce: row.view_once_mode ?? current.viewOnce,
+            screenshotAlert: row.screenshot_alert ?? current.screenshotAlert,
+            recordingAlert: row.recording_alert ?? current.recordingAlert,
+            muted: row.muted ?? current.muted,
+            blocked: row.blocked ?? current.blocked,
+          }));
+        },
+      );
       if (conversationId) {
         channelBuilder.on(
           "postgres_changes",

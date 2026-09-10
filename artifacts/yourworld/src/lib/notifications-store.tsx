@@ -134,6 +134,7 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
     myOrbitLikes,
     requests,
     connections,
+    chatSettings,
   ] =
     await Promise.all([
       postIds.length
@@ -191,8 +192,17 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
         .or(`requester_id.eq.${me},addressee_id.eq.${me}`)
         .order("updated_at", { ascending: false })
         .limit(30),
+      supabase
+        .from("orbit_chat_settings")
+        .select("peer_id,muted")
+        .eq("user_id", me),
     ]);
 
+  const mutedPeerIds = new Set(
+    ((chatSettings.data ?? []) as { peer_id: string; muted: boolean }[])
+      .filter((setting) => setting.muted)
+      .map((setting) => setting.peer_id),
+  );
   const rows = {
     likes: (likes.data ?? []) as { id: string; post_id: string; user_id: string; created_at: string }[],
     comments: (comments.data ?? []) as {
@@ -202,7 +212,7 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       content: string;
       created_at: string;
     }[],
-    dms: (dms.data ?? []) as {
+    dms: ((dms.data ?? []) as {
       id: string;
       sender_id: string;
       receiver_id: string;
@@ -210,7 +220,7 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       media_url: string | null;
       voice_note_url: string | null;
       created_at: string;
-    }[],
+    }[]).filter((message) => !mutedPeerIds.has(message.sender_id)),
     momentNotifications: (momentNotifications.data ?? []) as {
       id: string;
       actor_id: string | null;
@@ -223,13 +233,13 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       read: boolean;
       created_at: string;
     }[],
-    orbitMsgs: (orbitMsgs.data ?? []) as {
+    orbitMsgs: ((orbitMsgs.data ?? []) as {
       id: string;
       sender_id: string;
       kind: string;
       text: string | null;
       created_at: string;
-    }[],
+    }[]).filter((message) => !mutedPeerIds.has(message.sender_id)),
     orbitLikes: (orbitLikes.data ?? []) as { id: string; user_id: string; created_at: string }[],
     requests: (requests.data ?? []) as {
       id: string;
