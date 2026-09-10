@@ -208,6 +208,8 @@ type DbMoment = {
   profiles?: MomentProfileRow | MomentProfileRow[] | null;
   user?: MomentProfileRow | MomentProfileRow[] | null;
   avatar_url?: string | null;
+  profile_pic?: string | null;
+  profile_image?: string | null;
 };
 
 type MomentProfileRow = {
@@ -216,15 +218,27 @@ type MomentProfileRow = {
   display_name?: string | null;
   username?: string | null;
   avatar_url?: string | null;
+  profile_pic?: string | null;
+  profile_image?: string | null;
 };
 
 const MOMENT_WITH_PROFILE_SELECT =
-  "*, profiles:user_id (id, full_name, display_name, username, avatar_url)";
+  "*, profiles:user_id (id, full_name, display_name, username, avatar_url, profile_pic, profile_image)";
 
 function profileFromMomentRow(row: DbMoment): MomentProfileRow | null {
   const nested = row.profiles ?? row.user;
   const profile = Array.isArray(nested) ? nested[0] : nested;
-  return profile ?? (row.avatar_url ? { id: row.user_id, avatar_url: row.avatar_url } : null);
+  return (
+    profile ??
+    (row.avatar_url || row.profile_pic || row.profile_image
+      ? {
+          id: row.user_id,
+          avatar_url: row.avatar_url,
+          profile_pic: row.profile_pic,
+          profile_image: row.profile_image,
+        }
+      : null)
+  );
 }
 
 function hasProfileJoinError(error: unknown) {
@@ -232,7 +246,9 @@ function hasProfileJoinError(error: unknown) {
     error && typeof error === "object"
       ? String((error as { message?: unknown }).message ?? "")
       : String(error ?? "");
-  return /relationship|schema cache|profiles:user_id/i.test(message);
+  return /relationship|schema cache|profiles:user_id|column .*does not exist|could not find the .*column/i.test(
+    message,
+  );
 }
 
 function postRowToMoment(row: Record<string, unknown>): DbMoment {
@@ -591,7 +607,7 @@ export function MomentProvider({ children }: { children: ReactNode }) {
             id: p.id,
             username: p.username ?? "user",
             name: p.display_name ?? p.full_name ?? p.username ?? "User",
-            avatar: p.avatar_url ?? null,
+            avatar: p.avatar_url || p.profile_pic || p.profile_image || null,
           } satisfies MomentAuthor,
         ],
       ),
@@ -659,7 +675,12 @@ export function MomentProvider({ children }: { children: ReactNode }) {
               rpcProfile?.name ??
               embedded?.username ??
               "User",
-            avatar: embedded?.avatar_url?.trim() || rpcProfile?.avatar || null,
+            avatar:
+              embedded?.avatar_url?.trim() ||
+              embedded?.profile_pic?.trim() ||
+              embedded?.profile_image?.trim() ||
+              rpcProfile?.avatar ||
+              null,
           };
         })(),
         uid,

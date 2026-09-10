@@ -10,6 +10,7 @@ import { useMoments } from "@/lib/moment-store";
 import { useAlertsCount } from "@/lib/alerts-count";
 import { useAuth } from "@/lib/auth-store";
 import ywLogo from "@/assets/yw-logo.png";
+import { ProfileAvatar } from "@/components/yw/ProfileAvatar";
 
 export const Route = createFileRoute("/")({
   component: HomePage,
@@ -27,41 +28,14 @@ export const Route = createFileRoute("/")({
 
 function MomentAvatar({
   username,
+  fullName,
   src,
-  alt,
 }: {
   username: string;
+  fullName?: string | null;
   src?: string | null;
-  alt: string;
 }) {
-  const [imageFailed, setImageFailed] = React.useState(false);
-  const initial = (username.trim().charAt(0) || "U").toUpperCase();
-
-  React.useEffect(() => {
-    setImageFailed(false);
-  }, [src]);
-
-  if (!src || imageFailed) {
-    return (
-      <div
-        role="img"
-        aria-label={`${alt} avatar`}
-        className="grid h-full w-full place-items-center rounded-full bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 text-xl font-extrabold leading-none text-white"
-      >
-        {initial}
-      </div>
-    );
-  }
-
-  return (
-    <img
-      src={src}
-      alt={alt}
-      onError={() => setImageFailed(true)}
-      className="h-full w-full rounded-full object-cover"
-      loading="lazy"
-    />
-  );
+  return <ProfileAvatar user={{ full_name: fullName, username, avatar_url: src }} />;
 }
 
 function HomePage() {
@@ -101,6 +75,8 @@ function HomePage() {
   const myAvatarUrl =
     myLatest?.author?.avatar ||
     (typeof userMetadata.avatar_url === "string" ? userMetadata.avatar_url : null) ||
+    (typeof userMetadata.profile_pic === "string" ? userMetadata.profile_pic : null) ||
+    (typeof userMetadata.profile_image === "string" ? userMetadata.profile_image : null) ||
     (typeof userMetadata.picture === "string" ? userMetadata.picture : null);
 
   type StoryRing = {
@@ -218,7 +194,11 @@ function HomePage() {
             className="relative w-16 h-16 rounded-full p-[2px] bg-gradient-to-tr from-pink-500 to-purple-600 flex items-center justify-center"
           >
             <div className="w-full h-full rounded-full bg-neutral-900 border-2 border-black overflow-hidden flex items-center justify-center">
-              <MomentAvatar username={myUsername} src={myAvatarUrl} alt="Your avatar" />
+              <MomentAvatar
+                username={myUsername}
+                fullName={myLatest?.author?.name}
+                src={myAvatarUrl}
+              />
             </div>
             {/* Always-on "add another moment" badge (Snapchat-style) */}
             <span
@@ -249,7 +229,11 @@ function HomePage() {
               className="w-16 h-16 rounded-full p-[2px] bg-gradient-to-tr from-pink-500 via-purple-500 to-yellow-500 flex items-center justify-center"
             >
               <div className="w-full h-full rounded-full bg-neutral-900 border-2 border-black overflow-hidden">
-                <MomentAvatar username={s.username} src={s.avatarUrl} alt={s.displayName} />
+                <MomentAvatar
+                  username={s.username}
+                  fullName={s.displayName}
+                  src={s.avatarUrl}
+                />
               </div>
             </button>
             <span className="text-xs text-neutral-400 truncate max-w-[68px]">

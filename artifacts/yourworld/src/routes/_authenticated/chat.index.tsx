@@ -7,6 +7,7 @@ import { cacheGet, cacheSet } from "@/lib/local-cache";
 import { deleteDirectThreads, hiddenThreadIds } from "@/lib/chat-delete";
 import { useChatNames } from "@/lib/chat-names";
 import { useSecretChats } from "@/lib/secret-chats";
+import { ProfileAvatar } from "@/components/yw/ProfileAvatar";
 
 export const Route = createFileRoute("/_authenticated/chat/")({
   component: ChatListPage,
@@ -26,7 +27,9 @@ interface DiscoverProfile {
   id: string;
   username: string | null;
   display_name: string | null;
-  avatar_url: string | null;
+  avatar_url?: string | null;
+  profile_pic?: string | null;
+  profile_image?: string | null;
 }
 
 function ChatListPage() {
@@ -334,17 +337,7 @@ function ChatListPage() {
                     </span>
                   ) : null}
                   <div className="h-12 w-12 rounded-full bg-gradient-to-tr from-purple-500 to-pink-500 flex items-center justify-center font-bold text-lg">
-                    {chat.avatar_url?.trim() ? (
-                      <img
-                        src={chat.avatar_url.trim()}
-                        className="w-full h-full object-cover rounded-full"
-                        alt="avatar"
-                      />
-                    ) : (
-                      <span className="text-white font-semibold">
-                        {chat.name ? chat.name.charAt(0).toUpperCase() : "?"}
-                      </span>
-                    )}
+                    <ProfileAvatar user={{ full_name: chat.name, avatar_url: chat.avatar_url }} />
                   </div>
                   <div>
                     <h4 className="font-semibold text-sm">{nameFor(chat.peerId, chat.name)}</h4>
@@ -453,17 +446,17 @@ function ChatListPage() {
                   }}
                   className="flex w-full items-center gap-3 rounded-xl p-3 text-left hover:bg-zinc-900"
                 >
-                  {p.avatar_url ? (
-                    <img
-                      src={p.avatar_url}
-                      alt=""
-                      className="h-11 w-11 rounded-full object-cover"
+                  <div className="h-11 w-11 rounded-full bg-gradient-to-tr from-purple-500 to-pink-500">
+                    <ProfileAvatar
+                      user={{
+                        full_name: p.display_name,
+                        username: p.username,
+                        avatar_url: p.avatar_url,
+                        profile_pic: p.profile_pic,
+                        profile_image: p.profile_image,
+                      }}
                     />
-                  ) : (
-                    <div className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-tr from-purple-500 to-pink-500 text-base font-bold">
-                      {nameFor(p.id, p.display_name || p.username || "?").charAt(0).toUpperCase()}
-                    </div>
-                  )}
+                  </div>
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold">
                       {nameFor(p.id, p.display_name || p.username || `User ${p.id.slice(0, 6)}`)}

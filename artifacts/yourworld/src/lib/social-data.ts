@@ -39,7 +39,10 @@ export type DbProfile = {
   id: string;
   username: string | null;
   display_name: string | null;
-  avatar_url: string | null;
+  full_name?: string | null;
+  avatar_url?: string | null;
+  profile_pic?: string | null;
+  profile_image?: string | null;
 };
 
 export type DbPost = {
@@ -1403,7 +1406,11 @@ export async function resolveThreadPeer(
     peerId,
     peerName:
       profile?.display_name || profile?.username || `User ${peerId.slice(0, 6)}`,
-    avatarUrl: profile?.avatar_url ?? null,
+    avatarUrl:
+      profile?.avatar_url ||
+      profile?.profile_pic ||
+      profile?.profile_image ||
+      null,
   };
 }
 
