@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { toast } from "sonner";
 import {
   Check,
   ChevronLeft,
@@ -219,6 +220,23 @@ function OrbitMessagesPage() {
   const { isHidden } = useSecretChats(q);
   const pinQuery = /^\d{4,8}$/.test(q.trim());
   const term = q.trim().toLowerCase();
+
+  const respondToRequest = async (id: string, action: "accepted" | "declined") => {
+    const ok =
+      action === "accepted"
+        ? await orbit.acceptRequest(id)
+        : await orbit.declineRequest(id);
+    if (ok) {
+      toast.success(action === "accepted" ? "Request accepted!" : "Request declined.");
+    } else {
+      toast.error(
+        action === "accepted"
+          ? "This request could not be accepted. Please try again."
+          : "This request could not be declined. Please try again.",
+      );
+    }
+  };
+
   const openChats = chats.filter((p) => !isHidden(p.id));
   const chatList = pinQuery
     ? openChats
@@ -443,7 +461,12 @@ function OrbitMessagesPage() {
             <ul className="space-y-2">
               {reqList.map(({ p, r }) => (
                 <li key={p.id} className="surface-card rounded-2xl px-3 py-3">
-                  <div className="flex items-center gap-3">
+                  <Link
+                    to="/orbit/$profileId"
+                    params={{ profileId: p.id }}
+                    aria-label={`View ${nameFor(p.id, p.name)}'s Orbit profile`}
+                    className="flex items-center gap-3 rounded-xl transition-colors hover:bg-[color-mix(in_oklab,var(--foreground)_6%,transparent)]"
+                  >
                     <Avatar p={p} size={44} />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-semibold">{nameFor(p.id, p.name)}</p>
@@ -452,20 +475,20 @@ function OrbitMessagesPage() {
                         {r.intro ? ` · ${r.intro}` : ""}
                       </p>
                     </div>
-                  </div>
+                  </Link>
                   <div className="mt-2.5 flex gap-2">
                     {r.direction === "incoming" ? (
                       <>
                         <button
                           type="button"
-                          onClick={() => orbit.acceptRequest(p.id)}
+                          onClick={() => void respondToRequest(p.id, "accepted")}
                           className="flex-1 rounded-full bg-primary py-2 text-xs font-semibold text-primary-foreground transition-transform active:scale-95"
                         >
                           Accept
                         </button>
                         <button
                           type="button"
-                          onClick={() => orbit.declineRequest(p.id)}
+                          onClick={() => void respondToRequest(p.id, "declined")}
                           className="flex-1 rounded-full border border-border py-2 text-xs font-semibold transition-transform active:scale-95"
                         >
                           Decline
