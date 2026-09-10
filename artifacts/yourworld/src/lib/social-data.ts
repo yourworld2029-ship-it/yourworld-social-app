@@ -1401,16 +1401,17 @@ export async function resolveThreadPeer(
     ids: [peerId],
   });
   const profile = ((profileRows ?? []) as DbProfile[])[0] ?? null;
+  const rawAvatarUrl =
+    profile?.avatar_url ||
+    profile?.profile_pic ||
+    profile?.profile_image ||
+    null;
 
   return {
     peerId,
     peerName:
       profile?.display_name || profile?.username || `User ${peerId.slice(0, 6)}`,
-    avatarUrl:
-      profile?.avatar_url ||
-      profile?.profile_pic ||
-      profile?.profile_image ||
-      null,
+    avatarUrl: rawAvatarUrl ? await resolveMediaUrl(rawAvatarUrl, "avatars") : null,
   };
 }
 

@@ -15,7 +15,7 @@ import type { ProgressFn } from "@/lib/storage-upload";
 import { isAuthSessionMissing } from "@/lib/auth-errors";
 import { missingTable, writeCompat } from "@/lib/supabase-compat";
 import { getRegisteredBlob } from "@/lib/blob-registry";
-import { dmThreadId, ensureThreadConversation } from "@/lib/social-data";
+import { dmThreadId, ensureThreadConversation, resolveMediaUrl } from "@/lib/social-data";
 import {
   normalizeAutoDeleteSetting,
 } from "@/lib/auto-delete";
@@ -687,8 +687,24 @@ export function MomentProvider({ children }: { children: ReactNode }) {
       ),
     );
 
+    const momentsWithResolvedAvatars = await Promise.all(
+      mapped.map(async (moment) => {
+        const author = moment.author;
+        const avatar = author?.avatar;
+        if (!avatar) return moment;
+        return {
+          ...moment,
+          author: {
+            ...author,
+            avatar: await resolveMediaUrl(avatar, "avatars"),
+          },
+        };
+      }),
+    );
     const signedMoments = await signMomentMedia(
-      mapped.filter((moment) => !deletedMomentIdsRef.current.has(moment.id)),
+      momentsWithResolvedAvatars.filter(
+        (moment) => !deletedMomentIdsRef.current.has(moment.id),
+      ),
     );
     setMoments(
       signedMoments.filter((moment) => !deletedMomentIdsRef.current.has(moment.id)),

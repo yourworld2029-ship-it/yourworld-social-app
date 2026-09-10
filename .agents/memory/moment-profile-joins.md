@@ -14,3 +14,9 @@ Request alternate profile-image fields in the explicit profile relation when ava
 **Why:** Deployments can expose different profile column sets; a single `avatar_url` assumption or an unhandled missing-column error can make both real photos and the feed disappear.
 
 **How to apply:** Keep the relation select and non-joined fallback paired, then pass normalized profile data through one reusable image-or-initial avatar component.
+
+Profile avatar values can be bare Storage object paths rather than browser-loadable URLs; resolve them with the existing media URL helper and the `avatars` bucket before rendering.
+
+**Why:** Passing a stored object path directly to `<img>` causes a failed request and the shared avatar component correctly falls back to an initial.
+
+**How to apply:** Resolve avatar paths in each existing Moment/chat data flow; do not change the profile field or create a second URL resolver.
