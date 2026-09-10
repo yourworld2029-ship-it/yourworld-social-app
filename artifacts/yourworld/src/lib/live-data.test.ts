@@ -2,24 +2,15 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { loadSearchData } from "@/lib/search-data";
 import { loadChannelData } from "@/lib/channel-data";
-import {
-  recordVideoWatchHeartbeat,
-  startVideoWatchSession,
-} from "@/lib/video-data";
-import {
-  createPostComment,
-  deletePostComment,
-  loadSocialPosts,
-} from "@/lib/social-data";
+import { recordVideoWatchHeartbeat, startVideoWatchSession } from "@/lib/video-data";
+import { createPostComment, deletePostComment, loadSocialPosts } from "@/lib/social-data";
 import { supabase } from "@/integrations/supabase/client";
 import { isRenderableOrbitMessage, isUnexpiredOrbitRow } from "@/lib/orbit-chat";
+import { ORBIT_REQUEST_MESSAGE_MAX, countRequestMessages } from "@/lib/orbit-store";
 
 type QueryResult = { data?: unknown; error?: { message: string } | null };
 
-function chain(
-  result: QueryResult,
-  onMethod?: (method: string, args: unknown[]) => void,
-) {
+function chain(result: QueryResult, onMethod?: (method: string, args: unknown[]) => void) {
   const builder: Record<string, unknown> = {};
   for (const method of ["select", "order", "limit", "eq", "in", "insert", "delete", "update"]) {
     builder[method] = (...args: unknown[]) => {
@@ -53,7 +44,9 @@ function fakeClient(options: {
   };
   const client = {
     auth: {
-      getSession: async () => ({ data: { session: options.session === undefined ? null : options.session } }),
+      getSession: async () => ({
+        data: { session: options.session === undefined ? null : options.session },
+      }),
     },
     from,
     rpc,
@@ -90,7 +83,10 @@ test("search stays empty when Supabase has no profiles or posts", async () => {
   const result = await loadSearchData(client);
 
   assert.deepEqual(result, { users: [], reels: [], videos: [], hashtags: [] });
-  assert.equal(calls.some((call) => call.type === "rpc"), false);
+  assert.equal(
+    calls.some((call) => call.type === "rpc"),
+    false,
+  );
 });
 
 test("search exposes live profiles and normalized hashtag totals", async () => {
@@ -140,7 +136,14 @@ test("channel maps live videos, posts, likes, and subscribers", async () => {
   const followerId = "44444444-4444-4444-8444-444444444444";
   const { client } = fakeClient({
     from: {
-      posts: [{ data: [post("video-1", creatorId, "post"), { ...post("reel-1", creatorId, "reel"), kind: "reel" }] }],
+      posts: [
+        {
+          data: [
+            post("video-1", creatorId, "post"),
+            { ...post("reel-1", creatorId, "reel"), kind: "reel" },
+          ],
+        },
+      ],
       post_likes: [{ data: [{ post_id: "video-1" }, { post_id: "video-1" }] }],
     },
     rpc: {
@@ -204,7 +207,10 @@ test("watch recording sends no client-asserted duration or direct table insert",
 
   assert.equal(started.sessionId, sessionId);
   assert.equal(heartbeat.creditedSeconds, 10);
-  assert.equal(calls.some((call) => call.type === "from"), false);
+  assert.equal(
+    calls.some((call) => call.type === "from"),
+    false,
+  );
   assert.deepEqual(
     calls.filter((call) => call.type === "rpc").map((call) => [call.name, call.args[0]]),
     [
@@ -280,18 +286,14 @@ test("comments are inserted and deleted through Supabase", async () => {
   });
   assert.equal(created.error, null);
   assert.equal(deleted.error, null);
-  assert.deepEqual(calls.filter(({ type }) => type === "from").map(({ type, name }) => `${type}:${name}`), [
-    "from:comments",
-    "from:comments",
+  assert.deepEqual(
+    calls.filter(({ type }) => type === "from").map(({ type, name }) => `${type}:${name}`),
+    ["from:comments", "from:comments"],
+  );
+  assert.deepEqual(calls.find(({ name }) => name === "comments.insert")?.args, [
+    { post_id: postId, user_id: userId, content: "persisted comment" },
   ]);
-  assert.deepEqual(
-    calls.find(({ name }) => name === "comments.insert")?.args,
-    [{ post_id: postId, user_id: userId, content: "persisted comment" }],
-  );
-  assert.deepEqual(
-    calls.find(({ name }) => name === "comments.eq")?.args,
-    ["id", "comment-live"],
-  );
+  assert.deepEqual(calls.find(({ name }) => name === "comments.eq")?.args, ["id", "comment-live"]);
 });
 
 test("Orbit expiry guards reject expired server and cached messages", () => {
@@ -300,4 +302,33 @@ test("Orbit expiry guards reject expired server and cached messages", () => {
   assert.equal(isUnexpiredOrbitRow({ expires_at: "2026-01-01T00:00:01.000Z" }, now), true);
   assert.equal(isRenderableOrbitMessage({ expiresAt: now - 1 }, now), false);
   assert.equal(isRenderableOrbitMessage({ expiresAt: now + 1 }, now), true);
+});
+
+test("Orbit pending requests use one combined sender limit", () => {
+  const result = countRequestMessages({
+    direction: "outgoing",
+    status: "pending",
+    messages: [
+      { id: "1", kind: "text", text: "hello", me: true },
+      { id: "2", kind: "photo", url: "photo", me: true },
+      { id: "3", kind: "text", text: "one more", me: true },
+      { id: "4", kind: "text", text: "receiver reply", me: false },
+    ],
+  });
+
+  assert.equal(ORBIT_REQUEST_MESSAGE_MAX, 3);
+  assert.deepEqual(result, { texts: 2, photos: 1, total: 3 });
+});
+
+test("Orbit pending limit ignores receiver messages", () => {
+  const result = countRequestMessages({
+    direction: "incoming",
+    status: "pending",
+    messages: [
+      { id: "1", kind: "text", text: "incoming one", me: false },
+      { id: "2", kind: "photo", url: "incoming photo", me: false },
+    ],
+  });
+
+  assert.deepEqual(result, { texts: 0, photos: 0, total: 0 });
 });

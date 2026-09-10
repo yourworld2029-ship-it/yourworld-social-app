@@ -1,9 +1,8 @@
 import React from "react";
-import { Check, Image as ImageIcon, X } from "lucide-react";
+import { Check, Image as ImageIcon, UserX, X } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import {
-  ORBIT_REQUEST_PHOTO_MAX,
-  ORBIT_REQUEST_TEXT_MAX,
+  ORBIT_REQUEST_MESSAGE_MAX,
   countRequestMessages,
   type OrbitChatRequest,
 } from "@/lib/orbit-store";
@@ -11,19 +10,25 @@ import {
 type Props = {
   profileId: string;
   name: string;
+  username: string;
+  avatarUrl: string;
   request?: OrbitChatRequest;
   onAccept: () => void;
   onDecline: () => void;
+  onBlock: () => void;
 };
 
 export const OrbitChatGate: React.FC<Props> = ({
   profileId,
   name,
+  username,
+  avatarUrl,
   request,
   onAccept,
   onDecline,
+  onBlock,
 }) => {
-  const { texts, photos } = countRequestMessages(request);
+  const { total } = countRequestMessages(request);
   const messages = request?.messages ?? [];
 
   // Only the recipient sees the Accept/Decline gate. The sender of an
@@ -33,17 +38,24 @@ export const OrbitChatGate: React.FC<Props> = ({
 
   return (
     <div className="flex flex-col h-[100dvh] max-h-[100dvh] overflow-hidden rounded-2xl border border-zinc-800 bg-black/40 p-4 text-white">
-      <div className="flex items-center justify-between pb-4 border-b border-zinc-800">
-        <div>
-          <h2 className="text-lg font-bold">{name}</h2>
-          <p className="text-xs text-zinc-400">Orbit Chat Request</p>
-        </div>
+      <div className="border-b border-zinc-800 pb-4">
         <Link
-          to="/u/$userId"
-          params={{ userId: profileId }}
-          className="rounded-full border border-zinc-700 px-3 py-1.5 text-xs"
+          to="/orbit/$profileId"
+          params={{ profileId }}
+          className="flex items-center gap-3 rounded-xl transition-colors hover:bg-white/5"
         >
-          View Profile
+          <img
+            src={avatarUrl || "/icons/icon-192.png"}
+            alt=""
+            className="h-12 w-12 rounded-full object-cover"
+          />
+          <div className="min-w-0 flex-1">
+            <h2 className="truncate text-lg font-bold">{name}</h2>
+            <p className="truncate text-xs text-zinc-400">@{username} · Orbit Chat Request</p>
+          </div>
+          <span className="rounded-full border border-zinc-700 px-3 py-1.5 text-xs">
+            View Profile
+          </span>
         </Link>
       </div>
 
@@ -64,8 +76,8 @@ export const OrbitChatGate: React.FC<Props> = ({
         ))}
       </div>
 
-      <p className="pb-3 text-[11px] text-zinc-500 text-center">
-        {texts}/{ORBIT_REQUEST_TEXT_MAX} texts • {photos}/{ORBIT_REQUEST_PHOTO_MAX} photos before accepting
+      <p className="pb-3 text-center text-[11px] text-zinc-500">
+        {total}/{ORBIT_REQUEST_MESSAGE_MAX} messages or photos before accepting
       </p>
 
       <div className="flex gap-3 pt-2 border-t border-zinc-800">
@@ -74,6 +86,12 @@ export const OrbitChatGate: React.FC<Props> = ({
           className="flex-1 flex items-center justify-center gap-2 py-3 bg-zinc-800 rounded-xl text-sm font-medium hover:bg-zinc-700"
         >
           <X size={16} /> Decline
+        </button>
+        <button
+          onClick={onBlock}
+          className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border border-red-900/70 text-red-300 text-sm font-medium hover:bg-red-950/40"
+        >
+          <UserX size={16} /> Block
         </button>
         <button
           onClick={onAccept}

@@ -63,11 +63,7 @@ export const ORBIT_HOBBIES = [
   "Other",
 ] as const;
 
-export const ORBIT_LOOKING_FOR = [
-  "Women",
-  "Men",
-  "Everyone",
-] as const;
+export const ORBIT_LOOKING_FOR = ["Women", "Men", "Everyone"] as const;
 
 export type OrbitProfileDraft = {
   name: string;
@@ -140,7 +136,7 @@ export type OrbitState = {
 export type OrbitChatRequest = {
   direction: "outgoing" | "incoming";
   status: "pending" | "accepted" | "declined";
-  /** Initial message allowed before acceptance (text only, max 1). */
+  /** Initial message, also represented in messages when it was sent remotely. */
   intro?: string;
   /** Messages exchanged before acceptance. Capped by the gate limits below. */
   messages?: OrbitRequestMessage[];
@@ -156,9 +152,8 @@ export type OrbitRequestMessage = {
   me: boolean;
 };
 
-/** Pre-acceptance limits for the requesting side. */
-export const ORBIT_REQUEST_TEXT_MAX = 3;
-export const ORBIT_REQUEST_PHOTO_MAX = 2;
+/** One combined pre-acceptance limit for the requesting side. */
+export const ORBIT_REQUEST_MESSAGE_MAX = 3;
 
 export function countRequestMessages(req?: OrbitChatRequest) {
   const list = req?.messages ?? [];
@@ -166,6 +161,7 @@ export function countRequestMessages(req?: OrbitChatRequest) {
   return {
     texts: mine.filter((m) => m.kind === "text").length,
     photos: mine.filter((m) => m.kind === "photo").length,
+    total: mine.length,
   };
 }
 
@@ -267,10 +263,10 @@ type Ctx = OrbitState & {
   toggleBlocked: (id: string) => void;
   toggleLike: (id: string) => void;
   toggleConnect: (id: string) => void;
-  sendChatRequest: (id: string, intro: string) => void;
-  sendRequestMessage: (id: string, msg: Omit<OrbitRequestMessage, "id" | "me">) => boolean;
-  acceptRequest: (id: string) => void;
-  declineRequest: (id: string) => void;
+  sendChatRequest: (id: string, intro: string) => Promise<boolean>;
+  sendRequestMessage: (id: string, msg: Omit<OrbitRequestMessage, "id" | "me">) => Promise<boolean>;
+  acceptRequest: (id: string) => Promise<boolean>;
+  declineRequest: (id: string) => Promise<boolean>;
 };
 
 const OrbitContext = createContext<Ctx | null>(null);
@@ -352,7 +348,6 @@ export function OrbitProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-
   useEffect(() => {
     if (!hydrated) return;
     try {
@@ -431,50 +426,65 @@ export function OrbitProvider({ children }: { children: ReactNode }) {
           return { ...s, privacy };
         }),
       sendChatRequest: (id, intro) => {
-        void sendOrbitChatRequestRemote(id, intro);
-        setState((s) =>
-          s.requests[id]
-            ? s
-            : {
-                ...s,
-                requests: {
-                  ...s.requests,
-                  [id]: {
-                    direction: "outgoing",
-                    status: "pending",
-                    intro,
-                    messages: [{ id: `${id}-1`, kind: "text", text: intro, me: true }],
+        return sendOrbitChatRequestRemote(id, intro)
+          .then((requestId) => {
+            if (!requestId) return false;
+            setState((s) =>
+              s.requests[id]
+                ? s
+                : {
+                    ...s,
+                    requests: {
+                      ...s.requests,
+                      [id]: {
+                        direction: "outgoing",
+                        status: "pending",
+                        intro,
+                        messages: [
+                          { id: `${requestId}-intro`, kind: "text", text: intro, me: true },
+                        ],
+                      },
+                    },
                   },
-                },
-              },
-        );
+            );
+            return true;
+          })
+          .catch(() => false);
       },
-      sendRequestMessage: (id, msg) => {
+      sendRequestMessage: async (id, msg) => {
         const existing = state.requests[id];
-        if (existing?.status === "declined") return false;
-        const { texts, photos } = countRequestMessages(existing);
-        if (msg.kind === "text" && texts >= ORBIT_REQUEST_TEXT_MAX) return false;
-        if (msg.kind === "photo" && photos >= ORBIT_REQUEST_PHOTO_MAX) return false;
-        void sendOrbitRequestMessageRemote(id, msg);
+        if (existing?.status === "declined" || existing?.status === "accepted") return false;
+        const { total } = countRequestMessages(existing);
+        if (total >= ORBIT_REQUEST_MESSAGE_MAX) return false;
+        const result = await sendOrbitRequestMessageRemote(id, msg);
+        if (!result.ok) return false;
         setState((s) => {
-          const req: OrbitChatRequest = s.requests[id] ?? { direction: "outgoing", status: "pending" };
+          const req: OrbitChatRequest = s.requests[id] ?? {
+            direction: "outgoing",
+            status: "pending",
+          };
           const messages = [
             ...(req.messages ?? []),
-            { ...msg, id: `${id}-${(req.messages?.length ?? 0) + 1}`, me: true },
+            { ...msg, id: result.id ?? `${id}-${(req.messages?.length ?? 0) + 1}`, me: true },
           ];
           return {
             ...s,
             requests: {
               ...s.requests,
-              [id]: { ...req, intro: req.intro ?? (msg.kind === "text" ? msg.text : undefined), messages },
+              [id]: {
+                ...req,
+                intro: req.intro ?? (msg.kind === "text" ? msg.text : undefined),
+                messages,
+              },
             },
           };
         });
         return true;
       },
-      acceptRequest: (id) => {
-        void setOrbitRequestStatusRemote(id, "accepted");
-        return setState((s) => ({
+      acceptRequest: async (id) => {
+        const ok = await setOrbitRequestStatusRemote(id, "accepted").catch(() => false);
+        if (!ok) return false;
+        setState((s) => ({
           ...s,
           connected: { ...s.connected, [id]: true },
           requests: {
@@ -482,16 +492,19 @@ export function OrbitProvider({ children }: { children: ReactNode }) {
             [id]: { ...(s.requests[id] ?? { direction: "incoming" as const }), status: "accepted" },
           },
         }));
+        return true;
       },
-      declineRequest: (id) => {
-        void setOrbitRequestStatusRemote(id, "declined");
-        return setState((s) => ({
+      declineRequest: async (id) => {
+        const ok = await setOrbitRequestStatusRemote(id, "declined").catch(() => false);
+        if (!ok) return false;
+        setState((s) => ({
           ...s,
           requests: {
             ...s.requests,
             [id]: { ...(s.requests[id] ?? { direction: "incoming" as const }), status: "declined" },
           },
         }));
+        return true;
       },
       toggleLike: (id) => {
         const previous = !!state.liked[id];

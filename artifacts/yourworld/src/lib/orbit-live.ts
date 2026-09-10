@@ -1,11 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { OrbitMoodId } from "@/lib/orbit-mood";
-import {
-  orbitById,
-  registerOrbitProfiles,
-  type OrbitProfile,
-} from "@/lib/orbit-data";
+import { orbitById, registerOrbitProfiles, type OrbitProfile } from "@/lib/orbit-data";
 import type {
   OrbitChatRequest,
   OrbitPhoto,
@@ -70,9 +66,12 @@ export function rowToOrbitProfile(row: OrbitProfileRow): OrbitProfile {
 }
 
 async function discoverOrbitRows(ids?: string[] | null): Promise<OrbitProfileRow[]> {
-  const { data, error } = await supabase.rpc("discover_orbit_profiles" as never, {
-    ids: ids ?? null,
-  } as never);
+  const { data, error } = await supabase.rpc(
+    "discover_orbit_profiles" as never,
+    {
+      ids: ids ?? null,
+    } as never,
+  );
   if (!error && data) return data as unknown as OrbitProfileRow[];
 
   // Keep the client compatible with deployments where the RPC was not yet
@@ -127,7 +126,8 @@ export function rowToDraft(row: OrbitProfileRow): OrbitProfileDraft {
     hobbies: row.hobbies ?? [],
     lookingFor: row.looking_for,
     photos: Array.isArray(row.photos) ? row.photos : [],
-    originalPhotoPrivacy: (row.original_photo_privacy ?? "matched") as OrbitProfileDraft["originalPhotoPrivacy"],
+    originalPhotoPrivacy: (row.original_photo_privacy ??
+      "matched") as OrbitProfileDraft["originalPhotoPrivacy"],
     mood: (row.mood as OrbitMoodId | null) ?? null,
   };
 }
@@ -221,10 +221,12 @@ export async function setOrbitLikeRemote(targetId: string, liked: boolean) {
   if (!id) throw new Error("Sign in to continue");
   if (!isUuid(targetId)) throw new Error("Invalid Orbit profile");
   const { error } = liked
-    ? await supabase.from("orbit_likes").upsert(
-        { user_id: id, target_id: targetId } as never,
-        { onConflict: "user_id,target_id", ignoreDuplicates: true },
-      )
+    ? await supabase
+        .from("orbit_likes")
+        .upsert({ user_id: id, target_id: targetId } as never, {
+          onConflict: "user_id,target_id",
+          ignoreDuplicates: true,
+        })
     : await supabase.from("orbit_likes").delete().eq("user_id", id).eq("target_id", targetId);
   if (error) throw error;
 }
@@ -235,10 +237,9 @@ export async function setOrbitConnectionRemote(targetId: string, connected: bool
   if (connected) {
     await supabase
       .from("orbit_connections")
-      .upsert(
-        { requester_id: id, addressee_id: targetId, status: "accepted" } as never,
-        { onConflict: "requester_id,addressee_id" },
-      );
+      .upsert({ requester_id: id, addressee_id: targetId, status: "accepted" } as never, {
+        onConflict: "requester_id,addressee_id",
+      });
   } else {
     await supabase
       .from("orbit_connections")
@@ -251,67 +252,51 @@ export async function setOrbitConnectionRemote(targetId: string, connected: bool
 export async function sendOrbitChatRequestRemote(targetId: string, intro: string) {
   const id = await uid();
   if (!id || !isUuid(targetId)) return null;
-  const { data } = await supabase
-    .from("orbit_chat_requests")
-    .upsert(
-      { requester_id: id, addressee_id: targetId, intro, status: "pending" } as never,
-      { onConflict: "requester_id,addressee_id" },
-    )
-    .select("id")
-    .maybeSingle();
-  const requestId = (data as { id: string } | null)?.id ?? null;
-  if (requestId && intro) {
-    await supabase
-      .from("orbit_request_messages")
-      .insert({ request_id: requestId, sender_id: id, kind: "text", text: intro } as never);
-  }
-  return requestId;
+  const { data, error } = await supabase.rpc(
+    "send_orbit_chat_request" as never,
+    {
+      _target_id: targetId,
+      _intro: intro || null,
+    } as never,
+  );
+  if (error) throw error;
+  return (data as string | null) ?? null;
 }
 
 export async function sendOrbitRequestMessageRemote(
   targetId: string,
   msg: { kind: "text" | "photo"; text?: string; url?: string },
-) {
+): Promise<{ ok: boolean; id?: string; message?: string }> {
   const id = await uid();
-  if (!id || !isUuid(targetId)) return;
-  const { data } = await supabase
-    .from("orbit_chat_requests")
-    .select("id")
-    .or(
-      `and(requester_id.eq.${id},addressee_id.eq.${targetId}),and(requester_id.eq.${targetId},addressee_id.eq.${id})`,
-    )
-    .maybeSingle();
-  const requestId = (data as { id: string } | null)?.id;
-  if (!requestId) return;
-  await supabase.from("orbit_request_messages").insert({
-    request_id: requestId,
-    sender_id: id,
-    kind: msg.kind,
-    text: msg.text ?? null,
-    url: msg.url ?? null,
-  } as never);
+  if (!id || !isUuid(targetId)) return { ok: false, message: "Sign in to continue." };
+  const { data, error } = await supabase.rpc(
+    "send_orbit_request_message" as never,
+    {
+      _target_id: targetId,
+      _kind: msg.kind,
+      _text: msg.text ?? null,
+      _url: msg.url ?? null,
+    } as never,
+  );
+  if (error) return { ok: false, message: error.message };
+  return { ok: true, id: (data as string | null) ?? undefined };
 }
 
 export async function setOrbitRequestStatusRemote(
   targetId: string,
   status: "accepted" | "declined",
-) {
+): Promise<boolean> {
   const id = await uid();
-  if (!id || !isUuid(targetId)) return;
-  await supabase
-    .from("orbit_chat_requests")
-    .update({ status } as never)
-    .or(
-      `and(requester_id.eq.${id},addressee_id.eq.${targetId}),and(requester_id.eq.${targetId},addressee_id.eq.${id})`,
-    );
-  if (status === "accepted") {
-    await supabase
-      .from("orbit_connections")
-      .upsert(
-        { requester_id: id, addressee_id: targetId, status: "accepted" } as never,
-        { onConflict: "requester_id,addressee_id" },
-      );
-  }
+  if (!id || !isUuid(targetId)) return false;
+  const { data, error } = await supabase.rpc(
+    "respond_to_orbit_chat_request" as never,
+    {
+      _target_id: targetId,
+      _status: status,
+    } as never,
+  );
+  if (error) throw error;
+  return data === true;
 }
 
 export type RemoteOrbitState = {
@@ -372,14 +357,16 @@ export async function loadOrbitStateRemote(): Promise<RemoteOrbitState | null> {
         direction: r.requester_id === id ? "outgoing" : "incoming",
         status: r.status as OrbitChatRequest["status"],
         intro: r.intro ?? undefined,
-        messages: ((msgs ?? []) as {
-          id: string;
-          request_id: string;
-          sender_id: string;
-          kind: string;
-          text: string | null;
-          url: string | null;
-        }[])
+        messages: (
+          (msgs ?? []) as {
+            id: string;
+            request_id: string;
+            sender_id: string;
+            kind: string;
+            text: string | null;
+            url: string | null;
+          }[]
+        )
           .filter((m) => m.request_id === r.id)
           .map((m) => ({
             id: m.id,
@@ -558,7 +545,8 @@ function fileAsDataUrl(file: File) {
         reject(new Error("The browser returned an empty media preview."));
       }
     };
-    reader.onerror = () => reject(reader.error ?? new Error("The browser could not read this file."));
+    reader.onerror = () =>
+      reject(reader.error ?? new Error("The browser could not read this file."));
     reader.readAsDataURL(file);
   });
 }

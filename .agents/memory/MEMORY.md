@@ -15,3 +15,4 @@
 - [Fullscreen player controls](fullscreen-player-controls.md) — gate lock state, gestures, and HUD overlays to fullscreen and keep JSX control wrappers explicit.
 - [Orbit runtime schema](orbit-runtime-schema.md) — generated Orbit types can outpace Supabase; keep the table/RPC migration and client discovery fallback aligned.
 - [WebRTC call signaling](webrtc-call-signaling.md) — persist and reuse the initial offer; realtime accept events are only an acceleration path.
+- [Orbit request workflow](orbit-request-workflow.md) — enforce the combined three-message pending cap and receiver-only acceptance in the database.
