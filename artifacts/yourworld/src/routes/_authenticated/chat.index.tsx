@@ -334,7 +334,15 @@ function ChatListPage() {
                     </span>
                   ) : null}
                   <div className="h-12 w-12 rounded-full bg-gradient-to-tr from-purple-500 to-pink-500 flex items-center justify-center font-bold text-lg">
-                    {nameFor(chat.peerId, chat.name).charAt(0)}
+                    {chat.avatarUrl?.trim() ? (
+                      <img
+                        src={chat.avatarUrl}
+                        alt={nameFor(chat.peerId, chat.name)}
+                        className="w-full h-full object-cover rounded-full"
+                      />
+                    ) : (
+                      nameFor(chat.peerId, chat.name).charAt(0)
+                    )}
                   </div>
                   <div>
                     <h4 className="font-semibold text-sm">{nameFor(chat.peerId, chat.name)}</h4>
