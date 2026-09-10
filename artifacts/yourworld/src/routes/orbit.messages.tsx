@@ -56,13 +56,16 @@ function timeShort(at: number) {
 }
 
 function Avatar({ p, size = 48 }: { p: OrbitProfile; size?: number }) {
-  return p.photo ? (
+  const avatarUrl = p.photo?.trim();
+  const initial = p.name.trim().charAt(0).toUpperCase() || "?";
+
+  return avatarUrl ? (
     <img
-      src={p.photo}
+      src={avatarUrl}
       alt={p.name}
       loading="lazy"
       style={{ width: size, height: size }}
-      className="shrink-0 rounded-full object-cover"
+      className="h-full w-full shrink-0 rounded-full object-cover"
     />
   ) : (
     <span
@@ -74,7 +77,7 @@ function Avatar({ p, size = 48 }: { p: OrbitProfile; size?: number }) {
       aria-hidden
       className="grid shrink-0 place-items-center rounded-full font-display text-base font-bold text-background"
     >
-      {p.name.charAt(0)}
+      {initial}
     </span>
   );
 }
