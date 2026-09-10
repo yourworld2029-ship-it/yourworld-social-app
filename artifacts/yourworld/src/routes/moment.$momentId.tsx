@@ -492,7 +492,7 @@ function MomentViewRoute() {
         {/* PROGRESS */}
         <div
           className={cn(
-            "pointer-events-none absolute top-0 left-0 right-0 z-50 p-3 pt-4 bg-gradient-to-b from-black/80 via-black/40 to-transparent drop-shadow-[0_1px_3px_rgba(0,0,0,0.65)] transition-opacity duration-300",
+            "pointer-events-none absolute top-0 left-0 right-0 z-50 p-3 pt-2 bg-gradient-to-b from-black/80 via-black/40 to-transparent drop-shadow-[0_1px_3px_rgba(0,0,0,0.65)] transition-opacity duration-300",
             "opacity-100",
           )}
         >
@@ -500,10 +500,10 @@ function MomentViewRoute() {
             {Array.from({ length: segments }).map((_, idx) => (
               <div
                 key={idx}
-                className="h-1 flex-1 overflow-hidden rounded-full bg-white/30 shadow-[inset_0_0_0_0.5px_rgba(255,255,255,0.2)] backdrop-blur-[2px]"
+                className="h-1 flex-1 overflow-hidden rounded-full bg-white/35 shadow-[0_1px_4px_rgba(0,0,0,0.35)] backdrop-blur-[2px]"
               >
                 <div
-                  className="h-full rounded-full bg-white shadow-[0_0_6px_rgba(255,255,255,0.65)] will-change-[width]"
+                  className="h-full rounded-full bg-white will-change-[width]"
                   style={{
                     width: idx < chunk ? "100%" : idx === chunk ? `${progress}%` : "0%",
                     transition: idx === chunk ? "width 120ms linear" : "width 180ms ease-out",
