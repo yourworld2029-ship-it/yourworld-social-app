@@ -28,16 +28,16 @@ export const CALL_AUDIO_CONSTRAINTS: MediaTrackConstraints = {
   autoGainControl: true,
   sampleRate: 48_000,
   sampleSize: 16,
-  channelCount: 2,
+  channelCount: 1,
 };
 
 export function callVideoConstraints(
   facingMode: CallFacingMode = "user",
 ): MediaTrackConstraints {
   return {
-    width: { min: 1280, ideal: 1920, max: 3840 },
-    height: { min: 720, ideal: 1080, max: 2160 },
-    frameRate: { ideal: 60, min: 30 },
+    width: { ideal: 1280, max: 1920 },
+    height: { ideal: 720, max: 1080 },
+    frameRate: { ideal: 30, max: 30 },
     facingMode,
   };
 }
@@ -84,7 +84,7 @@ export async function getCallMedia(
           { audio: CALL_AUDIO_CONSTRAINTS, video: callVideoConstraints(facingMode) },
           {
             audio: CALL_AUDIO_CONSTRAINTS,
-            video: fallbackVideoConstraints(facingMode, 1920, 1080, 60),
+            video: fallbackVideoConstraints(facingMode, 1280, 720, 30),
           },
           {
             audio: {
@@ -122,7 +122,7 @@ export function getCallVideo(
     { audio: false, video: callVideoConstraints(facingMode) },
     {
       audio: false,
-      video: fallbackVideoConstraints(facingMode, 1920, 1080, 60),
+      video: fallbackVideoConstraints(facingMode, 1280, 720, 30),
     },
     {
       audio: false,
@@ -136,7 +136,7 @@ type TunedEncoding = RTCRtpEncodingParameters & {
 };
 
 /**
- * Keep one full-resolution video layer with a predictable 4.5 Mbps ceiling.
+ * Keep one full-resolution video layer with a predictable 1.5 Mbps ceiling.
  * The fallback removes networkPriority for browsers that reject that optional
  * encoding field while preserving the bitrate and priority settings.
  */
@@ -148,8 +148,8 @@ export async function tuneCallVideoSender(sender: RTCRtpSender): Promise<void> {
     (encoding) =>
       ({
         ...encoding,
-        maxBitrate: 4_500_000,
-        maxFramerate: 60,
+        maxBitrate: 1_500_000,
+        maxFramerate: 30,
         priority: "high",
         networkPriority: "high",
         scaleResolutionDownBy: 1,
@@ -158,10 +158,12 @@ export async function tuneCallVideoSender(sender: RTCRtpSender): Promise<void> {
 
   try {
     current.encodings = tuned;
+    current.degradationPreference = "maintain-framerate";
     await sender.setParameters(current);
   } catch {
     const fallback = sender.getParameters();
     fallback.encodings = tuned.map(({ networkPriority: _networkPriority, ...encoding }) => encoding);
+    fallback.degradationPreference = "maintain-framerate";
     try {
       await sender.setParameters(fallback);
     } catch {

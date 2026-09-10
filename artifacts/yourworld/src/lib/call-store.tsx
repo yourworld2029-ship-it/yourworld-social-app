@@ -88,17 +88,42 @@ function asIceCandidate(value: unknown): RTCIceCandidateInit | null {
   return candidate as RTCIceCandidateInit;
 }
 
-function optimizeVideoSdp(sdp: string) {
+function optimizeCallSdp(sdp: string) {
   const lines = sdp.split("\r\n");
   const qualityPayloads = new Set<string>();
+  const opusPayloads = new Set<string>();
+  const opusFmtpPayloads = new Set<string>();
+  let mediaSection: "audio" | "video" | null = null;
+  for (const line of lines) {
+    if (line.startsWith("m=audio ")) mediaSection = "audio";
+    else if (line.startsWith("m=video ")) mediaSection = "video";
+    else if (line.startsWith("m=")) mediaSection = null;
+    if (mediaSection !== "audio") continue;
+    const rtpmap = /^a=rtpmap:(\d+)\s+([^/]+)\//i.exec(line);
+    if (rtpmap && /^opus$/i.test(rtpmap[2])) opusPayloads.add(rtpmap[1]);
+    const fmtp = /^a=fmtp:(\d+)\s+/.exec(line);
+    if (fmtp && opusPayloads.has(fmtp[1])) opusFmtpPayloads.add(fmtp[1]);
+  }
+
   let inVideoSection = false;
   let hasVideoBitrate = false;
   const output: string[] = [];
   for (const line of lines) {
     if (line.startsWith("m=")) inVideoSection = line.startsWith("m=video ");
+    if (line.startsWith("m=audio ") && opusPayloads.size) {
+      const parts = line.trim().split(/\s+/);
+      const header = parts.slice(0, 3);
+      const payloads = parts.slice(3);
+      const orderedPayloads = [
+        ...payloads.filter((payload) => opusPayloads.has(payload)),
+        ...payloads.filter((payload) => !opusPayloads.has(payload)),
+      ];
+      output.push([...header, ...orderedPayloads].join(" "));
+      continue;
+    }
     if (inVideoSection && line.startsWith("m=video ")) {
       output.push(line);
-      output.push("b=AS:3500");
+      output.push("b=AS:1500");
       hasVideoBitrate = true;
       continue;
     }
@@ -110,7 +135,7 @@ function optimizeVideoSdp(sdp: string) {
     }
     if (inVideoSection && line.startsWith("b=")) {
       if (line.startsWith("b=AS:")) {
-        if (!hasVideoBitrate) output.push("b=AS:3500");
+        if (!hasVideoBitrate) output.push("b=AS:1500");
         hasVideoBitrate = true;
       } else {
         output.push(line);
@@ -123,15 +148,46 @@ function optimizeVideoSdp(sdp: string) {
         const params = match[2];
         if (!params.includes("x-google-max-bitrate")) {
           output.push(
-            `${line};x-google-start-bitrate=2500;x-google-min-bitrate=1000;x-google-max-bitrate=3500`,
+            `${line};x-google-start-bitrate=1000;x-google-min-bitrate=600;x-google-max-bitrate=1500`,
           );
           continue;
         }
       }
     }
+    if (!inVideoSection && opusPayloads.has((/^a=fmtp:(\d+)\s*/.exec(line) ?? [])[1] ?? "")) {
+      const match = /^a=fmtp:(\d+)\s*(.*)$/.exec(line);
+      if (match) {
+        const params = match[2]
+          .split(";")
+          .map((param) => param.trim())
+          .filter((param) => param && !/^minptime=/i.test(param) && !/^useinbandfec=/i.test(param));
+        output.push(`a=fmtp:${match[1]} ${[...params, "minptime=10", "useinbandfec=1"].join(";")}`);
+        continue;
+      }
+    }
+    if (
+      !inVideoSection &&
+      line.startsWith("a=rtpmap:") &&
+      opusPayloads.has((/^a=rtpmap:(\d+)\s+/.exec(line) ?? [])[1] ?? "")
+    ) {
+      const payload = (/^a=rtpmap:(\d+)\s+/.exec(line) ?? [])[1];
+      output.push(line);
+      if (!opusFmtpPayloads.has(payload)) {
+        output.push(`a=fmtp:${payload} minptime=10;useinbandfec=1`);
+      }
+      continue;
+    }
     output.push(line);
   }
   return output.join("\r\n");
+}
+
+function optimizedSessionDescription(
+  description: RTCSessionDescriptionInit,
+): RTCSessionDescriptionInit {
+  return description.sdp
+    ? { ...description, sdp: optimizeCallSdp(description.sdp) }
+    : description;
 }
 
 type CallState = {
@@ -397,6 +453,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       pc.ontrack = null;
       pc.onconnectionstatechange = null;
       pc.getSenders().forEach((s) => s.track?.stop());
+      pc.getReceivers().forEach((r) => r.track?.stop());
       try { pc.close(); } catch { /* ignore */ }
     }
     pcRef.current = null;
@@ -553,7 +610,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const getMedia = useCallback(async (mode: CallMode) => {
     const stream = await getCallMedia(mode, facingMode);
     for (const track of stream.getVideoTracks()) {
-      track.contentHint = "detail";
+      track.contentHint = "motion";
     }
     localStream.current = stream;
     attachStreams();
@@ -752,7 +809,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 });
                 const optimizedOffer = {
                   ...offer,
-                  sdp: optimizeVideoSdp(offer.sdp ?? ""),
+                  sdp: optimizeCallSdp(offer.sdp ?? ""),
                 };
                 await peer.setLocalDescription(optimizedOffer);
                 offerDescription = peer.localDescription;
@@ -770,12 +827,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
               if (!remoteOffer) return;
               const stream = localStream.current ?? (await getMedia(mode));
               const peer = pcRef.current ?? createPeer(stream);
-              await peer.setRemoteDescription(new RTCSessionDescription(remoteOffer));
+              await peer.setRemoteDescription(
+                new RTCSessionDescription(optimizedSessionDescription(remoteOffer)),
+              );
               await flushIce();
               const answer = await peer.createAnswer();
               const optimizedAnswer = {
                 ...answer,
-                sdp: optimizeVideoSdp(answer.sdp ?? ""),
+                sdp: optimizeCallSdp(answer.sdp ?? ""),
               };
               await peer.setLocalDescription(optimizedAnswer);
               const answerDescription = peer.localDescription;
@@ -792,7 +851,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
             } else if ((type === "CALL_ANSWER" || type === "answer") && pc && !pc.remoteDescription) {
               const remoteAnswer = asSessionDescription(payload.sdp);
               if (!remoteAnswer) return;
-              await pc.setRemoteDescription(new RTCSessionDescription(remoteAnswer));
+              await pc.setRemoteDescription(
+                new RTCSessionDescription(optimizedSessionDescription(remoteAnswer)),
+              );
               await flushIce();
               stopAllRingtones();
               setPhase("connecting");
@@ -1096,7 +1157,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         });
         const optimizedOffer = {
           ...offer,
-          sdp: optimizeVideoSdp(offer.sdp ?? ""),
+          sdp: optimizeCallSdp(offer.sdp ?? ""),
         };
         await peer.setLocalDescription(optimizedOffer);
         const offerDescription = peer.localDescription;
@@ -1334,7 +1395,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     try {
       const newStream = await getCallVideo(next);
       const newVideoTrack = newStream.getVideoTracks()[0];
-      newVideoTrack.contentHint = "detail";
+      newVideoTrack.contentHint = "motion";
       const sender = pcRef.current
         ?.getSenders()
         .find((s) => s.track?.kind === "video");
