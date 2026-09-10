@@ -19,7 +19,7 @@ interface ChatThread {
   lastMessage: string;
   time: string;
   unreadCount?: number;
-  avatarUrl?: string;
+  avatar_url?: string | null;
 }
 
 interface DiscoverProfile {
@@ -111,7 +111,7 @@ function ChatListPage() {
         setThreads((prev) =>
           base.map((t) => {
             const known = prev.find((p) => p.id === t.id);
-            return known ? { ...t, name: known.name, peerId: known.peerId, avatarUrl: known.avatarUrl } : t;
+            return known ? { ...t, name: known.name, peerId: known.peerId, avatar_url: known.avatar_url } : t;
           }),
         );
 
@@ -122,7 +122,7 @@ function ChatListPage() {
               ...t,
               name: peer.peerName,
               peerId: peer.peerId,
-              avatarUrl: peer.avatarUrl ?? undefined,
+              avatar_url: peer.avatarUrl ?? null,
             };
           }),
         );
@@ -334,14 +334,16 @@ function ChatListPage() {
                     </span>
                   ) : null}
                   <div className="h-12 w-12 rounded-full bg-gradient-to-tr from-purple-500 to-pink-500 flex items-center justify-center font-bold text-lg">
-                    {chat.avatarUrl?.trim() ? (
+                    {chat.avatar_url?.trim() ? (
                       <img
-                        src={chat.avatarUrl.trim()}
-                        alt={nameFor(chat.peerId, chat.name)}
+                        src={chat.avatar_url.trim()}
                         className="w-full h-full object-cover rounded-full"
+                        alt="avatar"
                       />
                     ) : (
-                      nameFor(chat.peerId, chat.name).trim().charAt(0).toUpperCase() || "?"
+                      <span className="text-white font-semibold">
+                        {chat.name ? chat.name.charAt(0).toUpperCase() : "?"}
+                      </span>
                     )}
                   </div>
                   <div>
