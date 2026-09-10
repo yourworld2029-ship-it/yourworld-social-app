@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Play, Eye, Heart, Clock, MessageCircle, Send, Bookmark,
   MoreHorizontal, Link2, Trash2, EyeOff,
@@ -6,8 +6,8 @@ import {
 import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import {
-  formatDuration,
   formatViews,
+  resolveLongVideoUrl,
   timeAgo,
   type LongVideo,
 } from "@/lib/video-data";
@@ -35,6 +35,21 @@ type Props = {
   onDeleted?: (id: string) => void;
 };
 
+function formatBadgeDuration(seconds: number | null) {
+  if (!Number.isFinite(seconds) || seconds == null || seconds <= 0) return null;
+
+  const totalSeconds = Math.floor(seconds);
+  if (totalSeconds <= 0) return null;
+
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const remainingSeconds = totalSeconds % 60;
+
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`
+    : `${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`;
+}
+
 /** Feed card for long-form videos — supports 16:9 and 9:16 playback. */
 export function LongVideoCard({
   video,
@@ -48,7 +63,56 @@ export function LongVideoCard({
   const [hidden, setHidden] = useState(false);
   const [commentCount, setCommentCount] = useState(video.commentCount);
   const [liking, setLiking] = useState(false);
+  const [durationSeconds, setDurationSeconds] = useState<number | null>(
+    () =>
+      typeof video.durationSeconds === "number" &&
+      Number.isFinite(video.durationSeconds) &&
+      video.durationSeconds > 0
+        ? video.durationSeconds
+        : null,
+  );
   const cardRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const storedDuration =
+      typeof video.durationSeconds === "number" &&
+      Number.isFinite(video.durationSeconds) &&
+      video.durationSeconds > 0
+        ? video.durationSeconds
+        : null;
+    setDurationSeconds(storedDuration);
+    if (storedDuration !== null || !video.mediaUrl) return;
+
+    let active = true;
+    const probe = document.createElement("video");
+    probe.preload = "metadata";
+
+    const cleanup = () => {
+      active = false;
+      probe.onloadedmetadata = null;
+      probe.onerror = null;
+      probe.removeAttribute("src");
+      probe.load();
+    };
+
+    probe.onloadedmetadata = () => {
+      if (active && Number.isFinite(probe.duration) && probe.duration > 0) {
+        setDurationSeconds(probe.duration);
+      }
+      cleanup();
+    };
+    probe.onerror = cleanup;
+
+    void resolveLongVideoUrl(video.mediaUrl)
+      .then((url) => {
+        if (!active || !url) return;
+        probe.src = url;
+        probe.load();
+      })
+      .catch(cleanup);
+
+    return cleanup;
+  }, [video.durationSeconds, video.mediaUrl]);
 
   const isMine = currentUserId === video.userId;
   const isFollowing = !!following[video.userId];
@@ -107,6 +171,7 @@ export function LongVideoCard({
 
   const upcoming =
     !!video.scheduledAt && new Date(video.scheduledAt).getTime() > Date.now();
+  const formattedDuration = formatBadgeDuration(durationSeconds);
 
   if (hidden) return null;
 
@@ -144,9 +209,11 @@ export function LongVideoCard({
               <Play size={22} className="ml-0.5 fill-black" />
             </span>
           </span>
-          <span className="pointer-events-none absolute bottom-2 right-2 rounded-md bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold">
-            {formatDuration(video.durationSeconds)}
-          </span>
+          {formattedDuration && (
+            <span className="pointer-events-none absolute bottom-2 right-2 rounded-md bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold">
+              {formattedDuration}
+            </span>
+          )}
         </div>
       </button>
 
