@@ -152,6 +152,7 @@ function ChatThreadPage() {
     send: sendToDb,
     conversationId,
     remove: removeFromDb,
+    clearForEveryone,
     markRead,
     loading: messagesLoading,
     loadingMore,
@@ -239,6 +240,7 @@ function ChatThreadPage() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [actionSheetId, setActionSheetId] = useState<string | null>(null);
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Peer identity resolved from the thread (never hardcoded)
@@ -349,6 +351,18 @@ function ChatThreadPage() {
     setHiddenIds((prev) => [...prev, ...ids]);
     void removeFromDb(ids.filter((id) => !id.startsWith("local-")));
     setSelectedIds([]);
+  };
+  const confirmClearForEveryone = async () => {
+    const result = await clearForEveryone();
+    if (result.error) {
+      toast.error(result.error);
+      return;
+    }
+    setLocalMessages([]);
+    setHiddenIds([]);
+    exitSelectMode();
+    setClearConfirmOpen(false);
+    toast.success("Chat cleared for everyone.");
   };
   const exitSelectMode = () => {
     setSelectMode(false);
@@ -650,7 +664,8 @@ function ChatThreadPage() {
                 setShowOptionsMenu(false);
               }} />
               <MenuItem icon={<Trash2 size={16} className="text-zinc-400" />} label="Clear Chat" onClick={() => {
-                deleteIds(messages.map((m) => m.id)); exitSelectMode(); setShowOptionsMenu(false);
+                setClearConfirmOpen(true);
+                setShowOptionsMenu(false);
               }} />
               <MenuItem danger icon={<UserX size={16} className="text-red-400" />} label={blocked ? "Unblock User" : "Block User"} state={blocked} onClick={() => {
                 void (async () => {
@@ -1352,6 +1367,18 @@ function ChatThreadPage() {
         >
           Save
         </button>
+      </div>
+    </div>
+  </div>
+)}
+{clearConfirmOpen && (
+  <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 p-6" onClick={() => setClearConfirmOpen(false)}>
+    <div className="w-full max-w-sm rounded-2xl border border-zinc-800 bg-zinc-900 p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      <p className="text-base font-semibold text-white">Clear Chat for Everyone?</p>
+      <p className="mt-2 text-sm leading-6 text-zinc-400">This will permanently delete all messages in this conversation for both participants.</p>
+      <div className="mt-5 flex justify-end gap-2">
+        <button className="rounded-xl px-3 py-2 text-sm text-zinc-400 hover:bg-zinc-800" onClick={() => setClearConfirmOpen(false)}>Cancel</button>
+        <button className="rounded-xl bg-red-500 px-4 py-2 text-sm font-semibold text-white hover:bg-red-400" onClick={() => void confirmClearForEveryone()}>Clear for Everyone</button>
       </div>
     </div>
   </div>

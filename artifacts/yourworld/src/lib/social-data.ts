@@ -974,6 +974,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
   const [error, setError] = useState<string | null>(pair ? null : "Invalid chat address.");
   const messagesRef = useRef<DbMessage[]>([]);
   const meRef = useRef<string | null>(null);
+  const clearChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const afterViewTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   useEffect(() => { messagesRef.current = messages; cacheSet(`thread:${threadId}`, messages.filter((m) => !m.id.startsWith("tmp-")).slice(-40)); }, [messages, threadId]);
 
@@ -1119,6 +1120,25 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     };
   }, [threadId, pair, load, belongs, merge]);
   useEffect(() => {
+    if (!conversationId) return;
+    const channel = supabase
+      .channel(`social-chat-clear-${conversationId}`)
+      .on("broadcast", { event: "chat_cleared" }, ({ payload }) => {
+        if (payload?.conversationId !== conversationId) return;
+        messagesRef.current = [];
+        setMessages([]);
+        setHasMore(false);
+        cacheSet(`thread:${threadId}`, []);
+      })
+      .subscribe();
+    clearChannelRef.current = channel;
+    return () => {
+      if (clearChannelRef.current === channel) clearChannelRef.current = null;
+      void channel.unsubscribe();
+      void supabase.removeChannel(channel);
+    };
+  }, [conversationId, threadId]);
+  useEffect(() => {
     const sweep = () => {
       setMessages((prev) => prev.filter((message) => isRenderablePublicMessage(message, meRef.current)));
       void supabase.rpc("delete_expired_chat_messages" as never);
@@ -1242,6 +1262,32 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     if (deleteError) { setError(deleteError.message); return; }
     setMessages((prev) => prev.filter((m) => !ids.includes(m.id) || m.sender_id !== me));
   }, [me]);
+  const clearForEveryone = useCallback(async () => {
+    if (!me || !conversationId) {
+      return { error: "Chat is still syncing. Try again in a moment." };
+    }
+    const { error: clearError } = await supabase.rpc(
+      "clear_social_conversation" as never,
+      { _conversation_id: conversationId } as never,
+    );
+    if (clearError) {
+      setError(clearError.message);
+      return { error: clearError.message };
+    }
+    messagesRef.current = [];
+    setMessages([]);
+    setHasMore(false);
+    cacheSet(`thread:${threadId}`, []);
+    const channel = clearChannelRef.current;
+    if (channel) {
+      await channel.send({
+        type: "broadcast",
+        event: "chat_cleared",
+        payload: { conversationId },
+      });
+    }
+    return { error: null };
+  }, [conversationId, me, threadId]);
   const markRead = useCallback(async (ids: string[]) => {
     if (!me || !ids.length) return;
     const { error: updateError } = await supabase.from("messages" as never).update({ is_read: true } as never).in("id", ids).eq("receiver_id", me);
@@ -1266,7 +1312,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
         : m)
       );
   }, [me]);
-  return useMemo(() => ({ messages, loading, loadingMore, hasMore, loadOlder, currentUserId: me, conversationId, send, remove, markRead, error, reload: load }), [messages, loading, loadingMore, hasMore, loadOlder, me, conversationId, send, remove, markRead, error, load]);
+  return useMemo(() => ({ messages, loading, loadingMore, hasMore, loadOlder, currentUserId: me, conversationId, send, remove, clearForEveryone, markRead, error, reload: load }), [messages, loading, loadingMore, hasMore, loadOlder, me, conversationId, send, remove, clearForEveryone, markRead, error, load]);
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

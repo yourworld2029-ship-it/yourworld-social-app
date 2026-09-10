@@ -204,6 +204,7 @@ function OrbitChatPage() {
   const [recording, setRecording] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
   const [lightbox, setLightbox] = useState<{ url: string; video: boolean } | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -587,11 +588,20 @@ function OrbitChatPage() {
     setSelectedIds([]);
   };
   const clearChat = () => {
+    setClearConfirmOpen(true);
+    setMenuOpen(false);
+  };
+  const confirmClearForEveryone = async () => {
+    const result = await chat.clearForEveryone();
+    if (result.error) {
+      toast.error(result.error);
+      return;
+    }
     setNotes([]);
     setClearedBefore(new Date().toISOString());
     exitSelectMode();
-    setMenuOpen(false);
-    toast.success("Chat cleared");
+    setClearConfirmOpen(false);
+    toast.success("Chat cleared for everyone.");
   };
 
   const toggleSecretLock = () => {
@@ -982,6 +992,38 @@ function OrbitChatPage() {
         onCancel={() => { setPinMode(null); setPinError(null); }}
         onSubmit={(pin) => void submitPin(pin)}
       />
+      {clearConfirmOpen && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 p-6"
+          onClick={() => setClearConfirmOpen(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl border border-border bg-background p-5 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <p className="text-base font-semibold text-foreground">Clear Chat for Everyone?</p>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              This will permanently delete all messages in this conversation for both participants.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-xl px-3 py-2 text-sm text-muted-foreground hover:bg-secondary"
+                onClick={() => setClearConfirmOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="rounded-xl bg-destructive px-4 py-2 text-sm font-semibold text-destructive-foreground hover:bg-destructive/90"
+                onClick={() => void confirmClearForEveryone()}
+              >
+                Clear for Everyone
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
 
       {selectMode && (

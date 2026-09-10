@@ -156,6 +156,7 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
   const [loadingMore, setLoadingMore] = useState(false);
   const meRef = useRef<string | null>(null);
   const messagesRef = useRef<OrbitMessage[]>([]);
+  const clearChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   const merge = useCallback((next: OrbitMessage[]) => {
     setMessages((prev) => {
@@ -276,6 +277,25 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
       }
     };
   }, [peerId, enabled, merge, clearedBefore]);
+  useEffect(() => {
+    if (!enabled || !isUuid(peerId)) return;
+    const channel = supabase
+      .channel(`orbit-chat-clear-${peerId}`)
+      .on("broadcast", { event: "chat_cleared" }, ({ payload }) => {
+        if (payload?.peerId !== peerId) return;
+        messagesRef.current = [];
+        setMessages([]);
+        setHasMore(false);
+        void saveCachedThread(`orbit:${peerId}`, []);
+      })
+      .subscribe();
+    clearChannelRef.current = channel;
+    return () => {
+      if (clearChannelRef.current === channel) clearChannelRef.current = null;
+      void channel.unsubscribe();
+      void supabase.removeChannel(channel);
+    };
+  }, [peerId, enabled]);
 
   const insert = useCallback(
     async (msg: { kind: OrbitMsgKind; text?: string; url?: string; viewOnce?: boolean; autoDeleteSetting?: AutoDeleteSetting }) => {
@@ -381,6 +401,30 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
     const ids = messages.map((m) => m.id);
     await remove(ids);
   }, [messages, remove]);
+  const clearForEveryone = useCallback(async () => {
+    const me = meRef.current;
+    if (!me || !isUuid(peerId)) {
+      return { error: "Chat is still syncing. Try again in a moment." };
+    }
+    const { error: clearError } = await supabase.rpc(
+      "clear_orbit_conversation" as never,
+      { _peer_id: peerId } as never,
+    );
+    if (clearError) return { error: clearError.message };
+    messagesRef.current = [];
+    setMessages([]);
+    setHasMore(false);
+    void saveCachedThread(`orbit:${peerId}`, []);
+    const channel = clearChannelRef.current;
+    if (channel) {
+      await channel.send({
+        type: "broadcast",
+        event: "chat_cleared",
+        payload: { peerId },
+      });
+    }
+    return { error: null };
+  }, [peerId]);
 
   /** Infinite scroll: fetch the previous page of older Orbit messages. */
   const loadOlder = useCallback(async () => {
@@ -417,5 +461,5 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
     return () => window.clearInterval(timer);
   }, [enabled]);
 
-  return { messages, meId, sendText, sendMedia, insert, consumeViewOnce, markViewed, remove, clear, loadOlder, loading, loadingMore, hasMore };
+  return { messages, meId, sendText, sendMedia, insert, consumeViewOnce, markViewed, remove, clear, clearForEveryone, loadOlder, loading, loadingMore, hasMore };
 }
