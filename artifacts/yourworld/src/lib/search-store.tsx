@@ -9,7 +9,7 @@ import {
 
 export type SearchEntry = {
   id: string;
-  kind: "user" | "hashtag";
+  kind: "user" | "hashtag" | "query";
   /** username (no @) for users, tag (no #) for hashtags */
   label: string;
   /** display name for user entries */

@@ -89,7 +89,7 @@ test("search stays empty when Supabase has no profiles or posts", async () => {
 
   const result = await loadSearchData(client);
 
-  assert.deepEqual(result, { users: [], hashtags: [] });
+  assert.deepEqual(result, { users: [], reels: [], videos: [], hashtags: [] });
   assert.equal(calls.some((call) => call.type === "rpc"), false);
 });
 

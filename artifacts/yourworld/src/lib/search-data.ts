@@ -1,13 +1,36 @@
 import { supabase } from "@/integrations/supabase/client";
+import { resolveMediaUrl } from "@/lib/social-data";
 import type { Hashtag, SuggestedUser } from "@/lib/yw-data";
 
 export type SearchUser = Omit<SuggestedUser, "followerCount"> & {
   /** Omitted when the live follower-count source is unavailable. */
   followerCount?: number;
+  avatar_url?: string | null;
+};
+
+export type SearchVideo = {
+  id: string;
+  userId: string;
+  kind: "reel" | "video";
+  title: string;
+  description: string;
+  caption: string;
+  mediaUrl: string;
+  thumbnailUrl: string | null;
+  views: number;
+  durationSeconds: number | null;
+  hashtags: string[];
+  createdAt: string;
+  author: {
+    name: string;
+    username: string;
+  };
 };
 
 export type SearchLiveData = {
   users: SearchUser[];
+  reels: SearchVideo[];
+  videos: SearchVideo[];
   hashtags: Hashtag[];
 };
 
@@ -37,6 +60,17 @@ type OrbitSearchRow = {
 };
 
 type SearchPostRow = {
+  id?: unknown;
+  user_id?: unknown;
+  kind?: unknown;
+  type?: unknown;
+  is_reel?: unknown;
+  media_url?: unknown;
+  thumbnail_url?: unknown;
+  duration_seconds?: unknown;
+  views?: unknown;
+  views_count?: unknown;
+  created_at?: unknown;
   hashtags?: unknown;
   caption?: unknown;
   content?: unknown;
@@ -73,9 +107,22 @@ function toSearchUsers(
       category: profile.category || undefined,
       verified: Boolean(profile.is_verified),
       hue: hueOf(profile.id),
+      avatar_url: profile.avatar_url ?? null,
       ...(followerCount === undefined ? {} : { followerCount }),
     };
   });
+}
+
+async function resolveSearchAvatars(users: SearchUser[]) {
+  return Promise.all(
+    users.map(async (user) => {
+      if (!user.avatar_url) return user;
+      return {
+        ...user,
+        avatar_url: await resolveMediaUrl(user.avatar_url, "avatars"),
+      };
+    }),
+  );
 }
 
 function orbitPhotoUrl(photos: unknown) {
@@ -163,7 +210,13 @@ export async function searchPublicProfiles(
     client
       .from("profiles")
       .select("*")
-      .ilike("username", `%${pattern}%`)
+      .or(
+        [
+          `username.ilike.%${pattern}%`,
+          `display_name.ilike.%${pattern}%`,
+          `full_name.ilike.%${pattern}%`,
+        ].join(","),
+      )
       .order("updated_at", { ascending: false })
       .limit(50),
     searchOrbitProfiles(searchTerm, client),
@@ -175,13 +228,72 @@ export async function searchPublicProfiles(
     profiles.map((profile) => profile.id),
     client,
   );
-  const standardUsers = toSearchUsers(profiles, followersById);
+  const standardUsers = await resolveSearchAvatars(
+    toSearchUsers(profiles, followersById),
+  );
   const merged = new Map(standardUsers.map((user) => [user.id, user]));
   for (const orbitUser of orbitUsers) {
     const existing = merged.get(orbitUser.id);
     merged.set(orbitUser.id, existing ? { ...orbitUser, ...existing } : orbitUser);
   }
-  return [...merged.values()].slice(0, 50);
+  return resolveSearchAvatars([...merged.values()].slice(0, 50));
+}
+
+function textValue(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function tagsValue(value: unknown) {
+  return Array.isArray(value)
+    ? value.map((tag) => String(tag).trim().replace(/^#/, "").toLowerCase()).filter(Boolean)
+    : [];
+}
+
+function toSearchVideos(rows: SearchPostRow[], profiles: ProfileRow[]) {
+  const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
+  return rows.flatMap((row): SearchVideo[] => {
+    const id = textValue(row.id);
+    const userId = textValue(row.user_id);
+    const mediaUrl = textValue(row.media_url);
+    if (!id || !userId || !mediaUrl) return [];
+
+    const kind = textValue(row.kind || row.type).toLowerCase();
+    const isReel = kind === "reel" || row.is_reel === true;
+    const isVideo = isReel || kind === "video" || kind === "long_video";
+    if (!isVideo) return [];
+
+    const profile = profileById.get(userId);
+    const username = profile?.username?.trim() || `user${userId.slice(0, 4)}`;
+    const name =
+      profile?.display_name?.trim() ||
+      profile?.full_name?.trim() ||
+      username;
+    const caption = textValue(row.caption);
+
+    return [{
+      id,
+      userId,
+      kind: isReel ? "reel" : "video",
+      title: textValue(row.title) || caption || "Untitled video",
+      description:
+        textValue(row.description) ||
+        textValue(row.content) ||
+        caption,
+      caption,
+      mediaUrl,
+      thumbnailUrl: textValue(row.thumbnail_url) || null,
+      views: Number(row.views ?? row.views_count ?? 0) || 0,
+      durationSeconds:
+        typeof row.duration_seconds === "number"
+          ? row.duration_seconds
+          : Number.isFinite(Number(row.duration_seconds))
+            ? Number(row.duration_seconds)
+            : null,
+      hashtags: tagsValue(row.hashtags),
+      createdAt: textValue(row.created_at),
+      author: { name, username },
+    }];
+  });
 }
 
 /** Loads the current public search data directly from Supabase. */
@@ -208,7 +320,7 @@ export async function loadSearchData(
     client,
   );
 
-  const users = toSearchUsers(profileRows, followersById);
+  const users = await resolveSearchAvatars(toSearchUsers(profileRows, followersById));
 
   const totals = new Map<string, number>();
   for (const post of (posts ?? []) as unknown as SearchPostRow[]) {
@@ -227,5 +339,15 @@ export async function loadSearchData(
     .sort((a, b) => b[1] - a[1])
     .map(([tag, postCount], index) => ({ tag, postCount, trending: index < 6 }));
 
-  return { users, hashtags };
+  const allVideos = toSearchVideos(
+    (posts ?? []) as unknown as SearchPostRow[],
+    profileRows,
+  );
+
+  return {
+    users,
+    reels: allVideos.filter((video) => video.kind === "reel"),
+    videos: allVideos.filter((video) => video.kind === "video"),
+    hashtags,
+  };
 }
