@@ -12,3 +12,4 @@
 - [Follow and view schema](follow-and-view-schema.md) — follow mutations and unique views must use live RPCs, profile counters, and posts.views_count.
 - [Fullscreen player controls](fullscreen-player-controls.md) — gate lock state, gestures, and HUD overlays to fullscreen and keep JSX control wrappers explicit.
 - [Orbit runtime schema](orbit-runtime-schema.md) — generated Orbit types can outpace Supabase; keep the table/RPC migration and client discovery fallback aligned.
+- [WebRTC call signaling](webrtc-call-signaling.md) — persist and reuse the initial offer; realtime accept events are only an acceleration path.

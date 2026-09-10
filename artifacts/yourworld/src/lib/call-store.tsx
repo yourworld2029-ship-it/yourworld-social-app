@@ -276,6 +276,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const pendingIce = useRef<RTCIceCandidateInit[]>([]);
   const fallbackSignals = useRef<Record<string, StoredSignal>>({});
   const receiveSignalRef = useRef<((payload: Record<string, unknown>) => Promise<void>) | null>(null);
+  const signalQueueRef = useRef(Promise.resolve());
   const localVideo = useRef<HTMLVideoElement | null>(null);
   const remoteVideo = useRef<HTMLVideoElement | null>(null);
   const remoteAudio = useRef<HTMLAudioElement | null>(null);
@@ -520,6 +521,19 @@ export function CallProvider({ children }: { children: ReactNode }) {
     if (error) throw error;
   }, []);
 
+  const playRemoteMedia = useCallback(() => {
+    const elements = [remoteVideo.current, remoteAudio.current];
+    for (const element of elements) {
+      if (!element?.srcObject) continue;
+      element.muted = remoteAudioMuted.current;
+      void element.play().catch((error) => {
+        // Browsers can require a second user gesture for unmuted remote audio.
+        // Media readiness and the call-surface click both retry this path.
+        console.debug("[call] remote media autoplay pending", error);
+      });
+    }
+  }, []);
+
   const attachStreams = useCallback(() => {
     if (localVideo.current && localStream.current) {
       localVideo.current.srcObject = localStream.current;
@@ -528,16 +542,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
     if (remoteStream.current) {
       if (callRef.current?.mode === "video" && remoteVideo.current) {
         remoteVideo.current.srcObject = remoteStream.current;
-        remoteVideo.current.muted = false;
-        void remoteVideo.current.play().catch((e) => console.log("Autoplay error:", e));
       }
       if (callRef.current?.mode !== "video" && remoteAudio.current) {
         remoteAudio.current.srcObject = remoteStream.current;
-        remoteAudio.current.muted = false;
-        void remoteAudio.current.play().catch((e) => console.log("Autoplay error:", e));
       }
+      playRemoteMedia();
     }
-  }, []);
+  }, [playRemoteMedia]);
 
   const getMedia = useCallback(async (mode: CallMode) => {
     const stream = await getCallMedia(mode, facingMode);
@@ -658,14 +669,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
         const attachNow = () => {
           if (callRef.current?.mode === "video" && remoteVideo.current) {
             remoteVideo.current.srcObject = s;
-            remoteVideo.current.muted = false;
-            void remoteVideo.current.play().catch((e) => console.log("Autoplay error:", e));
           }
           if (callRef.current?.mode !== "video" && remoteAudio.current) {
             remoteAudio.current.srcObject = s;
-            remoteAudio.current.muted = false;
-            void remoteAudio.current.play().catch((e) => console.log("Autoplay error:", e));
           }
+          playRemoteMedia();
         };
         attachNow();
         requestAnimationFrame(attachNow);
@@ -699,7 +707,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       };
       return pc;
     },
-    [signal, teardown, logCallOutcome],
+    [signal, teardown, logCallOutcome, playRemoteMedia],
   );
 
   const flushIce = useCallback(async () => {
@@ -733,16 +741,25 @@ export function CallProvider({ children }: { children: ReactNode }) {
               setPhase("connecting");
               const stream = localStream.current ?? (await getMedia(mode));
               const peer = pcRef.current ?? createPeer(stream);
-              const offer = await peer.createOffer({
-                offerToReceiveAudio: true,
-                offerToReceiveVideo: mode === "video",
-              });
-              const optimizedOffer = {
-                ...offer,
-                sdp: optimizeVideoSdp(offer.sdp ?? ""),
-              };
-              await peer.setLocalDescription(optimizedOffer);
-              signal({ type: "CALL_OFFER", sdp: peer.localDescription });
+              // The caller already created and persisted an offer before the
+              // ringing row was inserted. Reusing it avoids a second
+              // negotiation that can race the receiver's accept broadcast.
+              let offerDescription = peer.localDescription;
+              if (!offerDescription) {
+                const offer = await peer.createOffer({
+                  offerToReceiveAudio: true,
+                  offerToReceiveVideo: mode === "video",
+                });
+                const optimizedOffer = {
+                  ...offer,
+                  sdp: optimizeVideoSdp(offer.sdp ?? ""),
+                };
+                await peer.setLocalDescription(optimizedOffer);
+                offerDescription = peer.localDescription;
+              }
+              if (!offerDescription) throw new Error("no offer was created");
+              await persistDescription(callId, "offer", offerDescription);
+              signal({ type: "CALL_OFFER", sdp: offerDescription });
             } else if (
               (type === "CALL_OFFER" || type === "offer") &&
               !isCaller &&
@@ -771,11 +788,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 payload: { type: "CALL_ANSWER", callId, sdp: answerDescription },
               });
               await persistDescription(callId, "answer", answerDescription);
-              const { error: statusError } = await callDb
-                .from("calls")
-                .update({ status: "connected" })
-                .eq("id", callId);
-              if (statusError) console.error("[call] connected status update failed", statusError);
               setPhase("connecting");
             } else if ((type === "CALL_ANSWER" || type === "answer") && pc && !pc.remoteDescription) {
               const remoteAnswer = asSessionDescription(payload.sdp);
@@ -783,14 +795,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
               await pc.setRemoteDescription(new RTCSessionDescription(remoteAnswer));
               await flushIce();
               stopAllRingtones();
-              connectedAt.current ??= Date.now();
-              setPhase("active");
-              const currentCall = callRef.current;
-              if (currentCall) {
-                void callDb.from("calls")
-                  .update({ status: "connected" })
-                  .eq("id", currentCall.callId);
-              }
+              setPhase("connecting");
             } else if (type === "ICE_CANDIDATE" || type === "ice") {
               const candidate = asIceCandidate(payload.candidate);
               if (!candidate) return;
@@ -811,17 +816,22 @@ export function CallProvider({ children }: { children: ReactNode }) {
             console.error("[call] signal error", err);
           }
         };
-        receiveSignalRef.current = receive;
+        const enqueueReceive = (payload: Record<string, unknown>, eventType?: string) => {
+          const next = signalQueueRef.current.then(() => receive(payload, eventType));
+          signalQueueRef.current = next.catch(() => {});
+          return next;
+        };
+        receiveSignalRef.current = enqueueReceive;
         const broadcastEvents = ["CALL_ACCEPT", "CALL_OFFER", "CALL_ANSWER", "ICE_CANDIDATE", "END_CALL"] as const;
         for (const event of broadcastEvents) {
           ch.on("broadcast", { event }, ({ payload }) => {
-            void receive(payload as Record<string, unknown>, event);
+            void enqueueReceive(payload as Record<string, unknown>, event);
           });
         }
         // Keep accepting the older generic event for calls started by a tab
         // that has not refreshed yet.
         ch.on("broadcast", { event: "signal" }, ({ payload }) => {
-          void receive(payload as Record<string, unknown>);
+          void enqueueReceive(payload as Record<string, unknown>);
         });
 
         // Never leave callers awaiting forever: resolve on any terminal
@@ -849,14 +859,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
         void callDb.from("calls").select("signal_data").eq("id", callId).maybeSingle()
           .then(({ data }: { data: { signal_data?: Partial<StoredSignal> } | null }) => {
             const stored = (data as { signal_data?: Partial<StoredSignal> } | null)?.signal_data;
-            if (stored?.sender_id && stored.sender_id !== meRef.current && stored.payload) {
+            if (stored?.sender_id && stored.sender_id !== meRef.current) {
               void (async () => {
-                await receive(stored.payload!);
-                for (const candidate of stored.candidates ?? []) await receive({ type: "ICE_CANDIDATE", candidate });
+                if (stored.payload) await enqueueReceive(stored.payload);
+                for (const candidate of stored.candidates ?? []) await enqueueReceive({ type: "ICE_CANDIDATE", candidate });
                 const remoteCandidates = isCaller
                   ? stored.receiver_candidates
                   : stored.caller_candidates;
-                for (const candidate of remoteCandidates ?? []) await receive({ type: "ICE_CANDIDATE", candidate });
+                for (const candidate of remoteCandidates ?? []) await enqueueReceive({ type: "ICE_CANDIDATE", candidate });
               })();
             }
           });
@@ -916,6 +926,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
         avatarUrl: callerProfile?.avatar_url ?? null,
         incoming: true,
       };
+      const storedSignal = row.signal_data as Partial<StoredSignal> | null;
+      if (storedSignal && typeof storedSignal === "object") {
+        fallbackSignals.current[row.id] = storedSignal as StoredSignal;
+      }
       setCall(nextCall);
       callRef.current = nextCall;
       setPhase("incoming");
@@ -933,11 +947,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
       const row = raw as CallRow;
       if (row.receiver_id !== me2 && row.caller_id !== me2) return;
       if (row.receiver_id === me2 && row.status === "ringing") void ring(row);
-      if (row.id === callRef.current?.callId && row.status === "connected") {
-        stopAllRingtones();
-        connectedAt.current ??= Date.now();
-        setPhase("active");
-      }
       if (
         row.id === callRef.current?.callId &&
         (row.status === "ended" ||
@@ -958,9 +967,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
         teardown();
       }
       const stored = row.signal_data as Partial<StoredSignal> | null;
-      if (stored?.sender_id && stored.sender_id !== me2 && stored.payload) {
+      if (stored?.sender_id && stored.sender_id !== me2) {
         void (async () => {
-          await receiveSignalRef.current?.(stored.payload!);
+          if (stored.payload) await receiveSignalRef.current?.(stored.payload);
           for (const candidate of stored.candidates ?? []) {
             await receiveSignalRef.current?.({ type: "ICE_CANDIDATE", candidate });
           }
@@ -1195,12 +1204,27 @@ export function CallProvider({ children }: { children: ReactNode }) {
         .update({ status: "accepted" } as never)
         .eq("id", call.callId);
       if (error) throw error;
-      // The caller listens for this broadcast to generate the offer.
+      // The caller listens for this broadcast as an acceleration path. The
+      // stored offer below makes accept resilient when broadcast delivery is
+      // delayed or unavailable.
       void sigRef.current?.send({
         type: "broadcast",
         event: "CALL_ACCEPT",
         payload: { type: "CALL_ACCEPT", callId: call.callId },
       });
+      const { data: callRow } = await callDb
+        .from("calls")
+        .select("signal_data")
+        .eq("id", call.callId)
+        .maybeSingle();
+      const storedOffer = (callRow as { signal_data?: Partial<StoredSignal> } | null)?.signal_data?.offer;
+      if (storedOffer) {
+        await receiveSignalRef.current?.({
+          type: "CALL_OFFER",
+          callId: call.callId,
+          sdp: storedOffer,
+        });
+      }
     } catch (error) {
       toast.error(`Call could not connect: ${error instanceof Error ? error.message : "unexpected setup error"}`);
       signal({ type: "END_CALL", reason: "failed" });
@@ -1440,7 +1464,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
               ? "bg-zinc-950/95 backdrop-blur-xl"
               : "bg-zinc-950"
           }`}
-          onClick={phase === "incoming" ? undefined : pokeControls}
+          onClick={phase === "incoming" ? undefined : () => {
+            playRemoteMedia();
+            pokeControls();
+          }}
         >
           {phase !== "incoming" && call.mode === "audio" && (
             <div className="absolute inset-0 z-0 overflow-hidden bg-[radial-gradient(circle_at_50%_34%,rgba(99,102,241,0.35),transparent_58%),linear-gradient(160deg,#09090b,#18122e_55%,#09090b)]">
@@ -1480,6 +1507,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 ref={remoteVideo}
                 autoPlay
                 playsInline
+                muted={false}
+                onLoadedMetadata={playRemoteMedia}
                 onClick={
                   swapped
                     ? (e) => { e.stopPropagation(); setSwapped(false); }
@@ -1531,7 +1560,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
             </>
           )}
 
-          <audio ref={remoteAudio} autoPlay className="hidden" />
+          <audio
+            ref={remoteAudio}
+            autoPlay
+            playsInline
+            muted={false}
+            onLoadedMetadata={playRemoteMedia}
+            className="hidden"
+          />
 
           {phase !== "incoming" && (
             <div className="absolute left-1/2 top-[max(1.25rem,env(safe-area-inset-top,0px))] z-30 -translate-x-1/2 rounded-full border border-white/15 bg-black/30 px-4 py-2 text-sm font-semibold tracking-[0.18em] text-white/90 shadow-xl backdrop-blur-2xl">
