@@ -145,7 +145,7 @@ function ChatThreadPage() {
     };
   }, [threadId, navigate]);
 
-  const { startCall } = useCall();
+  const { startCall, clearCallHistory } = useCall();
   const {
     messages: dbMessages,
     currentUserId,
@@ -366,6 +366,7 @@ function ChatThreadPage() {
     }
     setLocalMessages([]);
     setHiddenIds([]);
+    if (peer.peerId) clearCallHistory(peer.peerId);
     exitSelectMode();
     setClearConfirmOpen(false);
     toast.success("Chat cleared for everyone.");

@@ -211,9 +211,15 @@ type Ctx = {
   /** The authenticated Supabase user id. Signed-out visitors cannot call. */
   myCallId: string | null;
   isGuest: boolean;
+  clearCallHistory: (peerId: string) => void;
 };
 
-const CallCtx = createContext<Ctx>({ startCall: async () => {}, myCallId: null, isGuest: true });
+const CallCtx = createContext<Ctx>({
+  startCall: async () => {},
+  myCallId: null,
+  isGuest: true,
+  clearCallHistory: () => {},
+});
 export const useCall = () => useContext(CallCtx);
 
 /** Builds a looping ring tone as a WAV data URL playable by an HTML5 <audio> element. */
@@ -358,6 +364,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const connectedAt = useRef<number | null>(null);
   /** Ensures the call-log chat message is written exactly once per call. */
   const loggedCall = useRef<string | null>(null);
+  /** Prevent an already-active call from recreating a log after its chat was cleared. */
+  const clearedCallPeers = useRef<Set<string>>(new Set());
   const logCallOutcomeRef = useRef<((outcome: CallOutcome) => Promise<void>) | null>(null);
   const pendingNotificationAction = useRef<CallNotificationAction | null>(null);
   const [showNotificationBanner, setShowNotificationBanner] = useState(false);
@@ -655,6 +663,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       const c = callRef.current;
       const meId = meRef.current;
       if (!c || c.incoming || !meId || isGuestRef.current) return;
+      if (clearedCallPeers.current.has(c.peerId)) return;
       if (loggedCall.current === c.callId) return;
       loggedCall.current = c.callId;
       const durMs = connectedAt.current ? Date.now() - connectedAt.current : null;
@@ -1184,6 +1193,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
           throw new Error(error?.message ?? "no call id was returned");
         }
         const nextCall = { callId, mode, peerId: target, peerName: peerName ?? "Calling…", incoming: false, threadId: threadId ?? null };
+        clearedCallPeers.current.delete(target);
         fallbackSignals.current[callId] = initialSignal;
         pendingLocalIce.current = [];
         setCall(nextCall);
@@ -1223,6 +1233,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
     [authId, me, getMedia, createPeer, openSignalChannel, signal, teardown, logCallOutcome, markSeen],
 
   );
+
+  const clearCallHistory = useCallback((peerId: string) => {
+    if (peerId) clearedCallPeers.current.add(peerId);
+  }, []);
 
   const accept = useCallback(async () => {
     if (!call || !authId) return;
@@ -1460,8 +1474,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
 
   const value = useMemo(
-    () => ({ startCall, myCallId: me, isGuest }),
-    [startCall, me, isGuest],
+    () => ({ startCall, myCallId: me, isGuest, clearCallHistory }),
+    [startCall, me, isGuest, clearCallHistory],
   );
 
   const statusText =

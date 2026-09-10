@@ -286,21 +286,30 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
   }, [peerId, enabled, merge, clearedBefore]);
   useEffect(() => {
     if (!enabled || !isUuid(peerId)) return;
-    const channel = supabase
-      .channel(`orbit-chat-clear-${peerId}`)
-      .on("broadcast", { event: "chat_cleared" }, ({ payload }) => {
-        if (payload?.peerId !== peerId) return;
-        messagesRef.current = [];
-        setMessages([]);
-        setHasMore(false);
-        void saveCachedThread(`orbit:${peerId}`, []);
-      })
-      .subscribe();
-    clearChannelRef.current = channel;
+    let cancelled = false;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    void supabase.auth.getUser().then(({ data }) => {
+      const me = data.user?.id;
+      if (!me || cancelled) return;
+      const channelKey = [me, peerId].sort().join("-");
+      channel = supabase
+        .channel(`orbit-chat-clear-${channelKey}`)
+        .on("broadcast", { event: "chat_cleared" }, () => {
+          messagesRef.current = [];
+          setMessages([]);
+          setHasMore(false);
+          void saveCachedThread(`orbit:${peerId}`, []);
+        })
+        .subscribe();
+      clearChannelRef.current = channel;
+    });
     return () => {
+      cancelled = true;
       if (clearChannelRef.current === channel) clearChannelRef.current = null;
-      void channel.unsubscribe();
-      void supabase.removeChannel(channel);
+      if (channel) {
+        void channel.unsubscribe();
+        void supabase.removeChannel(channel);
+      }
     };
   }, [peerId, enabled]);
 

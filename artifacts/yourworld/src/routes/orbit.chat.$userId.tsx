@@ -677,6 +677,7 @@ function OrbitChatPage() {
     }
     setNotes([]);
     setClearedBefore(new Date().toISOString());
+    call.clearCallHistory(userId);
     exitSelectMode();
     setClearConfirmOpen(false);
     toast.success("Chat cleared for everyone.");
