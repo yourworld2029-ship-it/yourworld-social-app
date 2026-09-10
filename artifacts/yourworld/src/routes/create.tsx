@@ -14,6 +14,7 @@ import { publishDirectReel } from "@/lib/social-data";
 
 const MIN_REEL_SECONDS = 5;
 const MAX_REEL_SECONDS = 90;
+const MAX_REEL_BYTES = 104_857_600;
 
 export const Route = createFileRoute("/create")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -74,6 +75,10 @@ function DirectReelUploadPage() {
       setError("Choose a video file.");
       return;
     }
+    if (nextFile.size > MAX_REEL_BYTES) {
+      toast.error("Reels must be under 100 MB.");
+      return;
+    }
     setError(null);
     setDuration(null);
     setDimensions({ width: 0, height: 0 });
@@ -113,6 +118,10 @@ function DirectReelUploadPage() {
   const publish = async () => {
     if (!file || duration == null) {
       setError("Choose a video and wait for its duration to load.");
+      return;
+    }
+    if (file.size > MAX_REEL_BYTES) {
+      toast.error("Reels must be under 100 MB.");
       return;
     }
     if (duration < MIN_REEL_SECONDS || duration > MAX_REEL_SECONDS) {

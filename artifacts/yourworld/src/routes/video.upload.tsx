@@ -37,6 +37,7 @@ export const Route = createFileRoute("/video/upload")({
   component: VideoUploadPage,
 });
 const MIN_DURATION = 90;
+const MAX_VIDEO_BYTES = 209_715_200;
 
 function VideoUploadPage() {
 
@@ -78,6 +79,10 @@ function VideoUploadPage() {
     if (!file) return;
     if (!file.type.startsWith("video/")) {
       toast.error("Please choose a video file");
+      return;
+    }
+    if (file.size > MAX_VIDEO_BYTES) {
+      toast.error("Videos must be under 200 MB.");
       return;
     }
     const url = URL.createObjectURL(file);
@@ -129,6 +134,10 @@ function VideoUploadPage() {
 
   const submit = () => {
     if (!fileUrl) return;
+    if (selectedFileRef.current && selectedFileRef.current.size > MAX_VIDEO_BYTES) {
+      toast.error("Videos must be under 200 MB.");
+      return;
+    }
     if (duration === null || duration < MIN_DURATION) {
       toast.error("Long videos must be at least 90 seconds.");
       return;
