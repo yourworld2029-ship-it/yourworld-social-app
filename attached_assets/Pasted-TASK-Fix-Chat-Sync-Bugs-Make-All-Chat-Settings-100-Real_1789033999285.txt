@@ -1,0 +1,32 @@
+TASK: Fix Chat Sync Bugs & Make All Chat Settings 100% Real-time (Social & Orbit)
+
+1. Root-Cause Fix for "Clear Chat Reappearing Bug":
+   - When "Clear Chat" is confirmed:
+     a) Permanently DELETE all records from Supabase 'messages' table matching conversation_id (or sender/receiver pair).
+     b) Invalidate & clear client-side cache / React Query / localStorage cache for that conversation.
+     c) Broadcast a Realtime channel event: type = 'CHAT_CLEARED', payload = { conversationId }.
+     d) On receiving this event, both sender and receiver clients must immediately reset local message state to empty array: setMessages([]).
+     e) Ensure background fetch/re-renders do NOT repopulate deleted messages.
+
+2. Full Real-time Sync for All Chat Menu Toggles (Social & Orbit Direct Messages):
+   - Auto Delete (24 Hours):
+     * Sync toggle state immediately to conversation_settings / database row.
+     * When ON, auto-purge messages older than 24h without affecting lifetime retention when OFF.
+   - Secret Lock Chat:
+     * Toggle status persists in DB; prompts PIN/biometric in real-time when accessed.
+   - Screenshot Alert & Screen Recording Alert:
+     * Broadcast alert event over Supabase Realtime channel so other participant instantly gets alerted without lag.
+   - Mute Notifications:
+     * Update mute status instantly in Supabase; mute push/sound triggers on active client.
+   - Block User & Report User:
+     * Update block status in real-time; immediately restrict incoming/outgoing messages.
+     * Submit report payload to admin table with instant toast confirmation.
+
+3. Performance & Clean State:
+   - Ensure Supabase Realtime subscriptions (postgres_changes and broadcast channels) are properly subscribed on mount and cleanly unsubscribed/cleaned up on unmount to prevent duplicate listeners or memory leaks.
+   - Verify zero console errors, zero flickering, and instant two-way updates across both devices.
+
+4. Scope:
+   - Apply fixes across both Social Chat and Orbit Chat. Do NOT alter any UI styling or other unrelated app components.
+
+Rebuild, test, and ensure clean, persistent, real-time chat operations.
