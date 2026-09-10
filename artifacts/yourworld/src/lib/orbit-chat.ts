@@ -164,6 +164,7 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
   const meRef = useRef<string | null>(null);
   const messagesRef = useRef<OrbitMessage[]>([]);
   const clearChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const clearGenerationRef = useRef(0);
 
   const merge = useCallback((next: OrbitMessage[]) => {
     setMessages((prev) => {
@@ -194,12 +195,14 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
     let cancelled = false;
     setLoading(true);
 
+    const cachedGeneration = clearGenerationRef.current;
     void loadCachedThread<OrbitMessage>(`orbit:${peerId}`).then((rows) => {
-      if (cancelled || !rows?.length) return;
+      if (cancelled || cachedGeneration !== clearGenerationRef.current || !rows?.length) return;
       merge(rows.filter((row) => isRenderableOrbitMessage(row)));
     });
 
     const load = async () => {
+      const generation = clearGenerationRef.current;
       try {
         const { data: auth } = await supabase.auth.getUser();
         const me = auth.user?.id;
@@ -210,7 +213,7 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
         if (fetched === null) return;
         const rows = fetched
           .filter((row) => isUnexpiredOrbitRow(row, me));
-        if (cancelled) return;
+        if (cancelled || generation !== clearGenerationRef.current) return;
         setHasMore(rows.length >= PAGE_SIZE);
         merge(rows.map((r) => toMsg(r, me)));
       } catch (cause) {
@@ -295,6 +298,7 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
       channel = supabase
         .channel(`orbit-chat-clear-${channelKey}`)
         .on("broadcast", { event: "chat_cleared" }, () => {
+          clearGenerationRef.current += 1;
           messagesRef.current = [];
           setMessages([]);
           setHasMore(false);
@@ -444,6 +448,7 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
       { _peer_id: peerId } as never,
     );
     if (clearError) return { error: clearError.message };
+    clearGenerationRef.current += 1;
     messagesRef.current = [];
     setMessages([]);
     setHasMore(false);
@@ -464,6 +469,7 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
     const me = meRef.current;
     const oldest = messagesRef.current.find((m) => !m.id.startsWith("temp-"))?.at;
     if (!me || !oldest || loadingMore || !hasMore || !isUuid(peerId)) return;
+    const generation = clearGenerationRef.current;
     setLoadingMore(true);
     try {
       const fetched = await fetchOrbitRows({
@@ -473,6 +479,7 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
         before: new Date(oldest).toISOString(),
       });
       if (fetched === null) return;
+      if (generation !== clearGenerationRef.current) return;
       const rows = fetched.filter((row) => isUnexpiredOrbitRow(row, me));
       setHasMore(rows.length >= PAGE_SIZE);
       if (rows.length) merge(rows.map((r) => toMsg(r, me)));

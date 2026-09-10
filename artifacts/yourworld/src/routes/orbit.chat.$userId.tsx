@@ -396,6 +396,30 @@ function OrbitChatPage() {
             setRecordingAlert(row.recording_alert !== false);
             setMuted(row.muted === true);
           },
+         )
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "user_blocks",
+            filter: `blocker_id=eq.${me}`,
+          },
+          () => {
+            void migrationSupabase
+              .from("user_blocks")
+              .select("blocked_id")
+              .eq("blocker_id", me)
+              .eq("blocked_id", userId)
+              .maybeSingle()
+              .then(({ data }) => {
+                if (cancelled) return;
+                const nextBlocked = Boolean(data);
+                if (nextBlocked !== orbit.privacy.blocked.includes(userId)) {
+                  orbit.toggleBlocked(userId);
+                }
+              });
+          },
         )
         .subscribe();
     });

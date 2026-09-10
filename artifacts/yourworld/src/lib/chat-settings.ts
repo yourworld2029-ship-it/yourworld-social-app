@@ -148,6 +148,22 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
           }));
         },
       );
+      channelBuilder.on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "user_blocks", filter: `blocker_id=eq.${me}` },
+        () => {
+          void supabase
+            .from("user_blocks" as never)
+            .select("blocked_id" as never)
+            .eq("blocker_id" as never, me)
+            .eq("blocked_id" as never, peerId)
+            .maybeSingle()
+            .then(({ data }) => {
+              if (!alive) return;
+              setSettings((current) => ({ ...current, blocked: Boolean(data) }));
+            });
+        },
+      );
       if (conversationId) {
         channelBuilder.on(
           "postgres_changes",

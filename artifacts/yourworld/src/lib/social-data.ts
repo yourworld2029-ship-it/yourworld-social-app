@@ -990,6 +990,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
   const messagesRef = useRef<DbMessage[]>([]);
   const meRef = useRef<string | null>(null);
   const clearChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const clearGenerationRef = useRef(0);
   const afterViewTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   useEffect(() => { messagesRef.current = messages; cacheSet(`thread:${threadId}`, messages.filter((m) => !m.id.startsWith("tmp-")).slice(-40)); }, [messages, threadId]);
 
@@ -1036,9 +1037,11 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
   }, [pair]);
   const load = useCallback(async () => {
     if (!pair) { setLoading(false); return; }
+    const generation = clearGenerationRef.current;
     try {
       const rows = await queryRows();
       if (rows === null) return;
+      if (generation !== clearGenerationRef.current) return;
       merge(rows);
       setHasMore(rows.length >= PAGE_SIZE);
       setError(null);
@@ -1051,10 +1054,12 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
   const loadOlder = useCallback(async () => {
     const oldest = messagesRef.current.filter((m) => !m.id.startsWith("tmp-")).sort((a, b) => a.created_at.localeCompare(b.created_at))[0]?.created_at;
     if (!oldest || loadingMore || !hasMore) return;
+    const generation = clearGenerationRef.current;
     setLoadingMore(true);
     try {
       const rows = await queryRows(oldest);
       if (rows === null) return;
+      if (generation !== clearGenerationRef.current) return;
       merge(rows);
       setHasMore(rows.length >= PAGE_SIZE);
       setError(null);
@@ -1140,6 +1145,9 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       .channel(`social-chat-clear-${conversationId}`)
       .on("broadcast", { event: "chat_cleared" }, ({ payload }) => {
         if (payload?.conversationId !== conversationId) return;
+        clearGenerationRef.current += 1;
+        afterViewTimersRef.current.forEach((timer) => clearTimeout(timer));
+        afterViewTimersRef.current.clear();
         messagesRef.current = [];
         setMessages([]);
         setHasMore(false);
@@ -1313,6 +1321,9 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       setError(clearError.message);
       return { error: clearError.message };
     }
+    clearGenerationRef.current += 1;
+    afterViewTimersRef.current.forEach((timer) => clearTimeout(timer));
+    afterViewTimersRef.current.clear();
     messagesRef.current = [];
     setMessages([]);
     setHasMore(false);

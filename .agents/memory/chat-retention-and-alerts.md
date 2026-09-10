@@ -14,3 +14,9 @@ Clear Chat must remove both message rows and durable `calls` rows for the partic
 **Why:** Social call outcomes were written as ordinary messages without a conversation ID, and directional Orbit channels allowed one participant to miss the reset event.
 
 **How to apply:** Keep participant-pair fallback deletion in both clear RPCs, and broadcast the local empty-state reset over the canonical Social conversation or sorted Orbit participant channel.
+
+After a clear reset, invalidate any in-flight message fetch, pagination request, or cached-thread load before it can merge rows back into local state.
+
+**Why:** Realtime deletion and an earlier fetch can complete in either order; without a generation check, a successful stale fetch can visually resurrect messages that the clear RPC already removed.
+
+**How to apply:** Increment a per-hook clear generation on local and remote resets, capture it when loading, and discard results whose generation no longer matches. Clear pending expiry timers at the same reset boundary.
