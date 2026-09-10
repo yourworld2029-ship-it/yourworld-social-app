@@ -205,7 +205,35 @@ type DbMoment = {
   archived: boolean;
   created_at: string;
   expires_at?: string | null;
+  profiles?: MomentProfileRow | MomentProfileRow[] | null;
+  user?: MomentProfileRow | MomentProfileRow[] | null;
+  avatar_url?: string | null;
 };
+
+type MomentProfileRow = {
+  id: string;
+  full_name?: string | null;
+  display_name?: string | null;
+  username?: string | null;
+  avatar_url?: string | null;
+};
+
+const MOMENT_WITH_PROFILE_SELECT =
+  "*, profiles:user_id (id, full_name, display_name, username, avatar_url)";
+
+function profileFromMomentRow(row: DbMoment): MomentProfileRow | null {
+  const nested = row.profiles ?? row.user;
+  const profile = Array.isArray(nested) ? nested[0] : nested;
+  return profile ?? (row.avatar_url ? { id: row.user_id, avatar_url: row.avatar_url } : null);
+}
+
+function hasProfileJoinError(error: unknown) {
+  const message =
+    error && typeof error === "object"
+      ? String((error as { message?: unknown }).message ?? "")
+      : String(error ?? "");
+  return /relationship|schema cache|profiles:user_id/i.test(message);
+}
 
 function postRowToMoment(row: Record<string, unknown>): DbMoment {
   const createdAt =
@@ -449,20 +477,34 @@ export function MomentProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const momentsResult = await supabase
+    let momentsResult = (await supabase
       .from("moments")
-      .select("*")
+      .select(MOMENT_WITH_PROFILE_SELECT)
       .order("created_at", { ascending: false })
-      .limit(200);
+      .limit(200)) as unknown as MomentDbResult;
+    if (momentsResult.error && hasProfileJoinError(momentsResult.error)) {
+      momentsResult = (await supabase
+        .from("moments")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(200)) as unknown as MomentDbResult;
+    }
     let rows: unknown[] | null = momentsResult.data;
     let momentsError = momentsResult.error;
     let usesPostsFallback = false;
     if (missingTable(momentsError, "moments")) {
-      const postsResult = await supabase
+      let postsResult = (await supabase
         .from("posts")
-        .select("*")
+        .select(MOMENT_WITH_PROFILE_SELECT)
         .order("created_at", { ascending: false })
-        .limit(200);
+        .limit(200)) as unknown as MomentDbResult;
+      if (postsResult.error && hasProfileJoinError(postsResult.error)) {
+        postsResult = (await supabase
+          .from("posts")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .limit(200)) as unknown as MomentDbResult;
+      }
       rows = (postsResult.data ?? []).filter(
         (row) => (row as Record<string, unknown>).kind === "moment",
       );
@@ -542,14 +584,14 @@ export function MomentProvider({ children }: { children: ReactNode }) {
       : (uniqueViewsResult.data ?? []) as DbUniqueView[];
 
     const profileById = new Map(
-      ((profiles ?? []) as { id: string; username: string | null; display_name?: string | null; avatar_url: string | null }[]).map(
+      ((profiles ?? []) as MomentProfileRow[]).map(
         (p) => [
           p.id,
           {
             id: p.id,
             username: p.username ?? "user",
-            name: p.display_name ?? p.username ?? "User",
-            avatar: p.avatar_url,
+            name: p.display_name ?? p.full_name ?? p.username ?? "User",
+            avatar: p.avatar_url ?? null,
           } satisfies MomentAuthor,
         ],
       ),
@@ -604,7 +646,22 @@ export function MomentProvider({ children }: { children: ReactNode }) {
             at: new Date(r.created_at).getTime(),
           })),
 
-        profileById.get(row.user_id),
+        (() => {
+          const embedded = profileFromMomentRow(row);
+          const rpcProfile = profileById.get(row.user_id);
+          if (!embedded && !rpcProfile) return undefined;
+          return {
+            id: row.user_id,
+            username: embedded?.username ?? rpcProfile?.username ?? "user",
+            name:
+              embedded?.display_name ??
+              embedded?.full_name ??
+              rpcProfile?.name ??
+              embedded?.username ??
+              "User",
+            avatar: embedded?.avatar_url?.trim() || rpcProfile?.avatar || null,
+          };
+        })(),
         uid,
       ),
     );
