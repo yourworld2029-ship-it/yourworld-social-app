@@ -2,6 +2,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
   type TouchEvent as ReactTouchEvent,
   type ReactNode,
 } from "react";
@@ -18,6 +19,7 @@ import {
   Download,
   Eye,
   Heart,
+  Lock,
   MessageCircle,
   Reply,
   Send,
@@ -488,6 +490,8 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
       setIsFullscreen(fullscreen);
       if (!fullscreen) {
         setScreenLocked(false);
+        setZoom(1);
+        setDisplayMode("fit");
         setBrightness(1);
         setGestureFeedback(null);
       }
@@ -688,18 +692,19 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     }, 1000);
   };
 
-  const toggleDisplayMode = () => {
-    if (zoom > 1 || displayMode === "fill") {
-      setZoom(1);
-      setDisplayMode("fit");
-    } else {
-      setDisplayMode("fill");
-    }
+  const seekBy = (seconds: number) => {
+    if (!isFullscreen || screenLocked) return;
+    const videoElement = videoRef.current;
+    if (!videoElement) return;
+    const duration = Number.isFinite(videoElement.duration) ? videoElement.duration : Infinity;
+    videoElement.currentTime = clamp(videoElement.currentTime + seconds, 0, duration);
+    showGestureFeedback("seek", seconds, `${seconds > 0 ? "+" : ""}${seconds}s`);
   };
 
-  const handleDoubleTap = () => {
+  const handleDoubleTap = (event: ReactMouseEvent<HTMLDivElement>) => {
     if (!isFullscreen || screenLocked) return;
-    toggleDisplayMode();
+    const rect = event.currentTarget.getBoundingClientRect();
+    seekBy(event.clientX - rect.left >= rect.width / 2 ? 15 : -15);
   };
 
   const handleTouchStart = (event: ReactTouchEvent<HTMLDivElement>) => {
@@ -785,7 +790,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     const previousTap = lastTapRef.current;
     if (previousTap && now - previousTap.time < 320 && Math.abs(gesture.startX - previousTap.x) < 48) {
       event.preventDefault();
-      toggleDisplayMode();
+      seekBy(gesture.startX >= gesture.width / 2 ? 15 : -15);
       lastTapRef.current = null;
       return;
     }
@@ -963,6 +968,20 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
         >
           <ArrowLeft className="h-5 w-5" />
          </button>}
+
+         {isFullscreen && !screenLocked ? (
+           <button
+             type="button"
+             onClick={toggleScreenLock}
+             className="absolute right-3 top-3 z-50 rounded-full bg-black/60 p-2 text-white backdrop-blur-md transition-all hover:bg-black/80"
+             aria-label="Lock player controls"
+             onTouchStart={(event) => event.stopPropagation()}
+             onTouchEnd={(event) => event.stopPropagation()}
+             onDoubleClick={(event) => event.stopPropagation()}
+           >
+             <Lock className="h-5 w-5" />
+           </button>
+         ) : null}
       </div>
 
       <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col space-y-4 px-4 py-4">
