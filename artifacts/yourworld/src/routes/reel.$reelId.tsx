@@ -9,7 +9,12 @@ export const Route = createFileRoute("/reel/$reelId")({
     const reelId = typeof params.reelId === "string" ? params.reelId.trim() : "";
     throw redirect({
       to: "/reels",
-      search: { reelId: reelId || undefined },
+      search: {
+        reelId: reelId || undefined,
+        userId: undefined,
+        initialVideoId: undefined,
+        returnTo: undefined,
+      },
     });
   },
   component: () => null,

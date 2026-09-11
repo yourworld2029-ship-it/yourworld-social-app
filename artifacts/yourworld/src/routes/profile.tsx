@@ -134,10 +134,26 @@ function ProfilePage() {
       return;
     }
     if (post.kind === "reel") {
-      void navigate({ to: "/reels", search: { reelId: id } });
+      void navigate({
+        to: "/reels",
+        search: {
+          reelId: undefined,
+          userId: post.user_id,
+          initialVideoId: id,
+          returnTo: "profile",
+        },
+      });
       return;
     }
-    void navigate({ to: "/video/$videoId", params: { videoId: id } });
+    void navigate({
+      to: "/reels",
+      search: {
+        reelId: undefined,
+        userId: post.user_id,
+        initialVideoId: id,
+        returnTo: "profile",
+      },
+    });
   };
 
 
@@ -751,7 +767,7 @@ function MediaGrid({
               {formatDuration(it.post.duration_seconds)}
             </span>
           ) : null}
-           {it.post && onOpen ? (
+           {it.post && onOpen && (it.post.kind === "reel" || it.post.kind === "video" || it.type?.startsWith("video")) ? (
             <>
               <button
                 type="button"

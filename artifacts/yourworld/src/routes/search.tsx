@@ -156,7 +156,15 @@ function SearchPage() {
 
   function handleReelClick(reel: SearchVideo) {
     rememberQuery();
-    void navigate({ to: "/reels", search: { reelId: reel.id } });
+    void navigate({
+      to: "/reels",
+      search: {
+        reelId: reel.id,
+        userId: undefined,
+        initialVideoId: undefined,
+        returnTo: undefined,
+      },
+    });
   }
 
   function handleVideoClick(video: SearchVideo) {

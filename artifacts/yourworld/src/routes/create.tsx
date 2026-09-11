@@ -160,7 +160,15 @@ function DirectReelUploadPage() {
     }
 
     toast.success("Reel published");
-    navigate({ to: "/reels", search: { reelId: undefined } });
+    navigate({
+      to: "/reels",
+      search: {
+        reelId: undefined,
+        userId: undefined,
+        initialVideoId: undefined,
+        returnTo: undefined,
+      },
+    });
   };
 
   return (

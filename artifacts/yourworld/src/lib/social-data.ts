@@ -153,35 +153,44 @@ export async function resolveMediaUrl(url: string, bucket = "reels"): Promise<st
 
 /** Live list of posts of a given kind, with author, like and comment counts. */
 export async function loadSocialPosts(
-  kind: "post" | "reel",
+  kind: "post" | "reel" | "video" | "creator-media",
   client: typeof supabase = supabase,
+  userId?: string,
 ): Promise<{ posts: SocialPost[]; currentUserId: string | null }> {
   const { data: sessionData } = await client.auth.getSession();
   const uid = sessionData.session?.user.id ?? null;
-  let { data: posts, error } = await client
-    .from("posts")
-    .select("*")
-    .eq("kind", kind)
+  const scoped = Boolean(userId);
+  let query = client.from("posts").select("*");
+  if (kind === "creator-media") query = query.in("kind", ["reel", "video"]);
+  else query = query.eq("kind", kind);
+  if (userId) query = query.eq("user_id", userId);
+  let { data: posts, error } = await query
     .order("created_at", { ascending: false })
-    .limit(50);
+    .limit(scoped ? 100 : 50);
 
   if (missingColumn(error) === "kind") {
     const legacyKind = kind === "post" ? "story" : kind;
-    const legacy = await client
+    let legacyQuery = client
       .from("posts")
       .select("*")
-      .eq("type" as "kind", legacyKind)
+      .eq("type" as "kind", legacyKind);
+    if (userId) legacyQuery = legacyQuery.eq("user_id", userId);
+    const legacy = await legacyQuery
       .order("created_at", { ascending: false })
-      .limit(50);
+      .limit(scoped ? 100 : 50);
     posts = legacy.data;
     error = legacy.error;
-    if (missingColumn(error) === "type") {
-      const unfiltered = await client
-        .from("posts")
-        .select("*")
+    if (missingColumn(error) === "type" || kind === "creator-media") {
+      let unfilteredQuery = client.from("posts").select("*");
+      if (userId) unfilteredQuery = unfilteredQuery.eq("user_id", userId);
+      const unfiltered = await unfilteredQuery
         .order("created_at", { ascending: false })
         .limit(100);
-      posts = (unfiltered.data ?? []).filter((row) => postKind(row) === kind);
+      posts = (unfiltered.data ?? []).filter((row) =>
+        kind === "creator-media"
+          ? postKind(row) === "reel" || postKind(row) === "video"
+          : postKind(row) === kind,
+      );
       error = unfiltered.error;
     }
   }
@@ -353,7 +362,10 @@ export function useMediaPost(postId: string | null) {
   return { post, loading, error, currentUserId: me, toggleLike, countView, reload: load };
 }
 
-export function useSocialPosts(kind: "post" | "reel") {
+export function useSocialPosts(
+  kind: "post" | "reel" | "video" | "creator-media",
+  userId?: string,
+) {
   // Keep the server and first client render identical, then hydrate the local
   // cache after mount. Reading localStorage during render breaks mobile SSR.
   const [rows, setRows] = useState<SocialPost[]>([]);
@@ -367,11 +379,11 @@ export function useSocialPosts(kind: "post" | "reel") {
 
   const load = useCallback(async () => {
     if (Date.now() < muteUntil.current) return;
-    const next = await loadSocialPosts(kind);
+    const next = await loadSocialPosts(kind, supabase, userId);
     setMe(next.currentUserId);
     setRows(next.posts);
     setLoading(false);
-  }, [kind]);
+  }, [kind, userId]);
 
   useEffect(() => {
     void load();
@@ -385,7 +397,7 @@ export function useSocialPosts(kind: "post" | "reel") {
     // Subscribe after first paint so the socket handshake doesn't delay render.
     const boot = window.setTimeout(() => {
       channel = supabase
-        .channel(`social-${kind}`)
+        .channel(`social-${kind}-${userId ?? "all"}`)
         .on("postgres_changes", { event: "*", schema: "public", table: "posts" }, queue)
         .on("postgres_changes", { event: "*", schema: "public", table: "likes" }, queue)
         .on("postgres_changes", { event: "*", schema: "public", table: "comments" }, queue)
@@ -396,7 +408,7 @@ export function useSocialPosts(kind: "post" | "reel") {
       window.clearTimeout(timer);
       if (channel) void supabase.removeChannel(channel);
     };
-  }, [kind, load]);
+  }, [kind, load, userId]);
 
   const toggleLike = useCallback(
     async (postId: string) => {
@@ -460,7 +472,10 @@ export function useSocialPosts(kind: "post" | "reel") {
   const countView = useCallback(
     async (postId: string) => {
       if (viewedRef.current.has(postId)) return false;
-      const counted = await registerUniqueView(postId, kind);
+      const current = rows.find((row) => row.id === postId);
+      const contentType =
+        current?.kind === "reel" ? "reel" : current?.kind === "post" ? "post" : "video";
+      const counted = await registerUniqueView(postId, contentType);
       if (!counted) return false;
       viewedRef.current.add(postId);
       setRows((prev) =>
@@ -470,7 +485,7 @@ export function useSocialPosts(kind: "post" | "reel") {
       );
       return true;
     },
-    [kind],
+    [rows],
   );
 
   /** Optimistically bump a post's comment count (call when a comment is posted). */

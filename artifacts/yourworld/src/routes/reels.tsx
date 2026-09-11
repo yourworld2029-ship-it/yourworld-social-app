@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Heart,
@@ -15,6 +15,7 @@ import {
   Flag,
   VolumeX,
   Star,
+  ArrowLeft,
 } from "lucide-react";
 import { YwAvatar } from "@/components/yw/Avatar";
 import { ShareSheet } from "@/components/yw/ShareSheet";
@@ -38,7 +39,18 @@ import { trackEvent } from "@/lib/analytics";
 export const Route = createFileRoute("/reels")({
   validateSearch: (search: Record<string, unknown>) => {
     const reelId = typeof search.reelId === "string" ? search.reelId.trim() : "";
-    return { reelId: reelId || undefined };
+    const userId = typeof search.userId === "string" ? search.userId.trim() : "";
+    const initialVideoId =
+      typeof search.initialVideoId === "string" ? search.initialVideoId.trim() : "";
+    const returnTo = search.returnTo === "profile" || search.returnTo === "public"
+      ? search.returnTo
+      : undefined;
+    return {
+      reelId: reelId || undefined,
+      userId: userId || undefined,
+      initialVideoId: initialVideoId || undefined,
+      returnTo,
+    };
   },
   head: () => ({
     meta: [
@@ -71,7 +83,10 @@ function ReelsPage() {
 }
 
 function ReelsList() {
-  const { reelId } = Route.useSearch();
+  const { reelId, userId, initialVideoId, returnTo } = Route.useSearch();
+  const navigate = useNavigate();
+  const scoped = Boolean(userId);
+  const initialId = initialVideoId || reelId;
   const [active, setActive] = useState(0);
   const nodes = useRef<(HTMLElement | null)[]>([]);
   const {
@@ -80,7 +95,7 @@ function ReelsList() {
     countView,
     currentUserId,
     loading,
-  } = useSocialPosts("reel");
+  } = useSocialPosts(scoped ? "creator-media" : "reel", userId);
   const viewedRef = useRef(new Set<string>());
   const recordView = useCallback(async (id: string) => {
     if (viewedRef.current.has(id) || !currentUserId) return false;
@@ -88,6 +103,21 @@ function ReelsList() {
     if (counted) viewedRef.current.add(id);
     return counted;
   }, [countView, currentUserId]);
+
+  const handleBack = useCallback(() => {
+    if (!scoped) return;
+    if (window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+    if (returnTo === "profile") {
+      void navigate({ to: "/profile" });
+    } else if (userId) {
+      void navigate({ to: "/u/$userId", params: { userId } });
+    } else {
+      void navigate({ to: "/" });
+    }
+  }, [navigate, returnTo, scoped, userId]);
 
   const live = dbReels.map((p) => ({
     reel: {
@@ -121,20 +151,21 @@ function ReelsList() {
     likedByMe: p.likedByMe,
     mediaUrl: p.media_url,
     mediaType: p.media_type,
+    mediaBucket: (p.kind === "reel" ? "reels" : "videos") as "reels" | "videos",
       thumbnailUrl: p.thumbnail_url ?? null,
   }));
 
   const items = live;
 
   useEffect(() => {
-    if (!reelId || loading) return;
-    const targetIndex = dbReels.findIndex((reel) => reel.id === reelId);
+    if (!initialId || loading) return;
+    const targetIndex = dbReels.findIndex((reel) => reel.id === initialId);
     if (targetIndex < 0) return;
     setActive(targetIndex);
     requestAnimationFrame(() => {
       nodes.current[targetIndex]?.scrollIntoView({ block: "start", behavior: "auto" });
     });
-  }, [dbReels, loading, reelId]);
+  }, [dbReels, initialId, loading]);
 
   useEffect(() => {
     const io = new IntersectionObserver(
@@ -168,7 +199,7 @@ function ReelsList() {
     );
   }
 
-  if (reelId && !items.some(({ reel }) => reel.id === reelId)) {
+  if (initialId && !items.some(({ reel }) => reel.id === initialId)) {
     return (
       <div className="grid h-full min-h-[calc(100dvh-4.75rem)] place-items-center px-6 text-center text-sm text-muted-foreground">
         This reel is no longer available.
@@ -178,7 +209,7 @@ function ReelsList() {
 
   return (
     <>
-      {items.map(({ reel, author, likedByMe, mediaUrl, mediaType, thumbnailUrl }, i) => (
+      {items.map(({ reel, author, likedByMe, mediaUrl, mediaType, mediaBucket, thumbnailUrl }, i) => (
         <section
           key={reel.id}
           data-index={i}
@@ -196,8 +227,11 @@ function ReelsList() {
               likedByMe={likedByMe}
               mediaUrl={mediaUrl}
               mediaType={mediaType}
+              mediaBucket={mediaBucket}
               thumbnailUrl={thumbnailUrl}
-                commentsDisabled={!!dbReels[i]?.comments_off}
+              scoped={scoped}
+              onBack={handleBack}
+              commentsDisabled={!!dbReels[i]?.comments_off}
               onDbLike={() => toggleDbLike(reel.id)}
               onView={() => recordView(reel.id)}
             />
@@ -236,6 +270,7 @@ function ReelMedia({
   onEnded,
   onSoundBlocked,
   onSoundReady,
+  bucket = "reels",
 }: {
   url: string;
   type: string;
@@ -249,6 +284,7 @@ function ReelMedia({
   onEnded?: (event: React.SyntheticEvent<HTMLVideoElement>) => void;
   onSoundBlocked?: () => void;
   onSoundReady?: () => void;
+  bucket?: "reels" | "videos";
 }) {
   const [src, setSrc] = useState(url);
   const [asImage, setAsImage] = useState(!type.startsWith("video"));
@@ -283,14 +319,14 @@ function ReelMedia({
         setSrc(local);
         return;
       }
-      const resolved = await resolveMediaUrl(url);
+      const resolved = await resolveMediaUrl(url, bucket);
       if (resolved && !tried.current.has(resolved)) {
         setSrc(resolved);
         return;
       }
       setAsImage(true);
     })();
-  }, [src, url]);
+  }, [bucket, src, url]);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const forceSound = useCallback(() => {
@@ -373,7 +409,10 @@ function ReelItem({
   likedByMe,
   mediaUrl,
   mediaType,
+  mediaBucket,
   thumbnailUrl,
+  scoped = false,
+  onBack,
   commentsDisabled = false,
   onDbLike,
   onView,
@@ -384,7 +423,10 @@ function ReelItem({
   likedByMe?: boolean;
   mediaUrl?: string;
   mediaType?: string;
+  mediaBucket?: "reels" | "videos";
   thumbnailUrl?: string | null;
+  scoped?: boolean;
+  onBack?: () => void;
   commentsDisabled?: boolean;
   onDbLike?: () => void | Promise<unknown>;
   onView?: () => void | Promise<unknown>;
@@ -738,6 +780,7 @@ function ReelItem({
           type={mediaType ?? "image"}
           alt={reel.caption}
           posterUrl={thumbnailUrl}
+          bucket={mediaBucket}
           active={active}
           mediaRef={mediaRef}
           paused={paused}
@@ -778,7 +821,21 @@ function ReelItem({
       )}
 
       <div className="absolute inset-x-0 top-0 flex items-center justify-between px-4 pt-4">
-        <h1 className="font-display text-lg font-bold drop-shadow">Reels</h1>
+        <div className="flex min-w-0 items-center gap-2">
+          {scoped && onBack ? (
+            <button
+              type="button"
+              onClick={onBack}
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-black/70 text-white shadow-lg"
+              aria-label="Back to creator profile"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+          ) : null}
+          <h1 className="truncate font-display text-lg font-bold drop-shadow">
+            {scoped ? "Creator videos" : "Reels"}
+          </h1>
+        </div>
         <div className="flex items-center gap-2">
           <button
             type="button"

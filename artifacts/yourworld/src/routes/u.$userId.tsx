@@ -132,6 +132,23 @@ function PublicProfilePage() {
     }
   };
 
+  const openViewer = (post: DbPost) => {
+    const id = typeof post.id === "string" ? post.id.trim() : "";
+    if (!id) {
+      toast.error("This media is unavailable.");
+      return;
+    }
+    void navigate({
+      to: "/reels",
+      search: {
+        reelId: undefined,
+        userId,
+        initialVideoId: id,
+        returnTo: "public",
+      },
+    });
+  };
+
   if (me && me === userId) {
     return (
       <main className="grid min-h-screen place-items-center bg-[#0d0d0f] px-6 text-center text-white">
@@ -250,10 +267,20 @@ function PublicProfilePage() {
         </TabsList>
 
         <TabsContent value="grid">
-          <MediaGrid items={grid} src={src} empty={loading ? "Loading…" : "No posts yet"} />
+          <MediaGrid
+            items={grid}
+            src={src}
+            empty={loading ? "Loading…" : "No posts yet"}
+            onOpen={openViewer}
+          />
         </TabsContent>
         <TabsContent value="reels">
-          <MediaGrid items={reels} src={src} empty={loading ? "Loading…" : "No reels yet"} />
+          <MediaGrid
+            items={reels}
+            src={src}
+            empty={loading ? "Loading…" : "No reels yet"}
+            onOpen={openViewer}
+          />
         </TabsContent>
       </Tabs>
 
@@ -272,10 +299,12 @@ function MediaGrid({
   items,
   src,
   empty,
+  onOpen,
 }: {
   items: DbPost[];
   src: (u: string) => string;
   empty: string;
+  onOpen?: (post: DbPost) => void;
 }) {
   if (!items.length) {
     return <p className="px-4 py-12 text-center text-xs text-zinc-500">{empty}</p>;
@@ -299,6 +328,14 @@ function MediaGrid({
               className="h-full w-full object-cover"
             />
           )}
+          {onOpen && (p.kind === "reel" || p.kind === "video" || p.media_type.startsWith("video")) ? (
+            <button
+              type="button"
+              aria-label={`Open ${p.kind === "reel" ? "reel" : "video"}`}
+              onClick={() => onOpen(p)}
+              className="absolute inset-0 z-10"
+            />
+          ) : null}
         </div>
       ))}
     </div>
