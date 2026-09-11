@@ -289,53 +289,89 @@ function rowToMoment(
   author: MomentAuthor | undefined,
   uid: string | null,
 ): MyMoment {
-  const p = (row.payload ?? {}) as Record<string, never>;
+  const p = (row.payload ?? {}) as Record<string, unknown>;
   const audioStart =
     row.audio_start_time !== null && row.audio_start_time !== undefined
       ? Number(row.audio_start_time)
-      : Number(p["musicStart"]);
+      : Number(p.musicStart);
   const audioVolume =
     row.volume !== null && row.volume !== undefined
       ? Number(row.volume)
-      : Number(p["musicVolume"]);
+      : Number(p.musicVolume);
+  const createdAt = Date.parse(row.created_at);
+  const createdAtMs = Number.isFinite(createdAt) ? createdAt : Date.now();
+  const expiresAt = row.expires_at ? Date.parse(row.expires_at) : Number.NaN;
+  const kind: MomentKind =
+    row.kind === "video" || row.kind === "text" || row.kind === "photo"
+      ? row.kind
+      : "photo";
+  const privacy: MomentPrivacy =
+    row.privacy === "followers" ||
+    row.privacy === "close" ||
+    row.privacy === "onlyme" ||
+    row.privacy === "everyone"
+      ? row.privacy
+      : "everyone";
   return {
     id: row.id,
-    kind: (row.kind as MomentKind) ?? "photo",
-    media: row.media_url ?? "",
-    mediaType: row.media_type ?? undefined,
+    kind,
+    media: typeof row.media_url === "string" ? row.media_url : "",
+    mediaType: typeof row.media_type === "string" ? row.media_type : undefined,
     text: row.text ?? "",
     textBg: row.text_bg ?? "",
-    music: p["music"],
-    musicTitle: row.music_title ?? p["musicTitle"],
-    musicArtist: row.music_artist ?? p["musicArtist"],
-    musicUrl: row.audio_url ?? p["musicUrl"],
+    music: typeof p.music === "string" ? p.music : undefined,
+    musicTitle:
+      typeof row.music_title === "string"
+        ? row.music_title
+        : typeof p.musicTitle === "string"
+          ? p.musicTitle
+          : undefined,
+    musicArtist:
+      typeof row.music_artist === "string"
+        ? row.music_artist
+        : typeof p.musicArtist === "string"
+          ? p.musicArtist
+          : undefined,
+    musicUrl:
+      typeof row.audio_url === "string"
+        ? row.audio_url
+        : typeof p.musicUrl === "string"
+          ? p.musicUrl
+          : undefined,
     musicStart: Number.isFinite(audioStart) ? audioStart : undefined,
     audioStartTime: Number.isFinite(audioStart) ? audioStart : undefined,
-    musicEnd: p["musicEnd"],
+    musicEnd: typeof p.musicEnd === "number" ? p.musicEnd : undefined,
     musicVolume: Number.isFinite(audioVolume) ? audioVolume : undefined,
-    stickers: (p["stickers"] as Sticker[] | undefined) ?? [],
-    drawing: p["drawing"],
-    trim: p["trim"],
-    crop: p["crop"],
-    location: p["location"],
-    mentions: (p["mentions"] as string[] | undefined) ?? [],
-    privacy: (row.privacy as MomentPrivacy) ?? "everyone",
+    stickers: Array.isArray(p.stickers) ? (p.stickers as Sticker[]) : [],
+    drawing: typeof p.drawing === "string" ? p.drawing : undefined,
+    trim: p.trim as MyMoment["trim"],
+    crop: p.crop as MyMoment["crop"],
+    location: typeof p.location === "string" ? p.location : undefined,
+    mentions: Array.isArray(p.mentions)
+      ? p.mentions.filter((mention): mention is string => typeof mention === "string")
+      : [],
+    privacy,
     duration: 24,
-    effect: (p["effect"] as MomentEffect | undefined) ?? "none",
-    ai: (p["ai"] as Partial<Record<AiTool, boolean>> | undefined) ?? {},
-    allowDownload: row.allow_download,
-    screenshotAlert: row.screenshot_alert,
-    allowReactions: (p["allowReactions"] as boolean | undefined) ?? true,
-    allowReplies: (p["allowReplies"] as boolean | undefined) ?? true,
-    allowSharing: (p["allowSharing"] as boolean | undefined) ?? true,
-    showLocation: (p["showLocation"] as boolean | undefined) ?? true,
-    saveToArchive: (p["saveToArchive"] as boolean | undefined) ?? true,
-    poll: row.poll,
-    createdAt: new Date(row.created_at).getTime(),
-    expiresAt: row.expires_at
-      ? new Date(row.expires_at).getTime()
-      : new Date(row.created_at).getTime() + 24 * 3600_000,
-    archived: row.archived,
+    effect:
+      p.effect === "boomerang" ||
+      p.effect === "slowmo" ||
+      p.effect === "reverse" ||
+      p.effect === "greenscreen"
+        ? p.effect
+        : "none",
+    ai: p.ai && typeof p.ai === "object" ? (p.ai as Partial<Record<AiTool, boolean>>) : {},
+    allowDownload: row.allow_download !== false,
+    screenshotAlert: row.screenshot_alert === true,
+    allowReactions: p.allowReactions !== false,
+    allowReplies: p.allowReplies !== false,
+    allowSharing: p.allowSharing !== false,
+    showLocation: p.showLocation !== false,
+    saveToArchive: p.saveToArchive !== false,
+    poll: row.poll ?? null,
+    createdAt: createdAtMs,
+    expiresAt:
+      Number.isFinite(expiresAt) ? expiresAt : createdAtMs + 24 * 3600_000,
+    archived: row.archived === true,
     viewers: views,
     replies,
     author,
@@ -441,7 +477,16 @@ async function signMomentMedia(list: MyMoment[]) {
   const { data, error } = await supabase.storage
     .from(STORAGE_BUCKETS.moments)
     .createSignedUrls(paths, 60 * 60 * 6);
-  if (error) throw new Error(`Moment media could not be opened: ${error.message}`);
+  if (error) {
+    return list.map((moment) => ({
+      ...moment,
+      media: moment.media && valueToPath.has(moment.media) ? "" : moment.media,
+      musicUrl:
+        moment.musicUrl && valueToPath.has(moment.musicUrl)
+          ? undefined
+          : moment.musicUrl,
+    }));
+  }
   const byPath = new Map(
     (data ?? [])
       .filter((d) => d.signedUrl && d.path)
@@ -536,7 +581,7 @@ export function MomentProvider({ children }: { children: ReactNode }) {
         .limit(200)) as unknown as MomentDbResult;
       if (momentsResult.error && hasProfileJoinError(momentsResult.error)) {
         momentsResult = (await supabase
-          .from("posts")
+          .from("moments")
           .select("*")
           .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()},user_id.eq.${uid}`)
           .order("created_at", { ascending: false })
@@ -642,74 +687,72 @@ export function MomentProvider({ children }: { children: ReactNode }) {
 
       const mapped = list.map((row) =>
         rowToMoment(
-        row,
-        [
-          ...((views ?? []) as DbView[]),
-          ...uniqueViews
-            .filter((view) => view.content_id === row.id && view.content_type === "moment")
-            .map((view) => ({
-              moment_id: row.id,
-              viewer_id: view.user_id,
-              liked: false,
-              screenshot: false,
-              created_at: view.viewed_at,
+          row,
+          [
+            ...views.filter((view) => view.moment_id === row.id),
+            ...uniqueViews
+              .filter((view) => view.content_id === row.id && view.content_type === "moment")
+              .map((view) => ({
+                moment_id: row.id,
+                viewer_id: view.user_id,
+                liked: false,
+                screenshot: false,
+                created_at: view.viewed_at,
+              })),
+            ...likes
+              .filter((like) => like.moment_id === row.id)
+              .map((like) => ({
+                moment_id: row.id,
+                viewer_id: like.user_id,
+                liked: true,
+                screenshot: false,
+                created_at: like.created_at,
+              })),
+          ]
+            .reduce<MomentViewer[]>((all, v) => {
+              const existing = all.find((viewer) => viewer.userId === v.viewer_id);
+              if (existing) {
+                existing.liked = existing.liked || v.liked;
+                existing.screenshot = existing.screenshot || v.screenshot;
+              } else {
+                all.push({
+                  userId: v.viewer_id,
+                  at: new Date(v.created_at).getTime(),
+                  liked: v.liked,
+                  screenshot: v.screenshot,
+                });
+              }
+              return all;
+            }, []),
+          replies
+            .filter((reply) => reply.moment_id === row.id)
+            .map((reply) => ({
+              id: reply.id,
+              userId: reply.user_id,
+              text: reply.text,
+              at: new Date(reply.created_at).getTime(),
             })),
-          ...likes
-            .filter((like) => like.moment_id === row.id)
-            .map((like) => ({
-              moment_id: row.id,
-              viewer_id: like.user_id,
-              liked: true,
-              screenshot: false,
-              created_at: like.created_at,
-            })),
-        ]
-          .filter((v) => v.moment_id === row.id)
-          .reduce<MomentViewer[]>((all, v) => {
-            const existing = all.find((viewer) => viewer.userId === v.viewer_id);
-            if (existing) {
-              existing.liked = existing.liked || v.liked;
-              existing.screenshot = existing.screenshot || v.screenshot;
-            } else {
-              all.push({
-                userId: v.viewer_id,
-                at: new Date(v.created_at).getTime(),
-                liked: v.liked,
-                screenshot: v.screenshot,
-              });
-            }
-            return all;
-          }, []),
-        ((replies ?? []) as DbReply[])
-          .filter((r) => r.moment_id === row.id)
-          .map((r) => ({
-            id: r.id,
-            userId: r.user_id,
-            text: r.text,
-            at: new Date(r.created_at).getTime(),
-          })),
-
-        (() => {
-          const embedded = profileFromMomentRow(row);
-          const rpcProfile = profileById.get(row.user_id);
-          if (!embedded && !rpcProfile) return undefined;
-          return {
-            id: row.user_id,
-            username: embedded?.username ?? rpcProfile?.username ?? "user",
-            name:
-              embedded?.display_name ??
-              embedded?.full_name ??
-              rpcProfile?.name ??
-              embedded?.username ??
-              "User",
-            avatar:
-              embedded?.avatar_url?.trim() ||
-              embedded?.profile_pic?.trim() ||
-              embedded?.profile_image?.trim() ||
-              rpcProfile?.avatar ||
-              null,
-          };
-        })(),
+          (() => {
+            const embedded = profileFromMomentRow(row);
+            const rpcProfile = profileById.get(row.user_id);
+            if (!embedded && !rpcProfile) return undefined;
+            return {
+              id: row.user_id,
+              username: embedded?.username ?? rpcProfile?.username ?? "user",
+              name:
+                embedded?.display_name ??
+                embedded?.full_name ??
+                rpcProfile?.name ??
+                embedded?.username ??
+                "User",
+              avatar:
+                embedded?.avatar_url?.trim() ||
+                embedded?.profile_pic?.trim() ||
+                embedded?.profile_image?.trim() ||
+                rpcProfile?.avatar ||
+                null,
+            };
+          })(),
           uid,
         ),
       );
