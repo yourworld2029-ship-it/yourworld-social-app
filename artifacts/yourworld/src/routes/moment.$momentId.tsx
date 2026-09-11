@@ -475,6 +475,9 @@ function MomentViewRoute() {
 
         {current.musicUrl ? <audio ref={musicRef} src={current.musicUrl} loop /> : null}
 
+        {/* TOP BACKGROUND GRADIENT */}
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-[10001] h-32 bg-gradient-to-b from-black/70 via-black/25 to-transparent" />
+
         {/* TAP ZONES */}
         <div className="absolute inset-0 z-[10000] flex">
           <button
@@ -502,15 +505,15 @@ function MomentViewRoute() {
         {/* PROGRESS */}
         <div
           className={cn(
-            "pointer-events-none absolute top-0 left-0 right-0 z-50 p-3 pt-2 bg-gradient-to-b from-black/80 via-black/40 to-transparent drop-shadow-[0_1px_3px_rgba(0,0,0,0.65)] transition-opacity duration-300",
+            "pointer-events-none absolute left-0 right-0 top-0 z-[10004] p-3 pt-2 transition-opacity duration-300",
             "opacity-100",
           )}
         >
-          <div className="z-50 flex w-full gap-1.5 drop-shadow-[0_0_2px_rgba(255,255,255,0.2)]">
+          <div className="flex w-full gap-1.5">
             {Array.from({ length: segments }).map((_, idx) => (
               <div
                 key={idx}
-                className="h-1 flex-1 overflow-hidden rounded-full bg-white/35 shadow-[0_1px_4px_rgba(0,0,0,0.35)] backdrop-blur-[2px]"
+                className="h-[3px] flex-1 overflow-hidden rounded-full bg-[rgba(255,255,255,0.35)]"
               >
                 <div
                   className="h-full rounded-full bg-white will-change-[width]"
@@ -527,7 +530,7 @@ function MomentViewRoute() {
         {/* HEADER */}
         <div
           className={cn(
-            "absolute inset-x-0 top-0 z-[10002] flex items-center justify-between bg-gradient-to-b from-black/75 via-black/35 to-transparent px-3 pb-5 pt-7 backdrop-blur-[2px] transition-opacity duration-300",
+            "absolute inset-x-0 top-0 z-[10002] flex items-center justify-between bg-transparent px-3 pb-5 pt-7 transition-opacity duration-300",
             paused ? "pointer-events-none opacity-0" : "opacity-100",
           )}
         >
@@ -562,7 +565,7 @@ function MomentViewRoute() {
               type="button"
               aria-label={muted ? "Unmute" : "Mute"}
               onClick={() => setMuted((m) => !m)}
-              className="rounded-full border border-white/25 bg-white/10 p-2.5 text-white shadow-lg shadow-black/10 backdrop-blur-xl transition-transform duration-150 active:scale-90"
+              className="rounded-full border border-white/25 bg-white/10 p-2.5 text-white transition-transform duration-150 active:scale-90"
             >
               {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
             </button>
@@ -570,7 +573,7 @@ function MomentViewRoute() {
               type="button"
               aria-label="Close"
               onClick={close}
-              className="rounded-full border border-white/25 bg-white/10 p-2.5 text-white shadow-lg shadow-black/10 backdrop-blur-xl transition-transform duration-150 active:scale-90"
+              className="rounded-full border border-white/25 bg-white/10 p-2.5 text-white transition-transform duration-150 active:scale-90"
             >
               <X className="h-4 w-4" />
             </button>
