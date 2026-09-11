@@ -54,6 +54,7 @@ type Message = {
   momentMediaUrl?: string;
   momentCreatedAt?: string;
   momentKind?: "photo" | "video" | "text";
+  deletingAt?: number;
 };
 
 const CALL_LOG_PATTERN = /^(Missed (Audio|Video) Call|(Audio|Video) Call ended • \d{2}:\d{2})$/;
@@ -170,6 +171,7 @@ function ChatThreadPage() {
   const [message, setMessage] = useState("");
   const [localMessages, setLocalMessages] = useState<Message[]>([]);
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
+  const [countdownNow, setCountdownNow] = useState(() => Date.now());
 
   const fmtTime = (iso: string) =>
     new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -185,6 +187,10 @@ function ChatThreadPage() {
       time: fmtTime(m.created_at),
       ts: new Date(m.created_at).getTime(),
       read: m.is_read,
+       deletingAt:
+         m.auto_delete_mode === "after_view" && m.is_viewed && m.expires_at
+           ? Date.parse(m.expires_at)
+           : undefined,
        viewOnce: m.metadata?.view_once === true,
       opened: false,
       momentId: m.moment_id ?? undefined,
@@ -205,6 +211,18 @@ function ChatThreadPage() {
       .filter((m) => !hiddenIds.includes(m.id))
       .sort((a, b) => a.ts - b.ts);
   }, [dbMessages, localMessages, hiddenIds, currentUserId]);
+
+  useEffect(() => {
+    if (!dbMessages.some((m) =>
+      m.auto_delete_mode === "after_view" &&
+      m.is_viewed &&
+      Boolean(m.expires_at),
+    )) {
+      return;
+    }
+    const timer = window.setInterval(() => setCountdownNow(Date.now()), 250);
+    return () => window.clearInterval(timer);
+  }, [dbMessages]);
 
   const openMomentReply = (message: Message) => {
     if (!message.momentId) return;
@@ -985,6 +1003,12 @@ function ChatThreadPage() {
                   <span className="text-[10px] opacity-80">Voice Note</span>
                 </div>
               </div>
+            )}
+
+            {m.deletingAt && m.deletingAt > countdownNow && (
+              <span className="mt-1 px-1 text-[10px] text-zinc-500">
+                Deleting in {Math.max(1, Math.ceil((m.deletingAt - countdownNow) / 1000))}s
+              </span>
             )}
 
             <span className="text-[10px] text-zinc-500 mt-1 px-1 flex items-center gap-1">

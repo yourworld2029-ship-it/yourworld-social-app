@@ -1,4 +1,5 @@
 export type AutoDeleteSetting = "off" | "after_view" | "6_hours" | "24_hours";
+export const AFTER_VIEW_DELAY_MS = 15_000;
 
 export const AUTO_DELETE_OPTIONS: readonly {
   value: AutoDeleteSetting;
@@ -33,6 +34,10 @@ export function expiresAtForAutoDelete(
   now = Date.now(),
 ) {
   return autoDeleteExpiresAt(setting, now);
+}
+
+export function afterViewExpiresAt(viewedAt = Date.now()) {
+  return new Date(viewedAt + AFTER_VIEW_DELAY_MS).toISOString();
 }
 
 export function normalizeAutoDeleteSetting(

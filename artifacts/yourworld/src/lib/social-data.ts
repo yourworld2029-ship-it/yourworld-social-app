@@ -17,6 +17,8 @@ import {
 } from "@/lib/reel-editor";
 import { qualityTierFromDimensions } from "@/lib/video-quality";
 import {
+  AFTER_VIEW_DELAY_MS,
+  afterViewExpiresAt,
   expiresAtForAutoDelete,
   normalizeAutoDeleteSetting,
   type AutoDeleteSetting,
@@ -1213,19 +1215,16 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
 
   const deleteAfterView = useCallback(async (id: string) => {
     if (!me) return;
-    const { error: deleteError } = await supabase
-      .from("messages" as never)
-      .update({ is_deleted: true } as never)
-      .eq("id", id)
-      .eq("receiver_id", me)
-      .eq("auto_delete_mode", "after_view")
-      .eq("is_viewed", true)
-      .eq("is_deleted", false);
+    const { error: deleteError } = await supabase.rpc("delete_expired_chat_messages" as never);
     if (deleteError) {
       setError(deleteError.message);
       return;
     }
-    setMessages((prev) => prev.filter((message) => message.id !== id));
+    const now = Date.now();
+    setMessages((prev) => prev.filter((message) =>
+      message.id !== id &&
+      (!message.expires_at || Date.parse(message.expires_at) > now),
+    ));
   }, [me]);
 
   useEffect(() => {
@@ -1242,7 +1241,10 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
         return;
       }
       const viewedAt = message.viewed_at ? Date.parse(message.viewed_at) : Date.now();
-      const delay = Math.max(0, 3_000 - Math.max(0, Date.now() - viewedAt));
+      const expiresAt = message.expires_at
+        ? Date.parse(message.expires_at)
+        : viewedAt + AFTER_VIEW_DELAY_MS;
+      const delay = Math.max(0, expiresAt - Date.now());
       const timer = setTimeout(() => {
         afterViewTimersRef.current.delete(message.id);
         void deleteAfterView(message.id);
@@ -1393,7 +1395,11 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     const viewedAt = new Date().toISOString();
     const { error: viewedError } = await supabase
       .from("messages" as never)
-      .update({ is_viewed: true, viewed_at: viewedAt } as never)
+      .update({
+        is_viewed: true,
+        viewed_at: viewedAt,
+        expires_at: afterViewExpiresAt(Date.parse(viewedAt)),
+      } as never)
       .in("id", ids)
       .eq("receiver_id", me)
       .eq("auto_delete_mode", "after_view")
@@ -1406,6 +1412,9 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
             is_read: true,
             is_viewed: m.auto_delete_mode === "after_view" ? true : m.is_viewed,
             viewed_at: m.auto_delete_mode === "after_view" ? viewedAt : m.viewed_at,
+            expires_at: m.auto_delete_mode === "after_view"
+              ? afterViewExpiresAt(Date.parse(viewedAt))
+              : m.expires_at,
           }
         : m)
       );
