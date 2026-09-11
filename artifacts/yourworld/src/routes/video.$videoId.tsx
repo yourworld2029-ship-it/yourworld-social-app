@@ -486,9 +486,12 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
 
   useEffect(() => {
     const syncFullscreenState = () => {
-      const fullscreen = document.fullscreenElement === containerRef.current;
-      setIsFullscreen(fullscreen);
-      if (!fullscreen) {
+      const fullscreenElement = document.fullscreenElement;
+      const fullscreenTarget =
+        fullscreenElement === containerRef.current || fullscreenElement === videoRef.current;
+      const horizontalFullscreen = fullscreenTarget && window.innerWidth > window.innerHeight;
+      setIsFullscreen(horizontalFullscreen);
+      if (!horizontalFullscreen) {
         setScreenLocked(false);
         setZoom(1);
         setDisplayMode("fit");
@@ -497,8 +500,12 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
       }
     };
     document.addEventListener("fullscreenchange", syncFullscreenState);
+    window.addEventListener("resize", syncFullscreenState);
     syncFullscreenState();
-    return () => document.removeEventListener("fullscreenchange", syncFullscreenState);
+    return () => {
+      document.removeEventListener("fullscreenchange", syncFullscreenState);
+      window.removeEventListener("resize", syncFullscreenState);
+    };
   }, []);
 
   const submitComment = () => {
@@ -866,10 +873,10 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
         style={{ touchAction: "none" }}
       >
          {playableMediaUrl ? (
-          <video
+         <video
             ref={videoRef}
              src={playableMediaUrl}
-             controls={!screenLocked}
+             controls={!isFullscreen || !screenLocked}
             controlsList="nodownload"
             disablePictureInPicture={false}
             autoPlay
@@ -888,9 +895,9 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           <div className="text-sm text-gray-500">No media URL found</div>
         )}
 
-         {!screenLocked && (
+         {isFullscreen && !screenLocked && (
          <div className="pointer-events-none absolute inset-0 z-50">
-          {gestureFeedback?.kind === "seek" ? (
+           {isFullscreen && gestureFeedback?.kind === "seek" ? (
             <div
               className={`pointer-events-none absolute top-1/2 flex -translate-y-1/2 flex-col items-center gap-2 ${
                 gestureFeedback.value > 0 ? "right-1/4" : "left-1/4"
