@@ -25,6 +25,7 @@ import { UploadProvider } from "@/lib/upload-progress";
 import { Toaster } from "@/components/ui/sonner";
 import { EarningsCreditWatcher } from "@/lib/earnings-credit";
 import { SafeProvider } from "@/lib/safe-provider";
+import { AdaptiveMediaController } from "@/lib/adaptive-performance";
 
 function NotFoundComponent() {
   return (
@@ -179,6 +180,7 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <AdaptiveMediaController />
       <AuthProvider>
         <SafeProvider name="YwStore">
           <YwStoreProvider>

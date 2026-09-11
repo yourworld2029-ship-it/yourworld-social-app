@@ -1,6 +1,7 @@
 import { Upload } from "tus-js-client";
 import { supabase } from "@/integrations/supabase/client";
 import { normalizeSupabaseProjectUrl } from "@/integrations/supabase/url";
+import { getAdaptivePerformanceSnapshot, waitForNetwork } from "@/lib/adaptive-performance";
 
 export type ProgressFn = (percent: number, detail?: string) => void;
 
@@ -75,6 +76,7 @@ function uploadTus(
 ): Promise<{ error: string | null }> {
   return new Promise((resolve) => {
     let settled = false;
+    let waitingForNetwork = false;
     const finish = (error: string | null) => {
       if (settled) return;
       settled = true;
@@ -93,7 +95,12 @@ function uploadTus(
       uploadDataDuringCreation: true,
       removeFingerprintOnSuccess: true,
       // Initial request + two retries = three attempts per failed chunk.
-      retryDelays: [1_000, 3_000],
+      retryDelays:
+        getAdaptivePerformanceSnapshot().networkQuality === "weak"
+          ? [2_000]
+          : getAdaptivePerformanceSnapshot().networkQuality === "offline"
+            ? []
+            : [1_000, 3_000],
       onProgress: (bytesSent, bytesTotal) => {
         const percent = bytesTotal
           ? Math.min(99, Math.floor((bytesSent / bytesTotal) * 100))
@@ -110,6 +117,21 @@ function uploadTus(
         finish(null);
       },
       onError: (error) => {
+        if (
+          !waitingForNetwork &&
+          getAdaptivePerformanceSnapshot().networkQuality === "offline"
+        ) {
+          waitingForNetwork = true;
+          void waitForNetwork().then((recovered) => {
+            waitingForNetwork = false;
+            if (recovered && !settled) {
+              upload.start();
+              return;
+            }
+            finish(readableUploadError(error));
+          });
+          return;
+        }
         console.error(`TUS upload failed for ${bucket}/${path}`, error);
         finish(readableUploadError(error));
       },
@@ -136,6 +158,9 @@ export async function uploadWithProgress(
   onProgress?: ProgressFn,
   cacheControl = "3600",
 ): Promise<{ url: string | null; error: string | null }> {
+  if (getAdaptivePerformanceSnapshot().networkQuality === "offline") {
+    return { url: null, error: "You appear to be offline. Reconnect and try again." };
+  }
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
   if (sessionError) {
     console.error("Could not authorize storage upload", sessionError);

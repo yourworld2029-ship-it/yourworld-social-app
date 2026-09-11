@@ -1,3 +1,8 @@
+import {
+  getAdaptivePerformanceSnapshot,
+  type NetworkQuality,
+} from "@/lib/adaptive-performance";
+
 export type CallMediaMode = "audio" | "video";
 export type CallFacingMode = "user" | "environment";
 
@@ -30,13 +35,24 @@ export const CALL_AUDIO_CONSTRAINTS: MediaTrackConstraints = {
   channelCount: 1,
 };
 
+function callVideoProfile(quality: NetworkQuality = getAdaptivePerformanceSnapshot().networkQuality) {
+  if (quality === "weak" || quality === "offline") {
+    return { width: 640, height: 480, frameRate: 15 };
+  }
+  if (quality === "normal") {
+    return { width: 960, height: 540, frameRate: 24 };
+  }
+  return { width: 1280, height: 720, frameRate: 30 };
+}
+
 export function callVideoConstraints(
   facingMode: CallFacingMode = "user",
 ): MediaTrackConstraints {
+  const profile = callVideoProfile();
   return {
-    width: { ideal: 1280, max: 1920 },
-    height: { ideal: 720, max: 1080 },
-    frameRate: { ideal: 30, max: 30 },
+    width: { ideal: profile.width, max: profile.width },
+    height: { ideal: profile.height, max: profile.height },
+    frameRate: { ideal: profile.frameRate, max: profile.frameRate },
     facingMode,
   };
 }
@@ -77,13 +93,14 @@ export async function getCallMedia(
   mode: CallMediaMode,
   facingMode: CallFacingMode = "user",
 ): Promise<MediaStream> {
+  const profile = callVideoProfile();
   const attempts: MediaStreamConstraints[] =
     mode === "video"
       ? [
           { audio: CALL_AUDIO_CONSTRAINTS, video: callVideoConstraints(facingMode) },
           {
             audio: CALL_AUDIO_CONSTRAINTS,
-            video: fallbackVideoConstraints(facingMode, 1280, 720, 30),
+            video: fallbackVideoConstraints(facingMode, profile.width, profile.height, profile.frameRate),
           },
           {
             audio: {
@@ -91,7 +108,7 @@ export async function getCallMedia(
               noiseSuppression: true,
               autoGainControl: true,
             },
-            video: fallbackVideoConstraints(facingMode, 1280, 720, 30),
+            video: fallbackVideoConstraints(facingMode, profile.width, profile.height, profile.frameRate),
           },
         ]
       : [
@@ -117,15 +134,16 @@ export async function getCallMedia(
 export function getCallVideo(
   facingMode: CallFacingMode = "user",
 ): Promise<MediaStream> {
+  const profile = callVideoProfile();
   return getFirstAvailableMedia([
     { audio: false, video: callVideoConstraints(facingMode) },
     {
       audio: false,
-      video: fallbackVideoConstraints(facingMode, 1280, 720, 30),
+      video: fallbackVideoConstraints(facingMode, profile.width, profile.height, profile.frameRate),
     },
     {
       audio: false,
-      video: fallbackVideoConstraints(facingMode, 1280, 720, 30),
+      video: fallbackVideoConstraints(facingMode, profile.width, profile.height, profile.frameRate),
     },
   ]);
 }
@@ -141,33 +159,64 @@ type TunedEncoding = RTCRtpEncodingParameters & {
  */
 export async function tuneCallVideoSender(sender: RTCRtpSender): Promise<void> {
   if (sender.track?.kind !== "video") return;
+  const performance = getAdaptivePerformanceSnapshot();
   const current = sender.getParameters();
   const encodings = current.encodings?.length ? current.encodings : [{}];
   const tuned = encodings.map(
     (encoding) =>
       ({
         ...encoding,
-        maxBitrate: 1_500_000,
-        maxFramerate: 30,
+        maxBitrate: performance.videoBitrate,
+        maxFramerate: performance.videoFrameRate,
         priority: "high",
         networkPriority: "high",
-        scaleResolutionDownBy: 1,
+        scaleResolutionDownBy: performance.videoScaleResolutionDownBy,
       }) as TunedEncoding,
   );
 
   try {
     current.encodings = tuned;
-    current.degradationPreference = "maintain-framerate";
+    current.degradationPreference = performance.networkQuality === "fast"
+      ? "maintain-framerate"
+      : "balanced";
     await sender.setParameters(current);
   } catch {
     const fallback = sender.getParameters();
     fallback.encodings = tuned.map(({ networkPriority: _networkPriority, ...encoding }) => encoding);
-    fallback.degradationPreference = "maintain-framerate";
+    fallback.degradationPreference = performance.networkQuality === "fast"
+      ? "maintain-framerate"
+      : "balanced";
     try {
       await sender.setParameters(fallback);
     } catch {
       // The browser may expose a read-only sender profile; the call remains
       // usable with its negotiated defaults.
+    }
+  }
+}
+
+export async function prioritizeCallAudioSender(sender: RTCRtpSender): Promise<void> {
+  if (sender.track?.kind !== "audio") return;
+  const current = sender.getParameters();
+  const encodings = current.encodings?.length ? current.encodings : [{}];
+  const tuned = encodings.map(
+    (encoding) =>
+      ({
+        ...encoding,
+        priority: "high",
+        networkPriority: "high",
+      }) as TunedEncoding,
+  );
+  try {
+    current.encodings = tuned;
+    await sender.setParameters(current);
+  } catch {
+    const fallback = sender.getParameters();
+    fallback.encodings = tuned.map(({ networkPriority: _networkPriority, ...encoding }) => encoding);
+    try {
+      await sender.setParameters(fallback);
+    } catch {
+      // Negotiated defaults remain usable when sender parameters are read-only.
     }
   }
 }

@@ -26,8 +26,13 @@ import {
   CALL_ICE_SERVERS,
   getCallMedia,
   getCallVideo,
+  prioritizeCallAudioSender,
   tuneCallVideoSender,
 } from "@/lib/webrtc-media";
+import {
+  getAdaptivePerformanceSnapshot,
+  useAdaptivePerformance,
+} from "@/lib/adaptive-performance";
 import {
   CALL_VIDEO_EFFECTS,
   createCallVideoEffect,
@@ -97,6 +102,12 @@ function asIceCandidate(value: unknown): RTCIceCandidateInit | null {
 }
 
 function optimizeCallSdp(sdp: string) {
+  const maxVideoKbps = Math.max(
+    300,
+    Math.round(getAdaptivePerformanceSnapshot().videoBitrate / 1_000),
+  );
+  const startVideoKbps = Math.max(200, Math.round(maxVideoKbps * 0.65));
+  const minVideoKbps = Math.max(100, Math.round(maxVideoKbps * 0.4));
   const lines = sdp.split("\r\n");
   const qualityPayloads = new Set<string>();
   const opusPayloads = new Set<string>();
@@ -131,7 +142,7 @@ function optimizeCallSdp(sdp: string) {
     }
     if (inVideoSection && line.startsWith("m=video ")) {
       output.push(line);
-      output.push("b=AS:1500");
+      output.push(`b=AS:${maxVideoKbps}`);
       hasVideoBitrate = true;
       continue;
     }
@@ -143,7 +154,7 @@ function optimizeCallSdp(sdp: string) {
     }
     if (inVideoSection && line.startsWith("b=")) {
       if (line.startsWith("b=AS:")) {
-        if (!hasVideoBitrate) output.push("b=AS:1500");
+        if (!hasVideoBitrate) output.push(`b=AS:${maxVideoKbps}`);
         hasVideoBitrate = true;
       } else {
         output.push(line);
@@ -156,7 +167,7 @@ function optimizeCallSdp(sdp: string) {
         const params = match[2];
         if (!params.includes("x-google-max-bitrate")) {
           output.push(
-            `${line};x-google-start-bitrate=1000;x-google-min-bitrate=600;x-google-max-bitrate=1500`,
+            `${line};x-google-start-bitrate=${startVideoKbps};x-google-min-bitrate=${minVideoKbps};x-google-max-bitrate=${maxVideoKbps}`,
           );
           continue;
         }
@@ -386,6 +397,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const pendingNotificationAction = useRef<CallNotificationAction | null>(null);
   const [showNotificationBanner, setShowNotificationBanner] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const adaptivePerformance = useAdaptivePerformance();
 
 
   useRingtone(
@@ -402,6 +414,26 @@ export function CallProvider({ children }: { children: ReactNode }) {
       setShowNotificationBanner(true);
     }
   }, [me]);
+
+  const activeCallId = call?.callId;
+  useEffect(() => {
+    const peer = pcRef.current;
+    if (!peer || !activeCallId || phase === "idle") return;
+    for (const sender of peer.getSenders()) {
+      if (sender.track?.kind === "video") {
+        void tuneCallVideoSender(sender);
+      } else if (sender.track?.kind === "audio") {
+        void prioritizeCallAudioSender(sender);
+      }
+    }
+  }, [
+    adaptivePerformance.networkQuality,
+    adaptivePerformance.videoBitrate,
+    adaptivePerformance.videoFrameRate,
+    adaptivePerformance.videoScaleResolutionDownBy,
+    activeCallId,
+    phase,
+  ]);
 
   useEffect(() => {
     const fromUrl = readCallNotificationAction();
@@ -867,7 +899,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
       pcRef.current = pc;
       stream.getTracks().forEach((t) => pc.addTrack(t, stream));
       for (const sender of pc.getSenders()) {
-        void tuneCallVideoSender(sender);
+        if (sender.track?.kind === "video") void tuneCallVideoSender(sender);
+        if (sender.track?.kind === "audio") void prioritizeCallAudioSender(sender);
       }
       pc.onicecandidate = (e) => {
         if (!e.candidate) return;

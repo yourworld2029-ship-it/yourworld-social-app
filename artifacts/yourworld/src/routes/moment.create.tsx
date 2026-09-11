@@ -53,6 +53,7 @@ import {
 import { useMoments } from "@/lib/moment-context";
 import { useUploads } from "@/lib/upload-progress";
 import { splitMomentIntoParts } from "@/lib/moment-parts";
+import { adaptiveCameraCaptureAttempts } from "@/lib/adaptive-performance";
 
 export const Route = createFileRoute("/moment/create")({
   component: MomentCreatePage,
@@ -557,57 +558,7 @@ function MomentCreatePage() {
         );
       }
 
-      // 720p60 first: hardware-accelerated on virtually every device,
-      // no frame drops, instant start.
-      const audioConstraint: MediaTrackConstraints =
-        {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        };
-
-      const requests: MediaStreamConstraints[] =
-        [
-          {
-            video: {
-              facingMode,
-              width: {
-                ideal: 1280,
-              },
-              height: {
-                ideal: 720,
-              },
-              frameRate: {
-                ideal: 60,
-                max: 60,
-              },
-            },
-            audio: audioConstraint,
-          },
-
-          {
-            video: {
-              facingMode,
-              width: {
-                ideal: 1280,
-              },
-              height: {
-                ideal: 720,
-              },
-              frameRate: {
-                ideal: 30,
-              },
-            },
-            audio: audioConstraint,
-          },
-
-          {
-            video: {
-              facingMode,
-            },
-            audio: true,
-          },
-        ];
+      const requests = adaptiveCameraCaptureAttempts(facingMode);
 
       let stream: MediaStream | null =
         null;
