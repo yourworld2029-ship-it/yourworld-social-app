@@ -18,6 +18,7 @@ export const STORAGE_BUCKETS = {
   messages: "messages",
   calls: "calls",
   avatars: "avatars",
+  uploads: "uploads",
 } as const;
 
 function storageConfig() {

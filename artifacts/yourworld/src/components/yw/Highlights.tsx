@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Plus, ImagePlus, Check, ChevronRight, ChevronLeft, X, Volume2, VolumeX, Pause, Play } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -14,6 +14,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { useMoments, type MyMoment } from "@/lib/moment-store";
 import { compressImageFile } from "@/lib/image-compress";
+import { STORAGE_BUCKETS, uploadSourceWithProgress } from "@/lib/storage-upload";
 import type { DbPost } from "@/lib/social-data";
 
 type HighlightItem = {
@@ -70,22 +71,38 @@ export function Highlights({ userId, posts }: { userId: string | null; posts: Db
   const [viewer, setViewer] = useState<Highlight | null>(null);
   const coverInput = useRef<HTMLInputElement | null>(null);
 
+  const loadHighlights = useCallback(async (ownerId: string) => {
+    const { data, error } = await supabase
+      .from("highlights" as never)
+      .select("*")
+      .eq("user_id", ownerId)
+      .order("created_at", { ascending: true });
+    if (error) {
+      console.error("[highlights] load failed", {
+        ownerId,
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      });
+      throw error;
+    }
+    const next = (data ?? []) as unknown as Highlight[];
+    setHighlights(next);
+    return next;
+  }, []);
+
   useEffect(() => {
     if (!userId) return;
     let cancelled = false;
-    void supabase
-      .from("highlights" as never)
-      .select("*")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: true })
-      .then(({ data, error }) => {
-        if (cancelled || error) return;
-        setHighlights((data ?? []) as unknown as Highlight[]);
-      });
+    void loadHighlights(userId).catch((error: unknown) => {
+      if (cancelled) return;
+      console.error("[highlights] initial load failed", error);
+    });
     return () => {
       cancelled = true;
     };
-  }, [userId]);
+  }, [loadHighlights, userId]);
 
   const storyItems = useMemo<HighlightItem[]>(
     () =>
@@ -169,10 +186,39 @@ export function Highlights({ userId, posts }: { userId: string | null; posts: Db
     }
     setSaving(true);
     try {
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+      const sessionUserId = sessionData.session?.user.id;
+      if (!sessionUserId) throw new Error("Sign in to save a highlight");
+      if (sessionUserId !== userId) {
+        throw new Error("You can only save highlights to your own profile");
+      }
+
+      const coverSource = cover ?? items[0]?.thumb ?? null;
+      let coverUrl = coverSource;
+      if (coverSource?.startsWith("data:")) {
+        const path = `${sessionUserId}/highlight-${crypto.randomUUID()}.jpg`;
+        const upload = await uploadSourceWithProgress(
+          STORAGE_BUCKETS.uploads,
+          path,
+          coverSource,
+          "image/jpeg",
+        );
+        if (upload.error || !upload.url) {
+          console.error("[highlights] custom cover upload failed", {
+            bucket: STORAGE_BUCKETS.uploads,
+            path,
+            error: upload.error,
+          });
+          throw new Error(upload.error ?? "Could not upload the highlight cover");
+        }
+        coverUrl = upload.url;
+      }
+
       const payload = {
-        user_id: userId,
+        user_id: sessionUserId,
         title: title.trim(),
-        cover_url: cover ?? items[0]?.thumb ?? null,
+        cover_url: coverUrl,
         items,
       };
       const { data, error } = await supabase
@@ -180,12 +226,35 @@ export function Highlights({ userId, posts }: { userId: string | null; posts: Db
         .insert(payload as never)
         .select("*")
         .single();
-      if (error) throw error;
-      setHighlights((h) => [...h, data as unknown as Highlight]);
+      if (error) {
+        console.error("[highlights] insert failed", {
+          userId: sessionUserId,
+          itemCount: items.length,
+          hasCustomCover: Boolean(cover),
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+        });
+        throw error;
+      }
+      const saved = data as unknown as Highlight;
+      setHighlights((h) => [...h, saved]);
+      try {
+        await loadHighlights(sessionUserId);
+      } catch (refreshError) {
+        console.error("[highlights] saved but refresh failed", refreshError);
+      }
       toast.success("Highlight added");
       setOpen(false);
       reset();
     } catch (e) {
+      console.error("[highlights] save failed", {
+        userId,
+        itemCount: items.length,
+        hasCustomCover: Boolean(cover),
+        error: e,
+      });
       toast.error(e instanceof Error ? e.message : "Could not save highlight");
     } finally {
       setSaving(false);
