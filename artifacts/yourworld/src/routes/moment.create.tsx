@@ -471,7 +471,7 @@ function MomentCreatePage() {
     useState<Audience>("everyone");
 
   const [durationHours, setDurationHours] =
-    useState<12 | 24>(12);
+    useState<24>(24);
 
   const [allowPoll, setAllowPoll] =
     useState(false);
@@ -3801,19 +3801,6 @@ function MomentCreatePage() {
         <SectionTitle title="DURATION" />
 
         <div className="grid grid-cols-2 gap-2 mb-5">
-          <DurationButton
-            active={
-              durationHours ===
-              12
-            }
-            title="12 Hours"
-            onClick={() =>
-              setDurationHours(
-                12
-              )
-            }
-          />
-
           <DurationButton
             active={
               durationHours ===

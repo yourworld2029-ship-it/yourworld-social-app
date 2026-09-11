@@ -91,7 +91,7 @@ export type MyMoment = {
   mentions: string[];
   privacy: MomentPrivacy;
   /** hours */
-  duration: 12 | 24;
+  duration: 24;
   effect: MomentEffect;
   ai: Partial<Record<AiTool, boolean>>;
   allowDownload: boolean;
@@ -104,7 +104,7 @@ export type MyMoment = {
   saveToArchive?: boolean;
   poll: MomentPoll | null;
   createdAt: number;
-  /** epoch ms when this moment expires (12h / 24h) */
+  /** epoch ms when this moment expires (24h for new moments) */
   expiresAt?: number;
   archived: boolean;
   viewers: MomentViewer[];
@@ -262,7 +262,7 @@ function hasProfileJoinError(error: unknown) {
 function postRowToMoment(row: Record<string, unknown>): DbMoment {
   const createdAt =
     typeof row.created_at === "string" ? row.created_at : new Date().toISOString();
-  const durationHours = Number(row.duration_seconds) === 12 ? 12 : 24;
+  const durationHours = 24;
   return {
     id: String(row.id),
     user_id: String(row.user_id),
@@ -323,7 +323,7 @@ function rowToMoment(
     location: p["location"],
     mentions: (p["mentions"] as string[] | undefined) ?? [],
     privacy: (row.privacy as MomentPrivacy) ?? "everyone",
-    duration: (row.duration === 12 ? 12 : 24) as 12 | 24,
+    duration: 24,
     effect: (p["effect"] as MomentEffect | undefined) ?? "none",
     ai: (p["ai"] as Partial<Record<AiTool, boolean>> | undefined) ?? {},
     allowDownload: row.allow_download,
@@ -337,7 +337,7 @@ function rowToMoment(
     createdAt: new Date(row.created_at).getTime(),
     expiresAt: row.expires_at
       ? new Date(row.expires_at).getTime()
-      : new Date(row.created_at).getTime() + (row.duration === 12 ? 12 : 24) * 3600_000,
+      : new Date(row.created_at).getTime() + 24 * 3600_000,
     archived: row.archived,
     viewers: views,
     replies,
@@ -526,12 +526,14 @@ export function MomentProvider({ children }: { children: ReactNode }) {
     let momentsResult = (await supabase
       .from("moments")
       .select(MOMENT_WITH_PROFILE_SELECT)
+      .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()},user_id.eq.${uid}`)
       .order("created_at", { ascending: false })
       .limit(200)) as unknown as MomentDbResult;
     if (momentsResult.error && hasProfileJoinError(momentsResult.error)) {
       momentsResult = (await supabase
         .from("moments")
         .select("*")
+        .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()},user_id.eq.${uid}`)
         .order("created_at", { ascending: false })
         .limit(200)) as unknown as MomentDbResult;
     }
@@ -542,12 +544,14 @@ export function MomentProvider({ children }: { children: ReactNode }) {
       let postsResult = (await supabase
         .from("posts")
         .select(MOMENT_WITH_PROFILE_SELECT)
+        .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()},user_id.eq.${uid}`)
         .order("created_at", { ascending: false })
         .limit(200)) as unknown as MomentDbResult;
       if (postsResult.error && hasProfileJoinError(postsResult.error)) {
         postsResult = (await supabase
           .from("posts")
           .select("*")
+          .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()},user_id.eq.${uid}`)
           .order("created_at", { ascending: false })
           .limit(200)) as unknown as MomentDbResult;
       }
@@ -767,7 +771,7 @@ export function MomentProvider({ children }: { children: ReactNode }) {
     };
   }, [load]);
 
-  // Expiry clock: re-evaluate every 30s so 12h/24h moments disappear on time
+  // Expiry clock: re-evaluate every 30s so 24h moments disappear on time
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(t);
@@ -800,7 +804,11 @@ export function MomentProvider({ children }: { children: ReactNode }) {
     );
     void (async () => {
       try {
-        await supabase.from("moments").update({ archived: true }).in("id", ids);
+         await supabase
+           .from("moments")
+           .update({ archived: true })
+           .in("id", ids)
+           .lte("expires_at", new Date(currentTime).toISOString());
       } catch {
         // Expiry is already handled locally. Never surface or rethrow a
         // best-effort background archive failure.
@@ -894,7 +902,7 @@ export function MomentProvider({ children }: { children: ReactNode }) {
             setMoments((p) => p.filter((x) => x.id !== tempId));
             return { error: "Couldn't upload this moment's media" };
           }
-          const hours = m.duration === 12 ? 12 : 24;
+           const hours = 24;
 
           let error: { message: string } | null = null;
           try {

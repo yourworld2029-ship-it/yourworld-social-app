@@ -11,7 +11,6 @@ import {
   Download,
   Volume2,
   VolumeX,
-  Music,
   Pause,
   Eye,
   Trash2,
@@ -639,22 +638,6 @@ function MomentViewRoute() {
             </button>
           </div>
         </div>
-
-        {current.musicUrl ? (
-          <div className="pointer-events-none absolute inset-x-5 top-[4.75rem] z-[10002] flex min-w-0 items-center justify-center">
-            <div className="flex max-w-[82%] items-center gap-2 rounded-full border border-white/20 bg-black/45 px-3 py-1.5 text-white backdrop-blur-md">
-              <Music className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden="true" />
-              <div className="min-w-0 overflow-hidden text-left">
-                <p className="truncate text-[11px] font-semibold">
-                  {current.musicTitle || current.music || "Original audio"}
-                </p>
-                {current.musicArtist ? (
-                  <p className="truncate text-[9px] text-white/60">{current.musicArtist}</p>
-                ) : null}
-              </div>
-            </div>
-          </div>
-        ) : null}
 
         {/* PAUSED BADGE */}
         {paused ? (

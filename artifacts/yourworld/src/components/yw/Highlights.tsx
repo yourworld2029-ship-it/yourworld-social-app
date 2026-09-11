@@ -218,13 +218,19 @@ export function Highlights({ userId, posts }: { userId: string | null; posts: Db
       const payload = {
         user_id: sessionUserId,
         title: title.trim(),
-        cover_url: coverUrl,
-        items,
+        cover_url: coverUrl ?? null,
+        items: items.map(({ source, refId, thumb, media, mediaType }) => ({
+          source,
+          refId,
+          thumb,
+          media: media ?? null,
+          mediaType: mediaType ?? null,
+        })),
       };
       const { data, error } = await supabase
         .from("highlights" as never)
         .insert(payload as never)
-        .select("*")
+        .select("id,user_id,title,cover_url,items,created_at")
         .single();
       if (error) {
         console.error("[highlights] insert failed", {
