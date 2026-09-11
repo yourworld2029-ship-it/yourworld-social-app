@@ -23,7 +23,7 @@ import { useCall } from "@/lib/call-store";
 import { useMoments } from "@/lib/moment-context";
 import { useChatNames, saveChatDisplayName } from "@/lib/chat-names";
 import { useChatSettings } from "@/lib/chat-settings";
-import { hashPin, randomPinSalt, saveSecretChatLock } from "@/lib/secret-chats";
+import { hashPin, randomPinSalt } from "@/lib/secret-chats";
 import { PinDialog } from "@/components/yw/PinDialog";
 import { toast } from "sonner";
 import { AUTO_DELETE_OPTIONS, autoDeleteLabel } from "@/lib/auto-delete";
@@ -255,7 +255,7 @@ function ChatThreadPage() {
   const { peerOnline, peerTyping, setTyping } = useThreadPresence(threadId, currentUserId);
 
   // Chat options persisted per conversation in the backend.
-  const { settings, patch, setAutoDeleteSetting } = useChatSettings(peer.peerId, conversationId);
+  const { settings, ready: settingsReady, patch, setAutoDeleteSetting } = useChatSettings(peer.peerId, conversationId);
   const { nameFor } = useChatNames();
   const displayName = nameFor(peer.peerId, settings.displayName ?? peer.peerName ?? "");
   const openPeerProfile = {
@@ -303,21 +303,21 @@ function ChatThreadPage() {
           setPinError("Incorrect PIN");
           return;
         }
-        await saveSecretChatLock(peerId, false, null, null);
-        patch({ secretLock: false, secretPinSalt: null, secretPinHash: null });
+        const result = await patch({ secretLock: false, secretPinSalt: null, secretPinHash: null });
+        if (result.error) throw new Error(result.error);
         setChatUnlocked(true);
         setPinMode(null);
         pushSystem("Secret lock disabled");
         return;
       }
-      if (!/^\d{4,8}$/.test(pin)) {
-        setPinError("Use a 4-8 digit PIN");
+      if (!/^\d{4}$/.test(pin)) {
+        setPinError("Use exactly 4 digits");
         return;
       }
       const salt = randomPinSalt();
       const hash = await hashPin(salt, pin);
-      await saveSecretChatLock(peerId, true, salt, hash);
-      patch({ secretLock: true, secretPinSalt: salt, secretPinHash: hash });
+      const result = await patch({ secretLock: true, secretPinSalt: salt, secretPinHash: hash });
+      if (result.error) throw new Error(result.error);
       setChatUnlocked(true);
       setPinMode(null);
       pushSystem("Secret lock enabled");
@@ -341,6 +341,19 @@ function ChatThreadPage() {
     }
     toast.error("Sign in to send messages.");
   }, [currentUserId, sendToDb]);
+
+  const updateSetting = async (
+    next: Parameters<typeof patch>[0],
+    successMessage: string,
+  ) => {
+    const result = await patch(next);
+    if (result.error) {
+      toast.error(result.error);
+      return false;
+    }
+    toast.success(successMessage);
+    return true;
+  };
 
   const startLongPress = (id: string) => {
     if (longPressRef.current) clearTimeout(longPressRef.current);
@@ -428,7 +441,7 @@ function ChatThreadPage() {
         const kind = payload?.kind === "recording" ? "recording" : "screenshot";
         if (muted || (kind === "recording" ? !recordingAlert : !screenshotAlert)) return;
         void pushSystem(
-          `${String(payload?.actorName ?? "Someone")} took a ${
+          `${kind === "recording" ? "🎥" : "📸"} ${String(payload?.actorName ?? "Someone")} took a ${
             kind === "recording" ? "recording" : "screenshot"
           }`,
         );
@@ -559,9 +572,9 @@ function ChatThreadPage() {
   return (
     <>
     <div className="fixed inset-0 z-50 flex h-[100dvh] flex-col justify-between overflow-hidden bg-black font-sans text-white">
-      {secretLock && !chatUnlocked && settings.secretPinHash ? (
+      {!settingsReady || (secretLock && !chatUnlocked && settings.secretPinHash) ? (
         <div className="absolute inset-0 z-[95] grid place-items-center bg-black px-6">
-          <form
+          {settingsReady ? <form
             className="w-full max-w-xs space-y-4 text-center"
             onSubmit={(e) => {
               e.preventDefault();
@@ -586,7 +599,7 @@ function ChatThreadPage() {
             </div>
             <input
               value={unlockPin}
-              onChange={(e) => { setUnlockPin(e.target.value.replace(/\D/g, "").slice(0, 8)); setUnlockError(null); }}
+               onChange={(e) => { setUnlockPin(e.target.value.replace(/\D/g, "").slice(0, 4)); setUnlockError(null); }}
               inputMode="numeric"
               type="password"
               autoFocus
@@ -596,7 +609,7 @@ function ChatThreadPage() {
             {unlockError && <p className="text-xs font-medium text-red-400">{unlockError}</p>}
             <button type="submit" className="h-11 w-full rounded-xl bg-purple-600 text-sm font-bold">Unlock</button>
 
-          </form>
+          </form> : <div className="text-sm text-zinc-400">Loading chat security…</div>}
         </div>
       ) : null}
       
@@ -698,7 +711,7 @@ function ChatThreadPage() {
                 setShowOptionsMenu(false);
               }} />
               <MenuItem icon={<EyeOff size={16} className="text-zinc-400" />} label="View Once Media" state={settings.viewOnce} onClick={() => {
-                patch({ viewOnce: !settings.viewOnce });
+                void updateSetting({ viewOnce: !settings.viewOnce }, `View once media ${!settings.viewOnce ? "on" : "off"}`);
                 setShowOptionsMenu(false);
               }} />
               <MenuItem icon={<Clock size={16} className="text-zinc-400" />} label={settings.autoDeleteSetting === "off" ? "Auto Delete Messages" : `Auto Delete: ${autoDeleteLabel(settings.autoDeleteSetting)}`} state={settings.autoDeleteSetting !== "off"} onClick={() => {
@@ -706,15 +719,15 @@ function ChatThreadPage() {
                 setShowOptionsMenu(false);
               }} />
               <MenuItem icon={<Camera size={16} className="text-zinc-400" />} label="Screenshot Alert" state={screenshotAlert} onClick={() => {
-                patch({ screenshotAlert: !screenshotAlert }); pushSystem(`Screenshot alerts ${!screenshotAlert ? "on" : "off"}`);
+                void updateSetting({ screenshotAlert: !screenshotAlert }, `Screenshot alerts ${!screenshotAlert ? "on" : "off"}`);
                 setShowOptionsMenu(false);
               }} />
               <MenuItem icon={<VideoOff size={16} className="text-zinc-400" />} label="Screen Recording Alert" state={recordingAlert} onClick={() => {
-                patch({ recordingAlert: !recordingAlert }); pushSystem(`Recording alerts ${!recordingAlert ? "on" : "off"}`);
+                void updateSetting({ recordingAlert: !recordingAlert }, `Recording alerts ${!recordingAlert ? "on" : "off"}`);
                 setShowOptionsMenu(false);
               }} />
               <MenuItem icon={<BellOff size={16} className="text-zinc-400" />} label="Mute Notifications" state={muted} onClick={() => {
-                patch({ muted: !muted }); pushSystem(`Notifications ${!muted ? "muted" : "unmuted"}`);
+                void updateSetting({ muted: !muted }, `Notifications ${!muted ? "muted" : "unmuted"}`);
                 setShowOptionsMenu(false);
               }} />
               <MenuItem icon={<Trash2 size={16} className="text-zinc-400" />} label="Clear Chat" onClick={() => {
@@ -729,8 +742,9 @@ function ChatThreadPage() {
                     toast.error(error);
                     return;
                   }
-                  patch({ blocked: !blocked });
-                  await pushSystem(`${displayName} ${!blocked ? "blocked" : "unblocked"}`);
+                  const nextBlocked = !blocked;
+                  const saved = await updateSetting({ blocked: nextBlocked }, nextBlocked ? "User blocked" : "User unblocked");
+                  if (saved && !nextBlocked) await pushSystem(`${displayName} unblocked`);
                 })();
                 setShowOptionsMenu(false);
               }} />
@@ -763,6 +777,7 @@ function ChatThreadPage() {
                 onClick={() => {
                    void setAutoDeleteSetting(option.value).then((result) => {
                      if (result.error) toast.error(result.error);
+                     else toast.success(`Auto-delete ${option.label.toLowerCase()}`);
                    });
                   setAutoDeleteOpen(false);
                 }}

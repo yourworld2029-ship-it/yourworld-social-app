@@ -3,8 +3,9 @@ import { useEffect, useRef } from "react";
 /**
  * Best-effort screenshot / screen-recording detection.
  * Browsers can't observe OS captures directly, so we watch for the signals we
- * do get: PrintScreen keys, and the brief focus/visibility loss that accompanies
- * a system capture UI. Fires `onCapture` (throttled) instead of alerting.
+ * do get: PrintScreen and macOS capture shortcuts, plus the brief focus/
+ * visibility loss that accompanies a system capture UI. Fires `onCapture`
+ * (throttled) instead of alerting.
  */
 export function useCaptureDetect(enabled: boolean, onCapture: (kind: "screenshot" | "recording") => void) {
   const cb = useRef(onCapture);
@@ -28,11 +29,16 @@ export function useCaptureDetect(enabled: boolean, onCapture: (kind: "screenshot
     const onVisibility = () => {
       if (document.visibilityState === "hidden") fire("screenshot");
     };
+    const onBlur = () => fire("screenshot");
 
+    window.addEventListener("keydown", onKey);
     window.addEventListener("keyup", onKey);
+    window.addEventListener("blur", onBlur);
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
+      window.removeEventListener("keydown", onKey);
       window.removeEventListener("keyup", onKey);
+      window.removeEventListener("blur", onBlur);
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [enabled]);

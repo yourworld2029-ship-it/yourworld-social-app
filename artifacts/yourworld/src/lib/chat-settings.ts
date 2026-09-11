@@ -6,12 +6,13 @@ import {
   autoDeleteLabel,
   type AutoDeleteSetting,
 } from "@/lib/auto-delete";
-import { writeCompat } from "@/lib/supabase-compat";
 
 /**
  * Per-conversation chat options (display name, secret lock, view once, auto
- * delete, capture alerts, mute, block) persisted in `orbit_chat_settings`.
- * Used by the Social chat screen; Orbit chat keeps its own richer loader.
+ * delete, capture alerts, mute, block) persisted in the
+ * conversation-scoped `conversation_preferences` table. The legacy
+ * `orbit_chat_settings` row is still updated for display-name compatibility
+ * and for Orbit's existing settings screens.
  */
 export type ChatSettings = {
   displayName: string | null;
@@ -74,14 +75,41 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
       const me = auth.user?.id ?? null;
       meRef.current = me;
       if (!me || !alive) return;
-      const { data } = await supabase
-        .from("orbit_chat_settings")
-        .select("*")
-        .eq("user_id", me)
-        .eq("peer_id", peerId)
+      const [{ data: legacyData }, preferenceResult] = await Promise.all([
+        supabase
+          .from("orbit_chat_settings")
+          .select("*")
+          .eq("user_id", me)
+          .eq("peer_id", peerId)
+          .maybeSingle(),
+        conversationId
+          ? supabase
+              .from("conversation_preferences" as never)
+              .select("*" as never)
+              .eq("conversation_id" as never, conversationId)
+              .eq("user_id" as never, me)
+              .maybeSingle()
+          : Promise.resolve({ data: null, error: null }),
+      ]);
+      const { data: blockedData } = await supabase
+        .from("user_blocks" as never)
+        .select("blocked_id" as never)
+        .eq("blocker_id" as never, me)
+        .eq("blocked_id" as never, peerId)
         .maybeSingle();
       if (!alive) return;
-      const row = data as Row | null;
+      const legacyRow = legacyData as Row | null;
+      const preference = preferenceResult.data as {
+        secret_pin_salt?: string | null;
+        secret_pin_hash?: string | null;
+        is_locked?: boolean;
+        view_once?: boolean;
+        auto_delete_setting?: string | null;
+        screenshot_alert?: boolean;
+        screen_recording_alert?: boolean;
+        is_muted?: boolean;
+      } | null;
+      const row = legacyRow;
       let conversationSetting: AutoDeleteSetting | null = null;
       if (conversationId) {
         const conversationResult = await supabase
@@ -95,24 +123,30 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
           );
         }
       }
-      if (row || conversationSetting) {
+      if (!alive) return;
+      if (row || preference || conversationSetting) {
+        const preferenceMode = normalizeAutoDeleteSetting(preference?.auto_delete_setting);
         setSettings({
           displayName: row?.display_name ?? DEFAULTS.displayName,
-          secretLock: row?.secret_lock_enabled ?? DEFAULTS.secretLock,
-          secretPinSalt: row?.secret_pin_salt ?? DEFAULTS.secretPinSalt,
-          secretPinHash: row?.secret_pin_hash ?? DEFAULTS.secretPinHash,
-          viewOnce: row?.view_once_mode ?? DEFAULTS.viewOnce,
-          autoDeleteSetting: conversationSetting ??
-            normalizeAutoDeleteSetting(
-              row?.auto_delete_mode ?? row?.auto_delete_setting,
-              row?.auto_delete_seconds,
-            ),
-          autoDelete: conversationSetting ? autoDeleteSeconds(conversationSetting) : row?.auto_delete_seconds ?? 0,
-          screenshotAlert: row?.screenshot_alert ?? DEFAULTS.screenshotAlert,
-          recordingAlert: row?.recording_alert ?? DEFAULTS.recordingAlert,
-          muted: row?.muted ?? DEFAULTS.muted,
-          blocked: !!row?.blocked,
+          secretLock: preference?.is_locked ?? row?.secret_lock_enabled ?? DEFAULTS.secretLock,
+          secretPinSalt: preference?.secret_pin_salt ?? row?.secret_pin_salt ?? DEFAULTS.secretPinSalt,
+          secretPinHash: preference?.secret_pin_hash ?? row?.secret_pin_hash ?? DEFAULTS.secretPinHash,
+          viewOnce: preference?.view_once ?? row?.view_once_mode ?? DEFAULTS.viewOnce,
+          autoDeleteSetting: conversationSetting ?? (preference ? preferenceMode : normalizeAutoDeleteSetting(
+            row?.auto_delete_mode ?? row?.auto_delete_setting,
+            row?.auto_delete_seconds,
+          )),
+          autoDelete: autoDeleteSeconds(conversationSetting ?? (preference ? preferenceMode : normalizeAutoDeleteSetting(
+            row?.auto_delete_mode ?? row?.auto_delete_setting,
+            row?.auto_delete_seconds,
+          ))),
+          screenshotAlert: preference?.screenshot_alert ?? row?.screenshot_alert ?? DEFAULTS.screenshotAlert,
+          recordingAlert: preference?.screen_recording_alert ?? row?.recording_alert ?? DEFAULTS.recordingAlert,
+          muted: preference?.is_muted ?? row?.muted ?? DEFAULTS.muted,
+          blocked: Boolean(blockedData),
         });
+      } else {
+        setSettings((current) => ({ ...current, blocked: Boolean(blockedData) }));
       }
       const channelName = conversationId
         ? `conversation-settings-${conversationId}`
@@ -130,21 +164,35 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
         });
       channelBuilder.on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "orbit_chat_settings", filter: `user_id=eq.${me}` },
+        { event: "*", schema: "public", table: "conversation_preferences", filter: `user_id=eq.${me}` },
         (payload) => {
-          const row = payload.new as Partial<Row> & { peer_id?: string };
-          if (!row || row.peer_id !== peerId) return;
+          const row = payload.new as {
+            conversation_id?: string;
+            is_locked?: boolean;
+            secret_pin_salt?: string | null;
+            secret_pin_hash?: string | null;
+            view_once?: boolean;
+            screenshot_alert?: boolean;
+            screen_recording_alert?: boolean;
+            is_muted?: boolean;
+            auto_delete_setting?: string;
+          };
+          if (!row || row.conversation_id !== conversationId) return;
           setSettings((current) => ({
             ...current,
-            displayName: row.display_name ?? current.displayName,
-            secretLock: row.secret_lock_enabled ?? current.secretLock,
+            secretLock: row.is_locked ?? current.secretLock,
             secretPinSalt: row.secret_pin_salt ?? current.secretPinSalt,
             secretPinHash: row.secret_pin_hash ?? current.secretPinHash,
-            viewOnce: row.view_once_mode ?? current.viewOnce,
+            viewOnce: row.view_once ?? current.viewOnce,
             screenshotAlert: row.screenshot_alert ?? current.screenshotAlert,
-            recordingAlert: row.recording_alert ?? current.recordingAlert,
-            muted: row.muted ?? current.muted,
-            blocked: row.blocked ?? current.blocked,
+            recordingAlert: row.screen_recording_alert ?? current.recordingAlert,
+            muted: row.is_muted ?? current.muted,
+            autoDeleteSetting: row.auto_delete_setting
+              ? normalizeAutoDeleteSetting(row.auto_delete_setting)
+              : current.autoDeleteSetting,
+            autoDelete: row.auto_delete_setting
+              ? autoDeleteSeconds(normalizeAutoDeleteSetting(row.auto_delete_setting))
+              : current.autoDelete,
           }));
         },
       );
@@ -194,37 +242,60 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
     };
   }, [peerId, conversationId]);
 
-  /** Optimistic local update + background upsert so toggles feel instant. */
+  /** Optimistic local update + persisted conversation-scoped upsert. */
   const patch = useCallback(
-    (next: Partial<ChatSettings>) => {
-      setSettings((prev) => {
-        const merged = { ...prev, ...next };
-        const me = meRef.current;
-        if (me && peerId) {
-          void writeCompat(
-            (payload) =>
-              supabase
-                .from("orbit_chat_settings")
-                .upsert(payload as never, { onConflict: "user_id,peer_id" }),
-            {
-              user_id: me,
-              peer_id: peerId,
-              display_name: merged.displayName,
-              secret_lock_enabled: merged.secretLock,
-              secret_pin_salt: merged.secretPinSalt,
-              secret_pin_hash: merged.secretPinHash,
-              view_once_mode: merged.viewOnce,
-              screenshot_alert: merged.screenshotAlert,
-              recording_alert: merged.recordingAlert,
-              muted: merged.muted,
-              blocked: merged.blocked,
-            },
-          );
+    async (next: Partial<ChatSettings>) => {
+      const previous = settings;
+      const merged = { ...previous, ...next };
+      setSettings(merged);
+      const me = meRef.current;
+      if (!me || !peerId) return { error: "Chat is still syncing. Try again in a moment." };
+
+      if (conversationId) {
+        const { error } = await supabase
+          .from("conversation_preferences" as never)
+          .upsert({
+            conversation_id: conversationId,
+            user_id: me,
+            is_locked: merged.secretLock,
+            secret_pin_salt: merged.secretPinSalt,
+            secret_pin_hash: merged.secretPinHash,
+            view_once: merged.viewOnce,
+            auto_delete_setting: merged.autoDeleteSetting,
+            screenshot_alert: merged.screenshotAlert,
+            screen_recording_alert: merged.recordingAlert,
+            is_muted: merged.muted,
+            updated_at: new Date().toISOString(),
+          } as never, { onConflict: "conversation_id,user_id" });
+        if (error) {
+          setSettings(previous);
+          return { error: error.message };
         }
-        return merged;
-      });
+      }
+
+      // Keep the legacy row current for the Orbit settings page and display name.
+      const { error: legacyError } = await supabase
+        .from("orbit_chat_settings")
+        .upsert({
+          user_id: me,
+          peer_id: peerId,
+          display_name: merged.displayName,
+          secret_lock_enabled: merged.secretLock,
+          secret_pin_salt: merged.secretPinSalt,
+          secret_pin_hash: merged.secretPinHash,
+          view_once_mode: merged.viewOnce,
+          screenshot_alert: merged.screenshotAlert,
+          recording_alert: merged.recordingAlert,
+          muted: merged.muted,
+          blocked: merged.blocked,
+        } as never, { onConflict: "user_id,peer_id" });
+      if (legacyError) {
+        setSettings(previous);
+        return { error: legacyError.message };
+      }
+      return { error: null };
     },
-    [peerId],
+    [conversationId, peerId, settings],
   );
 
   const setAutoDeleteSetting = useCallback(async (setting: AutoDeleteSetting) => {
@@ -233,11 +304,19 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
       return { error: "Chat is still syncing. Try again in a moment." };
     }
     const previous = settings.autoDeleteSetting;
-    setSettings((current) => ({
-      ...current,
-      autoDeleteSetting: setting,
-      autoDelete: autoDeleteSeconds(setting),
-    }));
+    setSettings((current) => ({ ...current, autoDeleteSetting: setting, autoDelete: autoDeleteSeconds(setting) }));
+    const { error: preferenceError } = await supabase
+      .from("conversation_preferences" as never)
+      .upsert({
+        conversation_id: conversationId,
+        user_id: me,
+        auto_delete_setting: setting,
+        updated_at: new Date().toISOString(),
+      } as never, { onConflict: "conversation_id,user_id" });
+    if (preferenceError) {
+      setSettings((current) => ({ ...current, autoDeleteSetting: previous, autoDelete: autoDeleteSeconds(previous) }));
+      return { error: preferenceError.message };
+    }
     const { error: updateError } = await supabase
       .from("conversations" as never)
       .update({ auto_delete_setting: setting, updated_at: new Date().toISOString() } as never)

@@ -99,7 +99,7 @@ export function useSecretChats(query: string) {
 
   useEffect(() => {
     let alive = true;
-    if (!/^\d{4,8}$/.test(pin) || locked.length === 0) {
+    if (!/^\d{4}$/.test(pin) || locked.length === 0) {
       setRevealed((prev) => (prev.length ? [] : prev));
       return;
     }

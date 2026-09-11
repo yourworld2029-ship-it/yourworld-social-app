@@ -1270,6 +1270,14 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     if (!me || !pair || !pair.includes(me)) return { error: "You are not authorized for this chat." };
     if (!conversationId) return { error: "Chat is still syncing. Try again in a moment." };
     const receiverId = pair.find((id) => id !== me)!;
+    const { data: blockRow, error: blockError } = await supabase
+      .from("user_blocks" as never)
+      .select("blocker_id" as never)
+      .or(`and(blocker_id.eq.${me},blocked_id.eq.${receiverId}),and(blocker_id.eq.${receiverId},blocked_id.eq.${me})` as never)
+      .limit(1)
+      .maybeSingle();
+    if (blockError) return { error: blockError.message };
+    if (blockRow) return { error: "This conversation is blocked." };
     const conversationResult = await supabase
       .from("conversations" as never)
       .select("auto_delete_setting" as never)
