@@ -409,7 +409,7 @@ function ChatThreadPage() {
 
   useEffect(() => () => cancelLongPress(), []);
 
-  const EMOJIS = ["Like", "Heart", "Laugh", "Flame", "Celebrate", "Love", "Applause", "Support", "Launch", "Perfect"];
+  const EMOJIS = ["👍", "❤️", "😂", "🔥", "😍", "🥰", "😘", "💋", "💕", "💖", "💗", "💓", "💞", "💝", "💘", "🥺", "👏", "🎉", "😢"];
 
   const didFirstScroll = useRef(false);
   const lastMessageKeyRef = useRef<string | null>(null);
