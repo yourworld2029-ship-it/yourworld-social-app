@@ -51,5 +51,8 @@ export default defineConfig(({ command }) => {
     resolve: {
       tsconfigPaths: true,
     },
+    build: {
+      chunkSizeWarningLimit: 650,
+    },
   };
 });

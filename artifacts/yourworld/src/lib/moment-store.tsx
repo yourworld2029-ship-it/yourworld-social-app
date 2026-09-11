@@ -1,13 +1,12 @@
 import {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react";
+import { MomentContext } from "@/lib/moment-context";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { STORAGE_BUCKETS, uploadWithProgress } from "@/lib/storage-upload";
@@ -122,7 +121,7 @@ export type NewMoment = Omit<
   onUploadProgress?: (percent: number) => void;
 };
 
-type Store = {
+export type Store = {
   moments: MyMoment[];
   archive: MyMoment[];
   loading: boolean;
@@ -136,8 +135,6 @@ type Store = {
   registerView: (id: string, liked?: boolean) => void;
   reload: () => Promise<void>;
 };
-
-const MomentContext = createContext<Store | null>(null);
 
 type DbView = {
   moment_id: string;
@@ -1274,63 +1271,4 @@ export function MomentProvider({ children }: { children: ReactNode }) {
   );
 
   return <MomentContext.Provider value={value}>{children}</MomentContext.Provider>;
-}
-
-export function useMoments() {
-  const ctx = useContext(MomentContext);
-  if (!ctx) throw new Error("useMoments must be used inside MomentProvider");
-  return ctx;
-}
-
-
-export const MOMENT_MUSIC = [
-  "midnight drive — lowtide",
-  "saltwater — mara vega",
-  "spotlight (slowed) — ada k",
-  "tokyo rain — kuro",
-  "soft focus — velour",
-  "afterglow — nite tape",
-];
-
-export const MOMENT_EMOJI = [
-  "Flame", "Spark", "Violet", "Love", "Laugh", "Tears", "Audio", "Night",
-  "Ocean", "Coffee", "Camera", "Film", "Light", "Care", "Bloom", "Energy",
-];
-
-export const MOMENT_GIFS = [
-  { id: "g1", label: "Hearts", content: "Heart burst" },
-  { id: "g2", label: "Party", content: "Party lights" },
-  { id: "g3", label: "Sparkle", content: "Sparkle trail" },
-  { id: "g4", label: "Wow", content: "Wow" },
-  { id: "g5", label: "Love", content: "Love note" },
-  { id: "g6", label: "Yes", content: "Applause" },
-];
-
-export const MOMENT_LOCATIONS = [
-  "Tokyo, Japan",
-  "Lisbon, Portugal",
-  "Seoul, South Korea",
-  "Paris, France",
-  "New York, USA",
-  "Bali, Indonesia",
-];
-
-export const TEXT_BACKGROUNDS = [
-  "linear-gradient(140deg, oklch(0.68 0.245 356), oklch(0.62 0.2 290))",
-  "linear-gradient(140deg, oklch(0.72 0.16 210), oklch(0.5 0.18 265))",
-  "linear-gradient(140deg, oklch(0.8 0.16 80), oklch(0.62 0.2 30))",
-  "linear-gradient(140deg, oklch(0.7 0.16 150), oklch(0.45 0.14 200))",
-  "linear-gradient(140deg, oklch(0.28 0.02 280), oklch(0.16 0.01 280))",
-];
-
-/** CSS filter chain for the selected AI camera tools + effects. */
-export function aiFilterCss(ai: Partial<Record<AiTool, boolean>>, effect: MomentEffect) {
-  const parts: string[] = [];
-  if (ai.beauty) parts.push("brightness(1.08) saturate(1.06) contrast(0.96) blur(0.4px)");
-  if (ai.filter) parts.push("hue-rotate(-12deg) saturate(1.25)");
-  if (ai.background) parts.push("contrast(1.12) saturate(1.3)");
-  if (ai.cartoon) parts.push("contrast(1.5) saturate(1.7) brightness(1.05)");
-  if (ai.eraser) parts.push("brightness(1.02)");
-  if (effect === "greenscreen") parts.push("saturate(1.4) hue-rotate(8deg)");
-  return parts.join(" ") || "none";
 }

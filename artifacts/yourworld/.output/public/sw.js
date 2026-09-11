@@ -23,15 +23,25 @@ async function runVideoDownload(data, clientId) {
     if (!response.ok) throw new Error(`Video download failed (${response.status})`);
     const total = Number(response.headers.get("content-length")) || 0;
     if (!response.body) throw new Error("Video stream is unavailable");
+    const cache = await caches.open(VIDEO_DOWNLOAD_CACHE);
+    const cacheResponse = response.clone();
+    const cachePromise = cache.put(
+      data.cacheKey,
+      new Response(cacheResponse.body, {
+        headers: {
+          "Content-Type": response.headers.get("Content-Type") || "video/mp4",
+          "Cache-Control": "private, max-age=86400",
+          "Content-Disposition": `attachment; filename="${data.fileName}"`,
+        },
+      }),
+    );
     const reader = response.body.getReader();
-    const chunks = [];
     let loaded = 0;
     notify({ type: "yw-video-download-progress", id: data.id, percent: 0 });
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
       if (!value) continue;
-      chunks.push(value);
       loaded += value.byteLength;
       if (total > 0) {
         notify({
@@ -41,18 +51,7 @@ async function runVideoDownload(data, clientId) {
         });
       }
     }
-    const blob = new Blob(chunks, { type: "video/mp4" });
-    const cache = await caches.open(VIDEO_DOWNLOAD_CACHE);
-    await cache.put(
-      data.cacheKey,
-      new Response(blob, {
-        headers: {
-          "Content-Type": "video/mp4",
-          "Cache-Control": "private, max-age=86400",
-          "Content-Disposition": `attachment; filename="${data.fileName}"`,
-        },
-      }),
-    );
+    await cachePromise;
     notify({ type: "yw-video-download-ready", id: data.id });
   } catch (error) {
     notify({

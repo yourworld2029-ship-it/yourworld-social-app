@@ -50,7 +50,7 @@ import {
   createFileRoute,
   useNavigate,
 } from "@tanstack/react-router";
-import { useMoments } from "@/lib/moment-store";
+import { useMoments } from "@/lib/moment-context";
 import { useUploads } from "@/lib/upload-progress";
 import { splitMomentIntoParts } from "@/lib/moment-parts";
 

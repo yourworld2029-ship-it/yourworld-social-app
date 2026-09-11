@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { createFileRoute, useParams, useNavigate } from "@tanstack/react-router";
-import { aiFilterCss, useMoments, type MyMoment } from "@/lib/moment-store";
+import { type MyMoment } from "@/lib/moment-store";
+import { useMoments } from "@/lib/moment-context";
 import { MAX_MOMENT_PART_SECONDS } from "@/lib/moment-parts";
+import { aiFilterCss } from "@/lib/moment-utils";
 import { useProfiles } from "@/lib/profiles-map";
 import { cn } from "@/lib/utils";
 import {

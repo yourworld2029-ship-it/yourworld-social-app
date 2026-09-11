@@ -20,7 +20,7 @@ import { useThreadMessages, useThreadPeer, dmThreadId, reportSocialUser, setUser
 import { supabase } from "@/integrations/supabase/client";
 import { useThreadPresence } from "@/lib/presence";
 import { useCall } from "@/lib/call-store";
-import { useMoments } from "@/lib/moment-store";
+import { useMoments } from "@/lib/moment-context";
 import { useChatNames, saveChatDisplayName } from "@/lib/chat-names";
 import { useChatSettings } from "@/lib/chat-settings";
 import { hashPin, randomPinSalt, saveSecretChatLock } from "@/lib/secret-chats";

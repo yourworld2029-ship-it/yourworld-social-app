@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft, Camera, Plus, Eye, Heart } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useMoments } from "@/lib/moment-store";
+import { useMoments } from "@/lib/moment-context";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/moment/")({

@@ -6,7 +6,7 @@ import { VideoPoster } from "@/components/yw/VideoPoster";
 import { useLongVideos, type LongVideo } from "@/lib/video-data";
 import { setVideoQueue } from "@/lib/video-queue";
 import { Search, Heart, Plus, MoreVertical, Play } from "lucide-react";
-import { useMoments } from "@/lib/moment-store";
+import { useMoments } from "@/lib/moment-context";
 import { useAlertsCount } from "@/lib/alerts-count";
 import { useAuth } from "@/lib/auth-store";
 import ywLogo from "@/assets/yw-logo.png";
