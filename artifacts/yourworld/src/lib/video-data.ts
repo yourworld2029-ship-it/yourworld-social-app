@@ -67,7 +67,7 @@ export type LongVideo = {
 };
 
 export const formatDuration = (s: number | null | undefined) => {
-  if (!s || s < 0) return "0:00";
+  if (s == null || !Number.isFinite(s) || s < 0) return "—";
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   const sec = Math.floor(s % 60);
@@ -198,7 +198,7 @@ export async function resolveLongVideoUrl(url: string): Promise<string> {
   if (!url) return url;
   const local = getLocalMedia(url);
   if (local) return local;
-  if (/^(https?:|blob:|data:)/.test(url)) return url;
+  if (/^(blob:|data:)/.test(url)) return url;
   return resolveMediaUrl(url, STORAGE_BUCKETS.videos);
 }
 
@@ -250,6 +250,7 @@ export async function publishLongVideo(opts: {
   fileUrl: string;
   file?: Blob | null;
   thumbnailUrl?: string | null;
+  thumbnailFile?: Blob | null;
   title: string;
   description?: string;
   tags?: string[];
@@ -258,6 +259,8 @@ export async function publishLongVideo(opts: {
   originalWidth?: number | null;
   originalHeight?: number | null;
   scheduledAt?: string | null;
+  access?: "public" | "vip" | "paid";
+  price?: number | null;
   paidPromotion?: boolean;
   officialSponsorshipId?: string | null;
   onProgress?: ProgressFn;
@@ -282,7 +285,7 @@ export async function publishLongVideo(opts: {
 
   let thumb = opts.thumbnailUrl ?? null;
   if (thumb && /^(blob:|data:)/.test(thumb)) {
-    thumb = await uploadToStorage(thumb, uid, "jpg", "image/jpeg");
+    thumb = await uploadToStorage(opts.thumbnailFile ?? thumb, uid, "jpg", "image/jpeg");
     if (!thumb) return { error: "Thumbnail upload failed. Please try again." };
   }
   if (!thumb) {
@@ -307,7 +310,7 @@ export async function publishLongVideo(opts: {
   // Automated content scan (safety + brand/sponsorship detection) before publishing.
   let scan: ModerationVerdict | null = null;
   try {
-    const frames = await sampleVideoFrames(opts.fileUrl, 3);
+    const frames = await sampleVideoFrames(mediaUrl, 3);
     scan = await scanVideoContent({
       data: {
         title: opts.title ?? "",
@@ -359,21 +362,35 @@ export async function publishLongVideo(opts: {
         original_height: opts.originalHeight ?? null,
         source_quality_tier: qualityTierFromDimensions(opts.originalWidth, opts.originalHeight),
         scheduled_at: opts.scheduledAt ?? null,
+        audience: opts.access ?? "public",
+        price: opts.price ?? null,
         paid_promotion: !!opts.paidPromotion,
         review_status: needsReview ? "pending_review" : "approved",
         review_note: needsReview
           ? "Video under routine compliance check before publishing."
           : null,
         allow_download: true,
-        audience: "everyone",
         tagged_user_ids: [],
         viewer_user_ids: [],
       },
       { kind: "type" },
     );
-    insertError = result.error
+    if (
+      !result.error &&
+      opts.access &&
+      opts.access !== "public" &&
+      (result.removedColumns as string[] | undefined)?.some((column) =>
+        column === "audience" || column === "price",
+      )
+    ) {
+      insertError = {
+        message: "This project does not have access-control fields enabled yet. Choose Public or apply the monetization schema before publishing.",
+      };
+    } else {
+      insertError = result.error
       ? { message: result.error.message ?? "Could not save the video." }
       : null;
+    }
   } catch (error) {
     console.error("Long-video database insert threw unexpectedly", error);
     insertError = {
@@ -440,7 +457,7 @@ export function useLongVideos() {
     const [{ data: profiles }, { data: likes }, { data: comments }] = await Promise.all([
       supabase.rpc("get_public_profiles", { ids: authorIds }),
       liveLikesTable().select("post_id,user_id").in("post_id", ids),
-      supabase.from("post_comments").select("post_id").in("post_id", ids),
+      supabase.from("comments" as "post_comments").select("post_id").in("post_id", ids),
     ]);
 
     const byId = new Map(((profiles ?? []) as DbProfile[]).map((p) => [p.id, p]));
@@ -508,7 +525,7 @@ export function useLongVideos() {
         .channel("long-videos")
         .on("postgres_changes", { event: "*", schema: "public", table: "posts" }, queue)
         .on("postgres_changes", { event: "*", schema: "public", table: "likes" }, queue)
-        .on("postgres_changes", { event: "*", schema: "public", table: "post_comments" }, queue)
+       .on("postgres_changes", { event: "*", schema: "public", table: "comments" }, queue)
         .subscribe();
     }, 300);
     return () => {

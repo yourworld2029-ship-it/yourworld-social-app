@@ -442,7 +442,7 @@ function OrbitChatPage() {
         void supabase.removeChannel(channel);
       }
     };
-  }, [settingsReady, userId]);
+  }, [orbit, settingsReady, userId]);
 
   const request = orbit.requests[userId];
   const accepted = request?.status === "accepted" || (!request && !!orbit.connected[userId]);

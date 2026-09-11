@@ -20,3 +20,9 @@ For social interactions, verify the runtime table inventory before introducing f
 **Why:** Older app code expected standalone Moment tables, legacy direct-message rows, and a generated `post_comments` model, so those writes could fail or appear in a UI path the product no longer reads.
 
 **How to apply:** Preserve the posts-backed Moment path, use dedicated interaction/notification tables only when their runtime schema is applied, keep canonical DM writes in `messages`, query comments through the live `comments` compatibility boundary, and sign private Moment media paths before rendering them in notifications.
+
+For optional creator fields such as audience and price, compatibility writes must expose which columns were removed so the UI can fail visibly instead of claiming a restriction was saved.
+
+**Why:** The live posts table may accept the core upload while silently dropping monetization fields; a successful insert alone does not prove access control persisted.
+
+**How to apply:** Keep public publishing available, but reject VIP/paid publishing when the live schema reports the required fields missing; add the schema/RPC before re-enabling those modes.

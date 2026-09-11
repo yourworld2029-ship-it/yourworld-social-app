@@ -40,6 +40,7 @@ import { VideoPoster } from "@/components/yw/VideoPoster";
 import { useAuth } from "@/lib/auth-store";
 import { useYw } from "@/lib/yw-store";
 import { formatDuration, formatViews } from "@/lib/video-data";
+import { resolveLongVideoUrl } from "@/lib/video-data";
 import { usePostComments } from "@/lib/social-data";
 import { fetchIsFollowing, setFollow } from "@/lib/follow-data";
 import { registerUniqueView } from "@/lib/unique-views";
@@ -212,6 +213,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [screenLocked, setScreenLocked] = useState(false);
   const [gestureFeedback, setGestureFeedback] = useState<GestureFeedback | null>(null);
+  const [resolvedMediaUrl, setResolvedMediaUrl] = useState<string>("");
   const touchGestureRef = useRef<TouchGesture | null>(null);
   const lastTapRef = useRef<{ time: number; x: number } | null>(null);
   const feedbackTimerRef = useRef<number | null>(null);
@@ -457,6 +459,19 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     const initialCount = video?.likes_count ?? video?.like_count ?? video?.likes ?? 0;
     setLikeCount(Number(initialCount));
   }, [video?.id, video?.like_count, video?.likes, video?.likes_count]);
+
+  const mediaUrl = video?.media_url || video?.video_url || video?.url || "";
+  useEffect(() => {
+    let cancelled = false;
+    setResolvedMediaUrl("");
+    if (!mediaUrl) return;
+    void resolveLongVideoUrl(mediaUrl).then((resolved) => {
+      if (!cancelled) setResolvedMediaUrl(resolved || mediaUrl);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [mediaUrl]);
 
   useEffect(
     () => () => {
@@ -790,7 +805,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     return <VideoErrorFallback />;
   }
 
-  const mediaUrl = video.media_url || video.video_url || video.url || "";
+  const playableMediaUrl = resolvedMediaUrl || mediaUrl;
   const creatorUsername = video.user?.username || "user";
   const creatorName =
     video.user?.full_name ||
@@ -810,20 +825,20 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
       : qualityTierFromDimensions(video.original_width, video.original_height));
 
   const downloadSelected = async (choice: DownloadChoice) => {
-    if (!mediaUrl) throw new Error("This video has no downloadable media");
+     if (!playableMediaUrl) throw new Error("This video has no downloadable media");
     const toastId = toast.loading("Preparing download... 0%");
     const baseName = sanitizeDownloadName(video.title || "yourworld-video", `yourworld-${videoId}`);
     try {
       if (choice === "mp3") {
-        await downloadAudioOnly(mediaUrl, baseName, (percent) =>
+         await downloadAudioOnly(playableMediaUrl, baseName, (percent) =>
           toast.loading(`Preparing MP3 audio... ${percent}%`, { id: toastId }),
         );
       } else if (choice === "original" || choice === sourceQualityTier) {
-        await downloadVideoInBackground(mediaUrl, `${baseName}.mp4`, (percent) =>
+         await downloadVideoInBackground(playableMediaUrl, `${baseName}.mp4`, (percent) =>
           toast.loading(`Downloading original video... ${percent}%`, { id: toastId }),
         );
       } else {
-        await downloadVideoAtQuality(mediaUrl, baseName, choice, (percent) =>
+         await downloadVideoAtQuality(playableMediaUrl, baseName, choice, (percent) =>
           toast.loading(`Creating ${choice} video... ${percent}%`, { id: toastId }),
         );
       }
@@ -845,10 +860,10 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
         onTouchEnd={handleTouchEnd}
         style={{ touchAction: "none" }}
       >
-        {mediaUrl ? (
+         {playableMediaUrl ? (
           <video
             ref={videoRef}
-            src={mediaUrl}
+             src={playableMediaUrl}
              controls={!screenLocked}
             controlsList="nodownload"
             disablePictureInPicture={false}

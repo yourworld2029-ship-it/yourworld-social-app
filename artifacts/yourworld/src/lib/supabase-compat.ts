@@ -53,10 +53,12 @@ export async function writeCompat(
 
   for (let attempt = 0; attempt <= Object.keys(initial).length; attempt += 1) {
     const result = await write(payload);
-    if (!result.error) return result;
+    if (!result.error) return { ...result, removedColumns: [...removed] };
 
     const column = missingColumn(result.error);
-    if (!column || removed.has(column) || !(column in payload)) return result;
+    if (!column || removed.has(column) || !(column in payload)) {
+      return { ...result, removedColumns: [...removed] };
+    }
     removed.add(column);
 
     const alias = aliases[column];
@@ -67,5 +69,6 @@ export async function writeCompat(
     }
   }
 
-  return write(payload);
+  const result = await write(payload);
+  return { ...result, removedColumns: [...removed] };
 }

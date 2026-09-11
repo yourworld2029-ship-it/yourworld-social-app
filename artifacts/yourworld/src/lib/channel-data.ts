@@ -52,7 +52,9 @@ export async function loadChannelData(
   const [postsResult, followsResult, countsResult, watchResult] = await Promise.all([
     client
       .from("posts")
-      .select("id,kind,title,caption,media_url,thumbnail_url,views,created_at")
+      // The live project has older and newer post shapes in use. Selecting the
+      // row rather than a guessed column list lets normalization handle both.
+      .select("*")
       .eq("user_id", uid)
       .order("created_at", { ascending: false })
       .limit(200),
@@ -92,9 +94,21 @@ export async function loadChannelData(
 
   const postRows = rows ?? [];
   const postIds = postRows.map((row) => row.id);
-  const { data: likes } = postIds.length
-    ? await client.from("post_likes").select("post_id").in("post_id", postIds)
-    : { data: [] };
+  let { data: likes, error: likesError } = postIds.length
+    ? await client.from("likes" as "post_likes").select("post_id").in("post_id", postIds)
+    : { data: [], error: null };
+  // Keep fixtures and older deployments readable while using the live likes
+  // table first. A missing legacy table is intentionally ignored.
+  if (postIds.length && (!likes?.length || likesError)) {
+    const legacyLikes = await client
+      .from("post_likes")
+      .select("post_id")
+      .in("post_id", postIds);
+    if (!legacyLikes.error && legacyLikes.data?.length) {
+      likes = legacyLikes.data;
+      likesError = null;
+    }
+  }
   const likesByPost = new Map<string, number>();
   for (const like of likes ?? []) {
     likesByPost.set(like.post_id, (likesByPost.get(like.post_id) ?? 0) + 1);
@@ -108,7 +122,11 @@ export async function loadChannelData(
         row.thumbnail_url || row.media_url,
         postKind(row) === "reel" ? "reels" : "videos",
       ),
-      views: Number(row.views ?? 0),
+      views: Number(
+        row.views ??
+          (row as typeof row & { views_count?: number | null }).views_count ??
+          0,
+      ),
       likes: likesByPost.get(row.id) ?? 0,
       publishedAt: timeAgo(row.created_at),
     })),
@@ -131,9 +149,9 @@ export async function loadChannelData(
     }];
   });
 
-  const videos = items.filter((_, index) => postRows[index]?.kind === "video");
-  const reels = items.filter((_, index) => postRows[index]?.kind === "reel");
-  const posts = items.filter((_, index) => postRows[index]?.kind === "post");
+   const videos = items.filter((_, index) => postKind(postRows[index]) === "video");
+   const reels = items.filter((_, index) => postKind(postRows[index]) === "reel");
+   const posts = items.filter((_, index) => postKind(postRows[index]) === "post");
   const subscribersCount = Number((countRows ?? [])[0]?.followers ?? subscribers.length);
   const parsedWatchHours =
     typeof watchHours === "number"
@@ -147,7 +165,16 @@ export async function loadChannelData(
     subscribers,
     stats: {
       subscribers: subscribersCount,
-      views30d: postRows.reduce((sum, row) => sum + Number(row.views ?? 0), 0),
+      views30d: postRows.reduce(
+        (sum, row) =>
+          sum +
+          Number(
+            row.views ??
+              (row as typeof row & { views_count?: number | null }).views_count ??
+              0,
+          ),
+        0,
+      ),
       watchHours: Number.isFinite(parsedWatchHours) ? Math.max(0, parsedWatchHours) : 0,
       posts: postRows.length,
     },
@@ -180,7 +207,7 @@ export function useChannelData(watchPeriodDays = 30) {
     const channel = supabase
       .channel("channel-live-data")
       .on("postgres_changes", { event: "*", schema: "public", table: "posts" }, () => void load())
-      .on("postgres_changes", { event: "*", schema: "public", table: "post_likes" }, () => void load())
+       .on("postgres_changes", { event: "*", schema: "public", table: "likes" }, () => void load())
       .on("postgres_changes", { event: "*", schema: "public", table: "follows" }, () => void load())
       .subscribe();
     const { data: auth } = supabase.auth.onAuthStateChange(() => void load());

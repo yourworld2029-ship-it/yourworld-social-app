@@ -119,7 +119,7 @@ export function getLocalMedia(remoteUrl: string) {
   return localMedia.get(remoteUrl) ?? null;
 }
 
-const signedCache = new Map<string, string>();
+const signedCache = new Map<string, { url: string; expiresAt: number }>();
 
 function storagePathFrom(url: string, bucket: string): string | null {
   if (!/^https?:/.test(url)) return url.replace(/^\/+/, "");
@@ -136,7 +136,8 @@ export async function resolveMediaUrl(url: string, bucket = "reels"): Promise<st
   if (!url) return url;
   if (/^(blob:|data:)/.test(url)) return url;
   const cached = signedCache.get(url);
-  if (cached) return cached;
+  if (cached && cached.expiresAt > Date.now()) return cached.url;
+  if (cached) signedCache.delete(url);
 
   const path = storagePathFrom(url, bucket);
   if (!path) return url;
@@ -144,7 +145,9 @@ export async function resolveMediaUrl(url: string, bucket = "reels"): Promise<st
   const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, 60 * 60 * 24);
   if (error || !data?.signedUrl) return url;
   const next = data.signedUrl;
-  signedCache.set(url, next);
+  // Keep a safety margin below the one-day signed URL lifetime so a long-lived
+  // SPA never deliberately reuses a URL at the edge of expiry.
+  signedCache.set(url, { url: next, expiresAt: Date.now() + 22 * 60 * 60 * 1000 });
   return next;
 }
 

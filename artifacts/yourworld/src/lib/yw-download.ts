@@ -374,7 +374,12 @@ export async function downloadAudioOnly(
   if (!Ctx) throw new Error("This browser cannot export audio");
   const audioContext = new Ctx();
   const destination = audioContext.createMediaStreamDestination();
-  audioContext.createMediaElementSource(video).connect(destination);
+  try {
+    audioContext.createMediaElementSource(video).connect(destination);
+  } catch {
+    await audioContext.close().catch(() => {});
+    throw new Error("This source cannot be exported as audio");
+  }
   const mime = recorderMime(true);
   const recorder = new MediaRecorder(
     destination.stream,
@@ -464,7 +469,9 @@ export async function downloadWithWatermark(src: string, username: string, fileN
 }
 /** Generic saver for any media (video/audio/photo) — keeps original bytes. */
 export async function downloadMedia(src: string, fileName: string) {
-  const blob = await (await fetch(src, { cache: "force-cache" })).blob();
+  const response = await fetch(src, { cache: "force-cache" });
+  if (!response.ok) throw new Error(`Media download failed (${response.status})`);
+  const blob = await response.blob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

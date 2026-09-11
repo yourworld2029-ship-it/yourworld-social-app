@@ -87,6 +87,7 @@ function MomentViewRoute() {
 
   const [index, setIndex] = useState(0);
   const [progress, setProgress] = useState(0);
+  const boundaryHandledRef = useRef<string | null>(null);
   const [videoChunks, setVideoChunks] = useState(1);
   const [chunk, setChunk] = useState(0);
   const [paused, setPaused] = useState(false);
@@ -373,9 +374,18 @@ function MomentViewRoute() {
                 const start = chunk * SEGMENT_DURATION;
                 const end = Math.min(start + SEGMENT_DURATION, v.duration);
                 setProgress(Math.min(100, Math.max(0, ((v.currentTime - start) / (end - start)) * 100)));
-                if (v.currentTime >= end - 0.05) goNext();
+                const boundaryKey = `${current.id}:${chunk}`;
+                if (v.currentTime >= end - 0.05 && boundaryHandledRef.current !== boundaryKey) {
+                  boundaryHandledRef.current = boundaryKey;
+                  goNext();
+                }
               }}
-              onEnded={goNext}
+              onEnded={() => {
+                const boundaryKey = `${current.id}:${chunk}`;
+                if (boundaryHandledRef.current === boundaryKey) return;
+                boundaryHandledRef.current = boundaryKey;
+                goNext();
+              }}
             />
           ) : current.kind === "photo" && current.media ? (
             <img key={current.id} src={current.media} alt="" style={{ filter }} className="h-full w-full object-cover" />
@@ -657,14 +667,16 @@ function MomentViewRoute() {
               <button
                 type="button"
                 aria-label="Download"
-                onClick={() =>
+                onClick={() => {
                   void downloadMomentMedia(
                     current.media,
                     current.kind,
                     current.author?.username || "yourworld",
                     current.id,
-                  )
-                }
+                  ).catch((error) => {
+                    toast.error(error instanceof Error ? error.message : "Couldn't download this Moment.");
+                  });
+                }}
                 className="rounded-full border border-white/25 bg-white/10 p-2.5 text-white shadow-lg shadow-black/10 backdrop-blur-xl transition-transform duration-150 active:scale-90"
               >
                 <Download className="h-5 w-5" />

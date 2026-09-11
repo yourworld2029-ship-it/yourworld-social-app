@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft, Upload, Image as ImageIcon, Clock, Loader2, Camera, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
@@ -45,6 +45,7 @@ function VideoUploadPage() {
   const { startUpload } = useUploads();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const selectedFileRef = useRef<File | null>(null);
+  const thumbnailFileRef = useRef<File | null>(null);
   const videoInput = useRef<HTMLInputElement | null>(null);
   const thumbInput = useRef<HTMLInputElement | null>(null);
 
@@ -86,12 +87,22 @@ function VideoUploadPage() {
       return;
     }
     const url = URL.createObjectURL(file);
+    if (fileUrl) URL.revokeObjectURL(fileUrl);
+    if (thumb?.startsWith("blob:")) URL.revokeObjectURL(thumb);
     selectedFileRef.current = file;
+    thumbnailFileRef.current = null;
     setFileUrl(url);
     setThumb(null);
     setDuration(null);
     setDimensions(null);
   };
+
+  useEffect(() => {
+    return () => {
+      if (fileUrl?.startsWith("blob:")) URL.revokeObjectURL(fileUrl);
+      if (thumb?.startsWith("blob:")) URL.revokeObjectURL(thumb);
+    };
+  }, [fileUrl, thumb]);
 
   const onMeta = useCallback(() => {
     const v = videoRef.current;
@@ -116,6 +127,7 @@ function VideoUploadPage() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+    thumbnailFileRef.current = null;
     setThumb(canvas.toDataURL("image/jpeg", 0.85));
     toast.success("Thumbnail captured from this frame");
   };
@@ -146,6 +158,11 @@ function VideoUploadPage() {
       toast.error("Pick a future date and time to schedule");
       return;
     }
+    const parsedPrice = price.trim() ? Number(price) : null;
+    if (access === "paid" && (!parsedPrice || !Number.isFinite(parsedPrice) || parsedPrice <= 0)) {
+      toast.error("Enter a valid price for paid videos.");
+      return;
+    }
 
     setBusy(true);
 
@@ -155,16 +172,19 @@ function VideoUploadPage() {
       (onProgress) =>
         publishLongVideo({
           fileUrl,
-           file: selectedFileRef.current,
+            file: selectedFileRef.current,
           thumbnailUrl: thumb,
+            thumbnailFile: thumbnailFileRef.current,
           title,
           description,
           tags,
           orientation,
           durationSeconds: duration,
-           originalWidth: dimensions?.width ?? null,
-           originalHeight: dimensions?.height ?? null,
+            originalWidth: dimensions?.width ?? null,
+            originalHeight: dimensions?.height ?? null,
           scheduledAt: scheduledAt ? scheduledAt.toISOString() : null,
+            access,
+            price: parsedPrice,
           paidPromotion,
           onProgress,
         }),
@@ -328,7 +348,11 @@ function VideoUploadPage() {
             hidden
             onChange={(e) => {
               const f = e.target.files?.[0];
-              if (f) setThumb(URL.createObjectURL(f));
+               if (f) {
+                 if (thumb?.startsWith("blob:")) URL.revokeObjectURL(thumb);
+                thumbnailFileRef.current = f;
+                 setThumb(URL.createObjectURL(f));
+               }
             }}
           />
         </Field>

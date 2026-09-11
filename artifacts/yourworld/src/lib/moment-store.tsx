@@ -409,13 +409,16 @@ async function uploadMomentMedia(
 
 /** Signs media and music paths so any allowed viewer can play the moment. */
 async function signMomentMedia(list: MyMoment[]) {
-  const paths = [
-    ...new Set(
-      list
-        .flatMap((m) => [m.media, m.musicUrl])
-        .filter((path): path is string => !!path && !/^(https?:|data:|blob:)/.test(path)),
-    ),
-  ];
+  const values = list.flatMap((m) => [m.media, m.musicUrl]).filter(
+    (value): value is string => !!value && !/^(data:|blob:)/.test(value),
+  );
+  const valueToPath = new Map(
+    values.flatMap((value) => {
+      const path = storagePathFromMomentValue(value);
+      return path ? [[value, path] as const] : [];
+    }),
+  );
+  const paths = [...new Set(valueToPath.values())];
   if (!paths.length) return list;
   const { data, error } = await supabase.storage
     .from(STORAGE_BUCKETS.moments)
@@ -426,11 +429,17 @@ async function signMomentMedia(list: MyMoment[]) {
       .filter((d) => d.signedUrl && d.path)
       .map((d) => [d.path as string, d.signedUrl as string]),
   );
-  return list.map((m) => ({
-    ...m,
-    media: byPath.get(m.media) ?? m.media,
-    musicUrl: m.musicUrl ? byPath.get(m.musicUrl) ?? m.musicUrl : undefined,
-  }));
+  return list.map((m) => {
+    const mediaPath = m.media ? valueToPath.get(m.media) : undefined;
+    const musicPath = m.musicUrl ? valueToPath.get(m.musicUrl) : undefined;
+    return {
+      ...m,
+      media: (mediaPath && byPath.get(mediaPath)) ?? m.media,
+      musicUrl: m.musicUrl
+        ? (musicPath && byPath.get(musicPath)) ?? m.musicUrl
+        : undefined,
+    };
+  });
 }
 
 function storagePathFromMomentValue(value: unknown) {
