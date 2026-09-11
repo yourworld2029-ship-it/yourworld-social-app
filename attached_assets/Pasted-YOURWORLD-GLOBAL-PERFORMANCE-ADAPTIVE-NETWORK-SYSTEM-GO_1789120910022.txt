@@ -1,0 +1,445 @@
+YOURWORLD GLOBAL PERFORMANCE + ADAPTIVE NETWORK SYSTEM
+
+GOAL:
+Make the ENTIRE YourWorld app smooth on:
+- 5G
+- Wi-Fi
+- normal 4G
+- weak/unstable 4G
+- low-end Android phones
+- small-screen 4G phones
+- limited RAM/CPU devices
+
+The app must dynamically adapt when network conditions change during use.
+
+CRITICAL:
+Do NOT redesign the app.
+Do NOT remove any existing feature.
+Do NOT change the database schema.
+Do NOT change Supabase RLS policies.
+Do NOT replace working features with mock implementations.
+Do NOT rewrite the whole application.
+Do NOT install unnecessary packages.
+Do NOT modify unrelated business logic.
+
+FIRST:
+Inspect the existing architecture and identify the current video, Reel, Moment, image, chat and video-call implementations.
+
+Then implement ONE shared adaptive-performance layer that existing features can use.
+
+==================================================
+1. NETWORK QUALITY SYSTEM
+==================================================
+
+Create/use a single reusable network-quality detection mechanism.
+
+It should classify connection approximately as:
+
+FAST:
+5G / fast Wi-Fi / strong connection
+→ allow high quality
+
+NORMAL:
+normal 4G / moderate connection
+→ prefer 720p/1080p
+
+WEAK:
+weak 4G / unstable connection
+→ prefer 360p/480p
+
+OFFLINE:
+→ do not continuously retry large media requests
+
+IMPORTANT:
+Do not rely exclusively on navigator.connection because browser support varies.
+Use graceful fallbacks and actual media loading/playback behavior where possible.
+
+Network quality must be able to change while the user is inside the app.
+
+Example:
+5G → 4G
+4G → weak 4G
+weak 4G → 5G
+
+The app should adapt without page reload.
+
+==================================================
+2. VIDEO / REELS / LONG VIDEOS
+==================================================
+
+Apply adaptive playback to ALL existing video surfaces:
+
+- Feed videos
+- Reels
+- Long videos
+- Profile videos
+- Moment videos
+- Discover videos
+- Any other existing video player
+
+QUALITY POLICY:
+
+FAST:
+→ up to 4K when the device and video source support it
+
+NORMAL 4G:
+→ prefer 720p/1080p
+
+WEAK 4G:
+→ prefer 360p/480p
+
+Do NOT remove 4K.
+
+Do NOT force 4K on weak devices or networks.
+
+If Bunny Stream is already integrated:
+- use Bunny's adaptive/HLS playback
+- preserve multiple quality levels
+- allow the player to adapt automatically
+- do not download the original 4K file just for playback
+
+If Bunny Stream is NOT yet integrated:
+- do not invent/mock Bunny URLs
+- keep the current video system working
+- prepare the architecture so Bunny adaptive playback can be plugged in cleanly later
+
+VIDEO PERFORMANCE:
+- Lazy-load videos.
+- Use thumbnails/posters before playback.
+- Only actively play the visible/primary video.
+- Pause videos that leave the viewport.
+- Never play multiple feed videos simultaneously.
+- Do not preload entire long videos.
+- Limit preloading on weak networks.
+- Do not reload a video unnecessarily when scrolling.
+- Preserve playback position when quality changes.
+- Avoid black-screen/restart when switching quality if the player supports seamless adaptation.
+- Clean up video elements/listeners when unmounted.
+- Prevent memory leaks.
+
+==================================================
+3. LOW-END AND SMALL 4G PHONE OPTIMIZATION
+==================================================
+
+The UI must remain responsive even while media is loading.
+
+Optimize:
+- React re-renders
+- large component trees
+- image decoding
+- video elements
+- unnecessary state updates
+- scroll handlers
+- event listeners
+- timers
+- subscriptions
+- memory usage
+
+Use lightweight rendering where appropriate.
+
+Do NOT change the visual design.
+
+Do NOT make buttons smaller just to save performance.
+
+Do NOT remove animations globally.
+
+However, avoid expensive animation/rendering work on weak devices when it is safe to do so.
+
+Feed:
+- paginate/infinite-load instead of loading huge amounts
+- render only necessary content
+- lazy-load below-the-fold media
+- avoid refetching the entire feed after likes/comments/follows
+- cache already-loaded data appropriately
+
+Images:
+- use appropriate image dimensions
+- lazy-load off-screen images
+- avoid loading original huge images when a smaller version is sufficient
+- cache profile images/thumbnails where appropriate
+- preserve avatar fallback behavior
+
+==================================================
+4. CHAT
+==================================================
+
+Do NOT break the current working chat system.
+
+Preserve:
+- sending
+- receiving
+- realtime messages
+- message status
+- auto-delete
+- attachments
+- voice
+- calls
+
+Optimize:
+- do not reload entire conversation after every message
+- keep existing messages in local state
+- append/merge new messages
+- prevent duplicate realtime messages
+- load recent messages first
+- load older messages when needed
+- clean up realtime subscriptions correctly
+
+On weak 4G, text chat must remain responsive even if media is slow.
+
+==================================================
+5. VIDEO CALLS
+==================================================
+
+Optimize ALL existing audio/video calling functionality.
+
+CRITICAL:
+Audio must receive priority over video.
+
+FAST 5G/Wi-Fi:
+- high video quality when device supports it
+- higher resolution/framerate allowed
+
+NORMAL 4G:
+- adaptive video resolution
+- moderate bitrate
+- prioritize stable connection over maximum quality
+
+WEAK 4G:
+- automatically reduce video resolution
+- reduce video bitrate
+- reduce FPS if required
+- prioritize audio continuity
+- do not freeze the entire call
+- do not disconnect simply because video bandwidth dropped
+
+If the existing WebRTC implementation supports RTCRtpSender.setParameters:
+- dynamically adjust video maxBitrate based on network quality
+- prefer lower resolution/bitrate on weak connections
+- keep audio active
+
+If connection quality becomes poor:
+video quality should degrade gracefully rather than repeatedly reconnecting.
+
+When network improves:
+video quality may increase again without ending the call.
+
+Do NOT replace the current calling/signaling architecture.
+
+Do NOT create fake "Connected" states.
+
+==================================================
+6. CAMERA / MOMENT
+==================================================
+
+Preserve the existing camera functionality.
+
+Optimize camera for low-end devices:
+- do not force maximum resolution on weak devices
+- choose appropriate capture resolution
+- avoid unnecessary preview processing
+- release MediaStream tracks when camera is closed
+- prevent camera/microphone resource leaks
+- keep Moment capture responsive
+
+For uploaded Moments:
+- do not upload unnecessary duplicate copies
+- use the existing media pipeline
+- preserve current privacy/duration functionality
+
+==================================================
+7. NETWORK-AWARE UPLOADS
+==================================================
+
+For video/image uploads:
+
+FAST:
+→ allow high-quality upload
+
+NORMAL 4G:
+→ upload efficiently without blocking the UI
+
+WEAK 4G:
+→ show upload progress
+→ avoid repeated automatic retries
+→ retry intelligently when connection recovers
+→ never freeze the entire application
+
+Do not silently lose an upload.
+
+==================================================
+8. OFFLINE / POOR NETWORK BEHAVIOR
+==================================================
+
+If network temporarily disappears:
+- existing UI should remain usable
+- text already loaded should remain visible
+- do not continuously spam Supabase/API requests
+- show lightweight loading/retry state where needed
+- retry intelligently when network returns
+
+Do not reload the whole page.
+
+==================================================
+9. SUPABASE PERFORMANCE
+==================================================
+
+Do NOT change database schema.
+
+Optimize existing Supabase usage:
+- avoid duplicate queries
+- avoid fetching unnecessary columns
+- avoid repeatedly fetching the same profile data
+- reuse/cache data when appropriate
+- clean up realtime subscriptions
+- avoid unnecessary refetches
+
+IMPORTANT:
+Do not change RLS policies.
+
+==================================================
+10. VIDEO BANDWIDTH RULE
+==================================================
+
+The app must NEVER behave like:
+
+"User has a 4G phone → download 4K video anyway."
+
+Instead:
+
+FAST + CAPABLE DEVICE
+→ 4K allowed
+
+NORMAL 4G
+→ 720p/1080p preferred
+
+WEAK 4G
+→ 360p/480p preferred
+
+LOW-END DEVICE
+→ prioritize smooth playback and low memory usage
+
+The goal is:
+SMOOTH PLAYBACK > MAXIMUM RESOLUTION.
+
+==================================================
+11. DEVICE CAPABILITY
+==================================================
+
+Detect device capability conservatively.
+
+Consider:
+- available memory where supported
+- hardware/device limitations where reliably available
+- screen size
+- connection quality
+- current playback buffering
+- video resolution
+
+Do NOT block features simply because a device is low-end.
+
+Adapt performance instead.
+
+==================================================
+12. IMPORTANT ARCHITECTURE RULE
+==================================================
+
+Create reusable performance/adaptive utilities instead of duplicating network logic separately in every component.
+
+Existing screens should consume the shared system.
+
+Do not rewrite every screen from scratch.
+
+Keep the existing UI exactly as much as possible.
+
+==================================================
+13. TESTING
+==================================================
+
+Test these transitions:
+
+TEST A:
+5G/Wi-Fi → normal 4G
+Expected:
+video quality adapts without page reload.
+
+TEST B:
+normal 4G → weak 4G
+Expected:
+video reduces quality/bitrate and continues playing as smoothly as possible.
+
+TEST C:
+weak 4G → fast network
+Expected:
+quality can recover without restarting the app.
+
+TEST D:
+4G low-end phone
+Expected:
+Home/Feed scrolling remains responsive.
+
+TEST E:
+4G while watching Reel
+Expected:
+only necessary media is loaded.
+
+TEST F:
+4G while watching long video
+Expected:
+no unnecessary full-video download.
+
+TEST G:
+4G video call → weak 4G
+Expected:
+video quality decreases while audio remains prioritized.
+
+TEST H:
+weak 4G → good network during video call
+Expected:
+video quality can recover without ending the call.
+
+TEST I:
+Chat on weak 4G
+Expected:
+text messages remain responsive and realtime continues.
+
+TEST J:
+Moment on weak 4G
+Expected:
+thumbnail loads first and video adapts.
+
+==================================================
+STRICT SCOPE
+==================================================
+
+Do NOT:
+- redesign UI
+- change colors
+- change navigation
+- change database schema
+- change Supabase RLS
+- remove features
+- replace working functionality
+- add mock data
+- add fake video/call behavior
+- rewrite the entire project
+- install unnecessary dependencies
+
+Make targeted, production-quality performance changes only.
+
+Before finishing, run:
+- typecheck
+- lint
+- production build
+- git diff/check if available
+
+Finally report:
+1. Shared adaptive-performance system created/updated
+2. Files changed
+3. Video adaptation implemented
+4. Video-call adaptation implemented
+5. Low-end device optimization implemented
+6. Chat optimization implemented
+7. Network transition tests performed
+8. Any remaining limitation
+
+DO NOT claim a feature is tested if it could not actually be tested.
