@@ -1,0 +1,60 @@
+IMPORTANT: FIX ONLY THE CHAT MESSAGE REFRESH/REALTIME STATE BUG.
+DO NOT CHANGE THE CHAT UI DESIGN OR DATABASE SCHEMA.
+
+CURRENT BUG:
+When I am inside a chat with another user:
+- Existing messages are visible normally.
+- I send a new message.
+- Immediately after sending, the chat screen shows only the newly sent/latest message and the previous messages disappear from the visible chat.
+- If I press Back and open the same chat again, all previous messages appear again.
+This proves the messages are saved in Supabase/database, but the CURRENT CHAT SCREEN STATE is being replaced/reset incorrectly after sending.
+
+REQUIRED FIX:
+1. Inspect the existing chat message loading/query logic.
+2. Inspect the send-message handler.
+3. Inspect the realtime subscription/message listener.
+4. Find where the current messages array/state is being replaced with only the newly sent message.
+5. Fix the root cause so sending a message APPENDS/MERGES the new message into the existing messages state instead of replacing the existing messages array.
+6. If realtime also delivers the same message, prevent duplicate messages using the existing message ID.
+7. Do not reload the entire page.
+8. Do not navigate Back and reopen the chat as a workaround.
+9. When a message is sent, the screen must immediately show:
+   previous messages + new message
+10. Incoming messages from the other user must continue appearing in real time.
+11. Preserve the existing auto-delete timer behavior.
+12. Preserve sent/read/delivery status.
+13. Preserve the existing message bubbles, timestamps, colors, camera button, attachment button, voice button, call buttons, etc.
+
+STRICTLY DO NOT:
+- Change database tables or columns.
+- Change RLS policies.
+- Change message retention/auto-delete logic.
+- Rewrite the chat component.
+- Redesign anything.
+- Change navigation.
+- Change profile/avatar logic.
+- Install packages.
+- Touch unrelated files.
+
+IMPORTANT IMPLEMENTATION RULE:
+Use the EXISTING message state/query/realtime architecture.
+Make the SMALLEST possible root-cause fix.
+
+VERIFY BEFORE FINISHING:
+A) Open a chat containing multiple old messages.
+B) Send one new message.
+C) Confirm old messages remain visible immediately.
+D) Send another message and confirm all previous messages remain.
+E) Receive a message from the other user and confirm it appears without leaving the chat.
+F) Confirm no duplicate messages appear.
+G) Refresh/reopen the chat and confirm the same complete history is still present.
+
+Run typecheck/lint/build if available.
+
+At the end, report:
+- Exact file changed
+- Exact root cause
+- Exact minimal fix
+- Verification result
+
+DO NOT make any other changes.

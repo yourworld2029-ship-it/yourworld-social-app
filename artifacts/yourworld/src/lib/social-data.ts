@@ -1037,7 +1037,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
   const belongs = useCallback((row: PublicMessageRow) => !!pair &&
     ((row.sender_id === pair[0] && row.receiver_id === pair[1]) || (row.sender_id === pair[1] && row.receiver_id === pair[0])), [pair]);
   const merge = useCallback((rows: PublicMessageRow[]) => setMessages((prev) => {
-    const next = new Map(prev.filter((m) => m.id.startsWith("tmp-")).map((m) => [m.id, m]));
+    const next = new Map(prev.map((m) => [m.id, m]));
     rows
       .filter(belongs)
       .filter((row) => isRenderablePublicMessage(row, meRef.current))
