@@ -31,11 +31,11 @@ function MomentsIndex() {
 
   return (
     <div className="min-h-dvh bg-background pb-28">
-      <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-border/60 bg-background/80 px-4 backdrop-blur-xl">
+      <header className="sticky top-0 z-50 flex h-14 items-center gap-3 border-b border-zinc-800 bg-black px-4 text-white">
         <button
           aria-label="Back"
           onClick={() => navigate({ to: "/" })}
-          className="grid size-9 place-items-center rounded-full bg-muted/40"
+          className="grid size-9 place-items-center rounded-full bg-zinc-800 text-white"
         >
           <ArrowLeft className="size-4" />
         </button>
