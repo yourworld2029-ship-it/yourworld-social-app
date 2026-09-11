@@ -8,6 +8,7 @@ import { resolveMediaUrl, type DbPost } from "@/lib/social-data";
 import { useResolvedMedia } from "@/lib/profile-data";
 import { fetchIsFollowing, useFollowCounts, setFollow, isRealUserId } from "@/lib/follow-data";
 import { FollowListDialog } from "@/components/yw/FollowListDialog";
+import { VideoPoster } from "@/components/yw/VideoPoster";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatCount } from "@/lib/yw-data";
 import { cn } from "@/lib/utils";
@@ -284,7 +285,12 @@ function MediaGrid({
       {items.map((p) => (
         <div key={p.id} className="relative aspect-square overflow-hidden bg-zinc-900">
           {p.media_type === "video" ? (
-            <video src={src(p.media_url)} muted playsInline className="h-full w-full object-cover" />
+            <VideoPoster
+              mediaUrl={src(p.media_url)}
+              thumbnailUrl={p.thumbnail_url}
+              alt={p.caption ?? "Video"}
+              className="h-full w-full"
+            />
           ) : (
             <img
               src={src(p.media_url)}

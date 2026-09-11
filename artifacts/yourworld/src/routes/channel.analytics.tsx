@@ -5,6 +5,7 @@ import {
   formatCount,
   useChannelData,
 } from "@/lib/channel-data";
+import { VideoPoster } from "@/components/yw/VideoPoster";
 
 export const Route = createFileRoute("/channel/analytics")({
   head: () => ({
@@ -72,7 +73,12 @@ function ChannelAnalytics() {
                 key={t.id}
                 className="flex items-center gap-3 border-b border-border px-4 py-3 last:border-0"
               >
-                <img src={t.thumb} alt="" loading="lazy" className="h-11 w-16 rounded-xl object-cover" />
+                <VideoPoster
+                  mediaUrl={t.mediaUrl}
+                  thumbnailUrl={t.thumb}
+                  alt={t.title}
+                  className="h-11 w-16 rounded-xl"
+                />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium">{t.title}</span>
                   <span className="block text-[11px] text-muted-foreground">{t.publishedAt}</span>

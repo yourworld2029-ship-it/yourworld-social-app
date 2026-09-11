@@ -121,6 +121,7 @@ function ReelsList() {
     likedByMe: p.likedByMe,
     mediaUrl: p.media_url,
     mediaType: p.media_type,
+      thumbnailUrl: p.thumbnail_url ?? null,
   }));
 
   const items = live;
@@ -177,7 +178,7 @@ function ReelsList() {
 
   return (
     <>
-      {items.map(({ reel, author, likedByMe, mediaUrl, mediaType }, i) => (
+      {items.map(({ reel, author, likedByMe, mediaUrl, mediaType, thumbnailUrl }, i) => (
         <section
           key={reel.id}
           data-index={i}
@@ -195,6 +196,7 @@ function ReelsList() {
               likedByMe={likedByMe}
               mediaUrl={mediaUrl}
               mediaType={mediaType}
+              thumbnailUrl={thumbnailUrl}
                 commentsDisabled={!!dbReels[i]?.comments_off}
               onDbLike={() => toggleDbLike(reel.id)}
               onView={() => recordView(reel.id)}
@@ -225,6 +227,7 @@ function ReelMedia({
   url,
   type,
   alt,
+  posterUrl,
   active,
   mediaRef,
   paused = false,
@@ -237,6 +240,7 @@ function ReelMedia({
   url: string;
   type: string;
   alt: string;
+  posterUrl?: string | null;
   active: boolean;
   mediaRef: React.MutableRefObject<HTMLElement | null>;
   paused?: boolean;
@@ -248,6 +252,7 @@ function ReelMedia({
 }) {
   const [src, setSrc] = useState(url);
   const [asImage, setAsImage] = useState(!type.startsWith("video"));
+  const [posterSrc, setPosterSrc] = useState<string | null>(null);
   const tried = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -255,6 +260,20 @@ function ReelMedia({
     setSrc(url);
     setAsImage(!type.startsWith("video"));
   }, [url, type]);
+
+  useEffect(() => {
+    if (!posterUrl) {
+      setPosterSrc(null);
+      return;
+    }
+    let alive = true;
+    void resolveMediaUrl(posterUrl, "videos").then((resolved) => {
+      if (alive) setPosterSrc(resolved || posterUrl);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [posterUrl]);
 
   const handleError = useCallback(() => {
     tried.current.add(src);
@@ -331,6 +350,7 @@ function ReelMedia({
         mediaRef.current = el;
       }}
       src={src}
+      poster={posterSrc ?? undefined}
       playsInline
       preload="metadata"
       onError={handleError}
@@ -353,6 +373,7 @@ function ReelItem({
   likedByMe,
   mediaUrl,
   mediaType,
+  thumbnailUrl,
   commentsDisabled = false,
   onDbLike,
   onView,
@@ -363,6 +384,7 @@ function ReelItem({
   likedByMe?: boolean;
   mediaUrl?: string;
   mediaType?: string;
+  thumbnailUrl?: string | null;
   commentsDisabled?: boolean;
   onDbLike?: () => void | Promise<unknown>;
   onView?: () => void | Promise<unknown>;
@@ -715,6 +737,7 @@ function ReelItem({
           url={mediaUrl ?? reel.poster}
           type={mediaType ?? "image"}
           alt={reel.caption}
+          posterUrl={thumbnailUrl}
           active={active}
           mediaRef={mediaRef}
           paused={paused}

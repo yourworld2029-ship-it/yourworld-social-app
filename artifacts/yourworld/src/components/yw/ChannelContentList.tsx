@@ -1,5 +1,6 @@
 import { Eye, Heart } from "lucide-react";
 import { ChannelHeader } from "@/components/yw/ChannelHeader";
+import { VideoPoster } from "@/components/yw/VideoPoster";
 import { formatCount, type ChannelItem } from "@/lib/channel-data";
 
 export function ChannelContentList({
@@ -21,12 +22,22 @@ export function ChannelContentList({
             className="surface-card animate-rise flex gap-3 overflow-hidden rounded-3xl p-2.5"
             style={{ animationDelay: `${i * 40}ms` }}
           >
-            <img
-              src={it.thumb}
-              alt={it.title}
-              loading="lazy"
-              className="h-20 w-28 shrink-0 rounded-2xl object-cover"
-            />
+            {it.kind === "video" || it.kind === "reel" || it.mediaType.startsWith("video") ? (
+              <VideoPoster
+                mediaUrl={it.mediaUrl}
+                thumbnailUrl={it.thumb}
+                alt={it.title}
+                className="h-20 w-28 shrink-0 rounded-2xl"
+              />
+            ) : (
+              <img
+                src={it.thumb ?? it.mediaUrl}
+                alt={it.title}
+                loading="lazy"
+                decoding="async"
+                className="h-20 w-28 shrink-0 rounded-2xl object-cover"
+              />
+            )}
             <div className="min-w-0 flex-1 py-0.5">
               <h2 className="line-clamp-2 text-sm font-semibold leading-snug">{it.title}</h2>
               <p className="pt-1 text-[11px] text-muted-foreground">{it.publishedAt}</p>

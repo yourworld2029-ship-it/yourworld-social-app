@@ -9,7 +9,11 @@ import {
 } from "@/lib/social-data";
 import { STORAGE_BUCKETS, uploadWithProgress, type ProgressFn } from "@/lib/storage-upload";
 import { optimizeVideoBlob } from "@/lib/video-compression";
-import { generateVideoThumbnail, sampleVideoFrames } from "@/lib/video-frames";
+import { sampleVideoFrames } from "@/lib/video-frames";
+import {
+  generateAndUploadVideoThumbnail,
+  uploadVideoThumbnail,
+} from "@/lib/video-thumbnails";
 import { scanVideoContent, type ModerationVerdict } from "@/lib/moderation.functions";
 import { missingColumn, normalizePostRow, postKind, writeCompat } from "@/lib/supabase-compat";
 import { registerUniqueView } from "@/lib/unique-views";
@@ -283,8 +287,11 @@ export async function publishLongVideo(opts: {
 
   let thumb = opts.thumbnailUrl ?? null;
   if (thumb && /^(blob:|data:)/.test(thumb)) {
-    thumb = await uploadToStorage(opts.thumbnailFile ?? thumb, uid, "jpg", "image/jpeg");
-    if (!thumb) return { error: "Thumbnail upload failed. Please try again." };
+    const thumbnailUpload = await uploadVideoThumbnail(opts.thumbnailFile ?? thumb, uid);
+    thumb = thumbnailUpload.url;
+    if (thumbnailUpload.error || !thumb) {
+      return { error: thumbnailUpload.error ?? "Thumbnail upload failed. Please try again." };
+    }
   }
   if (!thumb) {
     try {
@@ -294,10 +301,11 @@ export async function publishLongVideo(opts: {
           : null
       );
       if (sourceBlob) {
-        const generated = await generateVideoThumbnail(sourceBlob);
-        if (generated) {
-          thumb = await uploadToStorage(generated, uid, "jpg", "image/jpeg");
-          if (!thumb) return { error: "Generated thumbnail upload failed. Please try again." };
+        const generated = await generateAndUploadVideoThumbnail(sourceBlob, uid);
+        if (generated.error) {
+          console.warn("Generated long-video thumbnail upload failed", generated.error);
+        } else {
+          thumb = generated.url;
         }
       }
     } catch (error) {

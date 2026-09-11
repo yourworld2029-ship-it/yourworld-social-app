@@ -35,12 +35,17 @@ function resumableUploadEndpoint() {
   return `${url}/storage/v1/upload/resumable`;
 }
 
-function uploadMetadata(bucket: string, path: string, contentType: string) {
+function uploadMetadata(
+  bucket: string,
+  path: string,
+  contentType: string,
+  cacheControl: string,
+) {
   return {
     bucketName: bucket,
     objectName: path,
     contentType,
-    cacheControl: "3600",
+    cacheControl,
   };
 }
 
@@ -65,6 +70,7 @@ function uploadTus(
   token: string,
   supabaseKey: string,
   onProgress?: ProgressFn,
+  cacheControl = "3600",
 ): Promise<{ error: string | null }> {
   return new Promise((resolve) => {
     let settled = false;
@@ -81,7 +87,7 @@ function uploadTus(
         apikey: supabaseKey,
         "x-upsert": "false",
       },
-      metadata: uploadMetadata(bucket, path, contentType),
+      metadata: uploadMetadata(bucket, path, contentType, cacheControl),
       chunkSize: TUS_CHUNK_SIZE_BYTES,
       uploadDataDuringCreation: true,
       removeFingerprintOnSuccess: true,
@@ -127,6 +133,7 @@ export async function uploadWithProgress(
   blob: Blob,
   contentType: string,
   onProgress?: ProgressFn,
+  cacheControl = "3600",
 ): Promise<{ url: string | null; error: string | null }> {
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
   if (sessionError) {
@@ -146,6 +153,7 @@ export async function uploadWithProgress(
       token,
       storageConfig().key,
       onProgress,
+      cacheControl,
     );
   } catch (error) {
     console.error(`Storage upload failed for ${bucket}/${path}`, error);

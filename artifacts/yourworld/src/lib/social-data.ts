@@ -4,7 +4,7 @@ import { cacheGet, cacheSet } from "@/lib/local-cache";
 import { PAGE_SIZE } from "@/lib/chat-db";
 import { STORAGE_BUCKETS, uploadWithProgress, type ProgressFn } from "@/lib/storage-upload";
 import { optimizeVideoBlob } from "@/lib/video-compression";
-import { generateVideoThumbnail } from "@/lib/video-frames";
+import { generateAndUploadVideoThumbnail, uploadVideoThumbnail } from "@/lib/video-thumbnails";
 import { flagChatMessage } from "@/lib/chat-compliance";
 import type { User } from "@/lib/yw-data";
 import { missingColumn, normalizePostRow, postKind, writeCompat } from "@/lib/supabase-compat";
@@ -687,6 +687,7 @@ export async function reportSocialUser(reporterId: string, reportedUserId: strin
 export async function publishReel(opts: {
   fileUrl: string;
   file?: Blob | null;
+  thumbnail?: Blob | string | null;
   caption?: string;
   hashtags?: string[];
   audio?: string | null;
@@ -716,11 +717,13 @@ export async function publishReel(opts: {
   }
 
   let mediaUrl = opts.fileUrl;
+  let sourceBlob: Blob | null = opts.file ?? null;
 
   // Blob/object URLs must be uploaded to storage first.
   if (/^(blob:|data:)/.test(opts.fileUrl)) {
     try {
       const blob = opts.file ?? await (await fetch(opts.fileUrl)).blob();
+      sourceBlob = blob;
       const uploadBlob = await optimizeVideoBlob(
         blob,
         (percent, detail) => opts.onProgress?.(Math.round(percent * 0.45), detail),
@@ -749,11 +752,21 @@ export async function publishReel(opts: {
     opts.onProgress?.(100);
   }
 
+  let thumbnailUrl: string | null = null;
+  if (opts.thumbnail || sourceBlob) {
+    const thumbnail = opts.thumbnail
+      ? await uploadVideoThumbnail(opts.thumbnail, uid)
+      : await generateAndUploadVideoThumbnail(sourceBlob as Blob, uid);
+    if (thumbnail.error) console.warn("Rendered reel thumbnail upload failed", thumbnail.error);
+    thumbnailUrl = thumbnail.url;
+  }
+
   const { error } = await writeCompat((payload) => supabase.from("posts").insert(payload as never), {
     user_id: uid,
     kind: "reel",
     media_url: mediaUrl,
     media_type: "video",
+    thumbnail_url: thumbnailUrl,
     caption: opts.caption ?? "",
     hashtags: opts.hashtags ?? [],
     audio: opts.audio ?? null,
@@ -816,21 +829,17 @@ export async function publishDirectReel(opts: {
 
   let thumbnailUrl: string | null = null;
   try {
-    const thumbnail = opts.thumbnail ?? await generateVideoThumbnail(opts.file);
-    if (thumbnail) {
-      const thumbnailPath = `${uid}/thumb-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
-      const thumbnailUpload = await uploadWithProgress(
-        STORAGE_BUCKETS.videos,
-        thumbnailPath,
-        thumbnail,
-        "image/jpeg",
-        (percent, detail) => opts.onProgress?.(88 + Math.round(percent * 0.1), detail),
-      );
-      if (thumbnailUpload.error || !thumbnailUpload.url) {
-        console.warn("Direct reel thumbnail upload failed", thumbnailUpload.error);
-      } else {
-        thumbnailUrl = thumbnailUpload.url;
-      }
+    const thumbnailUpload = opts.thumbnail
+      ? await uploadVideoThumbnail(opts.thumbnail, uid, (percent, detail) =>
+          opts.onProgress?.(88 + Math.round(percent * 0.1), detail),
+        )
+      : await generateAndUploadVideoThumbnail(opts.file, uid, (percent, detail) =>
+          opts.onProgress?.(88 + Math.round(percent * 0.1), detail),
+        );
+    if (thumbnailUpload.error || !thumbnailUpload.url) {
+      console.warn("Direct reel thumbnail upload failed", thumbnailUpload.error);
+    } else {
+      thumbnailUrl = thumbnailUpload.url;
     }
   } catch (error) {
     console.warn("Automatic reel thumbnail generation failed", error);
@@ -889,10 +898,12 @@ export async function publishPost(opts: {
   if (!uid) return { error: "You need to sign in to create a post." };
 
   let mediaUrl = opts.fileUrl;
+  let sourceBlob: Blob | null = opts.file ?? null;
 
   if (/^(blob:|data:)/.test(opts.fileUrl)) {
     try {
       const blob = opts.file ?? await (await fetch(opts.fileUrl)).blob();
+      sourceBlob = blob;
       const type = blob.type || (opts.mediaType === "video" ? "video/mp4" : "image/jpeg");
       const uploadBlob = opts.mediaType === "video"
         ? await optimizeVideoBlob(
@@ -925,11 +936,19 @@ export async function publishPost(opts: {
     opts.onProgress?.(100);
   }
 
+  let thumbnailUrl: string | null = null;
+  if (opts.mediaType === "video" && sourceBlob) {
+    const thumbnail = await generateAndUploadVideoThumbnail(sourceBlob, uid);
+    if (thumbnail.error) console.warn("Post thumbnail upload failed", thumbnail.error);
+    thumbnailUrl = thumbnail.url;
+  }
+
   const { error } = await writeCompat((payload) => supabase.from("posts").insert(payload as never), {
     user_id: uid,
     kind: "post",
     media_url: mediaUrl,
     media_type: opts.mediaType,
+    thumbnail_url: thumbnailUrl,
     caption: opts.caption ?? "",
     hashtags: opts.hashtags ?? [],
     location: opts.location ?? null,

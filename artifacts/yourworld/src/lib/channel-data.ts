@@ -6,7 +6,10 @@ import { missingColumn, normalizePostRow, postKind } from "@/lib/supabase-compat
 export type ChannelItem = {
   id: string;
   title: string;
-  thumb: string;
+  thumb: string | null;
+  mediaUrl: string;
+  mediaType: string;
+  kind: string;
   views: number;
   likes: number;
   publishedAt: string;
@@ -117,21 +120,31 @@ export async function loadChannelData(
   }
 
   const items = await Promise.all(
-    postRows.map(async (row): Promise<ChannelItem> => ({
-      id: row.id,
-      title: row.title || row.caption || "Untitled",
-      thumb: await resolveMediaUrl(
-        row.thumbnail_url || row.media_url,
-        postKind(row) === "reel" ? "reels" : "videos",
-      ),
-      views: Number(
-        row.views ??
-          (row as typeof row & { views_count?: number | null }).views_count ??
-          0,
-      ),
-      likes: likesByPost.get(row.id) ?? 0,
-      publishedAt: timeAgo(row.created_at),
-    })),
+    postRows.map(async (row): Promise<ChannelItem> => {
+      const kind = postKind(row);
+      const mediaUrl = await resolveMediaUrl(
+        row.media_url,
+        kind === "reel" ? "reels" : "videos",
+      );
+      const thumb = row.thumbnail_url
+        ? await resolveMediaUrl(row.thumbnail_url, "videos")
+        : null;
+      return {
+        id: row.id,
+        title: row.title || row.caption || "Untitled",
+        thumb,
+        mediaUrl,
+        mediaType: row.media_type,
+        kind,
+        views: Number(
+          row.views ??
+            (row as typeof row & { views_count?: number | null }).views_count ??
+            0,
+        ),
+        likes: likesByPost.get(row.id) ?? 0,
+        publishedAt: timeAgo(row.created_at),
+      };
+    }),
   );
 
   const followerIds = (followRows ?? [])
