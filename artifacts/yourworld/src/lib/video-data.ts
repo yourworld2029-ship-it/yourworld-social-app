@@ -15,11 +15,7 @@ import { missingColumn, normalizePostRow, postKind, writeCompat } from "@/lib/su
 import { registerUniqueView } from "@/lib/unique-views";
 import { isVideoQualityTier, qualityTierFromDimensions, type VideoQualityTier } from "@/lib/video-quality";
 
-// The generated Supabase types still describe the retired post_likes table.
-// Keep the runtime table name authoritative while reusing the matching row
-// shape until types are regenerated from the live project.
-const liveLikesTable = () =>
-  supabase.from("likes" as "post_likes");
+const liveLikesTable = () => supabase.from("likes");
 
 
 export const VIDEO_CATEGORIES = [
@@ -64,6 +60,8 @@ export type LongVideo = {
   commentCount: number;
   likedByMe: boolean;
   commentsOff?: boolean;
+  access?: "public" | "vip" | "paid";
+  price?: number | null;
 };
 
 export const formatDuration = (s: number | null | undefined) => {
@@ -362,7 +360,7 @@ export async function publishLongVideo(opts: {
         original_height: opts.originalHeight ?? null,
         source_quality_tier: qualityTierFromDimensions(opts.originalWidth, opts.originalHeight),
         scheduled_at: opts.scheduledAt ?? null,
-        audience: opts.access ?? "public",
+        video_access: opts.access ?? "public",
         price: opts.price ?? null,
         paid_promotion: !!opts.paidPromotion,
         review_status: needsReview ? "pending_review" : "approved",
@@ -373,18 +371,18 @@ export async function publishLongVideo(opts: {
         tagged_user_ids: [],
         viewer_user_ids: [],
       },
-      { kind: "type" },
+      { kind: "type", video_access: "audience" },
     );
     if (
       !result.error &&
       opts.access &&
       opts.access !== "public" &&
       (result.removedColumns as string[] | undefined)?.some((column) =>
-        column === "audience" || column === "price",
+        column === "video_access" || column === "price" || column === "audience",
       )
     ) {
       insertError = {
-        message: "This project does not have access-control fields enabled yet. Choose Public or apply the monetization schema before publishing.",
+        message: "This project could not persist video access controls. Choose Public or try again after the schema is available.",
       };
     } else {
       insertError = result.error
@@ -457,7 +455,7 @@ export function useLongVideos() {
     const [{ data: profiles }, { data: likes }, { data: comments }] = await Promise.all([
       supabase.rpc("get_public_profiles", { ids: authorIds }),
       liveLikesTable().select("post_id,user_id").in("post_id", ids),
-      supabase.from("comments" as "post_comments").select("post_id").in("post_id", ids),
+      supabase.from("comments").select("post_id").in("post_id", ids),
     ]);
 
     const byId = new Map(((profiles ?? []) as DbProfile[]).map((p) => [p.id, p]));
@@ -506,6 +504,11 @@ export function useLongVideos() {
         commentCount: (comments ?? []).filter((c) => c.post_id === p.id).length,
         likedByMe: !!uid && (likes ?? []).some((l) => l.post_id === p.id && l.user_id === uid),
         commentsOff: !!(p as typeof p & { comments_off?: boolean }).comments_off,
+        access: ((p as typeof p & { video_access?: string }).video_access ?? "public") as
+          | "public"
+          | "vip"
+          | "paid",
+        price: (p as typeof p & { price?: number | null }).price ?? null,
       } satisfies LongVideo;
     });
     setVideos(next);

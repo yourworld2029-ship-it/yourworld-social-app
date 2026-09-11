@@ -74,9 +74,6 @@ export function YwStoreProvider({ children }: { children: ReactNode }) {
           return;
         }
         const [likes, saves, follows] = await Promise.all([
-          // The deployed Live schema calls this table `likes`; generated types
-          // have not yet caught up with that schema.
-          // @ts-expect-error Live schema table is not present in generated types.
           supabase.from("likes").select("post_id").eq("user_id", me),
           supabase.from("post_saves").select("post_id").eq("user_id", me),
           fetchMyFollowing(),

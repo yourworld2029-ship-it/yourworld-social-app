@@ -193,7 +193,10 @@ async function loadFollowerCounts(
   if (error) return new Map();
 
   return new Map(
-    (data ?? []).map((row) => [row.user_id, Number(row.followers)]),
+    (data ?? []).map((row: { user_id: string; followers?: number | null }) => [
+      row.user_id,
+      Number(row.followers),
+    ]),
   );
 }
 

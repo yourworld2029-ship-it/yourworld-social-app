@@ -10,8 +10,14 @@ export const processPayout = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { supabase, userId } = context;
+    // These payout tables are an optional legacy path and are not part of the
+    // generated live schema contract.
+    const db = supabase as unknown as {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      from: (table: string) => any;
+    };
 
-    const { data: earnings, error } = await supabase
+    const { data: earnings, error } = await db
       .from("creator_earnings")
       .select("id, source, gross_amount")
       .eq("user_id", userId)
@@ -27,7 +33,7 @@ export const processPayout = createServerFn({ method: "POST" })
     if (breakdown.net < 5000)
       throw new Error("Minimum balance to withdraw instantly is ₹5,000");
 
-    const { data: details } = await supabase
+    const { data: details } = await db
       .from("creator_payout_details")
       .select("pan_number")
       .eq("user_id", userId)
@@ -59,7 +65,7 @@ export const processPayout = createServerFn({ method: "POST" })
       .single();
     if (insErr) throw new Error(insErr.message);
 
-    const ids = (earnings ?? []).map((e) => e.id);
+    const ids = (earnings ?? []).map((e: { id: string }) => e.id);
     if (ids.length) {
       await supabaseAdmin
         .from("creator_earnings")

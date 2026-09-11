@@ -212,7 +212,7 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       content: string;
       created_at: string;
     }[],
-    dms: ((dms.data ?? []) as {
+    dms: ((dms.data ?? []) as unknown as {
       id: string;
       sender_id: string;
       receiver_id: string;
@@ -221,7 +221,7 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       voice_note_url: string | null;
       created_at: string;
     }[]).filter((message) => !mutedPeerIds.has(message.sender_id)),
-    momentNotifications: (momentNotifications.data ?? []) as {
+    momentNotifications: (momentNotifications.data ?? []) as unknown as {
       id: string;
       actor_id: string | null;
       kind: string;

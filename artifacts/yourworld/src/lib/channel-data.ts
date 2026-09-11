@@ -94,14 +94,16 @@ export async function loadChannelData(
 
   const postRows = rows ?? [];
   const postIds = postRows.map((row) => row.id);
+  const legacyLikesTable = (client as unknown as {
+    from: (name: "post_likes") => ReturnType<typeof supabase.from>;
+  }).from;
   let { data: likes, error: likesError } = postIds.length
-    ? await client.from("likes" as "post_likes").select("post_id").in("post_id", postIds)
+    ? await client.from("likes").select("post_id").in("post_id", postIds)
     : { data: [], error: null };
   // Keep fixtures and older deployments readable while using the live likes
   // table first. A missing legacy table is intentionally ignored.
   if (postIds.length && (!likes?.length || likesError)) {
-    const legacyLikes = await client
-      .from("post_likes")
+    const legacyLikes = await legacyLikesTable("post_likes")
       .select("post_id")
       .in("post_id", postIds);
     if (!legacyLikes.error && legacyLikes.data?.length) {
@@ -132,12 +134,21 @@ export async function loadChannelData(
     })),
   );
 
-  const followerIds = (followRows ?? []).map((row) => row.id as string).filter(Boolean);
+  const followerIds = (followRows ?? [])
+    .map((row: { id?: string | null }) => row.id as string)
+    .filter(Boolean);
   const { data: profiles } = followerIds.length
     ? await client.rpc("get_public_profiles", { ids: followerIds })
     : { data: [] };
-  const profileById = new Map((profiles ?? []).map((profile) => [profile.id, profile]));
-  const subscribers = followerIds.flatMap((id): Subscriber[] => {
+  type PublicProfileSummary = {
+    id: string;
+    display_name?: string | null;
+    username?: string | null;
+  };
+  const profileById = new Map<string, PublicProfileSummary>(
+    (profiles ?? []).map((profile: PublicProfileSummary) => [profile.id, profile]),
+  );
+  const subscribers = followerIds.flatMap((id: string): Subscriber[] => {
     const profile = profileById.get(id);
     if (!profile) return [];
     return [{

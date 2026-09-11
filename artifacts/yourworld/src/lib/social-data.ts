@@ -1466,7 +1466,9 @@ export async function createPostComment(
   if (!text) return { data: null, error: null };
   const basePayload = { post_id: postId, user_id: userId, content: text };
   let result = await liveSocialTable(client, "comments")
-    .insert(parentCommentId ? { ...basePayload, parent_comment_id: parentCommentId } : basePayload)
+    .insert(
+      (parentCommentId ? { ...basePayload, parent_comment_id: parentCommentId } : basePayload) as never,
+    )
     .select("id,created_at")
     .maybeSingle();
   if (result.error && parentCommentId && missingColumn(result.error)) {
@@ -1523,7 +1525,7 @@ export function usePostComments(postId: string | null) {
         .select("id,post_id,user_id,content,created_at")
         .eq("post_id", postId)
         .order("created_at", { ascending: true });
-      rows = fallback.data;
+      rows = fallback.data as typeof rows;
       commentsError = fallback.error;
     }
     if (commentsError) {

@@ -216,7 +216,7 @@ function WalletPage() {
     setProcessing(true);
     try {
       const res = await runPayout({});
-      const payout = res.payout as PayoutRow;
+      const payout = res.payout as unknown as PayoutRow;
       setPayouts((p) => [payout, ...p]);
       setGross({ ads: 0, course: 0, vip: 0 });
 

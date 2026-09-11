@@ -26,3 +26,9 @@ For optional creator fields such as audience and price, compatibility writes mus
 **Why:** The live posts table may accept the core upload while silently dropping monetization fields; a successful insert alone does not prove access control persisted.
 
 **How to apply:** Keep public publishing available, but reject VIP/paid publishing when the live schema reports the required fields missing; add the schema/RPC before re-enabling those modes.
+
+Cross-table RLS policies must not recursively query each other: when a posts policy checks grants and a grants policy checks post ownership, put the ownership lookup in a tightly scoped `SECURITY DEFINER` helper.
+
+**Why:** PostgreSQL raised `42P17` while loading the public video feed because the two policy subqueries caused recursive evaluation of `posts`.
+
+**How to apply:** Keep the generated live schema authoritative, isolate retired/optional client paths behind an explicit loose compatibility boundary, and use a security-definer ownership helper for cross-table entitlement policies.
