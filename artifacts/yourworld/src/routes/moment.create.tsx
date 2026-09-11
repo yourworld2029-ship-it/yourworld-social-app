@@ -320,6 +320,12 @@ function MomentCreatePage() {
   const [selectedAudio, setSelectedAudio] =
     useState<string | null>(null);
 
+  const [musicTitle, setMusicTitle] =
+    useState<string | null>(null);
+
+  const [musicArtist, setMusicArtist] =
+    useState<string | null>(null);
+
   const [audioUrl, setAudioUrl] =
     useState<string | null>(null);
 
@@ -1188,13 +1194,11 @@ function MomentCreatePage() {
       unregisterBlob(audioUrl);
     }
 
+    const title = file.name.replace(/\.[^.]+$/, "");
     setAudioUrl(url);
-    setSelectedAudio(
-      file.name.replace(
-        /\.[^.]+$/,
-        ""
-      )
-    );
+    setSelectedAudio(title);
+    setMusicTitle(title);
+    setMusicArtist(null);
     setAudioDuration(0);
     setAudioStart(0);
     setAudioEnd(0);
@@ -1228,6 +1232,8 @@ function MomentCreatePage() {
     }
     setAudioUrl(null);
     setSelectedAudio(null);
+    setMusicTitle(null);
+    setMusicArtist(null);
     setAudioDuration(0);
     setAudioStart(0);
     setAudioEnd(0);
@@ -1838,6 +1844,8 @@ function MomentCreatePage() {
     setIsVideo(false);
     setSelectedAudio(null);
     setAudioUrl(null);
+    setMusicTitle(null);
+    setMusicArtist(null);
 
     resetEditor();
 
@@ -1894,6 +1902,10 @@ function MomentCreatePage() {
 
       audio:
         selectedAudio,
+
+        musicTitle,
+
+        musicArtist,
 
       privacy:
         audience,
@@ -1989,11 +2001,18 @@ function MomentCreatePage() {
         textBg: "",
         music:
           selectedAudio ?? undefined,
+         musicTitle:
+           musicTitle ?? undefined,
+         musicArtist:
+           musicArtist ?? undefined,
         musicUrl:
           audioUrl ?? undefined,
         musicStart: audioUrl
           ? audioStart
           : undefined,
+         audioStartTime: audioUrl
+           ? audioStart
+           : undefined,
         musicEnd: audioUrl
           ? audioEnd
           : undefined,
@@ -3298,6 +3317,8 @@ function MomentCreatePage() {
                       }
                       setAudioUrl(track.url);
                       setSelectedAudio(`${track.title} — ${track.artist}`);
+                      setMusicTitle(track.title);
+                      setMusicArtist(track.artist);
                       setAudioDuration(0);
                       setAudioStart(0);
                       setAudioEnd(0);

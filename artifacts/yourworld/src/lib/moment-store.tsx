@@ -64,10 +64,13 @@ export type MyMoment = {
   text: string;
   textBg: string;
   music?: string;
+  musicTitle?: string;
+  musicArtist?: string;
   /** real playable audio source picked in the editor */
   musicUrl?: string;
   /** trim window inside the audio file (seconds) */
   musicStart?: number;
+  audioStartTime?: number;
   musicEnd?: number;
   musicVolume?: number;
   stickers: Sticker[];
@@ -205,6 +208,11 @@ type DbMoment = {
   archived: boolean;
   created_at: string;
   expires_at?: string | null;
+  audio_url?: string | null;
+  music_title?: string | null;
+  music_artist?: string | null;
+  audio_start_time?: number | string | null;
+  volume?: number | string | null;
   profiles?: MomentProfileRow | MomentProfileRow[] | null;
   user?: MomentProfileRow | MomentProfileRow[] | null;
   avatar_url?: string | null;
@@ -285,6 +293,14 @@ function rowToMoment(
   uid: string | null,
 ): MyMoment {
   const p = (row.payload ?? {}) as Record<string, never>;
+  const audioStart =
+    row.audio_start_time !== null && row.audio_start_time !== undefined
+      ? Number(row.audio_start_time)
+      : Number(p["musicStart"]);
+  const audioVolume =
+    row.volume !== null && row.volume !== undefined
+      ? Number(row.volume)
+      : Number(p["musicVolume"]);
   return {
     id: row.id,
     kind: (row.kind as MomentKind) ?? "photo",
@@ -293,10 +309,13 @@ function rowToMoment(
     text: row.text ?? "",
     textBg: row.text_bg ?? "",
     music: p["music"],
-    musicUrl: p["musicUrl"],
-    musicStart: p["musicStart"],
+    musicTitle: row.music_title ?? p["musicTitle"],
+    musicArtist: row.music_artist ?? p["musicArtist"],
+    musicUrl: row.audio_url ?? p["musicUrl"],
+    musicStart: Number.isFinite(audioStart) ? audioStart : undefined,
+    audioStartTime: Number.isFinite(audioStart) ? audioStart : undefined,
     musicEnd: p["musicEnd"],
-    musicVolume: p["musicVolume"],
+    musicVolume: Number.isFinite(audioVolume) ? audioVolume : undefined,
     stickers: (p["stickers"] as Sticker[] | undefined) ?? [],
     drawing: p["drawing"],
     trim: p["trim"],
@@ -330,8 +349,10 @@ function rowToMoment(
 function payloadOf(m: NewMoment) {
   return {
     music: m.music ?? null,
+    musicTitle: m.musicTitle ?? null,
+    musicArtist: m.musicArtist ?? null,
     musicUrl: m.musicUrl ?? null,
-    musicStart: m.musicStart ?? null,
+    musicStart: m.musicStart ?? m.audioStartTime ?? null,
     musicEnd: m.musicEnd ?? null,
     musicVolume: m.musicVolume ?? null,
     stickers: m.stickers ?? [],
@@ -887,6 +908,11 @@ export function MomentProvider({ children }: { children: ReactNode }) {
                 text: m.text ?? "",
                 text_bg: m.textBg ?? "",
                 payload: payloadOf({ ...m, musicUrl }),
+                audio_url: musicUrl ?? null,
+                music_title: m.musicTitle ?? m.music ?? null,
+                music_artist: m.musicArtist ?? null,
+                audio_start_time: m.audioStartTime ?? m.musicStart ?? null,
+                volume: m.musicVolume ?? null,
                 privacy: m.privacy,
                 duration: hours,
                 allow_download: m.allowDownload,

@@ -11,6 +11,7 @@ import {
   Download,
   Volume2,
   VolumeX,
+  Music,
   Pause,
   Eye,
   Trash2,
@@ -228,19 +229,46 @@ function MomentViewRoute() {
       a?.pause();
     } else {
       void v?.play().catch(() => {});
-      void a?.play().catch(() => {});
+      void a?.play().catch(() => {
+        if (a && !muted) {
+          a.muted = true;
+          setMuted(true);
+        }
+      });
     }
-  }, [paused, showViewers, index, chunk]);
+  }, [paused, showViewers, index, chunk, muted]);
 
   // background music
   useEffect(() => {
     const a = musicRef.current;
     if (!a || !current?.musicUrl) return;
+    a.muted = muted;
     a.volume = Math.min(1, Math.max(0, current.musicVolume ?? (current.kind === "video" ? 0.35 : 0.8)));
-    a.currentTime = current.musicStart ?? 0;
-    if (!paused) void a.play().catch(() => {});
-    return () => a.pause();
-  }, [current?.id, current?.musicUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+    const start = Math.max(0, current.musicStart ?? current.audioStartTime ?? 0);
+    a.currentTime = start;
+    if (!paused && !showViewers) {
+      void a.play().catch(() => {
+        if (!muted) {
+          a.muted = true;
+          setMuted(true);
+        }
+      });
+    }
+    return () => {
+      a.pause();
+      a.currentTime = start;
+    };
+  }, [
+    current?.id,
+    current?.kind,
+    current?.musicUrl,
+    current?.musicVolume,
+    current?.musicStart,
+    current?.audioStartTime,
+    muted,
+    paused,
+    showViewers,
+  ]);
 
   // Keep the reply bar above the mobile virtual keyboard. VisualViewport is
   // supported by modern mobile browsers and does not affect desktop layout.
@@ -473,7 +501,21 @@ function MomentViewRoute() {
           </div>
         ) : null}
 
-        {current.musicUrl ? <audio ref={musicRef} src={current.musicUrl} loop /> : null}
+        {current.musicUrl ? (
+          <audio
+            key={current.id}
+            ref={musicRef}
+            src={current.musicUrl}
+            muted={muted}
+            preload="auto"
+            onTimeUpdate={(e) => {
+              const audio = e.currentTarget;
+              const start = Math.max(0, current.musicStart ?? current.audioStartTime ?? 0);
+              const end = current.musicEnd ?? 0;
+              if (end > start && audio.currentTime >= end) audio.currentTime = start;
+            }}
+          />
+        ) : null}
 
         {/* TOP BACKGROUND GRADIENT */}
         <div className="pointer-events-none absolute inset-x-0 top-0 z-[10001] h-32 bg-gradient-to-b from-black/70 via-black/25 to-transparent" />
@@ -561,10 +603,28 @@ function MomentViewRoute() {
           </div>
 
           <div className="pointer-events-auto flex items-center gap-2">
-            <button
+             <button
               type="button"
               aria-label={muted ? "Unmute" : "Mute"}
-              onClick={() => setMuted((m) => !m)}
+               onClick={() => {
+                 const nextMuted = !muted;
+                 setMuted(nextMuted);
+                 const audio = musicRef.current;
+                 const video = videoRef.current;
+                 if (audio) {
+                   audio.muted = nextMuted;
+                   if (!nextMuted && !paused && !showViewers) {
+                     void audio.play().catch(() => {
+                       audio.muted = true;
+                       setMuted(true);
+                     });
+                   }
+                 }
+                 if (video) {
+                   video.muted = nextMuted;
+                   if (!nextMuted && !paused && !showViewers) void video.play().catch(() => {});
+                 }
+               }}
               className="rounded-full border border-white/25 bg-white/10 p-2.5 text-white transition-transform duration-150 active:scale-90"
             >
               {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
@@ -579,6 +639,22 @@ function MomentViewRoute() {
             </button>
           </div>
         </div>
+
+        {current.musicUrl ? (
+          <div className="pointer-events-none absolute inset-x-5 top-[4.75rem] z-[10002] flex min-w-0 items-center justify-center">
+            <div className="flex max-w-[82%] items-center gap-2 rounded-full border border-white/20 bg-black/45 px-3 py-1.5 text-white backdrop-blur-md">
+              <Music className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden="true" />
+              <div className="min-w-0 overflow-hidden text-left">
+                <p className="truncate text-[11px] font-semibold">
+                  {current.musicTitle || current.music || "Original audio"}
+                </p>
+                {current.musicArtist ? (
+                  <p className="truncate text-[9px] text-white/60">{current.musicArtist}</p>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         {/* PAUSED BADGE */}
         {paused ? (

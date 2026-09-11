@@ -15,11 +15,11 @@ For call signaling specifically, keep SDP and role-separated ICE candidates insi
 
 **How to apply:** Treat the database record as authoritative and let Realtime only accelerate delivery. Poll participant call rows on a short interval and rehydrate offer, answer, ICE, and terminal status from the envelope.
 
-For social interactions, verify the runtime table inventory before introducing feature-specific tables: the current YourWorld deployment stores Moments as `posts.kind = 'moment'`, canonical DMs use `messages`, and comments use `public.comments` even though generated types may still describe `post_comments`.
+For social interactions, verify the runtime table inventory before introducing feature-specific tables: YourWorld now has a dedicated `public.moments` table for new Moment writes, with a backfilled compatibility path for legacy `posts.kind = 'moment'` rows; canonical DMs use `messages`, and comments use `public.comments` even though generated types may still describe `post_comments`.
 
-**Why:** Older app code expected standalone Moment tables, legacy direct-message rows, and a generated `post_comments` model, so those writes could fail or appear in a UI path the product no longer reads.
+**Why:** Older app code expected standalone Moment tables, legacy direct-message rows, and a generated `post_comments` model. Adding the Moment table without backfilling would make older Moments disappear once the posts fallback stopped triggering.
 
-**How to apply:** Preserve the posts-backed Moment path, use dedicated interaction/notification tables only when their runtime schema is applied, keep canonical DM writes in `messages`, query comments through the live `comments` compatibility boundary, and sign private Moment media paths before rendering them in notifications.
+**How to apply:** Use the dedicated Moment table for new writes and preserve/backfill the posts-backed legacy path, use dedicated interaction/notification tables only when their runtime schema is applied, keep canonical DM writes in `messages`, query comments through the live `comments` compatibility boundary, and sign private Moment media paths before rendering them in notifications.
 
 For optional creator fields such as audience and price, compatibility writes must expose which columns were removed so the UI can fail visibly instead of claiming a restriction was saved.
 
