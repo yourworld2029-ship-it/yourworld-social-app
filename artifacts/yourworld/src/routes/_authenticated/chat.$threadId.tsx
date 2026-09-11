@@ -1046,12 +1046,14 @@ function ChatThreadPage() {
         <div className="fixed inset-0 z-[60] flex items-end bg-black/60 backdrop-blur-sm" onClick={() => setActionSheetId(null)}>
           <div className="w-full rounded-t-3xl border-t border-zinc-800 bg-zinc-900 p-3 pb-6" onClick={(e) => e.stopPropagation()}>
             <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-zinc-700" />
-            <button
-              onClick={() => { deleteIds([actionSheetId]); setActionSheetId(null); }}
-              className="w-full flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold text-red-400 hover:bg-red-950/40"
-            >
-              <Trash2 size={18} /> Delete Message
-            </button>
+            {messages.find((message) => message.id === actionSheetId)?.sender === "me" && (
+              <button
+                onClick={() => { deleteIds([actionSheetId]); setActionSheetId(null); }}
+                className="w-full flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold text-red-400 hover:bg-red-950/40"
+              >
+                <Trash2 size={18} /> Unsend
+              </button>
+            )}
             <button
               onClick={() => { setSelectMode(true); setSelectedIds([actionSheetId]); setActionSheetId(null); }}
               className="w-full flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold text-zinc-200 hover:bg-zinc-800"

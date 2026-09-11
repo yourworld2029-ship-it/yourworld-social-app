@@ -1142,8 +1142,13 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
         .channel(`messages-${threadId}-${Math.random().toString(36).slice(2)}`)
         .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, (payload) => {
           const row = (payload.new ?? payload.old) as PublicMessageRow;
-          if (!row?.id || !belongs(row)) return;
-           if (payload.eventType === "DELETE" || !isRenderablePublicMessage(row, meRef.current)) setMessages((prev) => prev.filter((m) => m.id !== row.id));
+           if (!row?.id) return;
+           if (payload.eventType === "DELETE") {
+             setMessages((prev) => prev.filter((m) => m.id !== row.id));
+             return;
+           }
+           if (!belongs(row)) return;
+            if (!isRenderablePublicMessage(row, meRef.current)) setMessages((prev) => prev.filter((m) => m.id !== row.id));
           else merge([row]);
         })
         .subscribe((status) => {
