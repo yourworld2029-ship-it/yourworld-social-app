@@ -1,25 +1,24 @@
 export type CallMediaMode = "audio" | "video";
 export type CallFacingMode = "user" | "environment";
 
-export const CALL_ICE_SERVERS: RTCIceServer[] = [
+const configuredIceServers = (() => {
+  try {
+    const value = import.meta.env.VITE_CALL_ICE_SERVERS_JSON as string | undefined;
+    const parsed = value ? JSON.parse(value) : null;
+    return Array.isArray(parsed) ? (parsed as RTCIceServer[]) : null;
+  } catch {
+    return null;
+  }
+})();
+
+/**
+ * Production TURN credentials must be short-lived and injected by the
+ * deployment. The old public/demo relay credentials were intentionally
+ * removed; STUN remains a safe development fallback.
+ */
+export const CALL_ICE_SERVERS: RTCIceServer[] = configuredIceServers ?? [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
-  { urls: "stun:stun.relay.metered.ca:80" },
-  {
-    urls: "turn:openrelay.metered.ca:80",
-    username: "openrelayproject",
-    credential: "openrelayproject",
-  },
-  {
-    urls: "turn:openrelay.metered.ca:443",
-    username: "openrelayproject",
-    credential: "openrelayproject",
-  },
-  {
-    urls: "turn:openrelay.metered.ca:443?transport=tcp",
-    username: "openrelayproject",
-    credential: "openrelayproject",
-  },
 ];
 
 export const CALL_AUDIO_CONSTRAINTS: MediaTrackConstraints = {

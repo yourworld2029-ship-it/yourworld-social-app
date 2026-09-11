@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Bell, Mic, MicOff, PhoneOff, Phone, Video, VideoOff, SwitchCamera, Zap, ZapOff, Volume2, VolumeX, X } from "lucide-react";
+import { Bell, Mic, MicOff, PhoneOff, Phone, Video, VideoOff, SwitchCamera, Zap, ZapOff, Volume2, VolumeX, X, MonitorUp, LockKeyhole, Sparkles, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import {
@@ -17,6 +17,8 @@ import {
   markCallNotificationBannerSeen,
   readCallNotificationAction,
   registerCallServiceWorker,
+  getExistingCallPushSubscription,
+  serializeCallPushSubscription,
   showIncomingCallNotification,
   type CallNotificationAction,
 } from "@/lib/call-notifications";
@@ -26,6 +28,12 @@ import {
   getCallVideo,
   tuneCallVideoSender,
 } from "@/lib/webrtc-media";
+import {
+  CALL_VIDEO_EFFECTS,
+  createCallVideoEffect,
+  type CallVideoEffect,
+  type CallVideoEffectPipeline,
+} from "@/lib/call-effects";
 
 /**
  * The deployed calls/user_blocks schema is newer than generated Supabase types.
@@ -34,7 +42,7 @@ import {
 const callDb = supabase as unknown as {
   // Generated types lag the verified live schema; keep the escape hatch here.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  from: (table: "calls" | "user_blocks") => any;
+   from: (table: "calls" | "user_blocks" | "call_push_subscriptions") => any;
 };
 
 export type CallMode = "audio" | "video";
@@ -325,6 +333,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
   /** Auto-hiding call controls: visible on activity, hidden after 3s. */
   const [controlsVisible, setControlsVisible] = useState(true);
   const [speakerOn, setSpeakerOn] = useState(true);
+  const [networkState, setNetworkState] = useState<"stable" | "reconnecting">("stable");
+  const [screenSharing, setScreenSharing] = useState(false);
+  const [videoEffect, setVideoEffect] = useState<CallVideoEffect>("none");
   const hideTimer = useRef<number | null>(null);
   // Cancels a call that is never answered so neither side rings forever.
   const ringTimer = useRef<number | null>(null);
@@ -344,6 +355,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const remoteAudio = useRef<HTMLAudioElement | null>(null);
   const remoteStream = useRef<MediaStream | null>(null);
   const remoteAudioMuted = useRef(false);
+  const cameraSourceTrack = useRef<MediaStreamTrack | null>(null);
+  const videoEffectPipeline = useRef<CallVideoEffectPipeline | null>(null);
+  const screenShareStream = useRef<MediaStream | null>(null);
+  const reconnectTimer = useRef<number | null>(null);
+  const reconnectAttempt = useRef(0);
   const callRef = useRef<CallState | null>(null);
   const meRef = useRef<string | null>(null);
   const isGuestRef = useRef(true);
@@ -440,9 +456,51 @@ export function CallProvider({ children }: { children: ReactNode }) {
     return () => sub.subscription.unsubscribe();
   }, []);
 
+  // Keep the current browser device registered for provider-delivered pushes.
+  // The subscription contains public endpoint/key material only.
+  useEffect(() => {
+    if (!me || typeof window === "undefined" || !("Notification" in window)) return;
+    if (Notification.permission !== "granted") return;
+    void getExistingCallPushSubscription().then((subscription) => {
+      if (!subscription) return;
+      const serialized = serializeCallPushSubscription(subscription);
+      void callDb.from("call_push_subscriptions").upsert(
+        {
+          user_id: me,
+          endpoint: serialized.endpoint,
+          provider: "webpush",
+          subscription: serialized.subscription,
+          user_agent: navigator.userAgent.slice(0, 500),
+          last_seen_at: new Date().toISOString(),
+        },
+        { onConflict: "user_id,endpoint" },
+      );
+    });
+  }, [me]);
+
+  useEffect(() => {
+    const onOnline = () => {
+      if (pcRef.current?.connectionState === "disconnected" || pcRef.current?.connectionState === "failed") {
+        pcRef.current.dispatchEvent(new Event("connectionstatechange"));
+      }
+    };
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, []);
+
   /* ---------- teardown ---------- */
   const teardown = useCallback((options?: { keepSignal?: boolean }) => {
     stopAllRingtones();
+    if (reconnectTimer.current) {
+      window.clearTimeout(reconnectTimer.current);
+      reconnectTimer.current = null;
+    }
+    reconnectAttempt.current = 0;
+    videoEffectPipeline.current?.stop();
+    videoEffectPipeline.current = null;
+    screenShareStream.current?.getTracks().forEach((track) => track.stop());
+    screenShareStream.current = null;
+    cameraSourceTrack.current = null;
     localStream.current?.getTracks().forEach((t) => t.stop());
     localStream.current = null;
     // Release the remote tracks too, otherwise the camera/mic indicator can
@@ -491,6 +549,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
     setMicOn(true);
     setCamOn(true);
     setSpeakerOn(true);
+    setNetworkState("stable");
+    setScreenSharing(false);
+    setVideoEffect("none");
     remoteAudioMuted.current = false;
     setFacingMode("user");
     setFlashOn(false);
@@ -621,9 +682,103 @@ export function CallProvider({ children }: { children: ReactNode }) {
       track.contentHint = "motion";
     }
     localStream.current = stream;
+    cameraSourceTrack.current = stream.getVideoTracks()[0] ?? null;
     attachStreams();
     return stream;
   }, [attachStreams, facingMode]);
+
+  const applyVideoEffect = useCallback(async (nextEffect: CallVideoEffect) => {
+    const source = cameraSourceTrack.current;
+    const peer = pcRef.current;
+    const stream = localStream.current;
+    if (!source || !stream || !peer) return;
+    const current = stream.getVideoTracks()[0] ?? null;
+    videoEffectPipeline.current?.stop();
+    videoEffectPipeline.current = null;
+
+    let nextTrack = source;
+    if (nextEffect !== "none") {
+      const pipeline = await createCallVideoEffect(source, nextEffect);
+      if (!pipeline) {
+        toast.error("This browser cannot apply live video effects");
+        setVideoEffect("none");
+        return;
+      }
+      videoEffectPipeline.current = pipeline;
+      nextTrack = pipeline.track;
+    }
+
+    const sender = peer.getSenders().find((item) => item.track?.kind === "video");
+    if (sender) {
+      await sender.replaceTrack(nextTrack);
+      await tuneCallVideoSender(sender);
+    }
+    if (current && current !== nextTrack) stream.removeTrack(current);
+    if (!stream.getVideoTracks().includes(nextTrack)) stream.addTrack(nextTrack);
+    setVideoEffect(nextEffect);
+    attachStreams();
+  }, [attachStreams]);
+
+  const restoreCameraTrack = useCallback(async () => {
+    if (!localStream.current || !pcRef.current || !cameraSourceTrack.current) return;
+    const current = localStream.current.getVideoTracks()[0] ?? null;
+    const sender = pcRef.current.getSenders().find((item) => item.track?.kind === "video");
+    const nextTrack = videoEffectPipeline.current?.track ?? cameraSourceTrack.current;
+    if (sender) {
+      await sender.replaceTrack(nextTrack);
+      await tuneCallVideoSender(sender);
+    }
+    if (current && current !== nextTrack) localStream.current.removeTrack(current);
+    if (!localStream.current.getVideoTracks().includes(nextTrack)) {
+      localStream.current.addTrack(nextTrack);
+    }
+    attachStreams();
+  }, [attachStreams]);
+
+  const toggleScreenShare = useCallback(async () => {
+    if (!pcRef.current || !localStream.current || !call || call.mode !== "video") return;
+    if (screenSharing) {
+      screenShareStream.current?.getTracks().forEach((track) => track.stop());
+      screenShareStream.current = null;
+      await restoreCameraTrack();
+      setScreenSharing(false);
+      return;
+    }
+    if (!navigator.mediaDevices.getDisplayMedia) {
+      toast.error("Screen sharing is not supported on this browser");
+      return;
+    }
+    try {
+      const shared = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: { ideal: 30, max: 30 } },
+        audio: false,
+      });
+      const track = shared.getVideoTracks()[0];
+      if (!track) throw new Error("No screen track was returned");
+      const sender = pcRef.current.getSenders().find((item) => item.track?.kind === "video");
+      const current = localStream.current.getVideoTracks()[0] ?? null;
+      if (sender) {
+        await sender.replaceTrack(track);
+        await tuneCallVideoSender(sender);
+      }
+      if (current) localStream.current.removeTrack(current);
+      localStream.current.addTrack(track);
+      screenShareStream.current = shared;
+      setScreenSharing(true);
+      track.onended = () => {
+        void (async () => {
+          screenShareStream.current = null;
+          await restoreCameraTrack();
+          setScreenSharing(false);
+        })();
+      };
+      attachStreams();
+    } catch (error) {
+      if ((error as DOMException)?.name !== "AbortError") {
+        toast.error(error instanceof Error ? error.message : "Screen sharing could not start");
+      }
+    }
+  }, [attachStreams, call, restoreCameraTrack, screenSharing]);
 
   const phaseRef = useRef<Phase>("idle");
   useEffect(() => { phaseRef.current = phase; }, [phase]);
@@ -746,9 +901,54 @@ export function CallProvider({ children }: { children: ReactNode }) {
         requestAnimationFrame(() => requestAnimationFrame(attachNow));
       };
 
+      const scheduleReconnect = () => {
+        if (reconnectTimer.current || !callRef.current || phaseRef.current === "idle") return;
+        const attempt = reconnectAttempt.current;
+        if (attempt >= 4) {
+          toast.error("Call connection could not be recovered");
+          const currentCall = callRef.current;
+          if (currentCall) {
+            signal({ type: "END_CALL", reason: "reconnect_failed" });
+            void callDb.from("calls")
+              .update({ status: "ended", ended_at: new Date().toISOString() })
+              .eq("id", currentCall.callId);
+          }
+          void logCallOutcome("missed");
+          teardown();
+          return;
+        }
+        reconnectAttempt.current += 1;
+        setNetworkState("reconnecting");
+        const delay = Math.min(10_000, 1_000 * 2 ** attempt);
+        reconnectTimer.current = window.setTimeout(() => {
+          reconnectTimer.current = null;
+          void (async () => {
+            try {
+              if (pcRef.current !== pc || !callRef.current) return;
+              pc.restartIce?.();
+              const offer = await pc.createOffer({ iceRestart: true });
+              const optimizedOffer = {
+                ...offer,
+                sdp: optimizeCallSdp(offer.sdp ?? ""),
+              };
+              await pc.setLocalDescription(optimizedOffer);
+              const description = pc.localDescription;
+              if (!description) throw new Error("ICE restart offer was not created");
+              await persistDescription(callRef.current.callId, "offer", description);
+              signal({ type: "CALL_OFFER", sdp: description, reconnect: true });
+            } catch (error) {
+              console.debug("[call] ICE restart attempt failed", error);
+              scheduleReconnect();
+            }
+          })();
+        }, delay);
+      };
+
       pc.onconnectionstatechange = () => {
         if (pc.connectionState === "connected") {
           stopAllRingtones();
+          reconnectAttempt.current = 0;
+          setNetworkState("stable");
           connectedAt.current ??= Date.now();
           setPhase("active");
           const currentCall = callRef.current;
@@ -758,22 +958,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
               .eq("id", currentCall.callId);
           }
         }
-        if (pc.connectionState === "failed") {
-          toast.error("Call connection failed");
-          const c = callRef.current;
-          if (c) {
-            signal({ type: "END_CALL", reason: "failed" });
-            void callDb.from("calls")
-              .update({ status: "ended", ended_at: new Date().toISOString() })
-              .eq("id", c.callId);
-          }
-          void logCallOutcome("missed");
-          teardown();
+        if (pc.connectionState === "disconnected" || pc.connectionState === "failed") {
+          scheduleReconnect();
         }
       };
       return pc;
     },
-    [signal, teardown, logCallOutcome, playRemoteMedia],
+    [signal, teardown, logCallOutcome, playRemoteMedia, persistDescription],
   );
 
   const flushIce = useCallback(async () => {
@@ -828,14 +1019,18 @@ export function CallProvider({ children }: { children: ReactNode }) {
               signal({ type: "CALL_OFFER", sdp: offerDescription });
             } else if (
               (type === "CALL_OFFER" || type === "offer") &&
-              !isCaller &&
-              phaseRef.current !== "incoming" &&
-              !pc?.remoteDescription
+              (!isCaller || payload.reconnect === true) &&
+              phaseRef.current !== "incoming"
             ) {
               const remoteOffer = asSessionDescription(payload.sdp);
               if (!remoteOffer) return;
               const stream = localStream.current ?? (await getMedia(mode));
               const peer = pcRef.current ?? createPeer(stream);
+              if (
+                peer.remoteDescription?.sdp &&
+                peer.remoteDescription.sdp === remoteOffer.sdp &&
+                peer.signalingState !== "have-local-offer"
+              ) return;
               await peer.setRemoteDescription(
                 new RTCSessionDescription(optimizedSessionDescription(remoteOffer)),
               );
@@ -853,11 +1048,15 @@ export function CallProvider({ children }: { children: ReactNode }) {
               void sigRef.current?.send({
                 type: "broadcast",
                 event: "CALL_ANSWER",
-                payload: { type: "CALL_ANSWER", callId, sdp: answerDescription },
+                payload: { type: "CALL_ANSWER", callId, sdp: answerDescription, reconnect: payload.reconnect === true },
               });
               await persistDescription(callId, "answer", answerDescription);
               setPhase("connecting");
-            } else if ((type === "CALL_ANSWER" || type === "answer") && pc && !pc.remoteDescription) {
+            } else if (
+              (type === "CALL_ANSWER" || type === "answer") &&
+              pc &&
+              (pc.signalingState === "have-local-offer" || !pc.remoteDescription)
+            ) {
               const remoteAnswer = asSessionDescription(payload.sdp);
               if (!remoteAnswer) return;
               await pc.setRemoteDescription(
@@ -1192,6 +1391,20 @@ export function CallProvider({ children }: { children: ReactNode }) {
         if (error || !callId) {
           throw new Error(error?.message ?? "no call id was returned");
         }
+        // Realtime/database ringing remains the source of truth. This
+        // authenticated edge call is only the background wake-up path.
+        void supabase.functions
+          .invoke("send-call-push", {
+            body: {
+              callId,
+              receiverId: target,
+              mode,
+              peerName: peerName ?? "YourWorld caller",
+            },
+          })
+          .then(({ error: pushError }) => {
+            if (pushError) console.debug("[call-notifications] background push unavailable", pushError);
+          });
         const nextCall = { callId, mode, peerId: target, peerName: peerName ?? "Calling…", incoming: false, threadId: threadId ?? null };
         clearedCallPeers.current.delete(target);
         fallbackSignals.current[callId] = initialSignal;
@@ -1400,6 +1613,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const flipCamera = useCallback(async () => {
     const next = facingMode === "user" ? "environment" : "user";
     const oldTrack = localStream.current?.getVideoTracks()[0] ?? null;
+    videoEffectPipeline.current?.stop();
+    videoEffectPipeline.current = null;
+    cameraSourceTrack.current?.stop();
+    cameraSourceTrack.current = null;
     // Most phones can't open both cameras at once — release the old one first.
     if (oldTrack) {
       oldTrack.stop();
@@ -1410,6 +1627,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       const newStream = await getCallVideo(next);
       const newVideoTrack = newStream.getVideoTracks()[0];
       newVideoTrack.contentHint = "motion";
+      cameraSourceTrack.current = newVideoTrack;
       const sender = pcRef.current
         ?.getSenders()
         .find((s) => s.track?.kind === "video");
@@ -1421,6 +1639,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         localStream.current.addTrack(newVideoTrack);
       }
       setFacingMode(next);
+      setVideoEffect("none");
       attachStreams();
     } catch {
       toast.error("Couldn't switch camera");
@@ -1496,7 +1715,24 @@ export function CallProvider({ children }: { children: ReactNode }) {
     markCallNotificationBannerSeen();
     setShowNotificationBanner(false);
     const result = await enableCallNotifications();
-    if (result.permission === "granted") toast.success("Call and message notifications enabled");
+    if (result.permission === "granted") {
+      if (result.subscription && me) {
+        const serialized = serializeCallPushSubscription(result.subscription);
+        const { error } = await callDb.from("call_push_subscriptions").upsert(
+          {
+            user_id: me,
+            endpoint: serialized.endpoint,
+            provider: "webpush",
+            subscription: serialized.subscription,
+            user_agent: navigator.userAgent.slice(0, 500),
+            last_seen_at: new Date().toISOString(),
+          },
+          { onConflict: "user_id,endpoint" },
+        );
+        if (error) console.debug("[call-notifications] subscription sync pending", error);
+      }
+      toast.success("Call and message notifications enabled");
+    }
     else if (result.permission === "denied") toast.message("Notifications remain disabled");
   };
 
@@ -1645,8 +1881,18 @@ export function CallProvider({ children }: { children: ReactNode }) {
           />
 
           {phase !== "incoming" && (
-            <div className="absolute left-1/2 top-[max(1.25rem,env(safe-area-inset-top,0px))] z-30 -translate-x-1/2 rounded-full border border-white/15 bg-black/30 px-4 py-2 text-sm font-semibold tracking-[0.18em] text-white/90 shadow-xl backdrop-blur-2xl">
-              {phase === "active" ? callClock : statusText}
+            <div className="absolute left-1/2 top-[max(1.25rem,env(safe-area-inset-top,0px))] z-30 flex -translate-x-1/2 items-center gap-2 rounded-full border border-white/15 bg-black/30 px-4 py-2 text-sm font-semibold tracking-[0.12em] text-white/90 shadow-xl backdrop-blur-2xl">
+              <span>{phase === "active" ? callClock : statusText}</span>
+              <span className="flex items-center gap-1 text-[10px] tracking-normal text-emerald-300" title="WebRTC media is protected by DTLS-SRTP. Application-level E2EE keying is not active in this web build.">
+                <LockKeyhole className="h-3 w-3" />
+                Encrypted
+              </span>
+              {networkState === "reconnecting" && (
+                <span className="flex items-center gap-1 text-[10px] tracking-normal text-amber-300">
+                  <RefreshCw className="h-3 w-3 animate-spin" />
+                  Reconnecting
+                </span>
+              )}
             </div>
           )}
 
@@ -1780,6 +2026,34 @@ export function CallProvider({ children }: { children: ReactNode }) {
                     aria-label="Flip camera"
                   >
                     <SwitchCamera size={19} />
+                  </button>
+                )}
+                {call.mode === "video" && (
+                  <button
+                    onClick={() => void toggleScreenShare()}
+                    className={`grid h-11 w-11 place-items-center rounded-full transition-all active:scale-90 ${
+                      screenSharing ? "bg-cyan-500 text-white" : "bg-white/10 text-white hover:bg-white/20"
+                    }`}
+                    aria-label={screenSharing ? "Stop screen sharing" : "Share screen"}
+                    title={screenSharing ? "Stop screen sharing" : "Share screen"}
+                  >
+                    {screenSharing ? <MonitorUp size={18} /> : <MonitorUp size={18} />}
+                  </button>
+                )}
+                {call.mode === "video" && (
+                  <button
+                    onClick={() => {
+                      const index = CALL_VIDEO_EFFECTS.findIndex((item) => item.value === videoEffect);
+                      const next = CALL_VIDEO_EFFECTS[(index + 1) % CALL_VIDEO_EFFECTS.length].value;
+                      void applyVideoEffect(next);
+                    }}
+                    className={`grid h-11 w-11 place-items-center rounded-full transition-all active:scale-90 ${
+                      videoEffect !== "none" ? "bg-fuchsia-500 text-white" : "bg-white/10 text-white hover:bg-white/20"
+                    }`}
+                    aria-label={`Video effect: ${CALL_VIDEO_EFFECTS.find((item) => item.value === videoEffect)?.label ?? "None"}`}
+                    title={`Video effect: ${CALL_VIDEO_EFFECTS.find((item) => item.value === videoEffect)?.label ?? "None"}`}
+                  >
+                    <Sparkles size={18} />
                   </button>
                 )}
                 <button

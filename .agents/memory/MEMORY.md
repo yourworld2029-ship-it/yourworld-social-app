@@ -17,3 +17,4 @@
 - [WebRTC call signaling](webrtc-call-signaling.md) — persist and reuse the initial offer; realtime accept events are only an acceleration path.
 - [Orbit request workflow](orbit-request-workflow.md) — enforce the combined three-message pending cap and receiver-only acceptance in the database.
 - [Social Chat preferences](social-chat-preferences.md) — keep participant toggles conversation-scoped while auto-delete remains shared.
+- [Enterprise call delivery](enterprise-call-delivery.md) — browser background calls use Web Push through a JWT-protected Edge Function; native VoIP needs a mobile client.

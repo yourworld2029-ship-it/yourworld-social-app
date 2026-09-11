@@ -87,6 +87,28 @@ export async function enableCallNotifications() {
   }
 }
 
+export async function getExistingCallPushSubscription() {
+  const registration = await registerCallServiceWorker();
+  if (!registration || !("pushManager" in registration)) return null;
+  try {
+    return await registration.pushManager.getSubscription();
+  } catch {
+    return null;
+  }
+}
+
+export function serializeCallPushSubscription(subscription: PushSubscription) {
+  const json = subscription.toJSON();
+  return {
+    endpoint: subscription.endpoint,
+    subscription: {
+      endpoint: subscription.endpoint,
+      expirationTime: json.expirationTime ?? null,
+      keys: json.keys ?? {},
+    },
+  };
+}
+
 export async function showIncomingCallNotification(details: CallNotificationDetails) {
   if (typeof window === "undefined" || !("Notification" in window)) return false;
   if (Notification.permission !== "granted") return false;
