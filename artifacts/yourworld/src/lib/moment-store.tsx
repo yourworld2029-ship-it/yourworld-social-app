@@ -497,155 +497,151 @@ export function MomentProvider({ children }: { children: ReactNode }) {
   const archivingRef = useRef(new Set<string>());
   const expiredArchiveCheckedRef = useRef(false);
   const deletedMomentIdsRef = useRef(new Set<string>());
+  const loadInFlightRef = useRef(false);
+  const reloadAfterLoadRef = useRef(false);
 
   const load = useCallback(async () => {
-    const { data: auth, error: authError } = await supabase.auth.getUser();
-    if (authError) {
-      if (isAuthSessionMissing(authError)) {
+    if (loadInFlightRef.current) {
+      reloadAfterLoadRef.current = true;
+      return;
+    }
+    loadInFlightRef.current = true;
+    try {
+      const { data: auth, error: authError } = await supabase.auth.getUser();
+      if (authError) {
+        if (isAuthSessionMissing(authError)) {
+          uidRef.current = null;
+          setMoments([]);
+          setLoading(false);
+          return;
+        }
         uidRef.current = null;
         setMoments([]);
         setLoading(false);
         return;
       }
-      console.error("Failed to load the signed-in user for moments", authError);
-      toast.error("Couldn't load moments. Please try again.");
-      setLoading(false);
-      return;
-    }
-    const uid = auth.user?.id ?? null;
-    uidRef.current = uid;
-    if (!uid) {
-      setMoments([]);
-      setLoading(false);
-      return;
-    }
+      const uid = auth.user?.id ?? null;
+      uidRef.current = uid;
+      if (!uid) {
+        setMoments([]);
+        setLoading(false);
+        return;
+      }
 
-    let momentsResult = (await supabase
-      .from("moments")
-      .select(MOMENT_WITH_PROFILE_SELECT)
-      .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()},user_id.eq.${uid}`)
-      .order("created_at", { ascending: false })
-      .limit(200)) as unknown as MomentDbResult;
-    if (momentsResult.error && hasProfileJoinError(momentsResult.error)) {
-      momentsResult = (await supabase
+      let momentsResult = (await supabase
         .from("moments")
-        .select("*")
-        .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()},user_id.eq.${uid}`)
-        .order("created_at", { ascending: false })
-        .limit(200)) as unknown as MomentDbResult;
-    }
-    let rows: unknown[] | null = momentsResult.data;
-    let momentsError = momentsResult.error;
-    let usesPostsFallback = false;
-    if (missingTable(momentsError, "moments")) {
-      let postsResult = (await supabase
-        .from("posts")
         .select(MOMENT_WITH_PROFILE_SELECT)
         .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()},user_id.eq.${uid}`)
         .order("created_at", { ascending: false })
         .limit(200)) as unknown as MomentDbResult;
-      if (postsResult.error && hasProfileJoinError(postsResult.error)) {
-        postsResult = (await supabase
+      if (momentsResult.error && hasProfileJoinError(momentsResult.error)) {
+        momentsResult = (await supabase
           .from("posts")
           .select("*")
           .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()},user_id.eq.${uid}`)
           .order("created_at", { ascending: false })
           .limit(200)) as unknown as MomentDbResult;
       }
-      rows = (postsResult.data ?? []).filter(
-        (row) => (row as Record<string, unknown>).kind === "moment",
+      let rows: unknown[] | null = momentsResult.data;
+      let momentsError = momentsResult.error;
+      let usesPostsFallback = false;
+      if (missingTable(momentsError, "moments")) {
+        let postsResult = (await supabase
+          .from("posts")
+          .select(MOMENT_WITH_PROFILE_SELECT)
+          .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()},user_id.eq.${uid}`)
+          .order("created_at", { ascending: false })
+          .limit(200)) as unknown as MomentDbResult;
+        if (postsResult.error && hasProfileJoinError(postsResult.error)) {
+          postsResult = (await supabase
+            .from("posts")
+            .select("*")
+            .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()},user_id.eq.${uid}`)
+            .order("created_at", { ascending: false })
+            .limit(200)) as unknown as MomentDbResult;
+        }
+        rows = (postsResult.data ?? []).filter(
+          (row) => (row as Record<string, unknown>).kind === "moment",
+        );
+        momentsError = postsResult.error;
+        usesPostsFallback = true;
+      }
+      if (momentsError) {
+        setMoments([]);
+        setLoading(false);
+        return;
+      }
+
+      const list = usesPostsFallback
+        ? (rows ?? []).map((row) => postRowToMoment(row as Record<string, unknown>))
+        : ((rows ?? []) as DbMoment[]);
+      if (!list.length) {
+        setMoments([]);
+        setLoading(false);
+        return;
+      }
+
+      const ids = list.map((r) => r.id);
+      const authorIds = [...new Set(list.map((r) => r.user_id))];
+
+      const [viewsResult, repliesResult, likesResult, profilesResult, uniqueViewsResult] = await Promise.all([
+        usesPostsFallback
+          ? Promise.resolve({ data: [] as DbView[], error: null })
+          : supabase.from("moment_views").select("*").in("moment_id", ids),
+        usesPostsFallback
+          ? Promise.resolve({ data: [] as DbReply[], error: null })
+          : supabase.from("moment_replies").select("*").in("moment_id", ids),
+        momentDb.from("moment_likes").select("moment_id,user_id,created_at").in("moment_id", ids),
+        supabase.rpc("get_public_profiles", { ids: authorIds }),
+        momentDb
+          .from("unique_views")
+          .select("user_id,content_id,content_type,viewed_at")
+          .in("content_id", ids)
+          .eq("content_type", "moment"),
+      ]);
+      let likes = (likesResult.data ?? []) as DbLike[];
+      const likesError = likesResult.error;
+      // Older deployments have no dedicated Moment-like table. Their Moment
+      // records are posts, so the existing likes table is a safe compatibility
+      // source until the migration is applied.
+      if (missingTable(likesError, "moment_likes")) {
+        const legacyLikes = await momentDb
+          .from("likes")
+          .select("post_id,user_id,created_at")
+          .in("post_id", ids);
+        likes = ((legacyLikes.data ?? []) as Array<{
+          post_id: string;
+          user_id: string;
+          created_at: string;
+        }>).map((like) => ({
+          moment_id: like.post_id,
+          user_id: like.user_id,
+          created_at: like.created_at,
+        }));
+      }
+      const views = viewsResult.data ?? [];
+      const replies = repliesResult.data ?? [];
+      const profiles = profilesResult.data ?? [];
+      const uniqueViews = missingTable(uniqueViewsResult.error, "unique_views")
+        ? []
+        : (uniqueViewsResult.data ?? []) as DbUniqueView[];
+
+      const profileById = new Map(
+        (profiles as MomentProfileRow[]).map(
+          (p) => [
+            p.id,
+            {
+              id: p.id,
+              username: p.username ?? "user",
+              name: p.display_name ?? p.full_name ?? p.username ?? "User",
+              avatar: p.avatar_url || p.profile_pic || p.profile_image || null,
+            } satisfies MomentAuthor,
+          ],
+        ),
       );
-      momentsError = postsResult.error;
-      usesPostsFallback = true;
-    }
-    if (momentsError) {
-      console.error("Failed to load moments", momentsError);
-      toast.error("Couldn't load moments. Please try again.");
-      setLoading(false);
-      return;
-    }
 
-    const list = usesPostsFallback
-      ? (rows ?? []).map((row) => postRowToMoment(row as Record<string, unknown>))
-      : ((rows ?? []) as DbMoment[]);
-    if (!list.length) {
-      setMoments([]);
-      setLoading(false);
-      return;
-    }
-
-    const ids = list.map((r) => r.id);
-    const authorIds = [...new Set(list.map((r) => r.user_id))];
-
-    const [viewsResult, repliesResult, likesResult, profilesResult, uniqueViewsResult] = await Promise.all([
-      usesPostsFallback
-        ? Promise.resolve({ data: [] as DbView[], error: null })
-        : supabase.from("moment_views").select("*").in("moment_id", ids),
-      usesPostsFallback
-        ? Promise.resolve({ data: [] as DbReply[], error: null })
-        : supabase.from("moment_replies").select("*").in("moment_id", ids),
-      momentDb.from("moment_likes").select("moment_id,user_id,created_at").in("moment_id", ids),
-      supabase.rpc("get_public_profiles", { ids: authorIds }),
-      momentDb
-        .from("unique_views")
-        .select("user_id,content_id,content_type,viewed_at")
-        .in("content_id", ids)
-        .eq("content_type", "moment"),
-    ]);
-    let likes = (likesResult.data ?? []) as DbLike[];
-    let likesError = likesResult.error;
-    // Older deployments have no dedicated Moment-like table. Their Moment
-    // records are posts, so the existing likes table is a safe compatibility
-    // source until the migration is applied.
-    if (missingTable(likesError, "moment_likes")) {
-      const legacyLikes = await momentDb
-        .from("likes")
-        .select("post_id,user_id,created_at")
-        .in("post_id", ids);
-      likes = ((legacyLikes.data ?? []) as Array<{
-        post_id: string;
-        user_id: string;
-        created_at: string;
-      }>).map((like) => ({
-        moment_id: like.post_id,
-        user_id: like.user_id,
-        created_at: like.created_at,
-      }));
-      likesError = legacyLikes.error;
-    }
-    const relatedError =
-      viewsResult.error ??
-      repliesResult.error ??
-      likesError ??
-      profilesResult.error ??
-      (missingTable(uniqueViewsResult.error, "unique_views") ? null : uniqueViewsResult.error);
-    if (relatedError) {
-      console.error("Failed to load moment details", relatedError);
-      toast.error("Some moment details couldn't be loaded.");
-    }
-    const views = viewsResult.data;
-    const replies = repliesResult.data;
-    const profiles = profilesResult.data;
-    const uniqueViews = missingTable(uniqueViewsResult.error, "unique_views")
-      ? []
-      : (uniqueViewsResult.data ?? []) as DbUniqueView[];
-
-    const profileById = new Map(
-      ((profiles ?? []) as MomentProfileRow[]).map(
-        (p) => [
-          p.id,
-          {
-            id: p.id,
-            username: p.username ?? "user",
-            name: p.display_name ?? p.full_name ?? p.username ?? "User",
-            avatar: p.avatar_url || p.profile_pic || p.profile_image || null,
-          } satisfies MomentAuthor,
-        ],
-      ),
-    );
-
-    const mapped = list.map((row) =>
-      rowToMoment(
+      const mapped = list.map((row) =>
+        rowToMoment(
         row,
         [
           ...((views ?? []) as DbView[]),
@@ -714,33 +710,42 @@ export function MomentProvider({ children }: { children: ReactNode }) {
               null,
           };
         })(),
-        uid,
-      ),
-    );
+          uid,
+        ),
+      );
 
-    const momentsWithResolvedAvatars = await Promise.all(
-      mapped.map(async (moment) => {
-        const author = moment.author;
-        const avatar = author?.avatar;
-        if (!avatar) return moment;
-        return {
-          ...moment,
-          author: {
-            ...author,
-            avatar: await resolveMediaUrl(avatar, "avatars"),
-          },
-        };
-      }),
-    );
-    const signedMoments = await signMomentMedia(
-      momentsWithResolvedAvatars.filter(
-        (moment) => !deletedMomentIdsRef.current.has(moment.id),
-      ),
-    );
-    setMoments(
-      signedMoments.filter((moment) => !deletedMomentIdsRef.current.has(moment.id)),
-    );
-    setLoading(false);
+      const momentsWithResolvedAvatars = await Promise.all(
+        mapped.map(async (moment) => {
+          const author = moment.author;
+          const avatar = author?.avatar;
+          if (!avatar) return moment;
+          return {
+            ...moment,
+            author: {
+              ...author,
+              avatar: await resolveMediaUrl(avatar, "avatars"),
+            },
+          };
+        }),
+      );
+      const signedMoments = await signMomentMedia(
+        momentsWithResolvedAvatars.filter(
+          (moment) => !deletedMomentIdsRef.current.has(moment.id),
+        ),
+      );
+      setMoments(
+        signedMoments.filter((moment) => !deletedMomentIdsRef.current.has(moment.id)),
+      );
+      setLoading(false);
+    } catch {
+      setLoading(false);
+    } finally {
+      loadInFlightRef.current = false;
+      if (reloadAfterLoadRef.current) {
+        reloadAfterLoadRef.current = false;
+        void load();
+      }
+    }
   }, []);
 
 
