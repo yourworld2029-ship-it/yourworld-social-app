@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { User, Megaphone, Orbit, Lock, Bell, Palette, HelpCircle, Info, LogOut, ChevronRight, ArrowLeft, X, Wallet } from "lucide-react";
+import { User, Megaphone, Lock, Bell, Palette, HelpCircle, Info, LogOut, ChevronRight, ArrowLeft, X, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-store";
 import { supabase } from "@/integrations/supabase/client";
@@ -175,22 +175,6 @@ function SettingsPage() {
           <ChevronRight className="text-zinc-600" size={18} />
         </div>
 
-        {/* Orbit */}
-
-        <div 
-          onClick={() => navigate({ to: "/orbit" })} 
-          className="flex items-center justify-between p-3.5 hover:bg-zinc-800/50 rounded-xl cursor-pointer"
-        >
-          <div className="flex items-center gap-4">
-            <Orbit className="text-zinc-400" size={20} />
-            <div>
-              <div className="font-semibold text-sm">Orbit</div>
-              <div className="text-[11px] text-zinc-500">Private social discovery</div>
-            </div>
-          </div>
-          <ChevronRight className="text-zinc-600" size={18} />
-        </div>
-
         {/* Privacy */}
         <div
           role="button"
@@ -219,7 +203,7 @@ function SettingsPage() {
             <Bell className="text-zinc-400" size={20} />
             <div>
               <div className="font-semibold text-sm">Notifications</div>
-              <div className="text-[11px] text-zinc-500">Likes, Orbit, channel & system alerts</div>
+              <div className="text-[11px] text-zinc-500">Likes, channel & system alerts</div>
             </div>
           </div>
           <ChevronRight className="text-zinc-600" size={18} />
