@@ -281,6 +281,7 @@ function ProfilePage() {
 
         <div className="pt-3">
            <p data-testid="text-profile-display-name" className="font-semibold">{profile.display_name || "Add your name"}</p>
+          {sportsProfile ? <SportsProfileBadge badge={sportsProfile.badge} /> : null}
           {profile.category ? (
             <p className="text-xs text-muted-foreground">{profile.category}</p>
           ) : null}
@@ -708,9 +709,9 @@ function getSportsProfile(profile: {
 }): SportsProfileInfo | null {
   if (!profile.is_verified) return null;
 
-  const source = `${profile.category} ${profile.bio}`.toLowerCase();
+  const source = `${profile.category} ${profile.bio}`.toLowerCase().replace(/#/g, " ");
   const isSportsUser =
-    /\b(sport|athlete|player|coach|football|soccer|cricket|basketball|tennis|rugby|hockey|swimming|running|cycling|boxing|wrestling|volleyball|baseball|golf|surf)\b/.test(
+    /\b(sport|athlete|player|coach|football|soccer|cricket|basketball|tennis|rugby|hockey|swimming|running|cycling|boxing|wrestling|volleyball|baseball|golf|surf|handball|badminton|karate|judo|weightlifting|marathon|gymnastics|skating)\b/.test(
       source,
     );
   if (!isSportsUser) return null;
@@ -736,6 +737,15 @@ function getSportsProfile(profile: {
   };
 }
 
+function SportsProfileBadge({ badge }: { badge: SportsProfileInfo["badge"] }) {
+  return (
+    <span className="mt-1.5 inline-flex items-center gap-1 rounded-full border border-amber-200/30 bg-amber-200/10 px-2.5 py-1 text-[10px] font-bold text-amber-100">
+      <BadgeCheck className="h-3.5 w-3.5" />
+      {badge}
+    </span>
+  );
+}
+
 function SportsProfileCard({ profile }: { profile: SportsProfileInfo }) {
   return (
     <section
@@ -757,10 +767,6 @@ function SportsProfileCard({ profile }: { profile: SportsProfileInfo }) {
             </p>
           </div>
         </div>
-        <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-200/30 bg-amber-200/10 px-2.5 py-1 text-[10px] font-bold text-amber-100">
-          <BadgeCheck className="h-3.5 w-3.5" />
-          {profile.badge}
-        </span>
       </div>
 
       <dl className="relative mt-4 grid grid-cols-3 divide-x divide-white/10 rounded-2xl border border-white/10 bg-white/[0.035] py-3 text-center">
