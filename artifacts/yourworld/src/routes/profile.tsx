@@ -15,6 +15,10 @@ import {
   PinOff,
   Archive,
   MoreHorizontal,
+  BadgeCheck,
+  Globe2,
+  Medal,
+  Trophy,
 } from "lucide-react";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
@@ -178,6 +182,7 @@ function ProfilePage() {
     name: profile.display_name || profile.username || "You",
     hue: 280,
   };
+  const sportsProfile = getSportsProfile(profile);
 
   const editValue: ProfileEdit = {
     name: profile.display_name,
@@ -305,6 +310,7 @@ function ProfilePage() {
               ) : null}
             </div>
           )}
+          {sportsProfile ? <SportsProfileCard profile={sportsProfile} /> : null}
         </div>
 
         <div className="grid grid-cols-2 gap-2 pt-4">
@@ -686,6 +692,102 @@ function OptionRow({
 
 function Empty({ text }: { text: string }) {
   return <p data-testid="status-profile-empty" className="px-4 py-14 text-center text-sm text-muted-foreground">{text}</p>;
+}
+
+type SportsProfileInfo = {
+  badge: "International Player" | "National Player" | "Verified Coach";
+  sport: string;
+  represents: string;
+};
+
+function getSportsProfile(profile: {
+  is_verified: boolean;
+  category: string;
+  bio: string;
+  location: string;
+}): SportsProfileInfo | null {
+  if (!profile.is_verified) return null;
+
+  const source = `${profile.category} ${profile.bio}`.toLowerCase();
+  const isSportsUser =
+    /\b(sport|athlete|player|coach|football|soccer|cricket|basketball|tennis|rugby|hockey|swimming|running|cycling|boxing|wrestling|volleyball|baseball|golf|surf)\b/.test(
+      source,
+    );
+  if (!isSportsUser) return null;
+
+  const badge = source.includes("coach")
+    ? "Verified Coach"
+    : source.includes("international")
+      ? "International Player"
+      : "National Player";
+  const sport =
+    profile.category
+      .replace(/\b(international|national|verified|player|athlete|coach)\b/gi, "")
+      .replace(/\s*[·•|-]\s*/g, " ")
+      .trim() || "Sports";
+
+  return {
+    badge,
+    sport,
+    represents:
+      badge === "International Player"
+        ? "International"
+        : profile.location.split(",").at(-1)?.trim() || "National",
+  };
+}
+
+function SportsProfileCard({ profile }: { profile: SportsProfileInfo }) {
+  return (
+    <section
+      aria-label="Premium sports profile"
+      className="relative mt-4 overflow-hidden rounded-3xl border border-amber-300/20 bg-gradient-to-br from-[#19151f] via-[#17151d] to-[#0c0d13] p-4 shadow-[0_14px_40px_rgba(0,0,0,0.22)]"
+    >
+      <div className="pointer-events-none absolute -right-10 -top-12 h-32 w-32 rounded-full bg-amber-300/10 blur-3xl" />
+      <div className="relative flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-amber-200/25 bg-amber-300/10 text-amber-200">
+            <Trophy className="h-5 w-5" />
+          </span>
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-amber-200/75">
+              Premium sports profile
+            </p>
+            <p className="mt-0.5 truncate text-sm font-semibold text-white">
+              Verified athletic identity
+            </p>
+          </div>
+        </div>
+        <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-200/30 bg-amber-200/10 px-2.5 py-1 text-[10px] font-bold text-amber-100">
+          <BadgeCheck className="h-3.5 w-3.5" />
+          {profile.badge}
+        </span>
+      </div>
+
+      <dl className="relative mt-4 grid grid-cols-3 divide-x divide-white/10 rounded-2xl border border-white/10 bg-white/[0.035] py-3 text-center">
+        <div className="px-2">
+          <dt className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-wider text-zinc-500">
+            <Medal className="h-3 w-3" />
+            Sport
+          </dt>
+          <dd className="mt-1 truncate text-xs font-semibold text-white">{profile.sport}</dd>
+        </div>
+        <div className="px-2">
+          <dt className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-wider text-zinc-500">
+            <Globe2 className="h-3 w-3" />
+            Represents
+          </dt>
+          <dd className="mt-1 truncate text-xs font-semibold text-white">{profile.represents}</dd>
+        </div>
+        <div className="px-2">
+          <dt className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-wider text-zinc-500">
+            <BadgeCheck className="h-3 w-3" />
+            Status
+          </dt>
+          <dd className="mt-1 truncate text-xs font-semibold text-white">Verified</dd>
+        </div>
+      </dl>
+    </section>
+  );
 }
 
 function Stat({

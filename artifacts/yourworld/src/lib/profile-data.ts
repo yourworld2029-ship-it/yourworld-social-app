@@ -14,6 +14,7 @@ export type MyProfile = {
   website: string;
   avatar_url: string | null;
   cover_url: string | null;
+  is_verified: boolean;
 };
 
 export type MyProfileEdit = {
@@ -39,6 +40,7 @@ const empty: MyProfile = {
   website: "",
   avatar_url: null,
   cover_url: null,
+  is_verified: false,
 };
 
 async function signedIfNeeded(url: string | null) {
@@ -94,6 +96,7 @@ export function useMyProfile() {
       website: row?.website ?? "",
       avatar_url: row?.avatar_url ?? null,
       cover_url: row?.cover_url ?? null,
+      is_verified: row?.is_verified === true,
     };
     setProfile(next);
     setPosts((myPosts ?? []).map(normalizePostRow) as DbPost[]);
