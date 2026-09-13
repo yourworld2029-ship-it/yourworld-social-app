@@ -704,23 +704,17 @@ type SportsProfileInfo = {
 };
 
 function getSportsProfile(profile: {
-  is_verified: boolean;
   category: string;
   bio: string;
   location: string;
 }): SportsProfileInfo | null {
-  if (!profile.is_verified) return null;
-
   const category = profile.category.trim().toLowerCase();
   if (category !== "athlete" && category !== "coach") return null;
 
-  const source = `${profile.category} ${profile.bio}`.toLowerCase().replace(/#/g, " ");
   const badge =
     category === "coach"
       ? "🏆 VERIFIED COACH"
-      : source.includes("international")
-        ? "🌍 INTERNATIONAL PLAYER"
-        : "🇮🇳 NATIONAL PLAYER";
+      : "🌍 INTERNATIONAL PLAYER";
   const sport =
     profile.category
       .replace(/\b(international|national|verified|player|athlete|coach)\b/gi, "")
