@@ -1168,6 +1168,13 @@ function SportsTournamentSection({
   editable: boolean;
   onEdit: (field: SportsEditorField) => void;
 }) {
+  const isNational = profile.status === "National";
+  const sectionTitle =
+    profile.status === "National"
+      ? "National Competition"
+      : profile.status === "International"
+        ? "International Competitions"
+        : "Tournaments / Competitions";
   const tournaments: SportsTournament[] =
     profile.tournamentDetails?.length
       ? profile.tournamentDetails
@@ -1181,19 +1188,33 @@ function SportsTournamentSection({
   return (
     <SportsDetailsSection
       icon={<CalendarDays />}
-      title="Tournaments / Competitions"
-      description="Build a professional sports timeline from recognized competitions."
+      title={sectionTitle}
+      description={
+        isNational
+          ? "Select one of the three recognized national competitions and record verified medal achievements."
+          : "Build a professional sports timeline from recognized competitions."
+      }
     >
       {tournaments.length ? (
         <ol data-testid="sports-tournament-timeline" className="space-y-3">
           {tournaments.map((item, index) => {
+            const verifiedNationalMedal =
+              isNational &&
+              profile.verified &&
+              isNationalCompetition(item.name) &&
+              Boolean(item.medal && item.medal !== "No Medal");
+            const displayMedal = isNational
+              ? verifiedNationalMedal
+                ? item.medal
+                : ""
+              : item.medal;
             const metadata = [
               formatTournamentDateRange(item),
               item.country,
               item.hostLocation,
               item.level ? `Level: ${item.level}` : "",
               item.result ? `Result: ${item.result}` : "",
-              item.medal ? `Medal: ${item.medal}` : "",
+              displayMedal ? `Medal: ${displayMedal}` : "",
               item.eventPosition ? `Event: ${item.eventPosition}` : "",
               item.teamCountry ? `Team / Country: ${item.teamCountry}` : "",
               item.roleResponsibility ? `Role: ${item.roleResponsibility}` : "",
@@ -1212,7 +1233,21 @@ function SportsTournamentSection({
                   <span className="absolute left-4 top-9 h-[calc(100%+0.25rem)] w-px bg-amber-200/15" />
                 ) : null}
                 <div className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-white/[0.035] p-3">
-                  <p className="font-semibold text-white">{item.name}</p>
+                  {verifiedNationalMedal ? (
+                    <div data-testid={`verified-national-medal-${index + 1}`} className="space-y-1">
+                      <p className="font-semibold uppercase tracking-wide text-white">
+                        🇮🇳 {nationalCompetitionLabel(item.name)}
+                      </p>
+                      <p className="text-sm font-semibold text-amber-200">
+                        {medalEmoji(item.medal)} {item.medal} Medal
+                      </p>
+                      {tournamentYear(item) ? (
+                        <p className="text-xs text-zinc-400">📅 {tournamentYear(item)}</p>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <p className="font-semibold text-white">{item.name}</p>
+                  )}
                   {metadata.length ? (
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       {metadata.map((value, metadataIndex) => (
@@ -1382,15 +1417,24 @@ function TournamentEntryEditor({
   item,
   index,
   role,
+  representation,
   onChange,
   onRemove,
 }: {
   item: SportsTournament;
   index: number;
   role: SportsProfileDraft["role"];
+  representation: SportsProfileDraft["representation"];
   onChange: (index: number, changes: Partial<SportsTournament>) => void;
   onRemove: () => void;
 }) {
+  const isNational = representation === "National";
+  const competitionListId =
+    representation === "International"
+      ? "international-sports-competitions"
+      : "recognized-sports-competitions";
+  const showNationalMedal = isNational && isNationalCompetition(item.name);
+
   return (
     <div className={editorCardClass}>
       <div className="mb-2 flex items-center justify-between">
@@ -1408,15 +1452,38 @@ function TournamentEntryEditor({
         </button>
       </div>
 
-      <EditorField label="Tournament / Competition" hint="Search a recognized competition or enter another one.">
-        <Input
-          list="recognized-sports-competitions"
-          data-testid={`input-tournament-name-${index + 1}`}
-          value={item.name}
-          onChange={(event) => onChange(index, { name: event.target.value })}
-          className={editorInputClass}
-          placeholder="Search or enter a competition"
-        />
+      <EditorField
+        label={isNational ? "National Competition" : "International Competition"}
+        hint={
+          isNational
+            ? "Choose one of the three recognized national competitions."
+            : "Search recognized international competitions or enter another one."
+        }
+      >
+        {isNational ? (
+          <select
+            data-testid={`select-national-competition-${index + 1}`}
+            value={item.name}
+            onChange={(event) => onChange(index, { name: event.target.value, medal: undefined })}
+            className={editorSelectClass}
+          >
+            <option value="">Select national competition</option>
+            {NATIONAL_COMPETITIONS.map((competition) => (
+              <option key={competition} value={competition}>
+                {competition}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <Input
+            list={competitionListId}
+            data-testid={`input-tournament-name-${index + 1}`}
+            value={item.name}
+            onChange={(event) => onChange(index, { name: event.target.value })}
+            className={editorInputClass}
+            placeholder="Search or enter a competition"
+          />
+        )}
       </EditorField>
 
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -1496,22 +1563,42 @@ function TournamentEntryEditor({
           className={editorInputClass}
           placeholder="Result / achievement"
         />
-        <select
-          data-testid={`select-tournament-medal-${index + 1}`}
-          value={item.medal ?? ""}
-          onChange={(event) =>
-            onChange(index, {
-              medal: event.target.value ? (event.target.value as TournamentMedal) : undefined,
-            })
-          }
-          className={editorSelectClass}
-        >
-          <option value="">Medal (optional)</option>
-          <option value="Gold">Gold</option>
-          <option value="Silver">Silver</option>
-          <option value="Bronze">Bronze</option>
-          <option value="No Medal">No Medal</option>
-        </select>
+        {isNational ? (
+          showNationalMedal ? (
+            <select
+              data-testid={`select-national-medal-${index + 1}`}
+              value={item.medal === "No Medal" ? "" : item.medal ?? ""}
+              onChange={(event) =>
+                onChange(index, {
+                  medal: event.target.value ? (event.target.value as TournamentMedal) : undefined,
+                })
+              }
+              className={editorSelectClass}
+            >
+              <option value="">Select medal (optional)</option>
+              <option value="Gold">Gold</option>
+              <option value="Silver">Silver</option>
+              <option value="Bronze">Bronze</option>
+            </select>
+          ) : null
+        ) : (
+          <select
+            data-testid={`select-tournament-medal-${index + 1}`}
+            value={item.medal ?? ""}
+            onChange={(event) =>
+              onChange(index, {
+                medal: event.target.value ? (event.target.value as TournamentMedal) : undefined,
+              })
+            }
+            className={editorSelectClass}
+          >
+            <option value="">Medal (optional)</option>
+            <option value="Gold">Gold</option>
+            <option value="Silver">Silver</option>
+            <option value="Bronze">Bronze</option>
+            <option value="No Medal">No Medal</option>
+          </select>
+        )}
         <Input
           data-testid={`input-tournament-event-${index + 1}`}
           value={item.eventPosition ?? ""}
@@ -1719,12 +1806,18 @@ function SportsDetailsEditor({
                 <option key={competition} value={competition} />
               ))}
             </datalist>
+            <datalist id="international-sports-competitions">
+              {INTERNATIONAL_COMPETITIONS.map((competition) => (
+                <option key={competition} value={competition} />
+              ))}
+            </datalist>
             {draft.tournaments.map((item, index) => (
               <TournamentEntryEditor
                 key={`tournament-${index}`}
                 item={item}
                 index={index}
                 role={draft.role}
+                representation={draft.representation}
                 onChange={updateTournament}
                 onRemove={() =>
                   setDraft((current) => ({

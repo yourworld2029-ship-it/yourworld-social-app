@@ -178,3 +178,53 @@ test("structured tournament entries persist independently for Players and Coache
   assert.equal(coachProfile?.tournamentDetails?.[0].roleResponsibility, "Head Coach");
   assert.equal(coachProfile?.tournamentDetails?.[0].medal, "No Medal");
 });
+
+test("National medal achievements display only for verified primary competitions", () => {
+  const verifiedProfile = getSportsProfile({
+    is_verified: true,
+    category: "Player · Handball",
+    bio: "Representation: National\nTournament: National Games (India) | Start Year: 2025 | Medal: Gold",
+    location: "India",
+  })!;
+  const verifiedHtml = renderToStaticMarkup(
+    createElement(SportsDetailsPanel, {
+      profile: verifiedProfile,
+      isOwner: false,
+      documents: [],
+      documentsLoading: false,
+      documentsError: null,
+      documentsUploading: false,
+      onUploadDocument: () => undefined,
+      onDocumentAction: () => undefined,
+      onDeleteDocument: () => undefined,
+    }),
+  );
+
+  assert.match(verifiedHtml, /National Competition/);
+  assert.match(verifiedHtml, /🇮🇳 NATIONAL GAMES/);
+  assert.match(verifiedHtml, /🥇 Gold Medal/);
+  assert.match(verifiedHtml, /📅 2025/);
+
+  const unverifiedProfile = getSportsProfile({
+    is_verified: false,
+    category: "Player · Handball",
+    bio: "Representation: National\nTournament: National Games (India) | Start Year: 2025 | Medal: Gold",
+    location: "India",
+  })!;
+  const unverifiedHtml = renderToStaticMarkup(
+    createElement(SportsDetailsPanel, {
+      profile: unverifiedProfile,
+      isOwner: false,
+      documents: [],
+      documentsLoading: false,
+      documentsError: null,
+      documentsUploading: false,
+      onUploadDocument: () => undefined,
+      onDocumentAction: () => undefined,
+      onDeleteDocument: () => undefined,
+    }),
+  );
+
+  assert.match(unverifiedHtml, /National Competition/);
+  assert.doesNotMatch(unverifiedHtml, /🥇 Gold Medal/);
+});
