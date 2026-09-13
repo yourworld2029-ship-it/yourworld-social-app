@@ -62,9 +62,11 @@ import {
 } from "@/lib/profile-data";
 import {
   getSportsProfile,
+  serializeSportsProfileBio,
   SportsDetailsPanel,
   SportsProfileBadge,
   SportsProfileCard,
+  type SportsProfileDraft,
 } from "@/components/yw/SportsProfile";
 import type { DbPost } from "@/lib/social-data";
 import { UserWatermark } from "@/components/yw/UserWatermark";
@@ -200,7 +202,7 @@ function ProfilePage() {
     name: profile.display_name || profile.username || "You",
     hue: 280,
   };
-  const sportsProfile = getSportsProfile(profile);
+  const sportsProfile = getSportsProfile({ ...profile, username: profile.username });
   const hasSportsProfile = Boolean(sportsProfile);
 
   useEffect(() => {
@@ -274,6 +276,17 @@ function ProfilePage() {
     website: profile.website,
     avatarUrl: avatarSrc ?? undefined,
 
+  };
+
+  const saveSportsDetails = async (draft: SportsProfileDraft) => {
+    if (!sportsProfile) return;
+    await save({
+      ...editValue,
+      username: draft.username.trim() || profile.username,
+      category: `${sportsProfile.role}${draft.sport.trim() ? ` · ${draft.sport.trim()}` : ""}`,
+      bio: serializeSportsProfileBio(profile.bio, draft),
+    });
+    toast.success("Sports details saved");
   };
 
   if (!loading && !userId) {
@@ -600,6 +613,7 @@ function ProfilePage() {
               documentsUploading={sportsDocumentsUploading}
               onUploadDocument={handleSportsDocumentUpload}
               onDocumentAction={openSportsDocument}
+              onSave={saveSportsDetails}
             />
           </SheetContent>
         </Sheet>
