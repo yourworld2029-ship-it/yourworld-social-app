@@ -139,6 +139,7 @@ function MomentViewRoute() {
   );
 
   const goNext = useCallback(() => {
+    if (replying) return;
     setProgress(0);
     if (chunk < videoChunks - 1) {
       const next = chunk + 1;
@@ -152,7 +153,7 @@ function MomentViewRoute() {
       return;
     }
     openGroup(1);
-  }, [chunk, videoChunks, index, items.length, openGroup]);
+  }, [chunk, videoChunks, index, items.length, openGroup, replying]);
 
   const goPrev = useCallback(() => {
     setProgress(0);
@@ -202,7 +203,7 @@ function MomentViewRoute() {
 
   // photo / text timer
   useEffect(() => {
-    if (!current || current.kind === "video" || paused || showViewers) return;
+    if (!current || current.kind === "video" || paused || replying || showViewers) return;
     const span =
       current.trim?.end && current.trim.end > 0
         ? current.trim.end * 1000
@@ -218,14 +219,14 @@ function MomentViewRoute() {
       });
     }, TICK);
     return () => clearInterval(id);
-  }, [current, paused, showViewers, goNext]);
+  }, [current, paused, replying, showViewers, goNext]);
 
 
   // pause / resume media
   useEffect(() => {
     const v = videoRef.current;
     const a = musicRef.current;
-    if (paused || showViewers) {
+    if (paused || replying || showViewers) {
       v?.pause();
       a?.pause();
     } else {
@@ -237,7 +238,7 @@ function MomentViewRoute() {
         }
       });
     }
-  }, [paused, showViewers, index, chunk, muted]);
+  }, [paused, replying, showViewers, index, chunk, muted]);
 
   // background music
   useEffect(() => {
@@ -247,7 +248,7 @@ function MomentViewRoute() {
     a.volume = Math.min(1, Math.max(0, current.musicVolume ?? (current.kind === "video" ? 0.35 : 0.8)));
     const start = Math.max(0, current.musicStart ?? current.audioStartTime ?? 0);
     a.currentTime = start;
-    if (!paused && !showViewers) {
+    if (!paused && !replying && !showViewers) {
       void a.play().catch(() => {
         if (!muted) {
           a.muted = true;
@@ -268,6 +269,7 @@ function MomentViewRoute() {
     current?.audioStartTime,
     muted,
     paused,
+    replying,
     showViewers,
   ]);
 
@@ -664,16 +666,16 @@ function MomentViewRoute() {
               </div>
             ) : (
             <form
-              className="flex min-w-0 flex-1 items-center gap-2 rounded-full border border-white/25 bg-white/10 px-3 py-1.5 shadow-lg shadow-black/10 backdrop-blur-xl"
+              className="flex min-w-0 flex-1 items-center gap-2 rounded-full border border-fuchsia-100/30 bg-gradient-to-r from-white/[0.16] via-violet-200/[0.12] to-fuchsia-200/[0.16] px-3 py-1.5 shadow-[0_10px_30px_rgba(8,5,25,0.38)] ring-1 ring-white/10 backdrop-blur-2xl transition-[border-color,box-shadow] duration-200 focus-within:border-fuchsia-100/55 focus-within:ring-fuchsia-200/20"
               onSubmit={async (e) => {
                 e.preventDefault();
                 const text = reply.trim();
                 if (!text || replying) return;
+                const replyMomentId = current.id;
                 setReplying(true);
                 setReply("");
                 setReplyFocused(false);
-                setPaused(false);
-                const res = await addReply(current.id, text);
+                const res = await addReply(replyMomentId, text);
                 setReplying(false);
                 if (res?.error) {
                   toast.error("Couldn't send reply");
