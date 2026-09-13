@@ -21,7 +21,7 @@ export type ProfileEdit = {
   coverFile?: File;
 };
 
-const CATEGORIES = ["Creator", "Athlete", "Business", "Gamer", "Artist", "Musician", "Photographer"];
+const CATEGORIES = ["Creator", "Business", "Gamer", "Artist", "Musician", "Photographer"];
 const BIO_MAX = 300;
 
 export function EditProfileSheet({
