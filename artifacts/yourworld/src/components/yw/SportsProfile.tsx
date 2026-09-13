@@ -1,21 +1,27 @@
 import { useState } from "react";
 import type React from "react";
 import {
+  ArrowRight,
   BadgeCheck,
+  Check,
   CalendarDays,
   ChevronRight,
   Download,
   ExternalLink,
+  FileCheck2,
   FileText,
   Globe2,
+  LockKeyhole,
   Medal,
   Pencil,
   Plus,
+  ShieldAlert,
   ShieldCheck,
   Trophy,
   Trash2,
   Upload,
   UserRound,
+  Video,
 } from "lucide-react";
 import type { SportsDocument } from "@/lib/profile-data";
 import { Button } from "@/components/ui/button";
@@ -166,14 +172,14 @@ export function getSportsProfile(profile: {
   const badge =
     role === "Coach"
       ? verified
-        ? "🏆 VERIFIED COACH"
+        ? "VERIFIED COACH"
         : "COACH PROFILE"
       : verified
         ? status === "International"
-          ? "🌍 INTERNATIONAL PLAYER"
+          ? "INTERNATIONAL PLAYER"
           : status === "National"
-            ? "🇮🇳 NATIONAL PLAYER"
-              : "✅ VERIFIED PLAYER"
+            ? "NATIONAL PLAYER"
+              : "VERIFIED PLAYER"
         : "PLAYER PROFILE";
 
   return {
@@ -545,6 +551,8 @@ export function SportsDetailsPanel({
 
   return (
     <div data-testid="panel-sports-details" className="space-y-4">
+      <VerifiedSportsProfilePromo />
+
       <div className="rounded-3xl border border-amber-200/20 bg-gradient-to-br from-amber-200/10 via-white/[0.04] to-transparent p-4">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -738,6 +746,210 @@ export function SportsDetailsPanel({
           onSave={saveDraft}
         />
       ) : null}
+    </div>
+  );
+}
+
+function VerifiedSportsProfilePromo() {
+  const playerPoints = [
+    "Sport",
+    "Event / Position",
+    "National / International",
+    "Tournament Details",
+    "Medals",
+    "Achievements",
+    "Coach Details",
+    "Private Certificate/Documents",
+  ];
+  const coachPoints = [
+    "Coach Name",
+    "Sport",
+    "Coaching Qualification",
+    "NS NIS / Qualification Year",
+    "Institution",
+    "Coaching Experience",
+    "Tournament / Team Details",
+    "Private Qualification Documents",
+  ];
+  const verificationSteps = [
+    "Sports Details",
+    "Documents",
+    "Verification Video",
+    "Terms & Conditions",
+    "I Agree",
+    "Submit for Verification",
+  ];
+
+  return (
+    <section
+      data-testid="promo-verified-sports-profile"
+      className="group relative isolate overflow-hidden rounded-[2rem] border border-amber-200/25 bg-[#111017] shadow-[0_24px_70px_-30px_rgba(245,189,72,0.38)] animate-rise"
+    >
+      <div className="pointer-events-none absolute -right-24 -top-28 -z-10 h-72 w-72 rounded-full bg-amber-300/[0.12] blur-3xl transition-transform duration-700 group-hover:scale-110" />
+      <div className="pointer-events-none absolute -bottom-28 -left-24 -z-10 h-56 w-56 rounded-full bg-orange-200/[0.06] blur-3xl" />
+      <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-amber-200/70 to-transparent" />
+
+      <div className="relative px-5 pb-5 pt-6 sm:px-6 sm:pb-6">
+        <div className="flex items-start gap-3">
+          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-amber-200/30 bg-amber-200/[0.1] text-amber-200 shadow-[0_8px_24px_-12px_rgba(245,189,72,0.9)]">
+            <BadgeCheck className="h-5 w-5" strokeWidth={1.8} />
+          </div>
+          <div className="min-w-0">
+            <p
+              data-testid="text-verified-profile-promo-title"
+              className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-200/80"
+            >
+              🏆 YOURWORLD VERIFIED SPORTS PROFILE
+            </p>
+            <h2
+              data-testid="text-verified-profile-promo-tagline"
+              className="mt-2 max-w-md font-display text-[1.55rem] font-semibold leading-[1.05] tracking-[-0.045em] text-white sm:text-[1.8rem]"
+            >
+              Your Talent. Your Achievement. Your Identity. Verified.
+            </h2>
+          </div>
+        </div>
+
+        <p
+          data-testid="text-verified-profile-promo-intro"
+          className="mt-5 max-w-lg text-sm leading-6 text-zinc-300"
+        >
+          Players and Coaches can create a professional Sports Profile directly on YourWorld.
+          Build a credible public identity backed by private verification materials.
+        </p>
+
+        <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          <PromoList
+            testId="promo-player-profile-points"
+            eyebrow="Player profile"
+            icon={<Trophy className="h-4 w-4" />}
+            points={playerPoints}
+          />
+          <PromoList
+            testId="promo-coach-profile-points"
+            eyebrow="Coach profile"
+            icon={<UserRound className="h-4 w-4" />}
+            points={coachPoints}
+          />
+        </div>
+
+        <div
+          data-testid="promo-verification-process"
+          className="mt-3 rounded-2xl border border-amber-200/15 bg-black/20 p-4"
+        >
+          <div className="flex items-center gap-2">
+            <Video className="h-4 w-4 text-amber-200" />
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-200/80">
+              Verification process
+            </p>
+          </div>
+          <div className="mt-4 grid gap-2 sm:grid-cols-3">
+            {verificationSteps.map((step, index) => (
+              <div
+                key={step}
+                data-testid={`promo-verification-step-${index + 1}`}
+                className="flex min-w-0 items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.035] px-2.5 py-2 text-xs text-zinc-300"
+              >
+                <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-amber-200/10 text-[10px] font-bold text-amber-200">
+                  {index + 1}
+                </span>
+                <span className="min-w-0 leading-4">{step}</span>
+                {index < verificationSteps.length - 1 ? (
+                  <ArrowRight className="ml-auto hidden h-3.5 w-3.5 shrink-0 text-amber-200/50 sm:block" />
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <div
+            data-testid="promo-verified-badge-message"
+            className="rounded-2xl border border-amber-200/25 bg-amber-200/[0.08] p-4"
+          >
+            <div className="flex items-start gap-2.5">
+              <FileCheck2 className="mt-0.5 h-4 w-4 shrink-0 text-amber-200" />
+              <p className="text-xs leading-5 text-amber-50/90">
+                Successful verification gives a premium YourWorld Verified Sports Badge and verified
+                sports information can be displayed publicly.
+              </p>
+            </div>
+          </div>
+          <div
+            data-testid="promo-privacy-message"
+            className="rounded-2xl border border-white/10 bg-white/[0.035] p-4"
+          >
+            <div className="flex items-start gap-2.5">
+              <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0 text-zinc-300" />
+              <p className="text-xs leading-5 text-zinc-300">
+                Certificates and verification documents remain private and are accessible only through
+                authorized verification access.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div
+          data-testid="promo-false-information-policy"
+          className="mt-3 rounded-2xl border border-red-200/15 bg-red-950/20 p-4"
+        >
+          <div className="flex items-start gap-2.5">
+            <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-200" />
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-200/80">
+                Accuracy matters
+              </p>
+              <p className="mt-1.5 text-xs leading-5 text-zinc-300">
+                Genuine and accurate information is required; fake, forged, altered or misleading
+                certificates/achievements may result in rejection or revocation, badge removal, account
+                restriction/suspension, and appropriate legal action or other remedies permitted under
+                applicable law.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div
+          data-testid="promo-verified-profile-footer"
+          className="mt-5 flex items-center gap-2 border-t border-white/10 pt-4 text-[11px] text-zinc-500"
+        >
+          <Check className="h-3.5 w-3.5 text-amber-200" />
+          A premium sports credential built for public trust.
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PromoList({
+  testId,
+  eyebrow,
+  icon,
+  points,
+}: {
+  testId: string;
+  eyebrow: string;
+  icon: React.ReactNode;
+  points: string[];
+}) {
+  return (
+    <div data-testid={testId} className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+      <div className="flex items-center gap-2 text-amber-200">
+        <span className="grid h-7 w-7 place-items-center rounded-lg bg-amber-200/10">{icon}</span>
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-zinc-200">{eyebrow}</p>
+      </div>
+      <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+        {points.map((point, index) => (
+          <li
+            key={point}
+            data-testid={`${testId}-item-${index + 1}`}
+            className="flex items-start gap-2 text-xs leading-4 text-zinc-400"
+          >
+            <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-200/80" />
+            <span>{point}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

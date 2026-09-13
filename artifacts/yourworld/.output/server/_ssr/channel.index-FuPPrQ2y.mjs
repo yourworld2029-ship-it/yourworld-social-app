@@ -1,6 +1,6 @@
 import { m as useNavigate } from "../_libs/@tanstack/react-router+[...].mjs";
 import { P as require_jsx_runtime } from "../_libs/@radix-ui/react-alert-dialog+[...].mjs";
-import { At as Image, hn as Camera, wn as ArrowLeft } from "../_libs/lucide-react.mjs";
+import { An as ArrowLeft, Pt as Image, bn as Camera } from "../_libs/lucide-react.mjs";
 //#region node_modules/.nitro/vite/services/ssr/assets/channel.index-FuPPrQ2y.js
 var import_jsx_runtime = require_jsx_runtime();
 function ChannelIndexPage() {

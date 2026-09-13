@@ -76,21 +76,25 @@ self.addEventListener("push", (event) => {
     payload = { body: event.data ? event.data.text() : "You have a new YourWorld notification." };
   }
 
-  const data = payload.data || payload;
-  const isCall = data.type === "call" || data.callId;
-  const mode = data.mode === "video" ? "video" : "audio";
+  // FCM web and APNs-compatible gateways can wrap the same contract in
+  // `data`/`notification`; Web Push sends it directly.
+  const data = payload.data || {};
+  const notification = payload.notification || {};
+  const merged = { ...notification, ...data, ...payload };
+  const isCall = merged.type === "call" || merged.callId;
+  const mode = merged.mode === "video" ? "video" : "audio";
   const title = isCall
-    ? `Incoming ${mode} call`
-    : payload.title || "YourWorld";
+    ? merged.title || `Incoming ${mode} call`
+    : merged.title || "YourWorld";
   const body = isCall
-    ? `${data.peerName || "Someone"} is calling you on YourWorld`
-    : payload.body || "You have a new notification.";
+    ? `${merged.peerName || "Someone"} is calling you on YourWorld`
+    : merged.body || "You have a new notification.";
 
   const options = {
     body,
-    icon: payload.icon || "/icon-512.png",
-    badge: payload.badge || "/favicon.png",
-    tag: isCall ? `yw-call-${data.callId}` : "yourworld-message",
+    icon: merged.icon || "/icon-512.png",
+    badge: merged.badge || "/favicon.png",
+    tag: isCall ? `yw-call-${merged.callId}` : "yourworld-message",
     renotify: true,
     requireInteraction: isCall,
     silent: false,
@@ -106,10 +110,10 @@ self.addEventListener("push", (event) => {
       : [{ action: "open", title: "Open" }],
     data: {
       type: isCall ? "call" : "message",
-      callId: data.callId || null,
+      callId: merged.callId || null,
       mode,
-      peerName: data.peerName || "YourWorld",
-      url: data.url || "/",
+      peerName: merged.peerName || "YourWorld",
+      url: merged.url || "/",
     },
   };
 
