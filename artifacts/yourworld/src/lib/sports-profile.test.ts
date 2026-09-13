@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { SportsDetailsPanel, SportsProfileCard } from "@/components/yw/SportsProfile";
+import {
+  getSportsProfile,
+  serializeSportsProfileBio,
+  SportsDetailsPanel,
+  SportsProfileCard,
+  type SportsProfileDraft,
+} from "@/components/yw/SportsProfile";
 
 const profile = {
   badge: "PLAYER PROFILE",
@@ -77,4 +83,98 @@ test("Sports Details renders real fields and owner document controls", () => {
   assert.match(html, /Submit for Verification/);
   assert.match(html, /authorized verification access/);
   assert.match(html, /fake, forged, altered or misleading/);
+});
+
+test("structured tournament entries persist independently for Players and Coaches", () => {
+  const playerDraft: SportsProfileDraft = {
+    username: "player",
+    role: "Player",
+    sport: "Handball",
+    eventPosition: "Goalkeeper",
+    representation: "National",
+    tournaments: [
+      {
+        name: "Asian Games",
+        date: "",
+        level: "",
+        result: "Bronze finish",
+        startYear: "2023",
+        startDate: "2023-09-23",
+        endYear: "2023",
+        endDate: "2023-10-08",
+        country: "India",
+        hostLocation: "Hangzhou",
+        medal: "Bronze",
+        eventPosition: "Handball",
+      },
+    ],
+    medals: [],
+    achievements: "",
+    coachName: "",
+    coachQualification: "",
+    qualificationYear: "",
+    institution: "",
+    coachingExperience: "",
+    teamDetails: "",
+  };
+  const playerBio = serializeSportsProfileBio("", playerDraft);
+  const playerProfile = getSportsProfile({
+    is_verified: false,
+    category: "Player · Handball",
+    bio: playerBio,
+    location: "",
+  });
+
+  assert.match(playerBio, /Tournament: Asian Games/);
+  assert.match(playerBio, /Start Date: 2023-09-23/);
+  assert.match(playerBio, /End Date: 2023-10-08/);
+  assert.equal(playerProfile?.tournamentDetails?.[0].country, "India");
+  assert.equal(playerProfile?.tournamentDetails?.[0].medal, "Bronze");
+  assert.equal(playerProfile?.tournamentDetails?.[0].eventPosition, "Handball");
+
+  const legacyProfile = getSportsProfile({
+    is_verified: false,
+    category: "Player · Handball",
+    bio: "Tournament: Asian Games | 2023 | Regional | Finalist",
+    location: "",
+  });
+  assert.deepEqual(legacyProfile?.tournamentDetails?.[0], {
+    name: "Asian Games",
+    date: "2023",
+    level: "Regional",
+    result: "Finalist",
+  });
+
+  const coachDraft: SportsProfileDraft = {
+    ...playerDraft,
+    username: "coach",
+    role: "Coach",
+    tournaments: [
+      {
+        name: "World Championships",
+        date: "",
+        level: "",
+        result: "Qualified team",
+        startYear: "2024",
+        startDate: "2024-02-01",
+        endYear: "2024",
+        endDate: "2024-02-15",
+        country: "India",
+        hostLocation: "Doha",
+        medal: "No Medal",
+        teamCountry: "India",
+        roleResponsibility: "Head Coach",
+      },
+    ],
+  };
+  const coachProfile = getSportsProfile({
+    is_verified: false,
+    category: "Coach · Handball",
+    bio: serializeSportsProfileBio("", coachDraft),
+    location: "",
+  });
+
+  assert.equal(coachProfile?.tournamentDetails?.[0].teamCountry, "India");
+  assert.equal(coachProfile?.tournamentDetails?.[0].roleResponsibility, "Head Coach");
+  assert.equal(coachProfile?.tournamentDetails?.[0].medal, "No Medal");
 });

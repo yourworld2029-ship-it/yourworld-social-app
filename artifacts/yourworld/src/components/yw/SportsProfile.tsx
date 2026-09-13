@@ -69,11 +69,55 @@ export const SPORTS_CATALOGUE = [
   "Wrestling",
 ] as const;
 
+const RECOGNIZED_COMPETITIONS = [
+  "Olympic Games",
+  "Paralympic Games",
+  "World Championships",
+  "World Games",
+  "Asian Games",
+  "Asian Championships",
+  "Commonwealth Games",
+  "South Asian Games",
+  "South Asian Championships",
+  "World University Games / FISU World University Games",
+  "Asian University Games",
+  "Asian Indoor & Martial Arts Games",
+  "Youth Olympic Games",
+  "Asian Youth Games",
+  "World Youth Championships",
+  "World Junior Championships",
+  "World U23 Championships",
+  "World Cup",
+  "Asian Cup",
+  "World Para Championships",
+  "Asian Para Games",
+  "Commonwealth Youth Games",
+  "National Games (India)",
+  "Khelo India Games",
+  "Other Recognized Competition",
+] as const;
+
+const TOURNAMENT_YEARS = Array.from({ length: 126 }, (_, index) =>
+  String(new Date().getFullYear() - index),
+);
+
+type TournamentMedal = "Gold" | "Silver" | "Bronze" | "No Medal";
+
 export type SportsTournament = {
   name: string;
   date: string;
   level: string;
   result: string;
+  startYear?: string;
+  startDate?: string;
+  endYear?: string;
+  endDate?: string;
+  country?: string;
+  hostLocation?: string;
+  medal?: TournamentMedal;
+  eventPosition?: string;
+  teamCountry?: string;
+  roleResponsibility?: string;
 };
 
 export type SportsMedal = {
@@ -294,6 +338,9 @@ export function serializeSportsProfileBio(currentBio: string, draft: SportsProfi
           draft.coachingExperience.trim()
             ? `Coaching Experience: ${draft.coachingExperience.trim()}`
             : "",
+          ...draft.tournaments
+            .filter((item) => item.name.trim())
+            .map(serializeTournament),
           draft.teamDetails.trim() ? `Tournament / Team details: ${draft.teamDetails.trim()}` : "",
         ].filter(Boolean)
       : [
@@ -302,17 +349,7 @@ export function serializeSportsProfileBio(currentBio: string, draft: SportsProfi
           draft.representation ? `Representation: ${draft.representation}` : "",
           ...draft.tournaments
             .filter((item) => item.name.trim())
-            .map((item) =>
-              [
-                "Tournament:",
-                item.name.trim(),
-                item.date.trim(),
-                item.level.trim(),
-                item.result.trim(),
-              ]
-                .filter(Boolean)
-                .join(" | "),
-            ),
+            .map(serializeTournament),
           ...draft.medals
             .filter((item) => item.tournament.trim() || item.year.trim())
             .map((item) =>
@@ -370,12 +407,7 @@ function parseTournamentDetails(text: string): SportsTournament[] {
     .split(/\r?\n/)
     .map((line) => line.match(/^\s*tournament\s*:\s*(.+)$/i)?.[1])
     .filter((value): value is string => Boolean(value))
-    .map((value) => {
-      const [name, date = "", level = "", result = ""] = value
-        .split(/\s*\|\s*/)
-        .map((part) => part.trim());
-      return { name, date, level, result };
-    })
+    .map(parseTournamentValue)
     .filter((item) => item.name);
 }
 
@@ -399,7 +431,151 @@ function parseMedalDetails(text: string): SportsMedal[] {
 }
 
 function formatTournament(item: SportsTournament) {
-  return [item.name, item.date, item.level, item.result].filter(Boolean).join(" · ");
+  return [
+    item.name,
+    formatTournamentDateRange(item),
+    item.country,
+    item.hostLocation,
+    item.result,
+    item.medal && item.medal !== "No Medal" ? item.medal : "",
+    item.eventPosition,
+    item.teamCountry,
+    item.roleResponsibility,
+    item.level,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function parseTournamentValue(value: string): SportsTournament {
+  const parts = value.split(/\s*\|\s*/).map((part) => part.trim());
+  const keyed = new Map<string, string>();
+  const legacyParts: string[] = [];
+
+  for (const part of parts) {
+    const separator = part.indexOf(":");
+    if (separator === -1) {
+      legacyParts.push(part);
+      continue;
+    }
+    const key = part.slice(0, separator).trim().toLowerCase().replace(/\s+/g, " ");
+    const fieldValue = part.slice(separator + 1).trim();
+    if (
+      [
+        "tournament",
+        "competition",
+        "start year",
+        "start date",
+        "end year",
+        "end date",
+        "country",
+        "city / host location",
+        "host location",
+        "city",
+        "result",
+        "achievement",
+        "medal",
+        "event / position",
+        "event",
+        "position",
+        "team / country",
+        "team / country coached",
+        "role / responsibility",
+        "level",
+        "date",
+      ].includes(key)
+    ) {
+      keyed.set(key, fieldValue);
+    } else {
+      legacyParts.push(part);
+    }
+  }
+
+  if (!keyed.size) {
+    const [name = "", date = "", level = "", result = ""] = parts;
+    return { name, date, level, result };
+  }
+
+  const hasStructuredFields = Array.from(keyed.keys()).some(
+    (key) => key !== "tournament" && key !== "competition",
+  );
+  if (!hasStructuredFields) {
+    const [date = "", level = "", result = ""] = legacyParts;
+    return {
+      name: keyed.get("tournament") || keyed.get("competition") || legacyParts[0] || "",
+      date,
+      level,
+      result,
+    };
+  }
+
+  const date = keyed.get("date") || "";
+  return {
+    name: keyed.get("tournament") || keyed.get("competition") || legacyParts[0] || "",
+    date,
+    level: keyed.get("level") || "",
+    result: keyed.get("result") || keyed.get("achievement") || "",
+    startYear: keyed.get("start year") || (/^\d{4}$/.test(date) ? date : ""),
+    startDate: keyed.get("start date") || "",
+    endYear: keyed.get("end year") || "",
+    endDate: keyed.get("end date") || "",
+    country: keyed.get("country") || "",
+    hostLocation:
+      keyed.get("city / host location") || keyed.get("host location") || keyed.get("city") || "",
+    medal: normalizeTournamentMedal(keyed.get("medal")),
+    eventPosition: keyed.get("event / position") || keyed.get("event") || keyed.get("position") || "",
+    teamCountry: keyed.get("team / country") || keyed.get("team / country coached") || "",
+    roleResponsibility: keyed.get("role / responsibility") || "",
+  };
+}
+
+function normalizeTournamentMedal(value?: string): TournamentMedal | undefined {
+  if (!value) return undefined;
+  if (/silver/i.test(value)) return "Silver";
+  if (/bronze/i.test(value)) return "Bronze";
+  if (/gold/i.test(value)) return "Gold";
+  if (/no medal|none/i.test(value)) return "No Medal";
+  return undefined;
+}
+
+function serializeTournament(item: SportsTournament) {
+  const startDate = item.startDate?.trim() || item.date.trim();
+  return [
+    `Tournament: ${item.name.trim()}`,
+    item.startYear?.trim() ? `Start Year: ${item.startYear.trim()}` : "",
+    startDate ? `Start Date: ${startDate}` : "",
+    item.endYear?.trim() ? `End Year: ${item.endYear.trim()}` : "",
+    item.endDate?.trim() ? `End Date: ${item.endDate.trim()}` : "",
+    item.country?.trim() ? `Country: ${item.country.trim()}` : "",
+    item.hostLocation?.trim() ? `City / Host Location: ${item.hostLocation.trim()}` : "",
+    item.result.trim() ? `Result: ${item.result.trim()}` : "",
+    item.medal ? `Medal: ${item.medal}` : "",
+    item.eventPosition?.trim() ? `Event / Position: ${item.eventPosition.trim()}` : "",
+    item.teamCountry?.trim() ? `Team / Country: ${item.teamCountry.trim()}` : "",
+    item.roleResponsibility?.trim() ? `Role / Responsibility: ${item.roleResponsibility.trim()}` : "",
+    item.level.trim() ? `Level: ${item.level.trim()}` : "",
+  ]
+    .filter(Boolean)
+    .join(" | ");
+}
+
+function formatTournamentDate(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const [year, month, day] = value.split("-").map(Number);
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(Date.UTC(year, month - 1, day)));
+}
+
+function formatTournamentDateRange(item: SportsTournament) {
+  const start = item.startDate || item.date || item.startYear || "";
+  const end = item.endDate || item.endYear || "";
+  if (!start) return end ? formatTournamentDate(end) : "";
+  if (!end) return formatTournamentDate(start);
+  return `${formatTournamentDate(start)} – ${formatTournamentDate(end)}`;
 }
 
 function formatMedal(item: SportsMedal) {
@@ -615,7 +791,10 @@ export function SportsDetailsPanel({
       </div>
 
       {isCoach ? (
-        <CoachProfileSection profile={profile} editable={editable} onEdit={openEditor} />
+        <>
+          <CoachProfileSection profile={profile} editable={editable} onEdit={openEditor} />
+          <SportsTournamentSection profile={profile} editable={editable} onEdit={openEditor} />
+        </>
       ) : (
         <>
           <SportsDetailsSection icon={<Globe2 />} title="Public sports details">
@@ -631,12 +810,7 @@ export function SportsDetailsPanel({
             ) : null}
           </SportsDetailsSection>
 
-          <SportsDetailsSection icon={<CalendarDays />} title="Tournaments">
-            <SportsDetailList items={profile.tournaments} empty="No public tournament details listed." />
-            {editable ? (
-              <EditLink label="Edit tournament details" onClick={() => openEditor("tournaments")} />
-            ) : null}
-          </SportsDetailsSection>
+          <SportsTournamentSection profile={profile} editable={editable} onEdit={openEditor} />
 
           <SportsDetailsSection icon={<Medal />} title="Medals">
             <SportsDetailList items={profile.medals} empty="No public medal details listed." />
@@ -954,6 +1128,89 @@ function PromoList({
   );
 }
 
+function SportsTournamentSection({
+  profile,
+  editable,
+  onEdit,
+}: {
+  profile: SportsProfileInfo;
+  editable: boolean;
+  onEdit: (field: SportsEditorField) => void;
+}) {
+  const tournaments: SportsTournament[] =
+    profile.tournamentDetails?.length
+      ? profile.tournamentDetails
+      : profile.tournaments.map((name) => ({
+          name: name.replace(/^tournament\s*:\s*/i, "").trim(),
+          date: "",
+          level: "",
+          result: "",
+        }));
+
+  return (
+    <SportsDetailsSection
+      icon={<CalendarDays />}
+      title="Tournaments / Competitions"
+      description="Build a professional sports timeline from recognized competitions."
+    >
+      {tournaments.length ? (
+        <ol data-testid="sports-tournament-timeline" className="space-y-3">
+          {tournaments.map((item, index) => {
+            const metadata = [
+              formatTournamentDateRange(item),
+              item.country,
+              item.hostLocation,
+              item.level ? `Level: ${item.level}` : "",
+              item.result ? `Result: ${item.result}` : "",
+              item.medal ? `Medal: ${item.medal}` : "",
+              item.eventPosition ? `Event: ${item.eventPosition}` : "",
+              item.teamCountry ? `Team / Country: ${item.teamCountry}` : "",
+              item.roleResponsibility ? `Role: ${item.roleResponsibility}` : "",
+            ].filter(Boolean);
+
+            return (
+              <li
+                key={`${item.name}-${index}`}
+                data-testid={`sports-tournament-entry-${index + 1}`}
+                className="relative flex gap-3"
+              >
+                <span className="relative mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full border border-amber-200/25 bg-amber-200/10 text-amber-200">
+                  <Trophy className="h-4 w-4" />
+                </span>
+                {index < tournaments.length - 1 ? (
+                  <span className="absolute left-4 top-9 h-[calc(100%+0.25rem)] w-px bg-amber-200/15" />
+                ) : null}
+                <div className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-white/[0.035] p-3">
+                  <p className="font-semibold text-white">{item.name}</p>
+                  {metadata.length ? (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {metadata.map((value, metadataIndex) => (
+                        <span
+                          key={`${value}-${metadataIndex}`}
+                          className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-zinc-300"
+                        >
+                          {value}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      ) : (
+        <p data-testid="sports-tournament-empty" className="text-sm text-zinc-500">
+          No public tournament or competition details listed.
+        </p>
+      )}
+      {editable ? (
+        <EditLink label="Add or edit tournaments / competitions" onClick={() => onEdit("tournaments")} />
+      ) : null}
+    </SportsDetailsSection>
+  );
+}
+
 function SportsDetailStat({
   icon,
   label,
@@ -1090,6 +1347,170 @@ function CoachProfileValue({
   );
 }
 
+function TournamentEntryEditor({
+  item,
+  index,
+  role,
+  onChange,
+  onRemove,
+}: {
+  item: SportsTournament;
+  index: number;
+  role: SportsProfileDraft["role"];
+  onChange: (index: number, changes: Partial<SportsTournament>) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className={editorCardClass}>
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-xs font-semibold uppercase tracking-wider text-amber-200/80">
+          Tournament / Competition {index + 1}
+        </p>
+        <button
+          type="button"
+          data-testid={`button-remove-tournament-${index + 1}`}
+          aria-label={`Remove tournament ${index + 1}`}
+          onClick={onRemove}
+          className="text-zinc-500 transition-colors hover:text-red-300"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      </div>
+
+      <EditorField label="Tournament / Competition" hint="Search a recognized competition or enter another one.">
+        <Input
+          list="recognized-sports-competitions"
+          data-testid={`input-tournament-name-${index + 1}`}
+          value={item.name}
+          onChange={(event) => onChange(index, { name: event.target.value })}
+          className={editorInputClass}
+          placeholder="Search or enter a competition"
+        />
+      </EditorField>
+
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        <label className="space-y-1.5">
+          <span className="text-xs font-medium text-zinc-400">Start Year</span>
+          <select
+            data-testid={`select-tournament-start-year-${index + 1}`}
+            value={item.startYear ?? ""}
+            onChange={(event) => onChange(index, { startYear: event.target.value })}
+            className={editorSelectClass}
+          >
+            <option value="">Select year</option>
+            {TOURNAMENT_YEARS.map((year) => (
+              <option key={year} value={year}>
+                {year}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="space-y-1.5">
+          <span className="text-xs font-medium text-zinc-400">Start Date</span>
+          <Input
+            type="date"
+            data-testid={`input-tournament-start-date-${index + 1}`}
+            value={item.startDate ?? ""}
+            onChange={(event) => onChange(index, { startDate: event.target.value })}
+            className={editorInputClass}
+          />
+        </label>
+        <label className="space-y-1.5">
+          <span className="text-xs font-medium text-zinc-400">End Year</span>
+          <select
+            data-testid={`select-tournament-end-year-${index + 1}`}
+            value={item.endYear ?? ""}
+            onChange={(event) => onChange(index, { endYear: event.target.value })}
+            className={editorSelectClass}
+          >
+            <option value="">Select year</option>
+            {TOURNAMENT_YEARS.map((year) => (
+              <option key={year} value={year}>
+                {year}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="space-y-1.5">
+          <span className="text-xs font-medium text-zinc-400">End Date</span>
+          <Input
+            type="date"
+            data-testid={`input-tournament-end-date-${index + 1}`}
+            value={item.endDate ?? ""}
+            onChange={(event) => onChange(index, { endDate: event.target.value })}
+            className={editorInputClass}
+          />
+        </label>
+      </div>
+
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        <Input
+          data-testid={`input-tournament-country-${index + 1}`}
+          value={item.country ?? ""}
+          onChange={(event) => onChange(index, { country: event.target.value })}
+          className={editorInputClass}
+          placeholder="Country"
+        />
+        <Input
+          data-testid={`input-tournament-location-${index + 1}`}
+          value={item.hostLocation ?? ""}
+          onChange={(event) => onChange(index, { hostLocation: event.target.value })}
+          className={editorInputClass}
+          placeholder="City / host location"
+        />
+        <Input
+          data-testid={`input-tournament-result-${index + 1}`}
+          value={item.result}
+          onChange={(event) => onChange(index, { result: event.target.value })}
+          className={editorInputClass}
+          placeholder="Result / achievement"
+        />
+        <select
+          data-testid={`select-tournament-medal-${index + 1}`}
+          value={item.medal ?? ""}
+          onChange={(event) =>
+            onChange(index, {
+              medal: event.target.value ? (event.target.value as TournamentMedal) : undefined,
+            })
+          }
+          className={editorSelectClass}
+        >
+          <option value="">Medal (optional)</option>
+          <option value="Gold">Gold</option>
+          <option value="Silver">Silver</option>
+          <option value="Bronze">Bronze</option>
+          <option value="No Medal">No Medal</option>
+        </select>
+        <Input
+          data-testid={`input-tournament-event-${index + 1}`}
+          value={item.eventPosition ?? ""}
+          onChange={(event) => onChange(index, { eventPosition: event.target.value })}
+          className={editorInputClass}
+          placeholder="Event / Position"
+        />
+        {role === "Coach" ? (
+          <>
+            <Input
+              data-testid={`input-tournament-team-country-${index + 1}`}
+              value={item.teamCountry ?? ""}
+              onChange={(event) => onChange(index, { teamCountry: event.target.value })}
+              className={editorInputClass}
+              placeholder="Team / Country coached"
+            />
+            <Input
+              data-testid={`input-tournament-role-${index + 1}`}
+              value={item.roleResponsibility ?? ""}
+              onChange={(event) => onChange(index, { roleResponsibility: event.target.value })}
+              className={editorInputClass}
+              placeholder="Role / Responsibility"
+            />
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function SportsDetailsEditor({
   open,
   field,
@@ -1107,6 +1528,15 @@ function SportsDetailsEditor({
   onOpenChange: (open: boolean) => void;
   onSave: () => void;
 }) {
+  const updateTournament = (index: number, changes: Partial<SportsTournament>) => {
+    setDraft((current) => ({
+      ...current,
+      tournaments: current.tournaments.map((entry, entryIndex) =>
+        entryIndex === index ? { ...entry, ...changes } : entry,
+      ),
+    }));
+  };
+
   const title =
     field === "username"
       ? "Edit sports username"
@@ -1119,7 +1549,7 @@ function SportsDetailsEditor({
           : field === "representation"
             ? "Choose representation"
             : field === "tournaments"
-              ? "Edit tournaments"
+              ? "Add tournaments / competitions"
               : field === "medals"
                 ? "Edit medals"
                 : field === "achievements"
@@ -1253,60 +1683,51 @@ function SportsDetailsEditor({
 
         {field === "tournaments" ? (
           <div className="space-y-3">
+            <datalist id="recognized-sports-competitions">
+              {RECOGNIZED_COMPETITIONS.map((competition) => (
+                <option key={competition} value={competition} />
+              ))}
+            </datalist>
             {draft.tournaments.map((item, index) => (
-              <div key={`tournament-${index}`} className={editorCardClass}>
-                <div className="mb-2 flex items-center justify-between">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-amber-200/80">
-                    Tournament {index + 1}
-                  </p>
-                  <button
-                    type="button"
-                    aria-label={`Remove tournament ${index + 1}`}
-                    onClick={() =>
-                      setDraft((current) => ({
-                        ...current,
-                        tournaments: current.tournaments.filter((_, itemIndex) => itemIndex !== index),
-                      }))
-                    }
-                    className="text-zinc-500 transition-colors hover:text-red-300"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {(["name", "date", "level", "result"] as const).map((key) => (
-                    <Input
-                      key={key}
-                      value={item[key]}
-                      onChange={(event) =>
-                        setDraft((current) => ({
-                          ...current,
-                          tournaments: current.tournaments.map((entry, entryIndex) =>
-                            entryIndex === index ? { ...entry, [key]: event.target.value } : entry,
-                          ),
-                        }))
-                      }
-                      className={editorInputClass}
-                      placeholder={
-                        key === "name"
-                          ? "Tournament name"
-                          : key === "date"
-                            ? "Year / date"
-                            : key === "level"
-                              ? "Level"
-                              : "Result / participation"
-                      }
-                    />
-                  ))}
-                </div>
-              </div>
+              <TournamentEntryEditor
+                key={`tournament-${index}`}
+                item={item}
+                index={index}
+                role={draft.role}
+                onChange={updateTournament}
+                onRemove={() =>
+                  setDraft((current) => ({
+                    ...current,
+                    tournaments: current.tournaments.filter((_, itemIndex) => itemIndex !== index),
+                  }))
+                }
+              />
             ))}
             <AddRowButton
-              label="Add tournament"
+              testId="button-add-tournament"
+              label="Add tournament / competition"
               onClick={() =>
                 setDraft((current) => ({
                   ...current,
-                  tournaments: [...current.tournaments, { name: "", date: "", level: "", result: "" }],
+                  tournaments: [
+                    ...current.tournaments,
+                    {
+                      name: "",
+                      date: "",
+                      level: "",
+                      result: "",
+                      startYear: "",
+                      startDate: "",
+                      endYear: "",
+                      endDate: "",
+                      country: "",
+                      hostLocation: "",
+                      medal: undefined,
+                      eventPosition: "",
+                      teamCountry: "",
+                      roleResponsibility: "",
+                    },
+                  ],
                 }))
               }
             />
@@ -1523,10 +1944,19 @@ function EditorField({
   );
 }
 
-function AddRowButton({ label, onClick }: { label: string; onClick: () => void }) {
+function AddRowButton({
+  label,
+  onClick,
+  testId,
+}: {
+  label: string;
+  onClick: () => void;
+  testId?: string;
+}) {
   return (
     <button
       type="button"
+      data-testid={testId}
       onClick={onClick}
       className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-amber-200/30 px-3 py-2 text-xs font-semibold text-amber-200 transition-colors hover:bg-amber-200/10"
     >
