@@ -38,6 +38,14 @@ export type SportsDocument = {
   updatedAt: string | null;
 };
 
+type StorageDocument = {
+  id: string | null;
+  name: string;
+  metadata?: { mimetype?: string; size?: number };
+  updated_at?: string | null;
+  created_at?: string | null;
+};
+
 const empty: MyProfile = {
   id: "",
   username: "",
@@ -66,15 +74,9 @@ async function requireDocumentOwner(ownerId: string) {
 
 export async function listSportsDocuments(ownerId: string): Promise<SportsDocument[]> {
   await requireDocumentOwner(ownerId);
-  const { data, error } = await supabase.storage
-    .from(STORAGE_BUCKETS.documents)
-    .list(ownerId, {
-      limit: 100,
-      sortBy: { column: "created_at", order: "desc" },
-    });
-  if (error) throw new Error(error.message);
+  const files = await listSportsDocumentFiles(ownerId);
 
-  return (data ?? [])
+  return files
     .filter((file) => Boolean(file.id && file.name))
     .map((file) => ({
       path: `${ownerId}/${file.name}`,
@@ -83,6 +85,17 @@ export async function listSportsDocuments(ownerId: string): Promise<SportsDocume
       size: typeof file.metadata?.size === "number" ? file.metadata.size : null,
       updatedAt: file.updated_at ?? file.created_at ?? null,
     }));
+}
+
+async function listSportsDocumentFiles(ownerId: string): Promise<StorageDocument[]> {
+  const { data, error } = await supabase.storage
+    .from(STORAGE_BUCKETS.documents)
+    .list(ownerId, {
+      limit: 100,
+      sortBy: { column: "created_at", order: "desc" },
+    });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as StorageDocument[];
 }
 
 function safeDocumentFileName(name: string) {
@@ -144,6 +157,12 @@ export async function deleteSportsDocument(ownerId: string, path: string) {
   }
   const { error } = await supabase.storage.from(STORAGE_BUCKETS.documents).remove([path]);
   if (error) throw new Error(error.message);
+
+  const deletedName = path.slice(`${ownerId}/`.length);
+  const remaining = await listSportsDocumentFiles(ownerId);
+  if (remaining.some((file) => file.name === deletedName)) {
+    throw new Error("The document could not be removed permanently. Try again.");
+  }
 }
 
 /** Real signed-in profile: row from the database plus the user's own media. */
