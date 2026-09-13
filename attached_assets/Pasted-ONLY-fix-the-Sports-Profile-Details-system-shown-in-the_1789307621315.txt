@@ -1,0 +1,101 @@
+ONLY fix the Sports Profile/Details system shown in the current screenshots.
+
+DO NOT change Chat, Moments, Reels, Videos, Feed, Navigation, authentication, or any unrelated feature.
+
+1. ONLY ONE SPORTS DETAILS ENTRY POINT
+
+There must be only ONE Sports Details entry point on the user's profile.
+
+Currently tapping different Sports-related columns/cards opens the same Sports Details screen repeatedly.
+
+Fix this properly:
+• Keep ONE official "Sports Details" entry/card.
+• Remove duplicate Sports Details clickable cards/duplicate entry points.
+• If an existing Sports-related area must remain for layout, it must NOT open another duplicate Sports Details screen.
+• Do not create multiple copies of the same Sports Profile.
+• All Sports information must be managed from the single Sports Details screen.
+
+2. FIX DOCUMENT/PHOTO DELETE PERMANENTLY
+
+There is a serious persistence bug:
+
+A document/photo is deleted successfully from the UI, but after refresh it appears again.
+
+Fix the ROOT CAUSE.
+
+When the user deletes a Sports verification document/photo:
+• Delete the database record.
+• Delete the corresponding file from Supabase Storage.
+• Remove it immediately from the UI.
+• After page refresh/reload, it MUST remain deleted.
+• Do not recreate or restore deleted records from stale/local/mock state.
+• Make sure the delete operation uses the correct document ID and storage path.
+• Handle errors properly: if database/storage deletion fails, do not falsely show successful deletion.
+• Keep the Documents bucket private.
+
+Do NOT simply hide the file from the UI.
+
+3. SPORTS PROFILE PREMIUM + CLEAN
+
+Make the complete Sports Profile experience premium and clean for ALL sports, not only Handball.
+
+Use:
+• Premium dark UI
+• Gold/premium accents
+• Clean spacing
+• Clear section hierarchy
+• Professional athlete/coach identity design
+• Mobile-first responsive layout
+• Consistent premium cards and icons
+
+The same design system must work for:
+• Player
+• Coach
+• National
+• International
+• All supported sports
+
+4. KEEP THE EXISTING FUNCTIONALITY
+
+Do NOT remove:
+• Player/Coach role selection
+• Sport selection
+• Event/Position
+• National/International
+• Tournament/Competition entries
+• Start Date / End Date
+• Medals
+• Achievements
+• Coach/Qualification details
+• Private documents
+• Document upload
+• Document delete/re-upload
+• Verification process
+• Terms & Conditions / I Agree / Submit for Verification
+
+Do NOT create Sports ID.
+
+5. DATA MUST REMAIN REAL
+
+Use the existing database/storage structure.
+Do not create mock/demo data.
+Do not duplicate existing records.
+Do not migrate or delete valid existing Sports data unnecessarily.
+
+6. IMPORTANT
+
+Before changing code, inspect how Sports Details is currently opened from Profile and identify the duplicate entry points.
+
+Also inspect the actual document deletion flow and fix the database + Supabase Storage persistence issue at its source.
+
+Make the smallest possible root-cause fix.
+
+After implementation:
+• Test opening Sports Details from the profile.
+• Test deleting a document.
+• Refresh the page.
+• Confirm the deleted document does NOT return.
+• Test uploading a new document after deletion.
+• Verify TypeScript/build passes.
+
+ONLY make these changes.
