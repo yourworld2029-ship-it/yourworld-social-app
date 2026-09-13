@@ -97,6 +97,16 @@ const RECOGNIZED_COMPETITIONS = [
   "Other Recognized Competition",
 ] as const;
 
+const NATIONAL_COMPETITIONS = [
+  "National Games (India)",
+  "All India Inter-University / All India University Games",
+  "Khelo India Games",
+] as const;
+
+const INTERNATIONAL_COMPETITIONS = RECOGNIZED_COMPETITIONS.filter(
+  (competition) => !NATIONAL_COMPETITIONS.includes(competition as (typeof NATIONAL_COMPETITIONS)[number]),
+);
+
 const TOURNAMENT_YEARS = Array.from({ length: 126 }, (_, index) =>
   String(new Date().getFullYear() - index),
 );
@@ -536,6 +546,27 @@ function normalizeTournamentMedal(value?: string): TournamentMedal | undefined {
   if (/gold/i.test(value)) return "Gold";
   if (/no medal|none/i.test(value)) return "No Medal";
   return undefined;
+}
+
+function isNationalCompetition(name: string) {
+  return NATIONAL_COMPETITIONS.includes(name as (typeof NATIONAL_COMPETITIONS)[number]);
+}
+
+function nationalCompetitionLabel(name: string) {
+  if (name === "National Games (India)") return "NATIONAL GAMES";
+  if (name === "Khelo India Games") return "KHELO INDIA GAMES";
+  return "ALL INDIA UNIVERSITY";
+}
+
+function medalEmoji(medal?: TournamentMedal) {
+  if (medal === "Gold") return "🥇";
+  if (medal === "Silver") return "🥈";
+  if (medal === "Bronze") return "🥉";
+  return "";
+}
+
+function tournamentYear(item: SportsTournament) {
+  return item.startYear || item.endYear || item.startDate?.slice(0, 4) || item.date.match(/\b\d{4}\b/)?.[0] || "";
 }
 
 function serializeTournament(item: SportsTournament) {
