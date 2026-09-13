@@ -1,0 +1,32 @@
+Fix ONLY the Sports Details / Sports Profile section.
+
+Current problem: tapping Sport, Position/Event, National/International, Tournament, Medal, etc. does not open/edit anything and behaves like a static page.
+
+Make this Sports section fully REAL and interactive with a premium YourWorld sports UI.
+
+Sports Details should allow the user to add/edit:
+1. Username
+2. Sport — selectable from the existing sports catalogue; support all sports, not only handball
+3. Position / Event
+4. Representation — National or International
+5. Tournament details — tournament name, year/date, level and result/participation
+6. Medals — Gold / Silver / Bronze, tournament name and year
+7. Achievements
+8. Coach / qualification
+9. Sports ID / verification status
+10. Private verification documents — PDF/JPG/PNG upload and download
+
+Important:
+- Tapping each relevant field must open the proper edit/select UI instead of reopening the same static Sports Details page.
+- Save the entered data to the existing database/profile system so it remains after refresh and login.
+- Documents must remain PRIVATE to the owner/admin verification flow and must NOT become publicly accessible.
+- Use the existing documents storage bucket/security approach; do not expose document files publicly.
+- Existing uploaded documents must continue to work.
+- Make the Sports Details UI premium: clean dark glass cards, gold/premium sports accents, clear icons, proper spacing, polished buttons and edit controls.
+- Show real saved values instead of “Not specified / Not recorded” when data exists.
+- Keep public sports information separate from private verification documents.
+- Do NOT redesign the rest of the profile, feed, chat, moments, videos, navigation or any other feature.
+- Do NOT change unrelated database tables, routes, UI or functionality.
+- Reuse existing components, helpers, database tables and storage wherever possible.
+- Smallest possible root-cause implementation.
+- Run typecheck, lint and production build after the change.
