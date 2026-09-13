@@ -123,6 +123,7 @@ function MomentViewRoute() {
 
   const openGroup = useCallback(
     (dir: 1 | -1) => {
+      if (replying) return;
       if (groupIndex < 0) {
         close();
         return;
@@ -135,7 +136,7 @@ function MomentViewRoute() {
       const target = dir === 1 ? next[0]! : next[0]!;
       navigate({ to: "/moment/$momentId", params: { momentId: target.id }, replace: true });
     },
-    [groupIndex, groups, navigate, close],
+    [groupIndex, groups, navigate, close, replying],
   );
 
   const goNext = useCallback(() => {
