@@ -78,36 +78,45 @@ export type SportsMedal = {
 
 export type SportsProfileDraft = {
   username: string;
+  role: "Player" | "Coach";
   sport: string;
   eventPosition: string;
   representation: "National" | "International" | "";
   tournaments: SportsTournament[];
   medals: SportsMedal[];
   achievements: string;
+  coachName: string;
   coachQualification: string;
-  sportsId: string;
+  qualificationYear: string;
+  institution: string;
+  coachingExperience: string;
+  teamDetails: string;
 };
 
 type SportsEditorField =
   | "username"
+  | "role"
   | "sport"
   | "eventPosition"
   | "representation"
   | "tournaments"
   | "medals"
   | "achievements"
+  | "coachName"
   | "coachQualification"
-  | "sportsId"
+  | "qualificationYear"
+  | "institution"
+  | "coachingExperience"
+  | "teamDetails"
   | "verification";
 
 export type SportsProfileInfo = {
   badge: string;
-  role: "Athlete" | "Coach";
+  role: "Player" | "Coach";
   username?: string;
   sport: string;
   eventPosition: string;
   status: "International" | "National" | "Not recorded";
-  sportsId: string | null;
   represents: string;
   verified: boolean;
   publicDetails: string;
@@ -116,7 +125,12 @@ export type SportsProfileInfo = {
   tournamentDetails?: SportsTournament[];
   medalDetails?: SportsMedal[];
   achievements: string[];
+  coachName: string;
   coachQualification: string;
+  qualificationYear: string;
+  institution: string;
+  coachingExperience: string;
+  teamDetails: string;
 };
 
 export function getSportsProfile(profile: {
@@ -125,12 +139,13 @@ export function getSportsProfile(profile: {
   bio: string;
   location: string;
   username?: string;
+  displayName?: string;
 }): SportsProfileInfo | null {
   const category = profile.category.trim();
-  const roleMatch = /^(athlete|coach)(?:\s*[-·•|:]|$)/i.exec(category);
+  const roleMatch = /^(athlete|player|coach)(?:\s*[-·•|:]|$)/i.exec(category);
   if (!roleMatch) return null;
 
-  const role = roleMatch[1].toLowerCase() === "coach" ? "Coach" : "Athlete";
+  const role = roleMatch[1].toLowerCase() === "coach" ? "Coach" : "Player";
   const source = `${category} ${profile.bio}`.toLowerCase();
   const labeledRepresentation = extractLabeledValue(profile.bio, [
     "representation",
@@ -158,8 +173,8 @@ export function getSportsProfile(profile: {
           ? "🌍 INTERNATIONAL PLAYER"
           : status === "National"
             ? "🇮🇳 NATIONAL PLAYER"
-            : "✅ VERIFIED ATHLETE"
-        : "ATHLETE PROFILE";
+              : "✅ VERIFIED PLAYER"
+        : "PLAYER PROFILE";
 
   return {
     badge,
@@ -170,7 +185,6 @@ export function getSportsProfile(profile: {
       extractLabeledValue(profile.bio, ["event", "event/position", "position", "specialty"]) ||
       "Not recorded",
     status,
-    sportsId: extractLabeledValue(profile.bio, ["sports id", "sportsid"]),
     represents:
       extractLabeledValue(profile.bio, ["represents", "country", "team"]) ||
       profile.location.trim() ||
@@ -184,8 +198,14 @@ export function getSportsProfile(profile: {
     tournamentDetails,
     medalDetails,
     achievements: extractRelevantLines(profile.bio, /achievement|award|champion|record|trophy/i),
+    coachName:
+      extractLabeledValue(profile.bio, ["coach name"]) ||
+      profile.displayName?.trim() ||
+      profile.username?.trim() ||
+      "Not recorded",
     coachQualification:
       extractLabeledValue(profile.bio, [
+        "coaching qualification",
         "coach / qualification",
         "coach qualification",
         "qualification",
@@ -195,12 +215,27 @@ export function getSportsProfile(profile: {
         "certification",
         "certified",
       ]) || "Not recorded",
+    qualificationYear:
+      extractLabeledValue(profile.bio, [
+        "qualification / ns nis year",
+        "qualification year",
+        "ns nis year",
+        "nsnis year",
+      ]) || "Not recorded",
+    institution:
+      extractLabeledValue(profile.bio, ["institution", "where completed", "completed at"]) ||
+      "Not recorded",
+    coachingExperience:
+      extractLabeledValue(profile.bio, ["coaching experience", "experience"]) || "Not recorded",
+    teamDetails:
+      extractLabeledValue(profile.bio, ["tournament / team details", "team details"]) || "Not recorded",
   };
 }
 
 export function toSportsProfileDraft(profile: SportsProfileInfo): SportsProfileDraft {
   return {
     username: profile.username ?? "",
+    role: profile.role,
     sport: profile.sport === "Not specified" ? "" : profile.sport,
     eventPosition: profile.eventPosition === "Not recorded" ? "" : profile.eventPosition,
     representation: profile.status === "Not recorded" ? "" : profile.status,
@@ -222,9 +257,14 @@ export function toSportsProfileDraft(profile: SportsProfileInfo): SportsProfileD
             year: "",
           })),
     achievements: profile.achievements.join("\n"),
+    coachName: profile.coachName === "Not recorded" ? "" : profile.coachName,
     coachQualification:
       profile.coachQualification === "Not recorded" ? "" : profile.coachQualification,
-    sportsId: profile.sportsId ?? "",
+    qualificationYear: profile.qualificationYear === "Not recorded" ? "" : profile.qualificationYear,
+    institution: profile.institution === "Not recorded" ? "" : profile.institution,
+    coachingExperience:
+      profile.coachingExperience === "Not recorded" ? "" : profile.coachingExperience,
+    teamDetails: profile.teamDetails === "Not recorded" ? "" : profile.teamDetails,
   };
 }
 
@@ -233,45 +273,60 @@ export function serializeSportsProfileBio(currentBio: string, draft: SportsProfi
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line && !isSportsFieldLine(line));
-  const fields = [
-    draft.sport.trim() ? `Sport: ${draft.sport.trim()}` : "",
-    draft.eventPosition.trim() ? `Event / position: ${draft.eventPosition.trim()}` : "",
-    draft.representation ? `Representation: ${draft.representation}` : "",
-    ...draft.tournaments
-      .filter((item) => item.name.trim())
-      .map((item) =>
-        [
-          "Tournament:",
-          item.name.trim(),
-          item.date.trim(),
-          item.level.trim(),
-          item.result.trim(),
-        ]
-          .filter(Boolean)
-          .join(" | "),
-      ),
-    ...draft.medals
-      .filter((item) => item.tournament.trim() || item.year.trim())
-      .map((item) =>
-        ["Medal:", item.type, item.tournament.trim(), item.year.trim()].filter(Boolean).join(" | "),
-      ),
-    ...draft.achievements
-      .split(/\r?\n/)
-      .map((item) => item.trim())
-      .filter(Boolean)
-      .map((item) => `Achievement: ${item}`),
-    draft.coachQualification.trim()
-      ? `Coach / qualification: ${draft.coachQualification.trim()}`
-      : "",
-    draft.sportsId.trim() ? `Sports ID: ${draft.sportsId.trim()}` : "",
-  ].filter(Boolean);
+  const fields =
+    draft.role === "Coach"
+      ? [
+          draft.sport.trim() ? `Sport: ${draft.sport.trim()}` : "",
+          draft.coachName.trim() ? `Coach Name: ${draft.coachName.trim()}` : "",
+          draft.coachQualification.trim()
+            ? `Coaching Qualification: ${draft.coachQualification.trim()}`
+            : "",
+          draft.qualificationYear.trim()
+            ? `Qualification / NS NIS Year: ${draft.qualificationYear.trim()}`
+            : "",
+          draft.institution.trim() ? `Institution / Where completed: ${draft.institution.trim()}` : "",
+          draft.coachingExperience.trim()
+            ? `Coaching Experience: ${draft.coachingExperience.trim()}`
+            : "",
+          draft.teamDetails.trim() ? `Tournament / Team details: ${draft.teamDetails.trim()}` : "",
+        ].filter(Boolean)
+      : [
+          draft.sport.trim() ? `Sport: ${draft.sport.trim()}` : "",
+          draft.eventPosition.trim() ? `Event / position: ${draft.eventPosition.trim()}` : "",
+          draft.representation ? `Representation: ${draft.representation}` : "",
+          ...draft.tournaments
+            .filter((item) => item.name.trim())
+            .map((item) =>
+              [
+                "Tournament:",
+                item.name.trim(),
+                item.date.trim(),
+                item.level.trim(),
+                item.result.trim(),
+              ]
+                .filter(Boolean)
+                .join(" | "),
+            ),
+          ...draft.medals
+            .filter((item) => item.tournament.trim() || item.year.trim())
+            .map((item) =>
+              ["Medal:", item.type, item.tournament.trim(), item.year.trim()]
+                .filter(Boolean)
+                .join(" | "),
+            ),
+          ...draft.achievements
+            .split(/\r?\n/)
+            .map((item) => item.trim())
+            .filter(Boolean)
+            .map((item) => `Achievement: ${item}`),
+        ].filter(Boolean);
 
   return [...preserved, ...fields].join("\n").trim();
 }
 
 function inferSport(category: string, bio: string) {
   const categorySport = category
-    .replace(/^(athlete|coach)\b/i, "")
+    .replace(/^(athlete|player|coach)\b/i, "")
     .replace(/^[\s·•:|-]+/, "")
     .trim();
   if (categorySport) return categorySport;
@@ -346,7 +401,7 @@ function formatMedal(item: SportsMedal) {
 }
 
 function isSportsFieldLine(line: string) {
-  return /^(sport|sports|discipline|game|event(?:\s*\/\s*position)?|position|specialty|representation|represents|status|country|team|tournament|medal|achievement|award|coach(?:\s*\/\s*qualification|\s+qualification)?|qualification|qualifications|license|licence|certification|certified|sports\s*id|sportsid)\s*:/i.test(
+  return /^(sport|sports|discipline|game|event(?:\s*\/\s*position)?|position|specialty|representation|represents|status|country|team|tournament|medal|achievement|award|coach(?:\s*\/\s*qualification|\s+qualification)?|coach\s+name|coaching\s+qualification|qualification(?:\s*\/\s*ns\s*nis\s*year|\s+year)?|qualifications|license|licence|certification|certified|institution(?:\s*\/\s*where\s+completed)?|where\s+completed|completed\s+at|coaching\s+experience|experience|tournament\s*\/\s*team\s+details|team\s+details|sports\s*id|sportsid)\s*:/i.test(
     line,
   );
 }
@@ -469,6 +524,7 @@ export function SportsDetailsPanel({
   const [draft, setDraft] = useState<SportsProfileDraft>(() => toSportsProfileDraft(profile));
   const [saving, setSaving] = useState(false);
   const editable = isOwner && Boolean(onSave);
+  const isCoach = profile.role === "Coach";
   const openEditor = (field: SportsEditorField) => {
     setDraft(toSportsProfileDraft(profile));
     setEditorField(field);
@@ -520,19 +576,28 @@ export function SportsDetailsPanel({
           value={profile.sport}
           onClick={editable ? () => openEditor("sport") : undefined}
         />
-        <SportsDetailStat icon={<UserRound />} label="Role" value={profile.role} />
         <SportsDetailStat
-          icon={<Trophy />}
-          label="Event / position"
-          value={profile.eventPosition}
-          onClick={editable ? () => openEditor("eventPosition") : undefined}
+          icon={<UserRound />}
+          label="Role"
+          value={profile.role}
+          onClick={editable ? () => openEditor("role") : undefined}
         />
-        <SportsDetailStat
-          icon={<Globe2 />}
-          label="Status"
-          value={profile.status}
-          onClick={editable ? () => openEditor("representation") : undefined}
-        />
+        {!isCoach ? (
+          <>
+            <SportsDetailStat
+              icon={<Trophy />}
+              label="Event / position"
+              value={profile.eventPosition}
+              onClick={editable ? () => openEditor("eventPosition") : undefined}
+            />
+            <SportsDetailStat
+              icon={<Globe2 />}
+              label="Status"
+              value={profile.status}
+              onClick={editable ? () => openEditor("representation") : undefined}
+            />
+          </>
+        ) : null}
         <SportsDetailStat
           icon={<BadgeCheck />}
           label="Verification"
@@ -541,50 +606,53 @@ export function SportsDetailsPanel({
         />
       </div>
 
-      <SportsDetailsSection icon={<Globe2 />} title="Public sports details">
-        {profile.publicDetails ? (
-          <p className="whitespace-pre-wrap text-sm leading-6 text-zinc-300">{profile.publicDetails}</p>
-        ) : (
-          <p className="text-sm text-zinc-500">No additional public sports details listed.</p>
-        )}
-        {profile.represents !== "Not specified" ? (
-          <p className="mt-3 text-xs text-zinc-500">
-            Represents: <span className="text-zinc-300">{profile.represents}</span>
-          </p>
-        ) : null}
-      </SportsDetailsSection>
+      {isCoach ? (
+        <CoachProfileSection profile={profile} editable={editable} onEdit={openEditor} />
+      ) : (
+        <>
+          <SportsDetailsSection icon={<Globe2 />} title="Public sports details">
+            {profile.publicDetails ? (
+              <p className="whitespace-pre-wrap text-sm leading-6 text-zinc-300">{profile.publicDetails}</p>
+            ) : (
+              <p className="text-sm text-zinc-500">No additional public sports details listed.</p>
+            )}
+            {profile.represents !== "Not specified" ? (
+              <p className="mt-3 text-xs text-zinc-500">
+                Represents: <span className="text-zinc-300">{profile.represents}</span>
+              </p>
+            ) : null}
+          </SportsDetailsSection>
 
-      <SportsDetailsSection icon={<CalendarDays />} title="Tournaments">
-        <SportsDetailList items={profile.tournaments} empty="No public tournament details listed." />
-        {editable ? (
-          <EditLink label="Edit tournament details" onClick={() => openEditor("tournaments")} />
-        ) : null}
-      </SportsDetailsSection>
+          <SportsDetailsSection icon={<CalendarDays />} title="Tournaments">
+            <SportsDetailList items={profile.tournaments} empty="No public tournament details listed." />
+            {editable ? (
+              <EditLink label="Edit tournament details" onClick={() => openEditor("tournaments")} />
+            ) : null}
+          </SportsDetailsSection>
 
-      <SportsDetailsSection icon={<Medal />} title="Medals">
-        <SportsDetailList items={profile.medals} empty="No public medal details listed." />
-        {editable ? <EditLink label="Edit medals" onClick={() => openEditor("medals")} /> : null}
-      </SportsDetailsSection>
+          <SportsDetailsSection icon={<Medal />} title="Medals">
+            <SportsDetailList items={profile.medals} empty="No public medal details listed." />
+            {editable ? <EditLink label="Edit medals" onClick={() => openEditor("medals")} /> : null}
+          </SportsDetailsSection>
 
-      <SportsDetailsSection icon={<Trophy />} title="Achievements">
-        <SportsDetailList items={profile.achievements} empty="No public achievement details listed." />
-        {editable ? (
-          <EditLink label="Edit achievements" onClick={() => openEditor("achievements")} />
-        ) : null}
-      </SportsDetailsSection>
-
-      <SportsDetailsSection icon={<ShieldCheck />} title="Coach / qualification">
-        <p className="text-sm text-zinc-300">{profile.coachQualification}</p>
-        {editable ? (
-          <EditLink label="Edit coach / qualification" onClick={() => openEditor("coachQualification")} />
-        ) : null}
-      </SportsDetailsSection>
+          <SportsDetailsSection icon={<Trophy />} title="Achievements">
+            <SportsDetailList items={profile.achievements} empty="No public achievement details listed." />
+            {editable ? (
+              <EditLink label="Edit achievements" onClick={() => openEditor("achievements")} />
+            ) : null}
+          </SportsDetailsSection>
+        </>
+      )}
 
       {isOwner ? (
         <SportsDetailsSection
           icon={<FileText />}
-          title="Documents"
-          description="Private verification documents visible only to you."
+          title={isCoach ? "Qualification Documents" : "Documents"}
+          description={
+            isCoach
+              ? "Private NS NIS and coaching qualification documents visible only to you."
+              : "Private verification documents visible only to you."
+          }
         >
           <div className="mb-3 flex items-center justify-between gap-3">
             <p className="text-xs text-zinc-500">PDF, JPG, or PNG up to 15 MB.</p>
@@ -595,7 +663,7 @@ export function SportsDetailsPanel({
               }`}
             >
               <Upload className="h-3.5 w-3.5" />
-              {documentsUploading ? "Uploading…" : "Upload"}
+              {documentsUploading ? "Uploading…" : isCoach ? "Upload qualification" : "Upload"}
             </label>
             <input
               id="sports-document-upload"
@@ -727,6 +795,89 @@ function EditLink({ label, onClick }: { label: string; onClick: () => void }) {
   );
 }
 
+function CoachProfileSection({
+  profile,
+  editable,
+  onEdit,
+}: {
+  profile: SportsProfileInfo;
+  editable: boolean;
+  onEdit: (field: SportsEditorField) => void;
+}) {
+  return (
+    <SportsDetailsSection
+      icon={<ShieldCheck />}
+      title="COACH PROFILE"
+      description="Professional coaching identity and qualification details."
+    >
+      <div className="grid gap-2 sm:grid-cols-2">
+        <CoachProfileValue
+          label="Coach Name"
+          value={profile.coachName}
+          editable={editable}
+          onEdit={() => onEdit("coachName")}
+        />
+        <CoachProfileValue
+          label="Sport"
+          value={profile.sport}
+          editable={editable}
+          onEdit={() => onEdit("sport")}
+        />
+        <CoachProfileValue
+          label="Coaching Qualification"
+          value={profile.coachQualification}
+          editable={editable}
+          onEdit={() => onEdit("coachQualification")}
+        />
+        <CoachProfileValue
+          label="Qualification / NS NIS Year"
+          value={profile.qualificationYear}
+          editable={editable}
+          onEdit={() => onEdit("qualificationYear")}
+        />
+        <CoachProfileValue
+          label="Institution / Where completed"
+          value={profile.institution}
+          editable={editable}
+          onEdit={() => onEdit("institution")}
+        />
+        <CoachProfileValue
+          label="Coaching Experience"
+          value={profile.coachingExperience}
+          editable={editable}
+          onEdit={() => onEdit("coachingExperience")}
+        />
+        <CoachProfileValue
+          label="Tournament / Team details"
+          value={profile.teamDetails}
+          editable={editable}
+          onEdit={() => onEdit("teamDetails")}
+        />
+      </div>
+    </SportsDetailsSection>
+  );
+}
+
+function CoachProfileValue({
+  label,
+  value,
+  editable,
+  onEdit,
+}: {
+  label: string;
+  value: string;
+  editable: boolean;
+  onEdit: () => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3">
+      <p className="text-[10px] uppercase tracking-wider text-zinc-500">{label}</p>
+      <p className="mt-1 text-sm font-semibold text-white">{value}</p>
+      {editable ? <EditLink label="Edit" onClick={onEdit} /> : null}
+    </div>
+  );
+}
+
 function SportsDetailsEditor({
   open,
   field,
@@ -747,6 +898,8 @@ function SportsDetailsEditor({
   const title =
     field === "username"
       ? "Edit sports username"
+      : field === "role"
+        ? "Choose role"
       : field === "sport"
         ? "Choose your sport"
         : field === "eventPosition"
@@ -760,10 +913,16 @@ function SportsDetailsEditor({
                 : field === "achievements"
                   ? "Edit achievements"
                   : field === "coachQualification"
-                    ? "Edit coach / qualification"
-                    : field === "sportsId"
-                      ? "Edit Sports ID"
-                      : "Verification status";
+                    ? "Edit coaching qualification"
+                    : field === "qualificationYear"
+                      ? "Edit qualification year"
+                      : field === "institution"
+                        ? "Edit institution"
+                        : field === "coachingExperience"
+                          ? "Edit coaching experience"
+                          : field === "teamDetails"
+                            ? "Edit tournament / team details"
+                            : "Verification status";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -785,6 +944,35 @@ function SportsDetailsEditor({
               }
               className={editorInputClass}
               placeholder="yourusername"
+            />
+          </EditorField>
+        ) : null}
+
+        {field === "role" ? (
+          <EditorField label="Role" hint="Choose one sports profile role.">
+            <select
+              value={draft.role}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  role: event.target.value as SportsProfileDraft["role"],
+                }))
+              }
+              className={editorSelectClass}
+            >
+              <option value="Player">Player</option>
+              <option value="Coach">Coach</option>
+            </select>
+          </EditorField>
+        ) : null}
+
+        {field === "coachName" ? (
+          <EditorField label="Coach Name">
+            <Input
+              value={draft.coachName}
+              onChange={(event) => setDraft((current) => ({ ...current, coachName: event.target.value }))}
+              className={editorInputClass}
+              placeholder="Your coaching name"
             />
           </EditorField>
         ) : null}
@@ -1000,7 +1188,7 @@ function SportsDetailsEditor({
         ) : null}
 
         {field === "coachQualification" ? (
-          <EditorField label="Coach / qualification">
+          <EditorField label="Coaching Qualification">
             <Input
               value={draft.coachQualification}
               onChange={(event) =>
@@ -1012,13 +1200,52 @@ function SportsDetailsEditor({
           </EditorField>
         ) : null}
 
-        {field === "sportsId" ? (
-          <EditorField label="Sports ID" hint="Saved as part of the public sports profile.">
+        {field === "qualificationYear" ? (
+          <EditorField label="Qualification / NS NIS Year">
             <Input
-              value={draft.sportsId}
-              onChange={(event) => setDraft((current) => ({ ...current, sportsId: event.target.value }))}
+              value={draft.qualificationYear}
+              onChange={(event) =>
+                setDraft((current) => ({ ...current, qualificationYear: event.target.value }))
+              }
               className={editorInputClass}
-              placeholder="Enter Sports ID"
+              placeholder="2024"
+            />
+          </EditorField>
+        ) : null}
+
+        {field === "institution" ? (
+          <EditorField label="Institution / Where completed">
+            <Input
+              value={draft.institution}
+              onChange={(event) => setDraft((current) => ({ ...current, institution: event.target.value }))}
+              className={editorInputClass}
+              placeholder="Institution name"
+            />
+          </EditorField>
+        ) : null}
+
+        {field === "coachingExperience" ? (
+          <EditorField label="Coaching Experience">
+            <Textarea
+              value={draft.coachingExperience}
+              onChange={(event) =>
+                setDraft((current) => ({ ...current, coachingExperience: event.target.value }))
+              }
+              rows={5}
+              className={`${editorInputClass} min-h-28`}
+              placeholder="Years, teams, and coaching experience"
+            />
+          </EditorField>
+        ) : null}
+
+        {field === "teamDetails" ? (
+          <EditorField label="Tournament / Team details">
+            <Textarea
+              value={draft.teamDetails}
+              onChange={(event) => setDraft((current) => ({ ...current, teamDetails: event.target.value }))}
+              rows={5}
+              className={`${editorInputClass} min-h-28`}
+              placeholder="Teams coached, tournaments, and results"
             />
           </EditorField>
         ) : null}

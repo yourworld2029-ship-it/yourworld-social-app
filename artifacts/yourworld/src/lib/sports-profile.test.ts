@@ -5,19 +5,23 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { SportsDetailsPanel, SportsProfileCard } from "@/components/yw/SportsProfile";
 
 const profile = {
-  badge: "ATHLETE PROFILE",
-  role: "Athlete" as const,
+  badge: "PLAYER PROFILE",
+  role: "Player" as const,
   sport: "Handball",
   eventPosition: "Goalkeeper",
   status: "National" as const,
-  sportsId: null,
   represents: "India",
   verified: false,
   publicDetails: "Training #handballcoach",
   tournaments: ["State League"],
   medals: ["Gold medal"],
   achievements: ["Top scorer"],
+  coachName: "Coach name",
   coachQualification: "Not recorded",
+  qualificationYear: "Not recorded",
+  institution: "Not recorded",
+  coachingExperience: "Not recorded",
+  teamDetails: "Not recorded",
 };
 
 test("Premium Sports Profile card invokes its open callback when tapped", () => {

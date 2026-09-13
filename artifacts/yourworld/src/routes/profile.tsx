@@ -205,7 +205,11 @@ function ProfilePage() {
     name: profile.display_name || profile.username || "You",
     hue: 280,
   };
-  const sportsProfile = getSportsProfile({ ...profile, username: profile.username });
+  const sportsProfile = getSportsProfile({
+    ...profile,
+    username: profile.username,
+    displayName: profile.display_name,
+  });
   const hasSportsProfile = Boolean(sportsProfile);
 
   useEffect(() => {
@@ -302,7 +306,7 @@ function ProfilePage() {
     await save({
       ...editValue,
       username: draft.username.trim() || profile.username,
-      category: `${sportsProfile.role}${draft.sport.trim() ? ` · ${draft.sport.trim()}` : ""}`,
+      category: `${draft.role}${draft.sport.trim() ? ` · ${draft.sport.trim()}` : ""}`,
       bio: serializeSportsProfileBio(profile.bio, draft),
     });
     toast.success("Sports details saved");
