@@ -1,0 +1,131 @@
+ONLY improve the Sports Profile tournament/competition entry system.
+
+Do not change Chat, Moments, Reels, Videos, Feed, Navigation, existing Player/Coach role system, or unrelated UI.
+
+GOAL:
+Sports players and coaches should NOT have to type long tournament details manually. Make tournament entry mostly selection-based.
+
+1. PLAYER – TOURNAMENT / COMPETITION
+
+When Player selects "Add Tournament / Competition", show a searchable dropdown/list with recognized major competitions, including:
+
+• Olympic Games
+• Paralympic Games
+• World Championships
+• World Games
+• Asian Games
+• Asian Championships
+• Commonwealth Games
+• South Asian Games
+• South Asian Championships
+• World University Games / FISU World University Games
+• Asian University Games
+• Asian Indoor & Martial Arts Games
+• Youth Olympic Games
+• Asian Youth Games
+• World Youth Championships
+• World Junior Championships
+• World U23 Championships
+• World Cup
+• Asian Cup
+• World Para Championships
+• Asian Para Games
+• Commonwealth Youth Games
+• National Games (India)
+• Khelo India Games
+• Other Recognized Competition
+
+Use a searchable dropdown so the user can type/search if needed.
+
+2. DATE / YEAR SELECTION
+
+After selecting the competition, show:
+
+• Start Year
+• Start Date
+• End Year
+• End Date
+
+Make Year and Date selectable using proper date/year pickers instead of requiring manual typing.
+
+Example:
+Competition: Asian Games
+Start: 23 Sep 2023
+End: 8 Oct 2023
+
+3. ADDITIONAL DETAILS
+
+After selecting the tournament, show simple optional selections:
+
+• Country
+• City / Host Location
+• Result / Achievement
+• Medal: Gold / Silver / Bronze / No Medal
+• Event / Position
+
+Do NOT force the user to write a long description.
+
+4. COACH PROFILE
+
+Use the same easy selection-based system for Coaches.
+
+Coach should be able to add:
+
+• Tournament / Competition
+• Start Date
+• End Date
+• Country
+• City / Host Location
+• Team / Country Coached
+• Role / Responsibility
+• Result / Achievement
+• Medal if applicable
+
+Coach should also have searchable recognized competition options.
+
+5. IMPORTANT DATA SEPARATION
+
+Keep these fields completely independent:
+
+Tournament / Competition
+Medal
+Achievement
+Event / Position
+Dates
+Team / Country
+
+Changing one must NEVER overwrite another.
+
+6. MULTIPLE TOURNAMENTS
+
+Allow Player/Coach to add multiple tournament entries.
+
+Each entry must be saved separately and displayed as a professional timeline/list.
+
+Example:
+
+🏆 Asian Games
+📅 23 Sep 2023 – 08 Oct 2023
+🇮🇳 India
+🥉 Bronze Medal
+Event: Handball
+
+7. SPORTS CATALOGUE
+
+Do not hard-code the system to Handball.
+Use the existing Sports Catalogue so this works for all supported sports.
+
+8. UI
+
+Keep the existing premium dark/gold Sports Profile design.
+
+Make the form extremely easy and fast:
+SELECT → SELECT DATE → SELECT RESULT → SAVE
+
+Minimize typing as much as possible.
+
+Use existing database/storage structure wherever possible.
+Do not create mock data.
+Do not create a Sports ID.
+Make only the smallest necessary changes.
+Verify TypeScript/build after implementation.
