@@ -67,7 +67,7 @@ async function requireDocumentOwner(ownerId: string) {
 export async function listSportsDocuments(ownerId: string): Promise<SportsDocument[]> {
   await requireDocumentOwner(ownerId);
   const { data, error } = await supabase.storage
-    .from("documents")
+    .from(STORAGE_BUCKETS.documents)
     .list(ownerId, {
       limit: 100,
       sortBy: { column: "created_at", order: "desc" },
@@ -85,13 +85,51 @@ export async function listSportsDocuments(ownerId: string): Promise<SportsDocume
     }));
 }
 
+function safeDocumentFileName(name: string) {
+  const baseName = name.split(/[\\/]/).at(-1)?.trim() || "certificate";
+  return (
+    baseName
+      .replace(/[^a-zA-Z0-9._-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 120) || "certificate"
+  );
+}
+
+export async function uploadSportsDocument(ownerId: string, file: File): Promise<SportsDocument> {
+  await requireDocumentOwner(ownerId);
+  const allowedTypes = new Set(["application/pdf", "image/jpeg", "image/png"]);
+  if (!allowedTypes.has(file.type)) {
+    throw new Error("Upload a PDF, JPG, or PNG certificate.");
+  }
+  if (file.size > 15 * 1024 * 1024) {
+    throw new Error("Certificates must be 15 MB or smaller.");
+  }
+
+  const name = safeDocumentFileName(file.name);
+  const path = `${ownerId}/${Date.now()}-${name}`;
+  const { error } = await supabase.storage.from(STORAGE_BUCKETS.documents).upload(path, file, {
+    cacheControl: "3600",
+    contentType: file.type,
+    upsert: false,
+  });
+  if (error) throw new Error(error.message);
+
+  return {
+    path,
+    name,
+    mimeType: file.type,
+    size: file.size,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 export async function createSportsDocumentSignedUrl(ownerId: string, path: string) {
   await requireDocumentOwner(ownerId);
   if (!path.startsWith(`${ownerId}/`) || path.includes("..")) {
     throw new Error("Invalid sports document path.");
   }
   const { data, error } = await supabase.storage
-    .from("documents")
+    .from(STORAGE_BUCKETS.documents)
     .createSignedUrl(path, 60 * 5);
   if (error || !data?.signedUrl) {
     throw new Error(error?.message ?? "This document is unavailable.");

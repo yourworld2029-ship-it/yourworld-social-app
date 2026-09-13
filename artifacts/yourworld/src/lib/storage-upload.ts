@@ -20,6 +20,7 @@ export const STORAGE_BUCKETS = {
   calls: "calls",
   avatars: "avatars",
   uploads: "uploads",
+  documents: "documents",
 } as const;
 
 function storageConfig() {
