@@ -1,0 +1,78 @@
+IMPORTANT: The previous changes are NOT visible in the actual running app.
+
+Do NOT tell me "implemented", "build passed", or "no changes needed" unless you have verified the ACTUAL rendered Profile page.
+
+STOP all unrelated work.
+
+STEP 1 — FIND THE REAL RENDERED UI
+Trace the Profile page from its route to the exact component that renders the visible Sports Identity / ATHLETE PROFILE card shown in the current Preview.
+
+Search the entire codebase for these exact visible strings:
+• "SPORTS IDENTITY"
+• "ATHLETE PROFILE"
+• "Sports Details"
+• "Public sports details"
+• "Tournaments"
+• "Medals"
+
+Identify the exact file and component that is actually rendered.
+
+STEP 2 — PROVE IT
+Temporarily add a clearly visible developer-only marker to THAT exact rendered component, such as:
+"SPORTS_RUNTIME_CHECK"
+
+Confirm it appears in the actual Preview.
+
+If it does NOT appear, you have NOT found the correct component. Continue tracing until you find the real one.
+
+STEP 3 — REMOVE THE TEST MARKER
+Once the correct component is confirmed, remove the temporary marker.
+
+STEP 4 — APPLY THESE ACTUAL FIXES TO THAT REAL COMPONENT
+
+A) SPORTS DETAILS ENTRY
+Keep exactly ONE clickable Sports Details entry on the Profile.
+
+B) REMOVE SPORTS ID
+Remove the visible Sports ID field completely.
+
+C) ROLE
+Replace "Athlete" with exactly:
+• Player
+• Coach
+
+D) DOCUMENT DELETE
+Fix the actual delete handler so deletion is permanent:
+• delete the real Supabase Storage object
+• delete/remove the corresponding database/storage record if one exists
+• update UI only after successful deletion
+• refresh/reload must NOT restore the deleted file
+
+Do NOT merely hide the document.
+
+E) PREMIUM SPORTS UI
+Keep the existing dark/gold premium design and make the actual rendered Sports Profile use it.
+
+STEP 5 — IMPORTANT
+Do NOT modify Chat, Moments, Reels, Videos, Feed, Navigation, authentication, or unrelated components.
+
+Do NOT create another Sports Details component.
+Do NOT create mock data.
+Do NOT create Sports ID.
+Do NOT make a second route.
+
+STEP 6 — FINAL VERIFICATION
+Actually open the running Preview and verify:
+
+Profile → Sports Details
+
+The visible screen MUST show:
+• Player/Coach instead of Athlete
+• NO Sports ID
+• ONE Sports Details entry
+• existing Sports information still works
+• deleted document stays deleted after refresh
+
+If the running Preview still shows "ATHLETE PROFILE" or "SPORTS ID", DO NOT report success. Continue debugging the rendered component.
+
+Only report completion after the changes are visibly present in the actual running Preview.
