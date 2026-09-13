@@ -280,8 +280,10 @@ function ProfilePage() {
         </div>
 
         <div className="pt-3">
-           <p data-testid="text-profile-display-name" className="font-semibold">{profile.display_name || "Add your name"}</p>
-          {sportsProfile ? <SportsProfileBadge badge={sportsProfile.badge} /> : null}
+          <div className="flex flex-wrap items-center gap-2">
+            <p data-testid="text-profile-display-name" className="font-semibold">{profile.display_name || "Add your name"}</p>
+            {sportsProfile ? <SportsProfileBadge badge={sportsProfile.badge} /> : null}
+          </div>
           {profile.category ? (
             <p className="text-xs text-muted-foreground">{profile.category}</p>
           ) : null}
@@ -696,7 +698,7 @@ function Empty({ text }: { text: string }) {
 }
 
 type SportsProfileInfo = {
-  badge: "International Player" | "National Player" | "Verified Coach";
+  badge: "🌍 INTERNATIONAL PLAYER" | "🏆 VERIFIED COACH" | "🇮🇳 NATIONAL PLAYER";
   sport: string;
   represents: string;
 };
@@ -709,18 +711,16 @@ function getSportsProfile(profile: {
 }): SportsProfileInfo | null {
   if (!profile.is_verified) return null;
 
-  const source = `${profile.category} ${profile.bio}`.toLowerCase().replace(/#/g, " ");
-  const isSportsUser =
-    /\b(sport|athlete|player|coach|football|soccer|cricket|basketball|tennis|rugby|hockey|swimming|running|cycling|boxing|wrestling|volleyball|baseball|golf|surf|handball|badminton|karate|judo|weightlifting|marathon|gymnastics|skating)\b/.test(
-      source,
-    );
-  if (!isSportsUser) return null;
+  const category = profile.category.trim().toLowerCase();
+  if (category !== "athlete" && category !== "coach") return null;
 
-  const badge = source.includes("coach")
-    ? "Verified Coach"
-    : source.includes("international")
-      ? "International Player"
-      : "National Player";
+  const source = `${profile.category} ${profile.bio}`.toLowerCase().replace(/#/g, " ");
+  const badge =
+    category === "coach"
+      ? "🏆 VERIFIED COACH"
+      : source.includes("international")
+        ? "🌍 INTERNATIONAL PLAYER"
+        : "🇮🇳 NATIONAL PLAYER";
   const sport =
     profile.category
       .replace(/\b(international|national|verified|player|athlete|coach)\b/gi, "")
@@ -731,7 +731,7 @@ function getSportsProfile(profile: {
     badge,
     sport,
     represents:
-      badge === "International Player"
+      badge === "🌍 INTERNATIONAL PLAYER"
         ? "International"
         : profile.location.split(",").at(-1)?.trim() || "National",
   };
