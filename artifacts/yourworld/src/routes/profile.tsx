@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import type React from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Settings,
   Play,
@@ -19,8 +19,21 @@ import {
   Globe2,
   Medal,
   Trophy,
+  CalendarDays,
+  ChevronRight,
+  Download,
+  ExternalLink,
+  FileText,
+  ShieldCheck,
+  UserRound,
 } from "lucide-react";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -52,6 +65,9 @@ import {
   useResolvedMedia,
   updateMyPost,
   deleteMyPost,
+  createSportsDocumentSignedUrl,
+  listSportsDocuments,
+  type SportsDocument,
 } from "@/lib/profile-data";
 import type { DbPost } from "@/lib/social-data";
 import { UserWatermark } from "@/components/yw/UserWatermark";
@@ -98,6 +114,10 @@ function ProfilePage() {
   const [location, setLocation] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [sportsDetailsOpen, setSportsDetailsOpen] = useState(false);
+  const [sportsDocuments, setSportsDocuments] = useState<SportsDocument[]>([]);
+  const [sportsDocumentsLoading, setSportsDocumentsLoading] = useState(false);
+  const [sportsDocumentsError, setSportsDocumentsError] = useState<string | null>(null);
 
   const openManage = (post: DbPost) => {
     setManage(post);
@@ -183,6 +203,55 @@ function ProfilePage() {
     hue: 280,
   };
   const sportsProfile = getSportsProfile(profile);
+  const hasSportsProfile = Boolean(sportsProfile);
+
+  useEffect(() => {
+    if (!sportsDetailsOpen || !hasSportsProfile || !userId || userId !== profile.id) {
+      setSportsDocuments([]);
+      setSportsDocumentsError(null);
+      setSportsDocumentsLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setSportsDocumentsLoading(true);
+    setSportsDocumentsError(null);
+    void listSportsDocuments(userId)
+      .then((documents) => {
+        if (!cancelled) setSportsDocuments(documents);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setSportsDocuments([]);
+          setSportsDocumentsError(error instanceof Error ? error.message : "Documents are unavailable.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setSportsDocumentsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hasSportsProfile, profile.id, sportsDetailsOpen, userId]);
+
+  const openSportsDocument = async (document: SportsDocument, download: boolean) => {
+    if (!userId || userId !== profile.id) return;
+    try {
+      const url = await createSportsDocumentSignedUrl(userId, document.path);
+      const anchor = window.document.createElement("a");
+      anchor.href = url;
+      anchor.rel = "noopener noreferrer";
+      if (download) {
+        anchor.download = document.name;
+      } else {
+        anchor.target = "_blank";
+      }
+      anchor.click();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "This document is unavailable.");
+    }
+  };
 
   const editValue: ProfileEdit = {
     name: profile.display_name,
@@ -313,7 +382,12 @@ function ProfilePage() {
               ) : null}
             </div>
           )}
-          {sportsProfile ? <SportsProfileCard profile={sportsProfile} /> : null}
+          {sportsProfile ? (
+            <SportsProfileCard
+              profile={sportsProfile}
+              onClick={() => setSportsDetailsOpen(true)}
+            />
+          ) : null}
         </div>
 
         <div className="grid grid-cols-2 gap-2 pt-4">
@@ -483,6 +557,37 @@ function ProfilePage() {
           ) : null}
         </SheetContent>
       </Sheet>
+
+      {sportsProfile ? (
+        <Sheet open={sportsDetailsOpen} onOpenChange={setSportsDetailsOpen}>
+          <SheetContent
+            side="bottom"
+            className="max-h-[90vh] overflow-y-auto rounded-t-[2rem] border-amber-200/20 bg-[#0b0c12] px-4 pb-8 pt-5 text-white sm:mx-auto sm:max-w-xl"
+          >
+            <SheetHeader className="mb-5 pr-8 text-left">
+              <div className="mb-3 flex items-center gap-3">
+                <span className="grid h-11 w-11 place-items-center rounded-2xl border border-amber-200/25 bg-amber-300/10 text-amber-200">
+                  <Trophy className="h-5 w-5" />
+                </span>
+                <div>
+                  <SheetTitle className="text-left text-xl text-white">Sports Details</SheetTitle>
+                  <SheetDescription className="text-left text-zinc-400">
+                    Public sports identity and verified profile information.
+                  </SheetDescription>
+                </div>
+              </div>
+            </SheetHeader>
+            <SportsDetailsPanel
+              profile={sportsProfile}
+              isOwner={Boolean(userId && userId === profile.id)}
+              documents={sportsDocuments}
+              documentsLoading={sportsDocumentsLoading}
+              documentsError={sportsDocumentsError}
+              onDocumentAction={openSportsDocument}
+            />
+          </SheetContent>
+        </Sheet>
+      ) : null}
 
       <Dialog open={!!manage && editing} onOpenChange={(o) => !o && setEditing(false)}>
         <DialogContent className="max-w-md gap-0 overflow-hidden p-0">
@@ -699,36 +804,93 @@ function Empty({ text }: { text: string }) {
 
 type SportsProfileInfo = {
   badge: "🌍 INTERNATIONAL PLAYER" | "🏆 VERIFIED COACH" | "🇮🇳 NATIONAL PLAYER";
+  role: "Athlete" | "Coach";
   sport: string;
+  status: "International" | "National";
   represents: string;
+  verified: boolean;
+  publicDetails: string;
+  tournaments: string[];
+  achievements: string[];
 };
 
 function getSportsProfile(profile: {
+  is_verified: boolean;
   category: string;
   bio: string;
   location: string;
 }): SportsProfileInfo | null {
-  const category = profile.category.trim().toLowerCase();
-  if (category !== "athlete" && category !== "coach") return null;
+  if (!profile.is_verified) return null;
 
+  const category = profile.category.trim();
+  const roleMatch = /^(athlete|coach)(?:\s*[-·•|:]|$)/i.exec(category);
+  if (!roleMatch) return null;
+
+  const role = roleMatch[1].toLowerCase() === "coach" ? "Coach" : "Athlete";
+  const source = `${category} ${profile.bio}`.toLowerCase();
+  const status = source.includes("international") ? "International" : "National";
   const badge =
-    category === "coach"
+    role === "Coach"
       ? "🏆 VERIFIED COACH"
-      : "🌍 INTERNATIONAL PLAYER";
-  const sport =
-    profile.category
-      .replace(/\b(international|national|verified|player|athlete|coach)\b/gi, "")
-      .replace(/\s*[·•|-]\s*/g, " ")
-      .trim() || "Sports";
+      : status === "International"
+        ? "🌍 INTERNATIONAL PLAYER"
+        : "🇮🇳 NATIONAL PLAYER";
 
   return {
     badge,
-    sport,
-    represents:
-      badge === "🌍 INTERNATIONAL PLAYER"
-        ? "International"
-        : profile.location.split(",").at(-1)?.trim() || "National",
+    role,
+    sport: inferSport(category, profile.bio),
+    status,
+    represents: profile.location.trim() || "Not specified",
+    verified: true,
+    publicDetails: profile.bio.trim(),
+    tournaments: extractRelevantLines(profile.bio, /tournament|league|championship|cup|games|meet/i),
+    achievements: extractRelevantLines(
+      profile.bio,
+      /medal|achievement|award|champion|record|trophy|gold|silver|bronze/i,
+    ),
   };
+}
+
+function inferSport(category: string, bio: string) {
+  const categorySport = category
+    .replace(/^(athlete|coach)\b/i, "")
+    .replace(/^[\s·•:|-]+/, "")
+    .trim();
+  if (categorySport) return categorySport;
+
+  const labeledSport = extractLabeledValue(bio, ["sport", "sports", "discipline", "game"]);
+  if (labeledSport) return labeledSport;
+
+  const hashtag = bio.match(/#([a-z][a-z0-9-]{2,})/i)?.[1];
+  const normalizedHashtag = hashtag?.replace(/(coach|player|athlete)$/i, "");
+  if (normalizedHashtag && !/^(sports?|training|fitness|ytshorts)$/i.test(normalizedHashtag)) {
+    return humanize(normalizedHashtag);
+  }
+  return "Not specified";
+}
+
+function extractLabeledValue(text: string, labels: string[]) {
+  const labelPattern = labels.join("|");
+  const match = new RegExp(`(?:${labelPattern})\\s*[:\\-]\\s*([^\\n|]+)`, "i").exec(text);
+  return match?.[1]?.trim() || null;
+}
+
+function extractRelevantLines(text: string, pattern: RegExp) {
+  return Array.from(
+    new Set(
+      text
+        .split(/\r?\n|[|;]/)
+        .map((line) => line.trim())
+        .filter((line) => line && pattern.test(line)),
+    ),
+  );
+}
+
+function humanize(value: string) {
+  return value
+    .replace(/[-_]+/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function SportsProfileBadge({ badge }: { badge: SportsProfileInfo["badge"] }) {
@@ -740,11 +902,20 @@ function SportsProfileBadge({ badge }: { badge: SportsProfileInfo["badge"] }) {
   );
 }
 
-function SportsProfileCard({ profile }: { profile: SportsProfileInfo }) {
+function SportsProfileCard({
+  profile,
+  onClick,
+}: {
+  profile: SportsProfileInfo;
+  onClick: () => void;
+}) {
   return (
-    <section
+    <button
+      type="button"
+      data-testid="button-sports-profile-details"
       aria-label="Premium sports profile"
-      className="relative mt-4 overflow-hidden rounded-3xl border border-amber-300/20 bg-gradient-to-br from-[#19151f] via-[#17151d] to-[#0c0d13] p-4 shadow-[0_14px_40px_rgba(0,0,0,0.22)]"
+      onClick={onClick}
+      className="relative mt-4 w-full overflow-hidden rounded-3xl border border-amber-300/20 bg-gradient-to-br from-[#19151f] via-[#17151d] to-[#0c0d13] p-4 text-left shadow-[0_14px_40px_rgba(0,0,0,0.22)] transition-transform active:scale-[0.99]"
     >
       <div className="pointer-events-none absolute -right-10 -top-12 h-32 w-32 rounded-full bg-amber-300/10 blur-3xl" />
       <div className="relative flex items-start justify-between gap-3">
@@ -761,6 +932,7 @@ function SportsProfileCard({ profile }: { profile: SportsProfileInfo }) {
             </p>
           </div>
         </div>
+        <ChevronRight className="mt-1 h-5 w-5 shrink-0 text-amber-200/70" />
       </div>
 
       <dl className="relative mt-4 grid grid-cols-3 divide-x divide-white/10 rounded-2xl border border-white/10 bg-white/[0.035] py-3 text-center">
@@ -773,20 +945,185 @@ function SportsProfileCard({ profile }: { profile: SportsProfileInfo }) {
         </div>
         <div className="px-2">
           <dt className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-wider text-zinc-500">
-            <Globe2 className="h-3 w-3" />
-            Represents
+            <UserRound className="h-3 w-3" />
+            Role
           </dt>
-          <dd className="mt-1 truncate text-xs font-semibold text-white">{profile.represents}</dd>
+          <dd className="mt-1 truncate text-xs font-semibold text-white">{profile.role}</dd>
         </div>
         <div className="px-2">
           <dt className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-wider text-zinc-500">
-            <BadgeCheck className="h-3 w-3" />
-            Status
+            <Globe2 className="h-3 w-3" />
+            {profile.status}
           </dt>
           <dd className="mt-1 truncate text-xs font-semibold text-white">Verified</dd>
         </div>
       </dl>
+    </button>
+  );
+}
+
+function SportsDetailsPanel({
+  profile,
+  isOwner,
+  documents,
+  documentsLoading,
+  documentsError,
+  onDocumentAction,
+}: {
+  profile: SportsProfileInfo;
+  isOwner: boolean;
+  documents: SportsDocument[];
+  documentsLoading: boolean;
+  documentsError: string | null;
+  onDocumentAction: (document: SportsDocument, download: boolean) => void;
+}) {
+  return (
+    <div data-testid="panel-sports-details" className="space-y-4">
+      <div className="rounded-3xl border border-amber-200/20 bg-gradient-to-br from-amber-200/10 via-white/[0.04] to-transparent p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-amber-200/75">
+              Verified sports identity
+            </p>
+            <p className="mt-1 text-lg font-semibold text-white">{profile.badge}</p>
+          </div>
+          <ShieldCheck className="h-6 w-6 shrink-0 text-amber-200" />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <SportsDetailStat icon={<Medal />} label="Sport" value={profile.sport} />
+        <SportsDetailStat icon={<UserRound />} label="Role" value={profile.role} />
+        <SportsDetailStat icon={<Globe2 />} label="Status" value={profile.status} />
+        <SportsDetailStat icon={<BadgeCheck />} label="Verified" value={profile.verified ? "Yes" : "No"} />
+      </div>
+
+      <SportsDetailsSection icon={<Globe2 />} title="Public sports details">
+        {profile.publicDetails ? (
+          <p className="whitespace-pre-wrap text-sm leading-6 text-zinc-300">{profile.publicDetails}</p>
+        ) : (
+          <p className="text-sm text-zinc-500">No additional public sports details listed.</p>
+        )}
+        {profile.represents !== "Not specified" ? (
+          <p className="mt-3 text-xs text-zinc-500">
+            Represents: <span className="text-zinc-300">{profile.represents}</span>
+          </p>
+        ) : null}
+      </SportsDetailsSection>
+
+      <SportsDetailsSection icon={<CalendarDays />} title="Tournaments">
+        <SportsDetailList items={profile.tournaments} empty="No public tournament details listed." />
+      </SportsDetailsSection>
+
+      <SportsDetailsSection icon={<Trophy />} title="Medals & achievements">
+        <SportsDetailList items={profile.achievements} empty="No public medals or achievements listed." />
+      </SportsDetailsSection>
+
+      {isOwner ? (
+        <SportsDetailsSection
+          icon={<FileText />}
+          title="Documents"
+          description="Private verification documents visible only to you."
+        >
+          {documentsLoading ? (
+            <p className="text-sm text-zinc-500">Loading your documents…</p>
+          ) : documentsError ? (
+            <p className="text-sm text-red-300">{documentsError}</p>
+          ) : documents.length ? (
+            <div className="space-y-2">
+              {documents.map((document) => {
+                const displayName = document.name.split("/").at(-1) || "Verification document";
+                return (
+                  <div
+                    key={document.path}
+                    className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.035] p-3"
+                  >
+                    <FileText className="h-5 w-5 shrink-0 text-amber-200" />
+                    <p className="min-w-0 flex-1 truncate text-sm text-zinc-200">{displayName}</p>
+                    <button
+                      type="button"
+                      aria-label={`Open ${displayName}`}
+                      className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-zinc-300 transition-colors hover:bg-white/10"
+                      onClick={() => onDocumentAction(document, false)}
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Download ${displayName}`}
+                      className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-zinc-300 transition-colors hover:bg-white/10"
+                      onClick={() => onDocumentAction(document, true)}
+                    >
+                      <Download className="h-4 w-4" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-sm text-zinc-500">No verification documents uploaded.</p>
+          )}
+        </SportsDetailsSection>
+      ) : null}
+    </div>
+  );
+}
+
+function SportsDetailStat({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3">
+      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-zinc-500">
+        <span className="h-3.5 w-3.5 [&>svg]:h-3.5 [&>svg]:w-3.5">{icon}</span>
+        {label}
+      </div>
+      <p className="mt-1 truncate text-sm font-semibold text-white">{value}</p>
+    </div>
+  );
+}
+
+function SportsDetailsSection({
+  icon,
+  title,
+  description,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-3xl border border-white/10 bg-white/[0.025] p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <span className="text-amber-200 [&>svg]:h-4 [&>svg]:w-4">{icon}</span>
+        <div>
+          <h3 className="text-sm font-semibold text-white">{title}</h3>
+          {description ? <p className="text-xs text-zinc-500">{description}</p> : null}
+        </div>
+      </div>
+      {children}
     </section>
+  );
+}
+
+function SportsDetailList({ items, empty }: { items: string[]; empty: string }) {
+  if (!items.length) return <p className="text-sm text-zinc-500">{empty}</p>;
+  return (
+    <ul className="space-y-2">
+      {items.map((item) => (
+        <li key={item} className="rounded-2xl bg-white/[0.035] px-3 py-2 text-sm text-zinc-300">
+          {item}
+        </li>
+      ))}
+    </ul>
   );
 }
 

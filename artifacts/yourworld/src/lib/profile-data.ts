@@ -30,6 +30,14 @@ export type MyProfileEdit = {
   coverFile?: File;
 };
 
+export type SportsDocument = {
+  path: string;
+  name: string;
+  mimeType: string;
+  size: number | null;
+  updatedAt: string | null;
+};
+
 const empty: MyProfile = {
   id: "",
   username: "",
@@ -46,6 +54,49 @@ const empty: MyProfile = {
 async function signedIfNeeded(url: string | null) {
   if (!url) return null;
   return resolveMediaUrl(url, "avatars");
+}
+
+async function requireDocumentOwner(ownerId: string) {
+  const { data, error } = await supabase.auth.getSession();
+  if (error) throw new Error(error.message);
+  if (data.session?.user.id !== ownerId) {
+    throw new Error("Only the document owner can access sports documents.");
+  }
+}
+
+export async function listSportsDocuments(ownerId: string): Promise<SportsDocument[]> {
+  await requireDocumentOwner(ownerId);
+  const { data, error } = await supabase.storage
+    .from("documents")
+    .list(ownerId, {
+      limit: 100,
+      sortBy: { column: "created_at", order: "desc" },
+    });
+  if (error) throw new Error(error.message);
+
+  return (data ?? [])
+    .filter((file) => Boolean(file.id && file.name))
+    .map((file) => ({
+      path: `${ownerId}/${file.name}`,
+      name: file.name,
+      mimeType: file.metadata?.mimetype ?? "application/octet-stream",
+      size: typeof file.metadata?.size === "number" ? file.metadata.size : null,
+      updatedAt: file.updated_at ?? file.created_at ?? null,
+    }));
+}
+
+export async function createSportsDocumentSignedUrl(ownerId: string, path: string) {
+  await requireDocumentOwner(ownerId);
+  if (!path.startsWith(`${ownerId}/`) || path.includes("..")) {
+    throw new Error("Invalid sports document path.");
+  }
+  const { data, error } = await supabase.storage
+    .from("documents")
+    .createSignedUrl(path, 60 * 5);
+  if (error || !data?.signedUrl) {
+    throw new Error(error?.message ?? "This document is unavailable.");
+  }
+  return data.signedUrl;
 }
 
 /** Real signed-in profile: row from the database plus the user's own media. */
