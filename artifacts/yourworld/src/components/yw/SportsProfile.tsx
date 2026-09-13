@@ -451,6 +451,7 @@ export function SportsDetailsPanel({
   documentsUploading,
   onUploadDocument,
   onDocumentAction,
+  onDeleteDocument,
   onSave,
 }: {
   profile: SportsProfileInfo;
@@ -461,6 +462,7 @@ export function SportsDetailsPanel({
   documentsUploading: boolean;
   onUploadDocument: (file: File) => void;
   onDocumentAction: (document: SportsDocument, download: boolean) => void;
+  onDeleteDocument: (document: SportsDocument) => void;
   onSave?: (draft: SportsProfileDraft) => void | Promise<void>;
 }) {
   const [editorField, setEditorField] = useState<SportsEditorField | null>(null);
@@ -536,12 +538,6 @@ export function SportsDetailsPanel({
           label="Verification"
           value={profile.verified ? "Verified" : "Not verified"}
           onClick={editable ? () => openEditor("verification") : undefined}
-        />
-        <SportsDetailStat
-          icon={<ShieldCheck />}
-          label="Sports ID"
-          value={profile.sportsId || "Not recorded"}
-          onClick={editable ? () => openEditor("sportsId") : undefined}
         />
       </div>
 
@@ -644,6 +640,14 @@ export function SportsDetailsPanel({
                       onClick={() => onDocumentAction(document, true)}
                     >
                       <Download className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Delete ${displayName}`}
+                      className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-zinc-300 transition-colors hover:bg-red-400/10 hover:text-red-300"
+                      onClick={() => onDeleteDocument(document)}
+                    >
+                      <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
                 );

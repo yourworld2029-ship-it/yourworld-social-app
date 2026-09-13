@@ -137,6 +137,15 @@ export async function createSportsDocumentSignedUrl(ownerId: string, path: strin
   return data.signedUrl;
 }
 
+export async function deleteSportsDocument(ownerId: string, path: string) {
+  await requireDocumentOwner(ownerId);
+  if (!path.startsWith(`${ownerId}/`) || path.includes("..")) {
+    throw new Error("Invalid sports document path.");
+  }
+  const { error } = await supabase.storage.from(STORAGE_BUCKETS.documents).remove([path]);
+  if (error) throw new Error(error.message);
+}
+
 /** Real signed-in profile: row from the database plus the user's own media. */
 export function useMyProfile() {
   const [userId, setUserId] = useState<string | null>(null);

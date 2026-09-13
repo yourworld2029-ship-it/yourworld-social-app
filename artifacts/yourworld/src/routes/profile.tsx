@@ -56,6 +56,7 @@ import {
   updateMyPost,
   deleteMyPost,
   createSportsDocumentSignedUrl,
+  deleteSportsDocument,
   listSportsDocuments,
   uploadSportsDocument,
   type SportsDocument,
@@ -118,6 +119,8 @@ function ProfilePage() {
   const [sportsDocumentsLoading, setSportsDocumentsLoading] = useState(false);
   const [sportsDocumentsError, setSportsDocumentsError] = useState<string | null>(null);
   const [sportsDocumentsUploading, setSportsDocumentsUploading] = useState(false);
+  const [sportsDocumentToDelete, setSportsDocumentToDelete] = useState<SportsDocument | null>(null);
+  const [sportsDocumentDeleting, setSportsDocumentDeleting] = useState(false);
 
   const openManage = (post: DbPost) => {
     setManage(post);
@@ -264,6 +267,22 @@ function ProfilePage() {
       toast.error(error instanceof Error ? error.message : "Couldn't upload this document.");
     } finally {
       setSportsDocumentsUploading(false);
+    }
+  };
+
+  const handleSportsDocumentDelete = async () => {
+    if (!sportsDocumentToDelete || !userId || userId !== profile.id) return;
+    const document = sportsDocumentToDelete;
+    setSportsDocumentDeleting(true);
+    try {
+      await deleteSportsDocument(userId, document.path);
+      setSportsDocuments((current) => current.filter((item) => item.path !== document.path));
+      setSportsDocumentToDelete(null);
+      toast.success("Document deleted");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't delete this document.");
+    } finally {
+      setSportsDocumentDeleting(false);
     }
   };
 
@@ -613,6 +632,7 @@ function ProfilePage() {
               documentsUploading={sportsDocumentsUploading}
               onUploadDocument={handleSportsDocumentUpload}
               onDocumentAction={openSportsDocument}
+              onDeleteDocument={setSportsDocumentToDelete}
               onSave={saveSportsDetails}
             />
           </SheetContent>
@@ -760,6 +780,35 @@ function ProfilePage() {
               }}
             >
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={Boolean(sportsDocumentToDelete)}
+        onOpenChange={(open) => {
+          if (!open && !sportsDocumentDeleting) setSportsDocumentToDelete(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this document?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes {sportsDocumentToDelete?.name.split("/").at(-1) || "this document"}
+              from your private sports documents. This can&apos;t be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={sportsDocumentDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={sportsDocumentDeleting}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleSportsDocumentDelete();
+              }}
+            >
+              {sportsDocumentDeleting ? "Deleting…" : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

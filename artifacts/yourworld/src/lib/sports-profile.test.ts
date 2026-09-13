@@ -40,20 +40,29 @@ test("Sports Details renders real fields and owner document controls", () => {
     createElement(SportsDetailsPanel, {
       profile,
       isOwner: true,
-      documents: [],
+      documents: [
+        {
+          path: "owner/certificate.pdf",
+          name: "certificate.pdf",
+          mimeType: "application/pdf",
+          size: 120,
+          updatedAt: null,
+        },
+      ],
       documentsLoading: false,
       documentsError: null,
       documentsUploading: false,
       onUploadDocument: () => undefined,
       onDocumentAction: () => undefined,
+      onDeleteDocument: () => undefined,
     }),
   );
 
   assert.match(html, /Event \/ position/);
-  assert.match(html, /Sports ID/);
+  assert.doesNotMatch(html, /Sports ID/);
   assert.match(html, /State League/);
   assert.match(html, /Gold medal/);
   assert.match(html, /Top scorer/);
   assert.match(html, /sports-document-upload/);
-  assert.match(html, /No verification documents uploaded/);
+  assert.match(html, /Delete certificate\.pdf/);
 });
