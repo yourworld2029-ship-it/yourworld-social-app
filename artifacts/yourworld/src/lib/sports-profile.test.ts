@@ -69,4 +69,12 @@ test("Sports Details renders real fields and owner document controls", () => {
   assert.match(html, /Top scorer/);
   assert.match(html, /sports-document-upload/);
   assert.match(html, /Delete certificate\.pdf/);
+  assert.match(html, /🏆 YOURWORLD VERIFIED SPORTS PROFILE/);
+  assert.match(html, /Your Talent\. Your Achievement\. Your Identity\. Verified\./);
+  assert.match(html, /Private Certificate\/Documents/);
+  assert.match(html, /Private Qualification Documents/);
+  assert.match(html, /Verification Video/);
+  assert.match(html, /Submit for Verification/);
+  assert.match(html, /authorized verification access/);
+  assert.match(html, /fake, forged, altered or misleading/);
 });

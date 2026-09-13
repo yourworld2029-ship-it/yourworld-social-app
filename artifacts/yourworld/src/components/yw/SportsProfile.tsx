@@ -172,14 +172,14 @@ export function getSportsProfile(profile: {
   const badge =
     role === "Coach"
       ? verified
-        ? "VERIFIED COACH"
+        ? "🏆 VERIFIED COACH"
         : "COACH PROFILE"
       : verified
         ? status === "International"
-          ? "INTERNATIONAL PLAYER"
+          ? "🌍 INTERNATIONAL PLAYER"
           : status === "National"
-            ? "NATIONAL PLAYER"
-              : "VERIFIED PLAYER"
+            ? "🇮🇳 NATIONAL PLAYER"
+            : "✅ VERIFIED PLAYER"
         : "PLAYER PROFILE";
 
   return {
