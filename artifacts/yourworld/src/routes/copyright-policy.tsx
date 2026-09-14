@@ -181,10 +181,13 @@ function CopyrightPolicyPage() {
             users who are determined to be repeat infringers.
           </p>
           <p>
-            A user is considered a repeat infringer after receiving three (3) valid DMCA
-            takedown notices within a 12-month period. Upon reaching this threshold, the
-            account will be permanently terminated, associated content removed, and the user
-            barred from creating new accounts using the same credentials or devices.
+            YourWorld may terminate accounts of users who are determined to be repeat infringers,
+            in appropriate circumstances and in accordance with applicable law and our
+            repeat-infringer policy.
+          </p>
+          <p>
+            YourWorld may take reasonable measures to prevent repeated circumvention of account
+            termination, in accordance with applicable law.
           </p>
           <p>
             YourWorld may also terminate an account immediately for flagrant or commercial-scale
