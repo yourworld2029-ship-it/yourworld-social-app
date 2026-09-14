@@ -138,9 +138,46 @@ function ProfilePage() {
     return () => {
       if (sportsVerificationTimer.current !== null) {
         window.clearTimeout(sportsVerificationTimer.current);
+        sportsVerificationTimer.current = null;
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (
+      !userId ||
+      userId !== profile.id ||
+      !profile.verification_requested ||
+      profile.is_verified ||
+      sportsVerificationTimer.current !== null
+    ) {
+      return;
+    }
+
+    sportsVerificationTimer.current = window.setTimeout(async () => {
+      sportsVerificationTimer.current = null;
+      try {
+        const { error } = await supabase
+          .from("profiles")
+          .update({ is_verified: true, verification_requested: false })
+          .eq("id", userId);
+        if (error) throw new Error(error.message);
+        await reload();
+        toast.success("Sports Profile Verified Successfully");
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Sports Profile verification could not be completed.",
+        );
+      }
+    }, SPORTS_VERIFICATION_TEST_DELAY_MS);
+
+    return () => {
+      if (sportsVerificationTimer.current !== null) {
+        window.clearTimeout(sportsVerificationTimer.current);
+        sportsVerificationTimer.current = null;
+      }
+    };
+  }, [profile.id, profile.is_verified, profile.verification_requested, reload, userId]);
 
   const openManage = (post: DbPost) => {
     setManage(post);
@@ -407,22 +444,6 @@ function ProfilePage() {
         ...editValue,
         verificationRequested: true,
       });
-      sportsVerificationTimer.current = window.setTimeout(async () => {
-        sportsVerificationTimer.current = null;
-        try {
-          const { error } = await supabase
-            .from("profiles")
-            .update({ is_verified: true, verification_requested: false })
-            .eq("id", userId);
-          if (error) throw new Error(error.message);
-          await reload();
-          toast.success("Sports Profile Verified Successfully");
-        } catch (error) {
-          toast.error(
-            error instanceof Error ? error.message : "Sports Profile verification could not be completed.",
-          );
-        }
-      }, SPORTS_VERIFICATION_TEST_DELAY_MS);
       toast.success("Verification request submitted");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Couldn't submit for verification.");
