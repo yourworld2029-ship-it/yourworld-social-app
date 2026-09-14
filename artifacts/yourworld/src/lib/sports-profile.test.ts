@@ -7,6 +7,7 @@ import {
   serializeSportsProfileBio,
   SportsDetailsPanel,
   SportsProfileCard,
+  VerifiedSportsProfilePromo,
   type SportsProfileDraft,
 } from "@/components/yw/SportsProfile";
 
@@ -45,7 +46,25 @@ test("Premium Sports Profile card invokes its open callback when tapped", () => 
   assert.equal(opened, true);
 });
 
-test("Sports Details renders real fields and owner document controls", () => {
+test("Sports promo is separate from the functional Sports Details panel", () => {
+  const promoHtml = renderToStaticMarkup(
+    createElement(VerifiedSportsProfilePromo, {
+      onOpenDetails: () => undefined,
+    }),
+  );
+  assert.match(promoHtml, /YOURWORLD VERIFIED SPORTS PROFILE/);
+  assert.match(promoHtml, /Player profile/);
+  assert.match(promoHtml, /Coach profile/);
+  assert.match(promoHtml, /button-open-sports-details/);
+  assert.match(promoHtml, /Private Certificate\/Documents/);
+  assert.match(promoHtml, /Private Qualification Documents/);
+  assert.match(promoHtml, /Verification Video/);
+  assert.match(promoHtml, /Submit for Verification/);
+  assert.match(promoHtml, /authorized verification access/);
+  assert.match(promoHtml, /fake, forged, altered or misleading/);
+});
+
+test("Sports Details renders real fields and owner document controls without the promo", () => {
   const html = renderToStaticMarkup(
     createElement(SportsDetailsPanel, {
       profile,
@@ -75,14 +94,7 @@ test("Sports Details renders real fields and owner document controls", () => {
   assert.match(html, /Top scorer/);
   assert.match(html, /sports-document-upload/);
   assert.match(html, /Delete certificate\.pdf/);
-  assert.match(html, /🏆 YOURWORLD VERIFIED SPORTS PROFILE/);
-  assert.match(html, /Your Talent\. Your Achievement\. Your Identity\. Verified\./);
-  assert.match(html, /Private Certificate\/Documents/);
-  assert.match(html, /Private Qualification Documents/);
-  assert.match(html, /Verification Video/);
-  assert.match(html, /Submit for Verification/);
-  assert.match(html, /authorized verification access/);
-  assert.match(html, /fake, forged, altered or misleading/);
+  assert.doesNotMatch(html, /YOURWORLD VERIFIED SPORTS PROFILE/);
 });
 
 test("structured tournament entries persist independently for Players and Coaches", () => {

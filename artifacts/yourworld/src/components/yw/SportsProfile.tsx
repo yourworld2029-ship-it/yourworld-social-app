@@ -758,8 +758,6 @@ export function SportsDetailsPanel({
 
   return (
     <div data-testid="panel-sports-details" className="space-y-4">
-      <VerifiedSportsProfilePromo />
-
       <div className="rounded-3xl border border-amber-200/20 bg-gradient-to-br from-amber-200/10 via-white/[0.04] to-transparent p-4">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -955,7 +953,7 @@ export function SportsDetailsPanel({
   );
 }
 
-function VerifiedSportsProfilePromo() {
+export function VerifiedSportsProfilePromo({ onOpenDetails }: { onOpenDetails: () => void }) {
   const playerPoints = [
     "Sport",
     "Event / Position",
@@ -1116,10 +1114,21 @@ function VerifiedSportsProfilePromo() {
 
         <div
           data-testid="promo-verified-profile-footer"
-          className="mt-5 flex items-center gap-2 border-t border-white/10 pt-4 text-[11px] text-zinc-500"
+          className="mt-5 flex flex-col gap-4 border-t border-white/10 pt-4"
         >
-          <Check className="h-3.5 w-3.5 text-amber-200" />
-          A premium sports credential built for public trust.
+          <p className="flex items-center gap-2 text-[11px] text-zinc-500">
+            <Check className="h-3.5 w-3.5 text-amber-200" />
+            A premium sports credential built for public trust.
+          </p>
+          <Button
+            type="button"
+            data-testid="button-open-sports-details"
+            className="w-full rounded-full bg-amber-200 text-black hover:bg-amber-100"
+            onClick={onOpenDetails}
+          >
+            Open Sports Details
+            <ArrowRight className="ml-1 h-4 w-4" />
+          </Button>
         </div>
       </div>
     </section>
