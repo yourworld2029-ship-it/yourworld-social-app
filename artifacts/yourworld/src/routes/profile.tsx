@@ -73,7 +73,6 @@ import {
   getSportsProfile,
   serializeSportsProfileBio,
   SportsDetailsPanel,
-  SportsProfileCard,
   SportsProfileBadge,
   toSportsProfileDraft,
   type SportsProfileDraft,
@@ -680,7 +679,6 @@ function ProfilePage() {
             </Button>
           </div>
 
-          {sportsProfile ? <SportsProfileCard profile={sportsProfile} compact onClick={() => setSportsDetailsOpen(true)} /> : null}
         </div>
       </section>
 
