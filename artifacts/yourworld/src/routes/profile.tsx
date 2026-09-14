@@ -570,25 +570,25 @@ function ProfilePage() {
   }
 
   return (
-    <main className="relative min-h-[100dvh] overflow-hidden pb-8">
+    <main className="relative min-h-[100dvh] overflow-hidden bg-[radial-gradient(circle_at_15%_0%,rgba(214,93,177,0.11),transparent_32%),radial-gradient(circle_at_92%_18%,rgba(115,93,214,0.10),transparent_30%)] pb-8">
       <UserWatermark username={profile.username} />
-      <header className="header-lux sticky top-0 z-40 flex items-center justify-between gap-3 px-4 py-3.5 sm:px-6">
+      <header className="header-lux sticky top-0 z-40 flex items-center justify-between gap-3 px-4 py-3 sm:px-6">
         <div className="min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-amber-200/70">YourWorld</p>
-          <h1 data-testid="text-profile-username" className="mt-0.5 truncate font-display text-base font-bold tracking-tight">
+          <p className="text-[9px] font-semibold uppercase tracking-[0.3em] text-amber-200/70">YourWorld</p>
+          <h1 data-testid="text-profile-username" className="mt-0.5 truncate font-display text-[15px] font-bold tracking-tight">
             @{profile.username || "…"}
           </h1>
         </div>
-        <Link data-testid="link-profile-settings" to="/settings" aria-label="Settings" className="action-btn grid h-10 w-10 shrink-0 place-items-center rounded-full border border-white/10 bg-white/[0.04]">
+        <Link data-testid="link-profile-settings" to="/settings" aria-label="Settings" className="action-btn grid h-9 w-9 shrink-0 place-items-center rounded-full border border-white/10 bg-white/[0.04]">
           <Settings className="h-[18px] w-[18px]" />
         </Link>
       </header>
 
       {coverSrc ? (
-        <div className="relative h-32 overflow-hidden sm:h-40">
-          <img src={coverSrc} alt="" className="h-full w-full object-cover opacity-65" />
-          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-background/35 to-background" />
-          <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded-full border border-white/10 bg-black/30 px-2.5 py-1 text-[9px] font-semibold uppercase tracking-[0.22em] text-white/70 backdrop-blur-md sm:left-4">
+        <div className="relative h-28 overflow-hidden sm:h-36">
+          <img src={coverSrc} alt="" className="h-full w-full scale-105 object-cover opacity-60" />
+          <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-background/25 to-background" />
+          <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded-full border border-white/10 bg-black/35 px-2.5 py-1 text-[9px] font-semibold uppercase tracking-[0.22em] text-white/70 backdrop-blur-md sm:left-4">
             <span className="h-1.5 w-1.5 rounded-full bg-amber-300" />
             Athlete profile
           </div>
@@ -599,10 +599,10 @@ function ProfilePage() {
         </div>
       )}
 
-      <section className="relative mx-auto -mt-8 max-w-3xl px-3 sm:-mt-10 sm:px-4">
-        <div className="rounded-[1.5rem] border border-white/10 bg-[linear-gradient(145deg,rgba(30,23,34,0.92),rgba(12,13,19,0.96)_58%,rgba(18,14,27,0.96))] p-3 shadow-[0_24px_70px_-36px_rgba(0,0,0,0.95)] backdrop-blur-xl sm:rounded-[1.75rem] sm:p-4">
+      <section className="relative mx-auto -mt-9 max-w-3xl px-3 sm:-mt-11 sm:px-4">
+        <div className="rounded-[1.5rem] border border-white/[0.13] bg-[linear-gradient(145deg,rgba(33,25,39,0.95),rgba(10,12,18,0.97)_58%,rgba(20,15,30,0.97))] p-3 shadow-[0_24px_70px_-30px_rgba(0,0,0,0.98),0_0_0_1px_rgba(255,255,255,0.03)_inset] backdrop-blur-xl sm:rounded-[1.75rem] sm:p-4">
           <div className="flex items-start gap-3 sm:gap-4">
-            <span className="grid h-[80px] w-[80px] shrink-0 place-items-center rounded-full bg-[linear-gradient(135deg,#f2d58a,#c986c2_48%,#8d4cd0)] p-[3px] shadow-[0_0_0_1px_rgba(255,255,255,0.18),0_12px_34px_-12px_rgba(231,135,196,0.8)] sm:h-[92px] sm:w-[92px]">
+            <span className="grid h-[76px] w-[76px] shrink-0 place-items-center rounded-full bg-[linear-gradient(135deg,#f4d58d,#d987c4_48%,#8647d2)] p-[3px] shadow-[0_0_0_1px_rgba(255,255,255,0.2),0_12px_34px_-12px_rgba(231,135,196,0.8)] sm:h-[92px] sm:w-[92px]">
               <span className="grid h-full w-full place-items-center rounded-full bg-[#0c0d12] p-[3px]">
                 {avatarSrc ? (
                   <img data-testid="img-profile-avatar" src={avatarSrc} alt="" className="h-full w-full rounded-full object-cover" />
@@ -613,7 +613,7 @@ function ProfilePage() {
             </span>
             <div className="min-w-0 flex-1 pt-0.5">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                <p data-testid="text-profile-display-name" className="font-display text-lg font-bold tracking-tight sm:text-xl">
+                <p data-testid="text-profile-display-name" className="font-display text-[17px] font-bold tracking-tight sm:text-xl">
                   {profile.display_name || "Add your name"}
                 </p>
                 {sportsNameBadge ? <SportsProfileBadge badge={sportsNameBadge} verified /> : null}
@@ -628,29 +628,14 @@ function ProfilePage() {
             </div>
           </div>
 
-          <dl data-testid="stats-profile" className="mt-4 grid grid-cols-3 divide-x divide-white/10 rounded-xl border border-white/10 bg-black/20 py-2.5 text-center">
+          <dl data-testid="stats-profile" className="mt-3 grid grid-cols-3 divide-x divide-white/10 rounded-xl border border-white/10 bg-black/25 py-2.5 text-center shadow-inner shadow-white/[0.02]">
             <Stat label="Posts" value={mediaLoading ? "—" : formatCount(posts.length)} />
             <Stat label="Followers" value={counts.followers === null ? "—" : formatCount(counts.followers)} onClick={() => { setListTab("followers"); setListOpen(true); }} />
             <Stat label="Following" value={counts.following === null ? "—" : formatCount(counts.following)} onClick={() => { setListTab("following"); setListOpen(true); }} />
           </dl>
 
-          <div className="pt-4">
+          <div className="pt-3.5">
             {profile.bio ? <Bio text={isVerifiedSports ? sportsProfile?.publicDetails || profile.bio : profile.bio} /> : null}
-            {isVerifiedSports && sportsProfile?.role === "Coach" ? (
-              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {[
-                  ["Qualification", sportsProfile.coachQualification],
-                  ["NS NIS year", sportsProfile.qualificationYear],
-                  ["Institution", sportsProfile.institution],
-                  ["Experience", sportsProfile.coachingExperience],
-                ].filter(([, value]) => value && value !== "Not recorded").map(([label, value]) => (
-                  <div key={label} className="rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2">
-                    <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-zinc-500">{label}</p>
-                    <p className="mt-1 truncate text-xs font-medium text-zinc-200">{value}</p>
-                  </div>
-                ))}
-              </div>
-            ) : null}
             {(profile.location || profile.website) ? (
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 pt-3 text-xs">
                 {profile.location ? <span className="flex items-center gap-1.5 text-zinc-400"><MapPin className="h-3.5 w-3.5 text-amber-200/80" strokeWidth={1.8} />{profile.location}</span> : null}
@@ -664,11 +649,11 @@ function ProfilePage() {
             ) : null}
           </div>
 
-          <div className="grid grid-cols-2 gap-2 pt-4">
-            <Button data-testid="button-edit-profile" variant="secondary" className="h-9 rounded-lg border border-white/10 bg-white/[0.07] px-3 text-xs font-semibold hover:bg-white/[0.12]" onClick={() => setEditOpen(true)}>
+          <div className="grid grid-cols-2 gap-2 pt-3.5">
+            <Button data-testid="button-edit-profile" variant="secondary" className="h-9 rounded-lg border-0 bg-gradient-to-r from-fuchsia-500 to-violet-500 px-3 text-xs font-semibold text-white shadow-[0_8px_20px_-10px_rgba(217,70,239,0.9)] hover:from-fuchsia-400 hover:to-violet-400" onClick={() => setEditOpen(true)}>
               Edit profile
             </Button>
-            <Button data-testid="button-share-profile" variant="secondary" className="h-9 rounded-lg border border-white/10 bg-white/[0.07] px-3 text-xs font-semibold hover:bg-white/[0.12]" onClick={async () => {
+            <Button data-testid="button-share-profile" variant="secondary" className="h-9 rounded-lg border border-white/10 bg-white/[0.06] px-3 text-xs font-semibold hover:bg-white/[0.12]" onClick={async () => {
               const url = `${window.location.origin}/profile`;
               try {
                 if (navigator.share) await navigator.share({ title: profile.username, url });
@@ -687,15 +672,15 @@ function ProfilePage() {
         posts={posts.map((post) => ({ ...post, media_url: src(post.media_url) }))}
       />
 
-      <Tabs defaultValue="videos" className="pt-7">
-        <TabsList className="grid w-full grid-cols-3 rounded-none border-y border-border/70 bg-background/70 p-0 backdrop-blur-xl">
-          <TabsTrigger value="videos" className="rounded-none py-2 text-[11px] data-[state=active]:bg-white/[0.07] data-[state=active]:backdrop-blur-md" aria-label="Videos">
+      <Tabs defaultValue="videos" className="mx-auto w-full max-w-3xl pt-5">
+        <TabsList className="mx-3 grid w-auto grid-cols-3 rounded-xl border border-white/10 bg-black/20 p-1 backdrop-blur-xl sm:mx-4">
+          <TabsTrigger value="videos" className="rounded-lg py-2 text-[11px] data-[state=active]:bg-white/[0.09] data-[state=active]:text-white" aria-label="Videos">
             Videos
           </TabsTrigger>
-          <TabsTrigger value="reels" className="rounded-none py-2 text-[11px] data-[state=active]:bg-white/[0.07] data-[state=active]:backdrop-blur-md" aria-label="Reels">
+          <TabsTrigger value="reels" className="rounded-lg py-2 text-[11px] data-[state=active]:bg-white/[0.09] data-[state=active]:text-white" aria-label="Reels">
             Reels
           </TabsTrigger>
-          <TabsTrigger value="saved" className="rounded-none py-2 text-[11px] data-[state=active]:bg-white/[0.07] data-[state=active]:backdrop-blur-md" aria-label="Saved">
+          <TabsTrigger value="saved" className="rounded-lg py-2 text-[11px] data-[state=active]:bg-white/[0.09] data-[state=active]:text-white" aria-label="Saved">
             Saved
           </TabsTrigger>
         </TabsList>
