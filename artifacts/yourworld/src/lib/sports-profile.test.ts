@@ -7,7 +7,6 @@ import {
   serializeSportsProfileBio,
   SportsDetailsPanel,
   SportsProfileCard,
-  VerifiedSportsProfilePromo,
   type SportsProfileDraft,
 } from "@/components/yw/SportsProfile";
 
@@ -31,7 +30,7 @@ const profile = {
   teamDetails: "Not recorded",
 };
 
-test("Premium Sports Profile card invokes its open callback when tapped", () => {
+test("Sports Identity card opens details while summary columns stay display-only", () => {
   let opened = false;
   const card = SportsProfileCard({
     profile,
@@ -42,26 +41,25 @@ test("Premium Sports Profile card invokes its open callback when tapped", () => 
 
   assert.equal(card.type, "button");
   assert.equal(card.props["data-testid"], "button-sports-profile-details");
+  assert.equal(card.props["aria-label"], "Sports Details");
   card.props.onClick();
   assert.equal(opened, true);
-});
 
-test("Sports promo is separate from the functional Sports Details panel", () => {
-  const promoHtml = renderToStaticMarkup(
-    createElement(VerifiedSportsProfilePromo, {
-      onOpenDetails: () => undefined,
-    }),
-  );
-  assert.match(promoHtml, /YOURWORLD VERIFIED SPORTS PROFILE/);
-  assert.match(promoHtml, /Player profile/);
-  assert.match(promoHtml, /Coach profile/);
-  assert.match(promoHtml, /button-open-sports-details/);
-  assert.match(promoHtml, /Private Certificate\/Documents/);
-  assert.match(promoHtml, /Private Qualification Documents/);
-  assert.match(promoHtml, /Verification Video/);
-  assert.match(promoHtml, /Submit for Verification/);
-  assert.match(promoHtml, /authorized verification access/);
-  assert.match(promoHtml, /fake, forged, altered or misleading/);
+  const children = (Array.isArray(card.props.children) ? card.props.children : [card.props.children]) as Array<{
+    type?: unknown;
+    props?: {
+      onClick?: (event: { stopPropagation: () => void }) => void;
+    };
+  }>;
+  const summary = children.find((child) => child?.type === "dl");
+  assert.ok(summary?.props?.onClick);
+  let stopped = false;
+  summary.props.onClick({
+    stopPropagation: () => {
+      stopped = true;
+    },
+  });
+  assert.equal(stopped, true);
 });
 
 test("Sports Details renders real fields and owner document controls without the promo", () => {

@@ -65,7 +65,6 @@ import {
   getSportsProfile,
   serializeSportsProfileBio,
   SportsDetailsPanel,
-  VerifiedSportsProfilePromo,
   SportsProfileBadge,
   SportsProfileCard,
   type SportsProfileDraft,
@@ -116,7 +115,6 @@ function ProfilePage() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [busy, setBusy] = useState(false);
   const [sportsDetailsOpen, setSportsDetailsOpen] = useState(false);
-  const [sportsPromoOpen, setSportsPromoOpen] = useState(false);
   const [sportsDocuments, setSportsDocuments] = useState<SportsDocument[]>([]);
   const [sportsDocumentsLoading, setSportsDocumentsLoading] = useState(false);
   const [sportsDocumentsError, setSportsDocumentsError] = useState<string | null>(null);
@@ -437,7 +435,7 @@ function ProfilePage() {
           {sportsProfile ? (
             <SportsProfileCard
               profile={sportsProfile}
-              onClick={() => setSportsPromoOpen(true)}
+              onClick={() => setSportsDetailsOpen(true)}
             />
           ) : null}
         </div>
@@ -609,28 +607,6 @@ function ProfilePage() {
           ) : null}
         </SheetContent>
       </Sheet>
-
-      {sportsProfile ? (
-        <Sheet open={sportsPromoOpen} onOpenChange={setSportsPromoOpen}>
-          <SheetContent
-            side="bottom"
-            className="max-h-[90vh] overflow-y-auto rounded-t-[2rem] border-amber-200/20 bg-[#0b0c12] px-4 pb-8 pt-5 text-white sm:mx-auto sm:max-w-xl"
-          >
-            <SheetHeader className="mb-5 pr-8 text-left">
-              <SheetTitle className="text-left text-xl text-white">Premium Sports Profile</SheetTitle>
-              <SheetDescription className="text-left text-zinc-400">
-                Learn how YourWorld supports verified Player and Coach profiles.
-              </SheetDescription>
-            </SheetHeader>
-            <VerifiedSportsProfilePromo
-              onOpenDetails={() => {
-                setSportsPromoOpen(false);
-                setSportsDetailsOpen(true);
-              }}
-            />
-          </SheetContent>
-        </Sheet>
-      ) : null}
 
       {sportsProfile ? (
         <Sheet open={sportsDetailsOpen} onOpenChange={setSportsDetailsOpen}>

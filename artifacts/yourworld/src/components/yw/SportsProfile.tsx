@@ -659,7 +659,7 @@ export function SportsProfileCard({
     <button
       type="button"
       data-testid="button-sports-profile-details"
-      aria-label="Premium sports profile"
+      aria-label="Sports Details"
       onClick={onClick}
       className="relative mt-4 w-full overflow-hidden rounded-3xl border border-amber-300/20 bg-gradient-to-br from-[#19151f] via-[#17151d] to-[#0c0d13] p-4 text-left shadow-[0_14px_40px_rgba(0,0,0,0.22)] transition-transform active:scale-[0.99]"
     >
@@ -671,7 +671,7 @@ export function SportsProfileCard({
           </span>
           <div className="min-w-0">
             <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-amber-200/75">
-              Premium sports profile
+              Sports Identity / Sports Details
             </p>
             <p className="mt-0.5 truncate text-sm font-semibold text-white">
               {profile.verified ? "Verified athletic identity" : "Sports identity"}
@@ -681,7 +681,10 @@ export function SportsProfileCard({
         <ChevronRight className="mt-1 h-5 w-5 shrink-0 text-amber-200/70" />
       </div>
 
-      <dl className="relative mt-4 grid grid-cols-3 divide-x divide-white/10 rounded-2xl border border-white/10 bg-white/[0.035] py-3 text-center">
+      <dl
+        className="relative mt-4 grid grid-cols-3 divide-x divide-white/10 rounded-2xl border border-white/10 bg-white/[0.035] py-3 text-center"
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="px-2">
           <dt className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-wider text-zinc-500">
             <Medal className="h-3 w-3" />
