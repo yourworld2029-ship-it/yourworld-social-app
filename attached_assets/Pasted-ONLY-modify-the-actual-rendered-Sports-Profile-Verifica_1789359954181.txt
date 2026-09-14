@@ -1,0 +1,55 @@
+ONLY modify the actual rendered Sports Profile / Verification section.
+
+Keep everything else exactly as it is.
+
+Change the order at the bottom to:
+
+1. DOCUMENTS
+2. SPORTS INTRODUCTION
+3. TERMS & CONDITIONS
+4. "I Agree" checkbox
+5. "Submit for Verification" button
+
+SPORTS INTRODUCTION:
+- Place it directly BELOW the Documents section.
+- Use the existing premium dark/gold design.
+- Player or Coach can upload ONE short vertical Sports Introduction video.
+- The person must introduce themselves in their own natural voice and explain their sport, role and important achievements/sports journey.
+- Do NOT add ringtone, song, background music, music library, or platform-added audio.
+- Owner can play, replace, or delete their own video.
+- This is NOT a Reel and must NOT be added to the normal Reels system.
+
+Example instruction shown to user:
+"Introduce yourself in your own voice and tell people about your sport, role, major achievements and sports journey."
+
+TERMS & CONDITIONS:
+Place directly BELOW Sports Introduction.
+
+Show a clean expandable/scrollable Terms & Conditions section containing:
+- I confirm that all information submitted by me is true and accurate.
+- I am responsible for the authenticity of my certificates, achievements and sports information.
+- Fake, forged, altered or misleading documents/information are strictly prohibited.
+- YourWorld may reject or revoke verification if submitted information is found to be false.
+- YourWorld may restrict or suspend accounts involved in fraudulent verification.
+- YourWorld may take appropriate legal action or other remedies permitted under applicable law where applicable.
+- Verification documents remain private and are used for verification purposes.
+- The Sports Introduction video may be displayed publicly as part of the verified sports profile.
+- YourWorld may retain verification records/evidence for legitimate security, verification and legal purposes.
+
+Add checkbox:
+"I Agree to the Terms & Conditions"
+
+The "Submit for Verification" button MUST remain disabled until the checkbox is checked.
+
+After submission, show the existing Pending Verification status/flow.
+
+IMPORTANT:
+- Do NOT remove or change Documents functionality.
+- Do NOT change Sport, Role, Status, Verification or existing saved sports data.
+- Do NOT create another Sports Profile.
+- Do NOT create a Sports ID.
+- Do NOT touch Chat, Moments, Reels, Videos, Feed, Navigation or Authentication.
+- Do NOT create mock data.
+- Use the existing database/storage structure wherever possible.
+- Make ONLY these changes.
+- Verify the actual rendered Preview after implementation.
