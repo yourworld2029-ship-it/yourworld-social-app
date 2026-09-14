@@ -1,0 +1,93 @@
+UPDATE ONLY THE EXISTING PRIVACY POLICY.
+
+Do NOT modify any other app functionality, UI, database, routes, Sports Profile system, Terms, Community Guidelines, or Copyright/DMCA Policy.
+
+Use the EXISTING Privacy Policy and make only the following precise changes:
+
+1. REMOVE ALL ORBIT REFERENCES
+- Remove every reference to “Orbit” from the Privacy Policy.
+- This includes Orbit discovery data, Orbit usage, Orbit privacy controls, and any other Orbit wording.
+- Orbit is no longer part of YourWorld.
+
+2. MAKE THE PRIVACY POLICY GLOBAL
+YourWorld is intended for users worldwide, not India-only.
+Update the wording where necessary so the policy covers:
+- users from different countries;
+- users uploading photos/videos/content recorded in other countries;
+- international data processing/storage where necessary;
+- applicable privacy rights and legal requirements based on the user's location, where applicable.
+
+Do NOT make unnecessary country-specific claims.
+Do NOT claim that YourWorld is automatically compliant with every country's law.
+
+3. SPORTS VERIFICATION PRIVACY
+Keep the existing Sports Verification section, but make it clear that verification evidence is PRIVATE.
+
+The following must never be publicly displayed to normal users:
+- certificates;
+- passport pages;
+- visa/stamp pages;
+- tournament evidence/photos submitted for verification;
+- village/town;
+- district;
+- state;
+- country/contact verification information;
+- mobile number;
+- email/Gmail;
+- other identity or verification evidence.
+
+These materials may only be accessed by authorized verification/safety personnel when necessary for verification, security, fraud prevention, legal compliance, or related legitimate purposes.
+
+4. SPORTS INTRODUCTION VIDEO
+Add clear wording that the Sports Introduction video is different from private verification documents.
+
+The Sports Introduction video:
+- is a short video recorded by the Player or Coach;
+- uses their natural/original voice;
+- may explain their sport, role, achievements, and journey;
+- may be publicly displayed on their YourWorld profile as a Reel-style Sports Introduction/verification video;
+- is not the same as their private certificates, passport, visa, identity, or other verification documents.
+
+Do NOT make certificates, passport pages, visa pages, phone numbers, email addresses, or other private verification evidence public.
+
+5. INTERNATIONAL SPORTS VERIFICATION
+Make the policy flexible enough to cover both:
+- National Player/Coach verification
+- International Player/Coach verification
+
+International competitions may take place outside India.
+
+6. KEEP EXISTING SECTIONS
+Preserve the existing useful sections and wording wherever possible:
+- Information We Collect
+- How We Use Information
+- Data Storage & Security
+- Sharing
+- Your Rights
+- Cookies & Local Storage
+- Children's Privacy
+- Contact
+- Future Advertising — Google AdMob
+
+Do NOT remove the existing AdMob section. AdMob is future functionality and should remain described as future advertising until it is actually enabled.
+
+7. DO NOT CHANGE THE AGE POLICY YET
+Do not change the current Children's Privacy age wording in this task. We will finalize the platform age policy separately.
+
+8. DO NOT CHANGE COPYRIGHT POLICY
+The existing Copyright & DMCA Policy must remain untouched.
+
+9. PRIVACY POLICY UI
+Keep the existing premium dark UI, layout, headings, icons, typography, spacing, and navigation exactly as they are.
+Only update the Privacy Policy text.
+
+10. FINAL CHECK
+After editing:
+- search the Privacy Policy source for “Orbit” and confirm there are ZERO Orbit references;
+- confirm private Sports Verification documents are clearly described as private;
+- confirm Sports Introduction video can be public;
+- confirm worldwide users and foreign-country uploaded content are covered;
+- run TypeScript/lint/tests if available;
+- show only the files changed by this task.
+
+SMALLEST POSSIBLE CHANGE. DO NOT REFACTOR OR MODIFY ANYTHING OUTSIDE THE EXISTING PRIVACY POLICY.

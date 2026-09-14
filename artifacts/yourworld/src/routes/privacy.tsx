@@ -50,30 +50,50 @@ function PrivacyPage() {
         <Section title="1. Information We Collect">
           <p>
             We collect the information you provide when you create an account (name, email, profile
-            details), content you post, and usage data such as device, interactions, and logs. Orbit
-            discovery data is stored separately with privacy-first controls.
+            details), content you post, and usage data such as device, interactions, and logs.
+            YourWorld is intended for users worldwide, so you may use the platform and upload
+            photos, videos, and other content recorded in countries outside your country of residence.
           </p>
           <p>
             If you use Sports Verification, we may collect verification identity details and
             supporting evidence such as certificates, passport pages, visa or stamp pages, and
-            tournament photos. These materials are private verification information and are never
-            publicly displayed on your profile or to other users.
+            tournament photos. Certificates, passport pages, visa or stamp pages, tournament
+            evidence or photos, village/town, district, state, country and contact verification
+            information, mobile numbers, email addresses, and other identity or verification
+            evidence are private. They are never publicly displayed on your profile or to normal
+            users.
+          </p>
+          <p>
+            These private Sports Verification materials may only be accessed by authorized
+            verification or safety personnel when necessary for verification, security, fraud
+            prevention, legal compliance, or related legitimate purposes. Sports Verification may
+            support both National Player or Coach verification and International Player or Coach
+            verification, including competitions held outside India.
+          </p>
+          <p>
+            A Sports Introduction video is different from private verification documents. It is a
+            short video recorded by the Player or Coach using their natural or original voice, and
+            may explain their sport, role, achievements, and journey. It may be publicly displayed
+            on their YourWorld profile as a Reel-style Sports Introduction or verification video.
+            It is not the same as private certificates, passport pages, visa or stamp pages, phone
+            numbers, email addresses, identity details, or other verification evidence.
           </p>
         </Section>
 
         <Section title="2. How We Use Information">
           <p>
             We use your information to provide, personalize, and secure the YourWorld platform,
-            enable features such as Feed, Reels, Stories, chat, calls, Orbit, monetization, and to
-            detect abuse and enforce our policies.
+            enable features such as Feed, Reels, Stories, chat, calls, monetization, and to detect
+            abuse and enforce our policies.
           </p>
         </Section>
 
         <Section title="3. Data Storage & Security">
           <p>
             Your data is stored with our backend provider and protected with Row-Level Security and
-            access controls. Authentication tokens and sessions are handled securely. We do not sell
-            your personal data.
+            access controls. Depending on where you use YourWorld and where our providers operate,
+            information may be processed or stored internationally. Authentication tokens and
+            sessions are handled securely. We do not sell your personal data.
           </p>
           <p>
             Photos, videos, posts, reels, and stories are stored and shown according to your
@@ -106,7 +126,8 @@ function PrivacyPage() {
         <Section title="5. Your Rights">
           <p>
             You may view, edit, or delete your account data from Settings. You can manage visibility,
-            blocked accounts, notifications, and Orbit privacy controls at any time.
+            blocked accounts, and notifications at any time. Depending on your location, you may also
+            have additional privacy rights or choices under applicable local law.
           </p>
           <p>
             You may request deletion of your YourWorld account and associated personal data by using
