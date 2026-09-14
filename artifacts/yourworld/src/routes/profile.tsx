@@ -66,7 +66,6 @@ import {
   serializeSportsProfileBio,
   SportsDetailsPanel,
   SportsProfileBadge,
-  SportsProfileCard,
   type SportsProfileDraft,
 } from "@/components/yw/SportsProfile";
 import type { DbPost } from "@/lib/social-data";
@@ -432,12 +431,6 @@ function ProfilePage() {
               ) : null}
             </div>
           )}
-          {sportsProfile ? (
-            <SportsProfileCard
-              profile={sportsProfile}
-              onClick={() => setSportsDetailsOpen(true)}
-            />
-          ) : null}
         </div>
 
         <div className="grid grid-cols-2 gap-2 pt-4">
@@ -824,6 +817,11 @@ function ProfilePage() {
         user={avatarUser}
         value={editValue}
         onSave={save}
+        sportsProfile={sportsProfile}
+        onOpenSportsDetails={() => {
+          setEditOpen(false);
+          setSportsDetailsOpen(true);
+        }}
       />
 
       <FollowListDialog

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Camera, BadgeCheck, X } from "lucide-react";
+import { Camera, X } from "lucide-react";
 import { toast } from "sonner";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { YwAvatar } from "@/components/yw/Avatar";
 import type { User } from "@/lib/yw-data";
+import { SportsProfileCard, type SportsProfileInfo } from "@/components/yw/SportsProfile";
 
 export type ProfileEdit = {
   name: string;
@@ -30,12 +31,16 @@ export function EditProfileSheet({
   user,
   value,
   onSave,
+  sportsProfile,
+  onOpenSportsDetails,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   user: User;
   value: ProfileEdit;
   onSave: (v: ProfileEdit) => void | Promise<void>;
+  sportsProfile?: SportsProfileInfo | null;
+  onOpenSportsDetails?: () => void;
 }) {
   const [draft, setDraft] = useState<ProfileEdit>(value);
   const [saving, setSaving] = useState(false);
@@ -174,20 +179,12 @@ export function EditProfileSheet({
               </p>
             </Field>
 
-            <button
-              type="button"
-              onClick={() => toast.success("Verification request submitted for review")}
-              className="flex w-full items-center justify-between rounded-2xl bg-secondary px-4 py-3.5 text-left transition-transform active:scale-[0.99]"
-            >
-              <span className="flex items-center gap-2.5">
-                <BadgeCheck
-                  className="h-5 w-5 fill-[oklch(0.62_0.17_255)] text-background"
-                  strokeWidth={1.8}
-                />
-                <span className="text-sm font-medium">Verification Request</span>
-              </span>
-              <span className="text-xs text-muted-foreground">Apply</span>
-            </button>
+            {sportsProfile && onOpenSportsDetails ? (
+              <SportsProfileCard
+                profile={sportsProfile}
+                onClick={onOpenSportsDetails}
+              />
+            ) : null}
           </div>
 
           <div className="mt-6 grid grid-cols-2 gap-3 border-t border-border/60 pt-4">
