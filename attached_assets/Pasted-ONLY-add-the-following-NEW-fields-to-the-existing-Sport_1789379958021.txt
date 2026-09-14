@@ -1,0 +1,53 @@
+ONLY add the following NEW fields to the existing Sports Verification flow.
+
+DO NOT redesign or rebuild the existing Sports Verification system.
+
+DO NOT duplicate anything that already exists in the app.
+
+1. IDENTITY / CONTACT
+Add:
+- Village / Town
+- District
+- State
+- Country (India 🇮🇳 by default)
+- Mobile Number → automatically take from the existing account
+- Gmail / Email → automatically take from the existing logged-in account
+
+Do not create OTP verification yet.
+
+2. SPORTS CERTIFICATE
+Add one private upload field:
+- Sports Certificate
+
+3. INTERNATIONAL PLAYER / INTERNATIONAL COACH — CONDITIONAL ONLY
+If the existing verified Sports Profile claim is INTERNATIONAL PLAYER or INTERNATIONAL COACH, additionally show:
+
+- Passport First Page
+- Passport Visa/Stamp Page → the page showing the visa/stamp for the country where the tournament/game took place
+- One Tournament Photo → player/coach clearly visible with medal OR wearing India blazer/team representation
+
+Do NOT show these passport/visa fields for National Player or National Coach.
+
+IMPORTANT PRIVACY RULE:
+All uploaded certificates, passport pages, visa pages and tournament photos are PRIVATE verification evidence.
+They must NEVER appear on the public profile or be accessible to normal users/followers.
+
+IMPORTANT DUPLICATION RULE:
+DO NOT add or recreate:
+- Existing Sports Details
+- Existing Sports Introduction
+- Existing Terms & Conditions
+- Existing Player/Coach fields
+- Existing Sport/Position/Achievement fields
+
+Reuse the existing data and components wherever possible.
+
+DO NOT change the existing Sports Profile UI, verification logic, badge system, Sports Introduction, Terms & Conditions, or any other app feature.
+
+Make the smallest possible change: ONLY add these new verification fields to the existing flow.
+
+Test both cases:
+1. National Player/Coach → no passport/visa fields.
+2. International Player/Coach → passport first page + visa/stamp page + one tournament photo appear.
+
+Do not expose any private document URL, storage path, UUID, or database value in the UI.
