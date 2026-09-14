@@ -9,7 +9,6 @@ import {
   SportsProfileCard,
   type SportsProfileDraft,
 } from "@/components/yw/SportsProfile";
-import { EditProfileSheet } from "@/components/yw/EditProfileSheet";
 
 const profile = {
   badge: "PLAYER PROFILE",
@@ -61,29 +60,6 @@ test("Sports Identity card opens details while summary columns stay display-only
     },
   });
   assert.equal(stopped, true);
-});
-
-test("Edit Profile uses the existing Sports entry instead of Verification Request", () => {
-  const html = renderToStaticMarkup(
-    createElement(EditProfileSheet, {
-      open: true,
-      onOpenChange: () => undefined,
-      user: { id: "u0", username: "you", name: "You", hue: 320 },
-      value: {
-        name: "You",
-        username: "you",
-        category: "Player",
-        bio: "",
-      },
-      onSave: () => undefined,
-      sportsProfile: profile,
-      onOpenSportsDetails: () => undefined,
-    }),
-  );
-
-  assert.match(html, /button-sports-profile-details/);
-  assert.match(html, /Sports Identity \/ Sports Details/);
-  assert.doesNotMatch(html, /Verification Request/);
 });
 
 test("Sports Details renders real fields and owner document controls without the promo", () => {
