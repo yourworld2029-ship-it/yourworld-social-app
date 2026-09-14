@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { STORAGE_BUCKETS, uploadWithProgress, type ProgressFn } from "@/lib/storage-upload";
 import { resolveMediaUrl, type DbPost } from "@/lib/social-data";
@@ -448,63 +448,111 @@ export function useMyProfile() {
   const [posts, setPosts] = useState<DbPost[]>([]);
   const [savedPosts, setSavedPosts] = useState<DbPost[]>([]);
   const [loading, setLoading] = useState(true);
+  const [mediaLoading, setMediaLoading] = useState(true);
+  const loadInFlight = useRef<Promise<void> | null>(null);
+  const loadedUserId = useRef<string | null>(null);
 
-  const load = useCallback(async () => {
-    const { data: sessionData } = await supabase.auth.getSession();
-    const uid = sessionData.session?.user.id ?? null;
-    setUserId(uid);
-    if (!uid) {
-      setProfile(empty);
-      setPosts([]);
-      setSavedPosts([]);
-      setLoading(false);
-      return;
-    }
+  const load = useCallback(async (force = false) => {
+    if (loadInFlight.current) return loadInFlight.current;
 
-    const [{ data: row }, { data: myPosts }, { data: saves }] = await Promise.all([
-      supabase.from("profiles").select("*").eq("id", uid).maybeSingle(),
-      supabase
-        .from("posts")
+    const request = (async () => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const uid = sessionData.session?.user.id ?? null;
+      if (!force && uid === loadedUserId.current) return;
+
+      setUserId(uid);
+      if (!uid) {
+        loadedUserId.current = null;
+        setProfile(empty);
+        setAvatarSrc(null);
+        setCoverSrc(null);
+        setPosts([]);
+        setSavedPosts([]);
+        setMediaLoading(false);
+        setLoading(false);
+        return;
+      }
+
+      // The profile row is the critical path. Posts, saved posts, and media
+      // URLs are independent secondary data and must not delay the shell.
+      const { data: row } = await supabase
+        .from("profiles")
         .select("*")
-        .eq("user_id", uid)
-        .order("created_at", { ascending: false })
-        .limit(100),
-      supabase.from("post_saves").select("post_id").eq("user_id", uid),
-    ]);
-    const savedIds = ((saves ?? []) as { post_id: string }[]).map((s) => s.post_id);
-    const savedResult = savedIds.length
-      ? await supabase.from("posts").select("*").in("id", savedIds).limit(200)
-      : { data: [], error: null };
+        .eq("id", uid)
+        .maybeSingle();
 
-    const email = sessionData.session?.user.email ?? "";
-    const next: MyProfile = {
-      id: uid,
-      username: row?.username ?? email.split("@")[0] ?? `user${uid.slice(0, 4)}`,
-      display_name: row?.display_name ?? row?.username ?? "YourWorld user",
-      bio: row?.bio ?? "",
-      category: row?.category ?? "",
-      location: row?.location ?? "",
-      website: row?.website ?? "",
-      avatar_url: row?.avatar_url ?? null,
-      cover_url: row?.cover_url ?? null,
-      is_verified: row?.is_verified === true,
-      verification_requested: row?.verification_requested === true,
-    };
-    setProfile(next);
-    setPosts((myPosts ?? []).map(normalizePostRow) as DbPost[]);
-    setSavedPosts(
-      (savedResult.data ?? [])
-        .map(normalizePostRow)
-        .filter((post) => post.kind === "video" || post.kind === "reel") as DbPost[],
-    );
-    setAvatarSrc(await signedIfNeeded(next.avatar_url));
-    setCoverSrc(await signedIfNeeded(next.cover_url));
-    setLoading(false);
+      const email = sessionData.session?.user.email ?? "";
+      const next: MyProfile = {
+        id: uid,
+        username: row?.username ?? email.split("@")[0] ?? `user${uid.slice(0, 4)}`,
+        display_name: row?.display_name ?? row?.username ?? "YourWorld user",
+        bio: row?.bio ?? "",
+        category: row?.category ?? "",
+        location: row?.location ?? "",
+        website: row?.website ?? "",
+        avatar_url: row?.avatar_url ?? null,
+        cover_url: row?.cover_url ?? null,
+        is_verified: row?.is_verified === true,
+        verification_requested: row?.verification_requested === true,
+      };
+
+      loadedUserId.current = uid;
+      setProfile(next);
+      setLoading(false);
+      setMediaLoading(true);
+
+      void Promise.all([signedIfNeeded(next.avatar_url), signedIfNeeded(next.cover_url)]).then(
+        ([nextAvatarSrc, nextCoverSrc]) => {
+          setAvatarSrc(nextAvatarSrc);
+          setCoverSrc(nextCoverSrc);
+        },
+      );
+
+      const loadSecondary = async () => {
+        try {
+          const [{ data: myPosts }, { data: saves }] = await Promise.all([
+            supabase
+              .from("posts")
+              .select("*")
+              .eq("user_id", uid)
+              .order("created_at", { ascending: false })
+              .limit(100),
+            supabase.from("post_saves").select("post_id").eq("user_id", uid),
+          ]);
+          const savedIds = ((saves ?? []) as { post_id: string }[]).map((s) => s.post_id);
+          const savedResult = savedIds.length
+            ? await supabase.from("posts").select("*").in("id", savedIds).limit(200)
+            : { data: [], error: null };
+
+          setPosts((myPosts ?? []).map(normalizePostRow) as DbPost[]);
+          setSavedPosts(
+            (savedResult.data ?? [])
+              .map(normalizePostRow)
+              .filter((post) => post.kind === "video" || post.kind === "reel") as DbPost[],
+          );
+        } finally {
+          setMediaLoading(false);
+        }
+      };
+
+      void loadSecondary();
+    })();
+
+    loadInFlight.current = request;
+    try {
+      await request;
+    } finally {
+      if (loadInFlight.current === request) loadInFlight.current = null;
+    }
   }, []);
 
   useEffect(() => {
     void load();
-    const { data: sub } = supabase.auth.onAuthStateChange(() => void load());
+    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_IN" || event === "SIGNED_OUT" || event === "USER_UPDATED") {
+        void load();
+      }
+    });
     return () => sub.subscription.unsubscribe();
   }, [load]);
 
@@ -555,7 +603,7 @@ export function useMyProfile() {
         console.error("Profile update failed", error);
         throw new Error(error.message);
       }
-      await load();
+      await load(true);
     },
     [profile.avatar_url, profile.cover_url, profile.is_verified, profile.verification_requested, uploadImage, load],
   );
@@ -581,8 +629,9 @@ export function useMyProfile() {
     grid,
     reels,
     loading,
+    mediaLoading,
     save,
-    reload: load,
+    reload: () => load(true),
   };
 }
 
