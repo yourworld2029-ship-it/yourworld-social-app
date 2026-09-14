@@ -572,15 +572,15 @@ function nationalCompetitionLabel(name: string) {
   return "ALL INDIA UNIVERSITY";
 }
 
+function tournamentYear(item: SportsTournament) {
+  return item.startYear || item.endYear || item.startDate?.slice(0, 4) || item.date.match(/\b\d{4}\b/)?.[0] || "";
+}
+
 function medalEmoji(medal?: TournamentMedal) {
   if (medal === "Gold") return "🥇";
   if (medal === "Silver") return "🥈";
   if (medal === "Bronze") return "🥉";
   return "";
-}
-
-function tournamentYear(item: SportsTournament) {
-  return item.startYear || item.endYear || item.startDate?.slice(0, 4) || item.date.match(/\b\d{4}\b/)?.[0] || "";
 }
 
 function serializeTournament(item: SportsTournament) {
@@ -688,7 +688,7 @@ export function SportsProfileCard({
               Sports Identity / Sports Details
             </p>
             <p className="mt-0.5 truncate text-sm font-semibold text-white">
-              {profile.verified ? "Verified athletic identity" : "Sports identity"}
+              {profile.verified ? "Verified athletic identity" : "Sports Profile"}
             </p>
           </div>
         </div>
@@ -702,24 +702,28 @@ export function SportsProfileCard({
         <div className="px-2">
           <dt className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-wider text-zinc-500">
             <Medal className="h-3 w-3" />
-            Sport
+            {profile.verified ? "Sport" : "Sports"}
           </dt>
-          <dd className="mt-1 truncate text-xs font-semibold text-white">{profile.sport}</dd>
+          <dd className="mt-1 truncate text-xs font-semibold text-white">
+            {profile.verified ? profile.sport : "Profile"}
+          </dd>
         </div>
         <div className="px-2">
           <dt className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-wider text-zinc-500">
             <UserRound className="h-3 w-3" />
-            Role
+            {profile.verified ? "Role" : "Details"}
           </dt>
-          <dd className="mt-1 truncate text-xs font-semibold text-white">{profile.role}</dd>
+          <dd className="mt-1 truncate text-xs font-semibold text-white">
+            {profile.verified ? profile.role : "Open"}
+          </dd>
         </div>
         <div className="px-2">
           <dt className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-wider text-zinc-500">
             <Globe2 className="h-3 w-3" />
-            {profile.status}
+            {profile.verified ? profile.status : "Access"}
           </dt>
           <dd className="mt-1 truncate text-xs font-semibold text-white">
-            {profile.verified ? "Verified" : "Not verified"}
+            {profile.verified ? "Verified" : "View"}
           </dd>
         </div>
       </dl>

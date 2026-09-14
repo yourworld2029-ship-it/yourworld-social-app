@@ -67,6 +67,7 @@ import {
   getSportsProfile,
   serializeSportsProfileBio,
   SportsDetailsPanel,
+  SportsProfileCard,
   SportsProfileBadge,
   toSportsProfileDraft,
   type SportsProfileDraft,
@@ -272,17 +273,25 @@ function ProfilePage() {
     displayName: profile.display_name,
   });
   const hasSportsProfile = Boolean(sportsProfile);
+  const isVerifiedSports = Boolean(sportsProfile?.verified);
   const sportsNameBadge =
-    sportsProfile?.verified && sportsProfile.status !== "Not recorded"
-      ? `${sportsProfile.status.toUpperCase()} ${sportsProfile.role.toUpperCase()}`
+    isVerifiedSports && sportsProfile
+      ? sportsProfile.role === "Coach"
+        ? "VERIFIED COACH"
+        : sportsProfile.status !== "Not recorded"
+          ? `${sportsProfile.status.toUpperCase()} PLAYER`
+          : "VERIFIED PLAYER"
       : null;
   const sportsQualification =
-    sportsProfile &&
-    [sportsProfile.coachQualification, sportsProfile.qualificationYear]
-      .filter((value) => value && value !== "Not recorded")
-      .join(" · ");
+    sportsProfile && sportsProfile.role === "Coach"
+      ? [sportsProfile.coachQualification, sportsProfile.qualificationYear]
+          .filter((value) => value && value !== "Not recorded")
+          .join(" · ")
+      : null;
   const sportsCountry =
-    sportsProfile && sportsProfile.represents !== "Not specified" ? sportsProfile.represents : null;
+    isVerifiedSports && sportsProfile && sportsProfile.represents !== "Not specified"
+      ? sportsProfile.represents
+      : null;
 
   useEffect(() => {
     if (!sportsDetailsOpen || !hasSportsProfile || !userId || userId !== profile.id) {
@@ -481,140 +490,124 @@ function ProfilePage() {
   }
 
   return (
-      <main className="relative overflow-hidden pb-6">
+    <main className="relative min-h-[100dvh] overflow-hidden pb-8">
       <UserWatermark username={profile.username} />
-      <header className="header-lux sticky top-0 z-40 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-3">
-        <h1 data-testid="text-profile-username" className="flex min-w-0 items-center gap-2 font-display text-lg font-bold">
-          <span className="grid h-7 w-7 place-items-center rounded-lg bg-primary/15 text-xs font-black text-primary">YW</span>
-          <span className="truncate">@{profile.username || "…"}</span>
-        </h1>
-        <Link data-testid="link-profile-settings" to="/settings" aria-label="Settings" className="action-btn grid h-9 w-9 place-items-center rounded-full">
-          <Settings className="h-6 w-6" />
+      <header className="header-lux sticky top-0 z-40 flex items-center justify-between gap-3 px-4 py-3.5 sm:px-6">
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-amber-200/70">YourWorld</p>
+          <h1 data-testid="text-profile-username" className="mt-0.5 truncate font-display text-base font-bold tracking-tight">
+            @{profile.username || "…"}
+          </h1>
+        </div>
+        <Link data-testid="link-profile-settings" to="/settings" aria-label="Settings" className="action-btn grid h-10 w-10 shrink-0 place-items-center rounded-full border border-white/10 bg-white/[0.04]">
+          <Settings className="h-[18px] w-[18px]" />
         </Link>
       </header>
 
       {coverSrc ? (
-        <div className="relative h-28 overflow-hidden">
-          <img src={coverSrc} alt="" className="h-full w-full object-cover opacity-70" />
-          <div className="absolute inset-0 bg-gradient-to-b from-background/10 via-background/30 to-background" />
-        </div>
-      ) : (
-        <div className="h-10 bg-gradient-to-b from-primary/10 to-transparent" />
-      )}
-
-      <section className="-mt-2 px-4 pt-1">
-        <div className="flex items-start gap-4">
-          <span className="grid h-[86px] w-[86px] shrink-0 place-items-center rounded-full p-[3px] ring-story">
-            <span className="grid h-full w-full place-items-center rounded-full bg-background p-[2px]">
-              {avatarSrc ? (
-              <img
-                data-testid="img-profile-avatar"
-                  src={avatarSrc}
-                  alt=""
-                  className="h-[74px] w-[74px] rounded-full object-cover"
-                />
-              ) : (
-                <YwAvatar user={avatarUser} size={74} />
-              )}
-            </span>
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <p data-testid="text-profile-display-name" className="font-semibold">
-                {profile.display_name || "Add your name"}
-              </p>
-              {sportsNameBadge ? <SportsProfileBadge badge={sportsNameBadge} verified /> : null}
-            </div>
-            {sportsProfile ? (
-              <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
-                <p className="font-medium text-foreground">
-                  {sportsProfile.sport} · {sportsProfile.role}
-                </p>
-                {sportsQualification ? <p>Qualification: {sportsQualification}</p> : null}
-                {sportsCountry ? <p>🌐 {sportsCountry}</p> : null}
-              </div>
-            ) : profile.category ? (
-              <p className="mt-1 text-xs text-muted-foreground">{profile.category}</p>
-            ) : null}
-            <dl data-testid="stats-profile" className="mt-3 grid grid-cols-3 text-center">
-              <Stat label="Posts" value={formatCount(posts.length)} />
-              <Stat
-                label="Followers"
-                value={counts.followers === null ? "—" : formatCount(counts.followers)}
-                onClick={() => {
-                  setListTab("followers");
-                  setListOpen(true);
-                }}
-              />
-              <Stat
-                label="Following"
-                value={counts.following === null ? "—" : formatCount(counts.following)}
-                onClick={() => {
-                  setListTab("following");
-                  setListOpen(true);
-                }}
-              />
-            </dl>
+        <div className="relative h-44 overflow-hidden sm:h-56">
+          <img src={coverSrc} alt="" className="h-full w-full object-cover opacity-65" />
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-background/35 to-background" />
+          <div className="absolute bottom-4 left-4 flex items-center gap-2 rounded-full border border-white/10 bg-black/30 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.22em] text-white/70 backdrop-blur-md sm:left-6">
+            <span className="h-1.5 w-1.5 rounded-full bg-amber-300" />
+            Athlete profile
           </div>
         </div>
+      ) : (
+        <div className="relative h-28 overflow-hidden bg-[radial-gradient(circle_at_85%_10%,rgba(216,180,91,0.22),transparent_32%),linear-gradient(135deg,rgba(210,56,151,0.16),transparent_55%)] sm:h-36">
+          <div className="absolute inset-x-4 bottom-5 h-px bg-gradient-to-r from-transparent via-amber-200/40 to-transparent sm:inset-x-6" />
+        </div>
+      )}
 
-        <div className="pt-3">
-          {profile.bio ? <Bio text={profile.bio} /> : null}
-          {(profile.location || profile.website) && (
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1.5 text-xs">
-              {profile.location ? (
-                <span className="flex items-center gap-1 text-muted-foreground">
-                  <MapPin className="h-3.5 w-3.5" strokeWidth={1.8} />
-                  {profile.location}
-                </span>
-              ) : null}
-              {profile.website ? (
-                <a
-                  href={
-                    profile.website.startsWith("http")
-                      ? profile.website
-                      : `https://${profile.website}`
-                  }
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1 font-medium text-primary underline-offset-2 hover:underline"
-                >
-                  <Link2 className="h-3.5 w-3.5" strokeWidth={1.8} />
-                  {profile.website.replace(/^https?:\/\//, "")}
-                </a>
+      <section className="relative mx-auto -mt-12 max-w-3xl px-4 sm:-mt-16 sm:px-6">
+        <div className="rounded-[2rem] border border-white/10 bg-[linear-gradient(145deg,rgba(30,23,34,0.92),rgba(12,13,19,0.96)_58%,rgba(18,14,27,0.96))] p-4 shadow-[0_24px_70px_-36px_rgba(0,0,0,0.95)] backdrop-blur-xl sm:p-6">
+          <div className="flex items-start gap-4 sm:gap-6">
+            <span className="grid h-[96px] w-[96px] shrink-0 place-items-center rounded-full bg-[linear-gradient(135deg,#f2d58a,#c986c2_48%,#8d4cd0)] p-[3px] shadow-[0_0_0_1px_rgba(255,255,255,0.18),0_12px_34px_-12px_rgba(231,135,196,0.8)] sm:h-[116px] sm:w-[116px]">
+              <span className="grid h-full w-full place-items-center rounded-full bg-[#0c0d12] p-[3px]">
+                {avatarSrc ? (
+                  <img data-testid="img-profile-avatar" src={avatarSrc} alt="" className="h-full w-full rounded-full object-cover" />
+                ) : (
+                  <YwAvatar user={avatarUser} size={104} />
+                )}
+              </span>
+            </span>
+            <div className="min-w-0 flex-1 pt-1">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <p data-testid="text-profile-display-name" className="font-display text-xl font-bold tracking-tight sm:text-2xl">
+                  {profile.display_name || "Add your name"}
+                </p>
+                {sportsNameBadge ? <SportsProfileBadge badge={sportsNameBadge} verified /> : null}
+              </div>
+              {isVerifiedSports && sportsProfile ? (
+                <div className="mt-2 space-y-1 text-xs text-zinc-400">
+                  <p className="font-semibold uppercase tracking-[0.12em] text-amber-100/90">
+                    {sportsProfile.sport}
+                    {sportsProfile.role === "Player" && sportsProfile.eventPosition !== "Not recorded" ? ` · ${sportsProfile.eventPosition}` : ""}
+                  </p>
+                  {sportsProfile.role === "Player" && sportsProfile.status !== "Not recorded" ? (
+                    <p>{sportsProfile.status} athlete{sportsCountry ? ` · ${sportsCountry}` : ""}</p>
+                  ) : null}
+                  {sportsProfile.role === "Coach" && sportsQualification ? <p>{sportsQualification}</p> : null}
+                  {sportsProfile.role === "Coach" && sportsCountry ? <p>{sportsCountry}</p> : null}
+                </div>
+              ) : profile.category ? (
+                <p className="mt-2 text-xs font-medium uppercase tracking-[0.12em] text-zinc-500">{profile.category}</p>
               ) : null}
             </div>
-          )}
-        </div>
+          </div>
 
-        <div className="grid grid-cols-2 gap-2 pt-4">
-          <Button
-            data-testid="button-edit-profile"
-            variant="secondary"
-            className="h-10 rounded-full"
-            onClick={() => setEditOpen(true)}
-          >
-            Edit profile
-          </Button>
-          <Button
-            data-testid="button-share-profile"
-            variant="secondary"
-            className="h-10 rounded-full"
-            onClick={async () => {
+          <dl data-testid="stats-profile" className="mt-6 grid grid-cols-3 divide-x divide-white/10 rounded-2xl border border-white/10 bg-black/20 py-3.5 text-center">
+            <Stat label="Posts" value={formatCount(posts.length)} />
+            <Stat label="Followers" value={counts.followers === null ? "—" : formatCount(counts.followers)} onClick={() => { setListTab("followers"); setListOpen(true); }} />
+            <Stat label="Following" value={counts.following === null ? "—" : formatCount(counts.following)} onClick={() => { setListTab("following"); setListOpen(true); }} />
+          </dl>
+
+          <div className="pt-5">
+            {profile.bio ? <Bio text={isVerifiedSports ? sportsProfile?.publicDetails || profile.bio : profile.bio} /> : null}
+            {isVerifiedSports && sportsProfile?.role === "Coach" ? (
+              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {[
+                  ["Qualification", sportsProfile.coachQualification],
+                  ["NS NIS year", sportsProfile.qualificationYear],
+                  ["Institution", sportsProfile.institution],
+                  ["Experience", sportsProfile.coachingExperience],
+                ].filter(([, value]) => value && value !== "Not recorded").map(([label, value]) => (
+                  <div key={label} className="rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2">
+                    <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-zinc-500">{label}</p>
+                    <p className="mt-1 truncate text-xs font-medium text-zinc-200">{value}</p>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            {(profile.location || profile.website) ? (
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 pt-3 text-xs">
+                {profile.location ? <span className="flex items-center gap-1.5 text-zinc-400"><MapPin className="h-3.5 w-3.5 text-amber-200/80" strokeWidth={1.8} />{profile.location}</span> : null}
+                {profile.website ? (
+                  <a href={profile.website.startsWith("http") ? profile.website : `https://${profile.website}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 font-medium text-fuchsia-200 underline-offset-2 hover:underline">
+                    <Link2 className="h-3.5 w-3.5" strokeWidth={1.8} />
+                    {profile.website.replace(/^https?:\/\//, "")}
+                  </a>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="grid grid-cols-2 gap-2.5 pt-5">
+            <Button data-testid="button-edit-profile" variant="secondary" className="h-11 rounded-xl border border-white/10 bg-white/[0.07] text-sm font-semibold hover:bg-white/[0.12]" onClick={() => setEditOpen(true)}>
+              Edit profile
+            </Button>
+            <Button data-testid="button-share-profile" variant="secondary" className="h-11 rounded-xl border border-white/10 bg-white/[0.07] text-sm font-semibold hover:bg-white/[0.12]" onClick={async () => {
               const url = `${window.location.origin}/profile`;
               try {
                 if (navigator.share) await navigator.share({ title: profile.username, url });
-                else {
-                  await navigator.clipboard.writeText(url);
-                  toast.success("Profile link copied");
-                }
-              } catch {
-                /* user cancelled */
-              }
-            }}
-          >
-            Share profile
-          </Button>
+                else { await navigator.clipboard.writeText(url); toast.success("Profile link copied"); }
+              } catch { /* user cancelled */ }
+            }}>
+              Share profile
+            </Button>
+          </div>
+
+          {sportsProfile ? <SportsProfileCard profile={sportsProfile} onClick={() => setSportsDetailsOpen(true)} /> : null}
         </div>
       </section>
 
