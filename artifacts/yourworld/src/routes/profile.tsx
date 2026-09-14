@@ -307,17 +307,6 @@ function ProfilePage() {
           ? `${sportsProfile.status.toUpperCase()} PLAYER`
           : "VERIFIED PLAYER"
       : null;
-  const sportsQualification =
-    sportsProfile && sportsProfile.role === "Coach"
-      ? [sportsProfile.coachQualification, sportsProfile.qualificationYear]
-          .filter((value) => value && value !== "Not recorded")
-          .join(" · ")
-      : null;
-  const sportsCountry =
-    isVerifiedSports && sportsProfile && sportsProfile.represents !== "Not specified"
-      ? sportsProfile.represents
-      : null;
-
   useEffect(() => {
     if (!sportsDetailsOpen || !hasSportsProfile || !userId || userId !== profile.id) {
       setSportsDocuments([]);
