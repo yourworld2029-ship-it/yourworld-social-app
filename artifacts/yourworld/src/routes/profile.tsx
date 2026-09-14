@@ -597,64 +597,56 @@ function ProfilePage() {
       </header>
 
       {coverSrc ? (
-        <div className="relative h-44 overflow-hidden sm:h-56">
+        <div className="relative h-32 overflow-hidden sm:h-40">
           <img src={coverSrc} alt="" className="h-full w-full object-cover opacity-65" />
           <div className="absolute inset-0 bg-gradient-to-b from-transparent via-background/35 to-background" />
-          <div className="absolute bottom-4 left-4 flex items-center gap-2 rounded-full border border-white/10 bg-black/30 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.22em] text-white/70 backdrop-blur-md sm:left-6">
+          <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded-full border border-white/10 bg-black/30 px-2.5 py-1 text-[9px] font-semibold uppercase tracking-[0.22em] text-white/70 backdrop-blur-md sm:left-4">
             <span className="h-1.5 w-1.5 rounded-full bg-amber-300" />
             Athlete profile
           </div>
         </div>
       ) : (
-        <div className="relative h-28 overflow-hidden bg-[radial-gradient(circle_at_85%_10%,rgba(216,180,91,0.22),transparent_32%),linear-gradient(135deg,rgba(210,56,151,0.16),transparent_55%)] sm:h-36">
-          <div className="absolute inset-x-4 bottom-5 h-px bg-gradient-to-r from-transparent via-amber-200/40 to-transparent sm:inset-x-6" />
+        <div className="relative h-20 overflow-hidden bg-[radial-gradient(circle_at_85%_10%,rgba(216,180,91,0.22),transparent_32%),linear-gradient(135deg,rgba(210,56,151,0.16),transparent_55%)] sm:h-24">
+          <div className="absolute inset-x-3 bottom-4 h-px bg-gradient-to-r from-transparent via-amber-200/40 to-transparent sm:inset-x-4" />
         </div>
       )}
 
-      <section className="relative mx-auto -mt-12 max-w-3xl px-4 sm:-mt-16 sm:px-6">
-        <div className="rounded-[2rem] border border-white/10 bg-[linear-gradient(145deg,rgba(30,23,34,0.92),rgba(12,13,19,0.96)_58%,rgba(18,14,27,0.96))] p-4 shadow-[0_24px_70px_-36px_rgba(0,0,0,0.95)] backdrop-blur-xl sm:p-6">
-          <div className="flex items-start gap-4 sm:gap-6">
-            <span className="grid h-[96px] w-[96px] shrink-0 place-items-center rounded-full bg-[linear-gradient(135deg,#f2d58a,#c986c2_48%,#8d4cd0)] p-[3px] shadow-[0_0_0_1px_rgba(255,255,255,0.18),0_12px_34px_-12px_rgba(231,135,196,0.8)] sm:h-[116px] sm:w-[116px]">
+      <section className="relative mx-auto -mt-8 max-w-3xl px-3 sm:-mt-10 sm:px-4">
+        <div className="rounded-[1.5rem] border border-white/10 bg-[linear-gradient(145deg,rgba(30,23,34,0.92),rgba(12,13,19,0.96)_58%,rgba(18,14,27,0.96))] p-3 shadow-[0_24px_70px_-36px_rgba(0,0,0,0.95)] backdrop-blur-xl sm:rounded-[1.75rem] sm:p-4">
+          <div className="flex items-start gap-3 sm:gap-4">
+            <span className="grid h-[80px] w-[80px] shrink-0 place-items-center rounded-full bg-[linear-gradient(135deg,#f2d58a,#c986c2_48%,#8d4cd0)] p-[3px] shadow-[0_0_0_1px_rgba(255,255,255,0.18),0_12px_34px_-12px_rgba(231,135,196,0.8)] sm:h-[92px] sm:w-[92px]">
               <span className="grid h-full w-full place-items-center rounded-full bg-[#0c0d12] p-[3px]">
                 {avatarSrc ? (
                   <img data-testid="img-profile-avatar" src={avatarSrc} alt="" className="h-full w-full rounded-full object-cover" />
                 ) : (
-                  <YwAvatar user={avatarUser} size={104} />
+                  <YwAvatar user={avatarUser} size={84} />
                 )}
               </span>
             </span>
-            <div className="min-w-0 flex-1 pt-1">
+            <div className="min-w-0 flex-1 pt-0.5">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                <p data-testid="text-profile-display-name" className="font-display text-xl font-bold tracking-tight sm:text-2xl">
+                <p data-testid="text-profile-display-name" className="font-display text-lg font-bold tracking-tight sm:text-xl">
                   {profile.display_name || "Add your name"}
                 </p>
                 {sportsNameBadge ? <SportsProfileBadge badge={sportsNameBadge} verified /> : null}
               </div>
               {isVerifiedSports && sportsProfile ? (
-                <div className="mt-2 space-y-1 text-xs text-zinc-400">
-                  <p className="font-semibold uppercase tracking-[0.12em] text-amber-100/90">
-                    {sportsProfile.sport}
-                    {sportsProfile.role === "Player" && sportsProfile.eventPosition !== "Not recorded" ? ` · ${sportsProfile.eventPosition}` : ""}
-                  </p>
-                  {sportsProfile.role === "Player" && sportsProfile.status !== "Not recorded" ? (
-                    <p>{sportsProfile.status} athlete{sportsCountry ? ` · ${sportsCountry}` : ""}</p>
-                  ) : null}
-                  {sportsProfile.role === "Coach" && sportsQualification ? <p>{sportsQualification}</p> : null}
-                  {sportsProfile.role === "Coach" && sportsCountry ? <p>{sportsCountry}</p> : null}
-                </div>
+                <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.12em] text-amber-100/80">
+                  {sportsProfile.sport} · {sportsProfile.role}
+                </p>
               ) : profile.category ? (
-                <p className="mt-2 text-xs font-medium uppercase tracking-[0.12em] text-zinc-500">{profile.category}</p>
+                <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.12em] text-zinc-500">{profile.category}</p>
               ) : null}
             </div>
           </div>
 
-          <dl data-testid="stats-profile" className="mt-6 grid grid-cols-3 divide-x divide-white/10 rounded-2xl border border-white/10 bg-black/20 py-3.5 text-center">
+          <dl data-testid="stats-profile" className="mt-4 grid grid-cols-3 divide-x divide-white/10 rounded-xl border border-white/10 bg-black/20 py-2.5 text-center">
             <Stat label="Posts" value={mediaLoading ? "—" : formatCount(posts.length)} />
             <Stat label="Followers" value={counts.followers === null ? "—" : formatCount(counts.followers)} onClick={() => { setListTab("followers"); setListOpen(true); }} />
             <Stat label="Following" value={counts.following === null ? "—" : formatCount(counts.following)} onClick={() => { setListTab("following"); setListOpen(true); }} />
           </dl>
 
-          <div className="pt-5">
+          <div className="pt-4">
             {profile.bio ? <Bio text={isVerifiedSports ? sportsProfile?.publicDetails || profile.bio : profile.bio} /> : null}
             {isVerifiedSports && sportsProfile?.role === "Coach" ? (
               <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -684,11 +676,11 @@ function ProfilePage() {
             ) : null}
           </div>
 
-          <div className="grid grid-cols-2 gap-2.5 pt-5">
-            <Button data-testid="button-edit-profile" variant="secondary" className="h-11 rounded-xl border border-white/10 bg-white/[0.07] text-sm font-semibold hover:bg-white/[0.12]" onClick={() => setEditOpen(true)}>
+          <div className="grid grid-cols-2 gap-2 pt-4">
+            <Button data-testid="button-edit-profile" variant="secondary" className="h-9 rounded-lg border border-white/10 bg-white/[0.07] px-3 text-xs font-semibold hover:bg-white/[0.12]" onClick={() => setEditOpen(true)}>
               Edit profile
             </Button>
-            <Button data-testid="button-share-profile" variant="secondary" className="h-11 rounded-xl border border-white/10 bg-white/[0.07] text-sm font-semibold hover:bg-white/[0.12]" onClick={async () => {
+            <Button data-testid="button-share-profile" variant="secondary" className="h-9 rounded-lg border border-white/10 bg-white/[0.07] px-3 text-xs font-semibold hover:bg-white/[0.12]" onClick={async () => {
               const url = `${window.location.origin}/profile`;
               try {
                 if (navigator.share) await navigator.share({ title: profile.username, url });
@@ -699,7 +691,7 @@ function ProfilePage() {
             </Button>
           </div>
 
-          {sportsProfile ? <SportsProfileCard profile={sportsProfile} onClick={() => setSportsDetailsOpen(true)} /> : null}
+          {sportsProfile ? <SportsProfileCard profile={sportsProfile} compact onClick={() => setSportsDetailsOpen(true)} /> : null}
         </div>
       </section>
 
@@ -710,13 +702,13 @@ function ProfilePage() {
 
       <Tabs defaultValue="videos" className="pt-7">
         <TabsList className="grid w-full grid-cols-3 rounded-none border-y border-border/70 bg-background/70 p-0 backdrop-blur-xl">
-          <TabsTrigger value="videos" className="rounded-none py-3 text-xs data-[state=active]:bg-white/10 data-[state=active]:backdrop-blur-md" aria-label="Videos">
+          <TabsTrigger value="videos" className="rounded-none py-2 text-[11px] data-[state=active]:bg-white/[0.07] data-[state=active]:backdrop-blur-md" aria-label="Videos">
             Videos
           </TabsTrigger>
-          <TabsTrigger value="reels" className="rounded-none py-3 text-xs data-[state=active]:bg-white/10 data-[state=active]:backdrop-blur-md" aria-label="Reels">
+          <TabsTrigger value="reels" className="rounded-none py-2 text-[11px] data-[state=active]:bg-white/[0.07] data-[state=active]:backdrop-blur-md" aria-label="Reels">
             Reels
           </TabsTrigger>
-          <TabsTrigger value="saved" className="rounded-none py-3 text-xs data-[state=active]:bg-white/10 data-[state=active]:backdrop-blur-md" aria-label="Saved">
+          <TabsTrigger value="saved" className="rounded-none py-2 text-[11px] data-[state=active]:bg-white/[0.07] data-[state=active]:backdrop-blur-md" aria-label="Saved">
             Saved
           </TabsTrigger>
         </TabsList>

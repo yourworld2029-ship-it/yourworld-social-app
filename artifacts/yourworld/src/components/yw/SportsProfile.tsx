@@ -671,9 +671,11 @@ export function SportsProfileBadge({
 
 export function SportsProfileCard({
   profile,
+  compact = false,
   onClick,
 }: {
   profile: SportsProfileInfo;
+  compact?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -682,54 +684,58 @@ export function SportsProfileCard({
       data-testid="button-sports-profile-details"
       aria-label="Sports Details"
       onClick={onClick}
-      className="relative mt-4 w-full overflow-hidden rounded-3xl border border-amber-300/20 bg-gradient-to-br from-[#19151f] via-[#17151d] to-[#0c0d13] p-4 text-left shadow-[0_14px_40px_rgba(0,0,0,0.22)] transition-transform active:scale-[0.99]"
+      className={`relative w-full overflow-hidden rounded-3xl border border-amber-300/20 bg-gradient-to-br from-[#19151f] via-[#17151d] to-[#0c0d13] text-left shadow-[0_14px_40px_rgba(0,0,0,0.22)] transition-transform active:scale-[0.99] ${
+        compact ? "mt-3 rounded-2xl p-3" : "mt-4 p-4"
+      }`}
     >
       <div className="pointer-events-none absolute -right-10 -top-12 h-32 w-32 rounded-full bg-amber-300/10 blur-3xl" />
       <div className="relative flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
-          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-amber-200/25 bg-amber-300/10 text-amber-200">
-            <Trophy className="h-5 w-5" />
+          <span className={`grid shrink-0 place-items-center border border-amber-200/25 bg-amber-300/10 text-amber-200 ${compact ? "h-9 w-9 rounded-xl" : "h-11 w-11 rounded-2xl"}`}>
+            <Trophy className={compact ? "h-4 w-4" : "h-5 w-5"} />
           </span>
           <div className="min-w-0">
-            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-amber-200/75">
+            <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-amber-200/75">
               Sports Identity / Sports Details
             </p>
-            <p className="mt-0.5 truncate text-sm font-semibold text-white">
+            <p className="mt-0.5 truncate text-[13px] font-semibold text-white">
               {profile.verified ? "Verified athletic identity" : "Sports Profile"}
             </p>
           </div>
         </div>
-        <ChevronRight className="mt-1 h-5 w-5 shrink-0 text-amber-200/70" />
+        <ChevronRight className={`${compact ? "mt-0.5 h-4 w-4" : "mt-1 h-5 w-5"} shrink-0 text-amber-200/70`} />
       </div>
 
       <dl
-        className="relative mt-4 grid grid-cols-3 divide-x divide-white/10 rounded-2xl border border-white/10 bg-white/[0.035] py-3 text-center"
+        className={`relative grid grid-cols-3 divide-x divide-white/10 rounded-2xl border border-white/10 bg-white/[0.035] text-center ${
+          compact ? "mt-3 py-2" : "mt-4 py-3"
+        }`}
         onClick={(event) => event.stopPropagation()}
       >
         <div className="px-2">
-          <dt className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-wider text-zinc-500">
+          <dt className="flex items-center justify-center gap-1 text-[9px] uppercase tracking-wider text-zinc-500">
             <Medal className="h-3 w-3" />
             {profile.verified ? "Sport" : "Sports"}
           </dt>
-          <dd className="mt-1 truncate text-xs font-semibold text-white">
+          <dd className="mt-0.5 truncate text-[11px] font-semibold text-white">
             {profile.verified ? profile.sport : "Profile"}
           </dd>
         </div>
         <div className="px-2">
-          <dt className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-wider text-zinc-500">
+          <dt className="flex items-center justify-center gap-1 text-[9px] uppercase tracking-wider text-zinc-500">
             <UserRound className="h-3 w-3" />
             {profile.verified ? "Role" : "Details"}
           </dt>
-          <dd className="mt-1 truncate text-xs font-semibold text-white">
+          <dd className="mt-0.5 truncate text-[11px] font-semibold text-white">
             {profile.verified ? profile.role : "Open"}
           </dd>
         </div>
         <div className="px-2">
-          <dt className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-wider text-zinc-500">
+          <dt className="flex items-center justify-center gap-1 text-[9px] uppercase tracking-wider text-zinc-500">
             <Globe2 className="h-3 w-3" />
             {profile.verified ? profile.status : "Access"}
           </dt>
-          <dd className="mt-1 truncate text-xs font-semibold text-white">
+          <dd className="mt-0.5 truncate text-[11px] font-semibold text-white">
             {profile.verified ? "Verified" : "View"}
           </dd>
         </div>

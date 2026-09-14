@@ -1,0 +1,100 @@
+PROFILE UI REFINEMENT — ONLY PROFILE PAGE
+
+Use the current Profile page as the base and make ONLY the Profile page more compact, premium and professional.
+
+The current Profile has too much empty space at the top and sides, oversized cards, oversized buttons, and oversized Videos/Reels/Saved tabs.
+
+FIX THESE SPECIFIC UI ISSUES:
+
+1. REDUCE EMPTY SPACE
+- Reduce unnecessary vertical empty space above the main profile card.
+- Reduce excessive left/right margins.
+- Use the available mobile screen width efficiently.
+- Keep comfortable professional spacing, but eliminate wasted space.
+
+2. PROFILE HEADER
+- Make the profile header more compact and balanced.
+- Keep profile photo, name, sports badge, sport/role and location.
+- Reduce excessive gaps between these elements.
+- Do not make the profile photo unnecessarily huge.
+- Maintain a premium visual hierarchy.
+
+3. STATS
+- Make Posts / Followers / Following more compact.
+- Reduce the height of the stats container.
+- Keep numbers clearly visible.
+- Keep all three stats evenly aligned.
+
+4. REMOVE RAW SPORTS DETAILS FROM MAIN PROFILE
+The main Profile must NOT display raw database-style fields such as:
+- Sport: Handball
+- Event / position
+- Representation
+- Sports Introduction storage path / UUID
+- Show more for these raw fields
+
+Keep the verified sports identity/badge visible where it already belongs.
+Full sports information remains inside the existing Sports Profile.
+
+5. EDIT PROFILE / SHARE PROFILE
+- Make both buttons smaller and more premium.
+- Reduce their height and excessive padding.
+- Keep them side-by-side.
+- Use refined rounded corners and subtle borders.
+- They should feel like professional action buttons, not large blocks.
+
+6. SPORTS PROFILE CARD
+- Keep the existing Sports Profile functionality.
+- Make the card more compact and premium.
+- Reduce unnecessary height and internal spacing.
+- Keep the gold premium identity styling.
+- Do not duplicate Sports information.
+
+7. VIDEOS / REELS / SAVED
+- Make the tab/navigation area significantly more compact.
+- Reduce tab height and excessive padding.
+- Keep Videos, Reels and Saved clearly readable.
+- Make the active tab indicator subtle and premium.
+- Do not make these tabs occupy unnecessary screen space.
+
+8. OVERALL DESIGN
+- Premium global social-media-app quality.
+- Compact but NOT cramped.
+- Strong alignment.
+- Consistent spacing.
+- Elegant typography.
+- Subtle borders and shadows.
+- Minimal gold/purple accent treatment.
+- No excessive glow.
+- No unnecessary large cards.
+- No oversized buttons.
+- No excessive empty space.
+
+MOBILE PRIORITY:
+Optimize specifically for modern Android phone screens.
+The Profile should look polished and information-dense while still being easy to read.
+
+STRICTLY DO NOT:
+- Change Home.
+- Change Video.
+- Change Chat.
+- Change Moments.
+- Change Settings.
+- Change Sports verification logic.
+- Change database schema.
+- Change authentication.
+- Remove any existing Profile functionality.
+- Create duplicate Sports sections.
+- Add mock/fake data.
+- Change backend logic unless absolutely necessary for this UI refinement.
+
+IMPORTANT:
+This is a VISUAL/UI refinement of the existing Profile page only.
+Do not rebuild the Profile from scratch.
+Preserve all existing functionality and data.
+
+After implementation:
+- Run typecheck/tests.
+- Check the Profile on mobile.
+- Confirm only Profile UI files were changed.
+- Report the exact files changed.
