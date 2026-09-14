@@ -352,10 +352,10 @@ function ProfilePage() {
     const path = sportsProfile.sportsIntroductionPath;
     setSportsIntroductionUploading(true);
     try {
+      await deleteSportsIntroduction(userId, path);
       const draft = toSportsProfileDraft(sportsProfile);
       draft.sportsIntroductionPath = "";
       await saveSportsDetails(draft);
-      await deleteSportsIntroduction(userId, path);
       toast.success("Sports Introduction deleted");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Couldn't delete this video.");

@@ -82,6 +82,7 @@ test("Sports Details renders real fields and owner document controls without the
       onUploadDocument: () => undefined,
       onDocumentAction: () => undefined,
       onDeleteDocument: () => undefined,
+      onSave: () => undefined,
     }),
   );
 
@@ -89,8 +90,10 @@ test("Sports Details renders real fields and owner document controls without the
   assert.doesNotMatch(html, /Public sports details/);
   assert.doesNotMatch(html, /Sports ID/);
   assert.match(html, /State League/);
-  assert.match(html, /Gold medal/);
-  assert.match(html, /Top scorer/);
+  assert.doesNotMatch(html, /No public medal details listed/);
+  assert.doesNotMatch(html, /No public achievement details listed/);
+  assert.match(html, /Edit medals/);
+  assert.match(html, /Edit achievements/);
   assert.match(html, /sports-document-upload/);
   assert.match(html, /Delete certificate\.pdf/);
   assert.match(html, /Sports Introduction/);

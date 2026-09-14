@@ -845,6 +845,13 @@ export function SportsDetailsPanel({
         />
       </div>
 
+      {editable && !isCoach ? (
+        <div className="flex flex-wrap gap-x-4">
+          <EditLink label="Edit medals" onClick={() => openEditor("medals")} />
+          <EditLink label="Edit achievements" onClick={() => openEditor("achievements")} />
+        </div>
+      ) : null}
+
       {isCoach ? (
         <>
           <CoachProfileSection profile={profile} editable={editable} onEdit={openEditor} />
@@ -854,17 +861,6 @@ export function SportsDetailsPanel({
         <>
           <SportsTournamentSection profile={profile} editable={editable} onEdit={openEditor} />
 
-          <SportsDetailsSection icon={<Medal />} title="Medals">
-            <SportsDetailList items={profile.medals} empty="No public medal details listed." />
-            {editable ? <EditLink label="Edit medals" onClick={() => openEditor("medals")} /> : null}
-          </SportsDetailsSection>
-
-          <SportsDetailsSection icon={<Trophy />} title="Achievements">
-            <SportsDetailList items={profile.achievements} empty="No public achievement details listed." />
-            {editable ? (
-              <EditLink label="Edit achievements" onClick={() => openEditor("achievements")} />
-            ) : null}
-          </SportsDetailsSection>
         </>
       )}
 
@@ -2278,18 +2274,5 @@ function SportsDetailsSection({
       </div>
       {children}
     </section>
-  );
-}
-
-function SportsDetailList({ items, empty }: { items: string[]; empty: string }) {
-  if (!items.length) return <p className="text-sm text-zinc-500">{empty}</p>;
-  return (
-    <ul className="space-y-2">
-      {items.map((item) => (
-        <li key={item} className="rounded-2xl bg-white/[0.035] px-3 py-2 text-sm text-zinc-300">
-          {item}
-        </li>
-      ))}
-    </ul>
   );
 }

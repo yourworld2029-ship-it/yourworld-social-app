@@ -160,12 +160,6 @@ export async function deleteSportsDocument(ownerId: string, path: string) {
   }
   const { error } = await supabase.storage.from(STORAGE_BUCKETS.documents).remove([path]);
   if (error) throw new Error(error.message);
-
-  const deletedName = path.slice(`${ownerId}/`.length);
-  const remaining = await listSportsDocumentFiles(ownerId);
-  if (remaining.some((file) => file.name === deletedName)) {
-    throw new Error("The document could not be removed permanently. Try again.");
-  }
 }
 
 function safeSportsIntroductionFileName(name: string) {
