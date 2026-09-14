@@ -157,7 +157,13 @@ function ProfilePage() {
       sportsVerificationTimer.current = null;
       try {
         await save({
-          ...editValue,
+          name: profile.display_name,
+          username: profile.username,
+          category: profile.category,
+          bio: profile.bio,
+          location: profile.location,
+          website: profile.website,
+          avatarUrl: profile.avatar_url ?? undefined,
           isVerified: true,
           verificationRequested: false,
         });
@@ -175,7 +181,7 @@ function ProfilePage() {
         sportsVerificationTimer.current = null;
       }
     };
-  }, [profile.id, profile.is_verified, profile.verification_requested, reload, save, userId]);
+  }, [profile, save, userId]);
 
   const openManage = (post: DbPost) => {
     setManage(post);

@@ -361,7 +361,7 @@ export function useMyProfile() {
       }
       await load();
     },
-    [profile.avatar_url, profile.cover_url, profile.verification_requested, uploadImage, load],
+    [profile.avatar_url, profile.cover_url, profile.is_verified, profile.verification_requested, uploadImage, load],
   );
 
   const grid = useMemo(
