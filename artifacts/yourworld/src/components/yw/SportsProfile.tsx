@@ -799,20 +799,12 @@ export function SportsDetailsPanel({
           onClick={editable ? () => openEditor("role") : undefined}
         />
         {!isCoach ? (
-          <>
-            <SportsDetailStat
-              icon={<Trophy />}
-              label="Event / position"
-              value={profile.eventPosition}
-              onClick={editable ? () => openEditor("eventPosition") : undefined}
-            />
-            <SportsDetailStat
-              icon={<Globe2 />}
-              label="Status"
-              value={profile.status}
-              onClick={editable ? () => openEditor("representation") : undefined}
-            />
-          </>
+          <SportsDetailStat
+            icon={<Globe2 />}
+            label="Status"
+            value={profile.status}
+            onClick={editable ? () => openEditor("representation") : undefined}
+          />
         ) : null}
         <SportsDetailStat
           icon={<BadgeCheck />}
@@ -829,19 +821,6 @@ export function SportsDetailsPanel({
         </>
       ) : (
         <>
-          <SportsDetailsSection icon={<Globe2 />} title="Public sports details">
-            {profile.publicDetails ? (
-              <p className="whitespace-pre-wrap text-sm leading-6 text-zinc-300">{profile.publicDetails}</p>
-            ) : (
-              <p className="text-sm text-zinc-500">No additional public sports details listed.</p>
-            )}
-            {profile.represents !== "Not specified" ? (
-              <p className="mt-3 text-xs text-zinc-500">
-                Represents: <span className="text-zinc-300">{profile.represents}</span>
-              </p>
-            ) : null}
-          </SportsDetailsSection>
-
           <SportsTournamentSection profile={profile} editable={editable} onEdit={openEditor} />
 
           <SportsDetailsSection icon={<Medal />} title="Medals">
@@ -1568,13 +1547,6 @@ function TournamentEntryEditor({
           className={editorInputClass}
           placeholder="City / host location"
         />
-        <Input
-          data-testid={`input-tournament-result-${index + 1}`}
-          value={item.result}
-          onChange={(event) => onChange(index, { result: event.target.value })}
-          className={editorInputClass}
-          placeholder="Result / achievement"
-        />
         {isNational ? (
           showNationalMedal ? (
             <select
@@ -1611,13 +1583,6 @@ function TournamentEntryEditor({
             <option value="No Medal">No Medal</option>
           </select>
         )}
-        <Input
-          data-testid={`input-tournament-event-${index + 1}`}
-          value={item.eventPosition ?? ""}
-          onChange={(event) => onChange(index, { eventPosition: event.target.value })}
-          className={editorInputClass}
-          placeholder="Event / Position"
-        />
         {role === "Coach" ? (
           <>
             <Input

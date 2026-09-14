@@ -85,7 +85,8 @@ test("Sports Details renders real fields and owner document controls without the
     }),
   );
 
-  assert.match(html, /Event \/ position/);
+  assert.doesNotMatch(html, /Event \/ position/);
+  assert.doesNotMatch(html, /Public sports details/);
   assert.doesNotMatch(html, /Sports ID/);
   assert.match(html, /State League/);
   assert.match(html, /Gold medal/);
