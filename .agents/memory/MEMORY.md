@@ -19,3 +19,4 @@
 - [Social Chat preferences](social-chat-preferences.md) — keep participant toggles conversation-scoped while auto-delete remains shared.
 - [Enterprise call delivery](enterprise-call-delivery.md) — browser background calls use Web Push through a JWT-protected Edge Function; native VoIP needs a mobile client.
 - [Sports document isolation](sports-document-isolation.md) — verification files require a private bucket and owner-folder policy; broad public storage policies must exclude that bucket.
+- [Sports introduction verification](sports-introduction-verification.md) — store intro video bytes in owner-scoped videos storage and only its path in profile metadata.

@@ -59,6 +59,8 @@ import {
   deleteSportsDocument,
   listSportsDocuments,
   uploadSportsDocument,
+  deleteSportsIntroduction,
+  uploadSportsIntroduction,
   type SportsDocument,
 } from "@/lib/profile-data";
 import {
@@ -66,9 +68,11 @@ import {
   serializeSportsProfileBio,
   SportsDetailsPanel,
   SportsProfileBadge,
+  toSportsProfileDraft,
   type SportsProfileDraft,
 } from "@/components/yw/SportsProfile";
-import type { DbPost } from "@/lib/social-data";
+import { resolveMediaUrl, type DbPost } from "@/lib/social-data";
+import { STORAGE_BUCKETS } from "@/lib/storage-upload";
 import { UserWatermark } from "@/components/yw/UserWatermark";
 import { FollowListDialog } from "@/components/yw/FollowListDialog";
 import { useFollowCounts } from "@/lib/follow-data";
@@ -120,6 +124,10 @@ function ProfilePage() {
   const [sportsDocumentsUploading, setSportsDocumentsUploading] = useState(false);
   const [sportsDocumentToDelete, setSportsDocumentToDelete] = useState<SportsDocument | null>(null);
   const [sportsDocumentDeleting, setSportsDocumentDeleting] = useState(false);
+  const [sportsIntroductionUrl, setSportsIntroductionUrl] = useState<string | null>(null);
+  const [sportsIntroductionUploading, setSportsIntroductionUploading] = useState(false);
+  const [sportsIntroductionProgress, setSportsIntroductionProgress] = useState(0);
+  const [sportsVerificationSubmitting, setSportsVerificationSubmitting] = useState(false);
 
   const openManage = (post: DbPost) => {
     setManage(post);
@@ -241,6 +249,22 @@ function ProfilePage() {
     };
   }, [hasSportsProfile, profile.id, sportsDetailsOpen, userId]);
 
+  useEffect(() => {
+    const path = sportsProfile?.sportsIntroductionPath;
+    if (!sportsDetailsOpen || !path) {
+      setSportsIntroductionUrl(null);
+      return;
+    }
+
+    let cancelled = false;
+    void resolveMediaUrl(path, STORAGE_BUCKETS.videos).then((url) => {
+      if (!cancelled) setSportsIntroductionUrl(url);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [sportsDetailsOpen, sportsProfile?.sportsIntroductionPath]);
+
   const openSportsDocument = async (document: SportsDocument, download: boolean) => {
     if (!userId || userId !== profile.id) return;
     try {
@@ -289,6 +313,46 @@ function ProfilePage() {
     }
   };
 
+  const handleSportsIntroductionUpload = async (file: File) => {
+    if (!userId || userId !== profile.id || !sportsProfile) return;
+    const previousPath = sportsProfile.sportsIntroductionPath;
+    setSportsIntroductionUploading(true);
+    setSportsIntroductionProgress(0);
+    try {
+      const nextPath = await uploadSportsIntroduction(userId, file, (progress) =>
+        setSportsIntroductionProgress(progress),
+      );
+      const draft = toSportsProfileDraft(sportsProfile);
+      draft.sportsIntroductionPath = nextPath;
+      await saveSportsDetails(draft);
+      if (previousPath && previousPath !== nextPath) {
+        await deleteSportsIntroduction(userId, previousPath);
+      }
+      toast.success(previousPath ? "Sports Introduction replaced" : "Sports Introduction uploaded");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't upload this video.");
+    } finally {
+      setSportsIntroductionUploading(false);
+    }
+  };
+
+  const handleSportsIntroductionDelete = async () => {
+    if (!userId || userId !== profile.id || !sportsProfile?.sportsIntroductionPath) return;
+    const path = sportsProfile.sportsIntroductionPath;
+    setSportsIntroductionUploading(true);
+    try {
+      const draft = toSportsProfileDraft(sportsProfile);
+      draft.sportsIntroductionPath = "";
+      await saveSportsDetails(draft);
+      await deleteSportsIntroduction(userId, path);
+      toast.success("Sports Introduction deleted");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't delete this video.");
+    } finally {
+      setSportsIntroductionUploading(false);
+    }
+  };
+
   const editValue: ProfileEdit = {
     name: profile.display_name,
     username: profile.username,
@@ -297,7 +361,7 @@ function ProfilePage() {
     location: profile.location,
     website: profile.website,
     avatarUrl: avatarSrc ?? undefined,
-
+    verificationRequested: profile.verification_requested,
   };
 
   const saveSportsDetails = async (draft: SportsProfileDraft) => {
@@ -309,6 +373,22 @@ function ProfilePage() {
       bio: serializeSportsProfileBio(profile.bio, draft),
     });
     toast.success("Sports details saved");
+  };
+
+  const handleSubmitSportsVerification = async () => {
+    if (!userId || userId !== profile.id || profile.verification_requested || profile.is_verified) return;
+    setSportsVerificationSubmitting(true);
+    try {
+      await save({
+        ...editValue,
+        verificationRequested: true,
+      });
+      toast.success("Verification request submitted");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't submit for verification.");
+    } finally {
+      setSportsVerificationSubmitting(false);
+    }
   };
 
   if (!loading && !userId) {
@@ -631,6 +711,13 @@ function ProfilePage() {
               onDocumentAction={openSportsDocument}
               onDeleteDocument={setSportsDocumentToDelete}
               onSave={saveSportsDetails}
+              sportsIntroductionUrl={sportsIntroductionUrl}
+              sportsIntroductionUploading={sportsIntroductionUploading}
+              sportsIntroductionProgress={sportsIntroductionProgress}
+              onUploadSportsIntroduction={handleSportsIntroductionUpload}
+              onDeleteSportsIntroduction={handleSportsIntroductionDelete}
+              onSubmitVerification={handleSubmitSportsVerification}
+              verificationSubmitting={sportsVerificationSubmitting}
             />
           </SheetContent>
         </Sheet>

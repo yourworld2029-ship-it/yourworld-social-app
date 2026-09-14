@@ -20,6 +20,7 @@ export type ProfileEdit = {
   coverUrl?: string;
   avatarFile?: File;
   coverFile?: File;
+  verificationRequested?: boolean;
 };
 
 const CATEGORIES = ["Creator", "Business", "Gamer", "Artist", "Musician", "Photographer"];

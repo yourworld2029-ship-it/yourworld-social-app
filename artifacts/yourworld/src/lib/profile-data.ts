@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { STORAGE_BUCKETS } from "@/lib/storage-upload";
+import { STORAGE_BUCKETS, uploadWithProgress, type ProgressFn } from "@/lib/storage-upload";
 import { resolveMediaUrl, type DbPost } from "@/lib/social-data";
 import { normalizePostRow, writeCompat } from "@/lib/supabase-compat";
 
@@ -15,6 +15,7 @@ export type MyProfile = {
   avatar_url: string | null;
   cover_url: string | null;
   is_verified: boolean;
+  verification_requested: boolean;
 };
 
 export type MyProfileEdit = {
@@ -28,6 +29,7 @@ export type MyProfileEdit = {
   coverUrl?: string;
   avatarFile?: File;
   coverFile?: File;
+  verificationRequested?: boolean;
 };
 
 export type SportsDocument = {
@@ -57,6 +59,7 @@ const empty: MyProfile = {
   avatar_url: null,
   cover_url: null,
   is_verified: false,
+  verification_requested: false,
 };
 
 async function signedIfNeeded(url: string | null) {
@@ -165,6 +168,86 @@ export async function deleteSportsDocument(ownerId: string, path: string) {
   }
 }
 
+function safeSportsIntroductionFileName(name: string) {
+  const baseName = name.split(/[\\/]/).at(-1)?.trim() || "sports-introduction";
+  return (
+    baseName
+      .replace(/[^a-zA-Z0-9._-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 120) || "sports-introduction"
+  );
+}
+
+export async function validateSportsIntroductionVideo(file: File) {
+  if (!file.type.startsWith("video/")) {
+    throw new Error("Upload a video for your Sports Introduction.");
+  }
+  if (file.size > 100 * 1024 * 1024) {
+    throw new Error("Sports Introduction videos must be 100 MB or smaller.");
+  }
+
+  const previewUrl = URL.createObjectURL(file);
+  try {
+    const metadata = await new Promise<{ duration: number; width: number; height: number }>(
+      (resolve, reject) => {
+        const video = document.createElement("video");
+        video.preload = "metadata";
+        video.onloadedmetadata = () =>
+          resolve({
+            duration: video.duration,
+            width: video.videoWidth,
+            height: video.videoHeight,
+          });
+        video.onerror = () => reject(new Error("This video could not be read."));
+        video.src = previewUrl;
+      },
+    );
+    if (!Number.isFinite(metadata.duration) || metadata.duration <= 0) {
+      throw new Error("This video duration could not be read.");
+    }
+    if (metadata.duration > 90) {
+      throw new Error("Sports Introduction videos must be 90 seconds or shorter.");
+    }
+    if (metadata.width <= 0 || metadata.height <= 0 || metadata.height <= metadata.width) {
+      throw new Error("Sports Introduction videos must be vertical.");
+    }
+  } finally {
+    URL.revokeObjectURL(previewUrl);
+  }
+}
+
+export async function uploadSportsIntroduction(
+  ownerId: string,
+  file: File,
+  onProgress?: ProgressFn,
+) {
+  await requireDocumentOwner(ownerId);
+  await validateSportsIntroductionVideo(file);
+  const extension = file.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || "mp4";
+  const path = `${ownerId}/sports-introduction/${Date.now()}-${safeSportsIntroductionFileName(
+    file.name.replace(/\.[^.]+$/, ""),
+  )}.${extension}`;
+  const result = await uploadWithProgress(
+    STORAGE_BUCKETS.videos,
+    path,
+    file,
+    file.type,
+    onProgress,
+    "86400",
+  );
+  if (result.error) throw new Error(result.error);
+  return path;
+}
+
+export async function deleteSportsIntroduction(ownerId: string, path: string) {
+  await requireDocumentOwner(ownerId);
+  if (!path.startsWith(`${ownerId}/sports-introduction/`) || path.includes("..")) {
+    throw new Error("Invalid Sports Introduction path.");
+  }
+  const { error } = await supabase.storage.from(STORAGE_BUCKETS.videos).remove([path]);
+  if (error) throw new Error(error.message);
+}
+
 /** Real signed-in profile: row from the database plus the user's own media. */
 export function useMyProfile() {
   const [userId, setUserId] = useState<string | null>(null);
@@ -214,6 +297,7 @@ export function useMyProfile() {
       avatar_url: row?.avatar_url ?? null,
       cover_url: row?.cover_url ?? null,
       is_verified: row?.is_verified === true,
+      verification_requested: row?.verification_requested === true,
     };
     setProfile(next);
     setPosts((myPosts ?? []).map(normalizePostRow) as DbPost[]);
@@ -272,6 +356,7 @@ export function useMyProfile() {
           website: edit.website || null,
           avatar_url: avatarPath,
           cover_url: coverPath,
+          verification_requested: edit.verificationRequested ?? profile.verification_requested,
         },
       );
       if (error) {
@@ -280,7 +365,7 @@ export function useMyProfile() {
       }
       await load();
     },
-    [profile.avatar_url, profile.cover_url, uploadImage, load],
+    [profile.avatar_url, profile.cover_url, profile.verification_requested, uploadImage, load],
   );
 
   const grid = useMemo(

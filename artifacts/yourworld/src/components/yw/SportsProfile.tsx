@@ -151,6 +151,7 @@ export type SportsProfileDraft = {
   institution: string;
   coachingExperience: string;
   teamDetails: string;
+  sportsIntroductionPath?: string;
 };
 
 type SportsEditorField =
@@ -179,6 +180,8 @@ export type SportsProfileInfo = {
   status: "International" | "National" | "Not recorded";
   represents: string;
   verified: boolean;
+  verificationRequested?: boolean;
+  sportsIntroductionPath?: string;
   publicDetails: string;
   tournaments: string[];
   medals: string[];
@@ -200,6 +203,7 @@ export function getSportsProfile(profile: {
   location: string;
   username?: string;
   displayName?: string;
+  verification_requested?: boolean;
 }): SportsProfileInfo | null {
   const category = profile.category.trim();
   const roleMatch = /^(athlete|player|coach)(?:\s*[-·•|:]|$)/i.exec(category);
@@ -250,6 +254,9 @@ export function getSportsProfile(profile: {
       profile.location.trim() ||
       "Not specified",
     verified,
+    verificationRequested: profile.verification_requested === true,
+    sportsIntroductionPath:
+      extractLabeledValue(profile.bio, ["sports introduction", "sports introduction video"]) || undefined,
     publicDetails: stripSportsFields(profile.bio),
     tournaments: tournamentDetails.length
       ? tournamentDetails.map(formatTournament)
@@ -325,6 +332,7 @@ export function toSportsProfileDraft(profile: SportsProfileInfo): SportsProfileD
     coachingExperience:
       profile.coachingExperience === "Not recorded" ? "" : profile.coachingExperience,
     teamDetails: profile.teamDetails === "Not recorded" ? "" : profile.teamDetails,
+    sportsIntroductionPath: profile.sportsIntroductionPath ?? "",
   };
 }
 
@@ -348,6 +356,9 @@ export function serializeSportsProfileBio(currentBio: string, draft: SportsProfi
           draft.coachingExperience.trim()
             ? `Coaching Experience: ${draft.coachingExperience.trim()}`
             : "",
+          draft.sportsIntroductionPath?.trim()
+            ? `Sports Introduction: ${draft.sportsIntroductionPath.trim()}`
+            : "",
           ...draft.tournaments
             .filter((item) => item.name.trim())
             .map(serializeTournament),
@@ -357,6 +368,9 @@ export function serializeSportsProfileBio(currentBio: string, draft: SportsProfi
           draft.sport.trim() ? `Sport: ${draft.sport.trim()}` : "",
           draft.eventPosition.trim() ? `Event / position: ${draft.eventPosition.trim()}` : "",
           draft.representation ? `Representation: ${draft.representation}` : "",
+          draft.sportsIntroductionPath?.trim()
+            ? `Sports Introduction: ${draft.sportsIntroductionPath.trim()}`
+            : "",
           ...draft.tournaments
             .filter((item) => item.name.trim())
             .map(serializeTournament),
@@ -614,7 +628,7 @@ function formatMedal(item: SportsMedal) {
 }
 
 function isSportsFieldLine(line: string) {
-  return /^(sport|sports|discipline|game|event(?:\s*\/\s*position)?|position|specialty|representation|represents|status|country|team|tournament|medal|achievement|award|coach(?:\s*\/\s*qualification|\s+qualification)?|coach\s+name|coaching\s+qualification|qualification(?:\s*\/\s*ns\s*nis\s*year|\s+year)?|qualifications|license|licence|certification|certified|institution(?:\s*\/\s*where\s+completed)?|where\s+completed|completed\s+at|coaching\s+experience|experience|tournament\s*\/\s*team\s+details|team\s+details|sports\s*id|sportsid)\s*:/i.test(
+  return /^(sport|sports|discipline|game|event(?:\s*\/\s*position)?|position|specialty|representation|represents|status|country|team|tournament|medal|achievement|award|sports\s+introduction(?:\s+video)?|coach(?:\s*\/\s*qualification|\s+qualification)?|coach\s+name|coaching\s+qualification|qualification(?:\s*\/\s*ns\s*nis\s*year|\s+year)?|qualifications|license|licence|certification|certified|institution(?:\s*\/\s*where\s+completed)?|where\s+completed|completed\s+at|coaching\s+experience|experience|tournament\s*\/\s*team\s+details|team\s+details|sports\s*id|sportsid)\s*:/i.test(
     line,
   );
 }
@@ -724,6 +738,13 @@ export function SportsDetailsPanel({
   onDocumentAction,
   onDeleteDocument,
   onSave,
+  sportsIntroductionUrl,
+  sportsIntroductionUploading = false,
+  sportsIntroductionProgress = 0,
+  onUploadSportsIntroduction,
+  onDeleteSportsIntroduction,
+  onSubmitVerification,
+  verificationSubmitting = false,
 }: {
   profile: SportsProfileInfo;
   isOwner: boolean;
@@ -735,10 +756,18 @@ export function SportsDetailsPanel({
   onDocumentAction: (document: SportsDocument, download: boolean) => void;
   onDeleteDocument: (document: SportsDocument) => void;
   onSave?: (draft: SportsProfileDraft) => void | Promise<void>;
+  sportsIntroductionUrl?: string | null;
+  sportsIntroductionUploading?: boolean;
+  sportsIntroductionProgress?: number;
+  onUploadSportsIntroduction?: (file: File) => void;
+  onDeleteSportsIntroduction?: () => void;
+  onSubmitVerification?: () => void | Promise<void>;
+  verificationSubmitting?: boolean;
 }) {
   const [editorField, setEditorField] = useState<SportsEditorField | null>(null);
   const [draft, setDraft] = useState<SportsProfileDraft>(() => toSportsProfileDraft(profile));
   const [saving, setSaving] = useState(false);
+  const [termsAgreed, setTermsAgreed] = useState(false);
   const editable = isOwner && Boolean(onSave);
   const isCoach = profile.role === "Coach";
   const openEditor = (field: SportsEditorField) => {
@@ -916,6 +945,154 @@ export function SportsDetailsPanel({
             </div>
           ) : (
             <p className="text-sm text-zinc-500">No verification documents uploaded.</p>
+          )}
+        </SportsDetailsSection>
+      ) : null}
+
+      {isOwner || profile.sportsIntroductionPath ? (
+        <SportsDetailsSection
+          icon={<Video />}
+          title="Sports Introduction"
+          description="One short vertical video in your own natural voice. No music or platform-added audio."
+        >
+          {profile.sportsIntroductionPath ? (
+            sportsIntroductionUrl ? (
+              <video
+                data-testid="sports-introduction-video"
+                src={sportsIntroductionUrl}
+                controls
+                playsInline
+                preload="metadata"
+                className="aspect-[9/16] max-h-80 w-full rounded-2xl border border-amber-200/15 bg-black object-contain"
+              />
+            ) : (
+              <p className="text-sm text-zinc-500">Loading your Sports Introduction…</p>
+            )
+          ) : (
+            <div className="rounded-2xl border border-dashed border-amber-200/20 bg-amber-200/[0.04] p-4">
+              <p className="text-sm leading-6 text-zinc-300">
+                Introduce yourself in your own voice and tell people about your sport, role, major
+                achievements and sports journey.
+              </p>
+            </div>
+          )}
+          {isOwner ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <label
+                htmlFor="sports-introduction-upload"
+                className={`inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-amber-200/25 bg-amber-200/10 px-3 py-1.5 text-xs font-semibold text-amber-100 transition-colors hover:bg-amber-200/20 ${
+                  sportsIntroductionUploading ? "pointer-events-none opacity-60" : ""
+                }`}
+              >
+                <Upload className="h-3.5 w-3.5" />
+                {sportsIntroductionUploading
+                  ? `Uploading ${sportsIntroductionProgress}%`
+                  : profile.sportsIntroductionPath
+                    ? "Replace video"
+                    : "Upload video"}
+              </label>
+              <input
+                id="sports-introduction-upload"
+                type="file"
+                accept="video/*"
+                className="sr-only"
+                disabled={sportsIntroductionUploading}
+                onChange={(event) => {
+                  const file = event.currentTarget.files?.[0];
+                  event.currentTarget.value = "";
+                  if (file) onUploadSportsIntroduction?.(file);
+                }}
+              />
+              {profile.sportsIntroductionPath ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={sportsIntroductionUploading}
+                  onClick={onDeleteSportsIntroduction}
+                  className="rounded-full text-red-200 hover:bg-red-400/10 hover:text-red-100"
+                >
+                  <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                  Delete video
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+        </SportsDetailsSection>
+      ) : null}
+
+      {isOwner ? (
+        <SportsDetailsSection
+          icon={<ShieldCheck />}
+          title="Terms & Conditions"
+          description="Review these requirements before submitting your Sports Profile for verification."
+        >
+          <details open className="rounded-2xl border border-white/10 bg-white/[0.035]">
+            <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-amber-100">
+              Verification terms
+            </summary>
+            <div className="max-h-56 overflow-y-auto border-t border-white/10 px-4 py-3">
+              <ul className="list-disc space-y-2 pl-5 text-sm leading-6 text-zinc-300">
+                <li>I confirm that all information submitted by me is true and accurate.</li>
+                <li>
+                  I am responsible for the authenticity of my certificates, achievements and sports
+                  information.
+                </li>
+                <li>Fake, forged, altered or misleading documents/information are strictly prohibited.</li>
+                <li>
+                  YourWorld may reject or revoke verification if submitted information is found to be
+                  false.
+                </li>
+                <li>YourWorld may restrict or suspend accounts involved in fraudulent verification.</li>
+                <li>
+                  YourWorld may take appropriate legal action or other remedies permitted under
+                  applicable law where applicable.
+                </li>
+                <li>Verification documents remain private and are used for verification purposes.</li>
+                <li>
+                  The Sports Introduction video may be displayed publicly as part of the verified sports
+                  profile.
+                </li>
+                <li>
+                  YourWorld may retain verification records/evidence for legitimate security,
+                  verification and legal purposes.
+                </li>
+              </ul>
+            </div>
+          </details>
+          <label className="mt-4 flex cursor-pointer items-start gap-3 text-sm text-zinc-200">
+            <input
+              type="checkbox"
+              checked={termsAgreed}
+              onChange={(event) => setTermsAgreed(event.target.checked)}
+              className="mt-1 h-4 w-4 accent-amber-200"
+            />
+            <span>I Agree to the Terms &amp; Conditions</span>
+          </label>
+          {profile.verified ? (
+            <p
+              data-testid="sports-verification-status"
+              className="mt-4 rounded-2xl border border-emerald-200/20 bg-emerald-300/[0.08] px-4 py-3 text-sm text-emerald-100"
+            >
+              Verified Sports Profile
+            </p>
+          ) : profile.verificationRequested ? (
+            <p
+              data-testid="sports-verification-status"
+              className="mt-4 rounded-2xl border border-amber-200/20 bg-amber-200/[0.08] px-4 py-3 text-sm text-amber-100"
+            >
+              Pending Verification
+            </p>
+          ) : (
+            <Button
+              type="button"
+              data-testid="button-submit-sports-verification"
+              disabled={!termsAgreed || verificationSubmitting}
+              onClick={() => void onSubmitVerification?.()}
+              className="mt-4 w-full rounded-full bg-amber-200 text-black hover:bg-amber-100"
+            >
+              {verificationSubmitting ? "Submitting…" : "Submit for Verification"}
+            </Button>
           )}
         </SportsDetailsSection>
       ) : null}

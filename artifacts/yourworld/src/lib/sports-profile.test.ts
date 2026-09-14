@@ -93,7 +93,45 @@ test("Sports Details renders real fields and owner document controls without the
   assert.match(html, /Top scorer/);
   assert.match(html, /sports-document-upload/);
   assert.match(html, /Delete certificate\.pdf/);
+  assert.match(html, /Sports Introduction/);
+  assert.match(html, /I Agree to the Terms &amp; Conditions/);
+  assert.match(html, /Submit for Verification/);
+  assert.match(html, /disabled/);
+  assert.ok(html.indexOf(">Documents<") < html.indexOf(">Sports Introduction<"));
+  assert.ok(html.indexOf(">Sports Introduction<") < html.indexOf(">Terms &amp; Conditions<"));
   assert.doesNotMatch(html, /YOURWORLD VERIFIED SPORTS PROFILE/);
+});
+
+test("Sports Introduction metadata persists without creating a Reel", () => {
+  const bio = serializeSportsProfileBio("", {
+    username: "player",
+    role: "Player",
+    sport: "Handball",
+    eventPosition: "",
+    representation: "National",
+    tournaments: [],
+    medals: [],
+    achievements: "",
+    coachName: "",
+    coachQualification: "",
+    qualificationYear: "",
+    institution: "",
+    coachingExperience: "",
+    teamDetails: "",
+    sportsIntroductionPath: "player/sports-introduction/intro.mp4",
+  });
+  const parsed = getSportsProfile({
+    is_verified: false,
+    verification_requested: true,
+    category: "Player · Handball",
+    bio,
+    location: "",
+  });
+
+  assert.match(bio, /Sports Introduction: player\/sports-introduction\/intro\.mp4/);
+  assert.equal(parsed?.sportsIntroductionPath, "player/sports-introduction/intro.mp4");
+  assert.equal(parsed?.verificationRequested, true);
+  assert.doesNotMatch(bio, /Reel|Post|Moment/);
 });
 
 test("structured tournament entries persist independently for Players and Coaches", () => {
