@@ -959,6 +959,8 @@ export function SportsDetailsPanel({
                 data-testid="sports-introduction-video"
                 src={sportsIntroductionUrl}
                 controls
+                controlsList="nodownload noplaybackrate"
+                disablePictureInPicture
                 playsInline
                 preload="metadata"
                 className="aspect-[9/16] max-h-80 w-full rounded-2xl border border-amber-200/15 bg-black object-contain"
