@@ -6,7 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { dmThreadId } from "@/lib/social-data";
 import { resolveMediaUrl, type DbPost } from "@/lib/social-data";
 import { useResolvedMedia } from "@/lib/profile-data";
-import { fetchIsFollowing, useFollowCounts, setFollow, isRealUserId } from "@/lib/follow-data";
+import { useFollowCounts, isRealUserId } from "@/lib/follow-data";
 import { FollowListDialog } from "@/components/yw/FollowListDialog";
 import { VideoPoster } from "@/components/yw/VideoPoster";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -14,6 +14,7 @@ import { formatCount } from "@/lib/yw-data";
 import { cn } from "@/lib/utils";
 import { useChatNames } from "@/lib/chat-names";
 import { fetchOrbitProfileRow, rowToOrbitProfile } from "@/lib/orbit-live";
+import { useYw } from "@/lib/yw-store";
 
 export const Route = createFileRoute("/u/$userId")({
   head: () => ({
@@ -53,12 +54,12 @@ function PublicProfilePage() {
   const [posts, setPosts] = useState<DbPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [me, setMe] = useState<string | null>(null);
-  const [isFollowing, setIsFollowing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [listOpen, setListOpen] = useState(false);
   const [listTab, setListTab] = useState<"followers" | "following">("followers");
 
   const counts = useFollowCounts(isRealUserId(userId) ? userId : null);
+  const { following, toggleFollow } = useYw();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -66,7 +67,7 @@ function PublicProfilePage() {
     const uid = s.session?.user.id ?? null;
     setMe(uid);
 
-    const [{ data: rows }, { data: myPosts }, orbitRow, followsTarget] = await Promise.all([
+    const [{ data: rows }, { data: myPosts }, orbitRow] = await Promise.all([
       supabase.rpc("get_public_profiles", { ids: [userId] }),
       supabase
         .from("posts")
@@ -75,9 +76,6 @@ function PublicProfilePage() {
         .order("created_at", { ascending: false })
         .limit(100),
       fetchOrbitProfileRow(userId),
-      uid && uid !== userId
-        ? fetchIsFollowing(userId, uid).catch(() => false)
-        : Promise.resolve(false),
     ]);
 
     const row = (rows ?? [])[0] as
@@ -101,7 +99,6 @@ function PublicProfilePage() {
     };
     setProfile(next);
     setPosts((myPosts ?? []) as DbPost[]);
-    setIsFollowing(followsTarget);
     setAvatarSrc(next.avatar_url ? await resolveMediaUrl(next.avatar_url, "avatars") : null);
     setLoading(false);
   }, [userId]);
@@ -118,14 +115,13 @@ function PublicProfilePage() {
   const onFollow = async () => {
     if (busy) return;
     setBusy(true);
-    const next = !isFollowing;
-    setIsFollowing(next);
     try {
-      await setFollow(userId, next);
+      const wasFollowing = Boolean(following[userId]);
+      const changed = await toggleFollow(userId);
+      if (!changed) return;
       void counts.reload();
-      toast.success(next ? `Following @${profile?.username}` : "Unfollowed");
+      toast.success(wasFollowing ? "Unfollowed" : `Following @${profile?.username}`);
     } catch (e) {
-      setIsFollowing(!next);
       toast.error(e instanceof Error ? e.message : "Couldn't update follow");
     } finally {
       setBusy(false);
@@ -235,10 +231,10 @@ function PublicProfilePage() {
             disabled={busy || counts.unavailable}
             className={cn(
               "flex-1 rounded-xl py-2 text-xs font-bold transition-all active:scale-[0.98] disabled:opacity-60",
-              isFollowing ? "bg-zinc-800 text-white" : "bg-pink-500 text-white",
+              following[userId] ? "bg-zinc-800 text-white" : "bg-pink-500 text-white",
             )}
           >
-            {counts.unavailable ? "Follow unavailable" : isFollowing ? "Following" : "Follow"}
+            {counts.unavailable ? "Follow unavailable" : following[userId] ? "Following" : "Follow"}
           </button>
           <button
             type="button"

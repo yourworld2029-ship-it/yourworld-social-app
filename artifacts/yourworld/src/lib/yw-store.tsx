@@ -33,7 +33,7 @@ type Store = {
   following: Toggles;
   toggleLike: (id: string) => void;
   toggleSave: (id: string) => void;
-  toggleFollow: (id: string) => void;
+  toggleFollow: (id: string) => Promise<boolean>;
   drafts: Draft[];
   addDraft: (d: Draft) => void;
   removeDraft: (id: string) => void;
@@ -57,7 +57,9 @@ export function YwStoreProvider({ children }: { children: ReactNode }) {
   const [following, setFollowing] = useState<Toggles>({});
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const meRef = useRef<string | null>(null);
-
+  const followingRef = useRef<Toggles>({});
+  const pendingFollowTargetsRef = useRef(new Map<string, boolean>());
+  const followMutationsRef = useRef(new Map<string, Promise<boolean>>());
 
   // Database state is authoritative for likes, saves, and follows.
   useEffect(() => {
@@ -71,6 +73,8 @@ export function YwStoreProvider({ children }: { children: ReactNode }) {
           setLiked({});
           setSaved({});
           setFollowing({});
+          followingRef.current = {};
+          pendingFollowTargetsRef.current.clear();
           return;
         }
         const [likes, saves, follows] = await Promise.all([
@@ -83,7 +87,13 @@ export function YwStoreProvider({ children }: { children: ReactNode }) {
           Object.fromEntries((rows ?? []).map((row) => [row.post_id, true]));
         setLiked(toToggles(likes.data as { post_id: string }[] | null));
         setSaved(toToggles(saves.data as { post_id: string }[] | null));
-        setFollowing(Object.fromEntries(follows.map((id) => [id, true])));
+        const nextFollowing = Object.fromEntries(follows.map((id) => [id, true]));
+        pendingFollowTargetsRef.current.forEach((on, id) => {
+          if (on) nextFollowing[id] = true;
+          else delete nextFollowing[id];
+        });
+        followingRef.current = nextFollowing;
+        setFollowing(nextFollowing);
       } catch {
         /* offline / signed out */
       }
@@ -160,17 +170,40 @@ export function YwStoreProvider({ children }: { children: ReactNode }) {
     [persistToggle],
   );
 
-  const toggleFollow = useCallback((id: string) => {
-    if (!isRealUserId(id)) {
-      return;
-    }
-    const next = !following[id];
-    setFollowing((current) => ({ ...current, [id]: next }));
-    void setFollow(id, next).catch((e: unknown) => {
-      setFollowing((current) => ({ ...current, [id]: !next }));
-      toast.error(e instanceof Error ? e.message : "Couldn't update follow");
-    });
-  }, [following]);
+  const toggleFollow = useCallback(async (id: string) => {
+    if (!isRealUserId(id)) return false;
+    const inFlight = followMutationsRef.current.get(id);
+    if (inFlight) return inFlight;
+
+    const next = !followingRef.current[id];
+    const optimisticFollowing = { ...followingRef.current, [id]: next };
+    followingRef.current = optimisticFollowing;
+    setFollowing(optimisticFollowing);
+    pendingFollowTargetsRef.current.set(id, next);
+
+    const mutation = (async () => {
+      try {
+        await setFollow(id, next);
+        return true;
+      } catch (e: unknown) {
+        const revertedFollowing = { ...followingRef.current };
+        if (next) {
+          delete revertedFollowing[id];
+        } else {
+          revertedFollowing[id] = true;
+        }
+        followingRef.current = revertedFollowing;
+        setFollowing(revertedFollowing);
+        toast.error(e instanceof Error ? e.message : "Couldn't update follow");
+        return false;
+      } finally {
+        pendingFollowTargetsRef.current.delete(id);
+        followMutationsRef.current.delete(id);
+      }
+    })();
+    followMutationsRef.current.set(id, mutation);
+    return mutation;
+  }, []);
   const addDraft = useCallback((d: Draft) => setDrafts((p) => [d, ...p]), []);
   const removeDraft = useCallback(
     (id: string) => setDrafts((p) => p.filter((x) => x.id !== id)),
