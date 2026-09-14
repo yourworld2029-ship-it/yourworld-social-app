@@ -20,7 +20,6 @@ import {
   Eye,
   Heart,
   Lock,
-  MessageCircle,
   Reply,
   Send,
   Share2,
@@ -1148,11 +1147,8 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
 
         {relatedVideos.length ? (
           <section className="border-t border-white/10 pt-5">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-base font-bold text-white">Related videos</h2>
-              <MessageCircle className="h-4 w-4 text-gray-500" />
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <h2 className="mb-3 text-base font-bold text-white">Next videos</h2>
+            <div className="space-y-4">
               {relatedVideos.map((related) => {
                 const relatedTitle = related.title || related.caption || "Untitled Video";
                 const relatedCreator =
@@ -1172,9 +1168,9 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
                         params: { videoId: String(related.id) },
                       });
                     }}
-                    className="group text-left"
+                    className="group flex w-full gap-3 text-left"
                   >
-                    <div className="relative aspect-video overflow-hidden rounded-xl bg-zinc-900">
+                    <div className="relative aspect-video w-40 shrink-0 overflow-hidden rounded-xl bg-zinc-900 sm:w-56">
                       <VideoPoster
                         thumbnailUrl={related.thumbnail_url}
                         mediaUrl={relatedMedia}
@@ -1186,12 +1182,14 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
                         </span>
                       ) : null}
                     </div>
-                    <h3 className="mt-2 line-clamp-2 text-sm font-semibold text-white group-hover:text-pink-300">
-                      {relatedTitle}
-                    </h3>
-                    <p className="mt-1 line-clamp-1 text-xs text-gray-400">
-                      {relatedCreator} · {formatViews(Number(related.views_count || related.views || 0))}
-                    </p>
+                    <div className="min-w-0 pt-0.5">
+                      <h3 className="line-clamp-2 text-sm font-semibold text-white group-hover:text-pink-300">
+                        {relatedTitle}
+                      </h3>
+                      <p className="mt-1 line-clamp-2 text-xs text-gray-400">
+                        {relatedCreator} · {formatViews(Number(related.views_count || related.views || 0))}
+                      </p>
+                    </div>
                   </button>
                 );
               })}
