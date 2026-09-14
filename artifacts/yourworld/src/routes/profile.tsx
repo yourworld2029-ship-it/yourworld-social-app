@@ -113,7 +113,20 @@ export const Route = createFileRoute("/profile")({
 const SPORTS_VERIFICATION_TEST_DELAY_MS = 2 * 60 * 1000;
 
 function ProfilePage() {
-  const { profile, avatarSrc, coverSrc, grid, reels, posts, savedPosts, loading, save, userId, reload } =
+  const {
+    profile,
+    avatarSrc,
+    coverSrc,
+    grid,
+    reels,
+    posts,
+    savedPosts,
+    loading,
+    mediaLoading,
+    save,
+    userId,
+    reload,
+  } =
     useMyProfile();
   const navigate = useNavigate();
   const [editOpen, setEditOpen] = useState(false);
@@ -636,7 +649,7 @@ function ProfilePage() {
           </div>
 
           <dl data-testid="stats-profile" className="mt-6 grid grid-cols-3 divide-x divide-white/10 rounded-2xl border border-white/10 bg-black/20 py-3.5 text-center">
-            <Stat label="Posts" value={formatCount(posts.length)} />
+            <Stat label="Posts" value={mediaLoading ? "—" : formatCount(posts.length)} />
             <Stat label="Followers" value={counts.followers === null ? "—" : formatCount(counts.followers)} onClick={() => { setListTab("followers"); setListOpen(true); }} />
             <Stat label="Following" value={counts.following === null ? "—" : formatCount(counts.following)} onClick={() => { setListTab("following"); setListOpen(true); }} />
           </dl>
@@ -721,7 +734,7 @@ function ProfilePage() {
               }))}
             />
           ) : (
-            <Empty text={loading ? "Loading your posts…" : "No posts yet. Create your first one."} />
+            <Empty text={mediaLoading ? "Loading your posts…" : "No posts yet. Create your first one."} />
           )}
         </TabsContent>
         <TabsContent value="reels" className="mt-0">
@@ -737,7 +750,7 @@ function ProfilePage() {
               }))}
             />
           ) : (
-            <Empty text={loading ? "Loading reels…" : "No reels yet."} />
+            <Empty text={mediaLoading ? "Loading reels…" : "No reels yet."} />
           )}
         </TabsContent>
         <TabsContent value="saved" className="mt-0">
