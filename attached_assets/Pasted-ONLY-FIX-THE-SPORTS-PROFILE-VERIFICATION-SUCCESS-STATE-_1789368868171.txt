@@ -1,0 +1,46 @@
+ONLY FIX THE SPORTS PROFILE VERIFICATION SUCCESS STATE AND TERMS UI.
+
+Do not change anything else in the app. Do not touch Profile layout, Chat, Moments, Feed, Reels, Videos, Navigation, Sports fields, documents, or existing data.
+
+1. TERMS & CONDITIONS UI:
+   - Keep all existing legal text and checkbox.
+   - Make the Terms & Conditions section much more compact, clean and premium.
+   - Do not show a huge scroll box taking most of the screen.
+   - Show the terms in a neat premium card with readable spacing.
+   - Keep "I Agree to the Terms & Conditions" clearly visible.
+   - Keep the current dark/gold YourWorld design.
+
+2. VERIFICATION SUBMISSION:
+   When the user has completed all required Sports Details, uploaded the required document(s), uploaded the Sports Introduction video, checked "I Agree", and submits:
+   - Save verification as Pending.
+   - For TESTING ONLY, automatically change Pending → Verified after 2 minutes.
+   - The user must NOT need to click "Managed by review".
+   - Refresh/re-fetch the verification state automatically after 2 minutes.
+
+3. SUCCESS STATE:
+   After verification becomes Verified:
+   - Replace "Pending Verification" with a premium green/gold "✓ VERIFIED" success state.
+   - Show a short success message such as:
+     "Sports Profile Verified Successfully"
+   - Do not show the pending state anymore.
+
+4. PROFILE BADGE:
+   Once verification = verified:
+   - Role = Player + Status = International → show "INTERNATIONAL PLAYER"
+   - Role = Player + Status = National → show "NATIONAL PLAYER"
+   - Role = Coach + Status = International → show "INTERNATIONAL COACH"
+   - Role = Coach + Status = National → show "NATIONAL COACH"
+   - Do not show any verified badge before verification.
+
+5. IMPORTANT:
+   - Use the existing verification/database fields.
+   - Do not create mock data.
+   - Do not create a second verification system.
+   - Keep the user's editable bio completely separate from the verified sports status.
+   - Keep the current profile design unchanged except for the verified status appearing after successful verification.
+
+6. This 2-minute verification is temporary testing logic and must be easy to change later to 48-hour/manual review.
+
+7. Verify TypeScript/build after making the changes.
+
+Make ONLY these changes. Smallest possible root-cause fix.

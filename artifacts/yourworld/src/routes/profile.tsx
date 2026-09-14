@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import type React from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Settings,
   Play,
@@ -46,6 +46,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 import { YwAvatar } from "@/components/yw/Avatar";
 import { Bio } from "@/components/yw/Bio";
 import { EditProfileSheet, type ProfileEdit } from "@/components/yw/EditProfileSheet";
@@ -102,6 +103,9 @@ export const Route = createFileRoute("/profile")({
   component: ProfilePage,
 });
 
+// Temporary testing-only timing. Change this constant when manual review returns.
+const SPORTS_VERIFICATION_TEST_DELAY_MS = 2 * 60 * 1000;
+
 function ProfilePage() {
   const { profile, avatarSrc, coverSrc, grid, reels, posts, savedPosts, loading, save, userId, reload } =
     useMyProfile();
@@ -128,6 +132,15 @@ function ProfilePage() {
   const [sportsIntroductionUploading, setSportsIntroductionUploading] = useState(false);
   const [sportsIntroductionProgress, setSportsIntroductionProgress] = useState(0);
   const [sportsVerificationSubmitting, setSportsVerificationSubmitting] = useState(false);
+  const sportsVerificationTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (sportsVerificationTimer.current !== null) {
+        window.clearTimeout(sportsVerificationTimer.current);
+      }
+    };
+  }, []);
 
   const openManage = (post: DbPost) => {
     setManage(post);
@@ -394,6 +407,22 @@ function ProfilePage() {
         ...editValue,
         verificationRequested: true,
       });
+      sportsVerificationTimer.current = window.setTimeout(async () => {
+        sportsVerificationTimer.current = null;
+        try {
+          const { error } = await supabase
+            .from("profiles")
+            .update({ is_verified: true, verification_requested: false })
+            .eq("id", userId);
+          if (error) throw new Error(error.message);
+          await reload();
+          toast.success("Sports Profile Verified Successfully");
+        } catch (error) {
+          toast.error(
+            error instanceof Error ? error.message : "Sports Profile verification could not be completed.",
+          );
+        }
+      }, SPORTS_VERIFICATION_TEST_DELAY_MS);
       toast.success("Verification request submitted");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Couldn't submit for verification.");

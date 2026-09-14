@@ -1025,12 +1025,17 @@ export function SportsDetailsPanel({
           title="Terms & Conditions"
           description="Review these requirements before submitting your Sports Profile for verification."
         >
-          <details open className="rounded-2xl border border-white/10 bg-white/[0.035]">
-            <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-amber-100">
-              Verification terms
+          <details className="rounded-2xl border border-amber-200/15 bg-gradient-to-br from-amber-200/[0.08] via-white/[0.035] to-transparent">
+            <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-amber-100">
+              <span className="flex items-center justify-between gap-3">
+                <span>Verification terms</span>
+                <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                  Tap to read
+                </span>
+              </span>
             </summary>
-            <div className="max-h-56 overflow-y-auto border-t border-white/10 px-4 py-3">
-              <ul className="list-disc space-y-2 pl-5 text-sm leading-6 text-zinc-300">
+            <div className="border-t border-white/10 px-4 py-3">
+              <ul className="list-disc space-y-1.5 pl-5 text-xs leading-5 text-zinc-300">
                 <li>I confirm that all information submitted by me is true and accurate.</li>
                 <li>
                   I am responsible for the authenticity of my certificates, achievements and sports
@@ -1068,12 +1073,13 @@ export function SportsDetailsPanel({
             <span>I Agree to the Terms &amp; Conditions</span>
           </label>
           {profile.verified ? (
-            <p
+            <div
               data-testid="sports-verification-status"
-              className="mt-4 rounded-2xl border border-emerald-200/20 bg-emerald-300/[0.08] px-4 py-3 text-sm text-emerald-100"
+              className="mt-4 rounded-2xl border border-emerald-200/30 bg-gradient-to-r from-emerald-300/[0.16] via-amber-200/[0.08] to-transparent px-4 py-3"
             >
-              Verified Sports Profile
-            </p>
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-200">✓ Verified</p>
+              <p className="mt-1 text-sm font-semibold text-white">Sports Profile Verified Successfully</p>
+            </div>
           ) : profile.verificationRequested ? (
             <p
               data-testid="sports-verification-status"
