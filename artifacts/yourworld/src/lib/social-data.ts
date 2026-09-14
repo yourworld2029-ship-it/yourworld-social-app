@@ -1019,6 +1019,58 @@ export async function ensureThreadConversation(
   return created.data as unknown as ConversationRow;
 }
 
+/** Live unread incoming-message count for the authenticated user. */
+export function useUnreadMessageCount() {
+  const [count, setCount] = useState(0);
+  const meRef = useRef<string | null>(null);
+
+  const reload = useCallback(async () => {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const uid = sessionData.session?.user.id ?? null;
+    meRef.current = uid;
+    if (!uid) {
+      setCount(0);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("messages" as never)
+      .select("id" as never)
+      .eq("receiver_id" as never, uid)
+      .eq("is_read" as never, false);
+    if (!error) setCount(Array.isArray(data) ? data.length : 0);
+  }, []);
+
+  useEffect(() => {
+    void reload();
+    const channel = supabase
+      .channel(`chat-unread-${Math.random().toString(36).slice(2)}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, (payload) => {
+        const row = (payload.new ?? payload.old) as { receiver_id?: string } | null;
+        if (row?.receiver_id === meRef.current) void reload();
+      })
+      .subscribe();
+    const onLocalRead = () => void reload();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void reload();
+    };
+    const onAuthChange = () => void reload();
+    window.addEventListener("yw:chat-unread-changed", onLocalRead);
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("online", onVisible);
+    const { data: auth } = supabase.auth.onAuthStateChange(onAuthChange);
+    return () => {
+      window.removeEventListener("yw:chat-unread-changed", onLocalRead);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("online", onVisible);
+      auth.subscription.unsubscribe();
+      void supabase.removeChannel(channel);
+    };
+  }, [reload]);
+
+  return count;
+}
+
 /** Live public.messages records for the canonical two-person route id. */
 export function useThreadMessages(threadId: string, _opts: { staleTime?: number } = {}) {
   const pair = useMemo(() => dmThreadPair(threadId), [threadId]);
@@ -1397,6 +1449,9 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     if (!me || !ids.length) return;
     const { error: updateError } = await supabase.from("messages" as never).update({ is_read: true } as never).in("id", ids).eq("receiver_id", me);
     if (updateError) { setError(updateError.message); return; }
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("yw:chat-unread-changed"));
+    }
     const viewedAt = new Date().toISOString();
     const { error: viewedError } = await supabase
       .from("messages" as never)

@@ -1,5 +1,6 @@
 import { Link, useLocation } from "@tanstack/react-router";
 import { Home, Film, MessageSquare, User, Plus } from "lucide-react";
+import { useUnreadMessageCount } from "@/lib/social-data";
 
 interface BottomNavProps {
   onOpenCreate?: () => void;
@@ -7,6 +8,7 @@ interface BottomNavProps {
 
 export function BottomNav({ onOpenCreate }: BottomNavProps) {
   const location = useLocation();
+  const unreadMessages = useUnreadMessageCount();
 
   // Hide bottom nav completely when on /create route
   if (location.pathname === "/create") {
@@ -38,8 +40,19 @@ export function BottomNav({ onOpenCreate }: BottomNavProps) {
           <Plus className="w-6 h-6 stroke-[3]" />
         </button>
 
-        <Link to="/chat" className="flex flex-col items-center gap-1 text-[10px] text-zinc-400 hover:text-white">
-          <MessageSquare className="w-5 h-5" />
+        <Link
+          to="/chat"
+          aria-label={unreadMessages > 0 ? `Chat, ${unreadMessages} unread` : "Chat"}
+          className="flex flex-col items-center gap-1 text-[10px] text-zinc-400 hover:text-white"
+        >
+          <span className="relative">
+            <MessageSquare className="w-5 h-5" />
+            {unreadMessages > 0 ? (
+              <span className="absolute -right-2 -top-2 min-w-4 rounded-full bg-pink-600 px-1 text-center text-[9px] font-bold leading-4 text-white">
+                {unreadMessages > 99 ? "99+" : unreadMessages}
+              </span>
+            ) : null}
+          </span>
           <span>Chat</span>
         </Link>
 

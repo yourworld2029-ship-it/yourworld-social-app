@@ -20,3 +20,9 @@ After a clear reset, invalidate any in-flight message fetch, pagination request,
 **Why:** Realtime deletion and an earlier fetch can complete in either order; without a generation check, a successful stale fetch can visually resurrect messages that the clear RPC already removed.
 
 **How to apply:** Increment a per-hook clear generation on local and remote resets, capture it when loading, and discard results whose generation no longer matches. Clear pending expiry timers at the same reset boundary.
+
+Unread chat indicators should derive from incoming `messages.is_read` rows for the authenticated receiver, with realtime message updates plus an immediate local event after read mutations so navigation badges do not lag behind an opened thread.
+
+**Why:** The chat list already had per-thread unread data, but the global navigation had no shared count and could remain stale until a later reload.
+
+**How to apply:** Keep the global badge read-only; let thread opening continue to call the existing `markRead` path and refresh the badge from the database after inserts, read updates, auth changes, visibility changes, or reconnects.
