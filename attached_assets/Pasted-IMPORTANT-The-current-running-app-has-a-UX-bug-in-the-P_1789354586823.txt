@@ -1,0 +1,50 @@
+IMPORTANT: The current running app has a UX bug in the Profile Sports section.
+
+I can see that tapping multiple different Sports UI elements opens the SAME "Premium Sports Profile" promotional page.
+
+STOP ALL UNRELATED WORK.
+
+ONLY fix this Sports Profile click behavior.
+
+1. REMOVE the "Premium Sports Profile" promotional modal/page from the normal Sports Profile interaction.
+
+2. On the Profile page, there must be EXACTLY ONE clickable entry for Sports Details:
+   → the main "Sports Identity / Sports Details" card.
+
+3. The following must NOT open the promotional page:
+   → PLAYER PROFILE badge
+   → Sport value
+   → Role value
+   → Verification status
+   → any other individual Sports information/column
+
+4. The "PLAYER PROFILE" badge must be display-only.
+
+5. Tapping the main Sports Identity / Sports Details card must open the REAL editable Sports Details screen, NOT a promo/information page.
+
+6. Inside the real Sports Details screen:
+   → Player / Coach selection must work
+   → Sports information must remain editable
+   → Sports ID must NOT exist
+   → Documents must remain functional
+   → document delete must remain functional
+
+7. DO NOT create another Sports Details page.
+8. DO NOT create another route.
+9. DO NOT create duplicate Sports components.
+10. DO NOT change Chat, Moments, Reels, Videos, Feed, Navigation, Authentication, or unrelated UI.
+11. Do not use mock data.
+
+CRITICAL:
+First trace the actual rendered Profile component and its click handlers.
+Fix the ROOT CAUSE of the duplicate click handlers.
+Do not simply hide the promo visually.
+
+FINAL TEST IN THE ACTUAL RUNNING PREVIEW:
+Profile → tap Sports Identity card → REAL Sports Details opens.
+Profile → tap Player Profile badge → NOTHING opens.
+Profile → tap Sport/Role/Verification values → NOTHING opens.
+
+There must be ONE Sports Details entry and ZERO unwanted Premium Sports Profile promo openings.
+
+Only report completion after verifying this behavior in the actual rendered Preview.
