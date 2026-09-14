@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { createFileRoute, useNavigate, useParams } from "@tanstack/react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
   ArrowLeft,
@@ -44,7 +44,6 @@ import { useYw } from "@/lib/yw-store";
 import { formatDuration, formatViews } from "@/lib/video-data";
 import { resolveLongVideoUrl } from "@/lib/video-data";
 import { usePostComments } from "@/lib/social-data";
-import { fetchIsFollowing, setFollow } from "@/lib/follow-data";
 import { registerUniqueView } from "@/lib/unique-views";
 import { supabase } from "@/integrations/supabase/client";
 import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadSheet";
@@ -200,7 +199,7 @@ function VideoWatchPage() {
 function VideoWatchContent({ videoId }: { videoId: string }) {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { liked, saved, toggleLike, toggleSave } = useYw();
+  const { liked, saved, following, toggleLike, toggleSave, toggleFollow } = useYw();
   const queryClient = useQueryClient();
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -272,19 +271,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   });
 
   const creatorId = video?.user_id || video?.user?.id || "";
-  const { data: subscribed = false } = useQuery<boolean>({
-    queryKey: ["video-subscription", creatorId, user?.id],
-    queryFn: async () => {
-      if (!creatorId || !user?.id || creatorId === user.id) return false;
-      try {
-        return await fetchIsFollowing(creatorId, user.id);
-      } catch (cause) {
-        console.error("Error fetching subscription:", cause);
-        return false;
-      }
-    },
-    enabled: Boolean(creatorId && user?.id && creatorId !== user.id),
-  });
+  const subscribed = Boolean(creatorId && following[creatorId]);
 
   const { data: subscriberCount = 0 } = useQuery<number>({
     queryKey: ["video-subscriber-count", creatorId],
@@ -373,48 +360,21 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     },
   });
 
-  const subscribeMutation = useMutation({
-    mutationFn: async () => {
-      if (!user?.id) throw new Error("Sign in to subscribe");
-      if (!creatorId || creatorId === user.id) throw new Error("You can't subscribe to yourself");
-      return setFollow(creatorId, !subscribed);
-    },
-    onMutate: async () => {
-      await queryClient.cancelQueries({ queryKey: ["video-subscription", creatorId, user?.id] });
-      await queryClient.cancelQueries({ queryKey: ["video-subscriber-count", creatorId] });
-      const previousSubscribed = queryClient.getQueryData<boolean>([
-        "video-subscription",
-        creatorId,
-        user?.id,
-      ]);
-      const previousCount = queryClient.getQueryData<number>([
-        "video-subscriber-count",
-        creatorId,
-      ]);
-      queryClient.setQueryData(["video-subscription", creatorId, user?.id], !subscribed);
-      queryClient.setQueryData(
-        ["video-subscriber-count", creatorId],
-        Math.max(0, (previousCount ?? subscriberCount) + (subscribed ? -1 : 1)),
-      );
-      return { previousSubscribed, previousCount };
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["video-subscription", creatorId, user?.id] });
-      void queryClient.invalidateQueries({ queryKey: ["video-subscriber-count", creatorId] });
-      toast.success(subscribed ? "Unfollowed" : "Followed");
-    },
-    onError: (cause, _variables, context) => {
-      queryClient.setQueryData(
-        ["video-subscription", creatorId, user?.id],
-        context?.previousSubscribed ?? subscribed,
-      );
-      queryClient.setQueryData(
-        ["video-subscriber-count", creatorId],
-        context?.previousCount ?? subscriberCount,
-      );
-      toast.error(cause instanceof Error ? cause.message : "Couldn't update subscription");
-    },
-  });
+  const handleSubscribe = async () => {
+    if (!user?.id) {
+      toast.error("Sign in to subscribe");
+      return;
+    }
+    if (!creatorId || creatorId === user.id) {
+      toast.error("You can't subscribe to yourself");
+      return;
+    }
+    const wasSubscribed = subscribed;
+    const changed = await toggleFollow(creatorId);
+    if (!changed) return;
+    void queryClient.invalidateQueries({ queryKey: ["video-subscriber-count", creatorId] });
+    toast.success(wasSubscribed ? "Unfollowed" : "Followed");
+  };
 
   const viewRecordedRef = useRef(false);
   useEffect(() => {
@@ -1037,9 +997,9 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
             className="shrink-0 rounded-full bg-pink-600 px-3 text-xs text-white hover:bg-pink-700 disabled:opacity-50"
             onClick={(event) => {
               event.stopPropagation();
-              subscribeMutation.mutate();
+              void handleSubscribe();
             }}
-            disabled={!user || creatorId === user.id || subscribeMutation.isPending}
+            disabled={!user || creatorId === user.id}
             size="sm"
           >
             {subscribed ? (
