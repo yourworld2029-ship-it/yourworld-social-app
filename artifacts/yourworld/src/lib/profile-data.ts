@@ -41,6 +41,33 @@ export type SportsDocument = {
   updatedAt: string | null;
 };
 
+export type SportsVerificationEvidenceKind =
+  | "sportsCertificate"
+  | "passportFirstPage"
+  | "passportVisaStampPage"
+  | "tournamentPhoto";
+
+export type SportsVerificationEvidence = {
+  path: string;
+  name: string;
+  mimeType: string;
+  size: number | null;
+  updatedAt: string | null;
+};
+
+export type SportsVerificationDetails = {
+  villageTown: string;
+  district: string;
+  state: string;
+  country: string;
+  mobileNumber: string;
+  email: string;
+  sportsCertificate: SportsVerificationEvidence | null;
+  passportFirstPage: SportsVerificationEvidence | null;
+  passportVisaStampPage: SportsVerificationEvidence | null;
+  tournamentPhoto: SportsVerificationEvidence | null;
+};
+
 type StorageDocument = {
   id: string | null;
   name: string;
@@ -74,6 +101,175 @@ async function requireDocumentOwner(ownerId: string) {
   if (data.session?.user.id !== ownerId) {
     throw new Error("Only the document owner can access sports documents.");
   }
+}
+
+function evidenceFromPath(
+  path: string | null,
+  kind: SportsVerificationEvidenceKind,
+): SportsVerificationEvidence | null {
+  if (!path) return null;
+  return {
+    path,
+    name: path.split("/").at(-1) || kind,
+    mimeType: "application/octet-stream",
+    size: null,
+    updatedAt: null,
+  };
+}
+
+function emptySportsVerificationDetails(email = "", mobileNumber = ""): SportsVerificationDetails {
+  return {
+    villageTown: "",
+    district: "",
+    state: "",
+    country: "India",
+    mobileNumber,
+    email,
+    sportsCertificate: null,
+    passportFirstPage: null,
+    passportVisaStampPage: null,
+    tournamentPhoto: null,
+  };
+}
+
+export async function getSportsVerificationDetails(ownerId: string): Promise<SportsVerificationDetails> {
+  await requireDocumentOwner(ownerId);
+  const { data: sessionData } = await supabase.auth.getSession();
+  const sessionEmail = sessionData.session?.user.email ?? "";
+  const sessionMobile = sessionData.session?.user.phone ?? "";
+  const { data, error } = await supabase
+    .from("sports_verification_details")
+    .select("*")
+    .eq("user_id", ownerId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) return emptySportsVerificationDetails(sessionEmail, sessionMobile);
+
+  return {
+    villageTown: data.village_town ?? "",
+    district: data.district ?? "",
+    state: data.state ?? "",
+    country: data.country || "India",
+    mobileNumber: sessionMobile || data.mobile_number || "",
+    email: sessionEmail || data.email || "",
+    sportsCertificate: evidenceFromPath(data.sports_certificate_path, "sportsCertificate"),
+    passportFirstPage: evidenceFromPath(data.passport_first_page_path, "passportFirstPage"),
+    passportVisaStampPage: evidenceFromPath(
+      data.passport_visa_stamp_page_path,
+      "passportVisaStampPage",
+    ),
+    tournamentPhoto: evidenceFromPath(data.tournament_photo_path, "tournamentPhoto"),
+  };
+}
+
+export async function saveSportsVerificationDetails(
+  ownerId: string,
+  details: SportsVerificationDetails,
+): Promise<SportsVerificationDetails> {
+  await requireDocumentOwner(ownerId);
+  const { data: sessionData } = await supabase.auth.getSession();
+  const sessionEmail = sessionData.session?.user.email ?? "";
+  const sessionMobile = sessionData.session?.user.phone ?? "";
+  const payload = {
+    user_id: ownerId,
+    village_town: details.villageTown.trim(),
+    district: details.district.trim(),
+    state: details.state.trim(),
+    country: details.country.trim() || "India",
+    mobile_number: sessionMobile || details.mobileNumber.trim(),
+    email: sessionEmail || details.email.trim(),
+    sports_certificate_path: details.sportsCertificate?.path ?? null,
+    passport_first_page_path: details.passportFirstPage?.path ?? null,
+    passport_visa_stamp_page_path: details.passportVisaStampPage?.path ?? null,
+    tournament_photo_path: details.tournamentPhoto?.path ?? null,
+    updated_at: new Date().toISOString(),
+  };
+  const { data, error } = await supabase
+    .from("sports_verification_details")
+    .upsert(payload)
+    .select("*")
+    .single();
+  if (error) throw new Error(error.message);
+
+  return {
+    villageTown: data.village_town,
+    district: data.district,
+    state: data.state,
+    country: data.country || "India",
+    mobileNumber: sessionMobile || data.mobile_number,
+    email: sessionEmail || data.email,
+    sportsCertificate: evidenceFromPath(data.sports_certificate_path, "sportsCertificate"),
+    passportFirstPage: evidenceFromPath(data.passport_first_page_path, "passportFirstPage"),
+    passportVisaStampPage: evidenceFromPath(
+      data.passport_visa_stamp_page_path,
+      "passportVisaStampPage",
+    ),
+    tournamentPhoto: evidenceFromPath(data.tournament_photo_path, "tournamentPhoto"),
+  };
+}
+
+const verificationEvidenceRules: Record<
+  SportsVerificationEvidenceKind,
+  { allowedTypes: Set<string>; maxBytes: number; message: string }
+> = {
+  sportsCertificate: {
+    allowedTypes: new Set(["application/pdf", "image/jpeg", "image/png"]),
+    maxBytes: 15 * 1024 * 1024,
+    message: "Upload a PDF, JPG, or PNG sports certificate up to 15 MB.",
+  },
+  passportFirstPage: {
+    allowedTypes: new Set(["application/pdf", "image/jpeg", "image/png"]),
+    maxBytes: 15 * 1024 * 1024,
+    message: "Upload a PDF, JPG, or PNG passport page up to 15 MB.",
+  },
+  passportVisaStampPage: {
+    allowedTypes: new Set(["application/pdf", "image/jpeg", "image/png"]),
+    maxBytes: 15 * 1024 * 1024,
+    message: "Upload a PDF, JPG, or PNG visa/stamp page up to 15 MB.",
+  },
+  tournamentPhoto: {
+    allowedTypes: new Set(["image/jpeg", "image/png", "image/webp"]),
+    maxBytes: 15 * 1024 * 1024,
+    message: "Upload a JPG, PNG, or WebP tournament photo up to 15 MB.",
+  },
+};
+
+export async function uploadSportsVerificationEvidence(
+  ownerId: string,
+  kind: SportsVerificationEvidenceKind,
+  file: File,
+): Promise<SportsVerificationEvidence> {
+  await requireDocumentOwner(ownerId);
+  const rule = verificationEvidenceRules[kind];
+  if (!rule.allowedTypes.has(file.type) || file.size > rule.maxBytes) {
+    throw new Error(rule.message);
+  }
+
+  const name = safeDocumentFileName(file.name);
+  const path = `${ownerId}/sports-verification/${kind}/${Date.now()}-${name}`;
+  const { error } = await supabase.storage.from(STORAGE_BUCKETS.documents).upload(path, file, {
+    cacheControl: "3600",
+    contentType: file.type,
+    upsert: false,
+  });
+  if (error) throw new Error(error.message);
+
+  return {
+    path,
+    name,
+    mimeType: file.type,
+    size: file.size,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+export async function deleteSportsVerificationEvidence(ownerId: string, path: string) {
+  await requireDocumentOwner(ownerId);
+  if (!path.startsWith(`${ownerId}/sports-verification/`) || path.includes("..")) {
+    throw new Error("Invalid Sports Verification evidence path.");
+  }
+  const { error } = await supabase.storage.from(STORAGE_BUCKETS.documents).remove([path]);
+  if (error) throw new Error(error.message);
 }
 
 export async function listSportsDocuments(ownerId: string): Promise<SportsDocument[]> {

@@ -813,6 +813,62 @@ export type Database = {
         }
         Relationships: []
       }
+      sports_verification_details: {
+        Row: {
+          country: string
+          created_at: string
+          district: string
+          email: string
+          mobile_number: string
+          passport_first_page_path: string | null
+          passport_visa_stamp_page_path: string | null
+          sports_certificate_path: string | null
+          state: string
+          tournament_photo_path: string | null
+          updated_at: string
+          user_id: string
+          village_town: string
+        }
+        Insert: {
+          country?: string
+          created_at?: string
+          district?: string
+          email?: string
+          mobile_number?: string
+          passport_first_page_path?: string | null
+          passport_visa_stamp_page_path?: string | null
+          sports_certificate_path?: string | null
+          state?: string
+          tournament_photo_path?: string | null
+          updated_at?: string
+          user_id: string
+          village_town?: string
+        }
+        Update: {
+          country?: string
+          created_at?: string
+          district?: string
+          email?: string
+          mobile_number?: string
+          passport_first_page_path?: string | null
+          passport_visa_stamp_page_path?: string | null
+          sports_certificate_path?: string | null
+          state?: string
+          tournament_photo_path?: string | null
+          updated_at?: string
+          user_id?: string
+          village_town?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sports_verification_details_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       thread_participants: {
         Row: {
           created_at: string

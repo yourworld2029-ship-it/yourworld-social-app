@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type React from "react";
 import {
   ArrowRight,
@@ -12,8 +12,11 @@ import {
   FileText,
   Globe2,
   LockKeyhole,
+  Mail,
+  MapPin,
   Medal,
   Pencil,
+  Phone,
   Plus,
   ShieldAlert,
   ShieldCheck,
@@ -23,7 +26,11 @@ import {
   UserRound,
   Video,
 } from "lucide-react";
-import type { SportsDocument } from "@/lib/profile-data";
+import type {
+  SportsDocument,
+  SportsVerificationDetails,
+  SportsVerificationEvidenceKind,
+} from "@/lib/profile-data";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -750,6 +757,12 @@ export function SportsDetailsPanel({
   onSubmitVerification,
   onOpenVerificationReview,
   verificationSubmitting = false,
+  verificationDetails,
+  verificationDetailsLoading = false,
+  verificationDetailsSaving = false,
+  onSaveVerificationDetails,
+  onUploadVerificationEvidence,
+  verificationEvidenceUploading = null,
 }: {
   profile: SportsProfileInfo;
   isOwner: boolean;
@@ -769,13 +782,29 @@ export function SportsDetailsPanel({
   onSubmitVerification?: () => void | Promise<void>;
   onOpenVerificationReview?: () => void;
   verificationSubmitting?: boolean;
+  verificationDetails?: SportsVerificationDetails | null;
+  verificationDetailsLoading?: boolean;
+  verificationDetailsSaving?: boolean;
+  onSaveVerificationDetails?: (details: SportsVerificationDetails) => void | Promise<void>;
+  onUploadVerificationEvidence?: (
+    kind: SportsVerificationEvidenceKind,
+    file: File,
+  ) => void | Promise<void>;
+  verificationEvidenceUploading?: SportsVerificationEvidenceKind | null;
 }) {
   const [editorField, setEditorField] = useState<SportsEditorField | null>(null);
   const [draft, setDraft] = useState<SportsProfileDraft>(() => toSportsProfileDraft(profile));
   const [saving, setSaving] = useState(false);
   const [termsAgreed, setTermsAgreed] = useState(false);
+  const [verificationDraft, setVerificationDraft] = useState<SportsVerificationDetails>(
+    () => verificationDetails ?? emptySportsVerificationDetails(),
+  );
   const editable = isOwner && Boolean(onSave);
   const isCoach = profile.role === "Coach";
+  const isInternational = profile.status === "International";
+  useEffect(() => {
+    if (verificationDetails) setVerificationDraft(verificationDetails);
+  }, [verificationDetails]);
   const openEditor = (field: SportsEditorField) => {
     setDraft(toSportsProfileDraft(profile));
     setEditorField(field);
@@ -867,6 +896,19 @@ export function SportsDetailsPanel({
 
         </>
       )}
+
+      {isOwner ? (
+        <SportsVerificationDetailsSection
+          details={verificationDraft}
+          isInternational={isInternational}
+          loading={verificationDetailsLoading}
+          saving={verificationDetailsSaving}
+          uploading={verificationEvidenceUploading}
+          onChange={setVerificationDraft}
+          onSave={onSaveVerificationDetails}
+          onUploadEvidence={onUploadVerificationEvidence}
+        />
+      ) : null}
 
       {isOwner ? (
         <SportsDetailsSection
@@ -1119,6 +1161,256 @@ export function SportsDetailsPanel({
           onOpenVerificationReview={onOpenVerificationReview}
         />
       ) : null}
+    </div>
+  );
+}
+
+function emptySportsVerificationDetails(): SportsVerificationDetails {
+  return {
+    villageTown: "",
+    district: "",
+    state: "",
+    country: "India",
+    mobileNumber: "",
+    email: "",
+    sportsCertificate: null,
+    passportFirstPage: null,
+    passportVisaStampPage: null,
+    tournamentPhoto: null,
+  };
+}
+
+function SportsVerificationDetailsSection({
+  details,
+  isInternational,
+  loading,
+  saving,
+  uploading,
+  onChange,
+  onSave,
+  onUploadEvidence,
+}: {
+  details: SportsVerificationDetails;
+  isInternational: boolean;
+  loading: boolean;
+  saving: boolean;
+  uploading: SportsVerificationEvidenceKind | null;
+  onChange: (details: SportsVerificationDetails) => void;
+  onSave?: (details: SportsVerificationDetails) => void | Promise<void>;
+  onUploadEvidence?: (kind: SportsVerificationEvidenceKind, file: File) => void | Promise<void>;
+}) {
+  const setField = (field: "villageTown" | "district" | "state" | "country", value: string) =>
+    onChange({ ...details, [field]: value });
+
+  return (
+    <SportsDetailsSection
+      icon={<MapPin />}
+      title="Verification Details"
+      description="These details are used only for Sports Verification and are not shown on your public profile."
+    >
+      {loading ? (
+        <p className="text-sm text-zinc-500">Loading your verification details…</p>
+      ) : (
+        <div className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="space-y-1.5 text-xs text-zinc-400">
+              Village / Town
+              <Input
+                value={details.villageTown}
+                onChange={(event) => setField("villageTown", event.target.value)}
+                placeholder="Village or town"
+                maxLength={120}
+                disabled={saving}
+                className="border-white/10 bg-white/[0.04] text-sm text-white"
+              />
+            </label>
+            <label className="space-y-1.5 text-xs text-zinc-400">
+              District
+              <Input
+                value={details.district}
+                onChange={(event) => setField("district", event.target.value)}
+                placeholder="District"
+                maxLength={120}
+                disabled={saving}
+                className="border-white/10 bg-white/[0.04] text-sm text-white"
+              />
+            </label>
+            <label className="space-y-1.5 text-xs text-zinc-400">
+              State
+              <Input
+                value={details.state}
+                onChange={(event) => setField("state", event.target.value)}
+                placeholder="State"
+                maxLength={120}
+                disabled={saving}
+                className="border-white/10 bg-white/[0.04] text-sm text-white"
+              />
+            </label>
+            <label className="space-y-1.5 text-xs text-zinc-400">
+              Country
+              <Input
+                value={details.country}
+                onChange={(event) => setField("country", event.target.value)}
+                placeholder="Country"
+                maxLength={120}
+                disabled={saving}
+                className="border-white/10 bg-white/[0.04] text-sm text-white"
+              />
+            </label>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <ReadOnlyVerificationValue
+              icon={<Phone className="h-3.5 w-3.5" />}
+              label="Mobile Number"
+              value={details.mobileNumber || "Not provided on this account"}
+            />
+            <ReadOnlyVerificationValue
+              icon={<Mail className="h-3.5 w-3.5" />}
+              label="Gmail / Email"
+              value={details.email || "Not provided on this account"}
+            />
+          </div>
+
+          <div className="space-y-2 rounded-2xl border border-white/10 bg-white/[0.025] p-3">
+            <div>
+              <p className="text-sm font-semibold text-white">Private verification evidence</p>
+              <p className="mt-1 text-xs leading-5 text-zinc-500">
+                Uploaded files are visible only to you and authorized verification reviewers.
+              </p>
+            </div>
+            <VerificationEvidenceRow
+              accept="application/pdf,image/jpeg,image/png"
+              evidence={details.sportsCertificate}
+              kind="sportsCertificate"
+              label="Sports Certificate"
+              uploading={uploading}
+              onUpload={onUploadEvidence}
+            />
+            {isInternational ? (
+              <>
+                <VerificationEvidenceRow
+                  accept="application/pdf,image/jpeg,image/png"
+                  evidence={details.passportFirstPage}
+                  kind="passportFirstPage"
+                  label="Passport First Page"
+                  uploading={uploading}
+                  onUpload={onUploadEvidence}
+                />
+                <VerificationEvidenceRow
+                  accept="application/pdf,image/jpeg,image/png"
+                  evidence={details.passportVisaStampPage}
+                  kind="passportVisaStampPage"
+                  label="Passport Visa / Stamp Page"
+                  hint="The page showing the visa or stamp for the tournament/game country."
+                  uploading={uploading}
+                  onUpload={onUploadEvidence}
+                />
+                <VerificationEvidenceRow
+                  accept="image/jpeg,image/png,image/webp"
+                  evidence={details.tournamentPhoto}
+                  kind="tournamentPhoto"
+                  label="One Tournament Photo"
+                  hint="You should be clearly visible with a medal or in India blazer/team representation."
+                  uploading={uploading}
+                  onUpload={onUploadEvidence}
+                />
+              </>
+            ) : null}
+          </div>
+
+          <Button
+            type="button"
+            disabled={saving || !onSave}
+            onClick={() => void onSave?.(verificationDraftOr(details))}
+            className="w-full rounded-full bg-amber-200 text-black hover:bg-amber-100"
+          >
+            {saving ? "Saving verification details…" : "Save Verification Details"}
+          </Button>
+        </div>
+      )}
+    </SportsDetailsSection>
+  );
+}
+
+function verificationDraftOr(details: SportsVerificationDetails) {
+  return {
+    ...details,
+    villageTown: details.villageTown.trim(),
+    district: details.district.trim(),
+    state: details.state.trim(),
+    country: details.country.trim() || "India",
+  };
+}
+
+function ReadOnlyVerificationValue({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.02] px-3 py-2.5">
+      <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+        {icon}
+        {label}
+      </p>
+      <p className="mt-1 truncate text-sm text-zinc-300">{value}</p>
+    </div>
+  );
+}
+
+function VerificationEvidenceRow({
+  accept,
+  evidence,
+  kind,
+  label,
+  hint,
+  uploading,
+  onUpload,
+}: {
+  accept: string;
+  evidence: SportsVerificationDetails["sportsCertificate"];
+  kind: SportsVerificationEvidenceKind;
+  label: string;
+  hint?: string;
+  uploading: SportsVerificationEvidenceKind | null;
+  onUpload?: (kind: SportsVerificationEvidenceKind, file: File) => void | Promise<void>;
+}) {
+  const inputId = `sports-verification-${kind}`;
+  const isUploading = uploading === kind;
+  return (
+    <div className="flex items-start gap-3 rounded-xl border border-white/10 bg-black/10 p-3">
+      <FileCheck2 className="mt-0.5 h-4 w-4 shrink-0 text-amber-200" />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium text-zinc-200">{label}</p>
+        <p className="mt-0.5 text-xs text-zinc-500">{hint || "Private upload"}</p>
+        <p className="mt-1 text-xs text-zinc-400">{evidence ? "Uploaded" : "Not uploaded"}</p>
+      </div>
+      <label
+        htmlFor={inputId}
+        className={`inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-amber-200/25 bg-amber-200/10 px-3 py-1.5 text-xs font-semibold text-amber-100 hover:bg-amber-200/20 ${
+          isUploading ? "pointer-events-none opacity-60" : ""
+        }`}
+      >
+        <Upload className="h-3.5 w-3.5" />
+        {isUploading ? "Uploading…" : evidence ? "Replace" : "Upload"}
+      </label>
+      <input
+        id={inputId}
+        type="file"
+        accept={accept}
+        className="sr-only"
+        disabled={isUploading || !onUpload}
+        onChange={(event) => {
+          const file = event.currentTarget.files?.[0];
+          event.currentTarget.value = "";
+          if (file) void onUpload?.(kind, file);
+        }}
+      />
     </div>
   );
 }

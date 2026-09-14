@@ -61,7 +61,13 @@ import {
   uploadSportsDocument,
   deleteSportsIntroduction,
   uploadSportsIntroduction,
+  deleteSportsVerificationEvidence,
+  getSportsVerificationDetails,
+  saveSportsVerificationDetails,
+  uploadSportsVerificationEvidence,
   type SportsDocument,
+  type SportsVerificationDetails,
+  type SportsVerificationEvidenceKind,
 } from "@/lib/profile-data";
 import {
   getSportsProfile,
@@ -131,6 +137,12 @@ function ProfilePage() {
   const [sportsIntroductionUrl, setSportsIntroductionUrl] = useState<string | null>(null);
   const [sportsIntroductionUploading, setSportsIntroductionUploading] = useState(false);
   const [sportsIntroductionProgress, setSportsIntroductionProgress] = useState(0);
+  const [sportsVerificationDetails, setSportsVerificationDetails] =
+    useState<SportsVerificationDetails | null>(null);
+  const [sportsVerificationDetailsLoading, setSportsVerificationDetailsLoading] = useState(false);
+  const [sportsVerificationDetailsSaving, setSportsVerificationDetailsSaving] = useState(false);
+  const [sportsVerificationEvidenceUploading, setSportsVerificationEvidenceUploading] =
+    useState<SportsVerificationEvidenceKind | null>(null);
   const [sportsVerificationSubmitting, setSportsVerificationSubmitting] = useState(false);
   const sportsVerificationTimer = useRef<number | null>(null);
 
@@ -339,6 +351,34 @@ function ProfilePage() {
     };
   }, [sportsDetailsOpen, sportsProfile?.sportsIntroductionPath]);
 
+  useEffect(() => {
+    if (!sportsDetailsOpen || !userId || userId !== profile.id || !hasSportsProfile) {
+      setSportsVerificationDetails(null);
+      setSportsVerificationDetailsLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setSportsVerificationDetailsLoading(true);
+    void getSportsVerificationDetails(userId)
+      .then((details) => {
+        if (!cancelled) setSportsVerificationDetails(details);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setSportsVerificationDetails(null);
+          toast.error(error instanceof Error ? error.message : "Verification details are unavailable.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setSportsVerificationDetailsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [profile.bio, profile.category, profile.id, sportsDetailsOpen, hasSportsProfile, userId]);
+
   const openSportsDocument = async (document: SportsDocument, download: boolean) => {
     if (!userId || userId !== profile.id) return;
     try {
@@ -424,6 +464,45 @@ function ProfilePage() {
       toast.error(error instanceof Error ? error.message : "Couldn't delete this video.");
     } finally {
       setSportsIntroductionUploading(false);
+    }
+  };
+
+  const handleSaveSportsVerificationDetails = async (details: SportsVerificationDetails) => {
+    if (!userId || userId !== profile.id) return;
+    setSportsVerificationDetailsSaving(true);
+    try {
+      const savedDetails = await saveSportsVerificationDetails(userId, details);
+      setSportsVerificationDetails(savedDetails);
+      toast.success("Verification details saved");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't save verification details.");
+    } finally {
+      setSportsVerificationDetailsSaving(false);
+    }
+  };
+
+  const handleSportsVerificationEvidenceUpload = async (
+    kind: SportsVerificationEvidenceKind,
+    file: File,
+  ) => {
+    if (!userId || userId !== profile.id) return;
+    setSportsVerificationEvidenceUploading(kind);
+    try {
+      const currentDetails =
+        sportsVerificationDetails ?? (await getSportsVerificationDetails(userId));
+      const previousEvidence = currentDetails[kind];
+      const uploaded = await uploadSportsVerificationEvidence(userId, kind, file);
+      const nextDetails = { ...currentDetails, [kind]: uploaded } as SportsVerificationDetails;
+      const savedDetails = await saveSportsVerificationDetails(userId, nextDetails);
+      setSportsVerificationDetails(savedDetails);
+      if (previousEvidence?.path && previousEvidence.path !== uploaded.path) {
+        await deleteSportsVerificationEvidence(userId, previousEvidence.path);
+      }
+      toast.success("Private verification evidence uploaded");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't upload verification evidence.");
+    } finally {
+      setSportsVerificationEvidenceUploading(null);
     }
   };
 
@@ -783,6 +862,12 @@ function ProfilePage() {
               sportsIntroductionProgress={sportsIntroductionProgress}
               onUploadSportsIntroduction={handleSportsIntroductionUpload}
               onDeleteSportsIntroduction={handleSportsIntroductionDelete}
+              verificationDetails={sportsVerificationDetails}
+              verificationDetailsLoading={sportsVerificationDetailsLoading}
+              verificationDetailsSaving={sportsVerificationDetailsSaving}
+              onSaveVerificationDetails={handleSaveSportsVerificationDetails}
+              onUploadVerificationEvidence={handleSportsVerificationEvidenceUpload}
+              verificationEvidenceUploading={sportsVerificationEvidenceUploading}
               onSubmitVerification={handleSubmitSportsVerification}
               onOpenVerificationReview={() => {
                 setSportsDetailsOpen(false);

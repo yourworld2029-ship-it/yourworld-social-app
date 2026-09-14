@@ -105,6 +105,72 @@ test("Sports Details renders real fields and owner document controls without the
   assert.doesNotMatch(html, /YOURWORLD VERIFIED SPORTS PROFILE/);
 });
 
+test("National verification shows the certificate but hides international evidence fields", () => {
+  const html = renderToStaticMarkup(
+    createElement(SportsDetailsPanel, {
+      profile,
+      isOwner: true,
+      documents: [],
+      documentsLoading: false,
+      documentsError: null,
+      documentsUploading: false,
+      onUploadDocument: () => undefined,
+      onDocumentAction: () => undefined,
+      onDeleteDocument: () => undefined,
+      verificationDetails: {
+        villageTown: "",
+        district: "",
+        state: "",
+        country: "India",
+        mobileNumber: "",
+        email: "",
+        sportsCertificate: null,
+        passportFirstPage: null,
+        passportVisaStampPage: null,
+        tournamentPhoto: null,
+      },
+    }),
+  );
+
+  assert.match(html, /Sports Certificate/);
+  assert.doesNotMatch(html, /Passport First Page/);
+  assert.doesNotMatch(html, /Passport Visa \/ Stamp Page/);
+  assert.doesNotMatch(html, /One Tournament Photo/);
+});
+
+test("International verification shows passport, visa, and tournament photo fields", () => {
+  const html = renderToStaticMarkup(
+    createElement(SportsDetailsPanel, {
+      profile: { ...profile, status: "International" as const },
+      isOwner: true,
+      documents: [],
+      documentsLoading: false,
+      documentsError: null,
+      documentsUploading: false,
+      onUploadDocument: () => undefined,
+      onDocumentAction: () => undefined,
+      onDeleteDocument: () => undefined,
+      verificationDetails: {
+        villageTown: "",
+        district: "",
+        state: "",
+        country: "India",
+        mobileNumber: "",
+        email: "",
+        sportsCertificate: null,
+        passportFirstPage: null,
+        passportVisaStampPage: null,
+        tournamentPhoto: null,
+      },
+    }),
+  );
+
+  assert.match(html, /Sports Certificate/);
+  assert.match(html, /Passport First Page/);
+  assert.match(html, /Passport Visa \/ Stamp Page/);
+  assert.match(html, /One Tournament Photo/);
+});
+
 test("Sports Introduction metadata persists without creating a Reel", () => {
   const bio = serializeSportsProfileBio("", {
     username: "player",
