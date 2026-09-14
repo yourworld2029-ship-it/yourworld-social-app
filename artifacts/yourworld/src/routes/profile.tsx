@@ -222,6 +222,13 @@ function ProfilePage() {
     sportsProfile?.verified && sportsProfile.status !== "Not recorded"
       ? `${sportsProfile.status.toUpperCase()} ${sportsProfile.role.toUpperCase()}`
       : null;
+  const sportsQualification =
+    sportsProfile &&
+    [sportsProfile.coachQualification, sportsProfile.qualificationYear]
+      .filter((value) => value && value !== "Not recorded")
+      .join(" · ");
+  const sportsCountry =
+    sportsProfile && sportsProfile.represents !== "Not specified" ? sportsProfile.represents : null;
 
   useEffect(() => {
     if (!sportsDetailsOpen || !hasSportsProfile || !userId || userId !== profile.id) {
@@ -442,7 +449,7 @@ function ProfilePage() {
       )}
 
       <section className="-mt-2 px-4 pt-1">
-        <div className="flex items-center gap-5">
+        <div className="flex items-start gap-4">
           <span className="grid h-[86px] w-[86px] shrink-0 place-items-center rounded-full p-[3px] ring-story">
             <span className="grid h-full w-full place-items-center rounded-full bg-background p-[2px]">
               {avatarSrc ? (
@@ -457,38 +464,47 @@ function ProfilePage() {
               )}
             </span>
           </span>
-          <dl data-testid="stats-profile" className="grid flex-1 grid-cols-3 text-center">
-            <Stat label="Posts" value={formatCount(posts.length)} />
-            <Stat
-              label="Followers"
-               value={counts.followers === null ? "—" : formatCount(counts.followers)}
-              onClick={() => {
-                setListTab("followers");
-                setListOpen(true);
-              }}
-            />
-            <Stat
-              label="Following"
-               value={counts.following === null ? "—" : formatCount(counts.following)}
-              onClick={() => {
-                setListTab("following");
-                setListOpen(true);
-              }}
-            />
-          </dl>
-
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <p data-testid="text-profile-display-name" className="font-semibold">
+                {profile.display_name || "Add your name"}
+              </p>
+              {sportsNameBadge ? <SportsProfileBadge badge={sportsNameBadge} verified /> : null}
+            </div>
+            {sportsProfile ? (
+              <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+                <p className="font-medium text-foreground">
+                  {sportsProfile.sport} · {sportsProfile.role}
+                </p>
+                {sportsQualification ? <p>Qualification: {sportsQualification}</p> : null}
+                {sportsCountry ? <p>🌐 {sportsCountry}</p> : null}
+              </div>
+            ) : profile.category ? (
+              <p className="mt-1 text-xs text-muted-foreground">{profile.category}</p>
+            ) : null}
+            <dl data-testid="stats-profile" className="mt-3 grid grid-cols-3 text-center">
+              <Stat label="Posts" value={formatCount(posts.length)} />
+              <Stat
+                label="Followers"
+                value={counts.followers === null ? "—" : formatCount(counts.followers)}
+                onClick={() => {
+                  setListTab("followers");
+                  setListOpen(true);
+                }}
+              />
+              <Stat
+                label="Following"
+                value={counts.following === null ? "—" : formatCount(counts.following)}
+                onClick={() => {
+                  setListTab("following");
+                  setListOpen(true);
+                }}
+              />
+            </dl>
+          </div>
         </div>
 
         <div className="pt-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <p data-testid="text-profile-display-name" className="font-semibold">{profile.display_name || "Add your name"}</p>
-            {sportsNameBadge ? (
-              <SportsProfileBadge badge={sportsNameBadge} verified />
-            ) : null}
-          </div>
-          {profile.category ? (
-            <p className="text-xs text-muted-foreground">{profile.category}</p>
-          ) : null}
           {profile.bio ? <Bio text={profile.bio} /> : null}
           {(profile.location || profile.website) && (
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1.5 text-xs">

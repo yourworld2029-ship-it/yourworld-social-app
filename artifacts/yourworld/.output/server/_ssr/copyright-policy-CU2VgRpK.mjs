@@ -1,6 +1,6 @@
 import { p as Link } from "../_libs/@tanstack/react-router+[...].mjs";
 import { P as require_jsx_runtime } from "../_libs/@radix-ui/react-alert-dialog+[...].mjs";
-import { An as ArrowLeft, En as Ban, J as Scale, R as Shield, wt as Mail, x as TriangleAlert } from "../_libs/lucide-react.mjs";
+import { J as Scale, R as Shield, Tn as Ban, kn as ArrowLeft, wt as Mail, x as TriangleAlert } from "../_libs/lucide-react.mjs";
 //#region node_modules/.nitro/vite/services/ssr/assets/copyright-policy-CU2VgRpK.js
 var import_jsx_runtime = require_jsx_runtime();
 function Section({ icon: Icon, title, children }) {
