@@ -1,0 +1,106 @@
+UPDATE ONLY THE EXISTING TERMS OF SERVICE.
+
+Do NOT modify Privacy Policy, Copyright/DMCA Policy, Community Guidelines, Sports Profile functionality, database, routes, UI outside Terms of Service, or any other app feature.
+
+Use the EXISTING Terms of Service and make the SMALLEST POSSIBLE changes.
+
+1. GLOBAL USE
+Make the Terms suitable for YourWorld being available to users worldwide.
+Users may access YourWorld and upload content recorded in different countries, subject to applicable laws, platform rules, and the user's rights to that content.
+
+Do not claim automatic compliance with every country's law.
+
+2. AGE
+KEEP THE CURRENT 13 YEARS / APPLICABLE MINIMUM AGE WORDING.
+Do not change the age policy in this task.
+
+3. USER CONTENT
+Keep the existing ownership and worldwide non-exclusive royalty-free platform license.
+Clarify that users are responsible for having the necessary rights and permissions for content they upload.
+Do not change ownership of user content.
+
+4. SPORTS VERIFICATION
+Add a clear Sports Verification section.
+
+Sports Verification may require supporting evidence such as certificates, passport pages, visa/stamp pages, tournament photos, identity/contact information, or other evidence where applicable.
+
+All submitted verification documents and identity/contact evidence are PRIVATE and are not publicly displayed to normal users.
+
+They may be accessed only by authorized verification/safety personnel when necessary for verification, security, fraud prevention, legal compliance, or related legitimate purposes.
+
+5. SPORTS INTRODUCTION VIDEO
+Clearly distinguish the Sports Introduction video from private verification documents.
+
+The Sports Introduction video is a short video recorded by the Player or Coach in their natural/original voice and may explain their sport, role, achievements, and journey.
+
+The Sports Introduction video may be publicly displayed on YourWorld as a Reel-style Sports Introduction/verification video.
+
+Do NOT make certificates, passport pages, visa/stamp pages, phone numbers, email addresses, or other private verification evidence public.
+
+6. NATIONAL AND INTERNATIONAL VERIFICATION
+Make the Terms cover both National Player/Coach and International Player/Coach verification.
+
+International sporting events may take place outside India.
+
+7. FALSE INFORMATION / DOCUMENTS
+Add that submitting false, forged, altered, misleading, or fraudulent certificates, achievements, identity information, or verification evidence may result in rejection or revocation of verification, removal of the sports badge, content removal, account restriction/suspension, and other remedies permitted by applicable law.
+
+8. MONETIZATION
+Update the existing Monetization & Payments section so it does NOT incorrectly list VIP content or paid courses as current YourWorld monetization unless already implemented.
+
+Keep monetization flexible for features actually implemented or officially enabled by YourWorld, including eligible creator monetization and paid promotional/Promote features.
+
+State that eligibility, revenue share, payout schedules, payment methods, fees, refunds, and tax requirements may be governed by separate monetization/payment terms where applicable.
+
+Do not promise earnings or guaranteed reach/views.
+
+9. PROMOTION
+Include a concise rule that paid Promote/advertising features, when available, are subject to eligibility, applicable advertising rules, payment/refund rules, and YourWorld policies.
+Promoted content does not guarantee impressions, views, followers, engagement, or sales.
+
+10. TERMINATION
+Keep the existing termination section but clarify that YourWorld may suspend, restrict, or terminate accounts for violations of the Terms, Community Guidelines, Copyright/DMCA Policy, fraudulent activity, or applicable law.
+
+11. LEGAL WORDING
+Keep the existing Disclaimer & Limitation of Liability section.
+Do not add aggressive or unrealistic legal claims.
+Use “to the maximum extent permitted by applicable law” where appropriate.
+
+12. COPYRIGHT POLICY
+Do NOT modify the Copyright & DMCA Policy.
+Keep the existing link/reference.
+
+13. CONTACT
+Keep the existing YourWorld support email.
+
+14. UI
+Keep the existing Terms of Service design exactly the same:
+- dark theme
+- icons
+- headings
+- typography
+- spacing
+- navigation
+Only update the necessary text.
+
+15. FINAL CHECK
+Search the Terms of Service for:
+- Orbit
+- VIP content
+- paid courses
+and remove outdated references where applicable.
+
+Confirm:
+- worldwide users are covered;
+- foreign-country uploaded content is covered;
+- verification documents are private;
+- Sports Introduction video can be public;
+- National and International verification are covered;
+- fake verification evidence is prohibited;
+- current age wording remains unchanged;
+- Copyright/DMCA Policy remains untouched.
+
+Run TypeScript/lint/tests if available.
+
+Show only the files changed by this task.
+DO NOT REFACTOR ANYTHING.
