@@ -1,0 +1,57 @@
+STRICT SPORTS PROMO FIX — ONLY THIS CHANGE
+
+The current Profile → Sports section is incorrectly opening the same "Sports Details" promotional page when different Sports fields/columns are tapped.
+
+I want EXACTLY ONE promotional/intro screen for the entire Sports Profile system.
+
+RULES:
+
+1. Keep ONE single Sports promotional/intro screen only.
+2. This screen should explain the complete YourWorld Sports Profile system for BOTH:
+   • Player
+   • Coach
+
+3. The promo can explain:
+   • Sports Profile
+   • Player Profile
+   • Coach Profile
+   • Sport / Event / Position
+   • National / International status
+   • Tournament Details
+   • Medals
+   • Achievements
+   • Coach Details where applicable
+   • Coaching Qualification / NS NIS details for Coach
+   • Private Certificate / Document Verification
+   • Verification Video
+   • Verified Sports Profile / Premium Sports Badge
+   • Terms & Conditions and verification process
+
+4. IMPORTANT:
+   This is ONLY the promotional/intro screen.
+   Do NOT make every individual Sports field open this promo screen.
+
+5. Remove/fix any incorrect onClick/navigation behavior where:
+   Sport, Role, Tournament, Medals, Achievements, Coach Details, Documents, etc. all open the same promo page.
+
+6. Keep the actual Sports Details/Profile form functional separately.
+   Tapping Sports Details should open the actual Sports Details/Profile editing/details interface.
+
+7. Do NOT create multiple Sports promo pages.
+8. Do NOT create another Sports Details component.
+9. Do NOT create Sports ID.
+10. Do NOT create mock data.
+11. Do NOT modify Chat, Moments, Reels, Videos, Feed, Navigation, Authentication, or unrelated features.
+12. Keep the existing premium dark/gold YourWorld design.
+
+FINAL STRUCTURE:
+
+Profile
+  → ONE "Premium Sports Profile" entry
+      → ONE Sports promotional/intro screen
+
+Actual Sports Details/Profile remains a separate functional interface and must NOT be replaced by the promo screen.
+
+Before reporting completion, open the ACTUAL running Preview and verify the tap behavior.
+If different Sports fields still open the same promo screen, continue debugging.
+Only report completion after the rendered Preview confirms the correct behavior.
