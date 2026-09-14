@@ -218,6 +218,10 @@ function ProfilePage() {
     displayName: profile.display_name,
   });
   const hasSportsProfile = Boolean(sportsProfile);
+  const sportsNameBadge =
+    sportsProfile?.verified && sportsProfile.status !== "Not recorded"
+      ? `${sportsProfile.status.toUpperCase()} ${sportsProfile.role.toUpperCase()}`
+      : null;
 
   useEffect(() => {
     if (!sportsDetailsOpen || !hasSportsProfile || !userId || userId !== profile.id) {
@@ -478,8 +482,8 @@ function ProfilePage() {
         <div className="pt-3">
           <div className="flex flex-wrap items-center gap-2">
             <p data-testid="text-profile-display-name" className="font-semibold">{profile.display_name || "Add your name"}</p>
-            {sportsProfile ? (
-              <SportsProfileBadge badge={sportsProfile.badge} verified={sportsProfile.verified} />
+            {sportsNameBadge ? (
+              <SportsProfileBadge badge={sportsNameBadge} verified />
             ) : null}
           </div>
           {profile.category ? (
