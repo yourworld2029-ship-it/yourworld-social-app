@@ -46,7 +46,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
 import { YwAvatar } from "@/components/yw/Avatar";
 import { Bio } from "@/components/yw/Bio";
 import { EditProfileSheet, type ProfileEdit } from "@/components/yw/EditProfileSheet";
@@ -157,12 +156,11 @@ function ProfilePage() {
     sportsVerificationTimer.current = window.setTimeout(async () => {
       sportsVerificationTimer.current = null;
       try {
-        const { error } = await supabase
-          .from("profiles")
-          .update({ is_verified: true, verification_requested: false })
-          .eq("id", userId);
-        if (error) throw new Error(error.message);
-        await reload();
+        await save({
+          ...editValue,
+          isVerified: true,
+          verificationRequested: false,
+        });
         toast.success("Sports Profile Verified Successfully");
       } catch (error) {
         toast.error(
@@ -177,7 +175,7 @@ function ProfilePage() {
         sportsVerificationTimer.current = null;
       }
     };
-  }, [profile.id, profile.is_verified, profile.verification_requested, reload, userId]);
+  }, [profile.id, profile.is_verified, profile.verification_requested, reload, save, userId]);
 
   const openManage = (post: DbPost) => {
     setManage(post);

@@ -30,6 +30,7 @@ export type MyProfileEdit = {
   avatarFile?: File;
   coverFile?: File;
   verificationRequested?: boolean;
+  isVerified?: boolean;
 };
 
 export type SportsDocument = {
@@ -350,6 +351,7 @@ export function useMyProfile() {
           website: edit.website || null,
           avatar_url: avatarPath,
           cover_url: coverPath,
+          is_verified: edit.isVerified ?? profile.is_verified,
           verification_requested: edit.verificationRequested ?? profile.verification_requested,
         },
       );
