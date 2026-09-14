@@ -737,6 +737,10 @@ function ProfilePage() {
               onUploadSportsIntroduction={handleSportsIntroductionUpload}
               onDeleteSportsIntroduction={handleSportsIntroductionDelete}
               onSubmitVerification={handleSubmitSportsVerification}
+              onOpenVerificationReview={() => {
+                setSportsDetailsOpen(false);
+                navigate({ to: "/admin/sports-verification" });
+              }}
               verificationSubmitting={sportsVerificationSubmitting}
             />
           </SheetContent>

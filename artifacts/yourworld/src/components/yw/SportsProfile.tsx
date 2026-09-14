@@ -744,6 +744,7 @@ export function SportsDetailsPanel({
   onUploadSportsIntroduction,
   onDeleteSportsIntroduction,
   onSubmitVerification,
+  onOpenVerificationReview,
   verificationSubmitting = false,
 }: {
   profile: SportsProfileInfo;
@@ -762,6 +763,7 @@ export function SportsDetailsPanel({
   onUploadSportsIntroduction?: (file: File) => void;
   onDeleteSportsIntroduction?: () => void;
   onSubmitVerification?: () => void | Promise<void>;
+  onOpenVerificationReview?: () => void;
   verificationSubmitting?: boolean;
 }) {
   const [editorField, setEditorField] = useState<SportsEditorField | null>(null);
@@ -1106,6 +1108,7 @@ export function SportsDetailsPanel({
           saving={saving}
           onOpenChange={(open) => !open && setEditorField(null)}
           onSave={saveDraft}
+          onOpenVerificationReview={onOpenVerificationReview}
         />
       ) : null}
     </div>
@@ -1791,6 +1794,7 @@ function SportsDetailsEditor({
   saving,
   onOpenChange,
   onSave,
+  onOpenVerificationReview,
 }: {
   open: boolean;
   field: SportsEditorField | null;
@@ -1799,6 +1803,7 @@ function SportsDetailsEditor({
   saving: boolean;
   onOpenChange: (open: boolean) => void;
   onSave: () => void;
+  onOpenVerificationReview?: () => void;
 }) {
   const updateTournament = (index: number, changes: Partial<SportsTournament>) => {
     setDraft((current) => ({
@@ -2185,8 +2190,15 @@ function SportsDetailsEditor({
           <Button
             type="button"
             className="rounded-full bg-amber-200 text-black hover:bg-amber-100"
-            disabled={saving || field === "verification"}
-            onClick={() => void onSave()}
+            disabled={saving}
+            onClick={() => {
+              if (field === "verification") {
+                onOpenChange(false);
+                onOpenVerificationReview?.();
+                return;
+              }
+              void onSave();
+            }}
           >
             {saving ? "Saving…" : field === "verification" ? "Managed by review" : "Save changes"}
           </Button>

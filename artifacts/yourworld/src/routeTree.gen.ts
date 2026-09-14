@@ -29,6 +29,7 @@ import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as WalletRouteImport } from './routes/wallet'
 import { Route as AdminCopyrightReportsRouteImport } from './routes/admin.copyright-reports'
+import { Route as AdminSportsVerificationRouteImport } from './routes/admin.sports-verification'
 import { Route as ChannelIndexRouteImport } from './routes/channel.index'
 import { Route as ChannelAnalyticsRouteImport } from './routes/channel.analytics'
 import { Route as ChannelCreateRouteImport } from './routes/channel.create'
@@ -153,6 +154,11 @@ const WalletRoute = WalletRouteImport.update({
 const AdminCopyrightReportsRoute = AdminCopyrightReportsRouteImport.update({
   id: '/admin/copyright-reports',
   path: '/admin/copyright-reports',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminSportsVerificationRoute = AdminSportsVerificationRouteImport.update({
+  id: '/admin/sports-verification',
+  path: '/admin/sports-verification',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ChannelIndexRoute = ChannelIndexRouteImport.update({
@@ -307,6 +313,7 @@ export interface FileRoutesByFullPath {
   '/terms': typeof TermsRoute
   '/wallet': typeof WalletRoute
   '/admin/copyright-reports': typeof AdminCopyrightReportsRoute
+  '/admin/sports-verification': typeof AdminSportsVerificationRoute
   '/channel/analytics': typeof ChannelAnalyticsRoute
   '/channel/create': typeof ChannelCreateRoute
   '/channel/monetization': typeof ChannelMonetizationRoute
@@ -352,6 +359,7 @@ export interface FileRoutesByTo {
   '/terms': typeof TermsRoute
   '/wallet': typeof WalletRoute
   '/admin/copyright-reports': typeof AdminCopyrightReportsRoute
+  '/admin/sports-verification': typeof AdminSportsVerificationRoute
   '/channel/analytics': typeof ChannelAnalyticsRoute
   '/channel/create': typeof ChannelCreateRoute
   '/channel/monetization': typeof ChannelMonetizationRoute
@@ -401,6 +409,7 @@ export interface FileRoutesById {
   '/terms': typeof TermsRoute
   '/wallet': typeof WalletRoute
   '/admin/copyright-reports': typeof AdminCopyrightReportsRoute
+  '/admin/sports-verification': typeof AdminSportsVerificationRoute
   '/channel/analytics': typeof ChannelAnalyticsRoute
   '/channel/create': typeof ChannelCreateRoute
   '/channel/monetization': typeof ChannelMonetizationRoute
@@ -450,6 +459,7 @@ export interface FileRouteTypes {
     | '/terms'
     | '/wallet'
     | '/admin/copyright-reports'
+    | '/admin/sports-verification'
     | '/channel/analytics'
     | '/channel/create'
     | '/channel/monetization'
@@ -495,6 +505,7 @@ export interface FileRouteTypes {
     | '/terms'
     | '/wallet'
     | '/admin/copyright-reports'
+    | '/admin/sports-verification'
     | '/channel/analytics'
     | '/channel/create'
     | '/channel/monetization'
@@ -543,6 +554,7 @@ export interface FileRouteTypes {
     | '/terms'
     | '/wallet'
     | '/admin/copyright-reports'
+    | '/admin/sports-verification'
     | '/channel/analytics'
     | '/channel/create'
     | '/channel/monetization'
@@ -592,6 +604,7 @@ export interface RootRouteChildren {
   TermsRoute: typeof TermsRoute
   WalletRoute: typeof WalletRoute
   AdminCopyrightReportsRoute: typeof AdminCopyrightReportsRoute
+  AdminSportsVerificationRoute: typeof AdminSportsVerificationRoute
   MomentMomentIdRoute: typeof MomentMomentIdRoute
   MomentCreateRoute: typeof MomentCreateRoute
   PostCreateRoute: typeof PostCreateRoute
@@ -742,6 +755,13 @@ declare module '@tanstack/react-router' {
       path: '/admin/copyright-reports'
       fullPath: '/admin/copyright-reports'
       preLoaderRoute: typeof AdminCopyrightReportsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/sports-verification': {
+      id: '/admin/sports-verification'
+      path: '/admin/sports-verification'
+      fullPath: '/admin/sports-verification'
+      preLoaderRoute: typeof AdminSportsVerificationRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/channel/': {
@@ -1012,6 +1032,7 @@ const rootRouteChildren: RootRouteChildren = {
   TermsRoute: TermsRoute,
   WalletRoute: WalletRoute,
   AdminCopyrightReportsRoute: AdminCopyrightReportsRoute,
+  AdminSportsVerificationRoute: AdminSportsVerificationRoute,
   MomentMomentIdRoute: MomentMomentIdRoute,
   MomentCreateRoute: MomentCreateRoute,
   PostCreateRoute: PostCreateRoute,
