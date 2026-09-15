@@ -629,7 +629,7 @@ function ProfilePage() {
             ) : null}
           </div>
 
-          <dl data-testid="stats-profile" className="col-span-2 grid grid-cols-3 divide-x divide-white/10 border-y border-white/10 py-1.5 sm:col-span-1 sm:col-start-2 sm:row-start-2 sm:mt-[-0.25rem] sm:py-2">
+          <dl data-testid="stats-profile" className="col-span-2 grid grid-cols-3 divide-x divide-white/10 border-y border-white/10 py-0.5 sm:col-span-1 sm:col-start-2 sm:row-start-2 sm:mt-[-0.25rem] sm:py-1">
             <Stat label="Posts" value={mediaLoading ? "—" : formatCount(posts.length)} />
             <Stat label="Followers" value={counts.followers === null ? "—" : formatCount(counts.followers)} onClick={() => { setListTab("followers"); setListOpen(true); }} />
             <Stat label="Following" value={counts.following === null ? "—" : formatCount(counts.following)} onClick={() => { setListTab("following"); setListOpen(true); }} />
@@ -1114,16 +1114,16 @@ function Stat({
 }) {
   const body = (
     <>
-      <dd className="font-display text-base font-bold leading-none sm:text-lg">{value}</dd>
-      <dt className="mt-0.5 text-[9px] font-medium uppercase tracking-[0.1em] text-muted-foreground sm:text-[10px]">{label}</dt>
+      <dd className="font-display text-lg font-bold leading-none sm:text-xl">{value}</dd>
+      <dt className="mt-1 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground sm:text-[11px]">{label}</dt>
     </>
   );
-  if (!onClick) return <div className="flex min-w-0 flex-col items-center justify-center px-1.5 py-0.5">{body}</div>;
+  if (!onClick) return <div className="flex min-w-0 flex-col items-center justify-center px-2 py-0">{body}</div>;
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex min-w-0 w-full flex-col items-center justify-center rounded-xl px-1.5 py-0.5 transition-transform active:scale-95"
+      className="flex min-w-0 w-full flex-col items-center justify-center rounded-xl px-2 py-0 transition-transform active:scale-95"
     >
       {body}
     </button>

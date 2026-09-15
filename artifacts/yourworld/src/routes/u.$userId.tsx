@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronLeft, Grid3x3, Play } from "lucide-react";
+import { ChevronLeft, Grid3x3, Play, Share2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { dmThreadId } from "@/lib/social-data";
@@ -146,6 +146,20 @@ function PublicProfilePage() {
     }
   };
 
+  const onShare = async () => {
+    const url = `${window.location.origin}/u/${userId}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: profile?.username ?? "YourWorld profile", url });
+      } else {
+        await navigator.clipboard.writeText(url);
+        toast.success("Profile link copied");
+      }
+    } catch {
+      // User cancelled sharing.
+    }
+  };
+
   const openViewer = (post: DbPost) => {
     const id = typeof post.id === "string" ? post.id.trim() : "";
     if (!id) {
@@ -207,7 +221,7 @@ function PublicProfilePage() {
             </div>
           )}
 
-          <div className="grid flex-1 grid-cols-3 text-center">
+          <div className="grid flex-1 grid-cols-3 text-center leading-none">
             <div>
               <p className="text-base font-bold">{formatCount(posts.length)}</p>
               <p className="text-[11px] text-zinc-400">Posts</p>
@@ -242,13 +256,13 @@ function PublicProfilePage() {
           )}
         </div>
 
-        <div className="flex gap-2 pt-4">
+        <div className="grid grid-cols-3 gap-2 pt-4">
           <button
             type="button"
             onClick={onFollow}
             disabled={busy || counts.unavailable}
             className={cn(
-              "flex-1 rounded-xl py-2 text-xs font-bold transition-all active:scale-[0.98] disabled:opacity-60",
+              "flex items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-bold transition-all active:scale-[0.98] disabled:opacity-60",
               following[userId] ? "bg-zinc-800 text-white" : "bg-pink-500 text-white",
             )}
           >
@@ -263,9 +277,17 @@ function PublicProfilePage() {
                 params: { threadId: dmThreadId(me, userId) },
               });
             }}
-            className="flex-1 rounded-xl bg-zinc-800 py-2 text-center text-xs font-bold"
+            className="flex items-center justify-center rounded-xl bg-zinc-800 py-2 text-center text-xs font-bold"
           >
             Message
+          </button>
+          <button
+            type="button"
+            onClick={() => void onShare()}
+            className="flex items-center justify-center gap-1.5 rounded-xl border border-zinc-800 bg-transparent py-2 text-xs font-bold"
+          >
+            <Share2 size={14} />
+            Share
           </button>
         </div>
       </section>
