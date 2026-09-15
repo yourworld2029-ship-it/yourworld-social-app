@@ -140,7 +140,7 @@ function MomentViewRoute() {
   );
 
   const goNext = useCallback(() => {
-    if (replying) return;
+    if (replying || replyFocused) return;
     setProgress(0);
     if (chunk < videoChunks - 1) {
       const next = chunk + 1;
@@ -154,7 +154,7 @@ function MomentViewRoute() {
       return;
     }
     openGroup(1);
-  }, [chunk, videoChunks, index, items.length, openGroup, replying]);
+  }, [chunk, videoChunks, index, items.length, openGroup, replyFocused, replying]);
 
   const goPrev = useCallback(() => {
     setProgress(0);
@@ -204,7 +204,7 @@ function MomentViewRoute() {
 
   // photo / text timer
   useEffect(() => {
-    if (!current || current.kind === "video" || paused || replying || showViewers) return;
+    if (!current || current.kind === "video" || paused || replying || replyFocused || showViewers) return;
     const span =
       current.trim?.end && current.trim.end > 0
         ? current.trim.end * 1000
@@ -220,14 +220,14 @@ function MomentViewRoute() {
       });
     }, TICK);
     return () => clearInterval(id);
-  }, [current, paused, replying, showViewers, goNext]);
+  }, [current, paused, replyFocused, replying, showViewers, goNext]);
 
 
   // pause / resume media
   useEffect(() => {
     const v = videoRef.current;
     const a = musicRef.current;
-    if (paused || replying || showViewers) {
+    if (paused || replying || replyFocused || showViewers) {
       v?.pause();
       a?.pause();
     } else {
@@ -239,7 +239,7 @@ function MomentViewRoute() {
         }
       });
     }
-  }, [paused, replying, showViewers, index, chunk, muted]);
+  }, [paused, replyFocused, replying, showViewers, index, chunk, muted]);
 
   // background music
   useEffect(() => {
@@ -249,7 +249,7 @@ function MomentViewRoute() {
     a.volume = Math.min(1, Math.max(0, current.musicVolume ?? (current.kind === "video" ? 0.35 : 0.8)));
     const start = Math.max(0, current.musicStart ?? current.audioStartTime ?? 0);
     a.currentTime = start;
-    if (!paused && !replying && !showViewers) {
+    if (!paused && !replying && !replyFocused && !showViewers) {
       void a.play().catch(() => {
         if (!muted) {
           a.muted = true;
@@ -270,6 +270,7 @@ function MomentViewRoute() {
     current?.audioStartTime,
     muted,
     paused,
+    replyFocused,
     replying,
     showViewers,
   ]);
