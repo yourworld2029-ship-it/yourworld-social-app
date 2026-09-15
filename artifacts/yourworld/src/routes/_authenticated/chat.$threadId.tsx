@@ -42,6 +42,7 @@ type Message = {
   text?: string;
   image?: string;
   audio?: string;
+  mediaKind?: "image" | "video" | "audio";
   sender: "me" | "them";
   system?: boolean;
   time: string;
@@ -55,9 +56,77 @@ type Message = {
   momentCreatedAt?: string;
   momentKind?: "photo" | "video" | "text";
   deletingAt?: number;
+  replyTo?: ReplyPreview;
+};
+
+type ReplyPreview = {
+  id: string;
+  author?: string;
+  text?: string;
+  mediaKind?: "image" | "video" | "audio";
 };
 
 const CALL_LOG_PATTERN = /^(Missed (Audio|Video) Call|(Audio|Video) Call ended • \d{2}:\d{2})$/;
+
+function mediaKindFromMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+  mediaUrl?: string | null,
+  audioUrl?: string | null,
+): Message["mediaKind"] {
+  if (audioUrl) return "audio";
+  const declared = [metadata?.media_type, metadata?.mime_type, metadata?.content_type]
+    .find((value): value is string => typeof value === "string")
+    ?.toLowerCase();
+  if (declared?.startsWith("video")) return "video";
+  if (declared?.startsWith("audio")) return "audio";
+  if (declared?.startsWith("image")) return "image";
+  if (mediaUrl && /\.(mp4|m4v|mov|webm)(?:[?#]|$)/i.test(mediaUrl)) return "video";
+  return mediaUrl ? "image" : undefined;
+}
+
+function replyPreviewFromMetadata(metadata: Record<string, unknown> | null | undefined): ReplyPreview | undefined {
+  const raw = metadata?.reply_to;
+  if (!raw || typeof raw !== "object") return undefined;
+  const value = raw as Record<string, unknown>;
+  if (typeof value.id !== "string" || !value.id) return undefined;
+  const mediaKind =
+    value.mediaKind === "image" || value.mediaKind === "video" || value.mediaKind === "audio"
+      ? value.mediaKind
+      : undefined;
+  return {
+    id: value.id,
+    author: typeof value.author === "string" ? value.author : undefined,
+    text: typeof value.text === "string" ? value.text : undefined,
+    mediaKind,
+  };
+}
+
+function replyPreviewLabel(reply: ReplyPreview) {
+  if (reply.text?.trim()) return reply.text;
+  if (reply.mediaKind === "video") return "Video";
+  if (reply.mediaKind === "audio") return "Voice note";
+  if (reply.mediaKind === "image") return "Image";
+  return "Message";
+}
+
+function ReplyQuote({
+  reply,
+  className = "",
+}: {
+  reply: ReplyPreview;
+  className?: string;
+}) {
+  return (
+    <div className={`border-l-2 border-white/50 bg-black/15 px-2.5 py-1.5 text-left ${className}`}>
+      <span className="block truncate text-[10px] font-bold text-white/65">
+        {reply.author || "Reply"}
+      </span>
+      <span className="mt-0.5 block truncate text-xs text-white/90">
+        {replyPreviewLabel(reply)}
+      </span>
+    </div>
+  );
+}
 
 function MenuItem({
   icon, label, onClick, state, danger,
@@ -169,6 +238,8 @@ function ChatThreadPage() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
 
   const [message, setMessage] = useState("");
+  const [replyTo, setReplyTo] = useState<ReplyPreview | null>(null);
+  const [swipeState, setSwipeState] = useState<{ id: string; offset: number } | null>(null);
   const [localMessages, setLocalMessages] = useState<Message[]>([]);
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
@@ -182,6 +253,7 @@ function ChatThreadPage() {
       text: m.content || undefined,
       image: m.media_url ?? undefined,
       audio: m.voice_note_url ?? undefined,
+      mediaKind: mediaKindFromMetadata(m.metadata, m.media_url, m.voice_note_url),
       sender: m.sender_id === currentUserId ? "me" : "them",
        system: m.is_system_message || CALL_LOG_PATTERN.test(m.content),
       time: fmtTime(m.created_at),
@@ -196,6 +268,7 @@ function ChatThreadPage() {
       momentId: m.moment_id ?? undefined,
       momentMediaUrl: m.moment_media_url ?? undefined,
       momentCreatedAt: m.moment_created_at ?? undefined,
+       replyTo: replyPreviewFromMetadata(m.metadata),
       momentKind:
         m.metadata &&
         typeof m.metadata.preview === "object" &&
@@ -266,6 +339,14 @@ function ChatThreadPage() {
   const [actionSheetId, setActionSheetId] = useState<string | null>(null);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const swipeRef = useRef<{
+    id: string;
+    startX: number;
+    startY: number;
+    offset: number;
+    active: boolean;
+  } | null>(null);
+  const messageInputRef = useRef<HTMLInputElement>(null);
 
   // Peer identity resolved from the thread (never hardcoded)
   const peer = useThreadPeer(threadId, currentUserId);
@@ -380,6 +461,47 @@ function ChatThreadPage() {
   const cancelLongPress = () => {
     if (longPressRef.current) clearTimeout(longPressRef.current);
     longPressRef.current = null;
+  };
+  const createReplyPreview = (messageToReply: Message): ReplyPreview => ({
+    id: messageToReply.id,
+    author: messageToReply.sender === "me" ? currentUserName : displayName,
+    text: messageToReply.text?.trim() || undefined,
+    mediaKind: messageToReply.mediaKind,
+  });
+  const startMessageGesture = (messageToReply: Message, event: React.PointerEvent<HTMLDivElement>) => {
+    if (selectMode) return;
+    startLongPress(messageToReply.id);
+    swipeRef.current = {
+      id: messageToReply.id,
+      startX: event.clientX,
+      startY: event.clientY,
+      offset: 0,
+      active: false,
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
+  const moveMessageGesture = (event: React.PointerEvent<HTMLDivElement>) => {
+    const gesture = swipeRef.current;
+    if (!gesture) return;
+    const deltaX = event.clientX - gesture.startX;
+    const deltaY = event.clientY - gesture.startY;
+    if (!gesture.active && Math.max(Math.abs(deltaX), Math.abs(deltaY)) > 8) {
+      cancelLongPress();
+      if (Math.abs(deltaX) > Math.abs(deltaY)) gesture.active = true;
+    }
+    if (!gesture.active) return;
+    gesture.offset = Math.max(-92, Math.min(92, deltaX));
+    setSwipeState({ id: gesture.id, offset: gesture.offset });
+  };
+  const endMessageGesture = (messageToReply: Message) => {
+    const gesture = swipeRef.current;
+    cancelLongPress();
+    if (gesture?.id === messageToReply.id && gesture.active && Math.abs(gesture.offset) >= 64) {
+      setReplyTo(createReplyPreview(messageToReply));
+      requestAnimationFrame(() => messageInputRef.current?.focus());
+    }
+    swipeRef.current = null;
+    setSwipeState(null);
   };
   const toggleSelect = (id: string) =>
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -509,13 +631,17 @@ function ChatThreadPage() {
   const doSend = (currentMsg: string) => {
     setTyping(false);
     if (currentUserId) {
-        void sendToDb({ content: currentMsg }).then((sent) => {
+        void sendToDb({
+          content: currentMsg,
+          metadata: replyTo ? { reply_to: replyTo } : undefined,
+        }).then((sent) => {
         if (sent.error) toast.error(sent.error);
       });
     } else {
       toast.error("Sign in to send messages.");
     }
     setMessage("");
+    setReplyTo(null);
     setShowEmojis(false);
   };
 
@@ -567,8 +693,10 @@ function ChatThreadPage() {
             voice_note_url: uploaded.url,
             viewOnce: settings.viewOnce,
             expiringMedia: settings.viewOnce,
+            metadata: replyTo ? { reply_to: replyTo } : undefined,
           });
           if (sent.error) toast.error(sent.error);
+          else setReplyTo(null);
         })();
         stream.getTracks().forEach((t) => t.stop());
       };
@@ -882,14 +1010,19 @@ function ChatThreadPage() {
         ) : (
           <div
             key={m.id}
-            onPointerDown={() => !selectMode && startLongPress(m.id)}
-            onPointerUp={cancelLongPress}
-            onPointerLeave={cancelLongPress}
+            onPointerDown={(event) => startMessageGesture(m, event)}
+            onPointerMove={moveMessageGesture}
+            onPointerUp={() => endMessageGesture(m)}
+            onPointerCancel={() => endMessageGesture(m)}
             onContextMenu={(e) => { e.preventDefault(); if (!selectMode) setActionSheetId(m.id); }}
             onClick={() => selectMode && toggleSelect(m.id)}
             className={`flex flex-col ${m.sender === "me" ? "items-end" : "items-start"} ${
               selectMode && selectedIds.includes(m.id) ? "rounded-2xl bg-purple-500/10 ring-1 ring-purple-500/40" : ""
-            } ${selectMode ? "cursor-pointer select-none px-1 py-1" : ""}`}
+            } ${selectMode ? "cursor-pointer select-none px-1 py-1" : "touch-pan-y"}`}
+            style={{
+              transform: swipeState?.id === m.id ? `translateX(${swipeState.offset}px)` : undefined,
+              transition: swipeState?.id === m.id ? "none" : "transform 120ms ease-out",
+            }}
           >
             {selectMode && (
               <span className={`mb-1 flex h-4 w-4 items-center justify-center rounded-full border ${
@@ -902,6 +1035,7 @@ function ChatThreadPage() {
               <div className={`max-w-[78%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
                 m.sender === "me" ? "bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-br-xs" : "bg-zinc-800/90 text-zinc-100 rounded-bl-xs border border-zinc-700/50"
               }`}>
+                {m.replyTo && <ReplyQuote reply={m.replyTo} className="mb-2 rounded-lg" />}
                 {m.momentId ? (
                   <button
                     type="button"
@@ -948,6 +1082,8 @@ function ChatThreadPage() {
                 {m.text}
               </div>
             )}
+
+            {!m.text && m.replyTo && <ReplyQuote reply={m.replyTo} className="mb-1 w-[75%] rounded-lg bg-zinc-800/90" />}
 
             {m.image && m.viewOnce && m.sender === "them" && !m.opened && !openedOnce.includes(m.id) ? (
               <button
@@ -1076,7 +1212,24 @@ function ChatThreadPage() {
       )}
 
       {/* INPUT BAR */}
-      <div className="sticky bottom-0 z-40 flex shrink-0 items-center gap-2 border-t border-zinc-800/80 bg-zinc-950 px-3 pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)] pt-3">
+      <div className="sticky bottom-0 z-40 flex shrink-0 flex-col gap-2 border-t border-zinc-800/80 bg-zinc-950 px-3 pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)] pt-3">
+        {replyTo && (
+          <div className="flex w-full items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900/80 px-3 py-2">
+            <div className="min-w-0 flex-1">
+              <span className="block text-[10px] font-bold uppercase tracking-[0.12em] text-purple-300">Replying to</span>
+              <ReplyQuote reply={replyTo} className="mt-1 rounded-md bg-black/20" />
+            </div>
+            <button
+              type="button"
+              aria-label="Cancel reply"
+              onClick={() => setReplyTo(null)}
+              className="shrink-0 rounded-full p-1 text-zinc-400 hover:text-white"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        )}
+        <div className="flex w-full items-center gap-2">
         {blocked ? (
           <p className="flex-1 text-center text-xs font-semibold text-zinc-500 py-2">
             You blocked {displayName}. Unblock from the menu to message.
@@ -1101,6 +1254,7 @@ function ChatThreadPage() {
   <Camera size={18} />
 </button>
               <input
+                 ref={messageInputRef}
                 type="text"
                 value={message}
                 onChange={(e) => {
@@ -1133,6 +1287,7 @@ function ChatThreadPage() {
             </button>
           </>
         )}
+        </div>
       </div>
 
 
@@ -1421,6 +1576,7 @@ function ChatThreadPage() {
               const sent = await sendToDb({
                 media_url: uploaded.url,
                 content: caption,
+                metadata: replyTo ? { reply_to: replyTo } : undefined,
                  viewOnce: settings.viewOnce,
                  expiringMedia: settings.viewOnce,
               });
@@ -1428,6 +1584,7 @@ function ChatThreadPage() {
                 toast.error(sent.error);
                 return;
               }
+              setReplyTo(null);
             } else {
               toast.error("Sign in to send messages.");
             }

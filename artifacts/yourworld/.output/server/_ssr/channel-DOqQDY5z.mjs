@@ -1,6 +1,6 @@
 import { a as useLocation, l as Outlet, m as useNavigate } from "../_libs/@tanstack/react-router+[...].mjs";
 import { P as require_jsx_runtime } from "../_libs/@radix-ui/react-alert-dialog+[...].mjs";
-import { Qt as DollarSign, Ut as Film, Wt as FileText, f as Users, kn as ArrowLeft, l as Video, vn as ChartNoAxesColumn, xt as Megaphone } from "../_libs/lucide-react.mjs";
+import { $t as DollarSign, An as ArrowLeft, Ut as Film, Wt as FileText, f as Users, l as Video, xt as Megaphone, yn as ChartNoAxesColumn } from "../_libs/lucide-react.mjs";
 //#region node_modules/.nitro/vite/services/ssr/assets/channel-DOqQDY5z.js
 var import_jsx_runtime = require_jsx_runtime();
 function ChannelLayout() {
