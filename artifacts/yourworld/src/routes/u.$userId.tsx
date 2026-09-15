@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronLeft, Grid3x3, Play, Share2 } from "lucide-react";
+import { ChevronLeft, Grid3x3, MessageCircle, Play, Share2, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { dmThreadId } from "@/lib/social-data";
@@ -266,6 +266,7 @@ function PublicProfilePage() {
               following[userId] ? "bg-zinc-800 text-white" : "bg-pink-500 text-white",
             )}
           >
+            <UserPlus size={14} />
             {counts.unavailable ? "Follow unavailable" : following[userId] ? "Following" : "Follow"}
           </button>
           <button
@@ -279,6 +280,7 @@ function PublicProfilePage() {
             }}
             className="flex items-center justify-center rounded-xl bg-zinc-800 py-2 text-center text-xs font-bold"
           >
+            <MessageCircle size={14} />
             Message
           </button>
           <button
