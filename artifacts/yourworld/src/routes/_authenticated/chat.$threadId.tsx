@@ -293,7 +293,7 @@ function ChatThreadPage() {
     )) {
       return;
     }
-    const timer = window.setInterval(() => setCountdownNow(Date.now()), 250);
+    const timer = window.setInterval(() => setCountdownNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [dbMessages]);
 

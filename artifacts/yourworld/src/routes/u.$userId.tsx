@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft, Grid3x3, Play } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -53,6 +53,7 @@ function PublicProfilePage() {
   const [avatarSrc, setAvatarSrc] = useState<string | null>(null);
   const [posts, setPosts] = useState<DbPost[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [me, setMe] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [listOpen, setListOpen] = useState(false);
@@ -60,47 +61,62 @@ function PublicProfilePage() {
 
   const counts = useFollowCounts(isRealUserId(userId) ? userId : null);
   const { following, toggleFollow } = useYw();
+  const loadRequestRef = useRef(0);
 
   const load = useCallback(async () => {
+    const requestId = ++loadRequestRef.current;
     setLoading(true);
-    const { data: s } = await supabase.auth.getSession();
-    const uid = s.session?.user.id ?? null;
-    setMe(uid);
+    setLoadError(null);
+    setMe(null);
+    setProfile(null);
+    setPosts([]);
+    setAvatarSrc(null);
 
-    const [{ data: rows }, { data: myPosts }, orbitRow] = await Promise.all([
-      supabase.rpc("get_public_profiles", { ids: [userId] }),
-      supabase
-        .from("posts")
-        .select("*")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false })
-        .limit(100),
-      fetchOrbitProfileRow(userId),
-    ]);
+    try {
+      const { data: s, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+      const uid = s.session?.user.id ?? null;
 
-    const row = (rows ?? [])[0] as
-      | { id: string; username: string | null; display_name: string | null; avatar_url: string | null; bio?: string | null }
-      | undefined;
+      const [profileResult, postsResult, orbitRow] = await Promise.all([
+        supabase.rpc("get_public_profiles", { ids: [userId] }),
+        supabase
+          .from("posts")
+          .select("*")
+          .eq("user_id", userId)
+          .order("created_at", { ascending: false })
+          .limit(100),
+        fetchOrbitProfileRow(userId),
+      ]);
+      if (profileResult.error) throw profileResult.error;
+      if (postsResult.error) throw postsResult.error;
 
-    const orbitProfile = orbitRow ? rowToOrbitProfile(orbitRow) : null;
-    const next: PublicProfile = {
-      id: userId,
-      username:
-        row?.username ??
-        orbitProfile?.handle ??
-        `user${userId.slice(0, 4)}`,
-      display_name:
-        row?.display_name ??
-        row?.username ??
-        orbitProfile?.name ??
-        "YourWorld user",
-      bio: row?.bio ?? orbitProfile?.about ?? "",
-      avatar_url: row?.avatar_url ?? orbitProfile?.photo ?? null,
-    };
-    setProfile(next);
-    setPosts((myPosts ?? []) as DbPost[]);
-    setAvatarSrc(next.avatar_url ? await resolveMediaUrl(next.avatar_url, "avatars") : null);
-    setLoading(false);
+      const row = (profileResult.data ?? [])[0] as
+        | { id: string; username: string | null; display_name: string | null; avatar_url: string | null; bio?: string | null }
+        | undefined;
+      const orbitProfile = orbitRow ? rowToOrbitProfile(orbitRow) : null;
+      const next: PublicProfile = {
+        id: userId,
+        username: row?.username ?? orbitProfile?.handle ?? `user${userId.slice(0, 4)}`,
+        display_name:
+          row?.display_name ?? row?.username ?? orbitProfile?.name ?? "YourWorld user",
+        bio: row?.bio ?? orbitProfile?.about ?? "",
+        avatar_url: row?.avatar_url ?? orbitProfile?.photo ?? null,
+      };
+      const nextAvatar = next.avatar_url
+        ? await resolveMediaUrl(next.avatar_url, "avatars")
+        : null;
+      if (requestId !== loadRequestRef.current) return;
+      setMe(uid);
+      setProfile(next);
+      setPosts((postsResult.data ?? []) as DbPost[]);
+      setAvatarSrc(nextAvatar);
+    } catch (error) {
+      if (requestId !== loadRequestRef.current) return;
+      console.error("[PublicProfilePage] unable to load profile", error);
+      setLoadError("This profile could not be loaded.");
+    } finally {
+      if (requestId === loadRequestRef.current) setLoading(false);
+    }
   }, [userId]);
 
   useEffect(() => {
@@ -111,6 +127,8 @@ function PublicProfilePage() {
   const src = (u: string) => media[u] ?? u;
   const grid = posts.filter((p) => p.kind !== "reel");
   const reels = posts.filter((p) => p.kind === "reel");
+  const gridEmpty = loading ? "Loading…" : loadError ?? "No posts yet";
+  const reelsEmpty = loading ? "Loading…" : loadError ?? "No reels yet";
 
   const onFollow = async () => {
     if (busy) return;
@@ -266,7 +284,7 @@ function PublicProfilePage() {
           <MediaGrid
             items={grid}
             src={src}
-            empty={loading ? "Loading…" : "No posts yet"}
+            empty={gridEmpty}
             onOpen={openViewer}
           />
         </TabsContent>
@@ -274,7 +292,7 @@ function PublicProfilePage() {
           <MediaGrid
             items={reels}
             src={src}
-            empty={loading ? "Loading…" : "No reels yet"}
+            empty={reelsEmpty}
             onOpen={openViewer}
           />
         </TabsContent>

@@ -290,8 +290,10 @@ function ReelMedia({
   const [asImage, setAsImage] = useState(!type.startsWith("video"));
   const [posterSrc, setPosterSrc] = useState<string | null>(null);
   const tried = useRef<Set<string>>(new Set());
+  const retryGeneration = useRef(0);
 
   useEffect(() => {
+    retryGeneration.current += 1;
     tried.current = new Set();
     setSrc(url);
     setAsImage(!type.startsWith("video"));
@@ -313,18 +315,29 @@ function ReelMedia({
 
   const handleError = useCallback(() => {
     tried.current.add(src);
+    const generation = retryGeneration.current;
     void (async () => {
       const local = getLocalMedia(url);
       if (local && !tried.current.has(local)) {
+        if (generation !== retryGeneration.current) return;
         setSrc(local);
         return;
       }
-      const resolved = await resolveMediaUrl(url, bucket);
-      if (resolved && !tried.current.has(resolved)) {
-        setSrc(resolved);
-        return;
+      try {
+        const resolved = await resolveMediaUrl(url, bucket);
+        if (generation !== retryGeneration.current) return;
+        if (resolved && !tried.current.has(resolved)) {
+          setSrc(resolved);
+          return;
+        }
+      } catch (error) {
+        if (generation === retryGeneration.current) {
+          console.error("[ReelsMedia] unable to resolve fallback media", error);
+        }
       }
-      setAsImage(true);
+      if (generation === retryGeneration.current) {
+        setAsImage(true);
+      }
     })();
   }, [bucket, src, url]);
 
