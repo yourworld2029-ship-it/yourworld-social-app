@@ -23,7 +23,6 @@ import {
   Gauge,
   Heart,
   Lock,
-  Maximize,
   MoreVertical,
   Reply,
   Send,
@@ -750,42 +749,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     if (videoRef.current) videoRef.current.playbackRate = nextRate;
   };
 
-  const handleFullscreen = async () => {
-    const target = containerRef.current;
-    const videoElement = videoRef.current;
-    if (!target && !videoElement) return;
-
-    try {
-      if (document.fullscreenElement) {
-        await document.exitFullscreen();
-        return;
-      }
-
-      if (target?.requestFullscreen) {
-        await target.requestFullscreen();
-      } else if (videoElement?.requestFullscreen) {
-        await videoElement.requestFullscreen();
-      } else {
-        toast.error("Fullscreen is not supported on this device");
-        return;
-      }
-
-      try {
-        const orientation = window.screen.orientation as ScreenOrientation & {
-          lock?: (orientation: "landscape") => Promise<void>;
-        };
-        if (orientation.lock) {
-          await orientation.lock("landscape");
-        }
-      } catch {
-        // Orientation locking is unavailable in some browsers; fullscreen still works.
-      }
-    } catch (cause) {
-      console.error("Unable to enter fullscreen", cause);
-      toast.error("Could not open fullscreen");
-    }
-  };
-
   const handleReport = () => {
     toast.success("Thanks — this video was reported for review.");
   };
@@ -1014,7 +977,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     <div className="min-h-screen bg-black text-white pb-24">
       <div
         ref={containerRef}
-        className={`w-full bg-black ${
+        className={`relative w-full bg-black ${
           isFullscreen ? "h-screen w-screen" : "aspect-video sticky top-0 z-30"
         }`}
         onDoubleClick={handleDoubleTap}
@@ -1047,7 +1010,129 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           <div className="text-sm text-gray-500">No media URL found</div>
         )}
 
-         {isFullscreen && !screenLocked && (
+          {!screenLocked ? (
+            <div
+              className="absolute bottom-3 right-20 z-50"
+              onTouchStart={(event) => event.stopPropagation()}
+              onTouchEnd={(event) => event.stopPropagation()}
+              onDoubleClick={(event) => event.stopPropagation()}
+            >
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    aria-label="More video options"
+                    className="h-9 w-9 rounded-full border-white/10 bg-black/60 p-0 text-white shadow-sm backdrop-blur-md transition-all hover:bg-black/80"
+                  >
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  side="top"
+                  align="end"
+                  className="w-56 border-white/10 bg-zinc-950 text-white"
+                >
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger className="text-white focus:bg-white/10 focus:text-white">
+                      <Gauge className="h-4 w-4" />
+                      <span>Quality</span>
+                      <span className="ml-auto text-xs text-zinc-400">{selectedQualityLabel}</span>
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuPortal>
+                      <DropdownMenuSubContent className="border-white/10 bg-zinc-950 text-white">
+                        <DropdownMenuLabel className="text-xs text-zinc-400">Quality</DropdownMenuLabel>
+                        <DropdownMenuRadioGroup
+                          value={playbackQuality}
+                          onValueChange={handlePlaybackQualityChange}
+                        >
+                          {playbackQualityOptions.map((option) => (
+                            <DropdownMenuRadioItem
+                              key={option.id}
+                              value={option.id}
+                              className="focus:bg-white/10 focus:text-white"
+                            >
+                              {option.label}
+                            </DropdownMenuRadioItem>
+                          ))}
+                        </DropdownMenuRadioGroup>
+                      </DropdownMenuSubContent>
+                    </DropdownMenuPortal>
+                  </DropdownMenuSub>
+
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger className="text-white focus:bg-white/10 focus:text-white">
+                      <Gauge className="h-4 w-4" />
+                      <span>Playback Speed</span>
+                      <span className="ml-auto text-xs text-zinc-400">
+                        {playbackRate === 1 ? "Normal" : `${playbackRate}×`}
+                      </span>
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuPortal>
+                      <DropdownMenuSubContent className="border-white/10 bg-zinc-950 text-white">
+                        <DropdownMenuLabel className="text-xs text-zinc-400">Playback Speed</DropdownMenuLabel>
+                        <DropdownMenuRadioGroup
+                          value={String(playbackRate)}
+                          onValueChange={handlePlaybackRateChange}
+                        >
+                          {PLAYBACK_SPEEDS.map((speed) => (
+                            <DropdownMenuRadioItem
+                              key={speed}
+                              value={String(speed)}
+                              className="focus:bg-white/10 focus:text-white"
+                            >
+                              {speed === 1 ? "Normal" : `${speed}×`}
+                            </DropdownMenuRadioItem>
+                          ))}
+                        </DropdownMenuRadioGroup>
+                      </DropdownMenuSubContent>
+                    </DropdownMenuPortal>
+                  </DropdownMenuSub>
+
+                  {captionTracks.length > 0 ? (
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger className="text-white focus:bg-white/10 focus:text-white">
+                        <Captions className="h-4 w-4" />
+                        <span>Captions/Subtitles</span>
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuPortal>
+                        <DropdownMenuSubContent className="border-white/10 bg-zinc-950 text-white">
+                          <DropdownMenuRadioGroup
+                            value={activeCaptionTrack}
+                            onValueChange={setCaptionMode}
+                          >
+                            <DropdownMenuRadioItem value="off" className="focus:bg-white/10 focus:text-white">
+                              Off
+                            </DropdownMenuRadioItem>
+                            {captionTracks.map((track) => (
+                              <DropdownMenuRadioItem
+                                key={track.id}
+                                value={track.id}
+                                className="focus:bg-white/10 focus:text-white"
+                              >
+                                {track.label}
+                              </DropdownMenuRadioItem>
+                            ))}
+                          </DropdownMenuRadioGroup>
+                        </DropdownMenuSubContent>
+                      </DropdownMenuPortal>
+                    </DropdownMenuSub>
+                  ) : null}
+
+                  <DropdownMenuSeparator className="bg-white/10" />
+                  <DropdownMenuItem
+                    onSelect={handleReport}
+                    className="text-white focus:bg-white/10 focus:text-white"
+                  >
+                    <Flag className="h-4 w-4" />
+                    Report
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          ) : null}
+
+          {isFullscreen && !screenLocked && (
          <div className="pointer-events-none absolute inset-0 z-50">
            {isFullscreen && gestureFeedback?.kind === "seek" ? (
             <div
@@ -1261,124 +1346,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
             <Bookmark className="mr-1 h-4 w-4" fill={saved[videoId] ? "currentColor" : "none"} />
             {saved[videoId] ? "Saved" : "Save"}
           </Button>
-           <DropdownMenu>
-             <DropdownMenuTrigger asChild>
-               <Button
-                 type="button"
-                 variant="outline"
-                 aria-label="More video options"
-                 className="h-9 w-9 shrink-0 rounded-full border border-white/10 bg-white/10 p-0 text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20"
-               >
-                 <MoreVertical className="h-4 w-4" />
-               </Button>
-             </DropdownMenuTrigger>
-             <DropdownMenuContent
-               align="end"
-               className="w-56 border-white/10 bg-zinc-950 text-white"
-             >
-               <DropdownMenuSub>
-                 <DropdownMenuSubTrigger className="text-white focus:bg-white/10 focus:text-white">
-                   <Gauge className="h-4 w-4" />
-                   <span>Quality</span>
-                   <span className="ml-auto text-xs text-zinc-400">{selectedQualityLabel}</span>
-                 </DropdownMenuSubTrigger>
-                 <DropdownMenuPortal>
-                   <DropdownMenuSubContent className="border-white/10 bg-zinc-950 text-white">
-                     <DropdownMenuLabel className="text-xs text-zinc-400">Quality</DropdownMenuLabel>
-                     <DropdownMenuRadioGroup
-                       value={playbackQuality}
-                       onValueChange={handlePlaybackQualityChange}
-                     >
-                       {playbackQualityOptions.map((option) => (
-                         <DropdownMenuRadioItem
-                           key={option.id}
-                           value={option.id}
-                           className="focus:bg-white/10 focus:text-white"
-                         >
-                           {option.label}
-                         </DropdownMenuRadioItem>
-                       ))}
-                     </DropdownMenuRadioGroup>
-                   </DropdownMenuSubContent>
-                 </DropdownMenuPortal>
-               </DropdownMenuSub>
-
-               <DropdownMenuSub>
-                 <DropdownMenuSubTrigger className="text-white focus:bg-white/10 focus:text-white">
-                   <Gauge className="h-4 w-4" />
-                   <span>Playback Speed</span>
-                   <span className="ml-auto text-xs text-zinc-400">
-                     {playbackRate === 1 ? "Normal" : `${playbackRate}×`}
-                   </span>
-                 </DropdownMenuSubTrigger>
-                 <DropdownMenuPortal>
-                   <DropdownMenuSubContent className="border-white/10 bg-zinc-950 text-white">
-                     <DropdownMenuLabel className="text-xs text-zinc-400">Playback Speed</DropdownMenuLabel>
-                     <DropdownMenuRadioGroup
-                       value={String(playbackRate)}
-                       onValueChange={handlePlaybackRateChange}
-                     >
-                       {PLAYBACK_SPEEDS.map((speed) => (
-                         <DropdownMenuRadioItem
-                           key={speed}
-                           value={String(speed)}
-                           className="focus:bg-white/10 focus:text-white"
-                         >
-                           {speed === 1 ? "Normal" : `${speed}×`}
-                         </DropdownMenuRadioItem>
-                       ))}
-                     </DropdownMenuRadioGroup>
-                   </DropdownMenuSubContent>
-                 </DropdownMenuPortal>
-               </DropdownMenuSub>
-
-               {captionTracks.length > 0 ? (
-                 <DropdownMenuSub>
-                   <DropdownMenuSubTrigger className="text-white focus:bg-white/10 focus:text-white">
-                     <Captions className="h-4 w-4" />
-                     <span>Captions/Subtitles</span>
-                   </DropdownMenuSubTrigger>
-                   <DropdownMenuPortal>
-                     <DropdownMenuSubContent className="border-white/10 bg-zinc-950 text-white">
-                       <DropdownMenuRadioGroup
-                         value={activeCaptionTrack}
-                         onValueChange={setCaptionMode}
-                       >
-                         <DropdownMenuRadioItem value="off" className="focus:bg-white/10 focus:text-white">
-                           Off
-                         </DropdownMenuRadioItem>
-                         {captionTracks.map((track) => (
-                           <DropdownMenuRadioItem
-                             key={track.id}
-                             value={track.id}
-                             className="focus:bg-white/10 focus:text-white"
-                           >
-                             {track.label}
-                           </DropdownMenuRadioItem>
-                         ))}
-                       </DropdownMenuRadioGroup>
-                     </DropdownMenuSubContent>
-                   </DropdownMenuPortal>
-                 </DropdownMenuSub>
-               ) : null}
-
-               <DropdownMenuSeparator className="bg-white/10" />
-               <DropdownMenuItem
-                 onSelect={handleReport}
-                 className="text-white focus:bg-white/10 focus:text-white"
-               >
-                 <Flag className="h-4 w-4" />
-                 Report
-               </DropdownMenuItem>
-               <DropdownMenuItem
-                 onSelect={() => void handleFullscreen()}
-                 className="text-white focus:bg-white/10 focus:text-white"
-               >
-                 <Maximize className="h-4 w-4" />
-                 Full Screen
-               </DropdownMenuItem>
-             </DropdownMenuContent>
-           </DropdownMenu>
         </div>
 
          <DownloadSheet
