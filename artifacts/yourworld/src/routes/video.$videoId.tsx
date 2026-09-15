@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { createFileRoute, useNavigate, useParams } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
   ArrowLeft,
@@ -91,6 +91,13 @@ type RecommendedVideo = Video & {
   thumbnail_url?: string | null;
   duration_seconds?: number | null;
 };
+
+type RelatedVideoPage = {
+  videos: RecommendedVideo[];
+  nextOffset: number | null;
+};
+
+const RELATED_VIDEO_PAGE_SIZE = 12;
 
 type GestureFeedback = {
   kind: "seek" | "volume" | "brightness" | "zoom";
@@ -307,19 +314,26 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     repliesByParent.set(comment.parentCommentId, replies);
   });
 
-  const { data: relatedVideos = [] } = useQuery<RecommendedVideo[]>({
+  const {
+    data: relatedPages,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery<RelatedVideoPage>({
     queryKey: ["related-videos", videoId],
-    queryFn: async () => {
+    initialPageParam: 0,
+    queryFn: async ({ pageParam }) => {
+      const offset = Number(pageParam);
       try {
         const { data, error } = await supabase
           .from("posts")
           .select("*")
           .neq("id", videoId)
           .order("created_at", { ascending: false })
-          .limit(12);
+          .range(offset, offset + RELATED_VIDEO_PAGE_SIZE - 1);
         if (error) {
           console.error("Error fetching related videos:", error);
-          return [];
+          return { videos: [], nextOffset: null };
         }
 
         const rows = (data ?? []) as unknown as Record<string, unknown>[];
@@ -340,24 +354,47 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           );
         }
 
-        return videos.map((row) => ({
-          ...(row as unknown as RecommendedVideo),
-          id: String(row.id ?? ""),
-          title: typeof row.title === "string" ? row.title : null,
-          caption: typeof row.caption === "string" ? row.caption : null,
-          media_url: typeof row.media_url === "string" ? row.media_url : null,
-          thumbnail_url: typeof row.thumbnail_url === "string" ? row.thumbnail_url : null,
-          duration_seconds: typeof row.duration_seconds === "number" ? row.duration_seconds : null,
-          user:
-            (typeof row.user_id === "string" && profileById.get(row.user_id)) ||
-            null,
-        }));
+        return {
+          videos: videos.map((row) => ({
+            ...(row as unknown as RecommendedVideo),
+            id: String(row.id ?? ""),
+            title: typeof row.title === "string" ? row.title : null,
+            caption: typeof row.caption === "string" ? row.caption : null,
+            media_url: typeof row.media_url === "string" ? row.media_url : null,
+            thumbnail_url: typeof row.thumbnail_url === "string" ? row.thumbnail_url : null,
+            duration_seconds: typeof row.duration_seconds === "number" ? row.duration_seconds : null,
+            user:
+              (typeof row.user_id === "string" && profileById.get(row.user_id)) ||
+              null,
+          })),
+          nextOffset: rows.length === RELATED_VIDEO_PAGE_SIZE
+            ? offset + RELATED_VIDEO_PAGE_SIZE
+            : null,
+        };
       } catch (cause) {
         console.error("Error fetching related videos:", cause);
-        return [];
+        return { videos: [], nextOffset: null };
       }
     },
+    getNextPageParam: (lastPage) => lastPage.nextOffset ?? undefined,
   });
+  const relatedVideos = relatedPages?.pages.flatMap((page) => page.videos) ?? [];
+  const relatedSentinelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const sentinel = relatedSentinelRef.current;
+    if (!sentinel || !hasNextPage) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting && !isFetchingNextPage) {
+          void fetchNextPage();
+        }
+      },
+      { rootMargin: "600px 0px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
 
   const handleSubscribe = async () => {
     if (!user?.id) {
@@ -1193,6 +1230,13 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
                   </button>
                 );
               })}
+            </div>
+            <div ref={relatedSentinelRef} className="flex min-h-12 items-center justify-center pt-4" aria-live="polite">
+              {isFetchingNextPage ? (
+                <span className="h-5 w-5 animate-spin rounded-full border-2 border-pink-500 border-t-transparent" aria-label="Loading more videos" />
+              ) : hasNextPage ? null : (
+                <span className="text-xs text-gray-500">You’ve reached the end.</span>
+              )}
             </div>
           </section>
         ) : null}
