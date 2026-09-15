@@ -1,0 +1,62 @@
+PERFORM A FULL TECHNICAL CLEANUP AND STABILITY AUDIT OF THE EXISTING YOURWORLD APP.
+
+GOAL:
+Make the existing app clean, stable, fast and production-ready by finding and fixing real errors, bugs, crashes, hangs, duplicate code/files, dead code, broken imports, unused components, duplicate routes, conflicting logic, console errors, memory leaks, unnecessary re-renders, and other technical garbage.
+
+STRICT RULES:
+- DO NOT create a new project.
+- DO NOT replace the existing architecture.
+- DO NOT remove any working feature.
+- DO NOT change the existing UI/design unless required to fix a bug.
+- DO NOT change database schema/data unnecessarily.
+- DO NOT remove Supabase authentication, realtime, storage or existing connections.
+- DO NOT remove or redesign Moment, Video/Reels, Chat, Calls, Profile, Sports Profile, Search, Notifications, Follow system or navigation.
+- DO NOT remove existing functionality just because it is old.
+- Before deleting any file/component/route, verify that it is truly unused and has no dynamic/runtime reference.
+- Consolidate duplicate implementations only when behavior remains identical.
+- Preserve existing URLs/routes and user data.
+
+AUDIT EVERYTHING:
+1. TypeScript/build errors
+2. ESLint/console errors
+3. Broken imports and exports
+4. Duplicate files/components/routes
+5. Dead/unused code
+6. Duplicate state and conflicting logic
+7. Memory leaks and event-listener cleanup
+8. Unnecessary API/database requests
+9. Realtime subscription cleanup
+10. Video/audio player lifecycle and duplicate playback
+11. React re-render/performance problems
+12. Mobile layout/runtime issues
+13. Loading states and race conditions
+14. Error handling
+15. Supabase client usage
+16. Authentication/session handling
+17. Storage/media URL handling
+18. Navigation/back-button behavior
+19. Any obvious security or permission mistakes
+
+IMPORTANT:
+Do NOT blindly delete anything.
+First trace references/dependencies.
+Only remove confirmed-unused files/code.
+Fix root causes instead of adding workarounds.
+
+After cleanup:
+- Run the full build/typecheck/lint/test suite.
+- Fix all newly exposed errors.
+- Verify production build succeeds.
+- Check for remaining duplicate/conflicting implementations.
+- Check git diff carefully and ensure no working feature was unintentionally changed.
+
+At the end, give a concise report:
+- Files removed
+- Files cleaned/refactored
+- Bugs fixed
+- Performance issues fixed
+- Tests/build results
+- Any remaining issues that require separate work
+
+THIS IS A CLEANUP + STABILITY AUDIT ONLY.
+DO NOT redesign or add new features.
