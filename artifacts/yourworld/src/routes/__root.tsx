@@ -151,6 +151,7 @@ function RootComponent() {
   const { pathname } = useLocation();
   const [createOpen, setCreateOpen] = useState(false);
   const hideNav = pathname.startsWith("/orbit") || pathname.startsWith("/auth") || pathname.startsWith("/create") || pathname.startsWith("/moment/create") || pathname.startsWith("/channel/create");
+  const wideProfileLayout = pathname === "/profile";
 
   useEffect(() => {
     setCreateOpen(false);
@@ -194,7 +195,7 @@ function RootComponent() {
                                   <UploadProvider>
                                     {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
                                     <AuthGate>
-                                      <div className={cn("mx-auto min-h-screen w-full max-w-lg", hideNav ? "" : "pb-20")}>
+                                      <div className={cn("mx-auto min-h-screen w-full", wideProfileLayout ? "max-w-4xl" : "max-w-lg", hideNav ? "" : "pb-20")}>
                                         <Outlet />
                                       </div>
                                       {!hideNav && <BottomNav onOpenCreate={() => setCreateOpen(true)} />}

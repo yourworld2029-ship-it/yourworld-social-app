@@ -584,22 +584,24 @@ function ProfilePage() {
         </Link>
       </header>
 
-      {coverSrc ? (
-        <div className="relative h-24 overflow-hidden sm:h-32">
-          <img src={coverSrc} alt="" className="h-full w-full scale-105 object-cover opacity-60" />
-          <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-background/25 to-background" />
-          <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded-full border border-white/10 bg-black/35 px-2.5 py-1 text-[9px] font-semibold uppercase tracking-[0.22em] text-white/70 backdrop-blur-md sm:left-4">
-            <span className="h-1.5 w-1.5 rounded-full bg-amber-300" />
-            Athlete profile
+      {profile.cover_url ? (
+        coverSrc ? (
+          <div className="relative h-24 overflow-hidden sm:h-32">
+            <img src={coverSrc} alt="" className="h-full w-full scale-105 object-cover opacity-60" />
+            <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-background/25 to-background" />
+            <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded-full border border-white/10 bg-black/35 px-2.5 py-1 text-[9px] font-semibold uppercase tracking-[0.22em] text-white/70 backdrop-blur-md sm:left-4">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-300" />
+              Athlete profile
+            </div>
           </div>
-        </div>
-      ) : (
-        <div className="relative h-24 overflow-hidden bg-[radial-gradient(circle_at_85%_10%,rgba(216,180,91,0.22),transparent_32%),linear-gradient(135deg,rgba(210,56,151,0.16),transparent_55%)] sm:h-32">
-          <div className="absolute inset-x-3 bottom-4 h-px bg-gradient-to-r from-transparent via-amber-200/40 to-transparent sm:inset-x-4" />
-        </div>
-      )}
+        ) : (
+          <div className="relative h-24 overflow-hidden bg-[radial-gradient(circle_at_85%_10%,rgba(216,180,91,0.22),transparent_32%),linear-gradient(135deg,rgba(210,56,151,0.16),transparent_55%)] sm:h-32">
+            <div className="absolute inset-x-3 bottom-4 h-px bg-gradient-to-r from-transparent via-amber-200/40 to-transparent sm:inset-x-4" />
+          </div>
+        )
+      ) : null}
 
-      <section className="relative mx-auto -mt-8 max-w-4xl px-4 sm:-mt-10 sm:px-8 lg:px-10">
+      <section className={`relative mx-auto max-w-4xl px-4 sm:px-8 lg:px-10 ${profile.cover_url ? "-mt-8 sm:-mt-10" : "mt-0"}`}>
         <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-4 sm:gap-x-6">
           <span className="row-span-2 grid h-[84px] w-[84px] shrink-0 place-items-center rounded-full bg-[linear-gradient(135deg,#f4d58d,#d987c4_48%,#8647d2)] p-[3px] shadow-[0_0_0_1px_rgba(255,255,255,0.2),0_16px_38px_-12px_rgba(231,135,196,0.8)] sm:h-28 sm:w-28">
             <span className="grid h-full w-full place-items-center rounded-full bg-[#0c0d12] p-[3px]">
