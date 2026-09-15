@@ -599,42 +599,41 @@ function ProfilePage() {
         </div>
       )}
 
-      <section className="relative mx-auto -mt-9 max-w-2xl px-2.5 sm:-mt-11 sm:px-4">
-        <div className="rounded-[1.5rem] border border-white/[0.13] bg-[linear-gradient(145deg,rgba(33,25,39,0.95),rgba(10,12,18,0.97)_58%,rgba(20,15,30,0.97))] p-3.5 shadow-[0_24px_70px_-30px_rgba(0,0,0,0.98),0_0_0_1px_rgba(255,255,255,0.03)_inset] backdrop-blur-xl sm:rounded-[1.75rem] sm:p-5">
-          <div className="flex items-center gap-3 sm:gap-4">
-            <span className="grid h-[76px] w-[76px] shrink-0 place-items-center rounded-full bg-[linear-gradient(135deg,#f4d58d,#d987c4_48%,#8647d2)] p-[3px] shadow-[0_0_0_1px_rgba(255,255,255,0.2),0_12px_34px_-12px_rgba(231,135,196,0.8)] sm:h-[92px] sm:w-[92px]">
-              <span className="grid h-full w-full place-items-center rounded-full bg-[#0c0d12] p-[3px]">
-                {avatarSrc ? (
-                  <img data-testid="img-profile-avatar" src={avatarSrc} alt="" className="h-full w-full rounded-full object-cover" />
-                ) : (
-                  <YwAvatar user={avatarUser} size={84} />
-                )}
-              </span>
+      <section className="relative mx-auto -mt-9 max-w-3xl px-4 sm:-mt-11 sm:px-6">
+        <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-4 sm:gap-x-6">
+          <span className="row-span-2 grid h-[84px] w-[84px] shrink-0 place-items-center rounded-full bg-[linear-gradient(135deg,#f4d58d,#d987c4_48%,#8647d2)] p-[3px] shadow-[0_0_0_1px_rgba(255,255,255,0.2),0_16px_38px_-12px_rgba(231,135,196,0.8)] sm:h-28 sm:w-28">
+            <span className="grid h-full w-full place-items-center rounded-full bg-[#0c0d12] p-[3px]">
+              {avatarSrc ? (
+                <img data-testid="img-profile-avatar" src={avatarSrc} alt="" className="h-full w-full rounded-full object-cover" />
+              ) : (
+                <YwAvatar user={avatarUser} size={84} />
+              )}
             </span>
-            <div className="min-w-0 flex-1 pt-0.5">
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                <p data-testid="text-profile-display-name" className="font-display text-[17px] font-bold tracking-tight sm:text-xl">
-                  {profile.display_name || "Add your name"}
-                </p>
-                {sportsNameBadge ? <SportsProfileBadge badge={sportsNameBadge} verified /> : null}
-              </div>
-              {isVerifiedSports && sportsProfile ? (
-                <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.12em] text-amber-100/80">
-                  {sportsProfile.sport} · {sportsProfile.role}
-                </p>
-              ) : profile.category ? (
-                <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.12em] text-zinc-500">{profile.category}</p>
-              ) : null}
+          </span>
+
+          <div className="min-w-0 self-stretch pt-1 sm:pt-2">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <p data-testid="text-profile-display-name" className="font-display text-[18px] font-bold tracking-tight sm:text-xl">
+                {profile.display_name || "Add your name"}
+              </p>
+              {sportsNameBadge ? <SportsProfileBadge badge={sportsNameBadge} verified /> : null}
             </div>
+            {isVerifiedSports && sportsProfile ? (
+              <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.12em] text-amber-100/80">
+                {sportsProfile.sport} · {sportsProfile.role}
+              </p>
+            ) : profile.category ? (
+              <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.12em] text-zinc-500">{profile.category}</p>
+            ) : null}
           </div>
 
-          <dl data-testid="stats-profile" className="mt-4 grid grid-cols-3 divide-x divide-white/10 rounded-2xl border border-white/10 bg-black/25 px-1 py-3 shadow-inner shadow-white/[0.02] sm:px-2 sm:py-3.5">
+          <dl data-testid="stats-profile" className="col-span-2 grid grid-cols-3 divide-x divide-white/10 border-y border-white/10 py-2.5 sm:col-span-1 sm:col-start-2 sm:row-start-2 sm:mt-[-0.25rem] sm:py-3">
             <Stat label="Posts" value={mediaLoading ? "—" : formatCount(posts.length)} />
             <Stat label="Followers" value={counts.followers === null ? "—" : formatCount(counts.followers)} onClick={() => { setListTab("followers"); setListOpen(true); }} />
             <Stat label="Following" value={counts.following === null ? "—" : formatCount(counts.following)} onClick={() => { setListTab("following"); setListOpen(true); }} />
           </dl>
 
-          <div className="pt-3.5">
+          <div className="col-span-2 min-w-0">
             {profile.bio ? <Bio text={isVerifiedSports ? sportsProfile?.publicDetails || profile.bio : profile.bio} /> : null}
             {(profile.location || profile.website) ? (
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 pt-3 text-xs">
@@ -647,23 +646,22 @@ function ProfilePage() {
                 ) : null}
               </div>
             ) : null}
-          </div>
 
-          <div className="grid grid-cols-2 gap-2 pt-3.5">
-            <Button data-testid="button-edit-profile" variant="secondary" className="h-9 rounded-lg border-0 bg-gradient-to-r from-fuchsia-500 to-violet-500 px-3 text-xs font-semibold text-white shadow-[0_8px_20px_-10px_rgba(217,70,239,0.9)] hover:from-fuchsia-400 hover:to-violet-400" onClick={() => setEditOpen(true)}>
-              Edit profile
-            </Button>
-            <Button data-testid="button-share-profile" variant="secondary" className="h-9 rounded-lg border border-white/10 bg-white/[0.06] px-3 text-xs font-semibold hover:bg-white/[0.12]" onClick={async () => {
-              const url = `${window.location.origin}/profile`;
-              try {
-                if (navigator.share) await navigator.share({ title: profile.username, url });
-                else { await navigator.clipboard.writeText(url); toast.success("Profile link copied"); }
-              } catch { /* user cancelled */ }
-            }}>
-              Share profile
-            </Button>
+            <div className="flex flex-wrap justify-end gap-2 pt-4">
+              <Button data-testid="button-edit-profile" variant="secondary" className="h-8 rounded-lg border-0 bg-gradient-to-r from-fuchsia-500 to-violet-500 px-3 text-xs font-semibold text-white shadow-[0_8px_20px_-10px_rgba(217,70,239,0.9)] hover:from-fuchsia-400 hover:to-violet-400" onClick={() => setEditOpen(true)}>
+                Edit profile
+              </Button>
+              <Button data-testid="button-share-profile" variant="secondary" className="h-8 rounded-lg border border-white/10 bg-white/[0.06] px-3 text-xs font-semibold hover:bg-white/[0.12]" onClick={async () => {
+                const url = `${window.location.origin}/profile`;
+                try {
+                  if (navigator.share) await navigator.share({ title: profile.username, url });
+                  else { await navigator.clipboard.writeText(url); toast.success("Profile link copied"); }
+                } catch { /* user cancelled */ }
+              }}>
+                Share profile
+              </Button>
+            </div>
           </div>
-
         </div>
       </section>
 
