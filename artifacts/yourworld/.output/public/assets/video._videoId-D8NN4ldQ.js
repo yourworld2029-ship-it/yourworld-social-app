@@ -1,0 +1,1 @@
+import{t as e}from"./jsx-runtime-NZYk81nU.js";import{t}from"./video._videoId-C9S_yJt3.js";var n=e(),r=()=>(0,n.jsx)(t,{});export{r as notFoundComponent};
