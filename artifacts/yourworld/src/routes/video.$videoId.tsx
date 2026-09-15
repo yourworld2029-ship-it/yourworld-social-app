@@ -1075,13 +1075,13 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
       <div
         ref={containerRef}
         className={`relative w-full bg-black ${
-          isFullscreen ? "h-screen w-screen" : "aspect-video sticky top-0 z-30"
+          isFullscreen ? "h-screen w-screen" : "aspect-video"
         }`}
         onDoubleClick={handleDoubleTap}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
-        style={{ touchAction: "none" }}
+        style={{ touchAction: isFullscreen ? "none" : "auto" }}
       >
          {playableMediaUrl ? (
          <video
