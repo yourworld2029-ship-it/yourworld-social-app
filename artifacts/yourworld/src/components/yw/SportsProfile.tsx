@@ -203,7 +203,7 @@ export type SportsProfileInfo = {
   teamDetails: string;
 };
 
-export function getSportsProfile(profile: {
+type SportsProfileSource = {
   is_verified: boolean;
   category: string;
   bio: string;
@@ -211,7 +211,9 @@ export function getSportsProfile(profile: {
   username?: string;
   displayName?: string;
   verification_requested?: boolean;
-}): SportsProfileInfo | null {
+};
+
+export function getSportsProfile(profile: SportsProfileSource): SportsProfileInfo | null {
   const category = profile.category.trim();
   const roleMatch = /^(athlete|player|coach)(?:\s*[-·•|:]|$)/i.exec(category);
   if (!roleMatch) return null;
@@ -304,6 +306,35 @@ export function getSportsProfile(profile: {
     teamDetails:
       extractLabeledValue(profile.bio, ["tournament / team details", "team details"]) || "Not recorded",
   };
+}
+
+/** Provides the existing editor with an empty Player profile until the user chooses a role. */
+export function getOrCreateSportsProfile(profile: SportsProfileSource): SportsProfileInfo {
+  return (
+    getSportsProfile(profile) ?? {
+      badge: "PLAYER PROFILE",
+      role: "Player",
+      username: profile.username,
+      sport: "Not specified",
+      eventPosition: "Not recorded",
+      status: "Not recorded",
+      represents: profile.location.trim() || "Not specified",
+      verified: false,
+      verificationRequested: profile.verification_requested === true,
+      publicDetails: stripSportsFields(profile.bio),
+      tournaments: [],
+      medals: [],
+      tournamentDetails: [],
+      medalDetails: [],
+      achievements: [],
+      coachName: profile.displayName?.trim() || profile.username?.trim() || "Not recorded",
+      coachQualification: "Not recorded",
+      qualificationYear: "Not recorded",
+      institution: "Not recorded",
+      coachingExperience: "Not recorded",
+      teamDetails: "Not recorded",
+    }
+  );
 }
 
 export function toSportsProfileDraft(profile: SportsProfileInfo): SportsProfileDraft {

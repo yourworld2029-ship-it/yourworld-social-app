@@ -21,3 +21,4 @@
 - [Sports document isolation](sports-document-isolation.md) — verification files require a private bucket and owner-folder policy; broad public storage policies must exclude that bucket.
 - [Sports introduction verification](sports-introduction-verification.md) — store intro video bytes in owner-scoped videos storage and only its path in profile metadata.
 - [Sports verification private details](sports-verification-private-details.md) — keep new identity/contact/evidence metadata outside public profiles and gate it with owner-scoped RLS.
+- [Universal Sports Profile entry](sports-profile-universal.md) — keep strict profile parsing for review while giving every owner the existing editor through an empty draft fallback.

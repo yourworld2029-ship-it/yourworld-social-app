@@ -70,7 +70,7 @@ import {
   type SportsVerificationEvidenceKind,
 } from "@/lib/profile-data";
 import {
-  getSportsProfile,
+  getOrCreateSportsProfile,
   serializeSportsProfileBio,
   SportsDetailsPanel,
   SportsProfileBadge,
@@ -291,7 +291,7 @@ function ProfilePage() {
     name: profile.display_name || profile.username || "You",
     hue: 280,
   };
-  const sportsProfile = getSportsProfile({
+  const sportsProfile = getOrCreateSportsProfile({
     ...profile,
     username: profile.username,
     displayName: profile.display_name,
