@@ -167,10 +167,10 @@ function HomePage() {
         </Link>
         <div className="flex items-center gap-3">
           <Link to="/search" className="p-2 rounded-full hover:bg-neutral-900 text-neutral-200 transition-colors">
-            <Search className="w-5 h-5" />
+            <Search className="w-[22px] h-[22px]" strokeWidth={1.8} />
           </Link>
           <Link to="/notifications" className="relative p-2 rounded-full hover:bg-neutral-900 text-neutral-200 transition-colors">
-            <Heart className="w-5 h-5" />
+            <Heart className="w-[22px] h-[22px]" strokeWidth={1.8} />
             {alertCount > 0 && (
               <span className="absolute top-1 right-1 w-4 h-4 bg-pink-600 text-[10px] font-bold rounded-full flex items-center justify-center text-white">
                 {alertCount > 9 ? "9+" : alertCount}
