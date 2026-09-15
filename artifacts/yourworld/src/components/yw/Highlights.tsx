@@ -307,23 +307,23 @@ export function Highlights({ userId, posts }: { userId: string | null; posts: Db
   };
 
   return (
-    <section className="px-4 pt-4">
-      <div className="no-scrollbar flex gap-4 overflow-x-auto pb-1">
+    <section className="mx-auto max-w-3xl px-3 pt-3 sm:px-4">
+      <div className="no-scrollbar flex gap-3.5 overflow-x-auto pb-0.5">
         {/* New highlight */}
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="flex w-[68px] shrink-0 flex-col items-center gap-1.5 transition-transform active:scale-95"
+          className="flex w-[64px] shrink-0 flex-col items-center gap-1 transition-transform active:scale-95"
         >
-          <span className="grid h-[60px] w-[60px] place-items-center rounded-full border border-border/60 bg-muted/40 backdrop-blur-md">
-            <Plus className="h-6 w-6 text-muted-foreground" strokeWidth={1.8} />
+          <span className="grid h-[56px] w-[56px] place-items-center rounded-full border border-white/10 bg-white/[0.045] shadow-[0_6px_18px_-12px_rgba(0,0,0,0.9)] backdrop-blur-md">
+            <Plus className="h-5 w-5 text-muted-foreground" strokeWidth={1.8} />
           </span>
-          <span className="w-full truncate text-center text-[11px] text-muted-foreground">New</span>
+          <span className="w-full truncate text-center text-[10px] font-medium text-muted-foreground">New</span>
         </button>
 
         {highlights.map((h) => (
-          <button key={h.id} type="button" onClick={() => setViewer(h)} className="flex w-[68px] shrink-0 flex-col items-center gap-1.5">
-            <span className="h-[60px] w-[60px] overflow-hidden rounded-full border border-border/60 bg-muted/40 p-[2px]">
+          <button key={h.id} type="button" onClick={() => setViewer(h)} className="flex w-[64px] shrink-0 flex-col items-center gap-1">
+            <span className="h-[56px] w-[56px] overflow-hidden rounded-full border border-white/15 bg-white/[0.045] p-[2px] shadow-[0_6px_18px_-12px_rgba(0,0,0,0.9)]">
               <span className="block h-full w-full overflow-hidden rounded-full">
                 {h.cover_url ? (
                   h.items?.[0]?.mediaType === "video" && !h.cover_url.startsWith("data:") ? (
@@ -332,13 +332,13 @@ export function Highlights({ userId, posts }: { userId: string | null; posts: Db
                     <Thumb src={h.cover_url} />
                   )
                 ) : (
-                  <span className="grid h-full w-full place-items-center bg-muted text-xs font-semibold text-muted-foreground">
+                  <span className="grid h-full w-full place-items-center bg-white/[0.08] text-xs font-semibold text-muted-foreground">
                     {h.title.slice(0, 1).toUpperCase()}
                   </span>
                 )}
               </span>
             </span>
-            <span className="w-full truncate text-center text-[11px] text-muted-foreground">
+            <span className="w-full truncate text-center text-[10px] font-medium text-muted-foreground">
               {h.title}
             </span>
           </button>

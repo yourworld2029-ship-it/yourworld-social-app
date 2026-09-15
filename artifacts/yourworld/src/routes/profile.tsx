@@ -601,7 +601,7 @@ function ProfilePage() {
 
       <section className="relative mx-auto -mt-9 max-w-3xl px-3 sm:-mt-11 sm:px-4">
         <div className="rounded-[1.5rem] border border-white/[0.13] bg-[linear-gradient(145deg,rgba(33,25,39,0.95),rgba(10,12,18,0.97)_58%,rgba(20,15,30,0.97))] p-3 shadow-[0_24px_70px_-30px_rgba(0,0,0,0.98),0_0_0_1px_rgba(255,255,255,0.03)_inset] backdrop-blur-xl sm:rounded-[1.75rem] sm:p-4">
-          <div className="flex items-start gap-3 sm:gap-4">
+          <div className="flex items-center gap-3 sm:gap-4">
             <span className="grid h-[76px] w-[76px] shrink-0 place-items-center rounded-full bg-[linear-gradient(135deg,#f4d58d,#d987c4_48%,#8647d2)] p-[3px] shadow-[0_0_0_1px_rgba(255,255,255,0.2),0_12px_34px_-12px_rgba(231,135,196,0.8)] sm:h-[92px] sm:w-[92px]">
               <span className="grid h-full w-full place-items-center rounded-full bg-[#0c0d12] p-[3px]">
                 {avatarSrc ? (
@@ -628,7 +628,7 @@ function ProfilePage() {
             </div>
           </div>
 
-          <dl data-testid="stats-profile" className="mt-3 grid grid-cols-3 divide-x divide-white/10 rounded-xl border border-white/10 bg-black/25 py-2.5 text-center shadow-inner shadow-white/[0.02]">
+          <dl data-testid="stats-profile" className="mt-3 grid grid-cols-3 divide-x divide-white/10 rounded-xl border border-white/10 bg-black/25 py-2 shadow-inner shadow-white/[0.02]">
             <Stat label="Posts" value={mediaLoading ? "—" : formatCount(posts.length)} />
             <Stat label="Followers" value={counts.followers === null ? "—" : formatCount(counts.followers)} onClick={() => { setListTab("followers"); setListOpen(true); }} />
             <Stat label="Following" value={counts.following === null ? "—" : formatCount(counts.following)} onClick={() => { setListTab("following"); setListOpen(true); }} />
@@ -672,7 +672,7 @@ function ProfilePage() {
         posts={posts.map((post) => ({ ...post, media_url: src(post.media_url) }))}
       />
 
-      <Tabs defaultValue="videos" className="mx-auto w-full max-w-3xl pt-5">
+      <Tabs defaultValue="videos" className="mx-auto w-full max-w-3xl pt-4">
         <TabsList className="mx-3 grid w-auto grid-cols-3 rounded-xl border border-white/10 bg-black/20 p-1 backdrop-blur-xl sm:mx-4">
           <TabsTrigger value="videos" className="rounded-lg py-2 text-[11px] data-[state=active]:bg-white/[0.09] data-[state=active]:text-white" aria-label="Videos">
             Videos
