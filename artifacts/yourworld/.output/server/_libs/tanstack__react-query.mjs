@@ -1,7 +1,7 @@
 import { o as __toESM } from "../_runtime.mjs";
 import { u as require_react } from "./@floating-ui/react-dom+[...].mjs";
 import { P as require_jsx_runtime } from "./@radix-ui/react-alert-dialog+[...].mjs";
-import { a as noop, i as environmentManager, n as QueryObserver, o as shouldThrowError, r as notifyManager } from "./tanstack__query-core.mjs";
+import { a as environmentManager, i as notifyManager, n as InfiniteQueryObserver, o as noop, r as QueryObserver, s as shouldThrowError } from "./tanstack__query-core.mjs";
 //#region ../../node_modules/.pnpm/@tanstack+react-query@5.101.4_react@19.2.8/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js
 var import_react = /* @__PURE__ */ __toESM(require_react(), 1);
 var import_jsx_runtime = require_jsx_runtime();
@@ -125,4 +125,9 @@ function useQuery(options, queryClient) {
 	return useBaseQuery(options, QueryObserver, queryClient);
 }
 //#endregion
-export { QueryClientProvider as n, useQueryClient as r, useQuery as t };
+//#region ../../node_modules/.pnpm/@tanstack+react-query@5.101.4_react@19.2.8/node_modules/@tanstack/react-query/build/modern/useInfiniteQuery.js
+function useInfiniteQuery(options, queryClient) {
+	return useBaseQuery(options, InfiniteQueryObserver, queryClient);
+}
+//#endregion
+export { useQueryClient as i, useQuery as n, QueryClientProvider as r, useInfiniteQuery as t };
