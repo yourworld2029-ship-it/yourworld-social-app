@@ -1141,12 +1141,12 @@ function MediaGrid({
   onManage?: (post: DbPost) => void;
 }) {
   return (
-    <ul data-testid="grid-profile-media" className="grid grid-cols-3 gap-1 bg-background">
+    <ul data-testid="grid-profile-media" className="grid grid-cols-3 gap-1.5 bg-transparent px-3 sm:px-4">
       {items.map((it, i) => (
         <li
           key={`${it.post?.id ?? it.src}-${i}`}
           data-testid={`card-profile-media-${it.post?.id ?? i}`}
-          className="media-frame relative overflow-hidden bg-secondary"
+          className="media-frame relative overflow-hidden rounded-lg bg-secondary"
           style={{ aspectRatio: it.ratio ?? 1 }}
         >
           {it.post?.kind === "video" || it.post?.kind === "reel" || it.type?.startsWith("video") ? (
