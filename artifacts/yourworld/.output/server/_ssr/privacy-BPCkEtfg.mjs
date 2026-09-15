@@ -1,6 +1,6 @@
 import { p as Link } from "../_libs/@tanstack/react-router+[...].mjs";
 import { P as require_jsx_runtime } from "../_libs/@radix-ui/react-alert-dialog+[...].mjs";
-import { An as ArrowLeft, z as ShieldCheck } from "../_libs/lucide-react.mjs";
+import { jn as ArrowLeft, z as ShieldCheck } from "../_libs/lucide-react.mjs";
 //#region node_modules/.nitro/vite/services/ssr/assets/privacy-BPCkEtfg.js
 var import_jsx_runtime = require_jsx_runtime();
 function Section({ title, children }) {

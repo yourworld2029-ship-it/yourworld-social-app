@@ -12,18 +12,14 @@ import {
   AlertCircle,
   ArrowLeft,
   Bookmark,
-  Captions,
   Check,
   ChevronDown,
   ChevronUp,
   Clock,
   Download,
   Eye,
-  Flag,
-  Gauge,
   Heart,
   Lock,
-  MoreVertical,
   PictureInPicture,
   Reply,
   Send,
@@ -41,20 +37,6 @@ import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuPortal,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { VideoPoster } from "@/components/yw/VideoPoster";
 import { useAuth } from "@/lib/auth-store";
@@ -117,43 +99,6 @@ type RelatedVideoPage = {
 };
 
 const RELATED_VIDEO_PAGE_SIZE = 12;
-
-type PlaybackQualityId =
-  | "auto"
-  | "144p"
-  | "360p"
-  | "480p"
-  | "720p"
-  | "1080p"
-  | "2k"
-  | "4k"
-  | "8k";
-
-const PLAYBACK_QUALITY_OPTIONS: Array<{
-  id: Exclude<PlaybackQualityId, "auto">;
-  label: string;
-  shortSide: number;
-}> = [
-  { id: "144p", label: "144p", shortSide: 144 },
-  { id: "360p", label: "360p", shortSide: 360 },
-  { id: "480p", label: "480p", shortSide: 480 },
-  { id: "720p", label: "720p", shortSide: 720 },
-  { id: "1080p", label: "1080p", shortSide: 1080 },
-  { id: "2k", label: "2K", shortSide: 1440 },
-  { id: "4k", label: "4K", shortSide: 2160 },
-  { id: "8k", label: "8K", shortSide: 4320 },
-];
-
-const PLAYBACK_SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2] as const;
-
-const SOURCE_SHORT_SIDE_BY_TIER: Record<VideoQualityTier, number> = {
-  "480p": 480,
-  "720p": 720,
-  "1080p": 1080,
-  "1440p": 1440,
-  "2160p": 2160,
-  "4320p": 4320,
-};
 
 type GestureFeedback = {
   kind: "seek" | "volume" | "brightness" | "zoom";
@@ -288,10 +233,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   const [pictureInPictureSupported, setPictureInPictureSupported] = useState(false);
   const [screenLocked, setScreenLocked] = useState(false);
   const [gestureFeedback, setGestureFeedback] = useState<GestureFeedback | null>(null);
-  const [playbackQuality, setPlaybackQuality] = useState<PlaybackQualityId>("auto");
   const [playbackRate, setPlaybackRate] = useState(1);
-  const [captionTracks, setCaptionTracks] = useState<Array<{ id: string; label: string }>>([]);
-  const [activeCaptionTrack, setActiveCaptionTrack] = useState("off");
   const [resolvedMediaUrl, setResolvedMediaUrl] = useState<string>("");
   const touchGestureRef = useRef<TouchGesture | null>(null);
   const lastTapRef = useRef<{ time: number; x: number } | null>(null);
@@ -490,10 +432,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     viewRecordedRef.current = false;
     playedSecondsRef.current = 0;
     lastVideoTimeRef.current = null;
-    setPlaybackQuality("auto");
     setPlaybackRate(1);
-    setCaptionTracks([]);
-    setActiveCaptionTrack("off");
   }, [videoId]);
 
   const handleVideoTimeUpdate = (event: React.SyntheticEvent<HTMLVideoElement>) => {
@@ -528,27 +467,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
         viewRecordedRef.current = false;
         console.error("Unable to register video view", cause);
       });
-  };
-
-  const syncCaptionTracks = () => {
-    const tracks = Array.from(videoRef.current?.textTracks ?? [])
-      .filter((track) => track.kind === "captions" || track.kind === "subtitles")
-      .map((track, index) => ({
-        id: `${track.language || "track"}-${index}`,
-        label: track.label || track.language || `Track ${index + 1}`,
-      }));
-    setCaptionTracks(tracks);
-  };
-
-  const setCaptionMode = (trackId: string) => {
-    const tracks = Array.from(videoRef.current?.textTracks ?? []).filter(
-      (track) => track.kind === "captions" || track.kind === "subtitles",
-    );
-    tracks.forEach((track, index) => {
-      const id = `${track.language || "track"}-${index}`;
-      track.mode = trackId === id ? "showing" : "disabled";
-    });
-    setActiveCaptionTrack(trackId);
   };
 
   useEffect(() => {
@@ -813,13 +731,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     }
   };
 
-  const handlePlaybackRateChange = (value: string) => {
-    const nextRate = Number(value);
-    if (!PLAYBACK_SPEEDS.includes(nextRate as (typeof PLAYBACK_SPEEDS)[number])) return;
-    setPlaybackRate(nextRate);
-    if (videoRef.current) videoRef.current.playbackRate = nextRate;
-  };
-
   const handlePictureInPicture = async () => {
     const videoElement = videoRef.current as PictureInPictureVideo | null;
     const pipDocument = document as PictureInPictureDocument;
@@ -844,10 +755,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
       console.error("Unable to enter picture-in-picture", cause);
       toast.error("Picture-in-picture is unavailable on this device");
     }
-  };
-
-  const handleReport = () => {
-    toast.success("Thanks — this video was reported for review.");
   };
 
   const handleLike = () => {
@@ -1029,22 +936,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     (isVideoQualityTier(video.source_quality_tier)
       ? video.source_quality_tier
       : qualityTierFromDimensions(video.original_width, video.original_height));
-  const sourceShortSide = sourceQualityTier
-    ? SOURCE_SHORT_SIDE_BY_TIER[sourceQualityTier]
-    : null;
-  const playbackQualityOptions: Array<{ id: PlaybackQualityId; label: string }> = [
-    { id: "auto", label: "Auto" },
-    ...PLAYBACK_QUALITY_OPTIONS
-      .filter((option) => sourceShortSide !== null && option.shortSide <= sourceShortSide)
-      .map(({ id, label }) => ({ id, label })),
-  ];
-  const selectedQualityLabel =
-    playbackQualityOptions.find((option) => option.id === playbackQuality)?.label || "Auto";
-  const handlePlaybackQualityChange = (value: string) => {
-    if (!playbackQualityOptions.some((option) => option.id === value)) return;
-    setPlaybackQuality(value as PlaybackQualityId);
-  };
-
   const downloadSelected = async (choice: DownloadChoice) => {
      if (!playableMediaUrl) throw new Error("This video has no downloadable media");
     const toastId = toast.loading("Preparing download... 0%");
@@ -1092,7 +983,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
             disablePictureInPicture={false}
             autoPlay
             playsInline
-             onLoadedMetadata={syncCaptionTracks}
              onTimeUpdate={handleVideoTimeUpdate}
              className={`h-full w-full ${displayMode === "fill" ? "object-cover" : "object-contain"}`}
             style={{
@@ -1106,128 +996,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
         ) : (
           <div className="text-sm text-gray-500">No media URL found</div>
         )}
-
-          {!screenLocked ? (
-            <div
-              className="absolute bottom-3 right-20 z-50"
-              onTouchStart={(event) => event.stopPropagation()}
-              onTouchEnd={(event) => event.stopPropagation()}
-              onDoubleClick={(event) => event.stopPropagation()}
-            >
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    aria-label="More video options"
-                    className="h-9 w-9 rounded-full border-white/10 bg-black/60 p-0 text-white shadow-sm backdrop-blur-md transition-all hover:bg-black/80"
-                  >
-                    <MoreVertical className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  side="top"
-                  align="end"
-                  className="w-56 border-white/10 bg-zinc-950 text-white"
-                >
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger className="text-white focus:bg-white/10 focus:text-white">
-                      <Gauge className="h-4 w-4" />
-                      <span>Quality</span>
-                      <span className="ml-auto text-xs text-zinc-400">{selectedQualityLabel}</span>
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuPortal>
-                      <DropdownMenuSubContent className="border-white/10 bg-zinc-950 text-white">
-                        <DropdownMenuLabel className="text-xs text-zinc-400">Quality</DropdownMenuLabel>
-                        <DropdownMenuRadioGroup
-                          value={playbackQuality}
-                          onValueChange={handlePlaybackQualityChange}
-                        >
-                          {playbackQualityOptions.map((option) => (
-                            <DropdownMenuRadioItem
-                              key={option.id}
-                              value={option.id}
-                              className="focus:bg-white/10 focus:text-white"
-                            >
-                              {option.label}
-                            </DropdownMenuRadioItem>
-                          ))}
-                        </DropdownMenuRadioGroup>
-                      </DropdownMenuSubContent>
-                    </DropdownMenuPortal>
-                  </DropdownMenuSub>
-
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger className="text-white focus:bg-white/10 focus:text-white">
-                      <Gauge className="h-4 w-4" />
-                      <span>Playback Speed</span>
-                      <span className="ml-auto text-xs text-zinc-400">
-                        {playbackRate === 1 ? "Normal" : `${playbackRate}×`}
-                      </span>
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuPortal>
-                      <DropdownMenuSubContent className="border-white/10 bg-zinc-950 text-white">
-                        <DropdownMenuLabel className="text-xs text-zinc-400">Playback Speed</DropdownMenuLabel>
-                        <DropdownMenuRadioGroup
-                          value={String(playbackRate)}
-                          onValueChange={handlePlaybackRateChange}
-                        >
-                          {PLAYBACK_SPEEDS.map((speed) => (
-                            <DropdownMenuRadioItem
-                              key={speed}
-                              value={String(speed)}
-                              className="focus:bg-white/10 focus:text-white"
-                            >
-                              {speed === 1 ? "Normal" : `${speed}×`}
-                            </DropdownMenuRadioItem>
-                          ))}
-                        </DropdownMenuRadioGroup>
-                      </DropdownMenuSubContent>
-                    </DropdownMenuPortal>
-                  </DropdownMenuSub>
-
-                  {captionTracks.length > 0 ? (
-                    <DropdownMenuSub>
-                      <DropdownMenuSubTrigger className="text-white focus:bg-white/10 focus:text-white">
-                        <Captions className="h-4 w-4" />
-                        <span>Captions/Subtitles</span>
-                      </DropdownMenuSubTrigger>
-                      <DropdownMenuPortal>
-                        <DropdownMenuSubContent className="border-white/10 bg-zinc-950 text-white">
-                          <DropdownMenuRadioGroup
-                            value={activeCaptionTrack}
-                            onValueChange={setCaptionMode}
-                          >
-                            <DropdownMenuRadioItem value="off" className="focus:bg-white/10 focus:text-white">
-                              Off
-                            </DropdownMenuRadioItem>
-                            {captionTracks.map((track) => (
-                              <DropdownMenuRadioItem
-                                key={track.id}
-                                value={track.id}
-                                className="focus:bg-white/10 focus:text-white"
-                              >
-                                {track.label}
-                              </DropdownMenuRadioItem>
-                            ))}
-                          </DropdownMenuRadioGroup>
-                        </DropdownMenuSubContent>
-                      </DropdownMenuPortal>
-                    </DropdownMenuSub>
-                  ) : null}
-
-                  <DropdownMenuSeparator className="bg-white/10" />
-                  <DropdownMenuItem
-                    onSelect={handleReport}
-                    className="text-white focus:bg-white/10 focus:text-white"
-                  >
-                    <Flag className="h-4 w-4" />
-                    Report
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          ) : null}
 
           {isFullscreen && !screenLocked && (
          <div className="pointer-events-none absolute inset-0 z-50">
