@@ -16,6 +16,7 @@ import { Highlights } from "@/components/yw/Highlights";
 import { SportsProfileBadge, type SportsProfileInfo } from "@/components/yw/SportsProfile";
 import { UserWatermark } from "@/components/yw/UserWatermark";
 import { VideoPoster } from "@/components/yw/VideoPoster";
+import { ProfilePhotoViewer } from "@/components/yw/ProfilePhotoViewer";
 import type { DbPost } from "@/lib/social-data";
 import type { FollowCounts } from "@/lib/follow-data";
 import { formatCount } from "@/lib/yw-data";
@@ -148,7 +149,12 @@ export function ProfileTemplate({
         <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-4 sm:gap-x-6">
           <span className="row-span-2 grid h-[84px] w-[84px] shrink-0 place-items-center overflow-hidden rounded-full bg-[linear-gradient(135deg,#f4d58d,#d987c4_48%,#8647d2)] p-[3px] sm:h-28 sm:w-28">
             {avatarSrc ? (
-              <img data-testid="img-profile-avatar" src={avatarSrc} alt="" className="h-full w-full rounded-full object-cover" />
+               <ProfilePhotoViewer
+                 src={avatarSrc}
+                 testId="img-profile-avatar"
+                 className="h-full w-full rounded-full"
+                 imageClassName="rounded-full"
+               />
             ) : null}
           </span>
 

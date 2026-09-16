@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { YwAvatar } from "@/components/yw/Avatar";
+import { ProfilePhotoCropper } from "@/components/yw/ProfilePhotoCropper";
 import type { User } from "@/lib/yw-data";
 import { SportsProfileCard, type SportsProfileInfo } from "@/components/yw/SportsProfile";
 
@@ -45,21 +46,42 @@ export function EditProfileSheet({
 }) {
   const [draft, setDraft] = useState<ProfileEdit>(value);
   const [saving, setSaving] = useState(false);
+  const [avatarCropFile, setAvatarCropFile] = useState<File | null>(null);
   const avatarInput = useRef<HTMLInputElement>(null);
+  const avatarPreviewUrl = useRef<string | null>(null);
 
   useEffect(() => {
-    if (open) setDraft(value);
+    if (open) {
+      setDraft(value);
+    } else {
+      setAvatarCropFile(null);
+      if (avatarPreviewUrl.current) {
+        URL.revokeObjectURL(avatarPreviewUrl.current);
+        avatarPreviewUrl.current = null;
+      }
+    }
   }, [open, value]);
+
+  useEffect(
+    () => () => {
+      if (avatarPreviewUrl.current) URL.revokeObjectURL(avatarPreviewUrl.current);
+    },
+    [],
+  );
 
   const set = <K extends keyof ProfileEdit>(k: K, v: ProfileEdit[K]) =>
     setDraft((d) => ({ ...d, [k]: v }));
 
   const pick = (file: File | undefined, key: "avatarUrl" | "coverUrl") => {
     if (!file) return;
+    if (key === "avatarUrl") {
+      setAvatarCropFile(file);
+      return;
+    }
     setDraft((d) => ({
       ...d,
-      [key]: URL.createObjectURL(file),
-      [key === "avatarUrl" ? "avatarFile" : "coverFile"]: file,
+      coverUrl: URL.createObjectURL(file),
+      coverFile: file,
     }));
   };
 
@@ -115,7 +137,27 @@ export function EditProfileSheet({
             type="file"
             accept="image/*"
             hidden
-            onChange={(e) => pick(e.target.files?.[0], "avatarUrl")}
+            onChange={(e) => {
+              pick(e.target.files?.[0], "avatarUrl");
+              e.currentTarget.value = "";
+            }}
+          />
+
+          <ProfilePhotoCropper
+            open={Boolean(avatarCropFile)}
+            file={avatarCropFile}
+            onOpenChange={(cropOpen) => {
+              if (!cropOpen) setAvatarCropFile(null);
+            }}
+            onComplete={({ file, previewUrl }) => {
+              if (avatarPreviewUrl.current) URL.revokeObjectURL(avatarPreviewUrl.current);
+              avatarPreviewUrl.current = previewUrl;
+              setDraft((current) => ({
+                ...current,
+                avatarUrl: previewUrl,
+                avatarFile: file,
+              }));
+            }}
           />
 
 

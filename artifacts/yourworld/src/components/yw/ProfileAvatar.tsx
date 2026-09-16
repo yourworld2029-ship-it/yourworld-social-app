@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ProfilePhotoViewer } from "@/components/yw/ProfilePhotoViewer";
 
 export type ProfileAvatarUser = {
   full_name?: string | null;
@@ -30,11 +31,14 @@ export function ProfileAvatar({ user }: { user?: ProfileAvatarUser | null }) {
   }
 
   return (
-    <img
+    <ProfilePhotoViewer
       src={imgUrl}
       alt=""
-      className="w-full h-full object-cover rounded-full"
-      onError={(event) => {
+      stopPropagation
+      className="h-full w-full rounded-full"
+      imageClassName="rounded-full"
+      testId="profile-avatar"
+      onImageError={(event) => {
         event.currentTarget.style.display = "none";
         setImageFailed(true);
       }}
