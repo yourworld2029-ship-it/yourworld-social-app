@@ -6,6 +6,8 @@ export const NORMAL_PROFILE_MAIN_CATEGORIES = [
   "News & Media",
   "Education",
   "Sports",
+  "Player",
+  "Coach",
   "Entertainment",
   "Gaming",
   "Business",
@@ -75,6 +77,8 @@ export const NORMAL_PROFILE_SUBCATEGORIES: Record<
     "Educator",
   ],
   Sports: [],
+  Player: [],
+  Coach: [],
   Entertainment: [
     "Actor",
     "Director",

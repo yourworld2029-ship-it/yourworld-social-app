@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  NORMAL_PROFILE_MAIN_CATEGORIES,
+  NORMAL_PROFILE_SUBCATEGORIES,
+  SPORTS_CATALOGUE,
+  SPORTS_PROFILE_ROLES,
+  getNormalProfileCategoryMain,
   normalizeNormalProfileCategories,
   normalizeProfileCategoryValue,
   parseNormalProfileCategories,
@@ -38,4 +43,31 @@ test("normal Player, Coach, and Sports categories stay separate from Sports Iden
     resolveNormalProfileCategories(["Player", "Sports"], "Player · Cricket"),
     ["Player", "Sports"],
   );
+});
+
+test("normal categories support searchable main and sub-category values", () => {
+  assert.equal(getNormalProfileCategoryMain("Music • Singer"), "Music");
+  assert.equal(
+    getNormalProfileCategoryMain("Sports • Handball • Player"),
+    "Sports",
+  );
+  assert.ok(NORMAL_PROFILE_MAIN_CATEGORIES.includes("News & Media"));
+  assert.ok(NORMAL_PROFILE_SUBCATEGORIES["News & Media"].includes("Journalist"));
+  assert.ok(NORMAL_PROFILE_SUBCATEGORIES.Music.includes("Singer"));
+});
+
+test("Sports normal categories have a catalogue and role choices without affecting Sports Identity", () => {
+  assert.ok(SPORTS_CATALOGUE.includes("Handball"));
+  assert.ok(SPORTS_CATALOGUE.includes("Football"));
+  assert.ok(SPORTS_PROFILE_ROLES.includes("Player"));
+  assert.ok(SPORTS_PROFILE_ROLES.includes("Coach"));
+  assert.deepEqual(
+    normalizeNormalProfileCategories([
+      "Sports • Handball • Player",
+      "Sports • Football • Coach",
+      "Music • Singer",
+    ]),
+    ["Sports • Handball • Player", "Music • Singer"],
+  );
+  assert.deepEqual(parseNormalProfileCategories("Player · Cricket"), []);
 });

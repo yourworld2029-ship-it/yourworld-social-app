@@ -10,7 +10,6 @@ import { ProfilePhotoCropper } from "@/components/yw/ProfilePhotoCropper";
 import type { User } from "@/lib/yw-data";
 import { SportsProfileCard, type SportsProfileInfo } from "@/components/yw/SportsProfile";
 import {
-  NORMAL_PROFILE_CATEGORIES,
   NORMAL_PROFILE_MAIN_CATEGORIES,
   NORMAL_PROFILE_SUBCATEGORIES,
   SPORTS_CATALOGUE,
@@ -89,6 +88,9 @@ export function EditProfileSheet({
   const selectedCategories = draft.normalCategories;
   const selectedMainCategories = selectedCategories.map(getNormalProfileCategoryMain);
   const normalizedQuery = categoryQuery.trim().toLowerCase();
+  const sportsQueryMatchesRole = SPORTS_PROFILE_ROLES.some((role) =>
+    role.toLowerCase().includes(normalizedQuery),
+  );
   const visibleMainCategories = NORMAL_PROFILE_MAIN_CATEGORIES.filter((category) =>
     !normalizedQuery
       ? true
@@ -127,7 +129,11 @@ export function EditProfileSheet({
 
   const openMainCategory = (mainCategory: string) => {
     setPendingSport(null);
-    if (mainCategory === "Other") {
+    if (
+      mainCategory === "Other" ||
+      (mainCategory !== "Sports" &&
+        NORMAL_PROFILE_SUBCATEGORIES[mainCategory as keyof typeof NORMAL_PROFILE_SUBCATEGORIES].length === 0)
+    ) {
       const alreadySelected = selectedMainCategories.some(
         (selected) => selected.toLowerCase() === mainCategory.toLowerCase(),
       );
@@ -364,6 +370,7 @@ export function EditProfileSheet({
                             <div className="grid grid-cols-2 gap-1">
                               {SPORTS_CATALOGUE.filter((sport) =>
                                 !normalizedQuery ||
+                                sportsQueryMatchesRole ||
                                 sport.toLowerCase().includes(normalizedQuery),
                               ).map((sport) => (
                                 <button
