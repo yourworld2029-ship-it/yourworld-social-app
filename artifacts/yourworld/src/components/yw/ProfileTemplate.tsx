@@ -21,6 +21,7 @@ import type { DbPost } from "@/lib/social-data";
 import type { FollowCounts } from "@/lib/follow-data";
 import { formatCount } from "@/lib/yw-data";
 import {
+  formatNormalProfileCategoryForDisplay,
   isSportsIdentityCategory,
   resolveNormalProfileCategories,
 } from "@/lib/profile-category";
@@ -189,7 +190,7 @@ export function ProfileTemplate({
                     key={category}
                     className="rounded-full border border-white/10 bg-white/[0.06] px-2 py-0.5 text-[10px] font-semibold tracking-wide text-zinc-300"
                   >
-                    {category}
+                    {formatNormalProfileCategoryForDisplay(category)}
                   </span>
                 ))}
               </div>

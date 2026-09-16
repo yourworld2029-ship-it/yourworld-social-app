@@ -246,6 +246,14 @@ export function getNormalProfileCategoryMain(value: string) {
   return value.trim().split(/\s+[•·]\s+/)[0]?.trim() ?? "";
 }
 
+export function formatNormalProfileCategoryForDisplay(value: string) {
+  const parts = value.trim().split(/\s+[•·]\s+/).filter(Boolean);
+  if (parts[0]?.toLowerCase() === "sports" && parts.length > 1) {
+    return parts.slice(1).join(" · ");
+  }
+  return value.trim();
+}
+
 function categoryKey(value: string) {
   return getNormalProfileCategoryMain(value).toLocaleLowerCase();
 }

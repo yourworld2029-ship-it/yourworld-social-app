@@ -5,6 +5,7 @@ import {
   NORMAL_PROFILE_SUBCATEGORIES,
   SPORTS_CATALOGUE,
   SPORTS_PROFILE_ROLES,
+  formatNormalProfileCategoryForDisplay,
   getNormalProfileCategoryMain,
   normalizeNormalProfileCategories,
   normalizeProfileCategoryValue,
@@ -70,4 +71,15 @@ test("Sports normal categories have a catalogue and role choices without affecti
     ["Sports • Handball • Player", "Music • Singer"],
   );
   assert.deepEqual(parseNormalProfileCategories("Player · Cricket"), []);
+});
+
+test("Sports main category is hidden only in the profile display label", () => {
+  assert.equal(
+    formatNormalProfileCategoryForDisplay("Sports • Handball • Player"),
+    "Handball · Player",
+  );
+  assert.equal(
+    formatNormalProfileCategoryForDisplay("Music • Singer"),
+    "Music • Singer",
+  );
 });

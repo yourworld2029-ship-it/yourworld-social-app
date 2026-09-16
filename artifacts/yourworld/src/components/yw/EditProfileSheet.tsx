@@ -57,6 +57,7 @@ export function EditProfileSheet({
   const [categoryQuery, setCategoryQuery] = useState("");
   const [expandedMainCategory, setExpandedMainCategory] = useState<string | null>(null);
   const [pendingSport, setPendingSport] = useState<string | null>(null);
+  const [categoryOptionsOpen, setCategoryOptionsOpen] = useState(false);
   const avatarInput = useRef<HTMLInputElement>(null);
   const avatarPreviewUrl = useRef<string | null>(null);
 
@@ -66,6 +67,7 @@ export function EditProfileSheet({
       setCategoryQuery("");
       setExpandedMainCategory(null);
       setPendingSport(null);
+      setCategoryOptionsOpen(false);
     } else {
       setAvatarCropFile(null);
       if (avatarPreviewUrl.current) {
@@ -153,6 +155,13 @@ export function EditProfileSheet({
     if (!pendingSport) return;
     selectCategory("Sports", `${pendingSport} • ${role}`);
     setPendingSport(null);
+  };
+
+  const openCategoryOptions = () => {
+    setCategoryOptionsOpen(true);
+    setExpandedMainCategory(null);
+    setPendingSport(null);
+    setCategoryQuery("");
   };
 
   const pick = (file: File | undefined, key: "avatarUrl" | "coverUrl") => {
@@ -275,141 +284,168 @@ export function EditProfileSheet({
                 <p className="text-[11px] text-muted-foreground">
                   Choose up to 2 categories
                 </p>
-                {selectedCategories.length > 0 ? (
-                  <div className="flex flex-wrap gap-1.5">
-                    {selectedCategories.map((category) => (
-                      <button
-                        key={category}
-                        type="button"
-                        onClick={() => removeCategory(category)}
-                        className="inline-flex items-center gap-1 rounded-full border border-foreground/15 bg-foreground/[0.09] px-2.5 py-1 text-[11px] font-semibold text-foreground transition-colors hover:bg-foreground/[0.14] active:scale-95"
-                        aria-label={`Remove ${category}`}
-                      >
-                        {category}
-                        <X className="h-3 w-3 text-muted-foreground" strokeWidth={2} />
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-                <div className="relative">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    value={categoryQuery}
-                    onChange={(event) => setCategoryQuery(event.target.value)}
-                    placeholder="Search categories"
-                    className="h-9 rounded-xl border-border/60 bg-background/30 pl-9 text-xs"
-                    aria-label="Search categories"
-                  />
-                </div>
-                <div className="max-h-56 overflow-y-auto rounded-2xl border border-border/60 bg-background/20 p-1.5">
-                  <div className="grid grid-cols-2 gap-1">
-                    {visibleMainCategories.map((category) => {
-                      const active = selectedMainCategories.some(
-                        (selected) => selected.toLowerCase() === category.toLowerCase(),
-                      );
-                      const disabled = !active && selectedMainCategories.length >= 2;
-                      return (
+                <div
+                  role="button"
+                  tabIndex={0}
+                  aria-label={categoryOptionsOpen ? "Category options open" : "Open category options"}
+                  onClick={() => {
+                    if (!categoryOptionsOpen) openCategoryOptions();
+                  }}
+                  onKeyDown={(event) => {
+                    if (!categoryOptionsOpen && (event.key === "Enter" || event.key === " ")) {
+                      event.preventDefault();
+                      openCategoryOptions();
+                    }
+                  }}
+                  className="rounded-2xl border border-border/60 bg-background/20 p-2 transition-colors hover:border-foreground/25"
+                >
+                  {selectedCategories.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {selectedCategories.map((category) => (
                         <button
                           key={category}
                           type="button"
-                          onClick={() => openMainCategory(category)}
-                          disabled={disabled}
-                          aria-pressed={active}
-                          aria-expanded={expandedMainCategory === category}
-                          className={`flex min-h-8 items-center justify-between gap-2 rounded-xl px-2.5 py-1.5 text-left text-[11px] font-medium transition-colors ${
-                            active
-                              ? "bg-foreground text-background"
-                              : disabled
-                                ? "cursor-not-allowed text-muted-foreground/35"
-                                : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-                          }`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            removeCategory(category);
+                          }}
+                          className="inline-flex items-center gap-1 rounded-full border border-foreground/15 bg-foreground/[0.09] px-2.5 py-1 text-[11px] font-semibold text-foreground transition-colors hover:bg-foreground/[0.14] active:scale-95"
+                          aria-label={`Remove ${category}`}
                         >
-                          <span>{category}</span>
-                          {active ? <Check className="h-3 w-3 shrink-0" strokeWidth={2.5} /> : null}
+                          {category}
+                          <X className="h-3 w-3 text-muted-foreground" strokeWidth={2} />
                         </button>
-                      );
-                    })}
-                  </div>
-                  {visibleMainCategories.length === 0 ? (
-                    <p className="px-2 py-3 text-center text-[11px] text-muted-foreground">
-                      No categories found
-                    </p>
-                  ) : null}
-                  {expandedMainCategory ? (
-                    <div className="mt-2 border-t border-border/60 px-1 pt-2">
-                      <p className="px-1 pb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        {expandedMainCategory === "Sports"
-                          ? pendingSport
-                            ? `${pendingSport} roles`
-                            : "Choose a sport"
-                          : `${expandedMainCategory} options`}
-                      </p>
-                      {expandedMainCategory === "Sports" ? (
-                        pendingSport ? (
-                          <div className="grid grid-cols-2 gap-1">
-                            {SPORTS_PROFILE_ROLES.map((role) => (
-                              <button
-                                key={role}
-                                type="button"
-                                onClick={() => selectSportRole(role)}
-                                className="rounded-xl px-2.5 py-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                              >
-                                {role}
-                              </button>
-                            ))}
-                          </div>
-                        ) : (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => selectCategory("Sports")}
-                              className="mb-1.5 w-full rounded-xl border border-dashed border-border/70 px-2.5 py-1.5 text-left text-[11px] font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
-                            >
-                              Use Sports without a specific role
-                            </button>
-                            <div className="grid grid-cols-2 gap-1">
-                              {SPORTS_CATALOGUE.filter((sport) =>
-                                !normalizedQuery ||
-                                sportsQueryMatchesRole ||
-                                sport.toLowerCase().includes(normalizedQuery),
-                              ).map((sport) => (
-                                <button
-                                  key={sport}
-                                  type="button"
-                                  onClick={() => setPendingSport(sport)}
-                                  className="rounded-xl px-2.5 py-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                                >
-                                  {sport}
-                                </button>
-                              ))}
-                            </div>
-                          </>
-                        )
-                      ) : (
-                        <div className="grid grid-cols-2 gap-1">
-                          {NORMAL_PROFILE_SUBCATEGORIES[
-                            expandedMainCategory as keyof typeof NORMAL_PROFILE_SUBCATEGORIES
-                          ]
-                            .filter((subCategory) =>
-                              !normalizedQuery ||
-                              subCategory.toLowerCase().includes(normalizedQuery) ||
-                              expandedMainCategory.toLowerCase().includes(normalizedQuery),
-                            )
-                            .map((subCategory) => (
-                              <button
-                                key={subCategory}
-                                type="button"
-                                onClick={() => selectCategory(expandedMainCategory, subCategory)}
-                                className="rounded-xl px-2.5 py-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                              >
-                                {subCategory}
-                              </button>
-                            ))}
-                        </div>
-                      )}
+                      ))}
                     </div>
-                  ) : null}
+                  ) : (
+                    <p className="px-1 py-1 text-xs text-muted-foreground">
+                      Tap to choose categories
+                    </p>
+                  )}
                 </div>
+                {categoryOptionsOpen ? (
+                  <>
+                    <div className="relative">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        value={categoryQuery}
+                        onChange={(event) => setCategoryQuery(event.target.value)}
+                        placeholder="Search categories"
+                        className="h-9 rounded-xl border-border/60 bg-background/30 pl-9 text-xs"
+                        aria-label="Search categories"
+                      />
+                    </div>
+                    <div className="max-h-56 overflow-y-auto rounded-2xl border border-border/60 bg-background/20 p-1.5">
+                      <div className="grid grid-cols-2 gap-1">
+                        {visibleMainCategories.map((category) => {
+                          const active = selectedMainCategories.some(
+                            (selected) => selected.toLowerCase() === category.toLowerCase(),
+                          );
+                          const disabled = !active && selectedMainCategories.length >= 2;
+                          return (
+                            <button
+                              key={category}
+                              type="button"
+                              onClick={() => openMainCategory(category)}
+                              disabled={disabled}
+                              aria-pressed={active}
+                              aria-expanded={expandedMainCategory === category}
+                              className={`flex min-h-8 items-center justify-between gap-2 rounded-xl px-2.5 py-1.5 text-left text-[11px] font-medium transition-colors ${
+                                active
+                                  ? "bg-foreground text-background"
+                                  : disabled
+                                    ? "cursor-not-allowed text-muted-foreground/35"
+                                    : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                              }`}
+                            >
+                              <span>{category}</span>
+                              {active ? <Check className="h-3 w-3 shrink-0" strokeWidth={2.5} /> : null}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {visibleMainCategories.length === 0 ? (
+                        <p className="px-2 py-3 text-center text-[11px] text-muted-foreground">
+                          No categories found
+                        </p>
+                      ) : null}
+                      {expandedMainCategory ? (
+                        <div className="mt-2 border-t border-border/60 px-1 pt-2">
+                          <p className="px-1 pb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                            {expandedMainCategory === "Sports"
+                              ? pendingSport
+                                ? `${pendingSport} roles`
+                                : "Choose a sport"
+                              : `${expandedMainCategory} options`}
+                          </p>
+                          {expandedMainCategory === "Sports" ? (
+                            pendingSport ? (
+                              <div className="grid grid-cols-2 gap-1">
+                                {SPORTS_PROFILE_ROLES.map((role) => (
+                                  <button
+                                    key={role}
+                                    type="button"
+                                    onClick={() => selectSportRole(role)}
+                                    className="rounded-xl px-2.5 py-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                                  >
+                                    {role}
+                                  </button>
+                                ))}
+                              </div>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => selectCategory("Sports")}
+                                  className="mb-1.5 w-full rounded-xl border border-dashed border-border/70 px-2.5 py-1.5 text-left text-[11px] font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
+                                >
+                                  Use Sports without a specific role
+                                </button>
+                                <div className="grid grid-cols-2 gap-1">
+                                  {SPORTS_CATALOGUE.filter((sport) =>
+                                    !normalizedQuery ||
+                                    sportsQueryMatchesRole ||
+                                    sport.toLowerCase().includes(normalizedQuery),
+                                  ).map((sport) => (
+                                    <button
+                                      key={sport}
+                                      type="button"
+                                      onClick={() => setPendingSport(sport)}
+                                      className="rounded-xl px-2.5 py-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                                    >
+                                      {sport}
+                                    </button>
+                                  ))}
+                                </div>
+                              </>
+                            )
+                          ) : (
+                            <div className="grid grid-cols-2 gap-1">
+                              {NORMAL_PROFILE_SUBCATEGORIES[
+                                expandedMainCategory as keyof typeof NORMAL_PROFILE_SUBCATEGORIES
+                              ]
+                                .filter((subCategory) =>
+                                  !normalizedQuery ||
+                                  subCategory.toLowerCase().includes(normalizedQuery) ||
+                                  expandedMainCategory.toLowerCase().includes(normalizedQuery),
+                                )
+                                .map((subCategory) => (
+                                  <button
+                                    key={subCategory}
+                                    type="button"
+                                    onClick={() => selectCategory(expandedMainCategory, subCategory)}
+                                    className="rounded-xl px-2.5 py-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                                  >
+                                    {subCategory}
+                                  </button>
+                                ))}
+                            </div>
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                  </>
+                ) : null}
               </div>
             </Field>
 
@@ -449,6 +485,9 @@ export function EditProfileSheet({
                 setSaving(true);
                 try {
                   await onSave(draft);
+                  setCategoryOptionsOpen(false);
+                  setExpandedMainCategory(null);
+                  setPendingSport(null);
                   onOpenChange(false);
                   toast.success("Profile updated");
                 } catch (e) {
