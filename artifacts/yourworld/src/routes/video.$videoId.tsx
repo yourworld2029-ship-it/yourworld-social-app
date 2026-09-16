@@ -227,7 +227,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const [disliked, setDisliked] = useState(false);
   const [downloadOpen, setDownloadOpen] = useState(false);
-  const [likeCount, setLikeCount] = useState(0);
+  const [, setLikeCount] = useState(0);
   const [zoom, setZoom] = useState(1);
   const [displayMode, setDisplayMode] = useState<"fit" | "fill">("fit");
   const [brightness, setBrightness] = useState(1);
@@ -1190,17 +1190,17 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           </Button>
         </div>
 
-        <div className="flex w-full items-center justify-between px-1 py-2">
-          <div className="flex shrink-0 items-center gap-1 rounded-full border border-white/10 bg-white/10 px-1.5 py-1.5 text-[11px] font-semibold text-white shadow-sm backdrop-blur-md transition-all">
+         <div className="flex w-full items-center justify-start gap-2 px-1 py-1">
+           <div className="flex shrink-0 items-center gap-1 rounded-full border border-white/10 bg-white/10 px-1 py-1 text-[11px] font-semibold text-white shadow-sm backdrop-blur-md transition-all">
             <button
               type="button"
               onClick={handleLike}
+               aria-label="Like video"
                className={`flex items-center gap-1 text-[11px] font-semibold transition-all ${
                 liked[videoId] ? "text-pink-300" : "text-white"
               }`}
             >
               <ThumbsUp className="h-4 w-4" fill={liked[videoId] ? "currentColor" : "none"} />
-              {formatViews(likeCount)}
             </button>
             <span className="h-4 w-[1px] bg-white/20" />
             <button
@@ -1217,18 +1217,20 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           <Button
             type="button"
             onClick={() => void handleShare()}
+             aria-label="Share video"
             variant="outline"
-             className="shrink-0 rounded-full border border-white/10 bg-white/10 px-1.5 py-1.5 text-[11px] font-semibold text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20"
+             className="shrink-0 rounded-full border border-white/10 bg-white/10 p-1.5 text-[11px] font-semibold text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20"
           >
-            <Share2 className="mr-1 h-4 w-4" /> Share
+             <Share2 className="h-4 w-4" />
           </Button>
            <Button
              type="button"
              onClick={() => setDownloadOpen(true)}
+              aria-label="Download video"
              variant="outline"
-             className="shrink-0 rounded-full border border-white/10 bg-white/10 px-1.5 py-1.5 text-[11px] font-semibold text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20"
+              className="shrink-0 rounded-full border border-white/10 bg-white/10 p-1.5 text-[11px] font-semibold text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20"
            >
-             <Download className="mr-1 h-4 w-4" /> Download
+              <Download className="h-4 w-4" />
            </Button>
           <Button
             type="button"
@@ -1240,13 +1242,13 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
               toggleSave(videoId);
               toast.success(saved[videoId] ? "Removed from saved" : "Saved to your library");
             }}
+             aria-label={saved[videoId] ? "Unsave video" : "Save video"}
             variant="outline"
-             className={`shrink-0 rounded-full border border-white/10 bg-white/10 px-1.5 py-1.5 text-[11px] font-semibold text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20 ${
+             className={`shrink-0 rounded-full border border-white/10 bg-white/10 p-1.5 text-[11px] font-semibold text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20 ${
               saved[videoId] ? "text-pink-300" : ""
             }`}
           >
-            <Bookmark className="mr-1 h-4 w-4" fill={saved[videoId] ? "currentColor" : "none"} />
-            {saved[videoId] ? "Saved" : "Save"}
+             <Bookmark className="h-4 w-4" fill={saved[videoId] ? "currentColor" : "none"} />
           </Button>
         </div>
 
