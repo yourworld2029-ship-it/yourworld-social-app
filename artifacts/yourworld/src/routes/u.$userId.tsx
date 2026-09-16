@@ -166,7 +166,9 @@ function PublicProfilePage() {
     isVerifiedSports && sportsProfile
       ? sportsProfile.role === "Coach"
         ? "VERIFIED COACH"
-        : sportsProfile.status !== "Not recorded"
+        : sportsProfile.status === "International"
+          ? null
+          : sportsProfile.status !== "Not recorded"
           ? `${sportsProfile.status.toUpperCase()} PLAYER`
           : "VERIFIED PLAYER"
       : null;

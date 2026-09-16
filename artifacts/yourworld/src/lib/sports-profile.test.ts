@@ -158,6 +158,7 @@ test("International verification shows passport, visa, and tournament photo fiel
   assert.match(html, /Passport First Page/);
   assert.match(html, /Passport Visa \/ Stamp Page/);
   assert.match(html, /One Tournament Photo/);
+  assert.doesNotMatch(html, /INTERNATIONAL PLAYER/);
 });
 
 test("Sports Introduction metadata persists without creating a Reel", () => {

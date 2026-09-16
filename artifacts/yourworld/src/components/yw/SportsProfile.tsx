@@ -243,7 +243,7 @@ export function getSportsProfile(profile: SportsProfileSource): SportsProfileInf
         : "COACH PROFILE"
       : verified
         ? status === "International"
-          ? "🌍 INTERNATIONAL PLAYER"
+          ? ""
           : status === "National"
             ? "🇮🇳 NATIONAL PLAYER"
             : "✅ VERIFIED PLAYER"
@@ -834,7 +834,9 @@ export function SportsDetailsPanel({
             <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-amber-200/75">
               Sports identity
             </p>
-            <p className="mt-1 text-lg font-semibold text-white">{profile.badge}</p>
+            {profile.badge ? (
+              <p className="mt-1 text-lg font-semibold text-white">{profile.badge}</p>
+            ) : null}
           </div>
           <div className="flex items-center gap-2">
             {editable ? (
