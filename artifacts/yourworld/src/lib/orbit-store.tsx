@@ -296,21 +296,36 @@ export function OrbitProvider({ children }: { children: ReactNode }) {
   /** Pull the signed-in user's real Orbit data and keep local state in sync. */
   useEffect(() => {
     let cancelled = false;
+    let pullInFlight = false;
+    let pullAgain = false;
     const pull = async () => {
-      const remote = await loadOrbitStateRemote();
-      if (cancelled || !remote) return;
-      setState((s) => {
-        // Orbit ID created while signed out — push it up so others can find it.
-        if (!remote.profile && s.profile) void saveOrbitProfileRemote(s.profile, s.privacy);
-        return {
-          ...s,
-          profile: remote.profile ?? s.profile,
-          privacy: { ...s.privacy, ...(remote.privacy ?? {}) },
-          liked: remote.liked,
-          connected: remote.connected,
-          requests: remote.requests,
-        };
-      });
+      if (pullInFlight) {
+        pullAgain = true;
+        return;
+      }
+      pullInFlight = true;
+      try {
+        const remote = await loadOrbitStateRemote();
+        if (cancelled || !remote) return;
+        setState((s) => {
+          // Orbit ID created while signed out — push it up so others can find it.
+          if (!remote.profile && s.profile) void saveOrbitProfileRemote(s.profile, s.privacy);
+          return {
+            ...s,
+            profile: remote.profile ?? s.profile,
+            privacy: { ...s.privacy, ...(remote.privacy ?? {}) },
+            liked: remote.liked,
+            connected: remote.connected,
+            requests: remote.requests,
+          };
+        });
+      } finally {
+        pullInFlight = false;
+        if (pullAgain && !cancelled) {
+          pullAgain = false;
+          void pull();
+        }
+      }
     };
     void pull();
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {

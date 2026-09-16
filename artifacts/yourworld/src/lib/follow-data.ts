@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
 export type FollowCounts = {
@@ -116,8 +116,10 @@ export async function setFollow(targetId: string, on: boolean) {
 /** Live follower / following counts for a user, kept fresh via realtime. */
 export function useFollowCounts(userId: string | null) {
   const [data, setData] = useState<FollowCounts>(EMPTY_COUNTS);
+  const requestGeneration = useRef(0);
 
   const reload = useCallback(async () => {
+    const generation = ++requestGeneration.current;
     if (!userId || !isRealUserId(userId)) {
       setData({ ...EMPTY_COUNTS, unavailable: Boolean(userId), error: userId ? "Invalid user id" : null });
       return;
@@ -134,6 +136,7 @@ export function useFollowCounts(userId: string | null) {
         error: { message: string } | null;
       }>;
     }).rpc("get_follow_counts", { ids: [userId] });
+    if (generation !== requestGeneration.current) return;
     if (error) {
       setData({ followers: null, following: null, unavailable: false, error: error.message });
       return;
@@ -168,7 +171,12 @@ export function useFollowList(userId: string | null, kind: "followers" | "follow
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!open || !userId || !isRealUserId(userId)) return;
+    if (!open || !userId || !isRealUserId(userId)) {
+      setUsers([]);
+      setLoading(false);
+      setError(null);
+      return;
+    }
     let cancelled = false;
     setLoading(true);
     setError(null);

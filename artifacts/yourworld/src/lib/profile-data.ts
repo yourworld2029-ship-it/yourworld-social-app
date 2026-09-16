@@ -450,16 +450,25 @@ export function useMyProfile() {
   const [loading, setLoading] = useState(true);
   const [mediaLoading, setMediaLoading] = useState(true);
   const loadInFlight = useRef<Promise<void> | null>(null);
+  const pendingForce = useRef(false);
+  const loadRef = useRef<(force?: boolean) => Promise<void>>(() => Promise.resolve());
   const loadedUserId = useRef<string | null>(null);
+  const loadGeneration = useRef(0);
 
   const load = useCallback(async (force = false) => {
+    if (force) pendingForce.current = true;
     if (loadInFlight.current) return loadInFlight.current;
+    const forceThisRequest = pendingForce.current;
+    pendingForce.current = false;
+    const generation = ++loadGeneration.current;
 
     const request = (async () => {
       const { data: sessionData } = await supabase.auth.getSession();
       const uid = sessionData.session?.user.id ?? null;
-      if (!force && uid === loadedUserId.current) return;
+      if (generation !== loadGeneration.current) return;
+      if (!forceThisRequest && loadedUserId.current !== null && uid === loadedUserId.current) return;
 
+      setLoading(true);
       setUserId(uid);
       if (!uid) {
         loadedUserId.current = null;
@@ -480,6 +489,7 @@ export function useMyProfile() {
         .select("*")
         .eq("id", uid)
         .maybeSingle();
+      if (generation !== loadGeneration.current) return;
 
       const email = sessionData.session?.user.email ?? "";
       const next: MyProfile = {
@@ -503,6 +513,7 @@ export function useMyProfile() {
 
       void Promise.all([signedIfNeeded(next.avatar_url), signedIfNeeded(next.cover_url)]).then(
         ([nextAvatarSrc, nextCoverSrc]) => {
+          if (generation !== loadGeneration.current) return;
           setAvatarSrc(nextAvatarSrc);
           setCoverSrc(nextCoverSrc);
         },
@@ -519,10 +530,12 @@ export function useMyProfile() {
               .limit(100),
             supabase.from("post_saves").select("post_id").eq("user_id", uid),
           ]);
+          if (generation !== loadGeneration.current) return;
           const savedIds = ((saves ?? []) as { post_id: string }[]).map((s) => s.post_id);
           const savedResult = savedIds.length
             ? await supabase.from("posts").select("*").in("id", savedIds).limit(200)
             : { data: [], error: null };
+          if (generation !== loadGeneration.current) return;
 
           setPosts((myPosts ?? []).map(normalizePostRow) as DbPost[]);
           setSavedPosts(
@@ -531,7 +544,7 @@ export function useMyProfile() {
               .filter((post) => post.kind === "video" || post.kind === "reel") as DbPost[],
           );
         } finally {
-          setMediaLoading(false);
+          if (generation === loadGeneration.current) setMediaLoading(false);
         }
       };
 
@@ -543,13 +556,19 @@ export function useMyProfile() {
       await request;
     } finally {
       if (loadInFlight.current === request) loadInFlight.current = null;
+      if (loadInFlight.current === null && pendingForce.current) {
+        void loadRef.current(true);
+      }
     }
   }, []);
+  loadRef.current = load;
 
   useEffect(() => {
     void load();
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {
       if (event === "SIGNED_IN" || event === "SIGNED_OUT" || event === "USER_UPDATED") {
+        loadGeneration.current += 1;
+        loadInFlight.current = null;
         void load();
       }
     });

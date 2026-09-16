@@ -1121,12 +1121,12 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       }
       if (result.error) {
         console.error("[social-chat] message fetch failed", result.error);
-        return null;
+        throw new Error(result.error.message);
       }
       return (result.data ?? []) as unknown as PublicMessageRow[];
     } catch (cause) {
       console.error("[social-chat] message fetch threw", cause);
-      return null;
+      throw cause;
     }
   }, [pair]);
   const load = useCallback(async () => {
@@ -1141,7 +1141,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       setError(null);
     } catch (cause) {
       console.error("[social-chat] message load failed", cause);
-      setError(null);
+      setError(cause instanceof Error ? cause.message : "Couldn't load messages.");
     }
     finally { setLoading(false); }
   }, [pair, queryRows, merge]);
@@ -1159,7 +1159,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       setError(null);
     } catch (cause) {
       console.error("[social-chat] older message load failed", cause);
-      setError(null);
+      setError(cause instanceof Error ? cause.message : "Couldn't load older messages.");
     }
     finally { setLoadingMore(false); }
   }, [queryRows, merge, loadingMore, hasMore]);
@@ -1205,7 +1205,6 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
         })
         .subscribe((status) => {
           if (status === "SUBSCRIBED") {
-            void load();
             return;
           }
           if (!["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(status) || !alive || retry) return;

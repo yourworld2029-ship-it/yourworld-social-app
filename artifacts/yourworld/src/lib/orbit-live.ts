@@ -147,6 +147,7 @@ export function useOrbitProfiles() {
       const list = (await discoverOrbitRows())
         .filter((r) => r.user_id !== me)
         .map(rowToOrbitProfile);
+      if (cancelled) return;
       registerOrbitProfiles(list);
       setProfiles(list);
       setLoading(false);

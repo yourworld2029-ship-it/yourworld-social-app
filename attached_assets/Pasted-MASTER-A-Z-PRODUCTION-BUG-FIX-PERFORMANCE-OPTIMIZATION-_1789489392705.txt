@@ -1,0 +1,202 @@
+MASTER A–Z PRODUCTION BUG FIX + PERFORMANCE OPTIMIZATION
+
+AUDIT AND FIX THE ENTIRE EXISTING YOURWORLD SOCIAL APP.
+
+IMPORTANT: THIS IS AN EXISTING PRODUCTION PROJECT.
+DO NOT CREATE A NEW PROJECT.
+DO NOT REBUILD THE APP FROM SCRATCH.
+DO NOT REMOVE, DISABLE, REPLACE, OR BREAK ANY EXISTING FEATURE.
+
+FIRST AUDIT THE ENTIRE CODEBASE, THEN FIX THE ACTUAL ROOT CAUSES.
+
+GOAL:
+Make YourWorld extremely fast, smooth, stable and production-ready, with navigation and media interactions feeling faster and smoother than typical social-media apps wherever technically possible.
+
+1. GLOBAL BUG/ERROR AUDIT
+- Scan all routes, components, hooks, utilities and API/data flows.
+- Find runtime errors, console errors, failed requests, race conditions, infinite re-renders, duplicate requests, memory leaks, stale state and broken loading states.
+- Fix real root causes, not symptoms.
+- Check authentication/session handling.
+- Check Supabase queries, realtime subscriptions and cleanup.
+- Check mobile and desktop behavior.
+- Check every major navigation path.
+- Do not hide errors with silent catch blocks.
+
+2. ONE-CLICK / INSTANT NAVIGATION
+- Home, Video, Reels, Chat, Profile and all existing navigation must open directly on the intended screen.
+- Remove unnecessary intermediate/loading pages only where they are genuinely redundant.
+- No duplicate navigation.
+- No accidental promo/redirect page.
+- No unnecessary full-page reload.
+- Preserve browser/mobile back behavior.
+- Navigation must remain authenticated correctly.
+
+3. PROFILE
+- Profile should not first show @..., Add your name, blank avatar or incorrect temporary data.
+- Wait for the existing auth/profile state correctly before rendering the profile.
+- Once loaded, show the existing profile immediately.
+- Keep Sports Profile, verification, badge, bio, stats, videos, reels, saved content and all existing profile features unchanged.
+- Do not alter the existing avatar/ring design unless required for a separate confirmed bug.
+
+4. VIDEO + REELS PERFORMANCE
+- Audit the complete video/reel loading and playback pipeline.
+- Eliminate unnecessary duplicate video requests.
+- Do not download entire videos when only a preview/next segment is required.
+- Use efficient browser/video loading strategies.
+- Maintain playback position correctly.
+- Avoid unnecessary component remounts.
+- Prevent black/blank video states where avoidable.
+- Handle slow network and failed video loading gracefully.
+- Preserve all existing video/reel functionality.
+
+5. SMART MEDIA PRELOADING
+Implement a lightweight intelligent adjacent-media preload strategy:
+
+When the user is viewing the current Reel/Video:
+- Keep the current item fully ready.
+- Prepare the next 4–5 likely items in advance where technically safe.
+- Also prepare the previous 4–5 items where practical.
+- Prioritize metadata/poster/initial playable data first.
+- Do NOT fully download huge videos unnecessarily.
+- Respect browser/device/network limits.
+- On weak networks or low-memory devices, reduce preload aggressively.
+- On fast networks/devices, preload more aggressively.
+- Cancel obsolete preload requests when the user jumps to another item.
+- Never let preloading block current playback.
+- Never preload unlimited content.
+- Prevent memory leaks and excessive bandwidth usage.
+
+6. INSTANT REEL/VIDEO TRANSITIONS
+- Scrolling/swiping to the next Reel/Video should feel immediate.
+- Keep the next likely item ready before it becomes visible.
+- Avoid unnecessary loading spinners between already-prepared items.
+- Maintain smooth vertical scrolling.
+- Keep only the required number of nearby media items mounted/ready to avoid memory problems.
+- Do not change the existing Reel/Video UI design.
+
+7. VIDEO QUALITY
+- Preserve the existing quality system.
+- If multiple real video renditions exist, use them correctly.
+- Support adaptive quality according to actual available sources/network/device.
+- Never display fake quality options for renditions that do not exist.
+- Do not claim 4K/8K availability unless the actual video source provides it.
+
+8. IMAGE PERFORMANCE
+- Optimize profile images, thumbnails and other media loading.
+- Use existing media URL/storage logic.
+- Prevent duplicate image requests.
+- Avoid layout jumps where possible.
+- Do not break private/public media permissions.
+
+9. DATABASE + SUPABASE
+- Audit expensive/repeated queries.
+- Remove unnecessary duplicate requests.
+- Ensure realtime subscriptions are created once and cleaned up properly.
+- Prevent duplicate records caused by repeated clicks/renders.
+- Do not change database schema unless absolutely necessary for a confirmed bug.
+- Do not delete existing data.
+- Do not weaken RLS/security policies.
+
+10. CHAT
+- Audit message loading, realtime updates, unread counts, reactions, replies, media messages, unsend and delete-for-me.
+- Make chat open quickly.
+- Avoid duplicate realtime subscriptions.
+- Preserve all existing chat behavior.
+
+11. MOMENTS
+- Audit Moment loading, timer, pause/resume, messaging, playback, delete and navigation.
+- Do not change existing Moment rules/features.
+- Fix only genuine bugs and performance issues.
+
+12. FOLLOW SYSTEM
+- Follow/unfollow must remain globally synchronized wherever the user appears.
+- Prevent duplicate follow requests/records.
+- Update UI immediately where safe.
+- Preserve existing follow UI.
+
+13. ERROR HANDLING
+Create proper user-friendly handling for:
+- network failure
+- timeout
+- expired session
+- unavailable media
+- failed Supabase request
+- failed realtime connection
+
+Do not expose technical errors to normal users.
+
+14. MOBILE PERFORMANCE
+Optimize specifically for Android/mobile:
+- minimize unnecessary renders
+- minimize memory usage
+- clean event listeners
+- clean timers
+- clean realtime subscriptions
+- avoid blocking the main thread
+- avoid excessive animations
+- keep touch/scroll interactions smooth
+- preserve existing responsive UI.
+
+15. DESKTOP PERFORMANCE
+Ensure the same application remains stable and fast on desktop without breaking mobile behavior.
+
+16. SECURITY
+During the audit:
+- Do not expose secret keys.
+- Do not move service-role secrets into client code.
+- Do not weaken authentication.
+- Do not make private data public.
+- Do not weaken Supabase RLS.
+- Do not introduce insecure shortcuts.
+
+17. CODE QUALITY
+- Remove only genuinely unused/duplicate code created by the fixes.
+- Avoid unnecessary rewrites.
+- Prefer small root-cause fixes.
+- Do not introduce a new framework.
+- Do not replace existing architecture.
+
+18. FINAL VERIFICATION
+After all fixes:
+- Run typecheck.
+- Run all existing tests.
+- Run production build.
+- Run lint if configured.
+- Check for console/runtime errors.
+- Check for failed network requests.
+- Verify critical routes.
+- Verify authenticated Profile.
+- Verify Home → Video → Reel → Chat → Profile navigation.
+- Verify scrolling and adjacent media preloading.
+- Verify no existing feature was removed.
+
+CRITICAL RULE:
+Do not spend the entire task only explaining/diagnosing.
+ACTUALLY EDIT THE SOURCE CODE AND FIX THE BUGS.
+
+Do not repeatedly report "19 tests passed" without making a necessary change.
+Do not make cosmetic changes unrelated to bugs/performance.
+Do not create a new project.
+Do not replace the existing YourWorld architecture.
+Do not delete existing features.
+Do not modify unrelated UI.
+
+WORK IN PHASES:
+PHASE 1: Audit entire app and identify concrete issues.
+PHASE 2: Fix highest-impact root causes.
+PHASE 3: Optimize navigation and media loading/preloading.
+PHASE 4: Fix remaining confirmed bugs.
+PHASE 5: Typecheck, tests, production build and final verification.
+
+At the end, report:
+- files actually changed
+- bugs actually fixed
+- performance improvements actually implemented
+- media preload strategy implemented
+- tests/build results
+- any remaining genuine issue that could not be fixed safely.
+
+MOST IMPORTANT:
+Make real source-code changes.
+Do not give a diagnostic-only response.
+Preserve the entire existing YourWorld app.

@@ -17,6 +17,7 @@ type Props = {
 export function VideoPoster({ thumbnailUrl, mediaUrl, alt, className }: Props) {
   const [frameUrl, setFrameUrl] = useState<string | null>(null);
   const [resolvedThumbnail, setResolvedThumbnail] = useState<string | null>(null);
+  const [thumbnailResolved, setThumbnailResolved] = useState(false);
   const [frameFailed, setFrameFailed] = useState(false);
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const [loadState, setLoadState] = useState<"loading" | "loaded" | "error">("loading");
@@ -26,6 +27,7 @@ export function VideoPoster({ thumbnailUrl, mediaUrl, alt, className }: Props) {
     setFrameFailed(false);
     setFrameUrl(null);
     setResolvedThumbnail(null);
+    setThumbnailResolved(false);
     setLoadState("loading");
   }, [thumbnailUrl, mediaUrl]);
 
@@ -33,7 +35,13 @@ export function VideoPoster({ thumbnailUrl, mediaUrl, alt, className }: Props) {
     if (!thumbnailUrl) return;
     let alive = true;
     void resolveMediaUrl(thumbnailUrl, "videos").then((url) => {
-      if (alive) setResolvedThumbnail(url || thumbnailUrl);
+      if (!alive) return;
+      setResolvedThumbnail(url || thumbnailUrl);
+      setThumbnailResolved(true);
+    }).catch(() => {
+      if (!alive) return;
+      setResolvedThumbnail(thumbnailUrl);
+      setThumbnailResolved(true);
     });
     return () => {
       alive = false;
@@ -51,7 +59,7 @@ export function VideoPoster({ thumbnailUrl, mediaUrl, alt, className }: Props) {
     };
   }, [thumbnailFailed, thumbnailUrl, mediaUrl]);
 
-  const showThumbnail = (resolvedThumbnail || thumbnailUrl) && !thumbnailFailed;
+  const showThumbnail = thumbnailResolved && resolvedThumbnail && !thumbnailFailed;
   const showFrame = frameUrl && !frameFailed && !showThumbnail;
 
   return (

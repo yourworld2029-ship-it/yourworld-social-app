@@ -42,6 +42,7 @@ function ChatListPage() {
   const [peopleQuery, setPeopleQuery] = useState("");
   const [people, setPeople] = useState<DiscoverProfile[]>([]);
   const [peopleLoading, setPeopleLoading] = useState(false);
+  const [peopleError, setPeopleError] = useState<string | null>(null);
   const [me, setMe] = useState<string | null>(null);
   const navigate = useNavigate();
   const [selecting, setSelecting] = useState(false);
@@ -64,75 +65,86 @@ function ChatListPage() {
 
 
   useEffect(() => {
+    let requestGeneration = 0;
+
     async function loadThreads() {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const me = sessionData.session?.user.id ?? null;
-      setMe(me);
+      const generation = ++requestGeneration;
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const me = sessionData.session?.user.id ?? null;
+        if (generation !== requestGeneration) return;
+        setMe(me);
 
-
-       if (!me) {
-         setThreads([]);
-         setLoadError("Sign in to view your chats.");
-         return;
-       }
-       // public.messages is the conversation source of truth. Canonical route
-       // ids are derived from the authenticated user and the other endpoint.
-       const { data, error } = await supabase
-         .from("messages" as never)
-         .select("id,sender_id,receiver_id,content,media_url,voice_note_url,is_read,created_at" as never)
-         .or(`sender_id.eq.${me},receiver_id.eq.${me}`)
-         .order("created_at", { ascending: false })
+        if (!me) {
+          setThreads([]);
+          setLoadError("Sign in to view your chats.");
+          return;
+        }
+        // public.messages is the conversation source of truth. Canonical route
+        // ids are derived from the authenticated user and the other endpoint.
+        const { data, error } = await supabase
+          .from("messages" as never)
+          .select("id,sender_id,receiver_id,content,media_url,voice_note_url,is_read,created_at" as never)
+          .or(`sender_id.eq.${me},receiver_id.eq.${me}`)
+          .order("created_at", { ascending: false })
           .limit(50);
 
-      if (!error && data) {
-        const map = new Map<string, ChatThread>();
-         (data as unknown as Array<{ sender_id: string; receiver_id: string; content: string; media_url: string | null; voice_note_url: string | null; is_read: boolean; created_at: string }>).forEach((msg) => {
-           const peerId = msg.sender_id === me ? msg.receiver_id : msg.sender_id;
-           const id = dmThreadId(me, peerId);
-           const existing = map.get(id);
-          const unread =
-            (existing?.unreadCount ?? 0) + (!msg.is_read && msg.sender_id !== me ? 1 : 0);
-          if (!existing) {
-             map.set(id, {
-               id,
-              name: "Loading…",
-               peerId,
-               lastMessage: msg.content || (msg.voice_note_url ? "Voice note" : msg.media_url ? "Media file" : "Message"),
-              time: new Date(msg.created_at).toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-              }),
-              unreadCount: unread,
-            });
-         setLoadError(null);
-          } else {
-            existing.unreadCount = unread;
-          }
-        });
-        const base = Array.from(map.values());
-        // Keep already-resolved names from the cache instead of flashing "Loading…".
-        setThreads((prev) =>
-          base.map((t) => {
-            const known = prev.find((p) => p.id === t.id);
-            return known ? { ...t, name: known.name, peerId: known.peerId, avatar_url: known.avatar_url } : t;
-          }),
-        );
+        if (generation !== requestGeneration) return;
+        if (!error && data) {
+          const map = new Map<string, ChatThread>();
+          (data as unknown as Array<{ sender_id: string; receiver_id: string; content: string; media_url: string | null; voice_note_url: string | null; is_read: boolean; created_at: string }>).forEach((msg) => {
+            const peerId = msg.sender_id === me ? msg.receiver_id : msg.sender_id;
+            const id = dmThreadId(me, peerId);
+            const existing = map.get(id);
+            const unread =
+              (existing?.unreadCount ?? 0) + (!msg.is_read && msg.sender_id !== me ? 1 : 0);
+            if (!existing) {
+              map.set(id, {
+                id,
+                name: "Loading…",
+                peerId,
+                lastMessage: msg.content || (msg.voice_note_url ? "Voice note" : msg.media_url ? "Media file" : "Message"),
+                time: new Date(msg.created_at).toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                }),
+                unreadCount: unread,
+              });
+              setLoadError(null);
+            } else {
+              existing.unreadCount = unread;
+            }
+          });
+          const base = Array.from(map.values());
+          // Keep already-resolved names from the cache instead of flashing "Loading…".
+          setThreads((prev) =>
+            base.map((t) => {
+              const known = prev.find((p) => p.id === t.id);
+              return known ? { ...t, name: known.name, peerId: known.peerId, avatar_url: known.avatar_url } : t;
+            }),
+          );
 
-        const resolved = await Promise.all(
-          base.map(async (t) => {
-            const peer = await resolveThreadPeer(t.id, me);
-            return {
-              ...t,
-              name: peer.peerName,
-              peerId: peer.peerId,
-              avatar_url: peer.avatarUrl ?? null,
-            };
-          }),
-        );
-        setThreads(resolved);
-        cacheSet("chat-threads", resolved.slice(0, 30));
-       } else if (error) {
-         setLoadError(error.message);
+          const resolved = await Promise.all(
+            base.map(async (t) => {
+              const peer = await resolveThreadPeer(t.id, me);
+              return {
+                ...t,
+                name: peer.peerName,
+                peerId: peer.peerId,
+                avatar_url: peer.avatarUrl ?? null,
+              };
+            }),
+          );
+          if (generation !== requestGeneration) return;
+          setThreads(resolved);
+          cacheSet("chat-threads", resolved.slice(0, 30));
+        } else if (error) {
+          setLoadError(error.message);
+        }
+      } catch (cause) {
+        if (generation !== requestGeneration) return;
+        setThreads([]);
+        setLoadError(cause instanceof Error ? cause.message : "Couldn't load your chats.");
       }
     }
 
@@ -188,16 +200,25 @@ function ChatListPage() {
     if (!newChatOpen) return;
     let alive = true;
     setPeopleLoading(true);
+    setPeopleError(null);
     const t = setTimeout(async () => {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const uid = sessionData.session?.user.id ?? null;
-      if (alive) setMe(uid);
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const uid = sessionData.session?.user.id ?? null;
+        if (alive) setMe(uid);
 
-      const term = peopleQuery.trim();
-      const { data } = await supabase.rpc("search_profiles", { search: term });
-      if (!alive) return;
-      setPeople(((data ?? []) as DiscoverProfile[]).filter((p) => p.id !== uid));
-      setPeopleLoading(false);
+        const term = peopleQuery.trim();
+        const { data, error } = await supabase.rpc("search_profiles", { search: term });
+        if (!alive) return;
+        if (error) throw error;
+        setPeople(((data ?? []) as DiscoverProfile[]).filter((p) => p.id !== uid));
+      } catch (cause) {
+        if (!alive) return;
+        setPeople([]);
+        setPeopleError(cause instanceof Error ? cause.message : "Couldn't search accounts.");
+      } finally {
+        if (alive) setPeopleLoading(false);
+      }
     }, 220);
     return () => {
       alive = false;
@@ -427,6 +448,8 @@ function ChatListPage() {
           <div className="flex-1 space-y-1 overflow-y-auto">
             {peopleLoading ? (
               <p className="py-6 text-center text-sm text-gray-500">Searching…</p>
+            ) : peopleError ? (
+              <p className="py-6 text-center text-sm text-red-300">{peopleError}</p>
             ) : people.length === 0 ? (
               <p className="py-6 text-center text-sm text-gray-500">No accounts found.</p>
             ) : (

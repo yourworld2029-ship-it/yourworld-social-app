@@ -31,15 +31,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let alive = true;
+    let authEventSeen = false;
     const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => {
+      if (!alive) return;
+      authEventSeen = true;
       setSession(next);
       setLoading(false);
     });
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
+    void supabase.auth.getSession().then(({ data, error }) => {
+      if (!alive || authEventSeen) return;
+      if (error) {
+        console.error("[auth] session bootstrap failed", error);
+        setSession(null);
+      } else {
+        setSession(data.session);
+      }
       setLoading(false);
     });
-    return () => sub.subscription.unsubscribe();
+    return () => {
+      alive = false;
+      sub.subscription.unsubscribe();
+    };
   }, []);
 
   const value = useMemo<AuthValue>(

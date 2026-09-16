@@ -545,7 +545,11 @@ function ProfilePage() {
     }
   };
 
-  if (!loading && !userId) {
+  if (loading || (userId !== null && profile.id !== userId)) {
+    return null;
+  }
+
+  if (!userId) {
     return (
       <main className="relative min-h-screen">
         <header className="sticky top-0 z-40 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border glass px-4 py-3">
@@ -603,14 +607,10 @@ function ProfilePage() {
 
       <section className={`relative mx-auto max-w-4xl px-4 sm:px-8 lg:px-10 ${profile.cover_url ? "-mt-8 sm:-mt-10" : "mt-0"}`}>
         <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-4 sm:gap-x-6">
-          <span className="row-span-2 grid h-[84px] w-[84px] shrink-0 place-items-center rounded-full bg-[linear-gradient(135deg,#f4d58d,#d987c4_48%,#8647d2)] p-[3px] shadow-[0_0_0_1px_rgba(255,255,255,0.2),0_16px_38px_-12px_rgba(231,135,196,0.8)] sm:h-28 sm:w-28">
-            <span className="grid h-full w-full place-items-center rounded-full bg-[#0c0d12] p-[3px]">
-              {avatarSrc ? (
-                <img data-testid="img-profile-avatar" src={avatarSrc} alt="" className="h-full w-full rounded-full object-cover" />
-              ) : (
-                <YwAvatar user={avatarUser} size={84} />
-              )}
-            </span>
+          <span className="row-span-2 grid h-[84px] w-[84px] shrink-0 place-items-center rounded-full bg-[linear-gradient(135deg,#f4d58d,#d987c4_48%,#8647d2)] p-[3px] sm:h-28 sm:w-28">
+            {avatarSrc ? (
+              <img data-testid="img-profile-avatar" src={avatarSrc} alt="" className="h-full w-full rounded-full object-cover" />
+            ) : null}
           </span>
 
           <div className="min-w-0 self-stretch pt-1 sm:pt-2">

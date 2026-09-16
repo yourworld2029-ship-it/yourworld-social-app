@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft, Grid3x3, MessageCircle, Play, Share2, UserPlus } from "lucide-react";
 import { toast } from "sonner";
@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { useChatNames } from "@/lib/chat-names";
 import { fetchOrbitProfileRow, rowToOrbitProfile } from "@/lib/orbit-live";
 import { useYw } from "@/lib/yw-store";
+import { useAuth } from "@/lib/auth-store";
 
 export const Route = createFileRoute("/u/$userId")({
   head: () => ({
@@ -49,34 +50,31 @@ function PublicProfilePage() {
   const { userId } = Route.useParams();
   const navigate = useNavigate();
   const { nameFor } = useChatNames();
+  const { user: authUser } = useAuth();
   const [profile, setProfile] = useState<PublicProfile | null>(null);
   const [avatarSrc, setAvatarSrc] = useState<string | null>(null);
   const [posts, setPosts] = useState<DbPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [me, setMe] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [listOpen, setListOpen] = useState(false);
   const [listTab, setListTab] = useState<"followers" | "following">("followers");
 
   const counts = useFollowCounts(isRealUserId(userId) ? userId : null);
   const { following, toggleFollow } = useYw();
+  const me = authUser?.id ?? null;
+  const isOwnProfile = Boolean(me && me === userId);
   const loadRequestRef = useRef(0);
 
   const load = useCallback(async () => {
     const requestId = ++loadRequestRef.current;
     setLoading(true);
     setLoadError(null);
-    setMe(null);
     setProfile(null);
     setPosts([]);
     setAvatarSrc(null);
 
     try {
-      const { data: s, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError) throw sessionError;
-      const uid = s.session?.user.id ?? null;
-
       const [profileResult, postsResult, orbitRow] = await Promise.all([
         supabase.rpc("get_public_profiles", { ids: [userId] }),
         supabase
@@ -106,7 +104,6 @@ function PublicProfilePage() {
         ? await resolveMediaUrl(next.avatar_url, "avatars")
         : null;
       if (requestId !== loadRequestRef.current) return;
-      setMe(uid);
       setProfile(next);
       setPosts((postsResult.data ?? []) as DbPost[]);
       setAvatarSrc(nextAvatar);
@@ -123,6 +120,11 @@ function PublicProfilePage() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (!isOwnProfile) return;
+    void navigate({ to: "/profile", replace: true });
+  }, [isOwnProfile, navigate]);
+
   const media = useResolvedMedia(posts.map((p) => p.media_url));
   const src = (u: string) => media[u] ?? u;
   const grid = posts.filter((p) => p.kind !== "reel");
@@ -131,7 +133,7 @@ function PublicProfilePage() {
   const reelsEmpty = loading ? "Loading…" : loadError ?? "No reels yet";
 
   const onFollow = async () => {
-    if (busy) return;
+    if (busy || isOwnProfile) return;
     setBusy(true);
     try {
       const wasFollowing = Boolean(following[userId]);
@@ -177,21 +179,7 @@ function PublicProfilePage() {
     });
   };
 
-  if (me && me === userId) {
-    return (
-      <main className="grid min-h-screen place-items-center bg-[#0d0d0f] px-6 text-center text-white">
-        <div>
-          <p className="text-sm text-zinc-400">This is you.</p>
-          <Link
-            to="/profile"
-            className="mt-4 inline-block rounded-full bg-white px-4 py-2 text-xs font-semibold text-black"
-          >
-            Open your profile
-          </Link>
-        </div>
-      </main>
-    );
-  }
+  if (isOwnProfile) return null;
 
   return (
     <main className="min-h-screen bg-[#0d0d0f] pb-28 text-white">
@@ -257,32 +245,36 @@ function PublicProfilePage() {
         </div>
 
         <div className="grid grid-cols-3 gap-2 pt-4">
-          <button
-            type="button"
-            onClick={onFollow}
-            disabled={busy || counts.unavailable}
-            className={cn(
-              "flex items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-bold transition-all active:scale-[0.98] disabled:opacity-60",
-              following[userId] ? "bg-zinc-800 text-white" : "bg-pink-500 text-white",
-            )}
-          >
-            <UserPlus size={14} />
-            {counts.unavailable ? "Follow unavailable" : following[userId] ? "Following" : "Follow"}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (!me) return;
-              void navigate({
-                to: "/chat/$threadId",
-                params: { threadId: dmThreadId(me, userId) },
-              });
-            }}
-            className="flex items-center justify-center rounded-xl bg-zinc-800 py-2 text-center text-xs font-bold"
-          >
-            <MessageCircle size={14} />
-            Message
-          </button>
+          {!isOwnProfile ? (
+            <>
+              <button
+                type="button"
+                onClick={onFollow}
+                disabled={busy || counts.unavailable}
+                className={cn(
+                  "flex items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-bold transition-all active:scale-[0.98] disabled:opacity-60",
+                  following[userId] ? "bg-zinc-800 text-white" : "bg-pink-500 text-white",
+                )}
+              >
+                <UserPlus size={14} />
+                {counts.unavailable ? "Follow unavailable" : following[userId] ? "Following" : "Follow"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!me || isOwnProfile) return;
+                  void navigate({
+                    to: "/chat/$threadId",
+                    params: { threadId: dmThreadId(me, userId) },
+                  });
+                }}
+                className="flex items-center justify-center rounded-xl bg-zinc-800 py-2 text-center text-xs font-bold"
+              >
+                <MessageCircle size={14} />
+                Message
+              </button>
+            </>
+          ) : null}
           <button
             type="button"
             onClick={() => void onShare()}
