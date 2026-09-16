@@ -90,6 +90,10 @@ function escapeILikePattern(value: string) {
   return value.replace(/[\\%_.,():"']/g, "\\$&");
 }
 
+export function normalizeProfileSearchTerm(search: string) {
+  return search.trim().replace(/^[@#]+/, "").trim();
+}
+
 function toSearchUsers(
   profiles: ProfileRow[],
   followersById = new Map<string, number>(),
@@ -205,23 +209,11 @@ export async function searchPublicProfiles(
   search: string,
   client: typeof supabase = supabase,
 ): Promise<PublicSearchProfile[]> {
-  const searchTerm = search.trim().replace(/^[@#]+/, "");
+  const searchTerm = normalizeProfileSearchTerm(search);
   if (!searchTerm) return [];
 
-  const pattern = escapeILikePattern(searchTerm);
   const [{ data, error }, orbitUsers] = await Promise.all([
-    client
-      .from("profiles")
-      .select("*")
-      .or(
-        [
-          `username.ilike.%${pattern}%`,
-          `display_name.ilike.%${pattern}%`,
-          `full_name.ilike.%${pattern}%`,
-        ].join(","),
-      )
-      .order("updated_at", { ascending: false })
-      .limit(50),
+    client.rpc("search_profiles", { search: searchTerm }),
     searchOrbitProfiles(searchTerm, client),
   ]);
   if (error) throw error;

@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { loadSearchData } from "@/lib/search-data";
+import {
+  loadSearchData,
+  normalizeProfileSearchTerm,
+  searchPublicProfiles,
+} from "@/lib/search-data";
 import { loadChannelData } from "@/lib/channel-data";
 import { recordVideoWatchHeartbeat, startVideoWatchSession } from "@/lib/video-data";
 import { createPostComment, deletePostComment, loadSocialPosts } from "@/lib/social-data";
@@ -12,7 +16,7 @@ type QueryResult = { data?: unknown; error?: { message: string } | null };
 
 function chain(result: QueryResult, onMethod?: (method: string, args: unknown[]) => void) {
   const builder: Record<string, unknown> = {};
-  for (const method of ["select", "order", "limit", "eq", "in", "insert", "delete", "update"]) {
+  for (const method of ["select", "order", "limit", "eq", "in", "or", "insert", "delete", "update"]) {
     builder[method] = (...args: unknown[]) => {
       onMethod?.(method, args);
       return builder;
@@ -109,6 +113,27 @@ test("search exposes live profiles and normalized hashtag totals", async () => {
       { tag: "live", postCount: 2 },
       { tag: "other", postCount: 1 },
     ],
+  );
+});
+
+test("profile search normalizes @ while preserving username and display name", async () => {
+  const userId = "12121212-1212-4121-8121-121212121212";
+  const { client, calls } = fakeClient({
+    from: { orbit_profiles: [{ data: [] }] },
+    rpc: {
+      search_profiles: [{ data: [profile(userId, "sandy", "Sandeep Poonia")] }],
+    },
+  });
+
+  const result = await searchPublicProfiles(" @sandy ", client);
+
+  assert.equal(normalizeProfileSearchTerm(" @sandy "), "sandy");
+  assert.equal(result[0]?.id, userId);
+  assert.equal(result[0]?.username, "sandy");
+  assert.equal(result[0]?.name, "Sandeep Poonia");
+  assert.deepEqual(
+    calls.find((call) => call.type === "rpc" && call.name === "search_profiles")?.args,
+    [{ search: "sandy" }],
   );
 });
 
