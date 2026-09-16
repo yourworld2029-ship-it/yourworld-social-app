@@ -18,7 +18,6 @@ import {
   Download,
   Heart,
   Lock,
-  PictureInPicture,
   Reply,
   Send,
   Share2,
@@ -118,16 +117,6 @@ type TouchGesture = {
 type TouchPointList = {
   length: number;
   item: (index: number) => { clientX: number; clientY: number } | null;
-};
-
-type PictureInPictureVideo = HTMLVideoElement & {
-  requestPictureInPicture?: () => Promise<unknown>;
-};
-
-type PictureInPictureDocument = Document & {
-  pictureInPictureEnabled?: boolean;
-  pictureInPictureElement?: HTMLVideoElement | null;
-  exitPictureInPicture?: () => Promise<void>;
 };
 
 export const Route = createFileRoute("/video/$videoId")({
@@ -232,8 +221,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   const [displayMode, setDisplayMode] = useState<"fit" | "fill">("fit");
   const [brightness, setBrightness] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [isPictureInPicture, setIsPictureInPicture] = useState(false);
-  const [pictureInPictureSupported, setPictureInPictureSupported] = useState(false);
   const [screenLocked, setScreenLocked] = useState(false);
   const [gestureFeedback, setGestureFeedback] = useState<GestureFeedback | null>(null);
   const [resolvedMediaUrl, setResolvedMediaUrl] = useState<string>("");
@@ -242,8 +229,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   const feedbackTimerRef = useRef<number | null>(null);
   const playedSecondsRef = useRef(0);
   const lastVideoTimeRef = useRef<number | null>(null);
-  const pictureInPictureTimeRef = useRef<number | null>(null);
-  const pictureInPicturePlayingRef = useRef(false);
 
   const {
     data: video,
@@ -497,68 +482,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     };
   }, [mediaUrl]);
 
-  useEffect(() => {
-    const videoElement = videoRef.current as PictureInPictureVideo | null;
-    const pipDocument = document as PictureInPictureDocument;
-    if (!videoElement) {
-      setPictureInPictureSupported(false);
-      return;
-    }
-
-    setPictureInPictureSupported(
-      typeof videoElement.requestPictureInPicture === "function" &&
-        pipDocument.pictureInPictureEnabled !== false,
-    );
-
-    const handleEnterPictureInPicture = () => {
-      pictureInPictureTimeRef.current = Number.isFinite(videoElement.currentTime)
-        ? videoElement.currentTime
-        : null;
-      pictureInPicturePlayingRef.current = !videoElement.paused && !videoElement.ended;
-      setIsPictureInPicture(true);
-    };
-
-    const handleLeavePictureInPicture = () => {
-      const savedTime = pictureInPictureTimeRef.current;
-      const wasPlaying = pictureInPicturePlayingRef.current;
-      if (
-        savedTime !== null &&
-        (!Number.isFinite(videoElement.currentTime) ||
-          (videoElement.currentTime === 0 && savedTime > 0))
-      ) {
-        videoElement.currentTime = savedTime;
-      }
-      if (wasPlaying && !videoElement.ended) {
-        void videoElement.play().catch(() => undefined);
-      } else if (!wasPlaying && !videoElement.paused) {
-        videoElement.pause();
-      }
-      pictureInPictureTimeRef.current = null;
-      pictureInPicturePlayingRef.current = false;
-      videoElement.disablePictureInPicture = true;
-      setIsPictureInPicture(false);
-    };
-
-    const syncPictureInPictureTime = () => {
-      if (
-        pipDocument.pictureInPictureElement === videoElement &&
-        Number.isFinite(videoElement.currentTime)
-      ) {
-        pictureInPictureTimeRef.current = videoElement.currentTime;
-      }
-    };
-
-    videoElement.addEventListener("enterpictureinpicture", handleEnterPictureInPicture);
-    videoElement.addEventListener("leavepictureinpicture", handleLeavePictureInPicture);
-    videoElement.addEventListener("timeupdate", syncPictureInPictureTime);
-
-    return () => {
-      videoElement.removeEventListener("enterpictureinpicture", handleEnterPictureInPicture);
-      videoElement.removeEventListener("leavepictureinpicture", handleLeavePictureInPicture);
-      videoElement.removeEventListener("timeupdate", syncPictureInPictureTime);
-    };
-  }, [mediaUrl, resolvedMediaUrl]);
-
   useEffect(
     () => () => {
       if (feedbackTimerRef.current !== null) {
@@ -737,39 +660,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
       }
     } catch {
       // Share cancellation and clipboard failures should not crash the route.
-    }
-  };
-
-  const handlePictureInPicture = async () => {
-    const videoElement = videoRef.current as PictureInPictureVideo | null;
-    const pipDocument = document as PictureInPictureDocument;
-    if (!videoElement?.requestPictureInPicture) return;
-
-    try {
-      if (pipDocument.pictureInPictureElement === videoElement) {
-        await pipDocument.exitPictureInPicture?.();
-        return;
-      }
-
-      if (pipDocument.pictureInPictureElement) {
-        toast.error("Picture-in-picture is already active");
-        return;
-      }
-
-      const wasPlaying = !videoElement.paused && !videoElement.ended;
-      pictureInPictureTimeRef.current = Number.isFinite(videoElement.currentTime)
-        ? videoElement.currentTime
-        : null;
-      pictureInPicturePlayingRef.current = wasPlaying;
-      videoElement.disablePictureInPicture = false;
-      await videoElement.requestPictureInPicture();
-      if (wasPlaying) {
-        void videoElement.play().catch(() => undefined);
-      }
-    } catch (cause) {
-      videoElement.disablePictureInPicture = true;
-      console.error("Unable to enter picture-in-picture", cause);
-      toast.error("Picture-in-picture is unavailable on this device");
     }
   };
 
@@ -997,7 +887,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
              src={playableMediaUrl}
              controls={!isFullscreen || !screenLocked}
             controlsList="nodownload"
-            disablePictureInPicture={!isPictureInPicture}
+             disablePictureInPicture
             autoPlay
             playsInline
              onTimeUpdate={handleVideoTimeUpdate}
@@ -1094,26 +984,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
         >
           <ArrowLeft className="h-5 w-5" />
          </button>}
-
-          {!screenLocked && pictureInPictureSupported ? (
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                void handlePictureInPicture();
-              }}
-              className={`absolute top-3 z-50 rounded-full bg-black/60 p-2 text-white backdrop-blur-md transition-all hover:bg-black/80 ${
-                isFullscreen ? "right-14" : "right-3"
-              }`}
-              aria-label={isPictureInPicture ? "Exit picture-in-picture" : "Enter picture-in-picture"}
-              aria-pressed={isPictureInPicture}
-              onTouchStart={(event) => event.stopPropagation()}
-              onTouchEnd={(event) => event.stopPropagation()}
-              onDoubleClick={(event) => event.stopPropagation()}
-            >
-              <PictureInPicture className="h-5 w-5" />
-            </button>
-          ) : null}
 
          {isFullscreen && !screenLocked ? (
            <button
