@@ -68,11 +68,13 @@ export function CommentsSheet({
   postId,
   onCountChange,
   commentsDisabled = false,
+  initialOpen = false,
 }: {
   children: ReactNode;
   postId: string;
   onCountChange?: (count: number) => void;
   commentsDisabled?: boolean;
+  initialOpen?: boolean;
 }) {
   const real = usePostComments(postId);
   const { profile, userId } = useMyProfile();
@@ -80,7 +82,7 @@ export function CommentsSheet({
   const [replyDraft, setReplyDraft] = useState("");
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initialOpen);
   const listRef = useRef<HTMLUListElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();

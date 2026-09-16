@@ -36,12 +36,21 @@ import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadShee
 import { isVideoQualityTier, qualityTierFromDimensions } from "@/lib/video-quality";
 import { trackEvent } from "@/lib/analytics";
 
+type ReelsSearch = {
+  reelId?: string;
+  userId?: string;
+  initialVideoId?: string;
+  focusComments?: boolean;
+  returnTo?: "profile" | "public";
+};
+
 export const Route = createFileRoute("/reels")({
-  validateSearch: (search: Record<string, unknown>) => {
+  validateSearch: (search: Record<string, unknown>): ReelsSearch => {
     const reelId = typeof search.reelId === "string" ? search.reelId.trim() : "";
     const userId = typeof search.userId === "string" ? search.userId.trim() : "";
     const initialVideoId =
       typeof search.initialVideoId === "string" ? search.initialVideoId.trim() : "";
+    const focusComments = search.focusComments === true || search.focusComments === "true";
     const returnTo = search.returnTo === "profile" || search.returnTo === "public"
       ? search.returnTo
       : undefined;
@@ -49,6 +58,7 @@ export const Route = createFileRoute("/reels")({
       reelId: reelId || undefined,
       userId: userId || undefined,
       initialVideoId: initialVideoId || undefined,
+      focusComments,
       returnTo,
     };
   },
@@ -83,7 +93,7 @@ function ReelsPage() {
 }
 
 function ReelsList() {
-  const { reelId, userId, initialVideoId, returnTo } = Route.useSearch();
+  const { reelId, userId, initialVideoId, focusComments, returnTo } = Route.useSearch();
   const navigate = useNavigate();
   const scoped = Boolean(userId);
   const initialId = initialVideoId || reelId;
@@ -232,6 +242,7 @@ function ReelsList() {
               scoped={scoped}
               onBack={handleBack}
               commentsDisabled={!!dbReels[i]?.comments_off}
+              initialCommentsOpen={focusComments && reel.id === initialId && i === active}
               onDbLike={() => toggleDbLike(reel.id)}
               onView={() => recordView(reel.id)}
             />
@@ -427,6 +438,7 @@ function ReelItem({
   scoped = false,
   onBack,
   commentsDisabled = false,
+  initialCommentsOpen = false,
   onDbLike,
   onView,
 }: {
@@ -441,6 +453,7 @@ function ReelItem({
   scoped?: boolean;
   onBack?: () => void;
   commentsDisabled?: boolean;
+  initialCommentsOpen?: boolean;
   onDbLike?: () => void | Promise<unknown>;
   onView?: () => void | Promise<unknown>;
 }) {
@@ -920,6 +933,7 @@ function ReelItem({
         <CommentsSheet
           postId={reel.id}
           commentsDisabled={commentsDisabled}
+          initialOpen={initialCommentsOpen}
         >
           <Action label={formatCount(reel.commentCount)}>
             <MessageCircle strokeWidth={1.8} className="h-[18px] w-[18px]" />

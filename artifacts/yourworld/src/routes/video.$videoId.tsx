@@ -131,6 +131,9 @@ type PictureInPictureDocument = Document & {
 };
 
 export const Route = createFileRoute("/video/$videoId")({
+  validateSearch: (search: Record<string, unknown>): { focusComments?: boolean } => ({
+    focusComments: search.focusComments === true || search.focusComments === "true",
+  }),
   component: VideoWatchPage,
   errorComponent: () => <VideoErrorFallback />,
   notFoundComponent: () => <VideoErrorFallback />,
@@ -213,11 +216,13 @@ function VideoWatchPage() {
 
 function VideoWatchContent({ videoId }: { videoId: string }) {
   const navigate = useNavigate();
+  const { focusComments } = Route.useSearch();
   const { user } = useAuth();
   const { liked, saved, following, toggleLike, toggleSave, toggleFollow } = useYw();
   const queryClient = useQueryClient();
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const commentsRef = useRef<HTMLDivElement>(null);
   const [commentText, setCommentText] = useState("");
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const [disliked, setDisliked] = useState(false);
@@ -318,6 +323,14 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [replyText, setReplyText] = useState("");
   const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!focusComments || !video || realComments.loading) return;
+    requestAnimationFrame(() => {
+      commentsRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
+      commentsRef.current?.focus({ preventScroll: true });
+    });
+  }, [focusComments, realComments.loading, video]);
 
   const repliesByParent = new Map<string, typeof comments>();
   comments.forEach((comment) => {
@@ -1261,7 +1274,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           ) : null}
         </div>
 
-        <div className="pt-2">
+         <div ref={commentsRef} id="comments" tabIndex={-1} className="pt-2">
           <h3 className="mb-3 text-sm font-semibold text-white">
             Comments ({comments.length})
           </h3>

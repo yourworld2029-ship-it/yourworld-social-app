@@ -287,7 +287,48 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
   }
   const nameOf = (id: string) => names[id] ?? "Someone";
   const postKind = new Map(myPosts.map((p) => [p.id, p.kind]));
-  const postLink = (id: string) => (postKind.get(id) === "reel" ? "/reels" : "/");
+  const contentLink = (id: string, kind: string | null | undefined, focusComments = false) => {
+    const cleanId = id.trim();
+    if (!cleanId) return undefined;
+    const suffix = focusComments ? "?focusComments=true" : "";
+    if (kind === "reel") {
+      return `/reels?initialVideoId=${encodeURIComponent(cleanId)}${focusComments ? "&focusComments=true" : ""}`;
+    }
+    if (kind === "post" || kind === "video") return `/video/${encodeURIComponent(cleanId)}${suffix}`;
+    if (kind === "moment") return `/moment/${encodeURIComponent(cleanId)}`;
+    if (kind === "user" || kind === "profile") return `/u/${encodeURIComponent(cleanId)}`;
+    return undefined;
+  };
+  const postLink = (id: string, focusComments = false) => contentLink(id, postKind.get(id), focusComments);
+  const metadataId = (metadata: Record<string, unknown> | null, ...keys: string[]) => {
+    for (const key of keys) {
+      const value = metadata?.[key];
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
+    return "";
+  };
+  const notificationLink = (notification: (typeof rows.momentNotifications)[number]) => {
+    const type = notification.entity_type?.trim().toLowerCase() ?? "";
+    const id = notification.entity_id?.trim() || metadataId(
+      notification.metadata,
+      "moment_id",
+      "post_id",
+      "video_id",
+      "reel_id",
+      "user_id",
+      "profile_id",
+    );
+    if (notification.kind === "follower" || notification.kind === "follow") {
+      const followerId = notification.actor_id?.trim() || (type === "user" || type === "profile" ? id : "");
+      return followerId ? contentLink(followerId, "user") : undefined;
+    }
+    if (type === "moment") return id ? contentLink(id, "moment") : undefined;
+    if (type === "post" || type === "video" || type === "reel") {
+      return id ? contentLink(id, type, notification.kind === "comment") : undefined;
+    }
+    if (type === "user" || type === "profile") return id ? contentLink(id, type) : undefined;
+    return undefined;
+  };
   const momentIds = rows.momentNotifications
     .filter((n) => n.entity_type === "moment" && n.entity_id)
     .map((n) => n.entity_id as string);
@@ -341,7 +382,7 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       title: `${nameOf(r.user_id)} commented on your post`,
       body: r.content,
       at: ts(r.created_at),
-      to: postLink(r.post_id),
+      to: postLink(r.post_id, true),
     });
 
   for (const r of rows.dms)
@@ -364,7 +405,7 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
           : r.title,
       body: r.body ?? undefined,
       at: ts(r.created_at),
-      to: r.entity_type === "moment" && r.entity_id ? `/moment/${r.entity_id}` : undefined,
+      to: notificationLink(r),
       thumbnailUrl:
         r.entity_type === "moment" && r.entity_id ? momentMedia.get(r.entity_id) ?? null : null,
     });
