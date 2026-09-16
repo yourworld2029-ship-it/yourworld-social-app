@@ -26,3 +26,4 @@ channel = "stable-25_05"
 
 [userenv.shared]
 REPLIT_APP_URL = "https://your-world-social-app--yourworld2029.replit.app"
+SUPABASE_URL = "https://pnpfybcdxynfooylxqou.supabase.co"
