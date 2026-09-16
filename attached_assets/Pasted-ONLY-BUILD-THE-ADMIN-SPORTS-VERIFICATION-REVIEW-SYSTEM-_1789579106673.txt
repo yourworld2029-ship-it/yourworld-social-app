@@ -1,0 +1,95 @@
+ONLY BUILD THE ADMIN SPORTS VERIFICATION REVIEW SYSTEM.
+
+IMPORTANT:
+Do not change or recreate the existing user Sports Verification flow.
+Keep all existing Sports Profile, Documents, Sports Introduction, T&C, submission and verification data.
+
+1. ADMIN VERIFICATION PANEL
+Create a secure Admin-only Sports Verification section.
+
+Admin can see:
+- Pending Verification Requests
+- User name
+- Username
+- Player/Coach role
+- National/International status
+- Sport
+- Village/Town
+- District
+- State
+- Country
+- Account email
+- Mobile number
+- Submission date/time
+- Verification status
+
+2. PRIVATE DOCUMENT VIEWER
+For each verification request, Admin can securely view:
+- Sports Certificate
+- Passport first page (International only)
+- Visa/Stamp page (International only)
+- Tournament/representation photo
+- Sports Introduction video
+
+Documents must remain private.
+Do NOT create public document URLs.
+Do NOT expose private verification documents to normal users.
+
+3. ADMIN ACTIONS
+Provide:
+- Approve
+- Reject
+- Request Correction
+
+Reject and Request Correction must allow Admin to enter a reason.
+User should be able to see the status and reason and resubmit when correction is required.
+
+4. 72-HOUR VERIFICATION
+When user submits:
+- Status = Pending Verification immediately
+- Store exact submission timestamp
+- Admin has maximum 72 hours to review
+- Show pending duration/deadline to Admin
+- Do not automatically approve a user merely because 72 hours passed.
+- Final approval must remain a manual Admin decision.
+
+5. SUPPORT GMAIL NOTIFICATION
+When a new Sports Verification request is submitted, send a notification to the existing Support Gmail.
+
+Email should contain only:
+- New verification request
+- User name
+- Username
+- Sport
+- Player/Coach
+- National/International
+- Submission time
+- Admin Panel review instruction/link if available
+
+DO NOT attach or expose certificates, passport, visa, phone number or other private documents in the email.
+
+6. SECURITY
+- Only authorized Admin accounts can access the Admin Verification Panel.
+- Normal users must never be able to access another user's verification documents.
+- Never trust frontend-only admin checks; enforce authorization server-side/database-side.
+- Keep verification documents in private storage.
+- Use secure authorized/temporary document access for Admin viewing.
+- Log Admin approval/rejection/correction actions.
+
+7. AFTER APPROVAL
+Use the existing Sports Verification status/data.
+Do not create duplicate verification fields.
+
+After approval:
+International Player → INTERNATIONAL PLAYER
+International Coach → INTERNATIONAL COACH
+National Player → NATIONAL PLAYER
+National Coach → NATIONAL COACH
+
+Keep the previously defined monetization Diamond/Star system separate:
+- Verification approval alone does NOT give Diamond/Star.
+- Diamond/Star appears only after monetization approval.
+
+Use the smallest possible implementation.
+Do not change Profile UI, Category system, Reels, Videos, Moments, Chat, Feed, Authentication or Navigation.
+Test submission → Admin notification → Admin document viewing → Approve/Reject/Correction → user status update.
