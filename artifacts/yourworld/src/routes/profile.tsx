@@ -81,6 +81,14 @@ import { ProfileTemplate } from "@/components/yw/ProfileTemplate";
 
 
 export const Route = createFileRoute("/profile")({
+  validateSearch: (search: Record<string, unknown>): { connections?: "followers" | "following" } => ({
+    connections:
+      search.connections === "following"
+        ? "following"
+        : search.connections === "followers"
+          ? "followers"
+          : undefined,
+  }),
   head: () => ({
     meta: [
       { title: "Profile — YourWorld" },
@@ -119,6 +127,7 @@ function ProfilePage() {
   } =
     useMyProfile();
   const navigate = useNavigate();
+  const { connections } = Route.useSearch();
   const [editOpen, setEditOpen] = useState(false);
   const counts = useFollowCounts(userId);
   const [listOpen, setListOpen] = useState(false);
@@ -148,6 +157,13 @@ function ProfilePage() {
     useState<SportsVerificationEvidenceKind | null>(null);
   const [sportsVerificationSubmitting, setSportsVerificationSubmitting] = useState(false);
   const sportsVerificationTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (connections === "followers" || connections === "following") {
+      setListTab(connections);
+      setListOpen(true);
+    }
+  }, [connections]);
 
   useEffect(() => {
     return () => {
@@ -579,10 +595,28 @@ function ProfilePage() {
       isOwner
       listOpen={listOpen}
       listTab={listTab}
-      onListOpenChange={setListOpen}
-      onListTabChange={setListTab}
-      onFollowersClick={() => { setListTab("followers"); setListOpen(true); }}
-      onFollowingClick={() => { setListTab("following"); setListOpen(true); }}
+      onListOpenChange={(open) => {
+         setListOpen(open);
+         if (!open && connections) {
+           void navigate({ to: "/profile", search: {}, replace: true });
+         }
+       }}
+      onListTabChange={(tab) => {
+        setListTab(tab);
+        if (listOpen) {
+          void navigate({ to: "/profile", search: { connections: tab }, replace: true });
+        }
+      }}
+      onFollowersClick={() => {
+         setListTab("followers");
+         setListOpen(true);
+         void navigate({ to: "/profile", search: { connections: "followers" }, replace: true });
+       }}
+      onFollowingClick={() => {
+         setListTab("following");
+         setListOpen(true);
+         void navigate({ to: "/profile", search: { connections: "following" }, replace: true });
+       }}
       onEditProfile={() => setEditOpen(true)}
       onShare={async () => {
         const url = `${window.location.origin}/profile`;

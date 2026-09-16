@@ -1,3 +1,4 @@
+import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -71,6 +72,7 @@ function List({
 }) {
   const { users, loading, error } = useFollowList(userId, kind, open);
   const { following, toggleFollow } = useYw();
+  const navigate = useNavigate();
 
   if (loading)
     return (
@@ -97,6 +99,15 @@ function List({
           key={u.id}
           className="animate-rise flex items-center gap-3 rounded-2xl px-2 py-2"
           style={{ animationDelay: `${i * 25}ms` }}
+          role="button"
+          tabIndex={0}
+          onClick={() => void navigate({ to: "/u/$userId", params: { userId: u.id } })}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              void navigate({ to: "/u/$userId", params: { userId: u.id } });
+            }
+          }}
         >
           <YwAvatar
             user={{ id: u.id, username: u.username, name: u.display_name, hue: 280 }}
@@ -110,7 +121,10 @@ function List({
             size="sm"
             variant={following[u.id] ? "secondary" : "default"}
             className="h-8 shrink-0 rounded-full px-4 text-xs"
-            onClick={() => toggleFollow(u.id)}
+            onClick={(event) => {
+              event.stopPropagation();
+              void toggleFollow(u.id);
+            }}
           >
             {following[u.id] ? "Following" : "Follow"}
           </Button>
