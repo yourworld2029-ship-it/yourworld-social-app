@@ -69,6 +69,9 @@ export type SportsVerificationDetails = {
   country: string;
   mobileNumber: string;
   email: string;
+  reviewStatus?: "not_submitted" | "pending" | "approved" | "rejected" | "correction_requested";
+  reviewReason?: string | null;
+  submittedAt?: string | null;
   sportsCertificate: SportsVerificationEvidence | null;
   passportFirstPage: SportsVerificationEvidence | null;
   passportVisaStampPage: SportsVerificationEvidence | null;
@@ -133,6 +136,9 @@ function emptySportsVerificationDetails(email = "", mobileNumber = ""): SportsVe
     country: "India",
     mobileNumber,
     email,
+    reviewStatus: "not_submitted",
+    reviewReason: null,
+    submittedAt: null,
     sportsCertificate: null,
     passportFirstPage: null,
     passportVisaStampPage: null,
@@ -160,6 +166,15 @@ export async function getSportsVerificationDetails(ownerId: string): Promise<Spo
     country: data.country || "India",
     mobileNumber: sessionMobile || data.mobile_number || "",
     email: sessionEmail || data.email || "",
+    reviewStatus:
+      data.review_status === "pending" ||
+      data.review_status === "approved" ||
+      data.review_status === "rejected" ||
+      data.review_status === "correction_requested"
+        ? data.review_status
+        : "not_submitted",
+    reviewReason: data.review_reason ?? null,
+    submittedAt: data.submitted_at ?? null,
     sportsCertificate: evidenceFromPath(data.sports_certificate_path, "sportsCertificate"),
     passportFirstPage: evidenceFromPath(data.passport_first_page_path, "passportFirstPage"),
     passportVisaStampPage: evidenceFromPath(
@@ -206,6 +221,15 @@ export async function saveSportsVerificationDetails(
     country: data.country || "India",
     mobileNumber: sessionMobile || data.mobile_number,
     email: sessionEmail || data.email,
+    reviewStatus:
+      data.review_status === "pending" ||
+      data.review_status === "approved" ||
+      data.review_status === "rejected" ||
+      data.review_status === "correction_requested"
+        ? data.review_status
+        : "not_submitted",
+    reviewReason: data.review_reason ?? null,
+    submittedAt: data.submitted_at ?? null,
     sportsCertificate: evidenceFromPath(data.sports_certificate_path, "sportsCertificate"),
     passportFirstPage: evidenceFromPath(data.passport_first_page_path, "passportFirstPage"),
     passportVisaStampPage: evidenceFromPath(

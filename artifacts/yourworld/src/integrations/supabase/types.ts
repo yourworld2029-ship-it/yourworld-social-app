@@ -828,6 +828,11 @@ export type Database = {
           updated_at: string
           user_id: string
           village_town: string
+          review_status: string
+          review_reason: string | null
+          submitted_at: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
         }
         Insert: {
           country?: string
@@ -843,6 +848,11 @@ export type Database = {
           updated_at?: string
           user_id: string
           village_town?: string
+          review_status?: string
+          review_reason?: string | null
+          submitted_at?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
         }
         Update: {
           country?: string
@@ -858,6 +868,11 @@ export type Database = {
           updated_at?: string
           user_id?: string
           village_town?: string
+          review_status?: string
+          review_reason?: string | null
+          submitted_at?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
         }
         Relationships: [
           {

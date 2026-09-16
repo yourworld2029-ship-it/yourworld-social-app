@@ -1134,6 +1134,25 @@ export function SportsDetailsPanel({
               Pending Verification
             </p>
           ) : (
+            <>
+              {verificationDetails?.reviewStatus === "rejected" ||
+              verificationDetails?.reviewStatus === "correction_requested" ? (
+                <div
+                  data-testid="sports-verification-review-feedback"
+                  className="mt-4 rounded-2xl border border-red-200/20 bg-red-200/[0.08] px-4 py-3"
+                >
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-red-200">
+                    {verificationDetails.reviewStatus === "correction_requested"
+                      ? "Correction requested"
+                      : "Verification rejected"}
+                  </p>
+                  {verificationDetails.reviewReason ? (
+                    <p className="mt-1 whitespace-pre-wrap text-sm text-zinc-200">
+                      {verificationDetails.reviewReason}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
             <Button
               type="button"
               data-testid="button-submit-sports-verification"
@@ -1141,8 +1160,14 @@ export function SportsDetailsPanel({
               onClick={() => void onSubmitVerification?.()}
               className="mt-4 w-full rounded-full bg-amber-200 text-black hover:bg-amber-100"
             >
-              {verificationSubmitting ? "Submitting…" : "Submit for Verification"}
+              {verificationSubmitting
+                ? "Submitting…"
+                : verificationDetails?.reviewStatus === "correction_requested" ||
+                    verificationDetails?.reviewStatus === "rejected"
+                  ? "Resubmit for Verification"
+                  : "Submit for Verification"}
             </Button>
+            </>
           )}
         </SportsDetailsSection>
       ) : null}

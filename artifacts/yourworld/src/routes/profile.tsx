@@ -75,6 +75,7 @@ import { resolveMediaUrl, type DbPost } from "@/lib/social-data";
 import { STORAGE_BUCKETS } from "@/lib/storage-upload";
 import { useFollowCounts } from "@/lib/follow-data";
 import { ProfileTemplate } from "@/components/yw/ProfileTemplate";
+import { submitSportsVerification } from "@/lib/sports-verification.functions";
 
 
 
@@ -541,11 +542,13 @@ function ProfilePage() {
     if (!userId || userId !== profile.id || profile.verification_requested || profile.is_verified) return;
     setSportsVerificationSubmitting(true);
     try {
-      await save({
-        ...editValue,
-        verificationRequested: true,
-      });
-      toast.success("Verification request submitted");
+      const result = await submitSportsVerification();
+      await reload();
+      if (result.notification.sent) {
+        toast.success("Verification request submitted");
+      } else {
+        toast.warning("Verification request submitted, but Support could not be notified yet.");
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Couldn't submit for verification.");
     } finally {
