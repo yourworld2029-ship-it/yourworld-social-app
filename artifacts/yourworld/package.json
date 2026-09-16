@@ -9,7 +9,7 @@
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "serve": "node --enable-source-maps server/index.mjs",
-    "test": "tsx --test src/lib/live-data.test.ts src/lib/sports-profile.test.ts",
+    "test": "tsx --test src/lib/live-data.test.ts src/lib/profile-category.test.ts src/lib/sports-profile.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "format": "prettier --write ."

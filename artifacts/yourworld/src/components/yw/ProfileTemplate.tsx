@@ -20,6 +20,10 @@ import { ProfilePhotoViewer } from "@/components/yw/ProfilePhotoViewer";
 import type { DbPost } from "@/lib/social-data";
 import type { FollowCounts } from "@/lib/follow-data";
 import { formatCount } from "@/lib/yw-data";
+import {
+  isSportsIdentityCategory,
+  parseNormalProfileCategories,
+} from "@/lib/profile-category";
 
 export type ProfileTemplateProfile = {
   id: string;
@@ -112,6 +116,8 @@ export function ProfileTemplate({
   children,
 }: ProfileTemplateProps) {
   const src = mediaSrc;
+  const normalCategories = parseNormalProfileCategories(profile.category);
+  const sportsIdentityCategory = isSportsIdentityCategory(profile.category);
 
   return (
     <main className="relative min-h-[100dvh] overflow-hidden bg-[radial-gradient(circle_at_15%_0%,rgba(214,93,177,0.11),transparent_32%),radial-gradient(circle_at_92%_18%,rgba(115,93,214,0.10),transparent_30%)] pb-8">
@@ -169,8 +175,19 @@ export function ProfileTemplate({
               <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.12em] text-amber-100/80">
                 {sportsProfile.sport} · {sportsProfile.role}
               </p>
-            ) : profile.category ? (
+            ) : sportsIdentityCategory && profile.category ? (
               <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.12em] text-zinc-500">{profile.category}</p>
+            ) : normalCategories.length > 0 ? (
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                {normalCategories.map((category) => (
+                  <span
+                    key={category}
+                    className="rounded-full border border-white/10 bg-white/[0.06] px-2 py-0.5 text-[10px] font-semibold tracking-wide text-zinc-300"
+                  >
+                    {category}
+                  </span>
+                ))}
+              </div>
             ) : null}
           </div>
 

@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { STORAGE_BUCKETS, uploadWithProgress, type ProgressFn } from "@/lib/storage-upload";
 import { resolveMediaUrl, type DbPost } from "@/lib/social-data";
 import { normalizePostRow, writeCompat } from "@/lib/supabase-compat";
+import { normalizeProfileCategoryValue } from "@/lib/profile-category";
 
 export type MyProfile = {
   id: string;
@@ -609,7 +610,7 @@ export function useMyProfile() {
           username: edit.username || null,
           display_name: edit.name || null,
           bio: edit.bio || null,
-          category: edit.category || null,
+           category: normalizeProfileCategoryValue(edit.category) || null,
           location: edit.location || null,
           website: edit.website || null,
           avatar_url: avatarPath,

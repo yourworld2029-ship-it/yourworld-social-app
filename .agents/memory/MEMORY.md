@@ -25,3 +25,4 @@
 - [Universal Sports Profile entry](sports-profile-universal.md) — keep strict profile parsing for review while giving every owner the existing editor through an empty draft fallback.
 - [Profile photo cropping](profile-photo-cropping.md) — bake zoom and position into the uploaded square avatar so no profile schema fields are needed.
 - [Profile search contract](profile-search-contract.md) — use the secured profile RPC and preserve display name plus unique username for one profile result.
+- [Normal profile categories](normal-profile-categories.md) — store up to two normal categories in the existing field while preserving Sports Identity markers.
