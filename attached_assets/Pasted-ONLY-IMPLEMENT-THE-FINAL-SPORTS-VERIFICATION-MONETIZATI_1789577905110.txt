@@ -1,0 +1,100 @@
+ONLY IMPLEMENT THE FINAL SPORTS VERIFICATION + MONETIZATION BADGE DISPLAY SYSTEM.
+
+IMPORTANT:
+Do not change any existing Sports Verification, Sports Profile, Category, authentication, database, profile layout, reels, videos, chat, moments, feed, search, notifications, or navigation functionality.
+Use the existing verified Sports Identity data. Do not create a duplicate verification system.
+
+1. AFTER SPORTS DOCUMENT VERIFICATION
+When Sports Verification is successfully approved, show the verified identity on the user's profile:
+
+INTERNATIONAL PLAYER
+INTERNATIONAL COACH
+NATIONAL PLAYER
+NATIONAL COACH
+
+The verified identity must come from the existing Sports Verification status and approved role/category.
+
+2. PROFILE DISPLAY
+On the main profile, show the verified identity with the existing premium profile design.
+
+International:
+- World-class premium GOLD design.
+- Text: INTERNATIONAL PLAYER or INTERNATIONAL COACH.
+- Show the user's verified country representation as a small premium country flag.
+- Example:
+  Sandeep Poonia
+  INTERNATIONAL PLAYER 🇮🇳
+
+National:
+- Premium SILVER/BLUE design, slightly lower visual level than International.
+- Text: NATIONAL PLAYER or NATIONAL COACH.
+- DO NOT show any country flag.
+
+3. MONETIZATION BADGE
+The Diamond/Star must NOT appear merely after Sports Verification.
+
+Only after the user is successfully APPROVED/ACTIVE for monetization:
+
+International Player/Coach → small premium DIAMOND 💎
+National Player/Coach → small premium STAR 🌟
+
+Do not show these badges for pending, rejected, unverified, or non-monetized users.
+
+4. SMALL IDENTITY BADGE THROUGHOUT THE APP
+After verification + monetization eligibility, show the corresponding small badge next to the user's name wherever their identity appears:
+
+- Profile
+- Home Feed
+- Posts
+- Reels
+- Videos
+- Moments/Stories
+- Comments
+- Chat
+- Search results
+- Followers/Following
+- Notifications
+- Creator/author names
+- Related video/content lists
+
+International:
+Name + small GOLD 💎 + approved country flag
+
+National:
+Name + small PREMIUM 🌟
+NO country flag.
+
+5. PROFILE VS OTHER SCREENS
+- Large premium International/National identity design = PROFILE ONLY.
+- Small Diamond/Star identity badge = everywhere the user's name appears.
+- Keep the UI clean and compact on Reel, Video, Chat, Comment, Search etc.
+- Do not create oversized badges outside the profile.
+
+6. IMPORTANT HIERARCHY
+Sports Verification = proves International/National identity.
+Monetization approval = unlocks Diamond/Star.
+International = Diamond + country flag.
+National = Star + NO country flag.
+
+7. SECURITY / DATA
+- Never allow users to manually select an International/National badge.
+- Never allow users to manually select a country flag for verification.
+- Use only approved existing Sports Verification data.
+- Badge must automatically disappear if verification or monetization status becomes inactive/revoked.
+- Do not expose private verification documents.
+
+Use the smallest possible implementation and reuse existing components/data wherever possible.
+Do not duplicate UI or database fields.
+
+TEST ALL FOUR:
+International Player
+International Coach
+National Player
+National Coach
+
+Also test:
+Verified but not monetized → NO Diamond/Star.
+Verified + monetization approved → correct Diamond/Star.
+Unverified → NO badge.
+National → NO country flag.
+International → approved country flag.
