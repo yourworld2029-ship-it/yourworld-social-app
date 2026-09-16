@@ -1,0 +1,268 @@
+ONLY BUILD/FIX THE PROFILE CATEGORY SYSTEM.
+
+IMPORTANT:
+This is the NORMAL PROFILE CATEGORY system.
+The existing SPORTS IDENTITY + SPORTS VERIFICATION system is completely separate.
+DO NOT modify, duplicate, recreate, or remove the existing Sports Identity/Verification system.
+
+CATEGORY RULES:
+- Every user can select MAXIMUM 2 main categories.
+- Categories must be searchable.
+- After selecting a main category, show relevant sub-category/role options.
+- User can change categories later from Edit Profile.
+- Selected Category + Sub-category should appear in the existing profile identity area.
+- Keep the existing Bio completely independent and user-editable.
+- Do not automatically give any verification badge from Category.
+
+MAIN CATEGORIES AND SUB-CATEGORIES:
+
+1. MUSIC
+- Singer
+- Songwriter
+- Musician
+- Composer
+- Music Producer
+- DJ
+- Music Director
+- Music Teacher
+- Music Creator
+- Music Studio
+- Music Label
+
+2. NEWS & MEDIA
+- News Channel
+- Live News
+- Journalist
+- Reporter
+- News Anchor
+- Editor
+- Newspaper
+- News Magazine
+- Media Creator
+- Photojournalist
+- News Creator
+
+3. EDUCATION
+- Teacher
+- School Teacher
+- English Teacher
+- Maths Teacher
+- Science Teacher
+- Subject Teacher
+- Principal
+- Professor
+- Lecturer
+- Tutor
+- PTI
+- DP / Physical Education
+- Education Creator
+- Coaching Institute
+- Education Institute
+- Student
+
+4. SPORTS
+Sports must have a searchable comprehensive sports catalogue, including:
+- Handball
+- Football
+- Cricket
+- Hockey
+- Basketball
+- Volleyball
+- Kabaddi
+- Athletics
+- Wrestling
+- Boxing
+- Badminton
+- Tennis
+- Table Tennis
+- Swimming
+- Archery
+- Shooting
+- Gymnastics
+- Judo
+- Kho-Kho
+- Weightlifting
+- Cycling
+- And other recognized sports
+
+After selecting the sport, show relevant Sports roles:
+- Player
+- Coach
+- Physical Trainer
+- Referee
+- Official
+- Sports Trainer
+- Sports Instructor
+- Sports Creator
+
+Example:
+Sports → Handball → Player
+Sports → Football → Coach
+Sports → Athletics → Physical Trainer
+
+IMPORTANT:
+Sports Category does NOT create the existing International/National verification badge.
+The existing Sports Identity/Verification system remains responsible for verified International/National Player or Coach status.
+
+5. ENTERTAINMENT
+- Actor
+- Director
+- Producer
+- Comedian
+- Dancer
+- Filmmaker
+- Performer
+- Content Creator
+- Artist
+
+6. GAMING
+- Gamer
+- Esports Player
+- Streamer
+- Gaming Creator
+- Gaming Coach
+- Gaming Team
+- Gaming Organization
+
+7. BUSINESS
+- Business Owner
+- Founder
+- Entrepreneur
+- CEO
+- Freelancer
+- Consultant
+- Brand
+- Company
+- Shop / Store
+
+8. PHOTOGRAPHY & VIDEO
+- Photographer
+- Videographer
+- Cinematographer
+- Video Creator
+- Photo Studio
+- Video Studio
+
+9. ART & DESIGN
+- Artist
+- Painter
+- Illustrator
+- Graphic Designer
+- UI/UX Designer
+- Animator
+- Designer
+- Art Studio
+
+10. TECHNOLOGY
+- Developer
+- Software Engineer
+- App Developer
+- Web Developer
+- AI Creator
+- Tech Creator
+- IT Professional
+- Tech Company
+
+11. FOOD
+- Chef
+- Cook
+- Baker
+- Restaurant
+- Café
+- Food Creator
+- Food Blogger
+- Caterer
+
+12. FITNESS & WELLNESS
+- Fitness Trainer
+- Gym
+- Yoga Trainer
+- Personal Trainer
+- Fitness Creator
+
+13. TRAVEL
+- Travel Creator
+- Travel Blogger
+- Tour Guide
+- Travel Agency
+- Photographer
+
+14. FASHION & BEAUTY
+- Fashion Creator
+- Fashion Designer
+- Model
+- Makeup Artist
+- Hairstylist
+- Beauty Creator
+- Fashion Store
+
+15. WRITING & BOOKS
+- Writer
+- Author
+- Poet
+- Blogger
+- Publisher
+- Book Creator
+
+16. COMMUNITY & ORGANIZATION
+- Organization
+- Community
+- Club
+- Team
+- NGO
+- Social Group
+
+17. OTHER
+- Other
+
+PROFILE DISPLAY EXAMPLES:
+
+Sandeep Poonia
+Handball · Player
+
+Rahul
+Music · Singer
+
+Amit
+Education · English Teacher
+
+Neha
+News & Media · Journalist
+
+Ravi
+Sports · Football · Coach
+
+IMPORTANT UI RULES:
+- Maximum 2 main categories per user.
+- Keep the category selector clean, premium and searchable.
+- If Sports is selected, show Sport → Role selection.
+- For non-Sports categories, show Category → relevant Sub-category.
+- Do not force users to select a sub-category if “Other” is selected.
+- Prevent duplicate category selections.
+- Store the selected category/sub-category properly so it remains after refresh and login.
+- Existing users must not lose their current profile information.
+
+DO NOT CHANGE:
+- Sports Identity
+- Sports Verification
+- International/National badges
+- Sports Profile
+- Medals
+- Achievements
+- Bio
+- Profile photo
+- Display Name
+- Username
+- Followers/Following
+- Chat
+- Reels
+- Moments
+- Video system
+- Database structure unrelated to Category
+- Authentication
+- Navigation
+- Any other existing feature
+
+Use the smallest possible implementation focused ONLY on the Category system.
+Do not create duplicate UI or duplicate database systems.
+Test category search, selection, saving, editing, refresh and profile display before finishing.

@@ -11,6 +11,11 @@ import type { User } from "@/lib/yw-data";
 import { SportsProfileCard, type SportsProfileInfo } from "@/components/yw/SportsProfile";
 import {
   NORMAL_PROFILE_CATEGORIES,
+  NORMAL_PROFILE_MAIN_CATEGORIES,
+  NORMAL_PROFILE_SUBCATEGORIES,
+  SPORTS_CATALOGUE,
+  SPORTS_PROFILE_ROLES,
+  getNormalProfileCategoryMain,
 } from "@/lib/profile-category";
 
 export type ProfileEdit = {
@@ -51,6 +56,8 @@ export function EditProfileSheet({
   const [saving, setSaving] = useState(false);
   const [avatarCropFile, setAvatarCropFile] = useState<File | null>(null);
   const [categoryQuery, setCategoryQuery] = useState("");
+  const [expandedMainCategory, setExpandedMainCategory] = useState<string | null>(null);
+  const [pendingSport, setPendingSport] = useState<string | null>(null);
   const avatarInput = useRef<HTMLInputElement>(null);
   const avatarPreviewUrl = useRef<string | null>(null);
 
@@ -58,6 +65,8 @@ export function EditProfileSheet({
     if (open) {
       setDraft(value);
       setCategoryQuery("");
+      setExpandedMainCategory(null);
+      setPendingSport(null);
     } else {
       setAvatarCropFile(null);
       if (avatarPreviewUrl.current) {
@@ -78,16 +87,66 @@ export function EditProfileSheet({
     setDraft((d) => ({ ...d, [k]: v }));
 
   const selectedCategories = draft.normalCategories;
-  const visibleCategories = NORMAL_PROFILE_CATEGORIES.filter((category) =>
-    category.toLowerCase().includes(categoryQuery.trim().toLowerCase()),
+  const selectedMainCategories = selectedCategories.map(getNormalProfileCategoryMain);
+  const normalizedQuery = categoryQuery.trim().toLowerCase();
+  const visibleMainCategories = NORMAL_PROFILE_MAIN_CATEGORIES.filter((category) =>
+    !normalizedQuery
+      ? true
+      : category.toLowerCase().includes(normalizedQuery) ||
+        NORMAL_PROFILE_SUBCATEGORIES[category].some((subCategory) =>
+          subCategory.toLowerCase().includes(normalizedQuery),
+        ) ||
+        (category === "Sports" &&
+          [...SPORTS_CATALOGUE, ...SPORTS_PROFILE_ROLES].some((sportOrRole) =>
+            sportOrRole.toLowerCase().includes(normalizedQuery),
+          )),
   );
 
-  const toggleCategory = (category: string) => {
-    const next = selectedCategories.includes(category)
-      ? selectedCategories.filter((selected) => selected !== category)
-      : [...selectedCategories, category];
-    if (!selectedCategories.includes(category) && selectedCategories.length >= 2) return;
+  const selectCategory = (mainCategory: string, subCategory?: string) => {
+    const value = subCategory ? `${mainCategory} • ${subCategory}` : mainCategory;
+    const mainKey = mainCategory.toLowerCase();
+    const existingIndex = selectedCategories.findIndex(
+      (category) => getNormalProfileCategoryMain(category).toLowerCase() === mainKey,
+    );
+    if (existingIndex < 0 && selectedMainCategories.length >= 2) return;
+    const next = [...selectedCategories];
+    if (existingIndex >= 0) {
+      next[existingIndex] = value;
+    } else {
+      next.push(value);
+    }
     set("normalCategories", next);
+  };
+
+  const removeCategory = (category: string) => {
+    set(
+      "normalCategories",
+      selectedCategories.filter((selected) => selected !== category),
+    );
+  };
+
+  const openMainCategory = (mainCategory: string) => {
+    setPendingSport(null);
+    if (mainCategory === "Other") {
+      const alreadySelected = selectedMainCategories.some(
+        (selected) => selected.toLowerCase() === mainCategory.toLowerCase(),
+      );
+      if (alreadySelected) removeCategory(
+        selectedCategories.find(
+          (selected) => getNormalProfileCategoryMain(selected).toLowerCase() === "other",
+        ) ?? mainCategory,
+      );
+      else selectCategory(mainCategory);
+      setExpandedMainCategory(null);
+      return;
+    }
+    setExpandedMainCategory(mainCategory);
+  };
+
+  const selectSportRole = (role: string) => {
+    if (!pendingSport) return;
+    selectCategory("Sports", `${pendingSport} • ${role}`);
+    setPendingSport(null);
   };
 
   const pick = (file: File | undefined, key: "avatarUrl" | "coverUrl") => {
@@ -216,7 +275,7 @@ export function EditProfileSheet({
                       <button
                         key={category}
                         type="button"
-                        onClick={() => toggleCategory(category)}
+                        onClick={() => removeCategory(category)}
                         className="inline-flex items-center gap-1 rounded-full border border-foreground/15 bg-foreground/[0.09] px-2.5 py-1 text-[11px] font-semibold text-foreground transition-colors hover:bg-foreground/[0.14] active:scale-95"
                         aria-label={`Remove ${category}`}
                       >
@@ -236,18 +295,21 @@ export function EditProfileSheet({
                     aria-label="Search categories"
                   />
                 </div>
-                <div className="max-h-36 overflow-y-auto rounded-2xl border border-border/60 bg-background/20 p-1.5">
+                <div className="max-h-56 overflow-y-auto rounded-2xl border border-border/60 bg-background/20 p-1.5">
                   <div className="grid grid-cols-2 gap-1">
-                    {visibleCategories.map((category) => {
-                      const active = selectedCategories.includes(category);
-                      const disabled = !active && selectedCategories.length >= 2;
+                    {visibleMainCategories.map((category) => {
+                      const active = selectedMainCategories.some(
+                        (selected) => selected.toLowerCase() === category.toLowerCase(),
+                      );
+                      const disabled = !active && selectedMainCategories.length >= 2;
                       return (
                         <button
                           key={category}
                           type="button"
-                          onClick={() => toggleCategory(category)}
+                          onClick={() => openMainCategory(category)}
                           disabled={disabled}
                           aria-pressed={active}
+                          aria-expanded={expandedMainCategory === category}
                           className={`flex min-h-8 items-center justify-between gap-2 rounded-xl px-2.5 py-1.5 text-left text-[11px] font-medium transition-colors ${
                             active
                               ? "bg-foreground text-background"
@@ -262,10 +324,83 @@ export function EditProfileSheet({
                       );
                     })}
                   </div>
-                  {visibleCategories.length === 0 ? (
+                  {visibleMainCategories.length === 0 ? (
                     <p className="px-2 py-3 text-center text-[11px] text-muted-foreground">
                       No categories found
                     </p>
+                  ) : null}
+                  {expandedMainCategory ? (
+                    <div className="mt-2 border-t border-border/60 px-1 pt-2">
+                      <p className="px-1 pb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        {expandedMainCategory === "Sports"
+                          ? pendingSport
+                            ? `${pendingSport} roles`
+                            : "Choose a sport"
+                          : `${expandedMainCategory} options`}
+                      </p>
+                      {expandedMainCategory === "Sports" ? (
+                        pendingSport ? (
+                          <div className="grid grid-cols-2 gap-1">
+                            {SPORTS_PROFILE_ROLES.map((role) => (
+                              <button
+                                key={role}
+                                type="button"
+                                onClick={() => selectSportRole(role)}
+                                className="rounded-xl px-2.5 py-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                              >
+                                {role}
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => selectCategory("Sports")}
+                              className="mb-1.5 w-full rounded-xl border border-dashed border-border/70 px-2.5 py-1.5 text-left text-[11px] font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
+                            >
+                              Use Sports without a specific role
+                            </button>
+                            <div className="grid grid-cols-2 gap-1">
+                              {SPORTS_CATALOGUE.filter((sport) =>
+                                !normalizedQuery ||
+                                sport.toLowerCase().includes(normalizedQuery),
+                              ).map((sport) => (
+                                <button
+                                  key={sport}
+                                  type="button"
+                                  onClick={() => setPendingSport(sport)}
+                                  className="rounded-xl px-2.5 py-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                                >
+                                  {sport}
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        )
+                      ) : (
+                        <div className="grid grid-cols-2 gap-1">
+                          {NORMAL_PROFILE_SUBCATEGORIES[
+                            expandedMainCategory as keyof typeof NORMAL_PROFILE_SUBCATEGORIES
+                          ]
+                            .filter((subCategory) =>
+                              !normalizedQuery ||
+                              subCategory.toLowerCase().includes(normalizedQuery) ||
+                              expandedMainCategory.toLowerCase().includes(normalizedQuery),
+                            )
+                            .map((subCategory) => (
+                              <button
+                                key={subCategory}
+                                type="button"
+                                onClick={() => selectCategory(expandedMainCategory, subCategory)}
+                                className="rounded-xl px-2.5 py-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                              >
+                                {subCategory}
+                              </button>
+                            ))}
+                        </div>
+                      )}
+                    </div>
                   ) : null}
                 </div>
               </div>
