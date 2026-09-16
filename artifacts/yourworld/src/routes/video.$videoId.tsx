@@ -22,7 +22,6 @@ import {
   Heart,
   Lock,
   Maximize,
-  MoreVertical,
   PictureInPicture,
   Reply,
   Send,
@@ -135,51 +134,6 @@ type PictureInPictureDocument = Document & {
   exitPictureInPicture?: () => Promise<void>;
 };
 
-type PlaybackQuality =
-  | "144p"
-  | "360p"
-  | "480p"
-  | "720p"
-  | "1080p"
-  | "1440p"
-  | "2160p"
-  | "4320p";
-
-type MenuQuality = "auto" | PlaybackQuality;
-
-const PLAYBACK_QUALITY_LABELS: Record<PlaybackQuality, string> = {
-  "144p": "144p",
-  "360p": "360p",
-  "480p": "480p",
-  "720p": "720p",
-  "1080p": "1080p",
-  "1440p": "2K",
-  "2160p": "4K",
-  "4320p": "8K",
-};
-
-function playbackQualityFromVideo(video: Video): PlaybackQuality | null {
-  const shortSide = Math.min(Number(video.original_width), Number(video.original_height));
-  if (Number.isFinite(shortSide) && shortSide > 0) {
-    if (shortSide >= 4320) return "4320p";
-    if (shortSide >= 2160) return "2160p";
-    if (shortSide >= 1440) return "1440p";
-    if (shortSide >= 1080) return "1080p";
-    if (shortSide >= 720) return "720p";
-    if (shortSide >= 480) return "480p";
-    if (shortSide >= 360) return "360p";
-    return "144p";
-  }
-
-  if (video.sourceQualityTier === "4320p") return "4320p";
-  if (video.sourceQualityTier === "2160p") return "2160p";
-  if (video.sourceQualityTier === "1440p") return "1440p";
-  if (video.sourceQualityTier === "1080p") return "1080p";
-  if (video.sourceQualityTier === "720p") return "720p";
-  if (video.sourceQualityTier === "480p") return "480p";
-  return null;
-}
-
 export const Route = createFileRoute("/video/$videoId")({
   component: VideoWatchPage,
   errorComponent: () => <VideoErrorFallback />,
@@ -281,14 +235,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   const [pictureInPictureSupported, setPictureInPictureSupported] = useState(false);
   const [screenLocked, setScreenLocked] = useState(false);
   const [gestureFeedback, setGestureFeedback] = useState<GestureFeedback | null>(null);
-  const [playbackRate, setPlaybackRate] = useState(1);
-  const [controlMenuOpen, setControlMenuOpen] = useState(false);
-  const [controlMenuSection, setControlMenuSection] = useState<
-    "root" | "quality" | "speed" | "captions"
-  >("root");
-  const [selectedQuality, setSelectedQuality] = useState<MenuQuality>("auto");
-  const [hasCaptions, setHasCaptions] = useState(false);
-  const [captionsEnabled, setCaptionsEnabled] = useState(false);
   const [resolvedMediaUrl, setResolvedMediaUrl] = useState<string>("");
   const touchGestureRef = useRef<TouchGesture | null>(null);
   const lastTapRef = useRef<{ time: number; x: number } | null>(null);
@@ -487,12 +433,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     viewRecordedRef.current = false;
     playedSecondsRef.current = 0;
     lastVideoTimeRef.current = null;
-    setPlaybackRate(1);
-    setControlMenuOpen(false);
-    setControlMenuSection("root");
-    setSelectedQuality("auto");
-    setHasCaptions(false);
-    setCaptionsEnabled(false);
   }, [videoId]);
 
   const handleVideoTimeUpdate = (event: React.SyntheticEvent<HTMLVideoElement>) => {
@@ -546,35 +486,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
       cancelled = true;
     };
   }, [mediaUrl]);
-
-  useEffect(() => {
-    if (videoRef.current) {
-      videoRef.current.playbackRate = playbackRate;
-    }
-  }, [mediaUrl, playbackRate]);
-
-  useEffect(() => {
-    const videoElement = videoRef.current;
-    if (!videoElement) return;
-
-    const refreshTextTracks = () => {
-      const tracks = videoElement.textTracks;
-      const trackList = Array.from(
-        { length: tracks.length },
-        (_, index) => tracks[index],
-      ).filter((track): track is TextTrack => Boolean(track));
-      setHasCaptions(trackList.length > 0);
-      setCaptionsEnabled(trackList.some((track) => track.mode === "showing"));
-    };
-
-    videoElement.addEventListener("loadedmetadata", refreshTextTracks);
-    videoElement.addEventListener("loadeddata", refreshTextTracks);
-    refreshTextTracks();
-    return () => {
-      videoElement.removeEventListener("loadedmetadata", refreshTextTracks);
-      videoElement.removeEventListener("loadeddata", refreshTextTracks);
-    };
-  }, [mediaUrl, resolvedMediaUrl]);
 
   useEffect(() => {
     const videoElement = videoRef.current as PictureInPictureVideo | null;
@@ -1022,58 +933,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     (isVideoQualityTier(video.source_quality_tier)
       ? video.source_quality_tier
       : qualityTierFromDimensions(video.original_width, video.original_height));
-  const sourcePlaybackQuality = playbackQualityFromVideo(video);
-  const availablePlaybackQualities: MenuQuality[] = [
-    "auto",
-    ...(sourcePlaybackQuality ? [sourcePlaybackQuality] : []),
-  ];
-
-  const toggleCaptions = () => {
-    const tracks = videoRef.current?.textTracks;
-    if (!tracks || tracks.length === 0) return;
-    const nextEnabled = !captionsEnabled;
-    for (let index = 0; index < tracks.length; index += 1) {
-      const track = tracks[index];
-      if (track) track.mode = nextEnabled ? "showing" : "disabled";
-    }
-    setCaptionsEnabled(nextEnabled);
-    setControlMenuOpen(false);
-  };
-
-  const handleMenuFullscreen = async () => {
-    const container = containerRef.current;
-    if (!container) return;
-    setControlMenuOpen(false);
-    try {
-      if (document.fullscreenElement) {
-        await document.exitFullscreen();
-      } else {
-        await container.requestFullscreen({ navigationUI: "hide" });
-      }
-    } catch (cause) {
-      console.error("Unable to change fullscreen state", cause);
-      toast.error("Fullscreen is unavailable on this device");
-    }
-  };
-
-  const handleReportVideo = async () => {
-    setControlMenuOpen(false);
-    if (!user) {
-      toast.error("Sign in to report videos");
-      return;
-    }
-    const { error } = await supabase.from("copyright_reports").insert({
-      reporter_user_id: user.id,
-      reported_post_id: video.id,
-      infringing_content_link: window.location.href,
-      reason: "Reported from video player controls",
-    });
-    if (error) {
-      toast.error("Could not submit report");
-      return;
-    }
-    toast.success("Report submitted");
-  };
 
   const downloadSelected = async (choice: DownloadChoice) => {
      if (!playableMediaUrl) throw new Error("This video has no downloadable media");
