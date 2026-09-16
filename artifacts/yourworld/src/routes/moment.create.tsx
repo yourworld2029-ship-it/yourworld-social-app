@@ -3570,7 +3570,8 @@ function MomentCreatePage() {
                     autoPlay
                     loop
                     playsInline
-                    muted={!!audioUrl}
+                    controls
+                    muted={videoMuted}
                   />
                 ) : mediaUrl ? (
                   <img
