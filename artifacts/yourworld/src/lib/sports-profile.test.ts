@@ -81,8 +81,8 @@ test("Sports Details renders real fields and owner document controls without the
   assert.match(html, /State League/);
   assert.doesNotMatch(html, /No public medal details listed/);
   assert.doesNotMatch(html, /No public achievement details listed/);
-  assert.match(html, /Edit medals/);
-  assert.match(html, /Edit achievements/);
+  assert.doesNotMatch(html, /Edit medals/);
+  assert.doesNotMatch(html, /Edit achievements/);
   assert.match(html, /sports-document-upload/);
   assert.match(html, /Delete certificate\.pdf/);
   assert.match(html, /Sports Introduction/);

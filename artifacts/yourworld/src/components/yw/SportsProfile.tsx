@@ -883,13 +883,6 @@ export function SportsDetailsPanel({
         />
       </div>
 
-      {editable && !isCoach ? (
-        <div className="flex flex-wrap gap-x-4">
-          <EditLink label="Edit medals" onClick={() => openEditor("medals")} />
-          <EditLink label="Edit achievements" onClick={() => openEditor("achievements")} />
-        </div>
-      ) : null}
-
       {isCoach ? (
         <>
           <CoachProfileSection profile={profile} editable={editable} onEdit={openEditor} />
