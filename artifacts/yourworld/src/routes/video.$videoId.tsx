@@ -18,10 +18,8 @@ import {
   Clock,
   Download,
   Eye,
-  Flag,
   Heart,
   Lock,
-  Maximize,
   PictureInPicture,
   Reply,
   Send,
@@ -538,10 +536,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
       videoElement.removeEventListener("enterpictureinpicture", handleEnterPictureInPicture);
       videoElement.removeEventListener("leavepictureinpicture", handleLeavePictureInPicture);
       videoElement.removeEventListener("timeupdate", syncPictureInPictureTime);
-      if (pipDocument.pictureInPictureElement === videoElement) {
-        const exitPromise = pipDocument.exitPictureInPicture?.();
-        if (exitPromise) void exitPromise.catch(() => undefined);
-      }
     };
   }, [mediaUrl, resolvedMediaUrl]);
 
@@ -747,6 +741,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
         : null;
       videoElement.disablePictureInPicture = false;
       await videoElement.requestPictureInPicture();
+      void videoElement.play().catch(() => undefined);
     } catch (cause) {
       videoElement.disablePictureInPicture = true;
       console.error("Unable to enter picture-in-picture", cause);
@@ -1094,149 +1089,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
             >
               <PictureInPicture className="h-5 w-5" />
             </button>
-          ) : null}
-
-          {!screenLocked ? (
-            <>
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setControlMenuSection("root");
-                  setControlMenuOpen((open) => !open);
-                }}
-                className={`absolute top-3 z-50 rounded-full bg-black/60 p-2 text-white backdrop-blur-md transition-all hover:bg-black/80 ${
-                  isFullscreen ? "right-28" : "right-14"
-                }`}
-                aria-label="More video controls"
-                aria-expanded={controlMenuOpen}
-                onTouchStart={(event) => event.stopPropagation()}
-                onTouchEnd={(event) => event.stopPropagation()}
-                onDoubleClick={(event) => event.stopPropagation()}
-              >
-                <MoreVertical className="h-5 w-5" />
-              </button>
-
-              {controlMenuOpen ? (
-                <div
-                  className={`absolute top-14 z-[70] w-64 rounded-xl border border-white/15 bg-zinc-950/95 p-2 text-sm text-white shadow-2xl backdrop-blur-xl ${
-                    isFullscreen ? "right-28" : "right-14"
-                  }`}
-                  onClick={(event) => event.stopPropagation()}
-                  onTouchStart={(event) => event.stopPropagation()}
-                  onTouchMove={(event) => event.stopPropagation()}
-                  onTouchEnd={(event) => event.stopPropagation()}
-                >
-                  {controlMenuSection === "root" ? (
-                    <div className="space-y-1">
-                      <button
-                        type="button"
-                        className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left hover:bg-white/10"
-                        onClick={() => setControlMenuSection("quality")}
-                      >
-                        <span>Quality</span>
-                        <span className="text-xs text-white/60">
-                          {selectedQuality === "auto"
-                            ? "Auto"
-                            : PLAYBACK_QUALITY_LABELS[selectedQuality]}
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left hover:bg-white/10"
-                        onClick={() => setControlMenuSection("speed")}
-                      >
-                        <span>Playback Speed</span>
-                        <span className="text-xs text-white/60">{playbackRate}×</span>
-                      </button>
-                      {hasCaptions ? (
-                        <button
-                          type="button"
-                          className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left hover:bg-white/10"
-                          onClick={toggleCaptions}
-                        >
-                          <span>Captions/Subtitles</span>
-                          <span className="text-xs text-white/60">
-                            {captionsEnabled ? "On" : "Off"}
-                          </span>
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-white/10"
-                        onClick={() => void handleReportVideo()}
-                      >
-                        <Flag className="h-4 w-4" />
-                        <span>Report</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-white/10"
-                        onClick={() => void handleMenuFullscreen()}
-                      >
-                        <Maximize className="h-4 w-4" />
-                        <span>Full Screen</span>
-                      </button>
-                    </div>
-                  ) : (
-                    <div>
-                      <button
-                        type="button"
-                        className="mb-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left font-semibold hover:bg-white/10"
-                        onClick={() => setControlMenuSection("root")}
-                      >
-                        <ArrowLeft className="h-4 w-4" />
-                        <span>
-                          {controlMenuSection === "quality"
-                            ? "Quality"
-                            : "Playback Speed"}
-                        </span>
-                      </button>
-                      {controlMenuSection === "quality"
-                        ? availablePlaybackQualities.map((quality) => (
-                            <button
-                              key={quality}
-                              type="button"
-                              className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left hover:bg-white/10"
-                              onClick={() => {
-                                setSelectedQuality(quality);
-                                setControlMenuOpen(false);
-                              }}
-                            >
-                              <span>
-                                {quality === "auto"
-                                  ? "Auto"
-                                  : PLAYBACK_QUALITY_LABELS[quality]}
-                              </span>
-                              {selectedQuality === quality ? (
-                                <Check className="h-4 w-4 text-pink-300" />
-                              ) : null}
-                            </button>
-                          ))
-                        : null}
-                      {controlMenuSection === "speed"
-                        ? [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map((rate) => (
-                            <button
-                              key={rate}
-                              type="button"
-                              className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left hover:bg-white/10"
-                              onClick={() => {
-                                setPlaybackRate(rate);
-                                setControlMenuOpen(false);
-                              }}
-                            >
-                              <span>{rate === 1 ? "Normal" : `${rate}×`}</span>
-                              {playbackRate === rate ? (
-                                <Check className="h-4 w-4 text-pink-300" />
-                              ) : null}
-                            </button>
-                          ))
-                        : null}
-                    </div>
-                  )}
-                </div>
-              ) : null}
-            </>
           ) : null}
 
          {isFullscreen && !screenLocked ? (
