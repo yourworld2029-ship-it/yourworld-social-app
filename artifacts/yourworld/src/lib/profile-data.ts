@@ -3,7 +3,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { STORAGE_BUCKETS, uploadWithProgress, type ProgressFn } from "@/lib/storage-upload";
 import { resolveMediaUrl, type DbPost } from "@/lib/social-data";
 import { normalizePostRow, writeCompat } from "@/lib/supabase-compat";
-import { normalizeProfileCategoryValue } from "@/lib/profile-category";
+import {
+  isSportsIdentityCategory,
+  normalizeNormalProfileCategories,
+  resolveNormalProfileCategories,
+} from "@/lib/profile-category";
 
 export type MyProfile = {
   id: string;
@@ -11,6 +15,7 @@ export type MyProfile = {
   display_name: string;
   bio: string;
   category: string;
+  normal_categories: string[];
   location: string;
   website: string;
   avatar_url: string | null;
@@ -23,6 +28,7 @@ export type MyProfileEdit = {
   name: string;
   username: string;
   category: string;
+  normalCategories: string[];
   bio: string;
   location?: string;
   website?: string;
@@ -83,6 +89,7 @@ const empty: MyProfile = {
   display_name: "",
   bio: "",
   category: "",
+  normal_categories: [],
   location: "",
   website: "",
   avatar_url: null,
@@ -499,6 +506,7 @@ export function useMyProfile() {
         display_name: row?.display_name ?? row?.username ?? "YourWorld user",
         bio: row?.bio ?? "",
         category: row?.category ?? "",
+        normal_categories: resolveNormalProfileCategories(row?.normal_categories, row?.category ?? ""),
         location: row?.location ?? "",
         website: row?.website ?? "",
         avatar_url: row?.avatar_url ?? null,
@@ -610,7 +618,8 @@ export function useMyProfile() {
           username: edit.username || null,
           display_name: edit.name || null,
           bio: edit.bio || null,
-           category: normalizeProfileCategoryValue(edit.category) || null,
+           category: isSportsIdentityCategory(edit.category) ? edit.category.trim() || null : null,
+           normal_categories: normalizeNormalProfileCategories(edit.normalCategories),
           location: edit.location || null,
           website: edit.website || null,
           avatar_url: avatarPath,

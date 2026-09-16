@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  normalizeNormalProfileCategories,
   normalizeProfileCategoryValue,
   parseNormalProfileCategories,
+  resolveNormalProfileCategories,
   serializeNormalProfileCategories,
 } from "@/lib/profile-category";
 
@@ -25,4 +27,15 @@ test("Sports Identity category values remain unchanged", () => {
   const sportsCategory = "Player · Cricket";
   assert.deepEqual(parseNormalProfileCategories(sportsCategory), []);
   assert.equal(normalizeProfileCategoryValue(sportsCategory), sportsCategory);
+});
+
+test("normal Player, Coach, and Sports categories stay separate from Sports Identity", () => {
+  assert.deepEqual(
+    normalizeNormalProfileCategories(["Player", "Coach", "Sports"]),
+    ["Player", "Coach"],
+  );
+  assert.deepEqual(
+    resolveNormalProfileCategories(["Player", "Sports"], "Player · Cricket"),
+    ["Player", "Sports"],
+  );
 });

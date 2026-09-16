@@ -716,6 +716,7 @@ function AccountPage() {
       username,
       bio,
       category: profile.category,
+      normalCategories: profile.normal_categories,
       location: profile.location,
       website: profile.website,
     });

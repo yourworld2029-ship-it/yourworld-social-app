@@ -10,16 +10,14 @@ import { ProfilePhotoCropper } from "@/components/yw/ProfilePhotoCropper";
 import type { User } from "@/lib/yw-data";
 import { SportsProfileCard, type SportsProfileInfo } from "@/components/yw/SportsProfile";
 import {
-  isSportsIdentityCategory,
   NORMAL_PROFILE_CATEGORIES,
-  parseNormalProfileCategories,
-  serializeNormalProfileCategories,
 } from "@/lib/profile-category";
 
 export type ProfileEdit = {
   name: string;
   username: string;
   category: string;
+  normalCategories: string[];
   bio: string;
   location?: string;
   website?: string;
@@ -79,8 +77,7 @@ export function EditProfileSheet({
   const set = <K extends keyof ProfileEdit>(k: K, v: ProfileEdit[K]) =>
     setDraft((d) => ({ ...d, [k]: v }));
 
-  const sportsCategory = isSportsIdentityCategory(draft.category);
-  const selectedCategories = parseNormalProfileCategories(draft.category);
+  const selectedCategories = draft.normalCategories;
   const visibleCategories = NORMAL_PROFILE_CATEGORIES.filter((category) =>
     category.toLowerCase().includes(categoryQuery.trim().toLowerCase()),
   );
@@ -90,7 +87,7 @@ export function EditProfileSheet({
       ? selectedCategories.filter((selected) => selected !== category)
       : [...selectedCategories, category];
     if (!selectedCategories.includes(category) && selectedCategories.length >= 2) return;
-    set("category", serializeNormalProfileCategories(next));
+    set("normalCategories", next);
   };
 
   const pick = (file: File | undefined, key: "avatarUrl" | "coverUrl") => {
@@ -209,75 +206,69 @@ export function EditProfileSheet({
             </Field>
 
             <Field label="Category">
-              {sportsCategory ? (
-                <p className="rounded-2xl border border-amber-200/15 bg-amber-200/[0.06] px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
-                  Sports Identity categories are managed in the Sports Profile section below.
+              <div className="space-y-2.5">
+                <p className="text-[11px] text-muted-foreground">
+                  Choose up to 2 categories
                 </p>
-              ) : (
-                <div className="space-y-2.5">
-                  <p className="text-[11px] text-muted-foreground">
-                    Choose up to 2 categories
-                  </p>
-                  {selectedCategories.length > 0 ? (
-                    <div className="flex flex-wrap gap-1.5">
-                      {selectedCategories.map((category) => (
+                {selectedCategories.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedCategories.map((category) => (
+                      <button
+                        key={category}
+                        type="button"
+                        onClick={() => toggleCategory(category)}
+                        className="inline-flex items-center gap-1 rounded-full border border-foreground/15 bg-foreground/[0.09] px-2.5 py-1 text-[11px] font-semibold text-foreground transition-colors hover:bg-foreground/[0.14] active:scale-95"
+                        aria-label={`Remove ${category}`}
+                      >
+                        {category}
+                        <X className="h-3 w-3 text-muted-foreground" strokeWidth={2} />
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={categoryQuery}
+                    onChange={(event) => setCategoryQuery(event.target.value)}
+                    placeholder="Search categories"
+                    className="h-9 rounded-xl border-border/60 bg-background/30 pl-9 text-xs"
+                    aria-label="Search categories"
+                  />
+                </div>
+                <div className="max-h-36 overflow-y-auto rounded-2xl border border-border/60 bg-background/20 p-1.5">
+                  <div className="grid grid-cols-2 gap-1">
+                    {visibleCategories.map((category) => {
+                      const active = selectedCategories.includes(category);
+                      const disabled = !active && selectedCategories.length >= 2;
+                      return (
                         <button
                           key={category}
                           type="button"
                           onClick={() => toggleCategory(category)}
-                          className="inline-flex items-center gap-1 rounded-full border border-foreground/15 bg-foreground/[0.09] px-2.5 py-1 text-[11px] font-semibold text-foreground transition-colors hover:bg-foreground/[0.14] active:scale-95"
-                          aria-label={`Remove ${category}`}
+                          disabled={disabled}
+                          aria-pressed={active}
+                          className={`flex min-h-8 items-center justify-between gap-2 rounded-xl px-2.5 py-1.5 text-left text-[11px] font-medium transition-colors ${
+                            active
+                              ? "bg-foreground text-background"
+                              : disabled
+                                ? "cursor-not-allowed text-muted-foreground/35"
+                                : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                          }`}
                         >
-                          {category}
-                          <X className="h-3 w-3 text-muted-foreground" strokeWidth={2} />
+                          <span>{category}</span>
+                          {active ? <Check className="h-3 w-3 shrink-0" strokeWidth={2.5} /> : null}
                         </button>
-                      ))}
-                    </div>
+                      );
+                    })}
+                  </div>
+                  {visibleCategories.length === 0 ? (
+                    <p className="px-2 py-3 text-center text-[11px] text-muted-foreground">
+                      No categories found
+                    </p>
                   ) : null}
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      value={categoryQuery}
-                      onChange={(event) => setCategoryQuery(event.target.value)}
-                      placeholder="Search categories"
-                      className="h-9 rounded-xl border-border/60 bg-background/30 pl-9 text-xs"
-                      aria-label="Search categories"
-                    />
-                  </div>
-                  <div className="max-h-36 overflow-y-auto rounded-2xl border border-border/60 bg-background/20 p-1.5">
-                    <div className="grid grid-cols-2 gap-1">
-                      {visibleCategories.map((category) => {
-                        const active = selectedCategories.includes(category);
-                        const disabled = !active && selectedCategories.length >= 2;
-                        return (
-                          <button
-                            key={category}
-                            type="button"
-                            onClick={() => toggleCategory(category)}
-                            disabled={disabled}
-                            aria-pressed={active}
-                            className={`flex min-h-8 items-center justify-between gap-2 rounded-xl px-2.5 py-1.5 text-left text-[11px] font-medium transition-colors ${
-                              active
-                                ? "bg-foreground text-background"
-                                : disabled
-                                  ? "cursor-not-allowed text-muted-foreground/35"
-                                  : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-                            }`}
-                          >
-                            <span>{category}</span>
-                            {active ? <Check className="h-3 w-3 shrink-0" strokeWidth={2.5} /> : null}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    {visibleCategories.length === 0 ? (
-                      <p className="px-2 py-3 text-center text-[11px] text-muted-foreground">
-                        No categories found
-                      </p>
-                    ) : null}
-                  </div>
                 </div>
-              )}
+              </div>
             </Field>
 
             <Field label="Bio">

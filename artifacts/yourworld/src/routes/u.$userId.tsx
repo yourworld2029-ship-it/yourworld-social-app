@@ -38,6 +38,7 @@ type PublicProfile = {
   display_name: string;
   bio: string;
   category: string;
+  normal_categories: string[];
   location: string;
   website: string;
   avatar_url: string | null;
@@ -95,6 +96,7 @@ function PublicProfilePage() {
             avatar_url: string | null;
             bio?: string | null;
             category?: string | null;
+            normal_categories?: string[] | null;
             is_verified?: boolean | null;
           }
         | undefined;
@@ -106,6 +108,7 @@ function PublicProfilePage() {
           row?.display_name ?? row?.username ?? orbitProfile?.name ?? "YourWorld user",
         bio: row?.bio ?? orbitProfile?.about ?? "",
         category: row?.category ?? "",
+        normal_categories: Array.isArray(row?.normal_categories) ? row.normal_categories : [],
         location: "",
         website: "",
         avatar_url: row?.avatar_url ?? orbitProfile?.photo ?? null,

@@ -3,8 +3,8 @@ name: Normal profile categories
 description: Normal profiles can store up to two categories in the existing category field without altering Sports Identity.
 ---
 
-Normal category selections are serialized in the existing profile category value with a dedicated separator; values beginning with Athlete, Player, or Coach remain reserved for the existing Sports Identity path.
+Normal category selections live in a dedicated profile array, while the original category value remains reserved for the existing Sports Identity role/sport marker.
 
-**Why:** The database schema must stay unchanged, while Sports Identity already depends on the category field to detect role and sport.
+**Why:** Normal categories such as Player and Coach must be available to every user, including Sports Identity users, without making ordinary category choices trigger Sports Identity parsing.
 
-**How to apply:** Cap normal selections at two in both the editor and save normalization, render normal values as compact chips below the display name, and leave sports-marked values and Bio untouched.
+**How to apply:** Cap normal selections at two in the editor and save normalization, expose them through public profile/search reads, render them below the display name, and leave the legacy category value and Bio untouched.

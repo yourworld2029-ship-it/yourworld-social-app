@@ -22,7 +22,7 @@ import type { FollowCounts } from "@/lib/follow-data";
 import { formatCount } from "@/lib/yw-data";
 import {
   isSportsIdentityCategory,
-  parseNormalProfileCategories,
+  resolveNormalProfileCategories,
 } from "@/lib/profile-category";
 
 export type ProfileTemplateProfile = {
@@ -31,6 +31,7 @@ export type ProfileTemplateProfile = {
   display_name: string;
   bio: string;
   category: string;
+  normal_categories: string[];
   location: string;
   website: string;
   avatar_url: string | null;
@@ -116,7 +117,10 @@ export function ProfileTemplate({
   children,
 }: ProfileTemplateProps) {
   const src = mediaSrc;
-  const normalCategories = parseNormalProfileCategories(profile.category);
+  const normalCategories = resolveNormalProfileCategories(
+    profile.normal_categories,
+    profile.category,
+  );
   const sportsIdentityCategory = isSportsIdentityCategory(profile.category);
 
   return (
@@ -177,7 +181,8 @@ export function ProfileTemplate({
               </p>
             ) : sportsIdentityCategory && profile.category ? (
               <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.12em] text-zinc-500">{profile.category}</p>
-            ) : normalCategories.length > 0 ? (
+            ) : null}
+            {normalCategories.length > 0 ? (
               <div className="mt-1 flex flex-wrap gap-1.5">
                 {normalCategories.map((category) => (
                   <span

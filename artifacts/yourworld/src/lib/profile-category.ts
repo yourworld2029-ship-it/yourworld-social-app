@@ -34,6 +34,9 @@ export const NORMAL_PROFILE_CATEGORIES = [
   "Comedian",
   "DJ",
   "Producer",
+  "Player",
+  "Coach",
+  "Sports",
   "Community",
   "Nonprofit",
   "Student",
@@ -55,6 +58,23 @@ export function parseNormalProfileCategories(value: string) {
         .filter(Boolean),
     ),
   ).slice(0, MAX_NORMAL_PROFILE_CATEGORIES);
+}
+
+export function normalizeNormalProfileCategories(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return Array.from(
+    new Set(
+      value
+        .filter((category): category is string => typeof category === "string")
+        .map((category) => category.trim())
+        .filter(Boolean),
+    ),
+  ).slice(0, MAX_NORMAL_PROFILE_CATEGORIES);
+}
+
+export function resolveNormalProfileCategories(stored: unknown, legacyCategory: string) {
+  const storedCategories = normalizeNormalProfileCategories(stored);
+  return storedCategories.length ? storedCategories : parseNormalProfileCategories(legacyCategory);
 }
 
 export function serializeNormalProfileCategories(categories: string[]) {

@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { resolveMediaUrl } from "@/lib/social-data";
+import { resolveNormalProfileCategories } from "@/lib/profile-category";
 import type { Hashtag, SuggestedUser } from "@/lib/yw-data";
 
 export type SearchUser = Omit<SuggestedUser, "followerCount"> & {
@@ -44,6 +45,7 @@ type ProfileRow = {
   avatar_url?: string | null;
   is_verified?: boolean | null;
   category: string | null;
+  normal_categories?: unknown;
 };
 
 type OrbitSearchRow = {
@@ -108,7 +110,9 @@ function toSearchUsers(
         profile.display_name?.trim() ||
         profile.username?.trim() ||
         "",
-      category: profile.category || undefined,
+      category:
+        resolveNormalProfileCategories(profile.normal_categories, profile.category ?? "").join(" • ") ||
+        undefined,
       verified: Boolean(profile.is_verified),
       hue: hueOf(profile.id),
       avatar_url: profile.avatar_url ?? null,
@@ -298,7 +302,7 @@ export async function loadSearchData(
   const [{ data: profiles, error: profilesError }, { data: posts, error: postsError }] = await Promise.all([
     client
       .from("profiles")
-      .select("id,username,full_name,display_name,avatar_url,is_verified,category")
+      .select("id,username,full_name,display_name,avatar_url,is_verified,category,normal_categories")
       .order("updated_at", { ascending: false })
       .limit(100),
     // The live project has both legacy and current post shapes. Selecting the
