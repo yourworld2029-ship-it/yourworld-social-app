@@ -238,6 +238,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   const playedSecondsRef = useRef(0);
   const lastVideoTimeRef = useRef<number | null>(null);
   const pictureInPictureTimeRef = useRef<number | null>(null);
+  const pictureInPicturePlayingRef = useRef(false);
 
   const {
     data: video,
@@ -500,11 +501,13 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
       pictureInPictureTimeRef.current = Number.isFinite(videoElement.currentTime)
         ? videoElement.currentTime
         : null;
+      pictureInPicturePlayingRef.current = !videoElement.paused && !videoElement.ended;
       setIsPictureInPicture(true);
     };
 
     const handleLeavePictureInPicture = () => {
       const savedTime = pictureInPictureTimeRef.current;
+      const wasPlaying = pictureInPicturePlayingRef.current;
       if (
         savedTime !== null &&
         (!Number.isFinite(videoElement.currentTime) ||
@@ -512,7 +515,13 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
       ) {
         videoElement.currentTime = savedTime;
       }
+      if (wasPlaying && !videoElement.ended) {
+        void videoElement.play().catch(() => undefined);
+      } else if (!wasPlaying && !videoElement.paused) {
+        videoElement.pause();
+      }
       pictureInPictureTimeRef.current = null;
+      pictureInPicturePlayingRef.current = false;
       videoElement.disablePictureInPicture = true;
       setIsPictureInPicture(false);
     };
@@ -734,12 +743,16 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
         return;
       }
 
+      const wasPlaying = !videoElement.paused && !videoElement.ended;
       pictureInPictureTimeRef.current = Number.isFinite(videoElement.currentTime)
         ? videoElement.currentTime
         : null;
+      pictureInPicturePlayingRef.current = wasPlaying;
       videoElement.disablePictureInPicture = false;
       await videoElement.requestPictureInPicture();
-      void videoElement.play().catch(() => undefined);
+      if (wasPlaying) {
+        void videoElement.play().catch(() => undefined);
+      }
     } catch (cause) {
       videoElement.disablePictureInPicture = true;
       console.error("Unable to enter picture-in-picture", cause);
@@ -971,7 +984,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
              src={playableMediaUrl}
              controls={!isFullscreen || !screenLocked}
             controlsList="nodownload"
-            disablePictureInPicture
+            disablePictureInPicture={!isPictureInPicture}
             autoPlay
             playsInline
              onTimeUpdate={handleVideoTimeUpdate}
