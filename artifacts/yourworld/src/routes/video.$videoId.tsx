@@ -1,9 +1,8 @@
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
-  type MouseEvent as ReactMouseEvent,
-  type TouchEvent as ReactTouchEvent,
   type ReactNode,
 } from "react";
 import { createFileRoute, useNavigate, useParams } from "@tanstack/react-router";
@@ -18,20 +17,15 @@ import {
   ChevronUp,
   Download,
   Heart,
-  Lock,
   MessageCircle,
   Reply,
   Send,
   Share2,
-  Sun,
   ThumbsDown,
   ThumbsUp,
   Trash2,
-  Unlock,
   UserPlus,
-  Volume2,
   X,
-  ZoomIn,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
@@ -61,6 +55,7 @@ import {
   sanitizeDownloadName,
 } from "@/lib/yw-download";
 import { isVideoQualityTier, qualityTierFromDimensions, type VideoQualityTier } from "@/lib/video-quality";
+import { useVideoPlayback, VideoPlaybackSlot } from "@/lib/video-playback";
 
 type VideoUser = {
   id?: string;
@@ -106,28 +101,6 @@ type RelatedVideoPage = {
 };
 
 const RELATED_VIDEO_PAGE_SIZE = 12;
-
-type GestureFeedback = {
-  kind: "seek" | "volume" | "brightness" | "zoom";
-  value: number;
-  label: string;
-};
-
-type TouchGesture = {
-  startX: number;
-  startY: number;
-  width: number;
-  moved: boolean;
-  initialVolume: number;
-  initialBrightness: number;
-  initialDistance: number | null;
-  initialZoom: number;
-};
-
-type TouchPointList = {
-  length: number;
-  item: (index: number) => { clientX: number; clientY: number } | null;
-};
 
 export const Route = createFileRoute("/video/$videoId")({
   validateSearch: (search: Record<string, unknown>): { focusComments?: boolean } => ({
@@ -186,18 +159,6 @@ function safeTimeAgo(value: string | null | undefined) {
   }
 }
 
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
-}
-
-function touchDistance(touches: TouchPointList) {
-  if (touches.length < 2) return 0;
-  const first = touches.item(0);
-  const second = touches.item(1);
-  if (!first || !second) return 0;
-  return Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY);
-}
-
 function VideoWatchPage() {
   const params = useParams({ strict: false });
   const videoId = typeof params?.videoId === "string" ? params.videoId : "";
@@ -218,25 +179,15 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   const { focusComments } = Route.useSearch();
   const { user } = useAuth();
   const { liked, saved, following, toggleLike, toggleSave, toggleFollow } = useYw();
+  const { activateVideo, setTimeUpdateHandler } = useVideoPlayback();
   const queryClient = useQueryClient();
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
   const commentsRef = useRef<HTMLDivElement>(null);
   const [commentText, setCommentText] = useState("");
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const [disliked, setDisliked] = useState(false);
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [, setLikeCount] = useState(0);
-  const [zoom, setZoom] = useState(1);
-  const [displayMode, setDisplayMode] = useState<"fit" | "fill">("fit");
-  const [brightness, setBrightness] = useState(1);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [screenLocked, setScreenLocked] = useState(false);
-  const [gestureFeedback, setGestureFeedback] = useState<GestureFeedback | null>(null);
   const [resolvedMediaUrl, setResolvedMediaUrl] = useState<string>("");
-  const touchGestureRef = useRef<TouchGesture | null>(null);
-  const lastTapRef = useRef<{ time: number; x: number } | null>(null);
-  const feedbackTimerRef = useRef<number | null>(null);
   const playedSecondsRef = useRef(0);
   const lastVideoTimeRef = useRef<number | null>(null);
 
@@ -443,39 +394,40 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     lastVideoTimeRef.current = null;
   }, [videoId]);
 
-  const handleVideoTimeUpdate = (event: React.SyntheticEvent<HTMLVideoElement>) => {
-    const currentTime = Number.isFinite(event.currentTarget.currentTime)
-      ? event.currentTarget.currentTime
-      : 0;
-    const previousTime = lastVideoTimeRef.current;
-    lastVideoTimeRef.current = currentTime;
-    const delta = previousTime === null ? 0 : currentTime - previousTime;
-    if (
-      viewRecordedRef.current ||
-      !user?.id ||
-      delta <= 0 ||
-      delta > 2
-    ) return;
-    playedSecondsRef.current += delta;
-    if (playedSecondsRef.current < 3) return;
-    viewRecordedRef.current = true;
-    void registerUniqueView(videoId, "video")
-      .then((counted) => {
-        if (!counted) return;
-        queryClient.setQueryData<Video | null>(["video-detail", videoId], (current) =>
-          current
-            ? {
-                ...current,
-                views_count: Number(current.views_count ?? current.views ?? 0) + 1,
-              }
-            : current,
-        );
-      })
-      .catch((cause) => {
-        viewRecordedRef.current = false;
-        console.error("Unable to register video view", cause);
-      });
-  };
+  const handleVideoTimeUpdate = useCallback(
+    (rawCurrentTime: number) => {
+      const currentTime = Number.isFinite(rawCurrentTime) ? rawCurrentTime : 0;
+      const previousTime = lastVideoTimeRef.current;
+      lastVideoTimeRef.current = currentTime;
+      const delta = previousTime === null ? 0 : currentTime - previousTime;
+      if (
+        viewRecordedRef.current ||
+        !user?.id ||
+        delta <= 0 ||
+        delta > 2
+      ) return;
+      playedSecondsRef.current += delta;
+      if (playedSecondsRef.current < 3) return;
+      viewRecordedRef.current = true;
+      void registerUniqueView(videoId, "video")
+        .then((counted) => {
+          if (!counted) return;
+          queryClient.setQueryData<Video | null>(["video-detail", videoId], (current) =>
+            current
+              ? {
+                  ...current,
+                  views_count: Number(current.views_count ?? current.views ?? 0) + 1,
+                }
+              : current,
+          );
+        })
+        .catch((cause) => {
+          viewRecordedRef.current = false;
+          console.error("Unable to register video view", cause);
+        });
+    },
+    [queryClient, user?.id, videoId],
+  );
 
   useEffect(() => {
     const initialCount = video?.likes_count ?? video?.like_count ?? video?.likes ?? 0;
@@ -495,38 +447,22 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     };
   }, [mediaUrl]);
 
-  useEffect(
-    () => () => {
-      if (feedbackTimerRef.current !== null) {
-        window.clearTimeout(feedbackTimerRef.current);
-      }
-    },
-    [],
-  );
+  const playableMediaUrl = resolvedMediaUrl || mediaUrl;
 
   useEffect(() => {
-    const syncFullscreenState = () => {
-      const fullscreenElement = document.fullscreenElement;
-      const fullscreenTarget =
-        fullscreenElement === containerRef.current || fullscreenElement === videoRef.current;
-      const horizontalFullscreen = fullscreenTarget && window.innerWidth > window.innerHeight;
-      setIsFullscreen(horizontalFullscreen);
-      if (!horizontalFullscreen) {
-        setScreenLocked(false);
-        setZoom(1);
-        setDisplayMode("fit");
-        setBrightness(1);
-        setGestureFeedback(null);
-      }
-    };
-    document.addEventListener("fullscreenchange", syncFullscreenState);
-    window.addEventListener("resize", syncFullscreenState);
-    syncFullscreenState();
-    return () => {
-      document.removeEventListener("fullscreenchange", syncFullscreenState);
-      window.removeEventListener("resize", syncFullscreenState);
-    };
-  }, []);
+    if (!video || !playableMediaUrl) return;
+    activateVideo({
+      id: video.id,
+      url: playableMediaUrl,
+      title: video.title || video.caption || "Untitled Video",
+      thumbnailUrl: video.thumbnail_url,
+    });
+  }, [activateVideo, playableMediaUrl, video]);
+
+  useEffect(() => {
+    setTimeUpdateHandler(handleVideoTimeUpdate);
+    return () => setTimeUpdateHandler(null);
+  }, [handleVideoTimeUpdate, setTimeUpdateHandler]);
 
   const submitComment = () => {
     if (!user || !commentText.trim()) return;
@@ -699,131 +635,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     }
   };
 
-  const toggleScreenLock = () => {
-    if (!isFullscreen) return;
-    setScreenLocked((locked) => !locked);
-  };
-
-  const showGestureFeedback = (
-    kind: GestureFeedback["kind"],
-    value: number,
-    label: string,
-  ) => {
-    setGestureFeedback({ kind, value, label });
-    if (feedbackTimerRef.current !== null) {
-      window.clearTimeout(feedbackTimerRef.current);
-    }
-    feedbackTimerRef.current = window.setTimeout(() => {
-      setGestureFeedback(null);
-      feedbackTimerRef.current = null;
-    }, 1000);
-  };
-
-  const seekBy = (seconds: number) => {
-    if (!isFullscreen || screenLocked) return;
-    const videoElement = videoRef.current;
-    if (!videoElement) return;
-    const duration = Number.isFinite(videoElement.duration) ? videoElement.duration : Infinity;
-    videoElement.currentTime = clamp(videoElement.currentTime + seconds, 0, duration);
-    showGestureFeedback("seek", seconds, `${seconds > 0 ? "+" : ""}${seconds}s`);
-  };
-
-  const handleDoubleTap = (event: ReactMouseEvent<HTMLDivElement>) => {
-    if (!isFullscreen || screenLocked) return;
-    const rect = event.currentTarget.getBoundingClientRect();
-    seekBy(event.clientX - rect.left >= rect.width / 2 ? 15 : -15);
-  };
-
-  const handleTouchStart = (event: ReactTouchEvent<HTMLDivElement>) => {
-    if (!isFullscreen || screenLocked) return;
-    const rect = event.currentTarget.getBoundingClientRect();
-    const firstTouch = event.touches.item(0);
-    if (!firstTouch) return;
-    if (event.touches.length >= 2) {
-      event.preventDefault();
-      touchGestureRef.current = {
-        startX: firstTouch.clientX - rect.left,
-        startY: firstTouch.clientY - rect.top,
-        width: rect.width,
-        moved: true,
-        initialVolume: videoRef.current?.volume ?? 1,
-        initialBrightness: brightness,
-        initialDistance: touchDistance(event.touches),
-        initialZoom: zoom,
-      };
-      return;
-    }
-    touchGestureRef.current = {
-      startX: firstTouch.clientX - rect.left,
-      startY: firstTouch.clientY - rect.top,
-      width: rect.width,
-      moved: false,
-      initialVolume: videoRef.current?.volume ?? 1,
-      initialBrightness: brightness,
-      initialDistance: null,
-      initialZoom: zoom,
-    };
-  };
-
-  const handleTouchMove = (event: ReactTouchEvent<HTMLDivElement>) => {
-    if (!isFullscreen || screenLocked) return;
-    const gesture = touchGestureRef.current;
-    if (!gesture) return;
-    if (event.touches.length >= 2 && gesture.initialDistance) {
-      event.preventDefault();
-      const distance = touchDistance(event.touches);
-      if (!distance) return;
-      const nextZoom = clamp(
-        gesture.initialZoom * (distance / gesture.initialDistance),
-        1,
-        4,
-      );
-      gesture.moved = true;
-      setZoom(nextZoom);
-      setDisplayMode(nextZoom > 1.05 ? "fill" : "fit");
-      showGestureFeedback("zoom", nextZoom, `${nextZoom.toFixed(1)}×`);
-      return;
-    }
-
-    const firstTouch = event.touches.item(0);
-    if (!firstTouch) return;
-    const deltaY = firstTouch.clientY - gesture.startY;
-    const deltaX = firstTouch.clientX - (gesture.startX + event.currentTarget.getBoundingClientRect().left);
-    if (Math.abs(deltaY) < 12 || Math.abs(deltaY) < Math.abs(deltaX)) return;
-    event.preventDefault();
-    gesture.moved = true;
-
-    if (gesture.startX < gesture.width * 0.4) {
-      const nextBrightness = clamp(
-        gesture.initialBrightness - deltaY / 280,
-        0.1,
-        1,
-      );
-      setBrightness(nextBrightness);
-      showGestureFeedback("brightness", nextBrightness, `${Math.round(nextBrightness * 100)}%`);
-    } else {
-      const nextVolume = clamp(gesture.initialVolume - deltaY / 280, 0, 1);
-      if (videoRef.current) videoRef.current.volume = nextVolume;
-      showGestureFeedback("volume", nextVolume, `${Math.round(nextVolume * 100)}%`);
-    }
-  };
-
-  const handleTouchEnd = (event: ReactTouchEvent<HTMLDivElement>) => {
-    if (!isFullscreen || screenLocked) return;
-    const gesture = touchGestureRef.current;
-    touchGestureRef.current = null;
-    if (!gesture || gesture.moved) return;
-    const now = Date.now();
-    const previousTap = lastTapRef.current;
-    if (previousTap && now - previousTap.time < 320 && Math.abs(gesture.startX - previousTap.x) < 48) {
-      event.preventDefault();
-      seekBy(gesture.startX >= gesture.width / 2 ? 15 : -15);
-      lastTapRef.current = null;
-      return;
-    }
-    lastTapRef.current = { time: now, x: gesture.startX };
-  };
-
   if (isLoading) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-black text-white">
@@ -837,7 +648,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     return <VideoErrorFallback />;
   }
 
-  const playableMediaUrl = resolvedMediaUrl || mediaUrl;
   const creatorUsername = video.user?.username || "user";
   const creatorName =
     video.user?.full_name ||
@@ -883,135 +693,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
 
   return (
     <div className="min-h-screen bg-black text-white pb-24">
-      <div
-        ref={containerRef}
-        className={`relative w-full bg-black ${
-          isFullscreen ? "h-screen w-screen" : "aspect-video"
-        }`}
-        onDoubleClick={handleDoubleTap}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-        style={{ touchAction: isFullscreen ? "none" : "auto" }}
-      >
-         {playableMediaUrl ? (
-         <video
-            ref={videoRef}
-             src={playableMediaUrl}
-             controls={!isFullscreen || !screenLocked}
-            controlsList="nodownload"
-             disablePictureInPicture
-            autoPlay
-            playsInline
-             onTimeUpdate={handleVideoTimeUpdate}
-             className={`h-full w-full ${displayMode === "fill" ? "object-cover" : "object-contain"}`}
-            style={{
-              transform: `scale(${zoom})`,
-              transformOrigin: "center center",
-              objectFit: displayMode === "fill" ? "cover" : "contain",
-              filter: `brightness(${brightness})`,
-              transition: gestureFeedback?.kind === "zoom" ? "none" : "transform 160ms ease-out",
-            }}
-          />
-        ) : (
-          <div className="text-sm text-gray-500">No media URL found</div>
-        )}
-
-          {isFullscreen && !screenLocked && (
-         <div className="pointer-events-none absolute inset-0 z-50">
-           {isFullscreen && gestureFeedback?.kind === "seek" ? (
-            <div
-              className={`pointer-events-none absolute top-1/2 flex -translate-y-1/2 flex-col items-center gap-2 ${
-                gestureFeedback.value > 0 ? "right-1/4" : "left-1/4"
-              }`}
-              aria-live="polite"
-            >
-              <span className="absolute h-20 w-20 animate-ping rounded-full border border-white/50" />
-              <span className="grid h-16 w-16 place-items-center rounded-full bg-black/65 text-sm font-bold text-white backdrop-blur-sm">
-                {gestureFeedback.label}
-              </span>
-            </div>
-          ) : null}
-
-           {isFullscreen && gestureFeedback?.kind === "volume" ? (
-            <div className="pointer-events-none absolute right-5 top-1/2 flex -translate-y-1/2 flex-col items-center gap-2 rounded-full bg-black/60 px-2.5 py-3 text-white backdrop-blur-sm">
-              <Volume2 className="h-4 w-4" />
-              <div className="flex h-24 w-1.5 items-end overflow-hidden rounded-full bg-white/25">
-                <div
-                  className="w-full rounded-full bg-white transition-[height]"
-                  style={{ height: `${gestureFeedback.value * 100}%` }}
-                />
-              </div>
-              <span className="text-[10px] font-semibold">{gestureFeedback.label}</span>
-            </div>
-          ) : null}
-
-           {isFullscreen && gestureFeedback?.kind === "brightness" ? (
-            <div className="pointer-events-none absolute left-5 top-1/2 flex -translate-y-1/2 flex-col items-center gap-2 rounded-full bg-black/60 px-2.5 py-3 text-white backdrop-blur-sm">
-              <Sun className="h-4 w-4" />
-              <div className="flex h-24 w-1.5 items-end overflow-hidden rounded-full bg-white/25">
-                <div
-                  className="w-full rounded-full bg-yellow-300 transition-[height]"
-                  style={{
-                    height: `${gestureFeedback.value * 100}%`,
-                  }}
-                />
-              </div>
-              <span className="text-[10px] font-semibold">{gestureFeedback.label}</span>
-            </div>
-          ) : null}
-
-           {isFullscreen && gestureFeedback?.kind === "zoom" ? (
-            <div className="pointer-events-none absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-full bg-black/65 px-4 py-2 text-sm font-semibold text-white backdrop-blur-sm">
-              <ZoomIn className="h-4 w-4" />
-              {gestureFeedback.label}
-            </div>
-           ) : null}
-        </div>
-         )}
-
-        {isFullscreen && screenLocked ? (
-          <div className="absolute inset-0 z-[60] flex items-center justify-center bg-black/10">
-             <button
-              type="button"
-              onClick={toggleScreenLock}
-              className="inline-flex items-center gap-2 rounded-full bg-black/70 px-4 py-2 text-xs font-semibold text-white shadow-lg backdrop-blur-md transition hover:bg-black/85"
-              aria-label="Unlock player controls"
-            >
-              <Unlock className="h-4 w-4" /> Unlock controls
-             </button>
-          </div>
-        ) : null}
-
-         {!screenLocked && <button
-          type="button"
-          onClick={() =>
-            window.history.length > 1
-              ? window.history.back()
-              : void navigate({ to: "/" })
-          }
-          className="absolute left-3 top-3 z-50 rounded-full bg-black/60 p-2 text-white backdrop-blur-md transition-all hover:bg-black/80"
-          aria-label="Go back"
-          onTouchStart={(event) => event.stopPropagation()}
-          onTouchEnd={(event) => event.stopPropagation()}
-        >
-          <ArrowLeft className="h-5 w-5" />
-         </button>}
-
-         {isFullscreen && !screenLocked ? (
-           <button
-             type="button"
-             onClick={toggleScreenLock}
-             className="absolute right-3 top-3 z-50 rounded-full bg-black/60 p-2 text-white backdrop-blur-md transition-all hover:bg-black/80"
-             aria-label="Lock player controls"
-             onTouchStart={(event) => event.stopPropagation()}
-             onTouchEnd={(event) => event.stopPropagation()}
-             onDoubleClick={(event) => event.stopPropagation()}
-           >
-             <Lock className="h-5 w-5" />
-           </button>
-         ) : null}
-      </div>
+      <VideoPlaybackSlot />
 
       <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-3 px-3 py-3 sm:gap-4 sm:px-4 sm:py-4">
         <div className="space-y-1">

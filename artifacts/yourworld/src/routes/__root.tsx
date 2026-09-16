@@ -26,6 +26,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { EarningsCreditWatcher } from "@/lib/earnings-credit";
 import { SafeProvider } from "@/lib/safe-provider";
 import { AdaptiveMediaController } from "@/lib/adaptive-performance";
+import { VideoPlaybackProvider } from "@/lib/video-playback";
 
 function NotFoundComponent() {
   return (
@@ -193,14 +194,16 @@ function RootComponent() {
                               <CallProvider>
                                 <SafeProvider name="Upload">
                                   <UploadProvider>
-                                    {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-                                    <AuthGate>
-                                      <div className={cn("mx-auto min-h-screen w-full", wideProfileLayout ? "max-w-4xl" : "max-w-lg", hideNav ? "" : "pb-20")}>
-                                        <Outlet />
-                                      </div>
-                                      {!hideNav && <BottomNav onOpenCreate={() => setCreateOpen(true)} />}
-                                      <CreateSheet isOpen={createOpen} onClose={() => setCreateOpen(false)} />
-                                    </AuthGate>
+                                    <VideoPlaybackProvider>
+                                      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+                                      <AuthGate>
+                                        <div className={cn("mx-auto min-h-screen w-full", wideProfileLayout ? "max-w-4xl" : "max-w-lg", hideNav ? "" : "pb-20")}>
+                                          <Outlet />
+                                        </div>
+                                        {!hideNav && <BottomNav onOpenCreate={() => setCreateOpen(true)} />}
+                                        <CreateSheet isOpen={createOpen} onClose={() => setCreateOpen(false)} />
+                                      </AuthGate>
+                                    </VideoPlaybackProvider>
                                     <EarningsCreditWatcher />
                                     <Toaster position="top-center" />
                                   </UploadProvider>
