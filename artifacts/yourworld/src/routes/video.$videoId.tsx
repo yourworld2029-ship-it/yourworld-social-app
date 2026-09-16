@@ -15,9 +15,7 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
-  Clock,
   Download,
-  Eye,
   Heart,
   Lock,
   PictureInPicture,
@@ -1236,16 +1234,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
          />
 
         <div className="rounded-xl bg-white/5 p-3">
-          <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-gray-400">
-            <span className="inline-flex items-center gap-1">
-              <Eye className="h-3.5 w-3.5" /> {formatViews(Number(viewCount))}
-            </span>
-            {timeAgo ? (
-              <span className="inline-flex items-center gap-1">
-                <Clock className="h-3.5 w-3.5" /> {timeAgo}
-              </span>
-            ) : null}
-          </div>
           <p className={`text-xs leading-relaxed text-gray-300 ${descriptionExpanded ? "" : "line-clamp-3"}`}>
             {description}
           </p>
