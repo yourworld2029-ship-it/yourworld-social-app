@@ -27,3 +27,4 @@
 - [Profile search contract](profile-search-contract.md) — use the secured profile RPC and preserve display name plus unique username for one profile result.
 - [Normal profile categories](normal-profile-categories.md) — store up to two normal categories in the existing field while preserving Sports Identity markers.
 - [Public sports badge data contract](sports-badge-data-contract.md) — derive public badges from public profile identity plus existing active monetization signals; never query private verification details.
+- [Owner admin moderation security](admin-moderation-security.md) — sensitive moderation is server-side, owner-admin plus AAL2, privately evidenced, audited, and never an automatic forfeiture.

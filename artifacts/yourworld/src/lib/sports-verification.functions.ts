@@ -88,6 +88,13 @@ async function requireSportsVerificationAdmin(userId: string) {
   return admin;
 }
 
+function requireAdminStepUp(claims: unknown) {
+  const aal = (claims as { aal?: string } | null | undefined)?.aal ?? "aal1";
+  if (aal !== "aal2") {
+    throw new Error("Admin MFA is required. Complete the two-step verification challenge and try again.");
+  }
+}
+
 function valueAfterLabel(text: string | null, labels: string[]) {
   if (!text) return null;
   const normalizedLabels = labels.map((label) => label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
@@ -153,6 +160,7 @@ export const listSportsVerificationApplications = createServerFn({ method: "POST
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const admin = await requireSportsVerificationAdmin(context.userId);
+    requireAdminStepUp(context.claims);
     const { data: profiles, error: profilesError } = await admin
       .from("profiles")
       .select(
@@ -227,6 +235,7 @@ export const reviewSportsVerification = createServerFn({ method: "POST" })
   .validator((data) => reviewActionSchema.parse(data))
   .handler(async ({ data, context }) => {
     const admin = await requireSportsVerificationAdmin(context.userId);
+    requireAdminStepUp(context.claims);
     const reason = data.reason?.trim() || null;
     if ((data.action === "reject" || data.action === "request_correction") && !reason) {
       throw new Error("A reason is required for rejection or correction requests.");

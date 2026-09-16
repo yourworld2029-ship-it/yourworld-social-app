@@ -100,6 +100,25 @@ export const requireSupabaseAuth = createMiddleware({ type: 'function' }).server
       throw new Error('Unauthorized: No user ID found in token');
     }
 
+    const { supabaseAdmin } = await import('./client.server');
+    const now = new Date().toISOString();
+    const { data: restriction, error: restrictionError } = await supabaseAdmin
+      .from('admin_account_restrictions')
+      .select('id')
+      .eq('user_id', data.claims.sub)
+      .is('lifted_at', null)
+      .lte('starts_at', now)
+      .or(`ends_at.is.null,ends_at.gt.${now}`)
+      .limit(1)
+      .maybeSingle();
+    if (restrictionError) {
+      console.error('[Supabase] Could not verify account restriction state', restrictionError);
+      throw new Error('Unauthorized: Account restriction state could not be verified');
+    }
+    if (restriction) {
+      throw new Error('Unauthorized: This account is currently restricted');
+    }
+
     return next({
       context: {
         supabase,

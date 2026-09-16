@@ -17,6 +17,18 @@ export const processPayout = createServerFn({ method: "POST" })
       from: (table: string) => any;
     };
 
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: payoutHold, error: holdError } = await supabaseAdmin
+      .from("admin_payout_holds")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("status", "held")
+      .maybeSingle();
+    if (holdError) throw new Error(holdError.message);
+    if (payoutHold) {
+      throw new Error("Payout processing is temporarily held pending an authorized review.");
+    }
+
     const { data: earnings, error } = await db
       .from("creator_earnings")
       .select("id, source, gross_amount")
@@ -44,7 +56,6 @@ export const processPayout = createServerFn({ method: "POST" })
       .slice(2, 8)
       .toUpperCase()}`;
 
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: payout, error: insErr } = await supabaseAdmin
       .from("creator_payouts")
       .insert({

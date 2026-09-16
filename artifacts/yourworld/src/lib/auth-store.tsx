@@ -55,6 +55,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  useEffect(() => {
+    const userId = session?.user.id;
+    if (!userId) return;
+    let alive = true;
+    const now = new Date().toISOString();
+    void supabase
+      .from("admin_account_restrictions")
+      .select("id")
+      .eq("user_id", userId)
+      .is("lifted_at", null)
+      .lte("starts_at", now)
+      .or(`ends_at.is.null,ends_at.gt.${now}`)
+      .limit(1)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (!alive) return;
+        if (error) {
+          console.error("[auth] Could not verify account restriction state", error);
+          return;
+        }
+        if (data) void supabase.auth.signOut();
+      });
+    return () => {
+      alive = false;
+    };
+  }, [session?.user.id]);
+
   const value = useMemo<AuthValue>(
     () => ({
       session,

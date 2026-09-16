@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AccountRouteImport } from './routes/account'
+import { Route as AdminRouteImport } from './routes/admin'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as ChannelRouteImport } from './routes/channel'
 import { Route as CopyrightPolicyRouteImport } from './routes/copyright-policy'
@@ -69,6 +70,11 @@ const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
 const AccountRoute = AccountRouteImport.update({
   id: '/account',
   path: '/account',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthRoute = AuthRouteImport.update({
@@ -152,14 +158,14 @@ const WalletRoute = WalletRouteImport.update({
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminCopyrightReportsRoute = AdminCopyrightReportsRouteImport.update({
-  id: '/admin/copyright-reports',
-  path: '/admin/copyright-reports',
-  getParentRoute: () => rootRouteImport,
+  id: '/copyright-reports',
+  path: '/copyright-reports',
+  getParentRoute: () => AdminRoute,
 } as any)
 const AdminSportsVerificationRoute = AdminSportsVerificationRouteImport.update({
-  id: '/admin/sports-verification',
-  path: '/admin/sports-verification',
-  getParentRoute: () => rootRouteImport,
+  id: '/sports-verification',
+  path: '/sports-verification',
+  getParentRoute: () => AdminRoute,
 } as any)
 const ChannelIndexRoute = ChannelIndexRouteImport.update({
   id: '/',
@@ -296,6 +302,7 @@ const OrbitChatUserIdRoute = OrbitChatUserIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/account': typeof AccountRoute
+  '/admin': typeof AdminRouteWithChildren
   '/auth': typeof AuthRoute
   '/channel': typeof ChannelRouteWithChildren
   '/copyright-policy': typeof CopyrightPolicyRoute
@@ -344,6 +351,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/account': typeof AccountRoute
+  '/admin': typeof AdminRouteWithChildren
   '/auth': typeof AuthRoute
   '/copyright-policy': typeof CopyrightPolicyRoute
   '/create': typeof CreateRoute
@@ -392,6 +400,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/account': typeof AccountRoute
+  '/admin': typeof AdminRouteWithChildren
   '/auth': typeof AuthRoute
   '/channel': typeof ChannelRouteWithChildren
   '/copyright-policy': typeof CopyrightPolicyRoute
@@ -442,6 +451,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/account'
+    | '/admin'
     | '/auth'
     | '/channel'
     | '/copyright-policy'
@@ -490,6 +500,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/account'
+    | '/admin'
     | '/auth'
     | '/copyright-policy'
     | '/create'
@@ -537,6 +548,7 @@ export interface FileRouteTypes {
     | '/'
     | '/_authenticated'
     | '/account'
+    | '/admin'
     | '/auth'
     | '/channel'
     | '/copyright-policy'
@@ -587,6 +599,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AccountRoute: typeof AccountRoute
+  AdminRoute: typeof AdminRouteWithChildren
   AuthRoute: typeof AuthRoute
   ChannelRoute: typeof ChannelRouteWithChildren
   CopyrightPolicyRoute: typeof CopyrightPolicyRoute
@@ -603,8 +616,6 @@ export interface RootRouteChildren {
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   TermsRoute: typeof TermsRoute
   WalletRoute: typeof WalletRoute
-  AdminCopyrightReportsRoute: typeof AdminCopyrightReportsRoute
-  AdminSportsVerificationRoute: typeof AdminSportsVerificationRoute
   MomentMomentIdRoute: typeof MomentMomentIdRoute
   MomentCreateRoute: typeof MomentCreateRoute
   PostCreateRoute: typeof PostCreateRoute
@@ -636,6 +647,13 @@ declare module '@tanstack/react-router' {
       path: '/account'
       fullPath: '/account'
       preLoaderRoute: typeof AccountRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/auth': {
@@ -752,17 +770,17 @@ declare module '@tanstack/react-router' {
     }
     '/admin/copyright-reports': {
       id: '/admin/copyright-reports'
-      path: '/admin/copyright-reports'
+      path: '/copyright-reports'
       fullPath: '/admin/copyright-reports'
       preLoaderRoute: typeof AdminCopyrightReportsRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof AdminRoute
     }
     '/admin/sports-verification': {
       id: '/admin/sports-verification'
-      path: '/admin/sports-verification'
+      path: '/sports-verification'
       fullPath: '/admin/sports-verification'
       preLoaderRoute: typeof AdminSportsVerificationRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof AdminRoute
     }
     '/channel/': {
       id: '/channel/'
@@ -962,6 +980,18 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
 const AuthenticatedRouteRouteWithChildren =
   AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
 
+interface AdminRouteChildren {
+  AdminCopyrightReportsRoute: typeof AdminCopyrightReportsRoute
+  AdminSportsVerificationRoute: typeof AdminSportsVerificationRoute
+}
+
+const AdminRouteChildren: AdminRouteChildren = {
+  AdminCopyrightReportsRoute: AdminCopyrightReportsRoute,
+  AdminSportsVerificationRoute: AdminSportsVerificationRoute,
+}
+
+const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
+
 interface ChannelRouteChildren {
   ChannelAnalyticsRoute: typeof ChannelAnalyticsRoute
   ChannelCreateRoute: typeof ChannelCreateRoute
@@ -1015,6 +1045,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AccountRoute: AccountRoute,
+  AdminRoute: AdminRouteWithChildren,
   AuthRoute: AuthRoute,
   ChannelRoute: ChannelRouteWithChildren,
   CopyrightPolicyRoute: CopyrightPolicyRoute,
@@ -1031,8 +1062,6 @@ const rootRouteChildren: RootRouteChildren = {
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   TermsRoute: TermsRoute,
   WalletRoute: WalletRoute,
-  AdminCopyrightReportsRoute: AdminCopyrightReportsRoute,
-  AdminSportsVerificationRoute: AdminSportsVerificationRoute,
   MomentMomentIdRoute: MomentMomentIdRoute,
   MomentCreateRoute: MomentCreateRoute,
   PostCreateRoute: PostCreateRoute,
