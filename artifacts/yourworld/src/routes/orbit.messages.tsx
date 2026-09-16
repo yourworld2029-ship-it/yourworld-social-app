@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import { useChatNames } from "@/lib/chat-names";
 import { useSecretChats } from "@/lib/secret-chats";
 import { useProfiles } from "@/lib/profiles-map";
+import { SportsIdentityMark } from "@/components/yw/SportsIdentityBadge";
 
 export const Route = createFileRoute("/orbit/messages")({
   head: () => ({
@@ -384,7 +385,10 @@ function OrbitMessagesPage() {
                     <span className="min-w-0 flex-1">
                       <span className="flex items-baseline gap-2">
                         <span className="min-w-0 flex-1 truncate text-sm font-semibold">
-                          {nameFor(p.id, p.name)}
+                          <span className="inline-flex items-center gap-1">
+                            {nameFor(p.id, p.name)}
+                            <SportsIdentityMark userId={p.id} />
+                          </span>
                         </span>
                         {prev && (
                           <span className="shrink-0 text-[11px] text-muted-foreground">
@@ -469,7 +473,10 @@ function OrbitMessagesPage() {
                   >
                     <Avatar p={p} size={44} />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold">{nameFor(p.id, p.name)}</p>
+                      <p className="flex items-center gap-1 truncate text-sm font-semibold">
+                        <span className="truncate">{nameFor(p.id, p.name)}</span>
+                        <SportsIdentityMark userId={p.id} />
+                      </p>
                       <p className="truncate text-xs text-muted-foreground">
                         {r.direction === "incoming" ? "Wants to chat" : "Request sent"}
                         {r.intro ? ` · ${r.intro}` : ""}
@@ -531,7 +538,11 @@ function OrbitMessagesPage() {
                     <Avatar p={p} size={44} />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-semibold">
-                        {nameFor(p.id, p.name)}, {p.age}
+                        <span className="inline-flex items-center gap-1">
+                          {nameFor(p.id, p.name)}
+                          <SportsIdentityMark userId={p.id} />
+                        </span>
+                        , {p.age}
                       </span>
                       <span className="block truncate text-xs text-muted-foreground">
                         {isMutual

@@ -40,6 +40,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { VideoPoster } from "@/components/yw/VideoPoster";
+import { SportsIdentityMark } from "@/components/yw/SportsIdentityBadge";
 import { useAuth } from "@/lib/auth-store";
 import { useYw } from "@/lib/yw-store";
 import { formatDuration, formatViews } from "@/lib/video-data";
@@ -519,7 +520,10 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           </Avatar>
           <div className="min-w-0 flex-1 text-xs">
             <div className="mb-0.5 flex flex-wrap items-center gap-2">
-              <span className="font-semibold text-gray-300">@{username}</span>
+              <span className="inline-flex items-center gap-1 font-semibold text-gray-300">
+                <span>@{username}</span>
+                <SportsIdentityMark userId={comment.userId} />
+              </span>
               <span className="text-[10px] text-gray-500">{safeTimeAgo(comment.createdAt)}</span>
             </div>
             <p className="text-gray-100">{comment.body}</p>
@@ -730,7 +734,10 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
               </AvatarFallback>
             </Avatar>
             <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-white">{creatorName}</p>
+               <p className="flex items-center gap-1 truncate text-sm font-semibold text-white">
+                 <span className="truncate">{creatorName}</span>
+                 <SportsIdentityMark userId={creatorId} />
+               </p>
               <p className="truncate text-xs text-gray-400">
                 @{creatorUsername} · {subscriberCount.toLocaleString()} subscribers
               </p>
@@ -867,7 +874,8 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
                 </Avatar>
                 <p className="line-clamp-2 min-w-0 text-xs leading-relaxed text-gray-300">
                   <span className="mr-1 font-semibold text-gray-200">
-                    @{previewComment.username || "user"}
+                     @{previewComment.username || "user"}
+                     <SportsIdentityMark userId={previewComment.userId} />
                   </span>
                   {previewComment.body}
                 </p>
@@ -991,8 +999,10 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
                       <h3 className="line-clamp-2 text-sm font-semibold text-white group-hover:text-pink-300">
                         {relatedTitle}
                       </h3>
-                      <p className="mt-1 line-clamp-2 text-xs text-gray-400">
-                        {relatedCreator} · {formatViews(Number(related.views_count || related.views || 0))}
+                       <p className="mt-1 flex items-center gap-1 line-clamp-2 text-xs text-gray-400">
+                         <span className="truncate">{relatedCreator}</span>
+                         <SportsIdentityMark userId={related.user_id ?? null} />
+                         <span>· {formatViews(Number(related.views_count || related.views || 0))}</span>
                       </p>
                     </div>
                   </button>

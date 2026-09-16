@@ -26,3 +26,4 @@
 - [Profile photo cropping](profile-photo-cropping.md) — bake zoom and position into the uploaded square avatar so no profile schema fields are needed.
 - [Profile search contract](profile-search-contract.md) — use the secured profile RPC and preserve display name plus unique username for one profile result.
 - [Normal profile categories](normal-profile-categories.md) — store up to two normal categories in the existing field while preserving Sports Identity markers.
+- [Public sports badge data contract](sports-badge-data-contract.md) — derive public badges from public profile identity plus existing active monetization signals; never query private verification details.

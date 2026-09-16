@@ -45,6 +45,7 @@ export type NotificationItem = {
   id: string;
   kind: NotificationKind;
   title: string;
+  actorId?: string;
   body?: string;
   /** epoch ms */
   at: number;
@@ -371,6 +372,7 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       id: `like-${r.id}`,
       kind: "like",
       title: `${nameOf(r.user_id)} liked your post`,
+      actorId: r.user_id,
       at: ts(r.created_at),
       to: postLink(r.post_id),
     });
@@ -380,6 +382,7 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       id: `comment-${r.id}`,
       kind: "comment",
       title: `${nameOf(r.user_id)} commented on your post`,
+      actorId: r.user_id,
       body: r.content,
       at: ts(r.created_at),
       to: postLink(r.post_id, true),
@@ -390,6 +393,7 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       id: `dm-${r.id}`,
       kind: "message",
       title: `New message from ${nameOf(r.sender_id)}`,
+      actorId: r.sender_id,
       body: r.voice_note_url ? "Sent a voice note" : r.media_url ? "Sent an attachment" : r.content,
       at: ts(r.created_at),
       to: `/chat/dm_${[r.sender_id, r.receiver_id].sort().join("_")}`,
@@ -403,6 +407,7 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
         r.entity_type === "moment" && r.actor_id
           ? `${nameOf(r.actor_id)} liked your Moment`
           : r.title,
+      actorId: r.actor_id ?? undefined,
       body: r.body ?? undefined,
       at: ts(r.created_at),
       to: notificationLink(r),
@@ -415,6 +420,7 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       id: `om-${r.id}`,
       kind: "message",
       title: `Orbit message from ${nameOf(r.sender_id)}`,
+      actorId: r.sender_id,
       body: r.kind === "text" ? (r.text ?? "") : "Sent an attachment",
       at: ts(r.created_at),
       to: `/orbit/chat/${r.sender_id}`,
@@ -428,6 +434,7 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       title: mutual
         ? `You matched with ${nameOf(r.user_id)}`
         : `${nameOf(r.user_id)} liked your Orbit profile`,
+      actorId: r.user_id,
       at: ts(r.created_at),
       to: mutual ? `/orbit/chat/${r.user_id}` : "/orbit/messages",
     });
@@ -441,6 +448,7 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
         r.status === "accepted"
           ? `You accepted ${nameOf(r.requester_id)}'s chat request`
           : `${nameOf(r.requester_id)} sent you a chat request`,
+      actorId: r.requester_id,
       body: r.intro ?? undefined,
       at: ts(r.created_at),
       to: "/orbit/messages",
@@ -453,6 +461,7 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       id: `conn-${r.id}`,
       kind: "connection",
       title: `You and ${nameOf(peer)} are connected`,
+      actorId: peer,
       at: ts(r.updated_at),
       to: `/orbit/chat/${peer}`,
     });

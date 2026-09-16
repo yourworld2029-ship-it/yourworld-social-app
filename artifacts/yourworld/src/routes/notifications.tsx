@@ -11,6 +11,7 @@ import {
   type NotificationKind,
 } from "@/lib/notifications-store";
 import { cn } from "@/lib/utils";
+import { SportsIdentityMark } from "@/components/yw/SportsIdentityBadge";
 
 export const Route = createFileRoute("/notifications")({
   head: () => ({
@@ -229,6 +230,7 @@ function NotificationsPage() {
                             )}
                           >
                             {n.title}
+                              {n.actorId ? <SportsIdentityMark userId={n.actorId} /> : null}
                           </span>
                           <span className="shrink-0 text-[11px] text-muted-foreground">{timeAgo(n.at)}</span>
                         </span>

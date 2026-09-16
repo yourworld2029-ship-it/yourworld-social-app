@@ -31,6 +31,7 @@ import {
   sanitizeDownloadName,
 } from "@/lib/yw-download";
 import { cn } from "@/lib/utils";
+import { SportsIdentityMark } from "@/components/yw/SportsIdentityBadge";
 import { toast } from "sonner";
 import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadSheet";
 import { isVideoQualityTier, qualityTierFromDimensions } from "@/lib/video-quality";
@@ -885,8 +886,9 @@ function ReelItem({
             className="flex min-w-0 items-center gap-2.5 transition-opacity active:opacity-70"
           >
             <YwAvatar user={user} size={36} className="ring-2 ring-foreground/30" />
-             <span className="min-w-0 truncate text-sm font-semibold drop-shadow">
+               <span className="flex min-w-0 items-center gap-1 truncate text-sm font-semibold drop-shadow">
                @{user.username}
+                <SportsIdentityMark userId={reel.userId} />
                <span className="ml-2 text-xs font-normal text-gray-300">
                  • {reel.createdAt ? timeAgo(reel.createdAt) : "Just now"}
                </span>

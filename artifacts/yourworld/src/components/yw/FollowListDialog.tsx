@@ -11,6 +11,7 @@ import { YwAvatar } from "@/components/yw/Avatar";
 import { Button } from "@/components/ui/button";
 import { useFollowList, type FollowUser } from "@/lib/follow-data";
 import { useYw } from "@/lib/yw-store";
+import { SportsIdentityMark } from "@/components/yw/SportsIdentityBadge";
 
 export function FollowListDialog({
   open,
@@ -114,7 +115,10 @@ function List({
             size={40}
           />
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-medium">{u.display_name}</span>
+            <span className="flex items-center gap-1 truncate text-sm font-medium">
+              <span className="truncate">{u.display_name}</span>
+              <SportsIdentityMark userId={u.id} />
+            </span>
             <span className="block truncate text-xs text-muted-foreground">@{u.username}</span>
           </span>
           <Button

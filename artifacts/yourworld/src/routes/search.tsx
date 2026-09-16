@@ -18,6 +18,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useSearch } from "@/lib/search-store";
 import { ProfileAvatar } from "@/components/yw/ProfileAvatar";
+import { SportsIdentityMark } from "@/components/yw/SportsIdentityBadge";
 import { VideoPoster } from "@/components/yw/VideoPoster";
 import { formatCount } from "@/lib/yw-data";
 import { formatDuration, formatViews } from "@/lib/video-data";
@@ -530,7 +531,10 @@ function UserRow({ user, onClick }: { user: SearchUser; onClick: () => void }) {
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
-          <p className="font-ui text-[14px] font-semibold text-foreground">@{user.username}</p>
+           <p className="flex items-center gap-1 font-ui text-[14px] font-semibold text-foreground">
+             <span>@{user.username}</span>
+             <SportsIdentityMark userId={user.id} />
+           </p>
           {user.verified && (
             <span className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-primary">
               <Check className="h-2.5 w-2.5 text-primary-foreground" strokeWidth={3} />
@@ -621,9 +625,11 @@ function VideoList({
           </div>
           <div className="min-w-0 flex-1">
             <p className="line-clamp-2 font-ui text-[13px] font-semibold text-foreground">{video.title}</p>
-            <p className="mt-1 truncate font-ui text-[11px] text-muted-foreground">
-              {video.author.name} · {formatViews(video.views)}
-            </p>
+             <p className="mt-1 flex items-center gap-1 truncate font-ui text-[11px] text-muted-foreground">
+               <span className="truncate">{video.author.name}</span>
+               <SportsIdentityMark userId={video.userId} />
+               <span>· {formatViews(video.views)}</span>
+             </p>
           </div>
         </button>
       ))}
@@ -681,9 +687,10 @@ function SuggestedCard({
             }}
           />
         </div>
-        <p className="mt-2.5 w-full truncate font-ui text-[12px] font-semibold text-foreground">
-          @{user.username}
-        </p>
+         <p className="mt-2.5 flex w-full items-center justify-center gap-1 truncate font-ui text-[12px] font-semibold text-foreground">
+           <span className="truncate">@{user.username}</span>
+           <SportsIdentityMark userId={user.id} />
+         </p>
         {user.category && (
           <p className="w-full truncate font-ui text-[10px] text-muted-foreground">{user.category}</p>
         )}

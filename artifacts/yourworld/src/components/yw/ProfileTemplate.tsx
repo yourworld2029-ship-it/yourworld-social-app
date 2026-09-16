@@ -14,6 +14,7 @@ import { Bio } from "@/components/yw/Bio";
 import { FollowListDialog } from "@/components/yw/FollowListDialog";
 import { Highlights } from "@/components/yw/Highlights";
 import { SportsProfileBadge, type SportsProfileInfo } from "@/components/yw/SportsProfile";
+import { SportsIdentityBadge } from "@/components/yw/SportsIdentityBadge";
 import { UserWatermark } from "@/components/yw/UserWatermark";
 import { VideoPoster } from "@/components/yw/VideoPoster";
 import { ProfilePhotoViewer } from "@/components/yw/ProfilePhotoViewer";
@@ -25,6 +26,7 @@ import {
   isSportsIdentityCategory,
   resolveNormalProfileCategories,
 } from "@/lib/profile-category";
+import { useVerifiedSportsIdentity } from "@/lib/sports-identity";
 
 export type ProfileTemplateProfile = {
   id: string;
@@ -123,6 +125,7 @@ export function ProfileTemplate({
     profile.category,
   );
   const sportsIdentityCategory = isSportsIdentityCategory(profile.category);
+  const verifiedSportsIdentity = useVerifiedSportsIdentity(profile.id);
 
   return (
     <main className="relative min-h-[100dvh] overflow-hidden bg-[radial-gradient(circle_at_15%_0%,rgba(214,93,177,0.11),transparent_32%),radial-gradient(circle_at_92%_18%,rgba(115,93,214,0.10),transparent_30%)] pb-8">
@@ -174,7 +177,11 @@ export function ProfileTemplate({
               <p data-testid="text-profile-display-name" className="font-display text-[18px] font-bold tracking-tight sm:text-xl">
                 {profile.display_name || "Add your name"}
               </p>
-              {sportsNameBadge ? <SportsProfileBadge badge={sportsNameBadge} verified /> : null}
+              {verifiedSportsIdentity ? (
+                <SportsIdentityBadge identity={verifiedSportsIdentity} variant="profile" />
+              ) : sportsNameBadge ? (
+                <SportsProfileBadge badge={sportsNameBadge} verified />
+              ) : null}
             </div>
             {isVerifiedSports && sportsProfile ? (
               <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.12em] text-amber-100/80">

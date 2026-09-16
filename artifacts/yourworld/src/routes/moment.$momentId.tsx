@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { downloadMomentMedia } from "@/lib/yw-download";
 import { toast } from "sonner";
+import { SportsIdentityMark } from "@/components/yw/SportsIdentityBadge";
 
 /** photo / text segment length (ms) */
 const PHOTO_DURATION = 5000;
@@ -600,8 +601,9 @@ function MomentViewRoute() {
               )}
             </div>
             <div className="flex min-w-0 items-center gap-2">
-              <span className="text-sm font-bold text-white drop-shadow-md">
-                {current.author?.name || current.author?.username || "You"}
+              <span className="inline-flex items-center gap-1 text-sm font-bold text-white drop-shadow-md">
+                <span>{current.author?.name || current.author?.username || "You"}</span>
+                <SportsIdentityMark userId={current.author?.id} />
               </span>
               <span className="shrink-0 text-[11px] font-medium text-white/70">{timeAgo(current.createdAt)}</span>
             </div>
