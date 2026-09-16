@@ -146,7 +146,7 @@ export function ProfileTemplate({
 
       <section className={`relative mx-auto max-w-4xl px-4 sm:px-8 lg:px-10 ${profile.cover_url ? "-mt-8 sm:-mt-10" : "mt-0"}`}>
         <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-4 sm:gap-x-6">
-          <span className="row-span-2 grid h-[84px] w-[84px] shrink-0 place-items-center rounded-full bg-[linear-gradient(135deg,#f4d58d,#d987c4_48%,#8647d2)] p-[3px] sm:h-28 sm:w-28">
+          <span className="row-span-2 grid h-[84px] w-[84px] shrink-0 place-items-center overflow-hidden rounded-full bg-[linear-gradient(135deg,#f4d58d,#d987c4_48%,#8647d2)] p-[3px] sm:h-28 sm:w-28">
             {avatarSrc ? (
               <img data-testid="img-profile-avatar" src={avatarSrc} alt="" className="h-full w-full rounded-full object-cover" />
             ) : null}
