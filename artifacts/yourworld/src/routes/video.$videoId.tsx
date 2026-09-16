@@ -14,10 +14,12 @@ import {
   Bookmark,
   Check,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   Download,
   Heart,
   Lock,
+  MessageCircle,
   Reply,
   Send,
   Share2,
@@ -28,11 +30,19 @@ import {
   Unlock,
   UserPlus,
   Volume2,
+  X,
   ZoomIn,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+} from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { VideoPoster } from "@/components/yw/VideoPoster";
@@ -308,9 +318,11 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [replyText, setReplyText] = useState("");
   const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
+  const [commentsOpen, setCommentsOpen] = useState(false);
 
   useEffect(() => {
     if (!focusComments || !video || realComments.loading) return;
+    setCommentsOpen(true);
     requestAnimationFrame(() => {
       commentsRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
       commentsRef.current?.focus({ preventScroll: true });
@@ -324,6 +336,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     replies.push(comment);
     repliesByParent.set(comment.parentCommentId, replies);
   });
+  const previewComment = comments.find((comment) => !comment.parentCommentId) ?? comments[0];
 
   const {
     data: relatedPages,
@@ -1000,20 +1013,20 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
          ) : null}
       </div>
 
-      <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col space-y-4 px-4 py-4">
-        <div>
-          <h1 className="line-clamp-2 text-lg font-bold text-white sm:text-xl">
+      <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-3 px-3 py-3 sm:gap-4 sm:px-4 sm:py-4">
+        <div className="space-y-1">
+          <h1 className="line-clamp-2 text-lg font-bold leading-tight text-white sm:text-xl">
             {video.title || video.caption || "Untitled Video"}
           </h1>
-          <p className="mt-1 text-xs text-gray-400">
+          <p className="text-xs text-gray-400">
             {viewCount ? `${viewCount} views • ` : ""}
             {timeAgo}
           </p>
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-b border-white/10 py-3">
+        <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-3">
           <div
-            className="flex cursor-pointer items-center gap-3 transition-opacity hover:opacity-80"
+            className="flex min-w-0 cursor-pointer items-center gap-3 transition-opacity hover:opacity-80"
             onClick={() => {
               if (creatorId) {
                 void navigate({ to: "/u/$userId", params: { userId: creatorId } });
@@ -1034,9 +1047,9 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
                 {creatorUsername.charAt(0).toUpperCase() || "U"}
               </AvatarFallback>
             </Avatar>
-            <div>
-              <p className="text-sm font-semibold text-white">{creatorName}</p>
-              <p className="text-xs text-gray-400">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-white">{creatorName}</p>
+              <p className="truncate text-xs text-gray-400">
                 @{creatorUsername} · {subscriberCount.toLocaleString()} subscribers
               </p>
             </div>
@@ -1060,8 +1073,8 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           </Button>
         </div>
 
-         <div className="flex w-full items-center justify-start gap-2 px-1 py-1">
-           <div className="flex shrink-0 items-center gap-1 rounded-full border border-white/10 bg-white/10 px-1 py-1 text-[11px] font-semibold text-white shadow-sm backdrop-blur-md transition-all">
+          <div className="flex w-full items-center gap-2 overflow-x-auto border-b border-white/10 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <div className="flex shrink-0 items-center gap-1 rounded-full border border-white/10 bg-white/10 px-1 py-1 text-[11px] font-semibold text-white shadow-sm backdrop-blur-md transition-all">
             <button
               type="button"
               onClick={handleLike}
@@ -1131,7 +1144,8 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
            onDownload={downloadSelected}
          />
 
-        <div className="rounded-xl bg-white/5 p-3">
+        <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-3">
+          <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-gray-500">Description</p>
           <p className={`text-xs leading-relaxed text-gray-300 ${descriptionExpanded ? "" : "line-clamp-3"}`}>
             {description}
           </p>
@@ -1146,45 +1160,112 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           ) : null}
         </div>
 
-         <div ref={commentsRef} id="comments" tabIndex={-1} className="pt-2">
-          <h3 className="mb-3 text-sm font-semibold text-white">
-            Comments ({comments.length})
-          </h3>
+        <div ref={commentsRef} id="comments" tabIndex={-1}>
+          <button
+            type="button"
+            onClick={() => setCommentsOpen(true)}
+            className="w-full rounded-2xl border border-white/10 bg-white/[0.045] p-3 text-left transition-colors hover:bg-white/[0.07]"
+            aria-label="Open comments"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <MessageCircle className="h-4 w-4 text-pink-300" />
+                <span className="text-sm font-semibold text-white">Comments</span>
+                <span className="text-xs text-gray-400">({comments.length})</span>
+              </div>
+              <ChevronRight className="h-4 w-4 text-gray-500" />
+            </div>
+            {previewComment ? (
+              <div className="mt-3 flex items-start gap-2.5">
+                <Avatar className="h-7 w-7 shrink-0">
+                  <AvatarImage src={previewComment.avatarUrl || undefined} />
+                  <AvatarFallback className="bg-gray-700 text-[10px] text-white">
+                    {(previewComment.username || "U").charAt(0).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+                <p className="line-clamp-2 min-w-0 text-xs leading-relaxed text-gray-300">
+                  <span className="mr-1 font-semibold text-gray-200">
+                    @{previewComment.username || "user"}
+                  </span>
+                  {previewComment.body}
+                </p>
+              </div>
+            ) : (
+              <p className="mt-2 text-xs text-gray-500">
+                {realComments.loading ? "Loading comments…" : "No comments yet. Be the first."}
+              </p>
+            )}
+          </button>
 
-          <div className="mb-4 flex gap-2">
-            <Avatar className="mt-1 h-9 w-9 shrink-0">
-              <AvatarImage src={currentAvatar} />
-              <AvatarFallback className="bg-pink-600 text-xs text-white">
-                {user?.email?.charAt(0).toUpperCase() || "U"}
-              </AvatarFallback>
-            </Avatar>
-            <Input
-              value={commentText}
-              onChange={(event) => setCommentText(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && commentText.trim()) submitComment();
-              }}
-              disabled={!user}
-              placeholder={user ? "Add a comment..." : "Sign in to comment"}
-              className="h-10 rounded-full border-white/10 bg-white/5 text-xs text-white placeholder:text-gray-500"
-            />
-            <Button
-              type="button"
-              disabled={!commentText.trim() || !user}
-              onClick={submitComment}
-              size="sm"
-              className="h-10 rounded-full bg-pink-600 px-4 text-white hover:bg-pink-700"
-            >
-              <Send className="h-4 w-4" />
-            </Button>
-          </div>
+          <Drawer open={commentsOpen} onOpenChange={setCommentsOpen}>
+            <DrawerContent className="h-[88vh] max-h-[760px] border-white/10 bg-zinc-950 p-0 text-white">
+              <DrawerHeader className="border-b border-white/10 px-4 pb-3 pt-5 text-left">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <DrawerTitle className="text-base text-white">
+                      Comments <span className="text-sm font-normal text-gray-400">({comments.length})</span>
+                    </DrawerTitle>
+                    <p className="mt-1 text-xs text-gray-500">Join the conversation</p>
+                  </div>
+                  <DrawerClose
+                    asChild
+                  >
+                    <button
+                      type="button"
+                      className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-gray-300 transition-colors hover:bg-white/15 hover:text-white"
+                      aria-label="Close comments"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </DrawerClose>
+                </div>
+              </DrawerHeader>
 
-          <div className="space-y-3">
-            {comments.filter((comment) => !comment.parentCommentId).map((comment) => renderComment(comment))}
-            {!realComments.loading && comments.length === 0 ? (
-              <p className="py-4 text-center text-xs text-gray-500">No comments yet. Be the first.</p>
-            ) : null}
-          </div>
+              <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+                {realComments.loading ? (
+                  <p className="py-8 text-center text-xs text-gray-500">Loading comments…</p>
+                ) : comments.length ? (
+                  <div className="space-y-4">
+                    {comments
+                      .filter((comment) => !comment.parentCommentId)
+                      .map((comment) => renderComment(comment))}
+                  </div>
+                ) : (
+                  <p className="py-8 text-center text-xs text-gray-500">No comments yet. Be the first.</p>
+                )}
+              </div>
+
+              <div className="border-t border-white/10 bg-zinc-950/95 px-4 py-3 backdrop-blur-xl">
+                <div className="flex gap-2">
+                  <Avatar className="mt-1 h-9 w-9 shrink-0">
+                    <AvatarImage src={currentAvatar} />
+                    <AvatarFallback className="bg-pink-600 text-xs text-white">
+                      {user?.email?.charAt(0).toUpperCase() || "U"}
+                    </AvatarFallback>
+                  </Avatar>
+                  <Input
+                    value={commentText}
+                    onChange={(event) => setCommentText(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && commentText.trim()) submitComment();
+                    }}
+                    disabled={!user}
+                    placeholder={user ? "Add a comment..." : "Sign in to comment"}
+                    className="h-10 rounded-full border-white/10 bg-white/5 text-xs text-white placeholder:text-gray-500"
+                  />
+                  <Button
+                    type="button"
+                    disabled={!commentText.trim() || !user}
+                    onClick={submitComment}
+                    size="sm"
+                    className="h-10 rounded-full bg-pink-600 px-4 text-white hover:bg-pink-700"
+                  >
+                    <Send className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </DrawerContent>
+          </Drawer>
         </div>
 
         {relatedVideos.length ? (
