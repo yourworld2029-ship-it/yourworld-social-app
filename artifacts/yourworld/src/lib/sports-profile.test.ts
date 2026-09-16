@@ -30,7 +30,7 @@ const profile = {
   teamDetails: "Not recorded",
 };
 
-test("Sports Identity card opens details while summary columns stay display-only", () => {
+test("Sports Identity card opens details without the removed summary row", () => {
   let opened = false;
   const card = SportsProfileCard({
     profile,
@@ -47,19 +47,8 @@ test("Sports Identity card opens details while summary columns stay display-only
 
   const children = (Array.isArray(card.props.children) ? card.props.children : [card.props.children]) as Array<{
     type?: unknown;
-    props?: {
-      onClick?: (event: { stopPropagation: () => void }) => void;
-    };
   }>;
-  const summary = children.find((child) => child?.type === "dl");
-  assert.ok(summary?.props?.onClick);
-  let stopped = false;
-  summary.props.onClick({
-    stopPropagation: () => {
-      stopped = true;
-    },
-  });
-  assert.equal(stopped, true);
+  assert.equal(children.some((child) => child?.type === "dl"), false);
 });
 
 test("Sports Details renders real fields and owner document controls without the promo", () => {
