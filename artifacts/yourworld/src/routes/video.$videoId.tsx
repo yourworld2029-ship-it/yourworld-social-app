@@ -18,9 +18,15 @@ import {
   Clock,
   Download,
   Eye,
+  Flag,
   Heart,
   Lock,
+  Maximize,
+  Minimize,
+  MoreVertical,
+  Pause,
   PictureInPicture,
+  Play,
   Reply,
   Send,
   Share2,
@@ -30,6 +36,7 @@ import {
   Trash2,
   Unlock,
   UserPlus,
+  VolumeX,
   Volume2,
   ZoomIn,
 } from "lucide-react";
@@ -131,6 +138,59 @@ type PictureInPictureDocument = Document & {
   pictureInPictureElement?: HTMLVideoElement | null;
   exitPictureInPicture?: () => Promise<void>;
 };
+
+type PlaybackQuality =
+  | "144p"
+  | "360p"
+  | "480p"
+  | "720p"
+  | "1080p"
+  | "1440p"
+  | "2160p"
+  | "4320p";
+
+type SelectedPlaybackQuality = "auto" | PlaybackQuality;
+
+const PLAYBACK_QUALITY_LABELS: Record<PlaybackQuality, string> = {
+  "144p": "144p",
+  "360p": "360p",
+  "480p": "480p",
+  "720p": "720p",
+  "1080p": "1080p",
+  "1440p": "2K",
+  "2160p": "4K",
+  "4320p": "8K",
+};
+
+function playbackQualityFromVideo(video: Video): PlaybackQuality | null {
+  const shortSide = Math.min(Number(video.original_width), Number(video.original_height));
+  if (Number.isFinite(shortSide) && shortSide > 0) {
+    if (shortSide >= 4320) return "4320p";
+    if (shortSide >= 2160) return "2160p";
+    if (shortSide >= 1440) return "1440p";
+    if (shortSide >= 1080) return "1080p";
+    if (shortSide >= 720) return "720p";
+    if (shortSide >= 480) return "480p";
+    if (shortSide >= 360) return "360p";
+    return "144p";
+  }
+
+  if (video.sourceQualityTier === "4320p") return "4320p";
+  if (video.sourceQualityTier === "2160p") return "2160p";
+  if (video.sourceQualityTier === "1440p") return "1440p";
+  if (video.sourceQualityTier === "1080p") return "1080p";
+  if (video.sourceQualityTier === "720p") return "720p";
+  if (video.sourceQualityTier === "480p") return "480p";
+  return null;
+}
+
+function formatPlayerTime(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
+  const total = Math.floor(seconds);
+  const minutes = Math.floor(total / 60);
+  const remaining = total % 60;
+  return `${minutes}:${String(remaining).padStart(2, "0")}`;
+}
 
 export const Route = createFileRoute("/video/$videoId")({
   component: VideoWatchPage,
@@ -234,13 +294,25 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   const [screenLocked, setScreenLocked] = useState(false);
   const [gestureFeedback, setGestureFeedback] = useState<GestureFeedback | null>(null);
   const [playbackRate, setPlaybackRate] = useState(1);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [volume, setVolume] = useState(1);
+  const [isMuted, setIsMuted] = useState(false);
+  const [controlMenuOpen, setControlMenuOpen] = useState(false);
+  const [controlMenuSection, setControlMenuSection] = useState<
+    "root" | "quality" | "speed" | "captions"
+  >("root");
+  const [selectedQuality, setSelectedQuality] =
+    useState<SelectedPlaybackQuality>("auto");
+  const [hasCaptions, setHasCaptions] = useState(false);
+  const [captionsEnabled, setCaptionsEnabled] = useState(false);
   const [resolvedMediaUrl, setResolvedMediaUrl] = useState<string>("");
   const touchGestureRef = useRef<TouchGesture | null>(null);
   const lastTapRef = useRef<{ time: number; x: number } | null>(null);
   const feedbackTimerRef = useRef<number | null>(null);
   const playedSecondsRef = useRef(0);
   const lastVideoTimeRef = useRef<number | null>(null);
-  const pictureInPictureTimeRef = useRef<number | null>(null);
 
   const {
     data: video,
@@ -433,6 +505,12 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     playedSecondsRef.current = 0;
     lastVideoTimeRef.current = null;
     setPlaybackRate(1);
+    setSelectedQuality("auto");
+    setControlMenuOpen(false);
+    setControlMenuSection("root");
+    setCurrentTime(0);
+    setDuration(0);
+    setIsPlaying(false);
   }, [videoId]);
 
   const handleVideoTimeUpdate = (event: React.SyntheticEvent<HTMLVideoElement>) => {
@@ -507,46 +585,19 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     );
 
     const handleEnterPictureInPicture = () => {
-      pictureInPictureTimeRef.current = Number.isFinite(videoElement.currentTime)
-        ? videoElement.currentTime
-        : null;
       setIsPictureInPicture(true);
     };
 
     const handleLeavePictureInPicture = () => {
-      const savedTime = pictureInPictureTimeRef.current;
-      if (
-        savedTime !== null &&
-        (!Number.isFinite(videoElement.currentTime) ||
-          (videoElement.currentTime === 0 && savedTime > 0))
-      ) {
-        videoElement.currentTime = savedTime;
-      }
-      pictureInPictureTimeRef.current = null;
       setIsPictureInPicture(false);
-    };
-
-    const syncPictureInPictureTime = () => {
-      if (
-        pipDocument.pictureInPictureElement === videoElement &&
-        Number.isFinite(videoElement.currentTime)
-      ) {
-        pictureInPictureTimeRef.current = videoElement.currentTime;
-      }
     };
 
     videoElement.addEventListener("enterpictureinpicture", handleEnterPictureInPicture);
     videoElement.addEventListener("leavepictureinpicture", handleLeavePictureInPicture);
-    videoElement.addEventListener("timeupdate", syncPictureInPictureTime);
 
     return () => {
       videoElement.removeEventListener("enterpictureinpicture", handleEnterPictureInPicture);
       videoElement.removeEventListener("leavepictureinpicture", handleLeavePictureInPicture);
-      videoElement.removeEventListener("timeupdate", syncPictureInPictureTime);
-      if (pipDocument.pictureInPictureElement === videoElement) {
-        const exitPromise = pipDocument.exitPictureInPicture?.();
-        if (exitPromise) void exitPromise.catch(() => undefined);
-      }
     };
   }, [mediaUrl, resolvedMediaUrl]);
 
@@ -564,9 +615,8 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
       const fullscreenElement = document.fullscreenElement;
       const fullscreenTarget =
         fullscreenElement === containerRef.current || fullscreenElement === videoRef.current;
-      const horizontalFullscreen = fullscreenTarget && window.innerWidth > window.innerHeight;
-      setIsFullscreen(horizontalFullscreen);
-      if (!horizontalFullscreen) {
+      setIsFullscreen(Boolean(fullscreenTarget));
+      if (!fullscreenTarget) {
         setScreenLocked(false);
         setZoom(1);
         setDisplayMode("fit");
@@ -747,9 +797,9 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
         return;
       }
 
-      pictureInPictureTimeRef.current = Number.isFinite(videoElement.currentTime)
-        ? videoElement.currentTime
-        : null;
+      if (videoElement.paused) {
+        await videoElement.play();
+      }
       await videoElement.requestPictureInPicture();
     } catch (cause) {
       console.error("Unable to enter picture-in-picture", cause);
@@ -936,6 +986,126 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     (isVideoQualityTier(video.source_quality_tier)
       ? video.source_quality_tier
       : qualityTierFromDimensions(video.original_width, video.original_height));
+  const sourcePlaybackQuality = playbackQualityFromVideo(video);
+  const availablePlaybackQualities: SelectedPlaybackQuality[] = [
+    "auto",
+    ...(sourcePlaybackQuality ? [sourcePlaybackQuality] : []),
+  ];
+
+  const refreshTextTracks = () => {
+    const tracks = videoRef.current?.textTracks;
+    if (!tracks) {
+      setHasCaptions(false);
+      setCaptionsEnabled(false);
+      return;
+    }
+    const trackList = Array.from(
+      { length: tracks.length },
+      (_, index) => tracks[index],
+    ).filter((track): track is TextTrack => Boolean(track));
+    setHasCaptions(trackList.length > 0);
+    setCaptionsEnabled(trackList.some((track) => track.mode === "showing"));
+  };
+
+  const togglePlayback = async () => {
+    const videoElement = videoRef.current;
+    if (!videoElement) return;
+    try {
+      if (videoElement.paused) await videoElement.play();
+      else videoElement.pause();
+    } catch {
+      toast.error("Playback could not start");
+    }
+  };
+
+  const handleSeek = (value: number) => {
+    const videoElement = videoRef.current;
+    if (!videoElement) return;
+    videoElement.currentTime = value;
+    setCurrentTime(value);
+  };
+
+  const handleVolume = (value: number) => {
+    const videoElement = videoRef.current;
+    if (!videoElement) return;
+    videoElement.volume = value;
+    videoElement.muted = value === 0;
+    setVolume(value);
+    setIsMuted(value === 0);
+  };
+
+  const toggleMute = () => {
+    const videoElement = videoRef.current;
+    if (!videoElement) return;
+    const nextMuted = !videoElement.muted;
+    videoElement.muted = nextMuted;
+    if (!nextMuted && videoElement.volume === 0) {
+      videoElement.volume = 1;
+      setVolume(1);
+    }
+    setIsMuted(nextMuted);
+  };
+
+  const handleFullscreen = async () => {
+    const container = containerRef.current;
+    if (!container) return;
+    const orientation = (
+      screen as unknown as {
+        orientation?: {
+          lock?: (value: "landscape") => Promise<void>;
+          unlock?: () => void;
+        };
+      }
+    ).orientation;
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+        orientation?.unlock?.();
+        return;
+      }
+      await container.requestFullscreen({ navigationUI: "hide" });
+      try {
+        await orientation?.lock?.("landscape");
+      } catch {
+        // Orientation locking is unavailable on some desktop browsers.
+      }
+    } catch (cause) {
+      console.error("Unable to change fullscreen state", cause);
+      toast.error("Fullscreen is unavailable on this device");
+    }
+  };
+
+  const toggleCaptions = () => {
+    const tracks = videoRef.current?.textTracks;
+    if (!tracks || tracks.length === 0) return;
+    const nextEnabled = !captionsEnabled;
+    for (let index = 0; index < tracks.length; index += 1) {
+      const track = tracks[index];
+      if (track) track.mode = nextEnabled ? "showing" : "disabled";
+    }
+    setCaptionsEnabled(nextEnabled);
+    setControlMenuOpen(false);
+  };
+
+  const handleReportVideo = async () => {
+    setControlMenuOpen(false);
+    if (!user) {
+      toast.error("Sign in to report videos");
+      return;
+    }
+    const { error } = await supabase.from("copyright_reports").insert({
+      reporter_user_id: user.id,
+      reported_post_id: video.id,
+      infringing_content_link: window.location.href,
+      reason: "Reported from video player controls",
+    });
+    if (error) {
+      toast.error("Could not submit report");
+      return;
+    }
+    toast.success("Report submitted");
+  };
+
   const downloadSelected = async (choice: DownloadChoice) => {
      if (!playableMediaUrl) throw new Error("This video has no downloadable media");
     const toastId = toast.loading("Preparing download... 0%");
@@ -966,7 +1136,9 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
       <div
         ref={containerRef}
         className={`relative w-full bg-black ${
-          isFullscreen ? "h-screen w-screen" : "aspect-video"
+          isFullscreen
+            ? "flex h-[100dvh] w-screen items-center justify-center"
+            : "aspect-video"
         }`}
         onDoubleClick={handleDoubleTap}
         onTouchStart={handleTouchStart}
@@ -978,12 +1150,32 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
          <video
             ref={videoRef}
              src={playableMediaUrl}
-             controls={!isFullscreen || !screenLocked}
-            controlsList="nodownload"
-            disablePictureInPicture={false}
+             controls={false}
+            preload="metadata"
             autoPlay
             playsInline
-             onTimeUpdate={handleVideoTimeUpdate}
+            onLoadedMetadata={(event) => {
+              setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0);
+              setCurrentTime(Number.isFinite(event.currentTarget.currentTime) ? event.currentTarget.currentTime : 0);
+              setVolume(event.currentTarget.volume);
+              setIsMuted(event.currentTarget.muted);
+              refreshTextTracks();
+            }}
+            onDurationChange={(event) => {
+              setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0);
+            }}
+            onPlay={() => setIsPlaying(true)}
+            onPause={() => setIsPlaying(false)}
+            onEnded={() => setIsPlaying(false)}
+            onTimeUpdate={(event) => {
+              handleVideoTimeUpdate(event);
+              setCurrentTime(Number.isFinite(event.currentTarget.currentTime) ? event.currentTarget.currentTime : 0);
+            }}
+            onVolumeChange={(event) => {
+              setVolume(event.currentTarget.volume);
+              setIsMuted(event.currentTarget.muted);
+            }}
+            onLoadedData={refreshTextTracks}
              className={`h-full w-full ${displayMode === "fill" ? "object-cover" : "object-contain"}`}
             style={{
               transform: `scale(${zoom})`,
@@ -996,6 +1188,223 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
         ) : (
           <div className="text-sm text-gray-500">No media URL found</div>
         )}
+
+         {!screenLocked ? (
+           <>
+             <div
+               className="pointer-events-auto absolute bottom-0 left-0 right-0 z-50 bg-gradient-to-t from-black/90 via-black/50 to-transparent px-3 pb-3 pt-12"
+               onClick={(event) => event.stopPropagation()}
+               onTouchStart={(event) => event.stopPropagation()}
+               onTouchMove={(event) => event.stopPropagation()}
+               onTouchEnd={(event) => event.stopPropagation()}
+             >
+               <input
+                 aria-label="Video progress"
+                 type="range"
+                 min={0}
+                 max={duration || 0}
+                 step={0.01}
+                 value={Math.min(currentTime, duration || 0)}
+                 disabled={!duration}
+                 onChange={(event) => handleSeek(Number(event.target.value))}
+                 className="mb-2 h-1.5 w-full cursor-pointer accent-pink-500"
+               />
+               <div className="flex items-center gap-2 text-xs text-white">
+                 <button
+                   type="button"
+                   onClick={() => void togglePlayback()}
+                   className="rounded-full p-1.5 transition hover:bg-white/15"
+                   aria-label={isPlaying ? "Pause video" : "Play video"}
+                 >
+                   {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5 fill-current" />}
+                 </button>
+                 <span className="min-w-[76px] tabular-nums">
+                   {formatPlayerTime(currentTime)} / {formatPlayerTime(duration)}
+                 </span>
+                 <button
+                   type="button"
+                   onClick={toggleMute}
+                   className="rounded-full p-1.5 transition hover:bg-white/15"
+                   aria-label={isMuted ? "Unmute video" : "Mute video"}
+                 >
+                   {isMuted || volume === 0 ? (
+                     <VolumeX className="h-5 w-5" />
+                   ) : (
+                     <Volume2 className="h-5 w-5" />
+                   )}
+                 </button>
+                 <input
+                   aria-label="Video volume"
+                   type="range"
+                   min={0}
+                   max={1}
+                   step={0.01}
+                   value={isMuted ? 0 : volume}
+                   onChange={(event) => handleVolume(Number(event.target.value))}
+                   className="hidden w-20 cursor-pointer accent-pink-500 sm:block"
+                 />
+                 <div className="ml-auto flex items-center gap-1">
+                   <button
+                     type="button"
+                     onClick={() => {
+                       setControlMenuSection("root");
+                       setControlMenuOpen((open) => !open);
+                     }}
+                     className="rounded-full p-1.5 transition hover:bg-white/15"
+                     aria-label="More video controls"
+                     aria-expanded={controlMenuOpen}
+                   >
+                     <MoreVertical className="h-5 w-5" />
+                   </button>
+                   <button
+                     type="button"
+                     onClick={() => void handleFullscreen()}
+                     className="rounded-full p-1.5 transition hover:bg-white/15"
+                     aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+                   >
+                     {isFullscreen ? <Minimize className="h-5 w-5" /> : <Maximize className="h-5 w-5" />}
+                   </button>
+                 </div>
+               </div>
+             </div>
+
+             {controlMenuOpen ? (
+               <div
+                 className="absolute bottom-20 right-3 z-[70] w-64 rounded-xl border border-white/15 bg-zinc-950/95 p-2 text-sm text-white shadow-2xl backdrop-blur-xl"
+                 onClick={(event) => event.stopPropagation()}
+                 onTouchStart={(event) => event.stopPropagation()}
+                 onTouchMove={(event) => event.stopPropagation()}
+                 onTouchEnd={(event) => event.stopPropagation()}
+               >
+                 {controlMenuSection === "root" ? (
+                   <div className="space-y-1">
+                     <button
+                       type="button"
+                       className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left hover:bg-white/10"
+                       onClick={() => setControlMenuSection("quality")}
+                     >
+                       <span>Quality</span>
+                       <span className="text-xs text-white/60">
+                         {selectedQuality === "auto"
+                           ? "Auto"
+                           : PLAYBACK_QUALITY_LABELS[selectedQuality]}
+                       </span>
+                     </button>
+                     <button
+                       type="button"
+                       className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left hover:bg-white/10"
+                       onClick={() => setControlMenuSection("speed")}
+                     >
+                       <span>Playback speed</span>
+                       <span className="text-xs text-white/60">{playbackRate}×</span>
+                     </button>
+                     {hasCaptions ? (
+                       <button
+                         type="button"
+                         className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left hover:bg-white/10"
+                         onClick={() => setControlMenuSection("captions")}
+                       >
+                         <span>Captions/Subtitles</span>
+                         <span className="text-xs text-white/60">
+                           {captionsEnabled ? "On" : "Off"}
+                         </span>
+                       </button>
+                     ) : null}
+                     <button
+                       type="button"
+                       className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-white/10"
+                       onClick={() => void handleReportVideo()}
+                     >
+                       <Flag className="h-4 w-4" />
+                       <span>Report</span>
+                     </button>
+                     <button
+                       type="button"
+                       className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-white/10"
+                       onClick={() => {
+                         setControlMenuOpen(false);
+                         void handleFullscreen();
+                       }}
+                     >
+                       <Maximize className="h-4 w-4" />
+                       <span>Full Screen</span>
+                     </button>
+                   </div>
+                 ) : (
+                   <div>
+                     <button
+                       type="button"
+                       className="mb-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left font-semibold hover:bg-white/10"
+                       onClick={() => setControlMenuSection("root")}
+                     >
+                       <ArrowLeft className="h-4 w-4" />
+                       <span>
+                         {controlMenuSection === "quality"
+                           ? "Quality"
+                           : controlMenuSection === "speed"
+                             ? "Playback speed"
+                             : "Captions/Subtitles"}
+                       </span>
+                     </button>
+                     {controlMenuSection === "quality"
+                       ? availablePlaybackQualities.map((quality) => (
+                           <button
+                             key={quality}
+                             type="button"
+                             className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left hover:bg-white/10"
+                             onClick={() => {
+                               setSelectedQuality(quality);
+                               setControlMenuOpen(false);
+                             }}
+                           >
+                             <span>
+                               {quality === "auto"
+                                 ? "Auto"
+                                 : PLAYBACK_QUALITY_LABELS[quality]}
+                             </span>
+                             {selectedQuality === quality ? (
+                               <Check className="h-4 w-4 text-pink-300" />
+                             ) : null}
+                           </button>
+                         ))
+                       : null}
+                     {controlMenuSection === "speed"
+                       ? [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map((rate) => (
+                           <button
+                             key={rate}
+                             type="button"
+                             className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left hover:bg-white/10"
+                             onClick={() => {
+                               setPlaybackRate(rate);
+                               if (videoRef.current) videoRef.current.playbackRate = rate;
+                               setControlMenuOpen(false);
+                             }}
+                           >
+                             <span>{rate === 1 ? "Normal" : `${rate}×`}</span>
+                             {playbackRate === rate ? (
+                               <Check className="h-4 w-4 text-pink-300" />
+                             ) : null}
+                           </button>
+                         ))
+                       : null}
+                     {controlMenuSection === "captions" ? (
+                       <button
+                         type="button"
+                         className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left hover:bg-white/10"
+                         onClick={toggleCaptions}
+                       >
+                         <span>{captionsEnabled ? "Turn off" : "Turn on"}</span>
+                         {captionsEnabled ? (
+                           <Check className="h-4 w-4 text-pink-300" />
+                         ) : null}
+                       </button>
+                     ) : null}
+                   </div>
+                 )}
+               </div>
+             ) : null}
+           </>
+         ) : null}
 
           {isFullscreen && !screenLocked && (
          <div className="pointer-events-none absolute inset-0 z-50">
