@@ -3,7 +3,6 @@ import type React from "react";
 import { useEffect, useRef, useState } from "react";
 import {
   Settings,
-  Play,
   MapPin,
   Link2,
   Trash2,
@@ -14,7 +13,6 @@ import {
   Pin,
   PinOff,
   Archive,
-  MoreHorizontal,
   Trophy,
 } from "lucide-react";
 import {
@@ -26,7 +24,6 @@ import {
 } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -47,9 +44,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { YwAvatar } from "@/components/yw/Avatar";
-import { Bio } from "@/components/yw/Bio";
 import { EditProfileSheet, type ProfileEdit } from "@/components/yw/EditProfileSheet";
-import { formatCount } from "@/lib/yw-data";
 import {
   useMyProfile,
   useResolvedMedia,
@@ -73,17 +68,13 @@ import {
   getOrCreateSportsProfile,
   serializeSportsProfileBio,
   SportsDetailsPanel,
-  SportsProfileBadge,
   toSportsProfileDraft,
   type SportsProfileDraft,
 } from "@/components/yw/SportsProfile";
 import { resolveMediaUrl, type DbPost } from "@/lib/social-data";
 import { STORAGE_BUCKETS } from "@/lib/storage-upload";
-import { UserWatermark } from "@/components/yw/UserWatermark";
-import { FollowListDialog } from "@/components/yw/FollowListDialog";
 import { useFollowCounts } from "@/lib/follow-data";
-import { Highlights } from "@/components/yw/Highlights";
-import { VideoPoster } from "@/components/yw/VideoPoster";
+import { ProfileTemplate } from "@/components/yw/ProfileTemplate";
 
 
 
@@ -236,9 +227,6 @@ function ProfilePage() {
       toast.error(e instanceof Error ? e.message : "Couldn't update");
     }
   };
-
-  const sortPinned = (list: DbPost[]) =>
-    [...list].sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned));
 
   const openViewer = (post: DbPost) => {
     const id = typeof post?.id === "string" ? post.id.trim() : "";
@@ -574,165 +562,41 @@ function ProfilePage() {
   }
 
   return (
-    <main className="relative min-h-[100dvh] overflow-hidden bg-[radial-gradient(circle_at_15%_0%,rgba(214,93,177,0.11),transparent_32%),radial-gradient(circle_at_92%_18%,rgba(115,93,214,0.10),transparent_30%)] pb-8">
-      <UserWatermark username={profile.username} />
-      <header className="header-lux sticky top-0 z-40 flex items-center justify-between gap-3 px-3.5 py-2.5 sm:px-6 sm:py-3">
-        <div className="min-w-0">
-          <p className="text-[9px] font-semibold uppercase tracking-[0.3em] text-amber-200/70">YourWorld</p>
-          <h1 data-testid="text-profile-username" className="mt-0.5 truncate font-display text-[15px] font-bold tracking-tight">
-            @{profile.username || "…"}
-          </h1>
-        </div>
-        <Link data-testid="link-profile-settings" to="/settings" aria-label="Settings" className="action-btn grid h-9 w-9 shrink-0 place-items-center rounded-full border border-white/10 bg-white/[0.04]">
-          <Settings className="h-[18px] w-[18px]" />
-        </Link>
-      </header>
-
-      {profile.cover_url ? (
-        coverSrc ? (
-          <div className="relative h-24 overflow-hidden sm:h-32">
-            <img src={coverSrc} alt="" className="h-full w-full scale-105 object-cover opacity-60" />
-            <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-background/25 to-background" />
-            <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded-full border border-white/10 bg-black/35 px-2.5 py-1 text-[9px] font-semibold uppercase tracking-[0.22em] text-white/70 backdrop-blur-md sm:left-4">
-              <span className="h-1.5 w-1.5 rounded-full bg-amber-300" />
-              Athlete profile
-            </div>
-          </div>
-        ) : (
-          <div className="relative h-24 overflow-hidden bg-[radial-gradient(circle_at_85%_10%,rgba(216,180,91,0.22),transparent_32%),linear-gradient(135deg,rgba(210,56,151,0.16),transparent_55%)] sm:h-32">
-            <div className="absolute inset-x-3 bottom-4 h-px bg-gradient-to-r from-transparent via-amber-200/40 to-transparent sm:inset-x-4" />
-          </div>
-        )
-      ) : null}
-
-      <section className={`relative mx-auto max-w-4xl px-4 sm:px-8 lg:px-10 ${profile.cover_url ? "-mt-8 sm:-mt-10" : "mt-0"}`}>
-        <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-4 sm:gap-x-6">
-          <span className="row-span-2 grid h-[84px] w-[84px] shrink-0 place-items-center rounded-full bg-[linear-gradient(135deg,#f4d58d,#d987c4_48%,#8647d2)] p-[3px] sm:h-28 sm:w-28">
-            {avatarSrc ? (
-              <img data-testid="img-profile-avatar" src={avatarSrc} alt="" className="h-full w-full rounded-full object-cover" />
-            ) : null}
-          </span>
-
-          <div className="min-w-0 self-stretch pt-1 sm:pt-2">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <p data-testid="text-profile-display-name" className="font-display text-[18px] font-bold tracking-tight sm:text-xl">
-                {profile.display_name || "Add your name"}
-              </p>
-              {sportsNameBadge ? <SportsProfileBadge badge={sportsNameBadge} verified /> : null}
-            </div>
-            {isVerifiedSports && sportsProfile ? (
-              <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.12em] text-amber-100/80">
-                {sportsProfile.sport} · {sportsProfile.role}
-              </p>
-            ) : profile.category ? (
-              <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.12em] text-zinc-500">{profile.category}</p>
-            ) : null}
-          </div>
-
-          <dl data-testid="stats-profile" className="col-span-2 grid grid-cols-3 divide-x divide-white/10 border-y border-white/10 py-0.5 sm:col-span-1 sm:col-start-2 sm:row-start-2 sm:mt-[-0.25rem] sm:py-1">
-            <Stat label="Posts" value={mediaLoading ? "—" : formatCount(posts.length)} />
-            <Stat label="Followers" value={counts.followers === null ? "—" : formatCount(counts.followers)} onClick={() => { setListTab("followers"); setListOpen(true); }} />
-            <Stat label="Following" value={counts.following === null ? "—" : formatCount(counts.following)} onClick={() => { setListTab("following"); setListOpen(true); }} />
-          </dl>
-
-          <div className="col-span-2 min-w-0">
-            {profile.bio ? <Bio text={isVerifiedSports ? sportsProfile?.publicDetails || profile.bio : profile.bio} /> : null}
-            {(profile.location || profile.website) ? (
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 pt-3 text-xs">
-                {profile.location ? <span className="flex items-center gap-1.5 text-zinc-400"><MapPin className="h-3.5 w-3.5 text-amber-200/80" strokeWidth={1.8} />{profile.location}</span> : null}
-                {profile.website ? (
-                  <a href={profile.website.startsWith("http") ? profile.website : `https://${profile.website}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 font-medium text-fuchsia-200 underline-offset-2 hover:underline">
-                    <Link2 className="h-3.5 w-3.5" strokeWidth={1.8} />
-                    {profile.website.replace(/^https?:\/\//, "")}
-                  </a>
-                ) : null}
-              </div>
-            ) : null}
-
-            <div className="flex flex-wrap justify-end gap-2 pt-4">
-              <Button data-testid="button-edit-profile" variant="secondary" className="h-8 rounded-lg border-0 bg-gradient-to-r from-fuchsia-500 to-violet-500 px-3 text-xs font-semibold text-white shadow-[0_8px_20px_-10px_rgba(217,70,239,0.9)] hover:from-fuchsia-400 hover:to-violet-400" onClick={() => setEditOpen(true)}>
-                Edit profile
-              </Button>
-              <Button data-testid="button-share-profile" variant="secondary" className="h-8 rounded-lg border border-white/10 bg-white/[0.06] px-3 text-xs font-semibold hover:bg-white/[0.12]" onClick={async () => {
-                const url = `${window.location.origin}/profile`;
-                try {
-                  if (navigator.share) await navigator.share({ title: profile.username, url });
-                  else { await navigator.clipboard.writeText(url); toast.success("Profile link copied"); }
-                } catch { /* user cancelled */ }
-              }}>
-                Share profile
-              </Button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <Highlights
-        userId={userId}
-        posts={posts.map((post) => ({ ...post, media_url: src(post.media_url) }))}
-      />
-
-      <Tabs defaultValue="videos" className="mx-auto w-full max-w-3xl pt-4">
-        <TabsList className="mx-3 grid w-auto grid-cols-3 rounded-xl border border-white/10 bg-black/20 p-1 backdrop-blur-xl sm:mx-4">
-          <TabsTrigger value="videos" className="rounded-lg py-2 text-[11px] data-[state=active]:bg-white/[0.09] data-[state=active]:text-white" aria-label="Videos">
-            Videos
-          </TabsTrigger>
-          <TabsTrigger value="reels" className="rounded-lg py-2 text-[11px] data-[state=active]:bg-white/[0.09] data-[state=active]:text-white" aria-label="Reels">
-            Reels
-          </TabsTrigger>
-          <TabsTrigger value="saved" className="rounded-lg py-2 text-[11px] data-[state=active]:bg-white/[0.09] data-[state=active]:text-white" aria-label="Saved">
-            Saved
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="videos" className="mt-0">
-          {grid.length ? (
-            <MediaGrid
-              onOpen={openViewer}
-              onManage={openManage}
-              items={sortPinned(grid).map((p) => ({
-                src: src(p.media_url),
-                type: p.kind === "video" ? "video" : p.media_type,
-                post: p,
-                ratio: mediaAspect(p),
-              }))}
-            />
-          ) : (
-            <Empty text={mediaLoading ? "Loading your posts…" : "No posts yet. Create your first one."} />
-          )}
-        </TabsContent>
-        <TabsContent value="reels" className="mt-0">
-          {reels.length ? (
-            <MediaGrid
-              onOpen={openViewer}
-              onManage={openManage}
-              items={sortPinned(reels).map((p) => ({
-                src: src(p.media_url),
-                type: "video",
-                post: p,
-                 ratio: mediaAspect(p),
-              }))}
-            />
-          ) : (
-            <Empty text={mediaLoading ? "Loading reels…" : "No reels yet."} />
-          )}
-        </TabsContent>
-        <TabsContent value="saved" className="mt-0">
-          {savedPosts.length ? (
-            <MediaGrid
-              onOpen={openViewer}
-              items={savedPosts.map((p) => ({
-                src: src(p.media_url),
-                type: "video",
-                post: p,
-                 ratio: mediaAspect(p),
-              }))}
-            />
-          ) : (
-            <Empty text="Nothing saved yet. Tap the bookmark on a post to keep it here." />
-          )}
-        </TabsContent>
-      </Tabs>
+    <ProfileTemplate
+      profile={profile}
+      avatarSrc={avatarSrc}
+      coverSrc={coverSrc}
+      userId={userId}
+      posts={posts}
+      grid={grid}
+      reels={reels}
+      savedPosts={savedPosts}
+      mediaLoading={mediaLoading}
+      counts={counts}
+      sportsProfile={sportsProfile}
+      sportsNameBadge={sportsNameBadge}
+      isVerifiedSports={isVerifiedSports}
+      isOwner
+      listOpen={listOpen}
+      listTab={listTab}
+      onListOpenChange={setListOpen}
+      onListTabChange={setListTab}
+      onFollowersClick={() => { setListTab("followers"); setListOpen(true); }}
+      onFollowingClick={() => { setListTab("following"); setListOpen(true); }}
+      onEditProfile={() => setEditOpen(true)}
+      onShare={async () => {
+        const url = `${window.location.origin}/profile`;
+        try {
+          if (navigator.share) await navigator.share({ title: profile.username, url });
+          else { await navigator.clipboard.writeText(url); toast.success("Profile link copied"); }
+        } catch { /* user cancelled */ }
+      }}
+      onOpen={openViewer}
+      onManage={openManage}
+      mediaSrc={src}
+      emptyVideos={mediaLoading ? "Loading your posts…" : "No posts yet. Create your first one."}
+      emptyReels={mediaLoading ? "Loading reels…" : "No reels yet."}
+    >
 
       <Sheet open={!!manage && !editing} onOpenChange={(o) => !o && setManage(null)}>
         <SheetContent side="bottom" className="rounded-t-3xl border-border px-0 pb-6 pt-3">
@@ -1044,17 +908,7 @@ function ProfilePage() {
         }}
       />
 
-      <FollowListDialog
-        open={listOpen}
-        onOpenChange={setListOpen}
-        userId={userId}
-        tab={listTab}
-        onTabChange={setListTab}
-      />
-
-
-
-    </main>
+    </ProfileTemplate>
   );
 }
 
@@ -1099,139 +953,6 @@ function OptionRow({
   );
 }
 
-function Empty({ text }: { text: string }) {
-  return <p data-testid="status-profile-empty" className="px-4 py-14 text-center text-sm text-muted-foreground">{text}</p>;
-}
-
-function Stat({
-  label,
-  value,
-  onClick,
-}: {
-  label: string;
-  value: string;
-  onClick?: () => void;
-}) {
-  const body = (
-    <>
-      <dd className="font-display text-lg font-bold leading-none sm:text-xl">{value}</dd>
-      <dt className="mt-1 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground sm:text-[11px]">{label}</dt>
-    </>
-  );
-  if (!onClick) return <div className="flex min-w-0 flex-col items-center justify-center px-2 py-0">{body}</div>;
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex min-w-0 w-full flex-col items-center justify-center rounded-xl px-2 py-0 transition-transform active:scale-95"
-    >
-      {body}
-    </button>
-  );
-}
 
 
-function MediaGrid({
-  items,
-  onOpen,
-  onManage,
-}: {
-  items: { src: string; type: string; post?: DbPost; ratio?: number }[];
-  onOpen?: (post: DbPost) => void;
-  onManage?: (post: DbPost) => void;
-}) {
-  return (
-    <ul data-testid="grid-profile-media" className="grid grid-cols-3 gap-1.5 bg-transparent px-3 sm:px-4">
-      {items.map((it, i) => (
-        <li
-          key={`${it.post?.id ?? it.src}-${i}`}
-          data-testid={`card-profile-media-${it.post?.id ?? i}`}
-          className="media-frame relative overflow-hidden rounded-lg bg-secondary"
-          style={{ aspectRatio: it.ratio ?? 1 }}
-        >
-          {it.post?.kind === "video" || it.post?.kind === "reel" || it.type?.startsWith("video") ? (
-            <VideoPoster
-              mediaUrl={it.src}
-              thumbnailUrl={it.post?.thumbnail_url}
-              alt=""
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            <img src={it.src} alt="" loading="lazy" className="h-full w-full object-cover" />
-          )}
-          {it.post?.kind === "reel" ? (
-            <span className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
-              <Play className="h-3 w-3 fill-current" />
-              {formatCount(it.post.views_count ?? it.post.views ?? 0)}
-            </span>
-          ) : it.post?.kind === "video" || it.type?.startsWith("video") ? (
-            <span className="absolute left-2 top-2 grid h-6 w-6 place-items-center rounded-full bg-black/45 text-white backdrop-blur-sm">
-              <Play className="h-3.5 w-3.5 fill-current" />
-            </span>
-          ) : null}
-          {it.post?.pinned ? (
-            <Pin className="absolute bottom-1.5 left-1.5 h-4 w-4 fill-current text-white drop-shadow" />
-          ) : null}
-          {it.post?.kind !== "reel" && it.post?.views != null ? (
-            <span className="absolute bottom-1.5 right-1.5 rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
-              {formatCount(it.post.views)} views
-            </span>
-          ) : null}
-          {it.post?.duration_seconds != null ? (
-            <span className="absolute right-1.5 top-1.5 rounded bg-black/65 px-1.5 py-0.5 text-[10px] font-medium text-white">
-              {formatDuration(it.post.duration_seconds)}
-            </span>
-          ) : null}
-           {it.post && onOpen && (it.post.kind === "reel" || it.post.kind === "video" || it.type?.startsWith("video")) ? (
-            <>
-              <button
-                type="button"
-                 aria-label={`Open ${it.post.kind === "reel" ? "reel" : "post"}`}
-                 data-testid={`button-open-media-${it.post.id}`}
-                  onClick={() => {
-                    const post = it.post;
-                    if (!post || typeof post.id !== "string" || !post.id.trim()) return;
-                    onOpen(post);
-                  }}
-                 className="absolute inset-0 z-10"
-              />
-               {onManage ? (
-                 <button
-                   type="button"
-                   aria-label="Manage post"
-                   data-testid={`button-manage-media-${it.post.id}`}
-                   onClick={(e) => {
-                     e.stopPropagation();
-                     onManage(it.post!);
-                   }}
-                   className="absolute right-1.5 top-1.5 z-20 grid h-7 w-7 place-items-center rounded-full bg-background/75 backdrop-blur transition-transform active:scale-90"
-                 >
-                   <MoreHorizontal className="h-4 w-4" strokeWidth={2} />
-                 </button>
-               ) : null}
-            </>
-          ) : null}
-        </li>
-      ))}
-    </ul>
 
-
-  );
-}
-
-function mediaAspect(post: DbPost) {
-  const width = post.original_width;
-  const height = post.original_height;
-  if (width && height && width > 0 && height > 0) {
-    return Math.min(1.65, Math.max(0.62, width / height));
-  }
-  return post.kind === "reel" ? 0.8 : 1;
-}
-
-function formatDuration(seconds: number) {
-  const total = Math.max(0, Math.round(seconds));
-  if (total >= 3600) {
-    return `${Math.floor(total / 3600)}:${String(Math.floor((total % 3600) / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
-  }
-  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
-}

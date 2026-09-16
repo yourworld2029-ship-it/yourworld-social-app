@@ -1,21 +1,15 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronLeft, Grid3x3, MessageCircle, Play, Share2, UserPlus } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { dmThreadId } from "@/lib/social-data";
-import { resolveMediaUrl, type DbPost } from "@/lib/social-data";
+import { dmThreadId, resolveMediaUrl, type DbPost } from "@/lib/social-data";
 import { useResolvedMedia } from "@/lib/profile-data";
-import { useFollowCounts, isRealUserId } from "@/lib/follow-data";
-import { FollowListDialog } from "@/components/yw/FollowListDialog";
-import { VideoPoster } from "@/components/yw/VideoPoster";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { formatCount } from "@/lib/yw-data";
-import { cn } from "@/lib/utils";
-import { useChatNames } from "@/lib/chat-names";
+import { isRealUserId, useFollowCounts } from "@/lib/follow-data";
 import { fetchOrbitProfileRow, rowToOrbitProfile } from "@/lib/orbit-live";
 import { useYw } from "@/lib/yw-store";
 import { useAuth } from "@/lib/auth-store";
+import { getOrCreateSportsProfile } from "@/components/yw/SportsProfile";
+import { ProfileTemplate } from "@/components/yw/ProfileTemplate";
 
 export const Route = createFileRoute("/u/$userId")({
   head: () => ({
@@ -43,13 +37,18 @@ type PublicProfile = {
   username: string;
   display_name: string;
   bio: string;
+  category: string;
+  location: string;
+  website: string;
   avatar_url: string | null;
+  cover_url: string | null;
+  is_verified: boolean;
+  verification_requested: boolean;
 };
 
 function PublicProfilePage() {
   const { userId } = Route.useParams();
   const navigate = useNavigate();
-  const { nameFor } = useChatNames();
   const { user: authUser } = useAuth();
   const [profile, setProfile] = useState<PublicProfile | null>(null);
   const [avatarSrc, setAvatarSrc] = useState<string | null>(null);
@@ -89,7 +88,15 @@ function PublicProfilePage() {
       if (postsResult.error) throw postsResult.error;
 
       const row = (profileResult.data ?? [])[0] as
-        | { id: string; username: string | null; display_name: string | null; avatar_url: string | null; bio?: string | null }
+        | {
+            id: string;
+            username: string | null;
+            display_name: string | null;
+            avatar_url: string | null;
+            bio?: string | null;
+            category?: string | null;
+            is_verified?: boolean | null;
+          }
         | undefined;
       const orbitProfile = orbitRow ? rowToOrbitProfile(orbitRow) : null;
       const next: PublicProfile = {
@@ -98,7 +105,13 @@ function PublicProfilePage() {
         display_name:
           row?.display_name ?? row?.username ?? orbitProfile?.name ?? "YourWorld user",
         bio: row?.bio ?? orbitProfile?.about ?? "",
+        category: row?.category ?? "",
+        location: "",
+        website: "",
         avatar_url: row?.avatar_url ?? orbitProfile?.photo ?? null,
+        cover_url: null,
+        is_verified: row?.is_verified === true,
+        verification_requested: false,
       };
       const nextAvatar = next.avatar_url
         ? await resolveMediaUrl(next.avatar_url, "avatars")
@@ -125,12 +138,38 @@ function PublicProfilePage() {
     void navigate({ to: "/profile", replace: true });
   }, [isOwnProfile, navigate]);
 
-  const media = useResolvedMedia(posts.map((p) => p.media_url));
-  const src = (u: string) => media[u] ?? u;
-  const grid = posts.filter((p) => p.kind !== "reel");
-  const reels = posts.filter((p) => p.kind === "reel");
-  const gridEmpty = loading ? "Loading…" : loadError ?? "No posts yet";
-  const reelsEmpty = loading ? "Loading…" : loadError ?? "No reels yet";
+  const media = useResolvedMedia(posts.map((post) => post.media_url));
+  const mediaSrc = (url: string) => media[url] ?? url;
+  const grid = useMemo(
+    () =>
+      posts.filter(
+        (post) =>
+          post.kind === "video" ||
+          (post.kind !== "reel" && post.media_type?.startsWith("video")),
+      ),
+    [posts],
+  );
+  const reels = useMemo(() => posts.filter((post) => post.kind === "reel"), [posts]);
+  const sportsProfile = useMemo(
+    () =>
+      profile
+        ? getOrCreateSportsProfile({
+            ...profile,
+            username: profile.username,
+            displayName: profile.display_name,
+          })
+        : null,
+    [profile],
+  );
+  const isVerifiedSports = Boolean(sportsProfile?.verified);
+  const sportsNameBadge =
+    isVerifiedSports && sportsProfile
+      ? sportsProfile.role === "Coach"
+        ? "VERIFIED COACH"
+        : sportsProfile.status !== "Not recorded"
+          ? `${sportsProfile.status.toUpperCase()} PLAYER`
+          : "VERIFIED PLAYER"
+      : null;
 
   const onFollow = async () => {
     if (busy || isOwnProfile) return;
@@ -141,11 +180,19 @@ function PublicProfilePage() {
       if (!changed) return;
       void counts.reload();
       toast.success(wasFollowing ? "Unfollowed" : `Following @${profile?.username}`);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't update follow");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't update follow");
     } finally {
       setBusy(false);
     }
+  };
+
+  const onMessage = () => {
+    if (!me || isOwnProfile) return;
+    void navigate({
+      to: "/chat/$threadId",
+      params: { threadId: dmThreadId(me, userId) },
+    });
   };
 
   const onShare = async () => {
@@ -179,195 +226,45 @@ function PublicProfilePage() {
     });
   };
 
-  if (isOwnProfile) return null;
+  if (loading || !profile) return null;
 
   return (
-    <main className="min-h-screen bg-[#0d0d0f] pb-28 text-white">
-      <header className="sticky top-0 z-40 flex items-center gap-3 border-b border-zinc-900/60 bg-[#0d0d0f]/90 px-3 py-3 backdrop-blur-md">
-        <button
-          type="button"
-          onClick={() => navigate({ to: "/" })}
-          aria-label="Back"
-          className="grid h-9 w-9 place-items-center rounded-full text-zinc-300 active:scale-90"
-        >
-          <ChevronLeft size={22} />
-        </button>
-        <h1 className="truncate text-base font-bold">@{profile?.username ?? "user"}</h1>
-      </header>
-
-      <section className="px-4 pt-5">
-        <div className="flex items-center gap-5">
-          {avatarSrc ? (
-            <img
-              src={avatarSrc}
-              alt={profile?.display_name ?? "Profile photo"}
-              className="h-20 w-20 rounded-full border border-pink-500/70 object-cover"
-            />
-          ) : (
-            <div className="grid h-20 w-20 place-items-center rounded-full border border-pink-500/70 bg-gradient-to-br from-pink-500 to-purple-600 text-2xl font-bold">
-              {(profile?.display_name || profile?.username || "Y").charAt(0).toUpperCase()}
-            </div>
-          )}
-
-          <div className="grid flex-1 grid-cols-3 text-center leading-none">
-            <div>
-              <p className="text-base font-bold">{formatCount(posts.length)}</p>
-              <p className="text-[11px] text-zinc-400">Posts</p>
-            </div>
-            <button
-              onClick={() => {
-                setListTab("followers");
-                setListOpen(true);
-              }}
-            >
-              <p className="text-base font-bold">{counts.followers === null ? "—" : formatCount(counts.followers)}</p>
-              <p className="text-[11px] text-zinc-400">Followers</p>
-            </button>
-            <button
-              onClick={() => {
-                setListTab("following");
-                setListOpen(true);
-              }}
-            >
-              <p className="text-base font-bold">{counts.following === null ? "—" : formatCount(counts.following)}</p>
-              <p className="text-[11px] text-zinc-400">Following</p>
-            </button>
-          </div>
-        </div>
-
-        <div className="pt-3">
-          <p className="text-sm font-semibold">{nameFor(userId, profile?.display_name ?? "")}</p>
-          {profile?.bio && (
-            <p className="whitespace-pre-line pt-1 text-xs leading-relaxed text-zinc-300">
-              {profile.bio}
-            </p>
-          )}
-        </div>
-
-        <div className="grid grid-cols-3 gap-2 pt-4">
-          {!isOwnProfile ? (
-            <>
-              <button
-                type="button"
-                onClick={onFollow}
-                disabled={busy || counts.unavailable}
-                className={cn(
-                  "flex items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-bold transition-all active:scale-[0.98] disabled:opacity-60",
-                  following[userId] ? "bg-zinc-800 text-white" : "bg-pink-500 text-white",
-                )}
-              >
-                <UserPlus size={14} />
-                {counts.unavailable ? "Follow unavailable" : following[userId] ? "Following" : "Follow"}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (!me || isOwnProfile) return;
-                  void navigate({
-                    to: "/chat/$threadId",
-                    params: { threadId: dmThreadId(me, userId) },
-                  });
-                }}
-                className="flex items-center justify-center rounded-xl bg-zinc-800 py-2 text-center text-xs font-bold"
-              >
-                <MessageCircle size={14} />
-                Message
-              </button>
-            </>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => void onShare()}
-            className="flex items-center justify-center gap-1.5 rounded-xl border border-zinc-800 bg-transparent py-2 text-xs font-bold"
-          >
-            <Share2 size={14} />
-            Share
-          </button>
-        </div>
-      </section>
-
-      <Tabs defaultValue="grid" className="pt-6">
-        <TabsList className="grid w-full grid-cols-2 bg-transparent">
-          <TabsTrigger value="grid">
-            <Grid3x3 size={18} />
-          </TabsTrigger>
-          <TabsTrigger value="reels">
-            <Play size={18} />
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="grid">
-          <MediaGrid
-            items={grid}
-            src={src}
-            empty={gridEmpty}
-            onOpen={openViewer}
-          />
-        </TabsContent>
-        <TabsContent value="reels">
-          <MediaGrid
-            items={reels}
-            src={src}
-            empty={reelsEmpty}
-            onOpen={openViewer}
-          />
-        </TabsContent>
-      </Tabs>
-
-      <FollowListDialog
-        userId={userId}
-        open={listOpen}
-        onOpenChange={setListOpen}
-        tab={listTab}
-        onTabChange={setListTab}
-      />
-    </main>
-  );
-}
-
-function MediaGrid({
-  items,
-  src,
-  empty,
-  onOpen,
-}: {
-  items: DbPost[];
-  src: (u: string) => string;
-  empty: string;
-  onOpen?: (post: DbPost) => void;
-}) {
-  if (!items.length) {
-    return <p className="px-4 py-12 text-center text-xs text-zinc-500">{empty}</p>;
-  }
-  return (
-    <div className="grid grid-cols-3 gap-[2px] px-[2px]">
-      {items.map((p) => (
-        <div key={p.id} className="relative aspect-square overflow-hidden bg-zinc-900">
-          {p.media_type === "video" ? (
-            <VideoPoster
-              mediaUrl={src(p.media_url)}
-              thumbnailUrl={p.thumbnail_url}
-              alt={p.caption ?? "Video"}
-              className="h-full w-full"
-            />
-          ) : (
-            <img
-              src={src(p.media_url)}
-              alt={p.caption ?? "Post"}
-              loading="lazy"
-              className="h-full w-full object-cover"
-            />
-          )}
-          {onOpen && (p.kind === "reel" || p.kind === "video" || p.media_type.startsWith("video")) ? (
-            <button
-              type="button"
-              aria-label={`Open ${p.kind === "reel" ? "reel" : "video"}`}
-              onClick={() => onOpen(p)}
-              className="absolute inset-0 z-10"
-            />
-          ) : null}
-        </div>
-      ))}
-    </div>
+    <ProfileTemplate
+      profile={profile}
+      avatarSrc={avatarSrc}
+      coverSrc={null}
+      userId={userId}
+      posts={posts}
+      grid={grid}
+      reels={reels}
+      savedPosts={[]}
+      mediaLoading={loading}
+      counts={counts}
+      sportsProfile={sportsProfile}
+      sportsNameBadge={sportsNameBadge}
+      isVerifiedSports={isVerifiedSports}
+      isOwner={false}
+      following={Boolean(following[userId])}
+      followBusy={busy}
+      onFollowersClick={() => {
+        setListTab("followers");
+        setListOpen(true);
+      }}
+      onFollowingClick={() => {
+        setListTab("following");
+        setListOpen(true);
+      }}
+      listOpen={listOpen}
+      listTab={listTab}
+      onListOpenChange={setListOpen}
+      onListTabChange={setListTab}
+      onFollow={onFollow}
+      onMessage={onMessage}
+      onShare={onShare}
+      onOpen={openViewer}
+      mediaSrc={mediaSrc}
+      emptyVideos={loadError ?? "No posts yet. Create your first one."}
+      emptyReels={loadError ?? "No reels yet."}
+    />
   );
 }
