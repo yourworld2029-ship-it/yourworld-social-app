@@ -124,6 +124,9 @@ export function ProfileTemplate({
   );
   const sportsIdentityCategory = isSportsIdentityCategory(profile.category);
   const verifiedSportsIdentity = useVerifiedSportsIdentity(profile.id);
+  const visibleNormalCategories = normalCategories.filter(
+    (category) => !isSportsProfileLabel(category, sportsProfile),
+  );
 
   return (
     <main className="relative min-h-[100dvh] overflow-hidden bg-[radial-gradient(circle_at_15%_0%,rgba(214,93,177,0.11),transparent_32%),radial-gradient(circle_at_92%_18%,rgba(115,93,214,0.10),transparent_30%)] pb-8">
@@ -171,7 +174,7 @@ export function ProfileTemplate({
           </span>
 
           <div className="min-w-0 self-stretch pt-1 sm:pt-2">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <div className="flex flex-col items-start gap-1">
               <p data-testid="text-profile-display-name" className="font-display text-[18px] font-bold tracking-tight sm:text-xl">
                 {profile.display_name || "Add your name"}
               </p>
@@ -186,9 +189,9 @@ export function ProfileTemplate({
             ) : sportsIdentityCategory && profile.category ? (
               <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.12em] text-zinc-500">{profile.category}</p>
             ) : null}
-            {normalCategories.length > 0 ? (
+            {visibleNormalCategories.length > 0 ? (
               <div className="mt-1 flex flex-wrap gap-1.5">
-                {normalCategories.map((category) => (
+                {visibleNormalCategories.map((category) => (
                   <span
                     key={category}
                     className="rounded-full border border-white/10 bg-white/[0.06] px-2 py-0.5 text-[10px] font-semibold tracking-wide text-zinc-300"
@@ -315,6 +318,15 @@ export function ProfileTemplate({
       />
     </main>
   );
+}
+
+function isSportsProfileLabel(category: string, sportsProfile: SportsProfileInfo | null) {
+  if (!sportsProfile?.sport.trim()) return false;
+  const normalize = (value: string) => value.trim().replace(/\s+/g, " ").toLocaleLowerCase();
+  const displayedCategory = normalize(formatNormalProfileCategoryForDisplay(category));
+  const sport = normalize(sportsProfile.sport);
+  const role = normalize(sportsProfile.role);
+  return displayedCategory === `${sport} · ${role}` || displayedCategory === `${role} · ${sport}`;
 }
 
 function sortPinned(list: DbPost[]) {
