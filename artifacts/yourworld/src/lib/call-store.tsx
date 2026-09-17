@@ -1360,15 +1360,22 @@ export function CallProvider({ children }: { children: ReactNode }) {
         }
         // Realtime/database ringing remains the source of truth. This
         // authenticated edge call is only the background wake-up path.
-        void supabase.functions
-          .invoke("send-call-push", {
-            body: {
-              callId,
-              receiverId: target,
-              mode,
-              peerName: peerName ?? "YourWorld caller",
-            },
-          })
+        void supabase
+          .from("profiles")
+          .select("avatar_url")
+          .eq("id", authId)
+          .maybeSingle()
+          .then(({ data: callerProfile }) =>
+            supabase.functions.invoke("send-call-push", {
+              body: {
+                callId,
+                receiverId: target,
+                mode,
+                peerName: peerName ?? "YourWorld caller",
+                avatarUrl: callerProfile?.avatar_url ?? null,
+              },
+            }),
+          )
           .then(({ error: pushError }) => {
             if (pushError) console.debug("[call-notifications] background push unavailable", pushError);
           });

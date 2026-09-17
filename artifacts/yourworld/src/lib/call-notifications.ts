@@ -5,6 +5,7 @@ export type CallNotificationDetails = {
   callId: string;
   mode: "audio" | "video";
   peerName: string;
+  avatarUrl?: string | null;
 };
 
 export type CallNotificationAction = CallNotificationDetails & {
@@ -116,10 +117,11 @@ export async function showIncomingCallNotification(details: CallNotificationDeta
   if (!registration) return false;
   try {
     await registration.showNotification(
-      `Incoming ${details.mode === "video" ? "video" : "audio"} call`,
+      details.peerName,
       {
-        body: `${details.peerName} is calling you on YourWorld`,
-        icon: "/icon-512.png",
+        body: `Incoming ${details.mode === "video" ? "video" : "audio"} call`,
+        icon: details.avatarUrl || "/icon-512.png",
+        image: details.avatarUrl || undefined,
         badge: "/favicon.png",
         tag: `yw-call-${details.callId}`,
         renotify: true,
@@ -150,9 +152,10 @@ export function readCallNotificationAction(): CallNotificationAction | null {
   const action = params.get("callAction");
   const mode = params.get("callMode");
   const peerName = params.get("peerName");
+  const avatarUrl = params.get("avatarUrl");
   if (!callId || (action !== "accept" && action !== "decline")) return null;
   if (mode !== "audio" && mode !== "video") return null;
   if (!peerName) return null;
   window.history.replaceState({}, "", `${window.location.pathname}${window.location.hash}`);
-  return { callId, action, mode, peerName };
+  return { callId, action, mode, peerName, avatarUrl };
 }

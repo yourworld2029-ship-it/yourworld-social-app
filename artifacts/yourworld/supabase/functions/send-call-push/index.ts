@@ -12,6 +12,7 @@ type CallPushRequest = {
   receiverId?: string;
   mode?: "audio" | "video";
   peerName?: string;
+  avatarUrl?: string | null;
 };
 
 function response(body: Record<string, unknown>, status = 200) {
@@ -88,6 +89,7 @@ Deno.serve(async (request) => {
       callId: payload.callId,
       mode: payload.mode,
       peerName: payload.peerName,
+      avatarUrl: payload.avatarUrl ?? null,
       url: "/",
     },
   });

@@ -83,16 +83,18 @@ self.addEventListener("push", (event) => {
   const merged = { ...notification, ...data, ...payload };
   const isCall = merged.type === "call" || merged.callId;
   const mode = merged.mode === "video" ? "video" : "audio";
+  const peerName = merged.peerName || "YourWorld";
   const title = isCall
-    ? merged.title || `Incoming ${mode} call`
+    ? merged.title || peerName
     : merged.title || "YourWorld";
   const body = isCall
-    ? `${merged.peerName || "Someone"} is calling you on YourWorld`
+    ? `Incoming ${mode} call`
     : merged.body || "You have a new notification.";
 
   const options = {
     body,
-    icon: merged.icon || "/icon-512.png",
+    icon: merged.avatarUrl || merged.icon || "/icon-512.png",
+    image: isCall ? merged.avatarUrl || undefined : undefined,
     badge: merged.badge || "/favicon.png",
     tag: isCall ? `yw-call-${merged.callId}` : "yourworld-message",
     renotify: true,
@@ -112,7 +114,8 @@ self.addEventListener("push", (event) => {
       type: isCall ? "call" : "message",
       callId: merged.callId || null,
       mode,
-      peerName: merged.peerName || "YourWorld",
+      peerName,
+      avatarUrl: merged.avatarUrl || null,
       url: merged.url || "/",
     },
   };
@@ -132,6 +135,7 @@ self.addEventListener("notificationclick", (event) => {
     params.set("callAction", action === "decline" ? "decline" : "accept");
     if (data.mode) params.set("callMode", data.mode);
     if (data.peerName) params.set("peerName", data.peerName);
+    if (data.avatarUrl) params.set("avatarUrl", data.avatarUrl);
   }
   const targetUrl = data.callId
     ? `${self.location.origin}/?${params.toString()}`
@@ -147,6 +151,7 @@ self.addEventListener("notificationclick", (event) => {
           callId: data.callId || null,
           mode: data.mode || "audio",
           peerName: data.peerName || "YourWorld",
+          avatarUrl: data.avatarUrl || null,
         });
         return existing.focus();
       }
