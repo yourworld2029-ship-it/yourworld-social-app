@@ -250,6 +250,7 @@ export function ProfileTemplate({
       <Highlights
         userId={userId}
         posts={posts.map((post) => ({ ...post, media_url: src(post.media_url) }))}
+        canManage={isOwner}
       />
 
       <Tabs defaultValue="videos" className="mx-auto w-full max-w-3xl pt-4">
