@@ -1,4 +1,4 @@
-import { Crown, Globe2, Star } from "lucide-react";
+import { Crown, Gem, Globe2, Star } from "lucide-react";
 import { useVerifiedSportsIdentity, type VerifiedSportsIdentity } from "@/lib/sports-identity";
 
 export function SportsIdentityBadge({
@@ -24,17 +24,28 @@ export function SportsIdentityBadge({
           international ? "international" : "national"
         }`}
       >
+        <span className="sports-identity-badge__halo" aria-hidden="true" />
         <span className="sports-identity-badge__wing sports-identity-badge__wing--left" aria-hidden="true" />
         <span className="sports-identity-badge__wing sports-identity-badge__wing--right" aria-hidden="true" />
-        <span className="sports-identity-badge__top-icon" aria-hidden="true">
-          {international ? <Crown /> : <Star />}
-        </span>
-        <span className="sports-identity-badge__globe" aria-hidden="true">
-          {international ? <Globe2 /> : null}
-        </span>
-        <span className="sports-identity-badge__panel">
-          <span className="sports-identity-badge__status">{identity.status}</span>
-          <span className="sports-identity-badge__role">{identity.role}</span>
+        <span className="sports-identity-badge__crest">
+          <span className="sports-identity-badge__top-icon" aria-hidden="true">
+            {international ? <Crown /> : <Star />}
+          </span>
+          <span className="sports-identity-badge__globe" aria-hidden="true">
+            {international ? (
+              <>
+                <span className="sports-identity-badge__orbit" />
+                <Globe2 />
+                <Gem className="sports-identity-badge__gem" />
+              </>
+            ) : (
+              <Star className="sports-identity-badge__national-star" />
+            )}
+          </span>
+          <span className="sports-identity-badge__panel">
+            <span className="sports-identity-badge__status">{identity.status}</span>
+            <span className="sports-identity-badge__role">{identity.role}</span>
+          </span>
         </span>
         {international && identity.countryFlag ? (
           <span
@@ -45,7 +56,9 @@ export function SportsIdentityBadge({
             {identity.countryFlag}
           </span>
         ) : null}
-        <Star className="sports-identity-badge__bottom-star" aria-hidden="true" />
+        <span className="sports-identity-badge__bottom-mark" aria-hidden="true">
+          {international ? <Gem /> : <Star />}
+        </span>
       </div>
     );
   }
