@@ -578,7 +578,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
     setCamOn(true);
     setSpeakerOn(true);
     setNetworkState("stable");
-    setScreenSharing(false);
     setVideoEffect("none");
     remoteAudioMuted.current = false;
     setFacingMode("user");
@@ -744,22 +743,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
     if (current && current !== nextTrack) stream.removeTrack(current);
     if (!stream.getVideoTracks().includes(nextTrack)) stream.addTrack(nextTrack);
     setVideoEffect(nextEffect);
-    attachStreams();
-  }, [attachStreams]);
-
-  const restoreCameraTrack = useCallback(async () => {
-    if (!localStream.current || !pcRef.current || !cameraSourceTrack.current) return;
-    const current = localStream.current.getVideoTracks()[0] ?? null;
-    const sender = pcRef.current.getSenders().find((item) => item.track?.kind === "video");
-    const nextTrack = videoEffectPipeline.current?.track ?? cameraSourceTrack.current;
-    if (sender) {
-      await sender.replaceTrack(nextTrack);
-      await tuneCallVideoSender(sender);
-    }
-    if (current && current !== nextTrack) localStream.current.removeTrack(current);
-    if (!localStream.current.getVideoTracks().includes(nextTrack)) {
-      localStream.current.addTrack(nextTrack);
-    }
     attachStreams();
   }, [attachStreams]);
 
