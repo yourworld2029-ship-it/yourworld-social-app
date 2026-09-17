@@ -1,0 +1,36 @@
+ONLY FIX THE INCOMING AUDIO/VIDEO CALL PRESENTATION.
+
+IMPORTANT:
+Do NOT change, remove, redesign, or refactor any other YourWorld feature, UI, database, authentication, WebRTC call logic, chat, navigation, or existing call controls.
+
+CURRENT PROBLEM:
+Incoming video/audio calls currently open a full-screen incoming-call page inside the app.
+
+REQUIRED BEHAVIOR:
+1. When an incoming audio/video call arrives while the user is inside YourWorld, show a premium compact incoming-call UI/notification instead of immediately taking over the full screen.
+2. When the user is outside YourWorld, the app is in the background, or the browser/PWA is not currently open, use the proper Android/browser Push Notification mechanism where supported so the incoming call can appear as a system-level notification.
+3. The notification must clearly show:
+   - Caller name
+   - Caller avatar if available
+   - Audio Call / Video Call
+   - Accept
+   - Decline
+4. Accept must open/continue the existing YourWorld call screen and connect to the existing call session.
+5. Decline must reject/end the incoming call using the existing call logic.
+6. Do NOT create a second calling system.
+7. Reuse the existing WebRTC/signaling/call state and existing Supabase infrastructure.
+8. Do NOT break the existing audio/video call controls.
+9. Do NOT remove the current in-call screen; only change HOW an incoming call is presented before acceptance.
+10. Do not claim native WhatsApp-style system calling is possible if the current web/PWA platform does not support it. Implement the maximum reliable Android/PWA/browser-supported behavior using Web Push + Service Worker + notification actions.
+11. If true system-level incoming-call UI requires native Android capabilities that this web app cannot provide, keep the fallback as a proper high-quality notification rather than a fake full-screen page.
+12. Request notification permission only at an appropriate user-initiated moment, not automatically on every page load.
+13. Preserve all existing features and make the smallest root-cause change.
+
+After implementation:
+- Test incoming audio call while app is open.
+- Test incoming video call while app is open.
+- Test while YourWorld is in background.
+- Test notification Accept/Decline.
+- Verify existing call connection still works.
+- Run lint/build/tests.
+- Report exactly which files were changed and confirm that no unrelated features were modified.
