@@ -1176,6 +1176,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
           callId: row.id,
           mode: row.call_type,
           peerName,
+         avatarUrl: callerProfile?.avatar_url ?? null,
         });
       }
     };
@@ -1762,10 +1763,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
       )}
       {call && phase !== "idle" && (
         <div
-          className={`fixed inset-0 z-[100] flex flex-col justify-between overflow-hidden p-6 text-white ${
+          className={`${
             phase === "incoming"
-              ? "bg-zinc-950/95 backdrop-blur-xl"
-              : "bg-zinc-950"
+              ? "fixed inset-x-3 top-[max(0.75rem,env(safe-area-inset-top,0px))] z-[100] mx-auto flex max-w-md flex-col overflow-hidden rounded-3xl border border-white/15 bg-zinc-950/95 p-3 text-white shadow-2xl shadow-black/40 backdrop-blur-xl"
+              : "fixed inset-0 z-[100] flex flex-col justify-between overflow-hidden bg-zinc-950 p-6 text-white"
           }`}
           onClick={phase === "incoming" ? undefined : () => {
             playRemoteMedia();
@@ -1890,52 +1891,50 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
           {phase === "incoming" ? (
             <>
-              {/* Ultra-luxury cyber-glass caller backdrop */}
-              <div className="absolute inset-0 z-0 overflow-hidden bg-[radial-gradient(circle_at_50%_38%,rgba(168,85,247,0.34),transparent_36%),radial-gradient(circle_at_50%_72%,rgba(6,182,212,0.12),transparent_48%)]">
+              <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-[inherit] bg-[radial-gradient(circle_at_15%_20%,rgba(168,85,247,0.28),transparent_48%),radial-gradient(circle_at_85%_80%,rgba(6,182,212,0.16),transparent_52%)]">
                 {caller?.avatar_url ? (
                   <img
                     src={caller.avatar_url}
                     alt=""
                     aria-hidden
-                    className="h-full w-full scale-125 object-cover opacity-20 blur-3xl"
+                    className="h-full w-full scale-125 object-cover opacity-15 blur-3xl"
                   />
                 ) : null}
-                <div className="absolute inset-0 bg-black/45 backdrop-blur-3xl" />
+                <div className="absolute inset-0 bg-black/35" />
               </div>
 
-              <div className="relative z-10 flex flex-1 flex-col items-center justify-center px-4 pb-24 pt-12">
-                <div className="relative flex h-52 w-52 items-center justify-center">
-                  <span className="absolute h-36 w-36 scale-125 animate-pulse rounded-full border border-fuchsia-400/50 bg-fuchsia-500/10 opacity-40 shadow-[0_0_55px_rgba(217,70,239,0.5)]" />
+              <div className="relative z-10 flex items-center gap-3 px-2 py-2">
+                <div className="relative grid h-14 w-14 shrink-0 place-items-center">
+                  <span className="absolute h-11 w-11 animate-pulse rounded-full border border-fuchsia-400/50 bg-fuchsia-500/10 opacity-60 shadow-[0_0_28px_rgba(217,70,239,0.45)]" />
                   <span
-                    className="absolute h-36 w-36 scale-[1.45] animate-pulse rounded-full border border-cyan-300/40 bg-cyan-400/5 opacity-40 shadow-[0_0_70px_rgba(34,211,238,0.35)]"
+                    className="absolute h-14 w-14 animate-pulse rounded-full border border-cyan-300/35 bg-cyan-400/5 opacity-50 shadow-[0_0_34px_rgba(34,211,238,0.25)]"
                     style={{ animationDelay: "0.7s" }}
                   />
-                  <span className="absolute h-44 w-44 rounded-full border border-white/15 bg-white/5 shadow-[0_0_70px_rgba(168,85,247,0.28)] backdrop-blur-xl" />
-                  <div className="relative grid h-36 w-36 place-items-center overflow-hidden rounded-full border-2 border-white/40 shadow-[0_0_50px_rgba(168,85,247,0.4)]">
+                  <div className="relative grid h-12 w-12 place-items-center overflow-hidden rounded-full border border-white/40 bg-white/10 shadow-[0_0_25px_rgba(168,85,247,0.35)]">
                     {caller?.avatar_url ? (
                       <img
                         src={caller.avatar_url}
                         alt={caller.name}
-                        className="h-28 w-28 rounded-full object-cover border-2 border-white/40"
+                        className="h-full w-full object-cover"
                       />
                     ) : (
-                      <div className="flex h-28 w-28 items-center justify-center rounded-full bg-gradient-to-tr from-fuchsia-600 via-purple-600 to-cyan-500 text-5xl font-black text-white shadow-[0_0_50px_rgba(217,70,239,0.5)]">
+                      <div className="flex h-full w-full items-center justify-center bg-gradient-to-tr from-fuchsia-600 via-purple-600 to-cyan-500 text-xl font-black text-white">
                         {(caller?.name || "U").charAt(0).toUpperCase()}
                       </div>
                     )}
                   </div>
                 </div>
-                <div className="mt-4 flex flex-col items-center gap-3 text-center">
-                  <h2 className="mt-6 text-3xl font-extrabold tracking-wider text-white drop-shadow-md">
+                <div className="min-w-0 flex-1">
+                  <h2 className="truncate text-base font-bold tracking-tight text-white drop-shadow-md">
                     {call.peerName}
                   </h2>
-                  <div className="inline-flex items-center gap-2 rounded-full border border-fuchsia-300/30 bg-white/10 px-4 py-2 text-sm font-semibold text-white/90 shadow-[0_0_24px_rgba(168,85,247,0.25)] backdrop-blur-2xl">
+                  <div className="mt-1 flex items-center gap-1.5 text-xs font-medium text-white/70">
                     {call.mode === "video" ? (
-                      <Video className="h-4 w-4 text-cyan-300 drop-shadow-[0_0_8px_rgba(103,232,249,0.9)]" />
+                      <Video className="h-3.5 w-3.5 text-cyan-300" />
                     ) : (
-                      <Phone className="h-4 w-4 text-violet-300 drop-shadow-[0_0_8px_rgba(196,181,253,0.8)]" />
+                      <Phone className="h-3.5 w-3.5 text-violet-300" />
                     )}
-                    <span>{call.mode === "video" ? "Incoming Video Call..." : "Incoming Audio Call..."}</span>
+                    <span>{call.mode === "video" ? "Incoming video call" : "Incoming audio call"}</span>
                   </div>
                 </div>
               </div>
@@ -1955,26 +1954,22 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
           <div className="relative z-10 mb-[max(1.5rem,env(safe-area-inset-bottom,0px))] flex items-center justify-center gap-6">
             {phase === "incoming" ? (
-              <div className="flex w-full items-center justify-center gap-16 px-4">
+              <div className="flex w-full items-center justify-end gap-2 px-1 pb-1">
                 <button
                   onClick={() => void hangup()}
-                  className="flex flex-col items-center gap-2.5 text-white/80 transition-transform active:scale-90"
+                  className="flex items-center gap-1.5 rounded-full border border-red-400/30 bg-red-500/15 px-3 py-2 text-xs font-semibold text-red-100 transition-transform active:scale-95"
                   aria-label="Decline call"
                 >
-                  <span className="grid h-16 w-16 place-items-center rounded-full border border-red-500/50 bg-red-500/20 text-red-400 shadow-[0_0_30px_rgba(239,68,68,0.4)] transition-colors hover:bg-red-600">
-                    <PhoneOff size={26} />
-                  </span>
-                  <span className="text-xs font-medium">Decline</span>
+                  <PhoneOff size={15} />
+                  <span>Decline</span>
                 </button>
                 <button
                   onClick={() => void accept()}
-                  className="flex flex-col items-center gap-2.5 text-white transition-transform active:scale-90"
+                  className="flex items-center gap-1.5 rounded-full bg-emerald-500 px-3.5 py-2 text-xs font-bold text-white shadow-[0_0_22px_rgba(16,185,129,0.45)] transition-transform hover:bg-emerald-600 active:scale-95"
                   aria-label="Accept call"
                 >
-                  <span className="grid h-16 w-16 place-items-center rounded-full bg-emerald-500 text-white shadow-[0_0_35px_rgba(16,185,129,0.6)] transition-colors hover:bg-emerald-600">
-                    <Phone size={26} />
-                  </span>
-                  <span className="text-xs font-medium">Accept</span>
+                  <Phone size={15} />
+                  <span>Accept</span>
                 </button>
               </div>
             ) : (
