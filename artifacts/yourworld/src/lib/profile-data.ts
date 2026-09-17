@@ -602,6 +602,15 @@ export function useMyProfile() {
       if (event === "SIGNED_IN" || event === "SIGNED_OUT" || event === "USER_UPDATED") {
         loadGeneration.current += 1;
         loadInFlight.current = null;
+        loadedUserId.current = null;
+        setUserId(null);
+        setProfile(empty);
+        setAvatarSrc(null);
+        setCoverSrc(null);
+        setPosts([]);
+        setSavedPosts([]);
+        setLoading(true);
+        setMediaLoading(false);
         void load();
       }
     });

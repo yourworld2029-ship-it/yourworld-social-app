@@ -139,8 +139,10 @@ export function useVerifiedSportsIdentity(userId: string | null) {
 
   useEffect(() => {
     let active = true;
+    // Never keep the previous account's badge visible while the new
+    // account's ID-scoped profile lookup is in flight.
+    setIdentity(null);
     if (!userId) {
-      setIdentity(null);
       return;
     }
 

@@ -806,7 +806,7 @@ export function SportsDetailsPanel({
   const isCoach = profile.role === "Coach";
   const isInternational = profile.status === "International";
   useEffect(() => {
-    if (verificationDetails) setVerificationDraft(verificationDetails);
+    setVerificationDraft(verificationDetails ?? emptySportsVerificationDetails());
   }, [verificationDetails]);
   const openEditor = (field: SportsEditorField) => {
     setDraft(toSportsProfileDraft(profile));

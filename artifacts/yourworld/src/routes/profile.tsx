@@ -175,6 +175,30 @@ function ProfilePage() {
     };
   }, []);
 
+  // Sports details are account-owned UI state. Clear it as soon as the
+  // authenticated profile key changes so another account cannot see the
+  // previous account while ID-scoped requests are being refreshed.
+  useEffect(() => {
+    setSportsDetailsOpen(false);
+    setSportsDocuments([]);
+    setSportsDocumentsLoading(false);
+    setSportsDocumentsError(null);
+    setSportsDocumentToDelete(null);
+    setSportsIntroductionUrl(null);
+    setSportsVerificationDetails(null);
+    setSportsVerificationDetailsLoading(false);
+    setSportsVerificationEvidenceUploading(null);
+    setSportsDocumentsUploading(false);
+    setSportsIntroductionUploading(false);
+    setSportsIntroductionProgress(0);
+    setSportsVerificationDetailsSaving(false);
+    setSportsVerificationSubmitting(false);
+    if (sportsVerificationTimer.current !== null) {
+      window.clearTimeout(sportsVerificationTimer.current);
+      sportsVerificationTimer.current = null;
+    }
+  }, [profile.id, userId]);
+
   useEffect(() => {
     if (
       !userId ||
@@ -315,9 +339,9 @@ function ProfilePage() {
           : "VERIFIED PLAYER"
       : null;
   useEffect(() => {
+    setSportsDocuments([]);
+    setSportsDocumentsError(null);
     if (!sportsDetailsOpen || !hasSportsProfile || !userId || userId !== profile.id) {
-      setSportsDocuments([]);
-      setSportsDocumentsError(null);
       setSportsDocumentsLoading(false);
       return;
     }
@@ -346,8 +370,8 @@ function ProfilePage() {
 
   useEffect(() => {
     const path = sportsProfile?.sportsIntroductionPath;
-    if (!sportsDetailsOpen || !path) {
-      setSportsIntroductionUrl(null);
+    setSportsIntroductionUrl(null);
+    if (!sportsDetailsOpen || !path || !userId || userId !== profile.id) {
       return;
     }
 
@@ -358,11 +382,11 @@ function ProfilePage() {
     return () => {
       cancelled = true;
     };
-  }, [sportsDetailsOpen, sportsProfile?.sportsIntroductionPath]);
+  }, [profile.id, sportsDetailsOpen, sportsProfile?.sportsIntroductionPath, userId]);
 
   useEffect(() => {
+    setSportsVerificationDetails(null);
     if (!sportsDetailsOpen || !userId || userId !== profile.id || !hasSportsProfile) {
-      setSportsVerificationDetails(null);
       setSportsVerificationDetailsLoading(false);
       return;
     }
