@@ -160,7 +160,7 @@ function AdminConsole() {
 }
 
 function MfaGate({ onComplete }: { onComplete: () => void }) {
-  const [verifiedFactor, setVerifiedFactor] = useState<{ id: string; friendly_name?: string } | null>(null);
+  const [adminFactor, setAdminFactor] = useState<{ id: string; friendly_name?: string } | null>(null);
   const [enrollment, setEnrollment] = useState<{ id: string; qr_code: string; secret: string } | null>(null);
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(true);
@@ -172,7 +172,11 @@ function MfaGate({ onComplete }: { onComplete: () => void }) {
     if (error) {
       toast.error(error.message);
     } else {
-      setVerifiedFactor(data.totp.find((factor) => factor.status === "verified") ?? null);
+      const existingAdminFactor =
+        data.all.find((factor) => factor.factor_type === "totp" && factor.friendly_name === "YourWorld Admin") ??
+        data.totp.find((factor) => factor.status === "verified") ??
+        null;
+      setAdminFactor(existingAdminFactor);
     }
     setLoading(false);
   }, []);
@@ -193,7 +197,7 @@ function MfaGate({ onComplete }: { onComplete: () => void }) {
   };
 
   const verify = async () => {
-    const factorId = enrollment?.id ?? verifiedFactor?.id;
+    const factorId = enrollment?.id ?? adminFactor?.id;
     if (!factorId || !/^\d{6}$/.test(code)) {
       toast.error("Enter the six-digit code from your authenticator app.");
       return;
@@ -238,7 +242,7 @@ function MfaGate({ onComplete }: { onComplete: () => void }) {
             </p>
             <MfaCodeInput code={code} setCode={setCode} onVerify={() => void verify()} busy={busy} />
           </div>
-        ) : verifiedFactor ? (
+        ) : adminFactor ? (
           <div className="mt-5">
             <p className="mb-3 text-sm text-emerald-300">A verified authenticator is already enrolled.</p>
             <MfaCodeInput code={code} setCode={setCode} onVerify={() => void verify()} busy={busy} />
