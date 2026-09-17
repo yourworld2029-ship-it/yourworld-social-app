@@ -1615,46 +1615,63 @@ export function CallProvider({ children }: { children: ReactNode }) {
   }, [accept, call, hangup, phase]);
 
 
-  const toggleMic = () => {
-    const track = localStream.current?.getAudioTracks()[0];
-    if (track) {
-      track.enabled = !track.enabled;
-      setMicOn(track.enabled);
-    }
-  };
-  const toggleCam = () => {
-    const track = localStream.current?.getVideoTracks()[0];
-    if (track) {
-      track.enabled = !track.enabled;
-      setCamOn(track.enabled);
-    }
-  };
+  const toggleMic = useCallback(() => {
+    const tracks = localStream.current?.getAudioTracks() ?? [];
+    if (!tracks.length) return;
+    const next = !tracks.every((track) => track.enabled);
+    tracks.forEach((track) => {
+      track.enabled = next;
+    });
+    setMicOn(next);
+  }, []);
+  const toggleCam = useCallback(() => {
+    const tracks = localStream.current?.getVideoTracks() ?? [];
+    if (!tracks.length) return;
+    const next = !tracks.every((track) => track.enabled);
+    tracks.forEach((track) => {
+      track.enabled = next;
+    });
+    setCamOn(next);
+  }, []);
 
   const toggleFlash = useCallback(async () => {
-    const track = localStream.current?.getVideoTracks()[0];
-    if (!track) return;
-    try {
-      await track.applyConstraints({
-        advanced: [{ torch: !flashOn } as MediaTrackConstraintSet],
-      } as MediaTrackConstraints);
-      setFlashOn(!flashOn);
-    } catch {
-      toast.error("Flashlight not supported on this device");
+    const track = cameraSourceTrack.current;
+    if (!track || facingMode !== "environment") {
+      setFlashOn(false);
+      toast.message("Flashlight is available with the rear camera");
+      return;
     }
-  }, [flashOn]);
+    try {
+      const capabilities = track.getCapabilities?.() as MediaTrackCapabilities & { torch?: boolean };
+      if (capabilities.torch !== true) {
+        setFlashOn(false);
+        toast.message("Flashlight is not supported on this device");
+        return;
+      }
+      const next = !flashOn;
+      await track.applyConstraints({
+        advanced: [{ torch: next } as MediaTrackConstraintSet],
+      } as MediaTrackConstraints);
+      setFlashOn(next);
+    } catch {
+      setFlashOn(false);
+      toast.message("Flashlight is not supported on this device");
+    }
+  }, [facingMode, flashOn]);
 
   const flipCamera = useCallback(async () => {
     const next = facingMode === "user" ? "environment" : "user";
     const oldTrack = localStream.current?.getVideoTracks()[0] ?? null;
+    const oldCameraTrack = cameraSourceTrack.current;
     videoEffectPipeline.current?.stop();
     videoEffectPipeline.current = null;
-    cameraSourceTrack.current?.stop();
-    cameraSourceTrack.current = null;
     // Most phones can't open both cameras at once — release the old one first.
+    if (oldCameraTrack && oldCameraTrack !== oldTrack) oldCameraTrack.stop();
     if (oldTrack) {
       oldTrack.stop();
       localStream.current?.removeTrack(oldTrack);
     }
+    cameraSourceTrack.current = null;
     setFlashOn(false);
     try {
       const newStream = await getCallVideo(next);
@@ -1686,6 +1703,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
           await tuneCallVideoSender(sender);
         }
         if (localStream.current && t) localStream.current.addTrack(t);
+        cameraSourceTrack.current = t;
         attachStreams();
       } catch { /* ignore */ }
     }
@@ -1880,7 +1898,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
                     ? "absolute inset-0 z-0 h-full w-full object-cover"
                     : "absolute right-4 top-28 z-20 h-40 w-28 cursor-pointer rounded-2xl border border-white/20 object-cover shadow-2xl transition-all active:scale-95"
                 }
-                 style={{ transform: "translateZ(0)" }}
+                  style={{ transform: facingMode === "user" ? "scaleX(-1)" : "none" }}
               />
               {phase !== "incoming" && (
                 <div className="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-b from-black/55 via-transparent to-black/75" />
