@@ -177,12 +177,16 @@ export function ProfileTemplate({
                 {profile.display_name || "Add your name"}
               </p>
               {verifiedSportsIdentity ? (
-                <SportsIdentityBadge identity={verifiedSportsIdentity} variant="profile" />
+                <SportsIdentityBadge
+                  identity={verifiedSportsIdentity}
+                  tier={verifiedSportsIdentity.status === "International" ? "international" : "national"}
+                  variant="profile"
+                />
               ) : null}
             </div>
             {verifiedSportsIdentity ? (
               <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.12em] text-amber-100/80">
-                {verifiedSportsIdentity.sport} · {verifiedSportsIdentity.role}
+                {verifiedSportsIdentity.sport} - {verifiedSportsIdentity.role}
               </p>
             ) : null}
             {visibleNormalCategories.length > 0 ? (
