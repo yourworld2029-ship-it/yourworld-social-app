@@ -328,16 +328,6 @@ function ProfilePage() {
   });
   const hasSportsProfile = Boolean(sportsProfile);
   const isVerifiedSports = Boolean(sportsProfile?.verified);
-  const sportsNameBadge =
-    isVerifiedSports && sportsProfile
-      ? sportsProfile.role === "Coach"
-        ? "VERIFIED COACH"
-        : sportsProfile.status === "International"
-          ? null
-          : sportsProfile.status !== "Not recorded"
-          ? `${sportsProfile.status.toUpperCase()} PLAYER`
-          : "VERIFIED PLAYER"
-      : null;
   useEffect(() => {
     setSportsDocuments([]);
     setSportsDocumentsError(null);
@@ -621,7 +611,6 @@ function ProfilePage() {
       mediaLoading={mediaLoading}
       counts={counts}
       sportsProfile={sportsProfile}
-      sportsNameBadge={sportsNameBadge}
       isVerifiedSports={isVerifiedSports}
       isOwner
       listOpen={listOpen}

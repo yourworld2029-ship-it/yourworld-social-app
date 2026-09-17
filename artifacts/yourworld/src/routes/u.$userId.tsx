@@ -165,16 +165,6 @@ function PublicProfilePage() {
     [profile],
   );
   const isVerifiedSports = Boolean(sportsProfile?.verified);
-  const sportsNameBadge =
-    isVerifiedSports && sportsProfile
-      ? sportsProfile.role === "Coach"
-        ? "VERIFIED COACH"
-        : sportsProfile.status === "International"
-          ? null
-          : sportsProfile.status !== "Not recorded"
-          ? `${sportsProfile.status.toUpperCase()} PLAYER`
-          : "VERIFIED PLAYER"
-      : null;
 
   const onFollow = async () => {
     if (busy || isOwnProfile) return;
@@ -246,7 +236,6 @@ function PublicProfilePage() {
       mediaLoading={loading}
       counts={counts}
       sportsProfile={sportsProfile}
-      sportsNameBadge={sportsNameBadge}
       isVerifiedSports={isVerifiedSports}
       isOwner={false}
       following={Boolean(following[userId])}

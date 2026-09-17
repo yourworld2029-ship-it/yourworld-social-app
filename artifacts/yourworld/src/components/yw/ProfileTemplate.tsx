@@ -13,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Bio } from "@/components/yw/Bio";
 import { FollowListDialog } from "@/components/yw/FollowListDialog";
 import { Highlights } from "@/components/yw/Highlights";
-import { SportsProfileBadge, type SportsProfileInfo } from "@/components/yw/SportsProfile";
+import type { SportsProfileInfo } from "@/components/yw/SportsProfile";
 import { SportsIdentityBadge } from "@/components/yw/SportsIdentityBadge";
 import { UserWatermark } from "@/components/yw/UserWatermark";
 import { VideoPoster } from "@/components/yw/VideoPoster";
@@ -53,7 +53,6 @@ export type ProfileTemplateProps = {
   mediaLoading: boolean;
   counts: Pick<FollowCounts, "followers" | "following">;
   sportsProfile: SportsProfileInfo | null;
-  sportsNameBadge: string | null;
   isVerifiedSports: boolean;
   isOwner: boolean;
   following?: boolean;
@@ -96,7 +95,6 @@ export function ProfileTemplate({
   mediaLoading,
   counts,
   sportsProfile,
-  sportsNameBadge,
   isVerifiedSports,
   isOwner,
   following = false,
@@ -179,8 +177,6 @@ export function ProfileTemplate({
               </p>
               {verifiedSportsIdentity ? (
                 <SportsIdentityBadge identity={verifiedSportsIdentity} variant="profile" />
-              ) : sportsNameBadge ? (
-                <SportsProfileBadge badge={sportsNameBadge} verified />
               ) : null}
             </div>
             {isVerifiedSports && sportsProfile ? (
