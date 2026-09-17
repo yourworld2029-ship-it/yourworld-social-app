@@ -18,6 +18,7 @@ const profile = (role: "Player" | "Coach", representation: "International" | "Na
 test("verified international player and coach use premium identity data", () => {
   assert.deepEqual(deriveVerifiedSportsIdentity(profile("Player", "International"), true), {
     role: "Player",
+    sport: "Handball",
     status: "International",
     country: "India",
     countryFlag: "🇮🇳",
@@ -32,9 +33,26 @@ test("verified international player and coach use premium identity data", () => 
 test("verified national player and coach never receive a country flag", () => {
   for (const role of ["Player", "Coach"] as const) {
     const identity = deriveVerifiedSportsIdentity(profile(role, "National"), true);
+    assert.equal(identity?.sport, "Handball");
     assert.equal(identity?.status, "National");
     assert.equal(identity?.countryFlag, null);
     assert.equal(identity?.monetized, true);
+  }
+});
+
+test("approved identity preserves any sport for both supported roles", () => {
+  for (const role of ["Player", "Coach"] as const) {
+    const identity = deriveVerifiedSportsIdentity(
+      {
+        category: `${role} · Kabaddi`,
+        bio: "Representation: International\nRepresents: India",
+        location: "",
+        is_verified: true,
+      },
+      false,
+    );
+    assert.equal(identity?.sport, "Kabaddi");
+    assert.equal(identity?.role, role);
   }
 });
 

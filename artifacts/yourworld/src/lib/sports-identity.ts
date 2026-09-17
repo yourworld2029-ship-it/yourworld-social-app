@@ -6,6 +6,7 @@ type SportsProfileSource = Parameters<typeof getSportsProfile>[0];
 
 export type VerifiedSportsIdentity = {
   role: "Player" | "Coach";
+  sport: string;
   status: "International" | "National";
   country: string;
   countryFlag: string | null;
@@ -87,6 +88,7 @@ export function deriveVerifiedSportsIdentity(
   const country = sportsProfile.represents.trim();
   return {
     role: sportsProfile.role,
+    sport: sportsProfile.sport.trim(),
     status: sportsProfile.status,
     country,
     countryFlag: sportsProfile.status === "International" ? countryFlagForSportsIdentity(country) : null,

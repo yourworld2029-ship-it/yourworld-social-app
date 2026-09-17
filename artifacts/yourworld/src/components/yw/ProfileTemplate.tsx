@@ -180,9 +180,9 @@ export function ProfileTemplate({
                 <SportsIdentityBadge identity={verifiedSportsIdentity} variant="profile" />
               ) : null}
             </div>
-            {verifiedSportsIdentity && isVerifiedSports && sportsProfile ? (
+            {verifiedSportsIdentity ? (
               <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.12em] text-amber-100/80">
-                {sportsProfile.sport} · {sportsProfile.role}
+                {verifiedSportsIdentity.sport} · {verifiedSportsIdentity.role}
               </p>
             ) : null}
             {visibleNormalCategories.length > 0 ? (
