@@ -20,6 +20,7 @@ import {
   getExistingCallPushSubscription,
   serializeCallPushSubscription,
   showIncomingCallNotification,
+  dismissIncomingCallNotification,
   type CallNotificationAction,
 } from "@/lib/call-notifications";
 import {
@@ -444,6 +445,31 @@ export function CallProvider({ children }: { children: ReactNode }) {
     navigator.serviceWorker?.addEventListener("message", onMessage);
     return () => navigator.serviceWorker?.removeEventListener("message", onMessage);
   }, []);
+
+  useEffect(() => {
+    const incomingCall = call && phase === "incoming" ? call : null;
+    if (!incomingCall) return;
+
+    const syncIncomingNotification = () => {
+      if (document.visibilityState === "visible") {
+        void dismissIncomingCallNotification(incomingCall.callId);
+      } else {
+        void showIncomingCallNotification({
+          callId: incomingCall.callId,
+          mode: incomingCall.mode,
+          peerName: incomingCall.peerName,
+          avatarUrl: incomingCall.avatarUrl ?? null,
+        });
+      }
+    };
+
+    syncIncomingNotification();
+    document.addEventListener("visibilitychange", syncIncomingNotification);
+    return () => {
+      document.removeEventListener("visibilitychange", syncIncomingNotification);
+      void dismissIncomingCallNotification(incomingCall.callId);
+    };
+  }, [call, phase]);
 
   /* ---------- auto-hiding controls (Social + Orbit video calls) ---------- */
   useEffect(() => {
@@ -1170,15 +1196,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
       callRef.current = nextCall;
       setPhase("incoming");
       void openSignalChannelRef.current?.(row.id, row.call_type, false);
-      toast.message(`Incoming ${row.call_type === "video" ? "video" : "audio"} call`);
-      if (document.visibilityState !== "visible") {
-        void showIncomingCallNotification({
-          callId: row.id,
-          mode: row.call_type,
-          peerName,
-         avatarUrl: callerProfile?.avatar_url ?? null,
-        });
-      }
     };
     const update = ({ new: raw }: { new: unknown }) => {
       const row = raw as CallRow;

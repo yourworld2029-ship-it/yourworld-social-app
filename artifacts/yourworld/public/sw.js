@@ -120,7 +120,20 @@ self.addEventListener("push", (event) => {
     },
   };
 
-  event.waitUntil(self.registration.showNotification(title, options));
+  event.waitUntil(
+    (async () => {
+      // Realtime/database delivery owns the in-app alert. Avoid creating a
+      // duplicate OS notification while a visible YourWorld tab can render it.
+      const clients = await self.clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      });
+      if (isCall && clients.some((client) => client.visibilityState === "visible")) {
+        return;
+      }
+      await self.registration.showNotification(title, options);
+    })(),
+  );
 });
 
 self.addEventListener("notificationclick", (event) => {

@@ -110,6 +110,10 @@ export function serializeCallPushSubscription(subscription: PushSubscription) {
   };
 }
 
+function callNotificationTag(callId: string) {
+  return `yw-call-${callId}`;
+}
+
 export async function showIncomingCallNotification(details: CallNotificationDetails) {
   if (typeof window === "undefined" || !("Notification" in window)) return false;
   if (Notification.permission !== "granted") return false;
@@ -123,7 +127,7 @@ export async function showIncomingCallNotification(details: CallNotificationDeta
         icon: details.avatarUrl || "/icon-512.png",
         image: details.avatarUrl || undefined,
         badge: "/favicon.png",
-        tag: `yw-call-${details.callId}`,
+        tag: callNotificationTag(details.callId),
         renotify: true,
         requireInteraction: true,
         silent: false,
@@ -135,13 +139,26 @@ export async function showIncomingCallNotification(details: CallNotificationDeta
           { action: "accept", title: "Accept" },
           { action: "decline", title: "Decline" },
         ],
-        data: details,
+        data: { type: "call", ...details, url: "/" },
       } as NotificationOptions & { sound?: string },
     );
     return true;
   } catch (error) {
     console.error("[call-notifications] notification failed", error);
     return false;
+  }
+}
+
+export async function dismissIncomingCallNotification(callId: string) {
+  const registration = await registerCallServiceWorker();
+  if (!registration) return;
+  try {
+    const notifications = await registration.getNotifications({
+      tag: callNotificationTag(callId),
+    });
+    notifications.forEach((notification) => notification.close());
+  } catch {
+    /* Some notification hosts do not expose tagged notification lookup. */
   }
 }
 
