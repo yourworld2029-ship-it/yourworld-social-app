@@ -378,16 +378,18 @@ export function useSocialPosts(
   const muteUntil = useRef(0);
   const pendingLikes = useRef(new Set<string>());
   const viewedRef = useRef(new Set<string>());
+  const removedRef = useRef(new Set<string>());
 
   const load = useCallback(async () => {
     if (Date.now() < muteUntil.current) return;
     const next = await loadSocialPosts(kind, supabase, userId);
     setMe(next.currentUserId);
-    setRows(next.posts);
+    setRows(next.posts.filter((post) => !removedRef.current.has(post.id)));
     setLoading(false);
   }, [kind, userId]);
 
   useEffect(() => {
+    removedRef.current.clear();
     void load();
     // Coalesce realtime bursts so a flood of likes never triggers a refetch storm.
     let timer: number | undefined;
@@ -502,6 +504,11 @@ export function useSocialPosts(
     );
   }, []);
 
+  const removePost = useCallback((postId: string) => {
+    removedRef.current.add(postId);
+    setRows((prev) => prev.filter((row) => row.id !== postId));
+  }, []);
+
   return {
     posts: rows,
     loading,
@@ -509,6 +516,7 @@ export function useSocialPosts(
     toggleLike,
     countView,
     bumpComment,
+    removePost,
     reload: load,
   };
 }

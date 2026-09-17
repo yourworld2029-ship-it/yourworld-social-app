@@ -5,7 +5,6 @@ import {
   Settings,
   MapPin,
   Link2,
-  Trash2,
   Heart,
   MessageCircleOff,
   Send,
@@ -49,7 +48,6 @@ import {
   useMyProfile,
   useResolvedMedia,
   updateMyPost,
-  deleteMyPost,
   createSportsDocumentSignedUrl,
   deleteSportsDocument,
   listSportsDocuments,
@@ -138,7 +136,6 @@ function ProfilePage() {
   const [title, setTitle] = useState("");
   const [caption, setCaption] = useState("");
   const [location, setLocation] = useState("");
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const [busy, setBusy] = useState(false);
   const [sportsDetailsOpen, setSportsDetailsOpen] = useState(false);
   const [sportsDocuments, setSportsDocuments] = useState<SportsDocument[]>([]);
@@ -711,12 +708,6 @@ function ProfilePage() {
                   patchManaged({ archived: !manage.archived }, manage.archived ? "Unarchived" : "Archived")
                 }
               />
-              <OptionRow
-                icon={<Trash2 className="h-5 w-5" />}
-                label="Delete"
-                destructive
-                onClick={() => setConfirmDelete(true)}
-              />
             </div>
           ) : null}
         </SheetContent>
@@ -890,35 +881,6 @@ function ProfilePage() {
           ) : null}
         </DialogContent>
       </Dialog>
-
-      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete this {manage?.kind === "reel" ? "reel" : "post"}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This permanently removes it and its media. This can't be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={async () => {
-                if (!manage) return;
-                try {
-                  await deleteMyPost(manage);
-                  toast.success("Deleted");
-                  setManage(null);
-                  await reload();
-                } catch (e) {
-                  toast.error(e instanceof Error ? e.message : "Couldn't delete");
-                }
-              }}
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       <AlertDialog
         open={Boolean(sportsDocumentToDelete)}

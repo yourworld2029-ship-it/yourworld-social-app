@@ -33,12 +33,6 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { type MyMoment } from "@/lib/moment-store";
@@ -107,7 +101,6 @@ export function Highlights({
   const [cover, setCover] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [viewer, setViewer] = useState<Highlight | null>(null);
-  const [highlightToDelete, setHighlightToDelete] = useState<Highlight | null>(null);
   const [deleting, setDeleting] = useState(false);
   const coverInput = useRef<HTMLInputElement | null>(null);
 
@@ -308,25 +301,27 @@ export function Highlights({
   };
 
   const deleteHighlight = async () => {
-    if (!highlightToDelete || !userId || !canManage || deleting) return;
+    if (!viewer || !userId || !canManage || deleting) return;
     setDeleting(true);
     try {
       const { data: userData, error: userError } = await supabase.auth.getUser();
       if (userError) throw userError;
       const sessionUserId = userData.user?.id;
-      if (!sessionUserId || sessionUserId !== userId || highlightToDelete.user_id !== sessionUserId) {
+      if (!sessionUserId || sessionUserId !== userId || viewer.user_id !== sessionUserId) {
         throw new Error("You can only delete your own highlights");
       }
 
-      const { error } = await supabase
+      const { data: deletedRows, error } = await supabase
         .from("highlights" as never)
         .delete()
-        .eq("id", highlightToDelete.id)
-        .eq("user_id", sessionUserId);
+        .eq("id", viewer.id)
+        .eq("user_id", sessionUserId)
+        .select("id");
       if (error) throw error;
+      if (!deletedRows?.length) throw new Error("This highlight is no longer available");
 
-      setHighlights((current) => current.filter((highlight) => highlight.id !== highlightToDelete.id));
-      setHighlightToDelete(null);
+      setHighlights((current) => current.filter((highlight) => highlight.id !== viewer.id));
+      setViewer(null);
       toast.success("Highlight deleted");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Couldn't delete highlight");
@@ -410,28 +405,6 @@ export function Highlights({
                 )}
               </span>
             </button>
-            {canManage ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label={`Manage ${h.title} highlight`}
-                    className="absolute right-0 top-0 z-10 grid h-6 w-6 place-items-center rounded-full border border-white/15 bg-black/70 text-white shadow backdrop-blur-sm transition-transform active:scale-90"
-                  >
-                    <MoreHorizontal className="h-3.5 w-3.5" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-40">
-                  <DropdownMenuItem
-                    className="text-destructive focus:text-destructive"
-                    onSelect={() => setHighlightToDelete(h)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    Delete highlight
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : null}
             <span className="w-full truncate text-center text-[10px] font-medium text-muted-foreground">
               {h.title}
             </span>
@@ -540,37 +513,38 @@ export function Highlights({
           )}
         </DialogContent>
       </Dialog>
-      {viewer ? <HighlightViewer highlight={viewer} onClose={() => setViewer(null)} /> : null}
-      <AlertDialog
-        open={Boolean(highlightToDelete)}
-        onOpenChange={(open) => {
-          if (!open && !deleting) setHighlightToDelete(null);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete this highlight?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This permanently removes the selected highlight only. Its original videos and reels will not be affected.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void deleteHighlight()} disabled={deleting}>
-              {deleting ? "Deleting…" : "Delete"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {viewer ? (
+        <HighlightViewer
+          highlight={viewer}
+          canDelete={canManage}
+          deleting={deleting}
+          onDelete={() => void deleteHighlight()}
+          onClose={() => setViewer(null)}
+        />
+      ) : null}
     </section>
   );
 }
 
-function HighlightViewer({ highlight, onClose }: { highlight: Highlight; onClose: () => void }) {
+function HighlightViewer({
+  highlight,
+  canDelete = false,
+  deleting = false,
+  onDelete,
+  onClose,
+}: {
+  highlight: Highlight;
+  canDelete?: boolean;
+  deleting?: boolean;
+  onDelete?: () => void;
+  onClose: () => void;
+}) {
   const [index, setIndex] = useState(0);
   const [progress, setProgress] = useState(0);
   const [paused, setPaused] = useState(false);
   const [muted, setMuted] = useState(true);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const current = highlight.items[index];
 
@@ -630,11 +604,65 @@ function HighlightViewer({ highlight, onClose }: { highlight: Highlight; onClose
             </button>
             {current.mediaType === "video" ? <button type="button" onClick={() => setMuted((m) => !m)} className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white backdrop-blur-xl" aria-label="Toggle sound">{muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}</button> : null}
             <button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white backdrop-blur-xl" aria-label="Close"><X className="h-4 w-4" /></button>
+            {canDelete ? (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setMenuOpen((open) => !open)}
+                  className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white backdrop-blur-xl"
+                  aria-label="More options"
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </button>
+                {menuOpen ? (
+                  <div className="absolute right-0 top-11 z-40 w-44 overflow-hidden rounded-xl border border-white/15 bg-black/85 shadow-2xl backdrop-blur-xl">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        setDeleteOpen(true);
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-xs font-medium text-red-300 hover:bg-white/10"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Delete highlight
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         </div>
         <button type="button" aria-label="Previous clip" onClick={() => setIndex((i) => Math.max(0, i - 1))} className="absolute inset-y-0 left-0 z-20 w-2/5" />
         <button type="button" aria-label="Next clip" onClick={() => index >= highlight.items.length - 1 ? onClose() : setIndex((i) => i + 1)} className="absolute inset-y-0 right-0 z-20 w-3/5" />
         {paused ? <span className="pointer-events-none absolute bottom-8 left-1/2 z-30 -translate-x-1/2 rounded-full bg-black/50 px-3 py-1.5 text-xs text-white"><Pause className="mr-1 inline h-3 w-3" />Paused</span> : null}
+        <AlertDialog
+          open={deleteOpen}
+          onOpenChange={(open) => {
+            if (!deleting) setDeleteOpen(open);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete this highlight?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This permanently removes the selected highlight only. Its original videos and reels will not be affected.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={deleting}
+                onClick={(event) => {
+                  event.preventDefault();
+                  onDelete?.();
+                }}
+              >
+                {deleting ? "Deleting…" : "Delete"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </div>
   );

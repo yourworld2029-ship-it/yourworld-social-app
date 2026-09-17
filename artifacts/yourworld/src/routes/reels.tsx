@@ -16,6 +16,7 @@ import {
   VolumeX,
   Star,
   ArrowLeft,
+  Trash2,
 } from "lucide-react";
 import { YwAvatar } from "@/components/yw/Avatar";
 import { ShareSheet } from "@/components/yw/ShareSheet";
@@ -36,6 +37,17 @@ import { toast } from "sonner";
 import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadSheet";
 import { isVideoQualityTier, qualityTierFromDimensions } from "@/lib/video-quality";
 import { trackEvent } from "@/lib/analytics";
+import { deleteMyPost } from "@/lib/profile-data";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 type ReelsSearch = {
   reelId?: string;
@@ -105,6 +117,7 @@ function ReelsList() {
     toggleLike: toggleDbLike,
     countView,
     currentUserId,
+    removePost,
     loading,
   } = useSocialPosts(scoped ? "creator-media" : "reel", userId);
   const viewedRef = useRef(new Set<string>());
@@ -246,6 +259,8 @@ function ReelsList() {
               initialCommentsOpen={focusComments && reel.id === initialId && i === active}
               onDbLike={() => toggleDbLike(reel.id)}
               onView={() => recordView(reel.id)}
+               canDelete={currentUserId === reel.userId}
+               onDeleted={() => removePost(reel.id)}
             />
           ) : null}
         </section>
@@ -442,6 +457,8 @@ function ReelItem({
   initialCommentsOpen = false,
   onDbLike,
   onView,
+  canDelete = false,
+  onDeleted,
 }: {
   reel: Reel;
   active: boolean;
@@ -457,6 +474,8 @@ function ReelItem({
   initialCommentsOpen?: boolean;
   onDbLike?: () => void | Promise<unknown>;
   onView?: () => void | Promise<unknown>;
+  canDelete?: boolean;
+  onDeleted?: () => void;
 }) {
   const user = author;
   const { saved, following, toggleSave, toggleFollow } = useYw();
@@ -470,6 +489,8 @@ function ReelItem({
   const isSaved = !!saved[reel.id];
   const [liking, setLiking] = useState(false);
   const [downloadOpen, setDownloadOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   // ---- playback timeline -------------------------------------------------
   const [progress, setProgress] = useState(0); // 0..100
@@ -779,6 +800,27 @@ function ReelItem({
     }
   };
 
+  const handleDelete = async () => {
+    if (!canDelete || deleting) return;
+    setDeleting(true);
+    try {
+      await deleteMyPost({
+        id: reel.id,
+        user_id: reel.userId,
+        media_url: mediaUrl ?? reel.poster,
+        thumbnail_url: thumbnailUrl,
+        kind: mediaBucket === "reels" ? "reel" : "video",
+      });
+      setDeleteOpen(false);
+      onDeleted?.();
+      toast.success("Deleted");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't delete this media");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const handleSave = () => {
     toggleSave(reel.id);
     trackEvent("reel_save_toggled", {
@@ -1011,6 +1053,20 @@ function ReelItem({
                 {label}
               </button>
             ))}
+            {canDelete ? (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false);
+                  setDeleteOpen(true);
+                }}
+                className="flex w-full items-center gap-3 border-t border-border/50 px-4 py-3 text-left text-[13px] font-medium text-destructive transition-colors hover:bg-destructive/10"
+              >
+                <Trash2 strokeWidth={1.6} className="h-[17px] w-[17px]" />
+                Delete
+              </button>
+            ) : null}
           </div>
         </>
       )}
@@ -1066,6 +1122,33 @@ function ReelItem({
         sourceQualityTier={reel.sourceQualityTier ?? null}
         onDownload={handleDownload}
       />
+      <AlertDialog
+        open={deleteOpen}
+        onOpenChange={(open) => {
+          if (!deleting) setDeleteOpen(open);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this {mediaBucket === "reels" ? "reel" : "video"}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes the media and its stored files. This can&apos;t be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleting}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleDelete();
+              }}
+            >
+              {deleting ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

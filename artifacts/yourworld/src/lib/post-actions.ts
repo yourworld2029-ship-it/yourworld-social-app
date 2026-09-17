@@ -30,12 +30,6 @@ export async function registerPostView(
   return counted;
 }
 
-/** Permanently delete my own post. */
-export async function deletePost(postId: string) {
-  const { error } = await supabase.from("posts").delete().eq("id", postId);
-  if (error) throw error;
-}
-
 /** Saved-post bookmarks for the signed-in user, synced with the database. */
 export function usePostSaves() {
   const [saved, setSaved] = useState<Record<string, boolean>>({});

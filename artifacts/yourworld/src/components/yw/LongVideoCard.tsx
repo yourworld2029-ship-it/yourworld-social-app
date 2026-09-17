@@ -11,7 +11,7 @@ import {
   timeAgo,
   type LongVideo,
 } from "@/lib/video-data";
-import { deletePost } from "@/lib/post-actions";
+import { deleteMyPost } from "@/lib/profile-data";
 import { CommentsSheet } from "@/components/yw/CommentsSheet";
 import { ShareSheet } from "@/components/yw/ShareSheet";
 import { VideoPoster } from "@/components/yw/VideoPoster";
@@ -160,7 +160,13 @@ export function LongVideoCard({
 
   const handleDelete = async () => {
     try {
-      await deletePost(video.id);
+      await deleteMyPost({
+        id: video.id,
+        user_id: video.userId,
+        media_url: video.mediaUrl,
+        thumbnail_url: video.thumbnailUrl,
+        kind: "video",
+      });
       setHidden(true);
       onDeleted?.(video.id);
       toast.success("Video deleted");
