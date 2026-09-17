@@ -1,0 +1,29 @@
+IMPORTANT: ONLY FIX THE SPORTS VERIFICATION DATA ISOLATION BUG. DO NOT CHANGE ANY OTHER FEATURE, UI, DESIGN, NAVIGATION, AUTH, CAMERA, CALLS, CHAT, PROFILE, DATABASE SYSTEM, OR EXISTING SPORTS VERIFICATION FLOW.
+
+BUGS SHOWN:
+1. Two different user accounts can have the same display name, but Sports Verification badge/identity is appearing on both accounts. NEVER use display_name/name as the identity key.
+2. Sports verification status, badge, country flag, verification details, tournaments, documents, and Sports Introduction must belong ONLY to the authenticated user's unique Supabase auth user_id.
+3. Documents/certificates uploaded/downloaded for User A must NEVER appear on User B, even if both users have the same display name.
+4. Country flag must also come only from that specific user's approved verification record. Never inherit/share it between accounts.
+5. If one account is verified International and another account with the same display name is not verified, ONLY the verified account gets the badge/flag/status.
+6. Existing legitimate verified data must NOT be deleted or reset.
+
+ROOT-CAUSE FIX:
+- Audit every Sports Verification query, insert, update, document lookup, badge lookup, country lookup and profile verification lookup.
+- Replace any lookup/filter based on display_name, username, email, or shared/global verification state where user_id is required.
+- Use the authenticated Supabase auth.uid()/user_id as the ownership key.
+- Enforce ownership at database/RLS/server level for private verification documents and verification records.
+- Storage paths for private verification documents must be user-scoped so one user's files cannot be returned to another user.
+- Make sure frontend state/cache cannot reuse another account's verification data after logout/login or account switching.
+- On account switch or refresh, reload verification data strictly for the current auth user_id.
+- Do NOT create a second verification system or duplicate tables.
+
+TEST THESE EXACT CASES:
+A) User 1 and User 2 have the same display name.
+B) User 1 = verified International with India flag and documents.
+C) User 2 = different account, not verified / different verification data.
+D) User 2 must show ONLY User 2's own status and must NOT show User 1's badge, India flag, documents, certificate, tournament data or Sports Introduction.
+E) Download/open/delete document must work only for its owning user/admin-authorized reviewer.
+F) Logout User 1 → login User 2 → refresh. No User 1 Sports data may remain in UI state/cache.
+
+Preserve all existing data. Do not remove or recreate the project. Make the smallest possible root-cause fix and run tests/build after the change.
