@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Bell, Mic, MicOff, PhoneOff, Phone, Video, VideoOff, SwitchCamera, Zap, ZapOff, Volume2, VolumeX, X, MonitorUp, LockKeyhole, Sparkles, RefreshCw } from "lucide-react";
+import { Bell, Mic, MicOff, PhoneOff, Phone, Video, VideoOff, SwitchCamera, Zap, ZapOff, Volume2, VolumeX, X, LockKeyhole, Sparkles, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import {
@@ -345,7 +345,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const [controlsVisible, setControlsVisible] = useState(true);
   const [speakerOn, setSpeakerOn] = useState(true);
   const [networkState, setNetworkState] = useState<"stable" | "reconnecting">("stable");
-  const [screenSharing, setScreenSharing] = useState(false);
   const [videoEffect, setVideoEffect] = useState<CallVideoEffect>("none");
   const hideTimer = useRef<number | null>(null);
   // Cancels a call that is never answered so neither side rings forever.
@@ -368,7 +367,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const remoteAudioMuted = useRef(false);
   const cameraSourceTrack = useRef<MediaStreamTrack | null>(null);
   const videoEffectPipeline = useRef<CallVideoEffectPipeline | null>(null);
-  const screenShareStream = useRef<MediaStream | null>(null);
   const reconnectTimer = useRef<number | null>(null);
   const reconnectAttempt = useRef(0);
   const callRef = useRef<CallState | null>(null);
@@ -530,8 +528,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
     reconnectAttempt.current = 0;
     videoEffectPipeline.current?.stop();
     videoEffectPipeline.current = null;
-    screenShareStream.current?.getTracks().forEach((track) => track.stop());
-    screenShareStream.current = null;
     cameraSourceTrack.current = null;
     localStream.current?.getTracks().forEach((t) => t.stop());
     localStream.current = null;
@@ -766,51 +762,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
     attachStreams();
   }, [attachStreams]);
-
-  const toggleScreenShare = useCallback(async () => {
-    if (!pcRef.current || !localStream.current || !call || call.mode !== "video") return;
-    if (screenSharing) {
-      screenShareStream.current?.getTracks().forEach((track) => track.stop());
-      screenShareStream.current = null;
-      await restoreCameraTrack();
-      setScreenSharing(false);
-      return;
-    }
-    if (!navigator.mediaDevices.getDisplayMedia) {
-      toast.error("Screen sharing is not supported on this browser");
-      return;
-    }
-    try {
-      const shared = await navigator.mediaDevices.getDisplayMedia({
-        video: { frameRate: { ideal: 30, max: 30 } },
-        audio: false,
-      });
-      const track = shared.getVideoTracks()[0];
-      if (!track) throw new Error("No screen track was returned");
-      const sender = pcRef.current.getSenders().find((item) => item.track?.kind === "video");
-      const current = localStream.current.getVideoTracks()[0] ?? null;
-      if (sender) {
-        await sender.replaceTrack(track);
-        await tuneCallVideoSender(sender);
-      }
-      if (current) localStream.current.removeTrack(current);
-      localStream.current.addTrack(track);
-      screenShareStream.current = shared;
-      setScreenSharing(true);
-      track.onended = () => {
-        void (async () => {
-          screenShareStream.current = null;
-          await restoreCameraTrack();
-          setScreenSharing(false);
-        })();
-      };
-      attachStreams();
-    } catch (error) {
-      if ((error as DOMException)?.name !== "AbortError") {
-        toast.error(error instanceof Error ? error.message : "Screen sharing could not start");
-      }
-    }
-  }, [attachStreams, call, restoreCameraTrack, screenSharing]);
 
   const phaseRef = useRef<Phase>("idle");
   useEffect(() => { phaseRef.current = phase; }, [phase]);
@@ -2077,18 +2028,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
                     aria-label="Flip camera"
                   >
                     <SwitchCamera size={19} />
-                  </button>
-                )}
-                {call.mode === "video" && (
-                  <button
-                    onClick={() => void toggleScreenShare()}
-                    className={`grid h-11 w-11 place-items-center rounded-full transition-all active:scale-90 ${
-                      screenSharing ? "bg-cyan-500 text-white" : "bg-white/10 text-white hover:bg-white/20"
-                    }`}
-                    aria-label={screenSharing ? "Stop screen sharing" : "Share screen"}
-                    title={screenSharing ? "Stop screen sharing" : "Share screen"}
-                  >
-                    {screenSharing ? <MonitorUp size={18} /> : <MonitorUp size={18} />}
                   </button>
                 )}
                 {call.mode === "video" && (

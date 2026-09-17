@@ -139,11 +139,16 @@ export function getCallVideo(
     { audio: false, video: callVideoConstraints(facingMode) },
     {
       audio: false,
-      video: fallbackVideoConstraints(facingMode, profile.width, profile.height, profile.frameRate),
+      video: {
+        facingMode,
+        width: { ideal: profile.width },
+        height: { ideal: profile.height },
+        frameRate: { ideal: profile.frameRate },
+      },
     },
     {
       audio: false,
-      video: fallbackVideoConstraints(facingMode, profile.width, profile.height, profile.frameRate),
+      video: { facingMode },
     },
   ]);
 }
