@@ -1,0 +1,44 @@
+ONLY FIX THE SPORTS PROFILE BADGE/SPORTS IDENTITY UI. DO NOT TOUCH ANY OTHER FEATURE OR SYSTEM.
+
+REFERENCE DESIGN:
+Use the attached reference image as the EXACT visual target for the premium International Player badge.
+
+1. For any user whose Sports Certificate Verification is APPROVED:
+   - Show the premium badge exactly in the reference style.
+   - International Player = premium gold design.
+   - Crown on top.
+   - Globe icon.
+   - Gold laurel/wings.
+   - Dark premium center.
+   - Text: INTERNATIONAL PLAYER.
+   - Small gold star at bottom.
+   - Premium gold glow.
+   - Keep HANDBALL · PLAYER only ONCE directly below the badge.
+   - Remove any extra icon/logo above the badge.
+   - Do NOT show another Handball/Player pill.
+
+2. For users without approved Sports Verification:
+   - Do NOT show the Sports Identity badge.
+   - Do NOT show International/National status.
+   - Do NOT show country flag from another account.
+   - Clear only the incorrect Sports Identity display for those users.
+
+3. IMPORTANT DATA RULE:
+   Badge/status/flag must come ONLY from the currently authenticated user's own approved Sports Verification record using Supabase auth user_id.
+   Never use display_name, name, username, email, cached/global state, or another user's verification data.
+
+4. Example:
+   - Sandeep Poonia: approved International verification → show premium International Player badge.
+   - Sandy: no approved verification → show NO Sports badge/identity/flag.
+   - Same display name or similar profile data must never cause badge sharing.
+
+5. PRESERVE ALL EXISTING DATA.
+   Do NOT delete, reset, migrate, recreate, or modify verification records, certificates, documents, tournaments, Sports Introduction, RLS, authentication, database structure, or verification logic.
+
+6. DO NOT TOUCH:
+   Feed, posts, reels, videos, camera, Moments, chat, calls, navigation, settings, profile functionality, categories, follow system, notifications, or any other UI.
+
+This is a SMALL, PROFILE-ONLY UI/data-binding correction.
+Use the existing Sports Verification system and existing approved data.
+Make the smallest possible change.
+Run tests and production build after the fix.

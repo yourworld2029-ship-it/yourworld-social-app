@@ -23,7 +23,6 @@ import type { FollowCounts } from "@/lib/follow-data";
 import { formatCount } from "@/lib/yw-data";
 import {
   formatNormalProfileCategoryForDisplay,
-  isSportsIdentityCategory,
   resolveNormalProfileCategories,
 } from "@/lib/profile-category";
 import { useVerifiedSportsIdentity } from "@/lib/sports-identity";
@@ -122,7 +121,6 @@ export function ProfileTemplate({
     profile.normal_categories,
     profile.category,
   );
-  const sportsIdentityCategory = isSportsIdentityCategory(profile.category);
   const verifiedSportsIdentity = useVerifiedSportsIdentity(profile.id);
   const visibleNormalCategories = normalCategories.filter(
     (category) => !isSportsProfileLabel(category, sportsProfile),
@@ -182,12 +180,10 @@ export function ProfileTemplate({
                 <SportsIdentityBadge identity={verifiedSportsIdentity} variant="profile" />
               ) : null}
             </div>
-            {isVerifiedSports && sportsProfile ? (
+            {verifiedSportsIdentity && isVerifiedSports && sportsProfile ? (
               <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.12em] text-amber-100/80">
                 {sportsProfile.sport} · {sportsProfile.role}
               </p>
-            ) : sportsIdentityCategory && profile.category ? (
-              <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.12em] text-zinc-500">{profile.category}</p>
             ) : null}
             {visibleNormalCategories.length > 0 ? (
               <div className="mt-1 flex flex-wrap gap-1.5">
