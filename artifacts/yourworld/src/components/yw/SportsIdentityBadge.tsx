@@ -1,3 +1,4 @@
+import { Crown, Globe2, Star } from "lucide-react";
 import { useVerifiedSportsIdentity, type VerifiedSportsIdentity } from "@/lib/sports-identity";
 
 export function SportsIdentityBadge({
@@ -9,53 +10,63 @@ export function SportsIdentityBadge({
 }) {
   if (!identity) return null;
 
+  const international = identity.status === "International";
+  const label = `${identity.status.toUpperCase()} ${identity.role.toUpperCase()}`;
+
   if (variant === "profile") {
-    const international = identity.status === "International";
     return (
       <div
         data-testid="sports-identity-profile-badge"
-        className={`mt-1.5 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[10px] font-bold tracking-[0.12em] ${
-          international
-            ? "border-amber-200/45 bg-gradient-to-r from-amber-200/20 via-yellow-100/10 to-amber-300/20 text-amber-100 shadow-[0_0_18px_rgba(251,191,36,0.16)]"
-            : "border-sky-200/35 bg-gradient-to-r from-slate-200/15 via-sky-200/10 to-blue-300/15 text-sky-100"
+        role="img"
+        aria-label={`${label}${international && identity.countryFlag ? `, ${identity.country} representation` : ""}`}
+        title={label}
+        className={`sports-identity-badge sports-identity-badge--profile sports-identity-badge--${
+          international ? "international" : "national"
         }`}
       >
-        <span>{`${identity.status.toUpperCase()} ${identity.role.toUpperCase()}`}</span>
+        <span className="sports-identity-badge__wing sports-identity-badge__wing--left" aria-hidden="true" />
+        <span className="sports-identity-badge__wing sports-identity-badge__wing--right" aria-hidden="true" />
+        <span className="sports-identity-badge__top-icon" aria-hidden="true">
+          {international ? <Crown /> : <Star />}
+        </span>
+        <span className="sports-identity-badge__globe" aria-hidden="true">
+          {international ? <Globe2 /> : null}
+        </span>
+        <span className="sports-identity-badge__panel">
+          <span className="sports-identity-badge__status">{identity.status}</span>
+          <span className="sports-identity-badge__role">{identity.role}</span>
+        </span>
         {international && identity.countryFlag ? (
           <span
             title={`${identity.country} representation`}
             aria-label={`${identity.country} representation`}
-            className="text-sm leading-none"
+            className="sports-identity-badge__flag"
           >
             {identity.countryFlag}
           </span>
         ) : null}
-        {identity.monetized ? (
-          <span
-            title={international ? "Monetization active" : "Monetization active"}
-            aria-label={international ? "Diamond monetization badge" : "Star monetization badge"}
-            className="text-sm leading-none"
-          >
-            {international ? "💎" : "🌟"}
-          </span>
-        ) : null}
+        <Star className="sports-identity-badge__bottom-star" aria-hidden="true" />
       </div>
     );
   }
 
-  if (!identity.monetized) return null;
-
   return (
     <span
       data-testid="sports-identity-compact-badge"
-      title={`${identity.status} ${identity.role}`}
-      aria-label={`${identity.status} ${identity.role} identity badge`}
-      className={`inline-flex shrink-0 items-center gap-0.5 text-[12px] leading-none ${
-        identity.status === "International" ? "text-amber-200" : "text-sky-200"
+      title={label}
+      aria-label={`${label} identity badge`}
+      className={`sports-identity-badge sports-identity-badge--compact sports-identity-badge--${
+        international ? "international" : "national"
       }`}
     >
-      {identity.monetized ? (identity.status === "International" ? "💎" : "🌟") : null}
-      {identity.status === "International" && identity.countryFlag ? identity.countryFlag : null}
+      {international ? (
+        <>
+          <span className="sports-identity-badge__compact-diamond" aria-hidden="true" />
+          {identity.countryFlag ? <span className="sports-identity-badge__compact-flag">{identity.countryFlag}</span> : null}
+        </>
+      ) : (
+        <Star className="sports-identity-badge__compact-star" aria-hidden="true" />
+      )}
     </span>
   );
 }

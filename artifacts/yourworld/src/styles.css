@@ -170,6 +170,261 @@
   }
 }
 
+.sports-identity-badge {
+  --sports-badge-accent: #f4c96b;
+  --sports-badge-bright: #fff1b1;
+  --sports-badge-shadow: rgba(244, 184, 67, 0.52);
+  position: relative;
+  color: var(--sports-badge-accent);
+}
+
+.sports-identity-badge--national {
+  --sports-badge-accent: #a8d7ff;
+  --sports-badge-bright: #f1f7ff;
+  --sports-badge-shadow: rgba(73, 158, 231, 0.4);
+}
+
+.sports-identity-badge--profile {
+  display: inline-flex;
+  width: 164px;
+  height: 76px;
+  flex: 0 1 auto;
+  align-items: center;
+  justify-content: center;
+  margin-top: 0.375rem;
+  overflow: visible;
+  isolation: isolate;
+}
+
+.sports-identity-badge--profile::before {
+  position: absolute;
+  inset: 9px 14px 7px;
+  z-index: -2;
+  border: 1px solid color-mix(in srgb, var(--sports-badge-accent) 55%, transparent);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--sports-badge-bright) 16%, transparent), transparent 48%),
+    linear-gradient(145deg, rgba(35, 30, 24, 0.98), rgba(9, 11, 18, 0.98) 72%);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 0 22px var(--sports-badge-shadow),
+    inset 0 0 18px rgba(255, 255, 255, 0.03);
+  content: "";
+  transform: perspective(180px) rotateX(4deg);
+}
+
+.sports-identity-badge--national::before {
+  background:
+    radial-gradient(circle at 50% 0%, rgba(174, 221, 255, 0.14), transparent 48%),
+    linear-gradient(145deg, rgba(22, 31, 43, 0.98), rgba(8, 12, 20, 0.98) 72%);
+}
+
+.sports-identity-badge__wing {
+  position: absolute;
+  top: 27px;
+  z-index: -1;
+  width: 35px;
+  height: 27px;
+  border: 1.5px solid color-mix(in srgb, var(--sports-badge-accent) 76%, transparent);
+  border-top-color: transparent;
+  border-radius: 5px 5px 3px 28px;
+  opacity: 0.92;
+}
+
+.sports-identity-badge__wing::before,
+.sports-identity-badge__wing::after {
+  position: absolute;
+  width: 7px;
+  height: 15px;
+  border: 1px solid color-mix(in srgb, var(--sports-badge-accent) 84%, transparent);
+  border-radius: 100% 0 100% 0;
+  content: "";
+}
+
+.sports-identity-badge__wing::before {
+  top: 3px;
+}
+
+.sports-identity-badge__wing::after {
+  top: 11px;
+}
+
+.sports-identity-badge__wing--left {
+  left: 4px;
+  transform: rotate(20deg);
+}
+
+.sports-identity-badge__wing--left::before {
+  left: 3px;
+  transform: rotate(-26deg);
+}
+
+.sports-identity-badge__wing--left::after {
+  left: 12px;
+  transform: rotate(-34deg);
+}
+
+.sports-identity-badge__wing--right {
+  right: 4px;
+  border-radius: 5px 5px 28px 3px;
+  transform: scaleX(-1) rotate(20deg);
+}
+
+.sports-identity-badge__top-icon,
+.sports-identity-badge__globe,
+.sports-identity-badge__bottom-star {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  filter: drop-shadow(0 0 5px var(--sports-badge-shadow));
+}
+
+.sports-identity-badge__top-icon {
+  top: 1px;
+  left: 50%;
+  width: 25px;
+  height: 25px;
+  color: var(--sports-badge-bright);
+  transform: translateX(-50%);
+}
+
+.sports-identity-badge__top-icon svg {
+  width: 22px;
+  height: 22px;
+  fill: color-mix(in srgb, var(--sports-badge-accent) 36%, transparent);
+  stroke-width: 1.8;
+}
+
+.sports-identity-badge--national .sports-identity-badge__top-icon svg {
+  width: 24px;
+  height: 24px;
+  fill: color-mix(in srgb, var(--sports-badge-accent) 22%, transparent);
+}
+
+.sports-identity-badge__globe {
+  top: 22px;
+  left: 50%;
+  width: 16px;
+  height: 16px;
+  color: var(--sports-badge-bright);
+  transform: translateX(-50%);
+}
+
+.sports-identity-badge__globe svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.7;
+}
+
+.sports-identity-badge__panel {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  min-width: 94px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin-top: 13px;
+  color: var(--sports-badge-bright);
+  line-height: 1;
+  text-align: center;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.72);
+}
+
+.sports-identity-badge__status {
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+
+.sports-identity-badge__role {
+  margin-top: 4px;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.sports-identity-badge__flag {
+  position: absolute;
+  right: 26px;
+  bottom: 15px;
+  z-index: 2;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.sports-identity-badge__bottom-star {
+  right: 50%;
+  bottom: 4px;
+  width: 11px;
+  height: 11px;
+  color: var(--sports-badge-accent);
+  fill: color-mix(in srgb, var(--sports-badge-accent) 34%, transparent);
+  transform: translateX(50%);
+}
+
+.sports-identity-badge--compact {
+  display: inline-flex;
+  width: 22px;
+  height: 18px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  vertical-align: middle;
+  line-height: 1;
+}
+
+.sports-identity-badge__compact-diamond {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--sports-badge-bright);
+  background: linear-gradient(135deg, var(--sports-badge-bright), var(--sports-badge-accent) 55%, #9b5a20);
+  box-shadow: 0 0 7px var(--sports-badge-shadow);
+  transform: rotate(45deg);
+}
+
+.sports-identity-badge__compact-flag {
+  font-size: 11px;
+  line-height: 1;
+}
+
+.sports-identity-badge__compact-star {
+  width: 15px;
+  height: 15px;
+  color: var(--sports-badge-bright);
+  fill: color-mix(in srgb, var(--sports-badge-accent) 42%, transparent);
+  filter: drop-shadow(0 0 5px var(--sports-badge-shadow));
+  stroke-width: 1.6;
+}
+
+@media (max-width: 420px) {
+  .sports-identity-badge--profile {
+    width: 148px;
+    height: 70px;
+  }
+
+  .sports-identity-badge--profile::before {
+    inset-inline: 12px;
+  }
+
+  .sports-identity-badge__wing--left {
+    left: 1px;
+  }
+
+  .sports-identity-badge__wing--right {
+    right: 1px;
+  }
+
+  .sports-identity-badge__role {
+    font-size: 11px;
+  }
+}
+
 @utility brand-gradient {
   background-image: var(--gradient-brand);
 }

@@ -1,0 +1,40 @@
+ONLY redesign the existing Sports Verification badge/identity UI to match the attached reference image. DO NOT change any other feature, functionality, database, authentication, navigation, profile layout, Sports Verification flow, documents, verification logic, chat, calls, camera, videos, reels, or existing data isolation.
+
+REFERENCE DESIGN:
+- International Player/Coach = premium luxury GOLD badge.
+- Use a crown at the top, globe/world icon, gold laurel/wings framing, strong gold glow, dark premium center panel, uppercase identity text, and small gold star at bottom.
+- Text must dynamically show:
+  INTERNATIONAL PLAYER
+  or
+  INTERNATIONAL COACH
+- National Player/Coach = premium SILVER/BLUE badge.
+- Use a large premium star at the top, silver/blue laurel/wings framing, clean dark center panel, subtle glow, and small star at bottom.
+- Text must dynamically show:
+  NATIONAL PLAYER
+  or
+  NATIONAL COACH
+- International must look visually more premium than National.
+- Keep the existing approved verification data as the ONLY source for International/National status and Player/Coach role.
+- International country flag may appear only when it comes from that user's own approved verification record. National must NOT show a country flag.
+- Do not use display_name, username, email, or global/shared state for badge identity. Continue using the authenticated user's unique Supabase user_id.
+- Do not create another badge system or another database table.
+- Replace the current plain pill-style Sports identity badge with this premium badge design.
+- Keep the existing main profile information and layout unchanged except for replacing the current badge visual.
+- Small verification badge next to names throughout the app must also use the existing approved status:
+  International = small gold diamond + approved country flag.
+  National = small premium star.
+- Unverified users = no Sports badge.
+- Do not modify the existing Sports Verification data-isolation fix.
+
+Use the attached reference image as the visual target and make the implementation responsive for mobile and desktop.
+
+After implementation:
+1. Verify International Player
+2. Verify International Coach
+3. Verify National Player
+4. Verify National Coach
+5. Verify unverified user
+6. Verify same-display-name different-user accounts still receive only their own badge/data.
+7. Run tests and production build.
+
+Make the smallest possible UI-only change.
