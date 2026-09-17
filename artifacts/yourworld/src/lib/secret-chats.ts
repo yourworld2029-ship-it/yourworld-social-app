@@ -45,14 +45,16 @@ export async function saveSecretChatLock(
 export type LockedChat = { peerId: string; salt: string | null; hash: string | null };
 
 async function fetchLocked(): Promise<LockedChat[]> {
-  const { data: auth } = await supabase.auth.getUser();
+  const { data: auth, error: authError } = await supabase.auth.getUser();
+  if (authError) throw authError;
   const me = auth.user?.id;
   if (!me) return [];
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("orbit_chat_settings")
     .select("peer_id,secret_pin_salt,secret_pin_hash,secret_lock_enabled")
     .eq("user_id", me)
     .eq("secret_lock_enabled", true);
+  if (error) throw error;
   return ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({
     peerId: String(r['peer_id']),
     salt: (r['secret_pin_salt'] as string | null) ?? null,
@@ -67,13 +69,22 @@ async function fetchLocked(): Promise<LockedChat[]> {
 export function useSecretChats(query: string) {
   const [locked, setLocked] = useState<LockedChat[]>([]);
   const [revealed, setRevealed] = useState<string[]>([]);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     let alive = true;
     const refresh = () => {
-      void fetchLocked().then((rows) => {
-        if (alive) setLocked(rows);
-      });
+      setReady(false);
+      void fetchLocked()
+        .then((rows) => {
+          if (!alive) return;
+          setLocked(rows);
+          setReady(true);
+        })
+        .catch(() => {
+          // Keep chat lists hidden when lock state cannot be confirmed.
+          if (alive) setReady(false);
+        });
     };
     refresh();
     // Keep the hidden set fresh when a lock is toggled elsewhere.
@@ -125,5 +136,5 @@ export function useSecretChats(query: string) {
     [lockedIds, revealed],
   );
 
-  return { lockedIds, revealed, isHidden, hasReveal: revealed.length > 0 };
+  return { lockedIds, revealed, isHidden, hasReveal: revealed.length > 0, ready };
 }

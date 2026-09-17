@@ -218,7 +218,7 @@ function OrbitMessagesPage() {
 
 
   const { nameFor } = useChatNames();
-  const { isHidden } = useSecretChats(q);
+  const { isHidden, ready: secretChatsReady } = useSecretChats(q);
   const pinQuery = /^\d{4,8}$/.test(q.trim());
   const term = q.trim().toLowerCase();
 
@@ -238,7 +238,7 @@ function OrbitMessagesPage() {
     }
   };
 
-  const openChats = chats.filter((p) => !isHidden(p.id));
+  const openChats = secretChatsReady ? chats.filter((p) => !isHidden(p.id)) : [];
   const chatList = pinQuery
     ? openChats
     : term
@@ -247,7 +247,7 @@ function OrbitMessagesPage() {
   const matchList = term ? matches.filter((m) => m.p.name.toLowerCase().includes(term)) : matches;
   const reqList = term ? requests.filter((r) => r.p.name.toLowerCase().includes(term)) : requests;
 
-  const counts = { chats: chats.length, requests: requests.length, matches: mutual.length };
+  const counts = { chats: openChats.length, requests: requests.length, matches: mutual.length };
 
   const allSelected = chatList.length > 0 && selected.length === chatList.length;
 
@@ -358,7 +358,9 @@ function OrbitMessagesPage() {
               )}
             </div>
           )}
-          {chatList.length === 0 ? (
+          {!secretChatsReady ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">Loading chats…</p>
+          ) : chatList.length === 0 ? (
             <EmptyState
               icon={MessageCircle}
               title="No conversations yet"

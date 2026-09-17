@@ -53,7 +53,7 @@ function ChatListPage() {
   const pressTimer = useRef<number | null>(null);
   const longPressed = useRef(false);
   const { nameFor } = useChatNames();
-  const { isHidden } = useSecretChats(searchQuery);
+  const { isHidden, ready: secretChatsReady } = useSecretChats(searchQuery);
 
   const toggleSelect = (id: string) =>
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -227,14 +227,16 @@ function ChatListPage() {
   }, [newChatOpen, peopleQuery]);
 
   const pinQuery = /^\d{4,8}$/.test(searchQuery.trim());
-  const filteredThreads = threads.filter(
-    (t) =>
-      !hidden.includes(t.id) &&
-      !isHidden(t.peerId) &&
-      (pinQuery ? true :
-      (t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        t.lastMessage.toLowerCase().includes(searchQuery.toLowerCase()))),
-  );
+  const filteredThreads = secretChatsReady && me
+    ? threads.filter(
+        (t) =>
+          !hidden.includes(t.id) &&
+          !isHidden(t.peerId) &&
+          (pinQuery ? true :
+          (t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            t.lastMessage.toLowerCase().includes(searchQuery.toLowerCase()))),
+      )
+    : [];
 
   const allSelected = filteredThreads.length > 0 && selected.length === filteredThreads.length;
 
@@ -337,7 +339,9 @@ function ChatListPage() {
       {/* Chat List */}
       <div className="flex-1 overflow-y-auto space-y-2">
          {loadError ? <p role="alert" className="rounded-xl border border-red-900 bg-red-950/40 p-3 text-xs text-red-300">{loadError}</p> : null}
-        {filteredThreads.length === 0 ? (
+        {!secretChatsReady || !me ? (
+          <p className="py-6 text-center text-sm text-gray-500">Loading chats…</p>
+        ) : filteredThreads.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-40 text-gray-500">
             <MessageSquare className="h-10 w-10 mb-2 opacity-50" />
             <p className="text-sm">No chats found. Click top icon to start!</p>
