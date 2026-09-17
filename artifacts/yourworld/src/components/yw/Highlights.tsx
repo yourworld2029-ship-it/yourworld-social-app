@@ -89,7 +89,15 @@ function Thumb({ src, video }: { src?: string; video?: boolean }) {
   );
 }
 
-export function Highlights({ userId, posts }: { userId: string | null; posts: DbPost[] }) {
+export function Highlights({
+  userId,
+  posts,
+  canManage = false,
+}: {
+  userId: string | null;
+  posts: DbPost[];
+  canManage?: boolean;
+}) {
   const { moments, archive } = useMoments();
   const [highlights, setHighlights] = useState<Highlight[]>([]);
   const [open, setOpen] = useState(false);
@@ -99,6 +107,8 @@ export function Highlights({ userId, posts }: { userId: string | null; posts: Db
   const [cover, setCover] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [viewer, setViewer] = useState<Highlight | null>(null);
+  const [highlightToDelete, setHighlightToDelete] = useState<Highlight | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const coverInput = useRef<HTMLInputElement | null>(null);
 
   const loadHighlights = useCallback(async (ownerId: string) => {
@@ -297,6 +307,34 @@ export function Highlights({ userId, posts }: { userId: string | null; posts: Db
     }
   };
 
+  const deleteHighlight = async () => {
+    if (!highlightToDelete || !userId || !canManage || deleting) return;
+    setDeleting(true);
+    try {
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      if (userError) throw userError;
+      const sessionUserId = userData.user?.id;
+      if (!sessionUserId || sessionUserId !== userId || highlightToDelete.user_id !== sessionUserId) {
+        throw new Error("You can only delete your own highlights");
+      }
+
+      const { error } = await supabase
+        .from("highlights" as never)
+        .delete()
+        .eq("id", highlightToDelete.id)
+        .eq("user_id", sessionUserId);
+      if (error) throw error;
+
+      setHighlights((current) => current.filter((highlight) => highlight.id !== highlightToDelete.id));
+      setHighlightToDelete(null);
+      toast.success("Highlight deleted");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't delete highlight");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const renderGrid = (items: HighlightItem[]) => {
     if (!items.length)
       return (
@@ -351,8 +389,13 @@ export function Highlights({ userId, posts }: { userId: string | null; posts: Db
         </button>
 
         {highlights.map((h) => (
-          <button key={h.id} type="button" onClick={() => setViewer(h)} className="flex w-[64px] shrink-0 flex-col items-center gap-1">
-            <span className="h-[56px] w-[56px] overflow-hidden rounded-full border border-white/15 bg-white/[0.045] p-[2px] shadow-[0_6px_18px_-12px_rgba(0,0,0,0.9)]">
+          <div key={h.id} className="relative flex w-[64px] shrink-0 flex-col items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setViewer(h)}
+              aria-label={`Open ${h.title} highlight`}
+              className="h-[56px] w-[56px] overflow-hidden rounded-full border border-white/15 bg-white/[0.045] p-[2px] shadow-[0_6px_18px_-12px_rgba(0,0,0,0.9)]"
+            >
               <span className="block h-full w-full overflow-hidden rounded-full">
                 {h.cover_url ? (
                   h.items?.[0]?.mediaType === "video" && !h.cover_url.startsWith("data:") ? (
@@ -366,11 +409,33 @@ export function Highlights({ userId, posts }: { userId: string | null; posts: Db
                   </span>
                 )}
               </span>
-            </span>
+            </button>
+            {canManage ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={`Manage ${h.title} highlight`}
+                    className="absolute right-0 top-0 z-10 grid h-6 w-6 place-items-center rounded-full border border-white/15 bg-black/70 text-white shadow backdrop-blur-sm transition-transform active:scale-90"
+                  >
+                    <MoreHorizontal className="h-3.5 w-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-40">
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onSelect={() => setHighlightToDelete(h)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Delete highlight
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
             <span className="w-full truncate text-center text-[10px] font-medium text-muted-foreground">
               {h.title}
             </span>
-          </button>
+          </div>
         ))}
       </div>
 
@@ -476,6 +541,27 @@ export function Highlights({ userId, posts }: { userId: string | null; posts: Db
         </DialogContent>
       </Dialog>
       {viewer ? <HighlightViewer highlight={viewer} onClose={() => setViewer(null)} /> : null}
+      <AlertDialog
+        open={Boolean(highlightToDelete)}
+        onOpenChange={(open) => {
+          if (!open && !deleting) setHighlightToDelete(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this highlight?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes the selected highlight only. Its original videos and reels will not be affected.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void deleteHighlight()} disabled={deleting}>
+              {deleting ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }
