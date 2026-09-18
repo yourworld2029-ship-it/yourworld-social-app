@@ -739,7 +739,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
                  <SportsIdentityMark userId={creatorId} />
                </p>
               <p className="truncate text-xs text-gray-400">
-                @{creatorUsername} · {subscriberCount.toLocaleString()} subscribers
+                 @{creatorUsername} · {subscriberCount.toLocaleString()} followers
               </p>
             </div>
           </div>
@@ -768,7 +768,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
               onClick={handleLike}
               aria-label="Like video"
               aria-pressed={Boolean(liked[videoId])}
-              className={`inline-flex h-10 w-[82px] shrink-0 items-center justify-center gap-1.5 rounded-full border border-white/10 bg-white/10 px-2 text-[11px] font-semibold shadow-sm backdrop-blur-md transition-all hover:bg-white/20 ${
+              className={`inline-flex h-9 w-[78px] shrink-0 items-center justify-center gap-1.5 rounded-full border border-white/10 bg-white/10 px-2 text-[11px] font-semibold shadow-sm backdrop-blur-md transition-all hover:bg-white/20 ${
                 liked[videoId] ? "text-pink-300" : "text-white"
               }`}
             >
@@ -780,7 +780,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
               onClick={handleDislike}
               aria-label="Dislike video"
               aria-pressed={disliked}
-              className={`inline-flex h-10 w-[82px] shrink-0 items-center justify-center gap-1.5 rounded-full border border-white/10 bg-white/10 px-2 text-[11px] font-semibold shadow-sm backdrop-blur-md transition-all hover:bg-white/20 ${
+              className={`inline-flex h-9 w-[78px] shrink-0 items-center justify-center gap-1.5 rounded-full border border-white/10 bg-white/10 px-2 text-[11px] font-semibold shadow-sm backdrop-blur-md transition-all hover:bg-white/20 ${
                 disliked ? "text-pink-300" : "text-white"
               }`}
             >
@@ -791,7 +791,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
               type="button"
               onClick={() => void handleShare()}
               aria-label="Share video"
-              className="inline-flex h-10 w-[82px] shrink-0 items-center justify-center gap-1.5 rounded-full border border-white/10 bg-white/10 px-2 text-[11px] font-semibold text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20"
+              className="inline-flex h-9 w-[78px] shrink-0 items-center justify-center gap-1.5 rounded-full border border-white/10 bg-white/10 px-2 text-[11px] font-semibold text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20"
             >
               <Share2 className="h-4 w-4" />
               <span>Share</span>
@@ -800,7 +800,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
               type="button"
               onClick={() => setDownloadOpen(true)}
               aria-label="Download video"
-              className="inline-flex h-10 w-[82px] shrink-0 items-center justify-center gap-1.5 rounded-full border border-white/10 bg-white/10 px-2 text-[11px] font-semibold text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20"
+              className="inline-flex h-9 w-[78px] shrink-0 items-center justify-center gap-1.5 rounded-full border border-white/10 bg-white/10 px-2 text-[11px] font-semibold text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20"
             >
               <Download className="h-4 w-4" />
               <span>Download</span>
