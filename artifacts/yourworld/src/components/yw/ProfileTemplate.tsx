@@ -184,6 +184,13 @@ export function ProfileTemplate({
               <p data-testid="text-profile-display-name" className="font-display text-[18px] font-bold tracking-tight sm:text-xl">
                 {profile.display_name || "Add your name"}
               </p>
+              {verifiedSportsIdentity ? (
+                <SportsIdentityBadge
+                  identity={verifiedSportsIdentity}
+                  tier={verifiedSportsIdentity.status === "International" ? "international" : "national"}
+                  variant="profile"
+                />
+              ) : null}
               {primaryCategoryLine ? (
                 <p
                   data-testid="text-profile-category"
@@ -191,13 +198,6 @@ export function ProfileTemplate({
                 >
                   {primaryCategoryLine.toLocaleUpperCase()}
                 </p>
-              ) : null}
-              {verifiedSportsIdentity ? (
-                <SportsIdentityBadge
-                  identity={verifiedSportsIdentity}
-                  tier={verifiedSportsIdentity.status === "International" ? "international" : "national"}
-                  variant="profile"
-                />
               ) : null}
             </div>
           </div>
