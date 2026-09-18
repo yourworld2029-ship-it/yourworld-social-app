@@ -55,7 +55,7 @@ import {
   downloadVideoInBackground,
   sanitizeDownloadName,
 } from "@/lib/yw-download";
-import { isVideoQualityTier, qualityTierFromDimensions, type VideoQualityTier } from "@/lib/video-quality";
+import { qualityTierFromMetadata, type VideoQualityTier } from "@/lib/video-quality";
 import { useVideoPlayback, VideoPlaybackSlot } from "@/lib/video-playback";
 
 type VideoUser = {
@@ -228,9 +228,11 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           original_width?: number | null;
           original_height?: number | null;
         };
-        const sourceQualityTier = isVideoQualityTier(metadata.source_quality_tier)
-          ? metadata.source_quality_tier
-          : qualityTierFromDimensions(metadata.original_width, metadata.original_height);
+        const sourceQualityTier = qualityTierFromMetadata(
+          metadata.source_quality_tier,
+          metadata.original_width,
+          metadata.original_height,
+        );
 
         return { ...(data as unknown as Video), sourceQualityTier, user: profile };
       } catch (cause) {
@@ -665,10 +667,12 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
       ? user.user_metadata.avatar_url
       : undefined;
   const description = video.caption || "No description provided.";
-  const sourceQualityTier = video.sourceQualityTier ??
-    (isVideoQualityTier(video.source_quality_tier)
-      ? video.source_quality_tier
-      : qualityTierFromDimensions(video.original_width, video.original_height));
+  const sourceQualityTier =
+    qualityTierFromMetadata(
+      video.source_quality_tier,
+      video.original_width,
+      video.original_height,
+    ) ?? video.sourceQualityTier;
 
   const downloadSelected = async (choice: DownloadChoice) => {
      if (!playableMediaUrl) throw new Error("This video has no downloadable media");

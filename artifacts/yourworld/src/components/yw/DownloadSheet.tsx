@@ -11,22 +11,20 @@ import {
   availableVideoQualityTiers,
   estimateDownloadSizeMb,
   formatDownloadSizeMb,
-  VIDEO_QUALITY_TIERS,
   type VideoQualityTier,
 } from "@/lib/video-quality";
 import { cn } from "@/lib/utils";
 
 export type DownloadChoice = VideoQualityTier | "mp3" | "original";
 
-const QUALITY_COPY: Record<
-  Exclude<VideoQualityTier, "4320p">,
-  { title: string; description: string }
-> = {
-  "2160p": { title: "4K Ultra HD (2160p)", description: "High bitrate" },
-  "1440p": { title: "2K QHD (1440p)", description: "Sharp high-definition video" },
-  "1080p": { title: "Full HD (1080p)", description: "Balanced quality and file size" },
-  "720p": { title: "HD (720p)", description: "Good quality for everyday viewing" },
-  "480p": { title: "Standard (480p / 360p)", description: "Smaller file for slower connections" },
+const QUALITY_COPY: Record<VideoQualityTier, { title: string; description: string }> = {
+  "4320p": { title: "8K (4320p)", description: "Ultra-high definition video" },
+  "2160p": { title: "4K (2160p)", description: "Ultra-high-definition video" },
+  "1440p": { title: "2K (1440p)", description: "Sharp high-definition video" },
+  "1080p": { title: "1080p Full HD", description: "Balanced quality and file size" },
+  "720p": { title: "720p HD", description: "Good quality for everyday viewing" },
+  "480p": { title: "480p", description: "Standard-definition video" },
+  "360p": { title: "360p", description: "Smaller file for slower connections" },
 };
 
 type Props = {
@@ -48,10 +46,9 @@ export function DownloadSheet({
 }: Props) {
   const choices = useMemo<DownloadChoice[]>(
     () => {
-      const qualityTiers = (sourceQualityTier
+      const qualityTiers = sourceQualityTier
         ? availableVideoQualityTiers(sourceQualityTier)
-        : VIDEO_QUALITY_TIERS.slice(0, 5)
-      ).filter((choice) => choice.id !== "4320p");
+        : [];
       return [...qualityTiers.map((choice) => choice.id), "original", "mp3"];
     },
     [sourceQualityTier],
@@ -95,9 +92,7 @@ export function DownloadSheet({
            {choices.filter((choice) => choice !== "mp3").map((choice) => {
              const isOriginal = choice === "original";
              const isSelected = choice === selected;
-             const quality = choice !== "original" && choice !== "4320p"
-               ? QUALITY_COPY[choice]
-               : null;
+              const quality = choice !== "original" ? QUALITY_COPY[choice] : null;
              const size = formatDownloadSizeMb(estimateDownloadSizeMb(durationSeconds, choice));
              return (
                <button

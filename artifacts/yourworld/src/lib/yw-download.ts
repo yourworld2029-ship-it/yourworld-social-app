@@ -302,6 +302,9 @@ export async function downloadVideoAtQuality(
   if (!Ctx) throw new Error("This browser cannot export video audio");
 
   const sourceShortSide = Math.min(video.videoWidth, video.videoHeight);
+  if (target.shortSide > sourceShortSide) {
+    throw new Error("That resolution is not available for this video");
+  }
   const scale = Math.min(1, target.shortSide / Math.max(1, sourceShortSide));
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(2, Math.floor((video.videoWidth * scale) / 2) * 2);
