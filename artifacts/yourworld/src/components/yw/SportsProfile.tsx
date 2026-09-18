@@ -6,10 +6,7 @@ import {
   Check,
   CalendarDays,
   ChevronRight,
-  Download,
-  ExternalLink,
   FileCheck2,
-  FileText,
   Globe2,
   LockKeyhole,
   Mail,
@@ -27,7 +24,6 @@ import {
   Video,
 } from "lucide-react";
 import type {
-  SportsDocument,
   SportsVerificationDetails,
   SportsVerificationEvidenceKind,
 } from "@/lib/profile-data";
@@ -744,13 +740,6 @@ export function SportsProfileCard({
 export function SportsDetailsPanel({
   profile,
   isOwner,
-  documents,
-  documentsLoading,
-  documentsError,
-  documentsUploading,
-  onUploadDocument,
-  onDocumentAction,
-  onDeleteDocument,
   onSave,
   sportsIntroductionUrl,
   sportsIntroductionUploading = false,
@@ -769,13 +758,6 @@ export function SportsDetailsPanel({
 }: {
   profile: SportsProfileInfo;
   isOwner: boolean;
-  documents: SportsDocument[];
-  documentsLoading: boolean;
-  documentsError: string | null;
-  documentsUploading: boolean;
-  onUploadDocument: (file: File) => void;
-  onDocumentAction: (document: SportsDocument, download: boolean) => void;
-  onDeleteDocument: (document: SportsDocument) => void;
   onSave?: (draft: SportsProfileDraft) => void | Promise<void>;
   sportsIntroductionUrl?: string | null;
   sportsIntroductionUploading?: boolean;
@@ -896,6 +878,17 @@ export function SportsDetailsPanel({
       )}
 
       {isOwner ? (
+        <SportsIntroductionSection
+          profile={profile}
+          sportsIntroductionUrl={sportsIntroductionUrl}
+          sportsIntroductionUploading={sportsIntroductionUploading}
+          sportsIntroductionProgress={sportsIntroductionProgress}
+          onUploadSportsIntroduction={onUploadSportsIntroduction}
+          onDeleteSportsIntroduction={onDeleteSportsIntroduction}
+        />
+      ) : null}
+
+      {isOwner ? (
         <SportsVerificationDetailsSection
           details={verificationDraft}
           isInternational={isInternational}
@@ -906,163 +899,6 @@ export function SportsDetailsPanel({
           onSave={onSaveVerificationDetails}
           onUploadEvidence={onUploadVerificationEvidence}
         />
-      ) : null}
-
-      {isOwner ? (
-        <SportsDetailsSection
-          icon={<FileText />}
-          title={isCoach ? "Qualification Documents" : "Documents"}
-          description={
-            isCoach
-              ? "Private NS NIS and coaching qualification documents visible only to you."
-              : "Private verification documents visible only to you."
-          }
-        >
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <p className="text-xs text-zinc-500">PDF, JPG, or PNG up to 15 MB.</p>
-            <label
-              htmlFor="sports-document-upload"
-              className={`inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-amber-200/25 bg-amber-200/10 px-3 py-1.5 text-xs font-semibold text-amber-100 transition-colors hover:bg-amber-200/20 ${
-                documentsUploading ? "pointer-events-none opacity-60" : ""
-              }`}
-            >
-              <Upload className="h-3.5 w-3.5" />
-              {documentsUploading ? "Uploading…" : isCoach ? "Upload qualification" : "Upload"}
-            </label>
-            <input
-              id="sports-document-upload"
-              type="file"
-              accept="application/pdf,image/jpeg,image/png"
-              className="sr-only"
-              disabled={documentsUploading}
-              onChange={(event) => {
-                const file = event.currentTarget.files?.[0];
-                event.currentTarget.value = "";
-                if (file) onUploadDocument(file);
-              }}
-            />
-          </div>
-          {documentsLoading ? (
-            <p className="text-sm text-zinc-500">Loading your documents…</p>
-          ) : documentsError ? (
-            <p className="text-sm text-red-300">{documentsError}</p>
-          ) : documents.length ? (
-            <div className="space-y-2">
-              {documents.map((document) => {
-                const displayName = document.name.split("/").at(-1) || "Verification document";
-                return (
-                  <div
-                    key={document.path}
-                    className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.035] p-3"
-                  >
-                    <FileText className="h-5 w-5 shrink-0 text-amber-200" />
-                    <p className="min-w-0 flex-1 truncate text-sm text-zinc-200">{displayName}</p>
-                    <button
-                      type="button"
-                      aria-label={`Open ${displayName}`}
-                      className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-zinc-300 transition-colors hover:bg-white/10"
-                      onClick={() => onDocumentAction(document, false)}
-                    >
-                      <ExternalLink className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={`Download ${displayName}`}
-                      className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-zinc-300 transition-colors hover:bg-white/10"
-                      onClick={() => onDocumentAction(document, true)}
-                    >
-                      <Download className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={`Delete ${displayName}`}
-                      className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-zinc-300 transition-colors hover:bg-red-400/10 hover:text-red-300"
-                      onClick={() => onDeleteDocument(document)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="text-sm text-zinc-500">No verification documents uploaded.</p>
-          )}
-        </SportsDetailsSection>
-      ) : null}
-
-      {isOwner || profile.sportsIntroductionPath ? (
-        <SportsDetailsSection
-          icon={<Video />}
-          title="Sports Introduction"
-          description="One short vertical video in your own natural voice. No music or platform-added audio."
-        >
-          {profile.sportsIntroductionPath ? (
-            sportsIntroductionUrl ? (
-              <video
-                data-testid="sports-introduction-video"
-                src={sportsIntroductionUrl}
-                controls
-                controlsList="nodownload noplaybackrate"
-                disablePictureInPicture
-                playsInline
-                preload="metadata"
-                className="aspect-[9/16] max-h-80 w-full rounded-2xl border border-amber-200/15 bg-black object-contain"
-              />
-            ) : (
-              <p className="text-sm text-zinc-500">Loading your Sports Introduction…</p>
-            )
-          ) : (
-            <div className="rounded-2xl border border-dashed border-amber-200/20 bg-amber-200/[0.04] p-4">
-              <p className="text-sm leading-6 text-zinc-300">
-                Introduce yourself in your own voice and tell people about your sport, role, major
-                achievements and sports journey.
-              </p>
-            </div>
-          )}
-          {isOwner ? (
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <label
-                htmlFor="sports-introduction-upload"
-                className={`inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-amber-200/25 bg-amber-200/10 px-3 py-1.5 text-xs font-semibold text-amber-100 transition-colors hover:bg-amber-200/20 ${
-                  sportsIntroductionUploading ? "pointer-events-none opacity-60" : ""
-                }`}
-              >
-                <Upload className="h-3.5 w-3.5" />
-                {sportsIntroductionUploading
-                  ? `Uploading ${sportsIntroductionProgress}%`
-                  : profile.sportsIntroductionPath
-                    ? "Replace video"
-                    : "Upload video"}
-              </label>
-              <input
-                id="sports-introduction-upload"
-                type="file"
-                accept="video/*"
-                className="sr-only"
-                disabled={sportsIntroductionUploading}
-                onChange={(event) => {
-                  const file = event.currentTarget.files?.[0];
-                  event.currentTarget.value = "";
-                  if (file) onUploadSportsIntroduction?.(file);
-                }}
-              />
-              {profile.sportsIntroductionPath ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled={sportsIntroductionUploading}
-                  onClick={onDeleteSportsIntroduction}
-                  className="rounded-full text-red-200 hover:bg-red-400/10 hover:text-red-100"
-                >
-                  <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-                  Delete video
-                </Button>
-              ) : null}
-            </div>
-          ) : null}
-        </SportsDetailsSection>
       ) : null}
 
       {isOwner ? (
