@@ -6,6 +6,7 @@ type SportsProfileSource = Parameters<typeof getSportsProfile>[0];
 type PublicCountryProfile = {
   country?: string | null;
   country_code?: string | null;
+  verification_requested?: boolean | null;
 };
 
 export type VerifiedSportsIdentity = {
@@ -90,6 +91,7 @@ export function deriveVerifiedSportsIdentity(
   const sportsProfile = getSportsProfile(profile);
   if (
     !sportsProfile?.verified ||
+    profile.verification_requested === true ||
     (sportsProfile.status !== "International" && sportsProfile.status !== "National")
   ) {
     return null;
@@ -131,6 +133,7 @@ type PublicSportsProfileRow = {
   country?: string | null;
   country_code?: string | null;
   is_verified?: boolean | null;
+  verification_requested?: boolean | null;
 };
 
 export async function loadVerifiedSportsIdentity(userId: string): Promise<VerifiedSportsIdentity | null> {
@@ -154,7 +157,7 @@ export async function loadVerifiedSportsIdentity(userId: string): Promise<Verifi
       country: profile.country,
       country_code: profile.country_code,
       location: "",
-      is_verified: profile.is_verified === true,
+       is_verified: profile.is_verified === true && profile.verification_requested !== true,
     },
     monetized,
   );

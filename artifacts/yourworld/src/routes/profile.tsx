@@ -41,6 +41,7 @@ import {
   deleteSportsIntroduction,
   uploadSportsIntroduction,
   deleteSportsVerificationEvidence,
+  createSportsDocumentSignedUrl,
   getSportsVerificationDetails,
   saveSportsVerificationDetails,
   uploadSportsVerificationEvidence,
@@ -423,6 +424,43 @@ function ProfilePage() {
     }
   };
 
+  const handleSportsVerificationEvidenceDelete = async (
+    kind: SportsVerificationEvidenceKind,
+  ) => {
+    if (!userId || userId !== profile.id) return;
+    setSportsVerificationEvidenceUploading(kind);
+    try {
+      const currentDetails =
+        sportsVerificationDetails ?? (await getSportsVerificationDetails(userId));
+      const evidence = currentDetails[kind];
+      if (!evidence) return;
+      await deleteSportsVerificationEvidence(userId, evidence.path);
+      const savedDetails = await saveSportsVerificationDetails(userId, {
+        ...currentDetails,
+        [kind]: null,
+      });
+      setSportsVerificationDetails(savedDetails);
+      toast.success("Private verification evidence deleted");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't delete verification evidence.");
+    } finally {
+      setSportsVerificationEvidenceUploading(null);
+    }
+  };
+
+  const handleSportsVerificationEvidencePreview = async (
+    _kind: SportsVerificationEvidenceKind,
+    path: string,
+  ) => {
+    if (!userId || userId !== profile.id) return;
+    try {
+      const url = await createSportsDocumentSignedUrl(userId, path);
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't preview this document.");
+    }
+  };
+
   const editValue: ProfileEdit = {
     name: profile.display_name,
     username: profile.username,
@@ -437,6 +475,12 @@ function ProfilePage() {
 
   const saveSportsDetails = async (draft: SportsProfileDraft) => {
     if (!sportsProfile) return;
+    if (
+      (profile.is_verified || profile.verification_requested) &&
+      draft.sportsIntroductionPath !== sportsProfile.sportsIntroductionPath
+    ) {
+      throw new Error("Sports Introduction is locked after verification submission.");
+    }
     await save({
       ...editValue,
       username: draft.username.trim() || profile.username,
@@ -452,6 +496,8 @@ function ProfilePage() {
     try {
       const result = await submitSportsVerification();
       await reload();
+      const submittedDetails = await getSportsVerificationDetails(userId);
+      setSportsVerificationDetails(submittedDetails);
       if (result.notification.sent) {
         toast.success("Verification request submitted");
       } else {
@@ -643,6 +689,8 @@ function ProfilePage() {
               verificationDetailsSaving={sportsVerificationDetailsSaving}
               onSaveVerificationDetails={handleSaveSportsVerificationDetails}
               onUploadVerificationEvidence={handleSportsVerificationEvidenceUpload}
+              onDeleteVerificationEvidence={handleSportsVerificationEvidenceDelete}
+              onPreviewVerificationEvidence={handleSportsVerificationEvidencePreview}
               verificationEvidenceUploading={sportsVerificationEvidenceUploading}
               onSubmitVerification={handleSubmitSportsVerification}
               onOpenVerificationReview={() => {

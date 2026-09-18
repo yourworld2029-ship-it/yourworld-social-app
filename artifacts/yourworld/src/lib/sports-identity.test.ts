@@ -30,7 +30,7 @@ test("verified international player and coach use premium identity data", () => 
   );
 });
 
-test("verified national player and coach receive their country flag", () => {
+test("verified national player and coach keep the country data without showing a flag", () => {
   for (const role of ["Player", "Coach"] as const) {
     const identity = deriveVerifiedSportsIdentity(profile(role, "National"), true);
     assert.equal(identity?.sport, "Handball");
@@ -86,7 +86,7 @@ test("international profile badge renders the premium gold identity", () => {
   assert.match(html, /sports-identity-badge--international/);
 });
 
-test("national profile badge renders the silver-blue identity with a flag", () => {
+test("national profile badge renders the silver-blue identity without a flag", () => {
   const identity = deriveVerifiedSportsIdentity(profile("Coach", "National"), false);
   const html = renderToStaticMarkup(
     createElement(SportsIdentityBadge, { identity, variant: "profile" }),
@@ -94,7 +94,7 @@ test("national profile badge renders the silver-blue identity with a flag", () =
 
   assert.match(html, /NATIONAL/);
   assert.match(html, /COACH/);
-  assert.match(html, /🇮🇳/);
+  assert.doesNotMatch(html, /🇮🇳/);
   assert.match(html, /sports-identity-badge--national/);
   assert.doesNotMatch(html, /sports-identity-badge__laurel/);
 });
@@ -114,7 +114,7 @@ test("compact approved identity marks render even when monetization is inactive"
   assert.match(international, /sports-identity-compact-badge/);
   assert.match(international, /🇮🇳/);
   assert.match(national, /sports-identity-compact-badge/);
-  assert.match(national, /🇮🇳/);
+  assert.doesNotMatch(national, /🇮🇳/);
 });
 
 test("unverified users render no identity badge", () => {
@@ -126,4 +126,15 @@ test("unverified users render no identity badge", () => {
   );
 
   assert.equal(html, "");
+});
+
+test("in-review profiles fail closed even if verification flags are inconsistent", () => {
+  assert.equal(
+    deriveVerifiedSportsIdentity({
+      ...profile("Player", "International"),
+      is_verified: true,
+      verification_requested: true,
+    }),
+    null,
+  );
 });

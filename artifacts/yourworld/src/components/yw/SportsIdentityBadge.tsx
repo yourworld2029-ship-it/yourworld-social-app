@@ -5,8 +5,10 @@ export type SportsIdentityTier = "international" | "national";
 
 function HorizontalSportsBadge({
   identity,
+  showCountryFlag,
 }: {
   identity: VerifiedSportsIdentity;
+  showCountryFlag: boolean;
 }) {
   const title = `${identity.status.toUpperCase()} ${identity.role.toUpperCase()}`;
 
@@ -17,7 +19,7 @@ function HorizontalSportsBadge({
       </span>
       <Globe2 className="sports-identity-badge__globe-icon" aria-hidden="true" />
       <span className="sports-identity-badge__label">{title}</span>
-      {identity.countryFlag ? (
+      {showCountryFlag && identity.countryFlag ? (
         <span
           className="sports-identity-badge__country-flag"
           title={`${identity.country} representation`}
@@ -48,18 +50,21 @@ export function SportsIdentityBadge({
   const label = `${identity.status.toUpperCase()} ${identity.role.toUpperCase()}`;
 
   if (variant === "profile") {
-    const countryFlag = identity.countryFlag ?? "🇮🇳";
+    const countryFlag = international ? identity.countryFlag ?? "🇮🇳" : null;
     return (
       <div
         data-testid="sports-identity-profile-badge"
         role="img"
-        aria-label={`${label}, ${identity.country || "India"} representation`}
+        aria-label={`${label}${international ? `, ${identity.country || "India"} representation` : ""}`}
         title={label}
         className={`sports-identity-badge sports-identity-badge--profile sports-identity-badge--${
           international ? "international" : "national"
         }`}
       >
-        <HorizontalSportsBadge identity={{ ...identity, countryFlag }} />
+         <HorizontalSportsBadge
+           identity={{ ...identity, countryFlag }}
+           showCountryFlag={international}
+         />
       </div>
     );
   }
@@ -79,10 +84,7 @@ export function SportsIdentityBadge({
           <span className="sports-identity-badge__compact-flag">{identity.countryFlag ?? "🇮🇳"}</span>
         </>
       ) : (
-        <>
-          <Star className="sports-identity-badge__compact-star" aria-hidden="true" />
-          <span className="sports-identity-badge__compact-flag">{identity.countryFlag ?? "🇮🇳"}</span>
-        </>
+        <Star className="sports-identity-badge__compact-star" aria-hidden="true" />
       )}
     </span>
   );

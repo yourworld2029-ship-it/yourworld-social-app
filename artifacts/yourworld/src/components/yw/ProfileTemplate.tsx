@@ -122,6 +122,7 @@ export function ProfileTemplate({
     profile.category,
   );
   const verifiedSportsIdentity = useVerifiedSportsIdentity(profile.id);
+  const sportsSubLabel = verifiedSportsIdentity ?? sportsProfile;
   const visibleNormalCategories = normalCategories.filter(
     (category) => !isSportsProfileLabel(category, sportsProfile),
   );
@@ -184,9 +185,9 @@ export function ProfileTemplate({
                 />
               ) : null}
             </div>
-            {verifiedSportsIdentity ? (
+            {sportsSubLabel ? (
               <p data-testid="text-profile-sports-sub-label" className="mt-1 text-[11px] font-medium uppercase tracking-[0.12em] text-amber-100/80">
-                {verifiedSportsIdentity.sport?.trim().toUpperCase() || "SPORTS"} · {verifiedSportsIdentity.role?.trim().toUpperCase() || "PLAYER"}
+                {sportsSubLabel.sport?.trim().toUpperCase() || "SPORTS"} · {sportsSubLabel.role?.trim().toUpperCase() || "PLAYER"}
               </p>
             ) : null}
             {visibleNormalCategories.length > 0 ? (

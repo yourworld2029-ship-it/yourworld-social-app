@@ -754,6 +754,8 @@ export function SportsDetailsPanel({
   verificationDetailsSaving = false,
   onSaveVerificationDetails,
   onUploadVerificationEvidence,
+  onDeleteVerificationEvidence,
+  onPreviewVerificationEvidence,
   verificationEvidenceUploading = null,
 }: {
   profile: SportsProfileInfo;
@@ -775,6 +777,13 @@ export function SportsDetailsPanel({
     kind: SportsVerificationEvidenceKind,
     file: File,
   ) => void | Promise<void>;
+  onDeleteVerificationEvidence?: (
+    kind: SportsVerificationEvidenceKind,
+  ) => void | Promise<void>;
+  onPreviewVerificationEvidence?: (
+    kind: SportsVerificationEvidenceKind,
+    path: string,
+  ) => void | Promise<void>;
   verificationEvidenceUploading?: SportsVerificationEvidenceKind | null;
 }) {
   const [editorField, setEditorField] = useState<SportsEditorField | null>(null);
@@ -787,6 +796,13 @@ export function SportsDetailsPanel({
   const editable = isOwner && Boolean(onSave);
   const isCoach = profile.role === "Coach";
   const isInternational = profile.status === "International";
+  const reviewStatus = verificationDetails?.reviewStatus ?? "not_submitted";
+  const verificationLocked =
+    profile.verified ||
+    profile.verificationRequested ||
+    reviewStatus === "pending" ||
+    reviewStatus === "approved";
+  const verificationUnderReview = profile.verificationRequested || reviewStatus === "pending";
   useEffect(() => {
     setVerificationDraft(verificationDetails ?? emptySportsVerificationDetails());
   }, [verificationDetails]);
@@ -887,6 +903,10 @@ export function SportsDetailsPanel({
           onChange={setVerificationDraft}
           onSave={onSaveVerificationDetails}
           onUploadEvidence={onUploadVerificationEvidence}
+           onDeleteEvidence={onDeleteVerificationEvidence}
+           onPreviewEvidence={onPreviewVerificationEvidence}
+           locked={verificationLocked}
+           underReview={verificationUnderReview}
           profile={profile}
           sportsIntroductionUrl={sportsIntroductionUrl}
           sportsIntroductionUploading={sportsIntroductionUploading}
@@ -1059,6 +1079,7 @@ function SportsIntroductionSection({
   sportsIntroductionProgress,
   onUploadSportsIntroduction,
   onDeleteSportsIntroduction,
+  locked = false,
 }: {
   profile: SportsProfileInfo;
   isOwner: boolean;
@@ -1067,6 +1088,7 @@ function SportsIntroductionSection({
   sportsIntroductionProgress: number;
   onUploadSportsIntroduction?: (file: File) => void;
   onDeleteSportsIntroduction?: () => void;
+  locked?: boolean;
 }) {
   return (
     <SportsDetailsSection
@@ -1097,7 +1119,7 @@ function SportsIntroductionSection({
           </p>
         </div>
       )}
-      {isOwner ? (
+      {isOwner && !locked ? (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <label
             htmlFor="sports-introduction-upload"
@@ -1138,6 +1160,11 @@ function SportsIntroductionSection({
             </Button>
           ) : null}
         </div>
+      ) : locked ? (
+        <p className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-amber-100/70">
+          <LockKeyhole className="h-3.5 w-3.5" />
+          Locked after submission
+        </p>
       ) : null}
     </SportsDetailsSection>
   );
@@ -1152,12 +1179,16 @@ function SportsVerificationDetailsSection({
   onChange,
   onSave,
   onUploadEvidence,
+  onDeleteEvidence,
+  onPreviewEvidence,
   profile,
   sportsIntroductionUrl,
   sportsIntroductionUploading,
   sportsIntroductionProgress,
   onUploadSportsIntroduction,
   onDeleteSportsIntroduction,
+  locked,
+  underReview,
 }: {
   details: SportsVerificationDetails;
   isInternational: boolean;
@@ -1173,6 +1204,15 @@ function SportsVerificationDetailsSection({
   sportsIntroductionProgress: number;
   onUploadSportsIntroduction?: (file: File) => void;
   onDeleteSportsIntroduction?: () => void;
+  onDeleteEvidence?: (
+    kind: SportsVerificationEvidenceKind,
+  ) => void | Promise<void>;
+  onPreviewEvidence?: (
+    kind: SportsVerificationEvidenceKind,
+    path: string,
+  ) => void | Promise<void>;
+  locked: boolean;
+  underReview: boolean;
 }) {
   const setField = (field: "villageTown" | "district" | "state" | "country", value: string) =>
     onChange({ ...details, [field]: value });
@@ -1187,6 +1227,14 @@ function SportsVerificationDetailsSection({
         <p className="text-sm text-zinc-500">Loading your verification details…</p>
       ) : (
         <div className="space-y-4">
+          {underReview ? (
+            <div
+              data-testid="sports-verification-under-review"
+              className="rounded-2xl border border-amber-200/25 bg-amber-200/[0.08] px-4 py-3 text-sm font-semibold text-amber-100"
+            >
+              Under Review (12 to 72 working hours)
+            </div>
+          ) : null}
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="space-y-1.5 text-xs text-zinc-400">
               Village / Town
@@ -1195,7 +1243,7 @@ function SportsVerificationDetailsSection({
                 onChange={(event) => setField("villageTown", event.target.value)}
                 placeholder="Village or town"
                 maxLength={120}
-                disabled={saving}
+                disabled={saving || locked}
                 className="border-white/10 bg-white/[0.04] text-sm text-white"
               />
             </label>
@@ -1206,7 +1254,7 @@ function SportsVerificationDetailsSection({
                 onChange={(event) => setField("district", event.target.value)}
                 placeholder="District"
                 maxLength={120}
-                disabled={saving}
+                disabled={saving || locked}
                 className="border-white/10 bg-white/[0.04] text-sm text-white"
               />
             </label>
@@ -1217,7 +1265,7 @@ function SportsVerificationDetailsSection({
                 onChange={(event) => setField("state", event.target.value)}
                 placeholder="State"
                 maxLength={120}
-                disabled={saving}
+                disabled={saving || locked}
                 className="border-white/10 bg-white/[0.04] text-sm text-white"
               />
             </label>
@@ -1228,7 +1276,7 @@ function SportsVerificationDetailsSection({
                 onChange={(event) => setField("country", event.target.value)}
                 placeholder="Country"
                 maxLength={120}
-                disabled={saving}
+                disabled={saving || locked}
                 className="border-white/10 bg-white/[0.04] text-sm text-white"
               />
             </label>
@@ -1261,6 +1309,21 @@ function SportsVerificationDetailsSection({
               label="Sports Certificate"
               uploading={uploading}
               onUpload={onUploadEvidence}
+               onDelete={onDeleteEvidence}
+               onPreview={onPreviewEvidence}
+               locked={locked}
+            />
+            <VerificationEvidenceRow
+              accept="image/jpeg,image/png,image/webp"
+              evidence={details.tournamentPhoto}
+              kind="tournamentPhoto"
+              label="Tournament Photo"
+              hint="A clear photo from the submitted tournament or competition."
+              uploading={uploading}
+              onUpload={onUploadEvidence}
+              onDelete={onDeleteEvidence}
+              onPreview={onPreviewEvidence}
+              locked={locked}
             />
             {isInternational ? (
               <>
@@ -1271,6 +1334,9 @@ function SportsVerificationDetailsSection({
                   label="Passport First Page"
                   uploading={uploading}
                   onUpload={onUploadEvidence}
+                   onDelete={onDeleteEvidence}
+                   onPreview={onPreviewEvidence}
+                   locked={locked}
                 />
                 <VerificationEvidenceRow
                   accept="application/pdf,image/jpeg,image/png"
@@ -1280,6 +1346,9 @@ function SportsVerificationDetailsSection({
                   hint="The page showing the visa or stamp for the tournament/game country."
                   uploading={uploading}
                   onUpload={onUploadEvidence}
+                   onDelete={onDeleteEvidence}
+                   onPreview={onPreviewEvidence}
+                   locked={locked}
                 />
               </>
             ) : null}
@@ -1291,12 +1360,13 @@ function SportsVerificationDetailsSection({
               sportsIntroductionProgress={sportsIntroductionProgress}
               onUploadSportsIntroduction={onUploadSportsIntroduction}
               onDeleteSportsIntroduction={onDeleteSportsIntroduction}
+              locked={locked}
             />
           </div>
 
           <Button
             type="button"
-            disabled={saving || !onSave}
+            disabled={saving || locked || !onSave}
             onClick={() => void onSave?.(verificationDraftOr(details))}
             className="w-full rounded-full bg-amber-200 text-black hover:bg-amber-100"
           >
@@ -1346,6 +1416,9 @@ function VerificationEvidenceRow({
   hint,
   uploading,
   onUpload,
+  onDelete,
+  onPreview,
+  locked,
 }: {
   accept: string;
   evidence: SportsVerificationDetails["sportsCertificate"];
@@ -1354,32 +1427,68 @@ function VerificationEvidenceRow({
   hint?: string;
   uploading: SportsVerificationEvidenceKind | null;
   onUpload?: (kind: SportsVerificationEvidenceKind, file: File) => void | Promise<void>;
+  onDelete?: (kind: SportsVerificationEvidenceKind) => void | Promise<void>;
+  onPreview?: (kind: SportsVerificationEvidenceKind, path: string) => void | Promise<void>;
+  locked: boolean;
 }) {
   const inputId = `sports-verification-${kind}`;
   const isUploading = uploading === kind;
   return (
-    <div className="flex items-start gap-3 rounded-xl border border-white/10 bg-black/10 p-3">
+    <div className="flex flex-wrap items-start gap-3 rounded-xl border border-white/10 bg-black/10 p-3">
       <FileCheck2 className="mt-0.5 h-4 w-4 shrink-0 text-amber-200" />
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium text-zinc-200">{label}</p>
         <p className="mt-0.5 text-xs text-zinc-500">{hint || "Private upload"}</p>
         <p className="mt-1 text-xs text-zinc-400">{evidence ? "Uploaded" : "Not uploaded"}</p>
       </div>
-      <label
-        htmlFor={inputId}
-        className={`inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-amber-200/25 bg-amber-200/10 px-3 py-1.5 text-xs font-semibold text-amber-100 hover:bg-amber-200/20 ${
-          isUploading ? "pointer-events-none opacity-60" : ""
-        }`}
-      >
-        <Upload className="h-3.5 w-3.5" />
-        {isUploading ? "Uploading…" : evidence ? "Replace" : "Upload"}
-      </label>
+      <div className="ml-auto flex shrink-0 flex-wrap justify-end gap-2">
+        {evidence && onPreview ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => void onPreview(kind, evidence.path)}
+            className="rounded-full text-amber-100 hover:bg-amber-200/10"
+          >
+            Preview
+          </Button>
+        ) : null}
+        {evidence && onDelete && !locked ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={isUploading}
+            onClick={() => void onDelete(kind)}
+            className="rounded-full text-red-200 hover:bg-red-400/10 hover:text-red-100"
+          >
+            <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+            Delete
+          </Button>
+        ) : null}
+        {!locked ? (
+          <label
+            htmlFor={inputId}
+            className={`inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-amber-200/25 bg-amber-200/10 px-3 py-1.5 text-xs font-semibold text-amber-100 hover:bg-amber-200/20 ${
+              isUploading ? "pointer-events-none opacity-60" : ""
+            }`}
+          >
+            <Upload className="h-3.5 w-3.5" />
+            {isUploading ? "Uploading…" : evidence ? "Replace" : "Upload"}
+          </label>
+        ) : (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-500">
+            <LockKeyhole className="h-3.5 w-3.5" />
+            Locked
+          </span>
+        )}
+      </div>
       <input
         id={inputId}
         type="file"
         accept={accept}
         className="sr-only"
-        disabled={isUploading || !onUpload}
+        disabled={isUploading || locked || !onUpload}
         onChange={(event) => {
           const file = event.currentTarget.files?.[0];
           event.currentTarget.value = "";

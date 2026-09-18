@@ -114,6 +114,37 @@ async function requireDocumentOwner(ownerId: string) {
   }
 }
 
+const lockedSportsVerificationStatuses = new Set(["pending", "approved"]);
+
+async function requireMutableSportsVerification(ownerId: string) {
+  await requireDocumentOwner(ownerId);
+
+  const [{ data: profile, error: profileError }, { data: details, error: detailsError }] =
+    await Promise.all([
+      supabase
+        .from("profiles")
+        .select("is_verified,verification_requested")
+        .eq("id", ownerId)
+        .maybeSingle(),
+      supabase
+        .from("sports_verification_details")
+        .select("review_status")
+        .eq("user_id", ownerId)
+        .maybeSingle(),
+    ]);
+
+  if (profileError) throw new Error(profileError.message);
+  if (detailsError) throw new Error(detailsError.message);
+  const status = String(details?.review_status ?? "not_submitted");
+  if (
+    profile?.is_verified === true ||
+    profile?.verification_requested === true ||
+    lockedSportsVerificationStatuses.has(status)
+  ) {
+    throw new Error("Sports Verification files are locked while this request is under review or approved.");
+  }
+}
+
 function evidenceFromPath(
   path: string | null,
   kind: SportsVerificationEvidenceKind,
@@ -189,7 +220,7 @@ export async function saveSportsVerificationDetails(
   ownerId: string,
   details: SportsVerificationDetails,
 ): Promise<SportsVerificationDetails> {
-  await requireDocumentOwner(ownerId);
+  await requireMutableSportsVerification(ownerId);
   const { data: sessionData } = await supabase.auth.getSession();
   const sessionEmail = sessionData.session?.user.email ?? "";
   const sessionMobile = sessionData.session?.user.phone ?? "";
@@ -271,7 +302,7 @@ export async function uploadSportsVerificationEvidence(
   kind: SportsVerificationEvidenceKind,
   file: File,
 ): Promise<SportsVerificationEvidence> {
-  await requireDocumentOwner(ownerId);
+  await requireMutableSportsVerification(ownerId);
   const rule = verificationEvidenceRules[kind];
   if (!rule.allowedTypes.has(file.type) || file.size > rule.maxBytes) {
     throw new Error(rule.message);
@@ -296,7 +327,7 @@ export async function uploadSportsVerificationEvidence(
 }
 
 export async function deleteSportsVerificationEvidence(ownerId: string, path: string) {
-  await requireDocumentOwner(ownerId);
+  await requireMutableSportsVerification(ownerId);
   if (!path.startsWith(`${ownerId}/sports-verification/`) || path.includes("..")) {
     throw new Error("Invalid Sports Verification evidence path.");
   }
@@ -444,7 +475,7 @@ export async function uploadSportsIntroduction(
   file: File,
   onProgress?: ProgressFn,
 ) {
-  await requireDocumentOwner(ownerId);
+  await requireMutableSportsVerification(ownerId);
   await validateSportsIntroductionVideo(file);
   const extension = file.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || "mp4";
   const path = `${ownerId}/sports-introduction/${Date.now()}-${safeSportsIntroductionFileName(
@@ -463,7 +494,7 @@ export async function uploadSportsIntroduction(
 }
 
 export async function deleteSportsIntroduction(ownerId: string, path: string) {
-  await requireDocumentOwner(ownerId);
+  await requireMutableSportsVerification(ownerId);
   if (!path.startsWith(`${ownerId}/sports-introduction/`) || path.includes("..")) {
     throw new Error("Invalid Sports Introduction path.");
   }

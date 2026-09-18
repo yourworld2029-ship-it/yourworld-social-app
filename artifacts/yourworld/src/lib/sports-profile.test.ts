@@ -162,7 +162,7 @@ test("Non-owners can still view an existing Sports Introduction", () => {
   assert.doesNotMatch(html, /Upload video/);
 });
 
-test("Sports Introduction metadata persists without creating a Reel", () => {
+test("Sports Introduction metadata persists without embedding a Reel marker", () => {
   const bio = serializeSportsProfileBio("", {
     username: "player",
     role: "Player",

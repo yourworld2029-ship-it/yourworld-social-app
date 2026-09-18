@@ -109,6 +109,80 @@ function extractSportsIntroductionPath(bio: string | null) {
   return value && !/^none$/i.test(value) ? value : null;
 }
 
+async function ensurePublicSportsIntroductionReel(
+  admin: Awaited<ReturnType<typeof getAdminClient>>,
+  ownerId: string,
+  sourcePath: string,
+) {
+  if (
+    !sourcePath.startsWith(`${ownerId}/sports-introduction/`) ||
+    sourcePath.includes("..")
+  ) {
+    throw new Error("The Sports Introduction video path is invalid.");
+  }
+
+  const fileName = sourcePath.split("/").at(-1) || "sports-introduction.mp4";
+  const reelPath = `${ownerId}/sports-introduction/${fileName}`;
+  const { data: existing, error: existingError } = await admin
+    .from("posts")
+    .select("id")
+    .eq("user_id", ownerId)
+    .eq("kind", "reel")
+    .eq("media_url", reelPath)
+    .maybeSingle();
+  if (existingError) throw new Error(existingError.message);
+  if (existing?.id) return existing.id;
+
+  const { data: source, error: downloadError } = await admin.storage
+    .from("videos")
+    .download(sourcePath);
+  if (downloadError || !source) {
+    throw new Error(downloadError?.message ?? "The Sports Introduction video is unavailable.");
+  }
+
+  const { error: uploadError } = await admin.storage.from("reels").upload(reelPath, source, {
+    cacheControl: "86400",
+    contentType: source.type || "video/mp4",
+    upsert: true,
+  });
+  if (uploadError) throw new Error(uploadError.message);
+
+  const { data: created, error: insertError } = await admin
+    .from("posts")
+    .insert({
+      user_id: ownerId,
+      kind: "reel",
+      is_reel: true,
+      media_url: reelPath,
+      media_type: "video",
+      thumbnail_url: null,
+      title: "Sports Introduction",
+      caption: "Sports Introduction",
+      hashtags: [],
+      audio: null,
+      allow_download: true,
+      audience: "everyone",
+      tagged_user_ids: [],
+      viewer_user_ids: [],
+    })
+    .select("id")
+    .single();
+  if (insertError) {
+    // A retry can race another submission after the storage copy. Re-read the
+    // deterministic media path before surfacing a duplicate error.
+    const { data: raced } = await admin
+      .from("posts")
+      .select("id")
+      .eq("user_id", ownerId)
+      .eq("kind", "reel")
+      .eq("media_url", reelPath)
+      .maybeSingle();
+    if (raced?.id) return raced.id;
+    throw new Error(insertError.message);
+  }
+  return created.id;
+}
+
 function documentName(path: string) {
   return path.split("/").at(-1) || "verification document";
 }
@@ -372,6 +446,12 @@ export const submitSportsVerification = createServerFn({ method: "POST" })
     if (profile.is_verified || profile.verification_requested) {
       throw new Error("This Sports Verification request is already submitted or approved.");
     }
+
+    const sportsIntroductionPath = extractSportsIntroductionPath(profile.bio);
+    if (!sportsIntroductionPath) {
+      throw new Error("Upload your Sports Introduction video before submitting verification.");
+    }
+    await ensurePublicSportsIntroductionReel(admin, context.userId, sportsIntroductionPath);
 
     const now = new Date().toISOString();
     const { error: detailsError } = await admin.from("sports_verification_details").upsert(
