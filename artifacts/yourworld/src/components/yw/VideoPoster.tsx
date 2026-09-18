@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { resolveLongVideoUrl } from "@/lib/video-data";
 import { resolveMediaUrl } from "@/lib/social-data";
 import { cn } from "@/lib/utils";
 
@@ -11,25 +10,22 @@ type Props = {
 };
 
 /**
- * Shows the custom thumbnail when present, otherwise falls back to the
- * first frame of the video itself (`#t=1.0`) so cards never render blank.
+ * Shows the stored thumbnail without mounting the source video. Video
+ * publishers generate a durable first-frame JPEG when a custom thumbnail is
+ * not supplied, so grid cards never need to buffer the source media.
  */
-export function VideoPoster({ thumbnailUrl, mediaUrl, alt, className }: Props) {
-  const [frameUrl, setFrameUrl] = useState<string | null>(null);
-  const [resolvedThumbnail, setResolvedThumbnail] = useState<string | null>(null);
-  const [thumbnailResolved, setThumbnailResolved] = useState(false);
-  const [frameFailed, setFrameFailed] = useState(false);
+export function VideoPoster({ thumbnailUrl, alt, className }: Props) {
+  const [resolvedThumbnail, setResolvedThumbnail] = useState<string | null>(thumbnailUrl ?? null);
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
-  const [loadState, setLoadState] = useState<"loading" | "loaded" | "error">("loading");
+  const [loadState, setLoadState] = useState<"loading" | "loaded" | "error">(
+    thumbnailUrl ? "loading" : "loaded",
+  );
 
   useEffect(() => {
     setThumbnailFailed(false);
-    setFrameFailed(false);
-    setFrameUrl(null);
-    setResolvedThumbnail(null);
-    setThumbnailResolved(false);
-    setLoadState("loading");
-  }, [thumbnailUrl, mediaUrl]);
+    setResolvedThumbnail(thumbnailUrl ?? null);
+    setLoadState(thumbnailUrl ? "loading" : "loaded");
+  }, [thumbnailUrl]);
 
   useEffect(() => {
     if (!thumbnailUrl) return;
@@ -37,30 +33,16 @@ export function VideoPoster({ thumbnailUrl, mediaUrl, alt, className }: Props) {
     void resolveMediaUrl(thumbnailUrl, "videos").then((url) => {
       if (!alive) return;
       setResolvedThumbnail(url || thumbnailUrl);
-      setThumbnailResolved(true);
     }).catch(() => {
       if (!alive) return;
       setResolvedThumbnail(thumbnailUrl);
-      setThumbnailResolved(true);
     });
     return () => {
       alive = false;
     };
   }, [thumbnailUrl]);
 
-  useEffect(() => {
-    if ((thumbnailUrl && !thumbnailFailed) || !mediaUrl) return;
-    let alive = true;
-    void resolveLongVideoUrl(mediaUrl).then((url) => {
-      if (alive && url) setFrameUrl(`${url}${url.includes("#") ? "" : "#t=1.0"}`);
-    });
-    return () => {
-      alive = false;
-    };
-  }, [thumbnailFailed, thumbnailUrl, mediaUrl]);
-
-  const showThumbnail = thumbnailResolved && resolvedThumbnail && !thumbnailFailed;
-  const showFrame = frameUrl && !frameFailed && !showThumbnail;
+  const showThumbnail = resolvedThumbnail && !thumbnailFailed;
 
   return (
     <div className={cn("relative h-full w-full overflow-hidden bg-zinc-900", className)}>
@@ -80,24 +62,6 @@ export function VideoPoster({ thumbnailUrl, mediaUrl, alt, className }: Props) {
           onLoad={() => setLoadState("loaded")}
           onError={() => {
             setThumbnailFailed(true);
-            setLoadState("loading");
-          }}
-          className={cn(
-            "absolute inset-0 h-full w-full object-cover transition-opacity duration-300",
-            loadState === "loaded" ? "opacity-100" : "opacity-0",
-          )}
-        />
-      ) : showFrame ? (
-        <video
-          src={frameUrl}
-          muted
-          playsInline
-          preload="metadata"
-          tabIndex={-1}
-          aria-label={alt}
-          onLoadedData={() => setLoadState("loaded")}
-          onError={() => {
-            setFrameFailed(true);
             setLoadState("error");
           }}
           className={cn(

@@ -23,6 +23,9 @@ export const STORAGE_BUCKETS = {
   documents: "documents",
 } as const;
 
+/** Uploaded video and poster objects use unique paths, so they can be cached immutably. */
+export const IMMUTABLE_MEDIA_CACHE_CONTROL = "31536000, immutable";
+
 function storageConfig() {
   return {
     url: normalizeSupabaseProjectUrl(

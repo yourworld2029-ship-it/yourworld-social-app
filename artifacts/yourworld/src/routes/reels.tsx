@@ -403,6 +403,32 @@ function ReelMedia({
     paused && "[animation-play-state:paused]",
   );
 
+  if (!active && !asImage) {
+    if (posterSrc) {
+      return (
+        <img
+          ref={(el) => {
+            mediaRef.current = el;
+          }}
+          src={posterSrc}
+          alt={alt}
+          decoding="async"
+          loading="lazy"
+          className={className}
+        />
+      );
+    }
+    return (
+      <div
+        ref={(el) => {
+          mediaRef.current = el;
+        }}
+        aria-label={alt}
+        className="h-full w-full bg-zinc-950"
+      />
+    );
+  }
+
   if (asImage) {
     return (
       <img
@@ -412,7 +438,7 @@ function ReelMedia({
         src={src}
         alt={alt}
         decoding="async"
-        loading="eager"
+        loading={active ? "eager" : "lazy"}
         onError={handleError}
         className={className}
       />
@@ -428,7 +454,7 @@ function ReelMedia({
       src={src}
       poster={posterSrc ?? undefined}
       playsInline
-      preload="metadata"
+      preload={active ? "metadata" : "none"}
       onError={handleError}
       onPlay={() => {
         forceSound();

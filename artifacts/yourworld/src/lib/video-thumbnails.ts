@@ -1,8 +1,13 @@
-import { STORAGE_BUCKETS, uploadWithProgress, type ProgressFn } from "@/lib/storage-upload";
+import {
+  IMMUTABLE_MEDIA_CACHE_CONTROL,
+  STORAGE_BUCKETS,
+  uploadWithProgress,
+  type ProgressFn,
+} from "@/lib/storage-upload";
 import { generateVideoThumbnail } from "@/lib/video-frames";
 
 /** Unique paths let browsers safely keep generated thumbnails for one year. */
-export const VIDEO_THUMBNAIL_CACHE_CONTROL = "31536000, immutable";
+export const VIDEO_THUMBNAIL_CACHE_CONTROL = IMMUTABLE_MEDIA_CACHE_CONTROL;
 
 function thumbnailPath(uid: string) {
   return `${uid}/thumb-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;

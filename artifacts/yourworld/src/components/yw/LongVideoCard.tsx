@@ -72,6 +72,24 @@ export function LongVideoCard({
         : null,
   );
   const cardRef = useRef<HTMLElement | null>(null);
+  const [mediaNearViewport, setMediaNearViewport] = useState(false);
+
+  useEffect(() => {
+    const card = cardRef.current;
+    if (!card || typeof IntersectionObserver === "undefined") {
+      setMediaNearViewport(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) setMediaNearViewport(true);
+      },
+      { rootMargin: "320px 0px" },
+    );
+    observer.observe(card);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const storedDuration =
@@ -81,7 +99,7 @@ export function LongVideoCard({
         ? video.durationSeconds
         : null;
     setDurationSeconds(storedDuration);
-    if (storedDuration !== null || !video.mediaUrl) return;
+    if (storedDuration !== null || !video.mediaUrl || !mediaNearViewport) return;
 
     let active = true;
     const probe = document.createElement("video");
@@ -112,7 +130,7 @@ export function LongVideoCard({
       .catch(cleanup);
 
     return cleanup;
-  }, [video.durationSeconds, video.mediaUrl]);
+  }, [mediaNearViewport, video.durationSeconds, video.mediaUrl]);
 
   const isMine = currentUserId === video.userId;
   const isFollowing = !!following[video.userId];

@@ -7,7 +7,12 @@ import {
   timeAgo,
   type DbProfile,
 } from "@/lib/social-data";
-import { STORAGE_BUCKETS, uploadWithProgress, type ProgressFn } from "@/lib/storage-upload";
+import {
+  IMMUTABLE_MEDIA_CACHE_CONTROL,
+  STORAGE_BUCKETS,
+  uploadWithProgress,
+  type ProgressFn,
+} from "@/lib/storage-upload";
 import { optimizeVideoBlob } from "@/lib/video-compression";
 import { sampleVideoFrames } from "@/lib/video-frames";
 import {
@@ -230,6 +235,7 @@ async function uploadToStorage(
       (percent) => onProgress?.(
         blob.type.startsWith("video/") ? 45 + Math.round(percent * 0.55) : percent,
       ),
+      IMMUTABLE_MEDIA_CACHE_CONTROL,
     );
     return url;
   } catch (error) {

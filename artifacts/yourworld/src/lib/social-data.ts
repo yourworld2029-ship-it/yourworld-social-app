@@ -2,7 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { cacheGet, cacheSet } from "@/lib/local-cache";
 import { PAGE_SIZE } from "@/lib/chat-db";
-import { STORAGE_BUCKETS, uploadWithProgress, type ProgressFn } from "@/lib/storage-upload";
+import {
+  IMMUTABLE_MEDIA_CACHE_CONTROL,
+  STORAGE_BUCKETS,
+  uploadWithProgress,
+  type ProgressFn,
+} from "@/lib/storage-upload";
 import { optimizeVideoBlob } from "@/lib/video-compression";
 import { generateAndUploadVideoThumbnail, uploadVideoThumbnail } from "@/lib/video-thumbnails";
 import { flagChatMessage } from "@/lib/chat-compliance";
@@ -763,6 +768,7 @@ export async function publishReel(opts: {
         (percent) => opts.onProgress?.(
           45 + Math.round(percent * 0.55),
         ),
+        IMMUTABLE_MEDIA_CACHE_CONTROL,
       );
       if (upErr || !url) {
         console.error("Reel storage upload failed", upErr);
@@ -846,6 +852,7 @@ export async function publishDirectReel(opts: {
     opts.file,
     opts.file.type || "video/mp4",
     (percent, detail) => opts.onProgress?.(Math.min(88, Math.round(percent * 0.88)), detail),
+    IMMUTABLE_MEDIA_CACHE_CONTROL,
   );
   if (uploadError || !mediaUrl) {
     console.error("Direct reel storage upload failed", uploadError);
@@ -947,6 +954,7 @@ export async function publishPost(opts: {
         (percent) => opts.onProgress?.(
           opts.mediaType === "video" ? 45 + Math.round(percent * 0.55) : percent,
         ),
+        opts.mediaType === "video" ? IMMUTABLE_MEDIA_CACHE_CONTROL : undefined,
       );
       if (upErr || !url) {
         console.error("Post storage upload failed", upErr);
