@@ -5,12 +5,9 @@ export type SportsIdentityTier = "international" | "national";
 
 function HorizontalSportsBadge({
   identity,
-  tier,
 }: {
   identity: VerifiedSportsIdentity;
-  tier: SportsIdentityTier;
 }) {
-  const international = tier === "international";
   const title = `${identity.status.toUpperCase()} ${identity.role.toUpperCase()}`;
 
   return (
@@ -18,14 +15,9 @@ function HorizontalSportsBadge({
       <span className="sports-identity-badge__mini-crown" aria-hidden="true">
         <Crown />
       </span>
-      <span className="sports-identity-badge__laurel sports-identity-badge__laurel--left" aria-hidden="true">
-        <span />
-        <span />
-        <span />
-      </span>
       <Globe2 className="sports-identity-badge__globe-icon" aria-hidden="true" />
       <span className="sports-identity-badge__label">{title}</span>
-      {international && identity.countryFlag ? (
+      {identity.countryFlag ? (
         <span
           className="sports-identity-badge__country-flag"
           title={`${identity.country} representation`}
@@ -34,11 +26,6 @@ function HorizontalSportsBadge({
           {identity.countryFlag}
         </span>
       ) : null}
-      <span className="sports-identity-badge__laurel sports-identity-badge__laurel--right" aria-hidden="true">
-        <span />
-        <span />
-        <span />
-      </span>
     </span>
   );
 }
@@ -61,17 +48,18 @@ export function SportsIdentityBadge({
   const label = `${identity.status.toUpperCase()} ${identity.role.toUpperCase()}`;
 
   if (variant === "profile") {
+    const countryFlag = identity.countryFlag ?? "🇮🇳";
     return (
       <div
         data-testid="sports-identity-profile-badge"
         role="img"
-        aria-label={`${label}${international && identity.countryFlag ? `, ${identity.country} representation` : ""}`}
+        aria-label={`${label}, ${identity.country || "India"} representation`}
         title={label}
         className={`sports-identity-badge sports-identity-badge--profile sports-identity-badge--${
           international ? "international" : "national"
         }`}
       >
-        <HorizontalSportsBadge identity={identity} tier={activeTier} />
+        <HorizontalSportsBadge identity={{ ...identity, countryFlag }} />
       </div>
     );
   }
@@ -88,10 +76,13 @@ export function SportsIdentityBadge({
       {international ? (
         <>
           <span className="sports-identity-badge__compact-diamond" aria-hidden="true" />
-          {identity.countryFlag ? <span className="sports-identity-badge__compact-flag">{identity.countryFlag}</span> : null}
+          <span className="sports-identity-badge__compact-flag">{identity.countryFlag ?? "🇮🇳"}</span>
         </>
       ) : (
-        <Star className="sports-identity-badge__compact-star" aria-hidden="true" />
+        <>
+          <Star className="sports-identity-badge__compact-star" aria-hidden="true" />
+          <span className="sports-identity-badge__compact-flag">{identity.countryFlag ?? "🇮🇳"}</span>
+        </>
       )}
     </span>
   );

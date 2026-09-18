@@ -185,8 +185,8 @@ export function ProfileTemplate({
               ) : null}
             </div>
             {verifiedSportsIdentity ? (
-              <p className="mt-1 text-[11px] font-medium uppercase tracking-[0.12em] text-amber-100/80">
-                {verifiedSportsIdentity.sport} - {verifiedSportsIdentity.role}
+              <p data-testid="text-profile-sports-sub-label" className="mt-1 text-[11px] font-medium uppercase tracking-[0.12em] text-amber-100/80">
+                {verifiedSportsIdentity.sport?.trim().toUpperCase() || "SPORTS"} · {verifiedSportsIdentity.role?.trim().toUpperCase() || "PLAYER"}
               </p>
             ) : null}
             {visibleNormalCategories.length > 0 ? (

@@ -3,6 +3,10 @@ import { supabase } from "@/integrations/supabase/client";
 import { getSportsProfile } from "@/components/yw/SportsProfile";
 
 type SportsProfileSource = Parameters<typeof getSportsProfile>[0];
+type PublicCountryProfile = {
+  country?: string | null;
+  country_code?: string | null;
+};
 
 export type VerifiedSportsIdentity = {
   role: "Player" | "Coach";
@@ -12,6 +16,9 @@ export type VerifiedSportsIdentity = {
   countryFlag: string | null;
   monetized: boolean;
 };
+
+const DEFAULT_COUNTRY = "India";
+const DEFAULT_COUNTRY_FLAG = "🇮🇳";
 
 const COUNTRY_CODES: Record<string, string> = {
   afghanistan: "AF",
@@ -69,12 +76,15 @@ function flagFromCode(code: string | null) {
     .join("");
 }
 
-export function countryFlagForSportsIdentity(country: string) {
-  return flagFromCode(countryCode(country));
+export function countryFlagForSportsIdentity(country: string | null | undefined) {
+  const normalized = country?.trim() ?? "";
+  const isMissing =
+    !normalized || /^(?:not specified|not recorded|unknown(?: representation)?)$/i.test(normalized);
+  return flagFromCode(countryCode(isMissing ? DEFAULT_COUNTRY : normalized));
 }
 
 export function deriveVerifiedSportsIdentity(
-  profile: SportsProfileSource,
+  profile: SportsProfileSource & PublicCountryProfile,
   monetized = false,
 ): VerifiedSportsIdentity | null {
   const sportsProfile = getSportsProfile(profile);
@@ -85,13 +95,23 @@ export function deriveVerifiedSportsIdentity(
     return null;
   }
 
-  const country = sportsProfile.represents.trim();
+  const profileCountry = profile.country?.trim() ?? "";
+  const representedCountry = sportsProfile.represents.trim();
+  const country =
+    profileCountry &&
+    !/^(?:not specified|not recorded|unknown(?: representation)?)$/i.test(profileCountry)
+      ? profileCountry
+      : representedCountry &&
+          !/^(?:not specified|not recorded|unknown(?: representation)?)$/i.test(representedCountry)
+        ? representedCountry
+      : DEFAULT_COUNTRY;
   return {
     role: sportsProfile.role,
     sport: sportsProfile.sport.trim(),
     status: sportsProfile.status,
     country,
-    countryFlag: sportsProfile.status === "International" ? countryFlagForSportsIdentity(country) : null,
+    countryFlag:
+      countryFlagForSportsIdentity(profile.country_code?.trim() || country) ?? DEFAULT_COUNTRY_FLAG,
     monetized,
   };
 }
@@ -108,6 +128,8 @@ function monetizationIsActive(value: unknown) {
 type PublicSportsProfileRow = {
   category?: string | null;
   bio?: string | null;
+  country?: string | null;
+  country_code?: string | null;
   is_verified?: boolean | null;
 };
 
@@ -129,6 +151,8 @@ export async function loadVerifiedSportsIdentity(userId: string): Promise<Verifi
     {
       category: profile.category ?? "",
       bio: profile.bio ?? "",
+      country: profile.country,
+      country_code: profile.country_code,
       location: "",
       is_verified: profile.is_verified === true,
     },

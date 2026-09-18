@@ -30,29 +30,32 @@ test("verified international player and coach use premium identity data", () => 
   );
 });
 
-test("verified national player and coach never receive a country flag", () => {
+test("verified national player and coach receive their country flag", () => {
   for (const role of ["Player", "Coach"] as const) {
     const identity = deriveVerifiedSportsIdentity(profile(role, "National"), true);
     assert.equal(identity?.sport, "Handball");
     assert.equal(identity?.status, "National");
-    assert.equal(identity?.countryFlag, null);
+    assert.equal(identity?.countryFlag, "🇮🇳");
     assert.equal(identity?.monetized, true);
   }
 });
 
 test("approved identity preserves any sport for both supported roles", () => {
-  for (const role of ["Player", "Coach"] as const) {
-    const identity = deriveVerifiedSportsIdentity(
-      {
-        category: `${role} · Kabaddi`,
-        bio: "Representation: International\nRepresents: India",
-        location: "",
-        is_verified: true,
-      },
-      false,
-    );
-    assert.equal(identity?.sport, "Kabaddi");
-    assert.equal(identity?.role, role);
+  for (const sport of ["Handball", "Cricket", "Football", "Kabaddi", "Badminton", "Boxing"]) {
+    for (const role of ["Player", "Coach"] as const) {
+      const identity = deriveVerifiedSportsIdentity(
+        {
+          category: `${role} · ${sport}`,
+          bio: "Representation: International\nRepresents: India",
+          location: "",
+          is_verified: true,
+        },
+        false,
+      );
+      assert.equal(identity?.sport, sport);
+      assert.equal(identity?.role, role);
+      assert.equal(identity?.countryFlag, "🇮🇳");
+    }
   }
 });
 
@@ -61,13 +64,14 @@ test("monetization controls only the diamond or star", () => {
   const national = deriveVerifiedSportsIdentity(profile("Coach", "National"), false);
   assert.equal(international?.countryFlag, "🇮🇳");
   assert.equal(international?.monetized, false);
-  assert.equal(national?.countryFlag, null);
+  assert.equal(national?.countryFlag, "🇮🇳");
   assert.equal(national?.monetized, false);
   assert.equal(deriveVerifiedSportsIdentity({ ...profile("Player", "National"), is_verified: false }), null);
 });
 
-test("unknown country names do not invent a flag", () => {
-  assert.equal(countryFlagForSportsIdentity("Unknown representation"), null);
+test("missing country values fall back to India's flag", () => {
+  assert.equal(countryFlagForSportsIdentity("Unknown representation"), "🇮🇳");
+  assert.equal(countryFlagForSportsIdentity("IN"), "🇮🇳");
 });
 
 test("international profile badge renders the premium gold identity", () => {
@@ -82,7 +86,7 @@ test("international profile badge renders the premium gold identity", () => {
   assert.match(html, /sports-identity-badge--international/);
 });
 
-test("national profile badge renders the silver-blue identity without a flag", () => {
+test("national profile badge renders the silver-blue identity with a flag", () => {
   const identity = deriveVerifiedSportsIdentity(profile("Coach", "National"), false);
   const html = renderToStaticMarkup(
     createElement(SportsIdentityBadge, { identity, variant: "profile" }),
@@ -90,8 +94,9 @@ test("national profile badge renders the silver-blue identity without a flag", (
 
   assert.match(html, /NATIONAL/);
   assert.match(html, /COACH/);
-  assert.doesNotMatch(html, /🇮🇳/);
+  assert.match(html, /🇮🇳/);
   assert.match(html, /sports-identity-badge--national/);
+  assert.doesNotMatch(html, /sports-identity-badge__laurel/);
 });
 
 test("compact approved identity marks render even when monetization is inactive", () => {
@@ -109,7 +114,7 @@ test("compact approved identity marks render even when monetization is inactive"
   assert.match(international, /sports-identity-compact-badge/);
   assert.match(international, /🇮🇳/);
   assert.match(national, /sports-identity-compact-badge/);
-  assert.doesNotMatch(national, /🇮🇳/);
+  assert.match(national, /🇮🇳/);
 });
 
 test("unverified users render no identity badge", () => {
