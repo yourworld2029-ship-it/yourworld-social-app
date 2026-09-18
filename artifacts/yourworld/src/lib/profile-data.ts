@@ -63,6 +63,13 @@ export type SportsVerificationEvidence = {
 };
 
 export type SportsVerificationDetails = {
+  fullName: string;
+  fatherName: string;
+  dateOfBirth: string;
+  address: string;
+  passportNumber: string;
+  certificateNumber: string;
+  identityDetailsConfirmed: boolean;
   villageTown: string;
   district: string;
   state: string;
@@ -161,6 +168,13 @@ function evidenceFromPath(
 
 function emptySportsVerificationDetails(email = "", mobileNumber = ""): SportsVerificationDetails {
   return {
+    fullName: "",
+    fatherName: "",
+    dateOfBirth: "",
+    address: "",
+    passportNumber: "",
+    certificateNumber: "",
+    identityDetailsConfirmed: false,
     villageTown: "",
     district: "",
     state: "",
@@ -191,6 +205,13 @@ export async function getSportsVerificationDetails(ownerId: string): Promise<Spo
   if (!data) return emptySportsVerificationDetails(sessionEmail, sessionMobile);
 
   return {
+    fullName: data.full_name ?? "",
+    fatherName: data.father_name ?? "",
+    dateOfBirth: data.date_of_birth ?? "",
+    address: data.address ?? "",
+    passportNumber: data.passport_number ?? "",
+    certificateNumber: data.certificate_number ?? "",
+    identityDetailsConfirmed: data.identity_details_confirmed === true,
     villageTown: data.village_town ?? "",
     district: data.district ?? "",
     state: data.state ?? "",
@@ -226,6 +247,13 @@ export async function saveSportsVerificationDetails(
   const sessionMobile = sessionData.session?.user.phone ?? "";
   const payload = {
     user_id: ownerId,
+    full_name: details.fullName.trim(),
+    father_name: details.fatherName.trim(),
+    date_of_birth: details.dateOfBirth || null,
+    address: details.address.trim(),
+    passport_number: details.passportNumber.trim(),
+    certificate_number: details.certificateNumber.trim(),
+    identity_details_confirmed: details.identityDetailsConfirmed === true,
     village_town: details.villageTown.trim(),
     district: details.district.trim(),
     state: details.state.trim(),
@@ -246,6 +274,13 @@ export async function saveSportsVerificationDetails(
   if (error) throw new Error(error.message);
 
   return {
+    fullName: data.full_name ?? "",
+    fatherName: data.father_name ?? "",
+    dateOfBirth: data.date_of_birth ?? "",
+    address: data.address ?? "",
+    passportNumber: data.passport_number ?? "",
+    certificateNumber: data.certificate_number ?? "",
+    identityDetailsConfirmed: data.identity_details_confirmed === true,
     villageTown: data.village_town,
     district: data.district,
     state: data.state,

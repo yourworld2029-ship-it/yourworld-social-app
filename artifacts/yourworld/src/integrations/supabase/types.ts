@@ -815,11 +815,21 @@ export type Database = {
       }
       sports_verification_details: {
         Row: {
+          address: string
+          certificate_number: string
+          certificate_number_normalized: string | null
           country: string
           created_at: string
+          date_of_birth: string | null
           district: string
           email: string
+          father_name: string
+          full_name: string
+          identity_details_confirmed: boolean
+          identity_key: string | null
           mobile_number: string
+          passport_number: string
+          passport_number_normalized: string | null
           passport_first_page_path: string | null
           passport_visa_stamp_page_path: string | null
           sports_certificate_path: string | null
@@ -835,11 +845,18 @@ export type Database = {
           reviewed_by: string | null
         }
         Insert: {
+          address?: string
+          certificate_number?: string
           country?: string
           created_at?: string
+          date_of_birth?: string | null
           district?: string
           email?: string
+          father_name?: string
+          full_name?: string
+          identity_details_confirmed?: boolean
           mobile_number?: string
+          passport_number?: string
           passport_first_page_path?: string | null
           passport_visa_stamp_page_path?: string | null
           sports_certificate_path?: string | null
@@ -855,11 +872,18 @@ export type Database = {
           reviewed_by?: string | null
         }
         Update: {
+          address?: string
+          certificate_number?: string
           country?: string
           created_at?: string
+          date_of_birth?: string | null
           district?: string
           email?: string
+          father_name?: string
+          full_name?: string
+          identity_details_confirmed?: boolean
           mobile_number?: string
+          passport_number?: string
           passport_first_page_path?: string | null
           passport_visa_stamp_page_path?: string | null
           sports_certificate_path?: string | null

@@ -239,6 +239,14 @@ function ApplicationCard({
       </div>
 
       <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <ReviewValue label="Full Name" value={details.fullName || "—"} />
+        <ReviewValue label="Father's Name" value={details.fatherName || "—"} />
+        <ReviewValue label="Date of Birth" value={details.dateOfBirth || "—"} />
+        <ReviewValue label="Certificate Number" value={details.certificateNumber || "—"} />
+        {details.passportNumber ? (
+          <ReviewValue label="Passport Number" value={details.passportNumber} />
+        ) : null}
+        <ReviewValue label="Address" value={details.address || "—"} />
         <ReviewValue label="Village / Town" value={details.villageTown || "—"} />
         <ReviewValue label="District" value={details.district || "—"} />
         <ReviewValue label="State" value={details.state || "—"} />

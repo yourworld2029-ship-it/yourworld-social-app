@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import type React from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Settings,
   MapPin,
@@ -59,7 +59,10 @@ import { resolveMediaUrl, type DbPost } from "@/lib/social-data";
 import { STORAGE_BUCKETS } from "@/lib/storage-upload";
 import { useFollowCounts } from "@/lib/follow-data";
 import { ProfileTemplate } from "@/components/yw/ProfileTemplate";
-import { submitSportsVerification } from "@/lib/sports-verification.functions";
+import {
+  SPORTS_VERIFICATION_DUPLICATE_MESSAGE,
+  submitSportsVerification,
+} from "@/lib/sports-verification.functions";
 
 
 
@@ -91,9 +94,6 @@ export const Route = createFileRoute("/profile")({
   }),
   component: ProfilePage,
 });
-
-// Temporary testing-only timing. Change this constant when manual review returns.
-const SPORTS_VERIFICATION_TEST_DELAY_MS = 2 * 60 * 1000;
 
 function ProfilePage() {
   const {
@@ -134,7 +134,9 @@ function ProfilePage() {
   const [sportsVerificationEvidenceUploading, setSportsVerificationEvidenceUploading] =
     useState<SportsVerificationEvidenceKind | null>(null);
   const [sportsVerificationSubmitting, setSportsVerificationSubmitting] = useState(false);
-  const sportsVerificationTimer = useRef<number | null>(null);
+  const [sportsDuplicateSubmissionWarning, setSportsDuplicateSubmissionWarning] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     if (connections === "followers" || connections === "following") {
@@ -142,15 +144,6 @@ function ProfilePage() {
       setListOpen(true);
     }
   }, [connections]);
-
-  useEffect(() => {
-    return () => {
-      if (sportsVerificationTimer.current !== null) {
-        window.clearTimeout(sportsVerificationTimer.current);
-        sportsVerificationTimer.current = null;
-      }
-    };
-  }, []);
 
   // Sports details are account-owned UI state. Clear it as soon as the
   // authenticated profile key changes so another account cannot see the
@@ -165,53 +158,8 @@ function ProfilePage() {
     setSportsIntroductionProgress(0);
     setSportsVerificationDetailsSaving(false);
     setSportsVerificationSubmitting(false);
-    if (sportsVerificationTimer.current !== null) {
-      window.clearTimeout(sportsVerificationTimer.current);
-      sportsVerificationTimer.current = null;
-    }
+    setSportsDuplicateSubmissionWarning(null);
   }, [profile.id, userId]);
-
-  useEffect(() => {
-    if (
-      !userId ||
-      userId !== profile.id ||
-      !profile.verification_requested ||
-      profile.is_verified ||
-      sportsVerificationTimer.current !== null
-    ) {
-      return;
-    }
-
-    sportsVerificationTimer.current = window.setTimeout(async () => {
-      sportsVerificationTimer.current = null;
-      try {
-        await save({
-          name: profile.display_name,
-          username: profile.username,
-          category: profile.category,
-            normalCategories: profile.normal_categories,
-          bio: profile.bio,
-          location: profile.location,
-          website: profile.website,
-          avatarUrl: profile.avatar_url ?? undefined,
-          isVerified: true,
-          verificationRequested: false,
-        });
-        toast.success("Sports Profile Verified Successfully");
-      } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : "Sports Profile verification could not be completed.",
-        );
-      }
-    }, SPORTS_VERIFICATION_TEST_DELAY_MS);
-
-    return () => {
-      if (sportsVerificationTimer.current !== null) {
-        window.clearTimeout(sportsVerificationTimer.current);
-        sportsVerificationTimer.current = null;
-      }
-    };
-  }, [profile, save, userId]);
 
   const openManage = (post: DbPost) => {
     setManage(post);
@@ -490,11 +438,21 @@ function ProfilePage() {
     toast.success("Sports details saved");
   };
 
-  const handleSubmitSportsVerification = async () => {
+  const handleSubmitSportsVerification = async (details: SportsVerificationDetails) => {
     if (!userId || userId !== profile.id || profile.verification_requested || profile.is_verified) return;
     setSportsVerificationSubmitting(true);
     try {
-      const result = await submitSportsVerification();
+      const result = await submitSportsVerification({
+        data: {
+          fullName: details.fullName,
+          fatherName: details.fatherName,
+          dateOfBirth: details.dateOfBirth,
+          address: details.address,
+          passportNumber: details.passportNumber,
+          certificateNumber: details.certificateNumber,
+          identityDetailsConfirmed: details.identityDetailsConfirmed,
+        },
+      });
       await reload();
       const submittedDetails = await getSportsVerificationDetails(userId);
       setSportsVerificationDetails(submittedDetails);
@@ -504,7 +462,12 @@ function ProfilePage() {
         toast.warning("Verification request submitted, but Support could not be notified yet.");
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Couldn't submit for verification.");
+      const message = error instanceof Error ? error.message : "Couldn't submit for verification.";
+      if (message.includes(SPORTS_VERIFICATION_DUPLICATE_MESSAGE)) {
+        setSportsDuplicateSubmissionWarning(SPORTS_VERIFICATION_DUPLICATE_MESSAGE);
+      } else {
+        toast.error(message);
+      }
     } finally {
       setSportsVerificationSubmitting(false);
     }
@@ -698,6 +661,8 @@ function ProfilePage() {
                 navigate({ to: "/admin/sports-verification" });
               }}
               verificationSubmitting={sportsVerificationSubmitting}
+              duplicateSubmissionWarning={sportsDuplicateSubmissionWarning}
+              onDismissDuplicateSubmissionWarning={() => setSportsDuplicateSubmissionWarning(null)}
             />
           </SheetContent>
         </Sheet>

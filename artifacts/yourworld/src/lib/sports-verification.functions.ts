@@ -2,6 +2,42 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
+export const SPORTS_VERIFICATION_DUPLICATE_MESSAGE =
+  "This Document / Identity is Already Registered. This identity or document has already been submitted or verified on another account. Duplicate submissions are strictly prohibited.";
+
+const sportsVerificationSubmissionSchema = z.object({
+  fullName: z.string().trim().min(1, "Enter your Full Name exactly as shown on your identity document.").max(200),
+  fatherName: z
+    .string()
+    .trim()
+    .min(1, "Enter your Father's Name exactly as shown on your identity document.")
+    .max(200),
+  dateOfBirth: z
+    .string()
+    .trim()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Enter a valid Date of Birth.")
+    .refine((value) => {
+      const date = new Date(`${value}T00:00:00.000Z`);
+      return (
+        Number.isFinite(date.getTime()) &&
+        date.toISOString().slice(0, 10) === value &&
+        date.getTime() <= Date.now()
+      );
+    }, "Enter a real Date of Birth that is not in the future."),
+  address: z.string().trim().min(1, "Enter your address.").max(500),
+  passportNumber: z.string().trim().max(120).default(""),
+  certificateNumber: z
+    .string()
+    .trim()
+    .min(1, "Enter your Sport Certificate Number.")
+    .max(120),
+  identityDetailsConfirmed: z.literal(true, {
+    errorMap: () => ({
+      message: "Confirm that your Full Name, Father's Name, and DOB match your identity documents exactly.",
+    }),
+  }),
+});
+
 const reviewActionSchema = z.object({
   applicantUserId: z.string().uuid(),
   action: z.enum(["approve", "reject", "request_correction"]),
@@ -22,6 +58,16 @@ type AdminProfileRow = {
 
 type VerificationDetailsRow = {
   user_id: string;
+  full_name: string;
+  father_name: string;
+  date_of_birth: string | null;
+  address: string;
+  passport_number: string;
+  certificate_number: string;
+  identity_details_confirmed: boolean;
+  passport_number_normalized?: string | null;
+  certificate_number_normalized?: string | null;
+  identity_key?: string | null;
   village_town: string;
   district: string;
   state: string;
@@ -50,6 +96,12 @@ export type ReviewDocument = {
 export type AdminVerificationApplication = {
   profile: AdminProfileRow;
   details: {
+    fullName: string;
+    fatherName: string;
+    dateOfBirth: string | null;
+    address: string;
+    passportNumber: string;
+    certificateNumber: string;
     villageTown: string;
     district: string;
     state: string;
@@ -71,6 +123,62 @@ export type AdminVerificationApplication = {
 async function getAdminClient() {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   return supabaseAdmin;
+}
+
+function normalizeDocumentNumber(value: string) {
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, "");
+  return normalized || null;
+}
+
+function normalizeIdentityPart(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function identityKeyForSubmission(data: {
+  fullName: string;
+  fatherName: string;
+  dateOfBirth: string;
+}) {
+  return `${normalizeIdentityPart(data.fullName)}|${normalizeIdentityPart(data.fatherName)}|${data.dateOfBirth}`;
+}
+
+function isDuplicateIdentityError(error: { code?: string; message?: string } | null | undefined) {
+  return (
+    error?.code === "23505" ||
+    /duplicate key|sports_verification_active_(passport|certificate|identity)_unique/i.test(
+      error?.message ?? "",
+    )
+  );
+}
+
+async function findExistingIdentity(
+  admin: Awaited<ReturnType<typeof getAdminClient>>,
+  ownerId: string,
+  data: z.infer<typeof sportsVerificationSubmissionSchema>,
+) {
+  const base = () =>
+    admin
+      .from("sports_verification_details")
+      .select("user_id")
+      .neq("user_id", ownerId)
+      .in("review_status", ["pending", "approved"])
+      .limit(1);
+  const lookups = [
+    normalizeDocumentNumber(data.passportNumber)
+      ? base().eq("passport_number_normalized", normalizeDocumentNumber(data.passportNumber))
+      : null,
+    normalizeDocumentNumber(data.certificateNumber)
+      ? base().eq("certificate_number_normalized", normalizeDocumentNumber(data.certificateNumber))
+      : null,
+    base().eq("identity_key", identityKeyForSubmission(data)),
+  ].filter(Boolean) as Array<ReturnType<typeof base>>;
+
+  const results = await Promise.all(lookups);
+  for (const result of results) {
+    if (result.error) throw new Error(result.error.message);
+    if (result.data?.[0]?.user_id) return result.data[0].user_id;
+  }
+  return null;
 }
 
 async function requireSportsVerificationAdmin(userId: string) {
@@ -281,6 +389,12 @@ export const listSportsVerificationApplications = createServerFn({ method: "POST
         return {
           profile,
           details: {
+            fullName: details?.full_name ?? "",
+            fatherName: details?.father_name ?? "",
+            dateOfBirth: details?.date_of_birth ?? null,
+            address: details?.address ?? "",
+            passportNumber: details?.passport_number ?? "",
+            certificateNumber: details?.certificate_number ?? "",
             villageTown: details?.village_town ?? "",
             district: details?.district ?? "",
             state: details?.state ?? "",
@@ -432,7 +546,8 @@ function escapeAttribute(value: string) {
 
 export const submitSportsVerification = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
+  .validator((data) => sportsVerificationSubmissionSchema.parse(data))
+  .handler(async ({ data, context }) => {
     const admin = await getAdminClient();
     const { data: profile, error: profileError } = await admin
       .from("profiles")
@@ -443,36 +558,85 @@ export const submitSportsVerification = createServerFn({ method: "POST" })
       .maybeSingle();
     if (profileError) throw new Error(profileError.message);
     if (!profile) throw new Error("Your profile could not be found.");
-    if (profile.is_verified || profile.verification_requested) {
-      throw new Error("This Sports Verification request is already submitted or approved.");
-    }
 
     const sportsIntroductionPath = extractSportsIntroductionPath(profile.bio);
     if (!sportsIntroductionPath) {
       throw new Error("Upload your Sports Introduction video before submitting verification.");
     }
-    await ensurePublicSportsIntroductionReel(admin, context.userId, sportsIntroductionPath);
+
+    const representation =
+      valueAfterLabel(profile.bio, ["representation", "represents", "status"]) ||
+      profile.category ||
+      "";
+    const international = /\binternational\b/i.test(representation);
+    if (international && !data.passportNumber.trim()) {
+      throw new Error("Enter your Passport Number for an international Sports Verification submission.");
+    }
+
+    const { data: currentDetails, error: currentDetailsError } = await admin
+      .from("sports_verification_details")
+      .select("*")
+      .eq("user_id", context.userId)
+      .maybeSingle();
+    if (currentDetailsError) throw new Error(currentDetailsError.message);
+
+    if (profile.is_verified) {
+      throw new Error("This Sports Verification request is already approved.");
+    }
+
+    if (profile.verification_requested) {
+      await ensurePublicSportsIntroductionReel(admin, context.userId, sportsIntroductionPath);
+      return {
+        submittedAt: currentDetails?.submitted_at ?? new Date().toISOString(),
+        notification: { sent: true, reason: null },
+      };
+    }
+
+    if (currentDetails?.review_status === "approved") {
+      throw new Error("This Sports Verification request is already approved.");
+    }
+
+    const existingIdentity = await findExistingIdentity(admin, context.userId, data);
+    if (existingIdentity) {
+      throw new Error(SPORTS_VERIFICATION_DUPLICATE_MESSAGE);
+    }
 
     const now = new Date().toISOString();
-    const { error: detailsError } = await admin.from("sports_verification_details").upsert(
-      {
+    const { error: detailsError } = await admin
+      .from("sports_verification_details")
+      .upsert(
+        {
         user_id: context.userId,
+        full_name: data.fullName,
+        father_name: data.fatherName,
+        date_of_birth: data.dateOfBirth,
+        address: data.address,
+        passport_number: international ? data.passportNumber : "",
+        certificate_number: data.certificateNumber,
+        identity_details_confirmed: true,
         review_status: "pending",
         review_reason: null,
         submitted_at: now,
         reviewed_at: null,
         reviewed_by: null,
         updated_at: now,
-      },
-      { onConflict: "user_id" },
-    );
-    if (detailsError) throw new Error(detailsError.message);
+        },
+        { onConflict: "user_id" },
+      );
+    if (detailsError) {
+      if (isDuplicateIdentityError(detailsError)) {
+        throw new Error(SPORTS_VERIFICATION_DUPLICATE_MESSAGE);
+      }
+      throw new Error(detailsError.message);
+    }
 
     const { error: requestError } = await admin
       .from("profiles")
       .update({ is_verified: false, verification_requested: true })
       .eq("id", context.userId);
     if (requestError) throw new Error(requestError.message);
+
+    await ensurePublicSportsIntroductionReel(admin, context.userId, sportsIntroductionPath);
 
     const { data: details } = await admin
       .from("sports_verification_details")

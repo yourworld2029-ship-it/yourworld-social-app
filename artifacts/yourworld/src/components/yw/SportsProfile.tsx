@@ -227,7 +227,7 @@ export function getSportsProfile(profile: SportsProfileSource): SportsProfileInf
     : statusSource.toLowerCase().includes("national")
       ? "National"
       : "Not recorded";
-  const verified = profile.is_verified === true;
+  const verified = profile.is_verified === true && profile.verification_requested !== true;
   const tournamentDetails = parseTournamentDetails(profile.bio);
   const medalDetails = parseMedalDetails(profile.bio);
   const tournamentLines = extractRelevantLines(profile.bio, /tournament|league|championship|cup|games|meet/i);
@@ -747,6 +747,8 @@ export function SportsDetailsPanel({
   onUploadSportsIntroduction,
   onDeleteSportsIntroduction,
   onSubmitVerification,
+  duplicateSubmissionWarning,
+  onDismissDuplicateSubmissionWarning,
   onOpenVerificationReview,
   verificationSubmitting = false,
   verificationDetails,
@@ -766,7 +768,9 @@ export function SportsDetailsPanel({
   sportsIntroductionProgress?: number;
   onUploadSportsIntroduction?: (file: File) => void;
   onDeleteSportsIntroduction?: () => void;
-  onSubmitVerification?: () => void | Promise<void>;
+  onSubmitVerification?: (details: SportsVerificationDetails) => void | Promise<void>;
+  duplicateSubmissionWarning?: string | null;
+  onDismissDuplicateSubmissionWarning?: () => void;
   onOpenVerificationReview?: () => void;
   verificationSubmitting?: boolean;
   verificationDetails?: SportsVerificationDetails | null;
@@ -1025,7 +1029,7 @@ export function SportsDetailsPanel({
               type="button"
               data-testid="button-submit-sports-verification"
               disabled={!termsAgreed || verificationSubmitting}
-              onClick={() => void onSubmitVerification?.()}
+              onClick={() => void onSubmitVerification?.(verificationDraftOr(verificationDraft))}
               className="mt-4 w-full rounded-full bg-amber-200 text-black hover:bg-amber-100"
             >
               {verificationSubmitting
@@ -1052,12 +1056,42 @@ export function SportsDetailsPanel({
           onOpenVerificationReview={onOpenVerificationReview}
         />
       ) : null}
+      <Dialog
+        open={Boolean(duplicateSubmissionWarning)}
+        onOpenChange={(open) => {
+          if (!open) onDismissDuplicateSubmissionWarning?.();
+        }}
+      >
+        <DialogContent className="border-red-200/20 bg-[#151116] text-white sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-red-100">Duplicate submission blocked</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm leading-6 text-zinc-300">
+            {duplicateSubmissionWarning ||
+              "This Document / Identity is Already Registered. This identity or document has already been submitted or verified on another account. Duplicate submissions are strictly prohibited."}
+          </p>
+          <Button
+            type="button"
+            className="mt-2 w-full rounded-full bg-red-200 text-black hover:bg-red-100"
+            onClick={() => onDismissDuplicateSubmissionWarning?.()}
+          >
+            Close
+          </Button>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
 function emptySportsVerificationDetails(): SportsVerificationDetails {
   return {
+    fullName: "",
+    fatherName: "",
+    dateOfBirth: "",
+    address: "",
+    passportNumber: "",
+    certificateNumber: "",
+    identityDetailsConfirmed: false,
     villageTown: "",
     district: "",
     state: "",
@@ -1214,7 +1248,20 @@ function SportsVerificationDetailsSection({
   locked: boolean;
   underReview: boolean;
 }) {
-  const setField = (field: "villageTown" | "district" | "state" | "country", value: string) =>
+  const setField = (
+    field:
+      | "fullName"
+      | "fatherName"
+      | "dateOfBirth"
+      | "address"
+      | "passportNumber"
+      | "certificateNumber"
+      | "villageTown"
+      | "district"
+      | "state"
+      | "country",
+    value: string,
+  ) =>
     onChange({ ...details, [field]: value });
 
   return (
@@ -1235,6 +1282,99 @@ function SportsVerificationDetailsSection({
               Under Review (12 to 72 working hours)
             </div>
           ) : null}
+          <div className="space-y-3 rounded-2xl border border-amber-200/15 bg-amber-200/[0.04] p-3">
+            <div>
+              <p className="text-sm font-semibold text-white">Identity details</p>
+              <p className="mt-1 text-xs leading-5 text-zinc-500">
+                Enter your name, father&apos;s name, and date of birth exactly as shown on your identity
+                documents.
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="space-y-1.5 text-xs text-zinc-400">
+                Full Name
+                <Input
+                  value={details.fullName}
+                  onChange={(event) => setField("fullName", event.target.value)}
+                  placeholder="Exactly as on your identity document"
+                  maxLength={200}
+                  disabled={saving || locked}
+                  className="border-white/10 bg-white/[0.04] text-sm text-white"
+                />
+              </label>
+              <label className="space-y-1.5 text-xs text-zinc-400">
+                Father&apos;s Name
+                <Input
+                  value={details.fatherName}
+                  onChange={(event) => setField("fatherName", event.target.value)}
+                  placeholder="Exactly as on your identity document"
+                  maxLength={200}
+                  disabled={saving || locked}
+                  className="border-white/10 bg-white/[0.04] text-sm text-white"
+                />
+              </label>
+              <label className="space-y-1.5 text-xs text-zinc-400">
+                Date of Birth (DOB)
+                <Input
+                  type="date"
+                  value={details.dateOfBirth}
+                  onChange={(event) => setField("dateOfBirth", event.target.value)}
+                  disabled={saving || locked}
+                  className="border-white/10 bg-white/[0.04] text-sm text-white"
+                />
+              </label>
+              <label className="space-y-1.5 text-xs text-zinc-400">
+                Sport Certificate Number
+                <Input
+                  value={details.certificateNumber}
+                  onChange={(event) => setField("certificateNumber", event.target.value)}
+                  placeholder="Certificate number"
+                  maxLength={120}
+                  disabled={saving || locked}
+                  className="border-white/10 bg-white/[0.04] text-sm text-white"
+                />
+              </label>
+            </div>
+            <label className="space-y-1.5 text-xs text-zinc-400">
+              Address
+              <Textarea
+                value={details.address}
+                onChange={(event) => setField("address", event.target.value)}
+                placeholder="Current residential address"
+                maxLength={500}
+                disabled={saving || locked}
+                className="min-h-20 border-white/10 bg-white/[0.04] text-sm text-white"
+              />
+            </label>
+            {isInternational ? (
+              <label className="space-y-1.5 text-xs text-zinc-400">
+                Passport Number
+                <Input
+                  value={details.passportNumber}
+                  onChange={(event) => setField("passportNumber", event.target.value)}
+                  placeholder="Passport number"
+                  maxLength={120}
+                  disabled={saving || locked}
+                  className="border-white/10 bg-white/[0.04] text-sm text-white"
+                />
+              </label>
+            ) : null}
+            <label className="flex cursor-pointer items-start gap-3 pt-1 text-xs leading-5 text-zinc-300">
+              <input
+                type="checkbox"
+                checked={details.identityDetailsConfirmed}
+                onChange={(event) =>
+                  onChange({ ...details, identityDetailsConfirmed: event.target.checked })
+                }
+                disabled={saving || locked}
+                className="mt-1 h-4 w-4 accent-amber-200"
+              />
+              <span>
+                I confirm that my Full Name, Father&apos;s Name, and DOB match my identity documents exactly.
+              </span>
+            </label>
+          </div>
+
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="space-y-1.5 text-xs text-zinc-400">
               Village / Town
@@ -1381,6 +1521,12 @@ function SportsVerificationDetailsSection({
 function verificationDraftOr(details: SportsVerificationDetails) {
   return {
     ...details,
+    fullName: details.fullName.trim(),
+    fatherName: details.fatherName.trim(),
+    dateOfBirth: details.dateOfBirth.trim(),
+    address: details.address.trim(),
+    passportNumber: details.passportNumber.trim(),
+    certificateNumber: details.certificateNumber.trim(),
     villageTown: details.villageTown.trim(),
     district: details.district.trim(),
     state: details.state.trim(),
