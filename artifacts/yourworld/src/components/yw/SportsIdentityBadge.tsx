@@ -25,6 +25,15 @@ function HorizontalSportsBadge({
       </span>
       <Globe2 className="sports-identity-badge__globe-icon" aria-hidden="true" />
       <span className="sports-identity-badge__label">{title}</span>
+      {international && identity.countryFlag ? (
+        <span
+          className="sports-identity-badge__country-flag"
+          title={`${identity.country} representation`}
+          aria-label={`${identity.country} representation`}
+        >
+          {identity.countryFlag}
+        </span>
+      ) : null}
       <span className="sports-identity-badge__laurel sports-identity-badge__laurel--right" aria-hidden="true">
         <span />
         <span />
@@ -63,15 +72,6 @@ export function SportsIdentityBadge({
         }`}
       >
         <HorizontalSportsBadge identity={identity} tier={activeTier} />
-        {international && identity.countryFlag ? (
-          <span
-            title={`${identity.country} representation`}
-            aria-label={`${identity.country} representation`}
-            className="sports-identity-badge__flag"
-          >
-            {identity.countryFlag}
-          </span>
-        ) : null}
       </div>
     );
   }

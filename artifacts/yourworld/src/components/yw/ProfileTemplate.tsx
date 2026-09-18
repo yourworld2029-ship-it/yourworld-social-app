@@ -160,7 +160,7 @@ export function ProfileTemplate({
 
       <section className={`relative mx-auto max-w-4xl px-4 sm:px-8 lg:px-10 ${profile.cover_url ? "-mt-8 sm:-mt-10" : "mt-0"}`}>
         <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-4 sm:gap-x-6">
-          <span className="row-span-2 grid h-[84px] w-[84px] shrink-0 place-items-center overflow-hidden rounded-full bg-[linear-gradient(135deg,#f4d58d,#d987c4_48%,#8647d2)] p-[3px] sm:h-28 sm:w-28">
+          <span className="grid h-[84px] w-[84px] shrink-0 place-items-center overflow-hidden rounded-full bg-[linear-gradient(135deg,#f4d58d,#d987c4_48%,#8647d2)] p-[3px] sm:h-28 sm:w-28">
             {avatarSrc ? (
                <ProfilePhotoViewer
                  src={avatarSrc}
@@ -175,6 +175,9 @@ export function ProfileTemplate({
             <div className="flex flex-col items-start gap-1">
               <p data-testid="text-profile-display-name" className="font-display text-[18px] font-bold tracking-tight sm:text-xl">
                 {profile.display_name || "Add your name"}
+              </p>
+              <p data-testid="text-profile-username-inline" className="text-[11px] font-medium tracking-[0.08em] text-zinc-400">
+                @{profile.username || "username"}
               </p>
               {verifiedSportsIdentity ? (
                 <SportsIdentityBadge
@@ -203,7 +206,7 @@ export function ProfileTemplate({
             ) : null}
           </div>
 
-          <dl data-testid="stats-profile" className="col-span-2 grid grid-cols-3 divide-x divide-white/10 border-y border-white/10 py-0.5 sm:col-span-1 sm:col-start-2 sm:row-start-2 sm:mt-[-0.25rem] sm:py-1">
+          <dl data-testid="stats-profile" className="col-span-2 grid grid-cols-3 divide-x divide-white/10 border-y border-white/10 py-0.5 sm:py-1">
             <Stat label="Posts" value={mediaLoading ? "—" : formatCount(posts.length)} />
             <Stat label="Followers" value={counts.followers === null ? "—" : formatCount(counts.followers)} onClick={onFollowersClick} />
             <Stat label="Following" value={counts.following === null ? "—" : formatCount(counts.following)} onClick={onFollowingClick} />
