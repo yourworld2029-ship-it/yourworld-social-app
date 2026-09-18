@@ -949,6 +949,11 @@ export function SportsDetailsPanel({
                   YourWorld may retain verification records/evidence for legitimate security,
                   verification and legal purposes.
                 </li>
+                <li>Verification review typically takes between 12 to 72 working hours.</li>
+                <li>
+                  YourWorld reserves the right to cross-verify tournament certificates with recognized
+                  sports federations/bodies.
+                </li>
               </ul>
             </div>
           </details>

@@ -75,10 +75,21 @@ test("Sports Details renders real fields and the Sports Introduction without the
   assert.doesNotMatch(html, /One Tournament Photo/);
   assert.match(html, /I Agree to the Terms &amp; Conditions/);
   assert.match(html, /Submit for Verification/);
+  assert.match(html, /Verification review typically takes between 12 to 72 working hours\./);
+  assert.match(
+    html,
+    /YourWorld reserves the right to cross-verify tournament certificates with recognized sports federations\/bodies\./,
+  );
   assert.match(html, /disabled/);
   assert.ok(html.indexOf(">Verification Details<") < html.indexOf(">Sports Introduction<"));
   assert.ok(html.indexOf(">Sports Introduction<") < html.indexOf(">Save Verification Details<"));
   assert.ok(html.indexOf(">Save Verification Details<") < html.indexOf(">Terms &amp; Conditions<"));
+  assert.ok(
+    html.indexOf("working hours.") < html.indexOf("I Agree to the Terms &amp; Conditions"),
+  );
+  assert.ok(
+    html.indexOf("sports federations/bodies.") < html.indexOf("I Agree to the Terms &amp; Conditions"),
+  );
   assert.doesNotMatch(html, /YOURWORLD VERIFIED SPORTS PROFILE/);
 });
 
