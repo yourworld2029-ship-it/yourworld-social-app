@@ -216,8 +216,8 @@ export async function getSportsVerificationDetails(ownerId: string): Promise<Spo
     district: data.district ?? "",
     state: data.state ?? "",
     country: data.country || "India",
-    mobileNumber: sessionMobile || data.mobile_number || "",
-    email: sessionEmail || data.email || "",
+    mobileNumber: data.mobile_number || sessionMobile,
+    email: data.email || sessionEmail,
     reviewStatus:
       data.review_status === "pending" ||
       data.review_status === "approved" ||
@@ -258,8 +258,8 @@ export async function saveSportsVerificationDetails(
     district: details.district.trim(),
     state: details.state.trim(),
     country: details.country.trim() || "India",
-    mobile_number: sessionMobile || details.mobileNumber.trim(),
-    email: sessionEmail || details.email.trim(),
+    mobile_number: details.mobileNumber.trim(),
+    email: details.email.trim(),
     sports_certificate_path: details.sportsCertificate?.path ?? null,
     passport_first_page_path: details.passportFirstPage?.path ?? null,
     passport_visa_stamp_page_path: details.passportVisaStampPage?.path ?? null,
@@ -285,8 +285,8 @@ export async function saveSportsVerificationDetails(
     district: data.district,
     state: data.state,
     country: data.country || "India",
-    mobileNumber: sessionMobile || data.mobile_number,
-    email: sessionEmail || data.email,
+    mobileNumber: data.mobile_number || sessionMobile,
+    email: data.email || sessionEmail,
     reviewStatus:
       data.review_status === "pending" ||
       data.review_status === "approved" ||

@@ -830,32 +830,6 @@ export function SportsDetailsPanel({
 
   return (
     <div data-testid="panel-sports-details" className="space-y-4">
-      <div className="rounded-3xl border border-amber-200/20 bg-gradient-to-br from-amber-200/10 via-white/[0.04] to-transparent p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-amber-200/75">
-              Sports identity
-            </p>
-            {profile.badge ? (
-              <p className="mt-1 text-lg font-semibold text-white">{profile.badge}</p>
-            ) : null}
-          </div>
-          <div className="flex items-center gap-2">
-            {editable ? (
-              <button
-                type="button"
-                onClick={() => openEditor("username")}
-                className="inline-flex items-center gap-1.5 rounded-full border border-amber-200/25 bg-amber-200/10 px-3 py-1.5 text-xs font-semibold text-amber-100 transition-colors hover:bg-amber-200/20"
-              >
-                <Pencil className="h-3.5 w-3.5" />
-                Edit
-              </button>
-            ) : null}
-            <ShieldCheck className="h-6 w-6 shrink-0 text-amber-200" />
-          </div>
-        </div>
-      </div>
-
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         <SportsDetailStat
           icon={<Medal />}
@@ -1253,9 +1227,8 @@ function SportsVerificationDetailsSection({
       | "fullName"
       | "fatherName"
       | "dateOfBirth"
-      | "address"
-      | "passportNumber"
-      | "certificateNumber"
+       | "mobileNumber"
+       | "email"
       | "villageTown"
       | "district"
       | "state"
@@ -1325,16 +1298,30 @@ function SportsVerificationDetailsSection({
               </label>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
-              <ReadOnlyVerificationValue
-                icon={<Phone className="h-3.5 w-3.5" />}
-                label="Phone Number"
-                value={details.mobileNumber || "Not provided on this account"}
-              />
-              <ReadOnlyVerificationValue
-                icon={<Mail className="h-3.5 w-3.5" />}
-                label="Gmail / Email"
-                value={details.email || "Not provided on this account"}
-              />
+              <label className="space-y-1.5 text-xs text-zinc-400">
+                Phone Number
+                <Input
+                  type="tel"
+                  value={details.mobileNumber}
+                  onChange={(event) => setField("mobileNumber", event.target.value)}
+                  placeholder="Phone number"
+                  maxLength={40}
+                  disabled={saving || locked}
+                  className="border-white/10 bg-white/[0.04] text-sm text-white"
+                />
+              </label>
+              <label className="space-y-1.5 text-xs text-zinc-400">
+                Gmail / Email
+                <Input
+                  type="email"
+                  value={details.email}
+                  onChange={(event) => setField("email", event.target.value)}
+                  placeholder="Gmail / Email"
+                  maxLength={255}
+                  disabled={saving || locked}
+                  className="border-white/10 bg-white/[0.04] text-sm text-white"
+                />
+              </label>
               <label className="space-y-1.5 text-xs text-zinc-400">
                 Village / Town
                 <Input
@@ -1478,26 +1465,6 @@ function verificationDraftOr(details: SportsVerificationDetails) {
     state: details.state.trim(),
     country: details.country.trim() || "India",
   };
-}
-
-function ReadOnlyVerificationValue({
-  icon,
-  label,
-  value,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.02] px-3 py-2.5">
-      <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-        {icon}
-        {label}
-      </p>
-      <p className="mt-1 truncate text-sm text-zinc-300">{value}</p>
-    </div>
-  );
 }
 
 function VerificationEvidenceRow({
