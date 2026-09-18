@@ -323,6 +323,14 @@ export function Highlights({
       setHighlights((current) => current.filter((highlight) => highlight.id !== viewer.id));
       setViewer(null);
       toast.success("Highlight deleted");
+      try {
+        await loadHighlights(sessionUserId);
+      } catch (refreshError) {
+        // The row is already confirmed deleted. Keep the local list clean if
+        // the follow-up read is temporarily unavailable.
+        console.error("[highlights] deleted but refresh failed", refreshError);
+        setHighlights((current) => current.filter((highlight) => highlight.id !== viewer.id));
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Couldn't delete highlight");
     } finally {
