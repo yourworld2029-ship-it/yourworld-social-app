@@ -374,11 +374,11 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
 
   const handleSubscribe = async () => {
     if (!user?.id) {
-      toast.error("Sign in to subscribe");
+      toast.error("Sign in to follow");
       return;
     }
     if (!creatorId || creatorId === user.id) {
-      toast.error("You can't subscribe to yourself");
+      toast.error("You can't follow yourself");
       return;
     }
     const wasSubscribed = subscribed;
@@ -763,66 +763,68 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
         </div>
 
           <div className="flex w-full items-center gap-2 overflow-x-auto border-b border-white/10 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            <div className="flex shrink-0 items-center gap-1 rounded-full border border-white/10 bg-white/10 px-1 py-1 text-[11px] font-semibold text-white shadow-sm backdrop-blur-md transition-all">
             <button
               type="button"
               onClick={handleLike}
-               aria-label="Like video"
-               className={`flex items-center gap-1 text-[11px] font-semibold transition-all ${
+              aria-label="Like video"
+              aria-pressed={Boolean(liked[videoId])}
+              className={`inline-flex h-10 w-[82px] shrink-0 items-center justify-center gap-1.5 rounded-full border border-white/10 bg-white/10 px-2 text-[11px] font-semibold shadow-sm backdrop-blur-md transition-all hover:bg-white/20 ${
                 liked[videoId] ? "text-pink-300" : "text-white"
               }`}
             >
               <ThumbsUp className="h-4 w-4" fill={liked[videoId] ? "currentColor" : "none"} />
+              <span>Like</span>
             </button>
-            <span className="h-4 w-[1px] bg-white/20" />
             <button
               type="button"
               onClick={handleDislike}
               aria-label="Dislike video"
-               className={`flex items-center text-[11px] transition-all ${
+              aria-pressed={disliked}
+              className={`inline-flex h-10 w-[82px] shrink-0 items-center justify-center gap-1.5 rounded-full border border-white/10 bg-white/10 px-2 text-[11px] font-semibold shadow-sm backdrop-blur-md transition-all hover:bg-white/20 ${
                 disliked ? "text-pink-300" : "text-white"
               }`}
             >
               <ThumbsDown className="h-4 w-4" fill={disliked ? "currentColor" : "none"} />
+              <span>Dislike</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleShare()}
+              aria-label="Share video"
+              className="inline-flex h-10 w-[82px] shrink-0 items-center justify-center gap-1.5 rounded-full border border-white/10 bg-white/10 px-2 text-[11px] font-semibold text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20"
+            >
+              <Share2 className="h-4 w-4" />
+              <span>Share</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setDownloadOpen(true)}
+              aria-label="Download video"
+              className="inline-flex h-10 w-[82px] shrink-0 items-center justify-center gap-1.5 rounded-full border border-white/10 bg-white/10 px-2 text-[11px] font-semibold text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20"
+            >
+              <Download className="h-4 w-4" />
+              <span>Download</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (!user) {
+                  toast.error("Sign in to save videos");
+                  return;
+                }
+                toggleSave(videoId);
+                toast.success(saved[videoId] ? "Removed from saved" : "Saved to your library");
+              }}
+              aria-label={saved[videoId] ? "Unsave video" : "Save video"}
+              aria-pressed={Boolean(saved[videoId])}
+              className={`inline-flex h-10 w-[82px] shrink-0 items-center justify-center gap-1.5 rounded-full border border-white/10 bg-white/10 px-2 text-[11px] font-semibold shadow-sm backdrop-blur-md transition-all hover:bg-white/20 ${
+                saved[videoId] ? "text-pink-300" : "text-white"
+              }`}
+            >
+              <Bookmark className="h-4 w-4" fill={saved[videoId] ? "currentColor" : "none"} />
+              <span>Save</span>
             </button>
           </div>
-          <Button
-            type="button"
-            onClick={() => void handleShare()}
-             aria-label="Share video"
-            variant="outline"
-             className="shrink-0 rounded-full border border-white/10 bg-white/10 p-1.5 text-[11px] font-semibold text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20"
-          >
-             <Share2 className="h-4 w-4" />
-          </Button>
-           <Button
-             type="button"
-             onClick={() => setDownloadOpen(true)}
-              aria-label="Download video"
-             variant="outline"
-              className="shrink-0 rounded-full border border-white/10 bg-white/10 p-1.5 text-[11px] font-semibold text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20"
-           >
-              <Download className="h-4 w-4" />
-           </Button>
-          <Button
-            type="button"
-            onClick={() => {
-              if (!user) {
-                toast.error("Sign in to save videos");
-                return;
-              }
-              toggleSave(videoId);
-              toast.success(saved[videoId] ? "Removed from saved" : "Saved to your library");
-            }}
-             aria-label={saved[videoId] ? "Unsave video" : "Save video"}
-            variant="outline"
-             className={`shrink-0 rounded-full border border-white/10 bg-white/10 p-1.5 text-[11px] font-semibold text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20 ${
-              saved[videoId] ? "text-pink-300" : ""
-            }`}
-          >
-             <Bookmark className="h-4 w-4" fill={saved[videoId] ? "currentColor" : "none"} />
-          </Button>
-        </div>
 
          <DownloadSheet
            open={downloadOpen}
