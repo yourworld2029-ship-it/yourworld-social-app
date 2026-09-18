@@ -51,26 +51,11 @@ test("Sports Identity card opens details without the removed summary row", () =>
   assert.equal(children.some((child) => child?.type === "dl"), false);
 });
 
-test("Sports Details renders real fields and owner document controls without the promo", () => {
+test("Sports Details renders real fields and the Sports Introduction without the promo", () => {
   const html = renderToStaticMarkup(
     createElement(SportsDetailsPanel, {
       profile,
       isOwner: true,
-      documents: [
-        {
-          path: "owner/certificate.pdf",
-          name: "certificate.pdf",
-          mimeType: "application/pdf",
-          size: 120,
-          updatedAt: null,
-        },
-      ],
-      documentsLoading: false,
-      documentsError: null,
-      documentsUploading: false,
-      onUploadDocument: () => undefined,
-      onDocumentAction: () => undefined,
-      onDeleteDocument: () => undefined,
       onSave: () => undefined,
     }),
   );
@@ -83,14 +68,16 @@ test("Sports Details renders real fields and owner document controls without the
   assert.doesNotMatch(html, /No public achievement details listed/);
   assert.doesNotMatch(html, /Edit medals/);
   assert.doesNotMatch(html, /Edit achievements/);
-  assert.match(html, /sports-document-upload/);
-  assert.match(html, /Delete certificate\.pdf/);
   assert.match(html, /Sports Introduction/);
+  assert.match(html, /sports-introduction-upload/);
+  assert.match(html, /Upload video/);
+  assert.doesNotMatch(html, />Documents</);
+  assert.doesNotMatch(html, /One Tournament Photo/);
   assert.match(html, /I Agree to the Terms &amp; Conditions/);
   assert.match(html, /Submit for Verification/);
   assert.match(html, /disabled/);
-  assert.ok(html.indexOf(">Documents<") < html.indexOf(">Sports Introduction<"));
-  assert.ok(html.indexOf(">Sports Introduction<") < html.indexOf(">Terms &amp; Conditions<"));
+  assert.ok(html.indexOf(">Sports Introduction<") < html.indexOf(">Verification Details<"));
+  assert.ok(html.indexOf(">Save Verification Details<") < html.indexOf(">Terms &amp; Conditions<"));
   assert.doesNotMatch(html, /YOURWORLD VERIFIED SPORTS PROFILE/);
 });
 
@@ -99,13 +86,6 @@ test("National verification shows the certificate but hides international eviden
     createElement(SportsDetailsPanel, {
       profile,
       isOwner: true,
-      documents: [],
-      documentsLoading: false,
-      documentsError: null,
-      documentsUploading: false,
-      onUploadDocument: () => undefined,
-      onDocumentAction: () => undefined,
-      onDeleteDocument: () => undefined,
       verificationDetails: {
         villageTown: "",
         district: "",
@@ -127,18 +107,11 @@ test("National verification shows the certificate but hides international eviden
   assert.doesNotMatch(html, /One Tournament Photo/);
 });
 
-test("International verification shows passport, visa, and tournament photo fields", () => {
+test("International verification shows passport and visa fields", () => {
   const html = renderToStaticMarkup(
     createElement(SportsDetailsPanel, {
       profile: { ...profile, status: "International" as const },
       isOwner: true,
-      documents: [],
-      documentsLoading: false,
-      documentsError: null,
-      documentsUploading: false,
-      onUploadDocument: () => undefined,
-      onDocumentAction: () => undefined,
-      onDeleteDocument: () => undefined,
       verificationDetails: {
         villageTown: "",
         district: "",
@@ -157,7 +130,7 @@ test("International verification shows passport, visa, and tournament photo fiel
   assert.match(html, /Sports Certificate/);
   assert.match(html, /Passport First Page/);
   assert.match(html, /Passport Visa \/ Stamp Page/);
-  assert.match(html, /One Tournament Photo/);
+  assert.doesNotMatch(html, /One Tournament Photo/);
   assert.doesNotMatch(html, /INTERNATIONAL PLAYER/);
 });
 
@@ -298,13 +271,6 @@ test("National medal achievements display only for verified primary competitions
     createElement(SportsDetailsPanel, {
       profile: verifiedProfile,
       isOwner: false,
-      documents: [],
-      documentsLoading: false,
-      documentsError: null,
-      documentsUploading: false,
-      onUploadDocument: () => undefined,
-      onDocumentAction: () => undefined,
-      onDeleteDocument: () => undefined,
     }),
   );
 
@@ -323,13 +289,6 @@ test("National medal achievements display only for verified primary competitions
     createElement(SportsDetailsPanel, {
       profile: unverifiedProfile,
       isOwner: false,
-      documents: [],
-      documentsLoading: false,
-      documentsError: null,
-      documentsUploading: false,
-      onUploadDocument: () => undefined,
-      onDocumentAction: () => undefined,
-      onDeleteDocument: () => undefined,
     }),
   );
 

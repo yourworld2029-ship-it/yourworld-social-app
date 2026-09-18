@@ -31,16 +31,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { YwAvatar } from "@/components/yw/Avatar";
 import { EditProfileSheet, type ProfileEdit } from "@/components/yw/EditProfileSheet";
@@ -48,17 +38,12 @@ import {
   useMyProfile,
   useResolvedMedia,
   updateMyPost,
-  createSportsDocumentSignedUrl,
-  deleteSportsDocument,
-  listSportsDocuments,
-  uploadSportsDocument,
   deleteSportsIntroduction,
   uploadSportsIntroduction,
   deleteSportsVerificationEvidence,
   getSportsVerificationDetails,
   saveSportsVerificationDetails,
   uploadSportsVerificationEvidence,
-  type SportsDocument,
   type SportsVerificationDetails,
   type SportsVerificationEvidenceKind,
 } from "@/lib/profile-data";
@@ -138,12 +123,6 @@ function ProfilePage() {
   const [location, setLocation] = useState("");
   const [busy, setBusy] = useState(false);
   const [sportsDetailsOpen, setSportsDetailsOpen] = useState(false);
-  const [sportsDocuments, setSportsDocuments] = useState<SportsDocument[]>([]);
-  const [sportsDocumentsLoading, setSportsDocumentsLoading] = useState(false);
-  const [sportsDocumentsError, setSportsDocumentsError] = useState<string | null>(null);
-  const [sportsDocumentsUploading, setSportsDocumentsUploading] = useState(false);
-  const [sportsDocumentToDelete, setSportsDocumentToDelete] = useState<SportsDocument | null>(null);
-  const [sportsDocumentDeleting, setSportsDocumentDeleting] = useState(false);
   const [sportsIntroductionUrl, setSportsIntroductionUrl] = useState<string | null>(null);
   const [sportsIntroductionUploading, setSportsIntroductionUploading] = useState(false);
   const [sportsIntroductionProgress, setSportsIntroductionProgress] = useState(0);
@@ -177,15 +156,10 @@ function ProfilePage() {
   // previous account while ID-scoped requests are being refreshed.
   useEffect(() => {
     setSportsDetailsOpen(false);
-    setSportsDocuments([]);
-    setSportsDocumentsLoading(false);
-    setSportsDocumentsError(null);
-    setSportsDocumentToDelete(null);
     setSportsIntroductionUrl(null);
     setSportsVerificationDetails(null);
     setSportsVerificationDetailsLoading(false);
     setSportsVerificationEvidenceUploading(null);
-    setSportsDocumentsUploading(false);
     setSportsIntroductionUploading(false);
     setSportsIntroductionProgress(0);
     setSportsVerificationDetailsSaving(false);
@@ -325,35 +299,6 @@ function ProfilePage() {
   });
   const hasSportsProfile = Boolean(sportsProfile);
   const isVerifiedSports = Boolean(sportsProfile?.verified);
-  useEffect(() => {
-    setSportsDocuments([]);
-    setSportsDocumentsError(null);
-    if (!sportsDetailsOpen || !hasSportsProfile || !userId || userId !== profile.id) {
-      setSportsDocumentsLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    setSportsDocumentsLoading(true);
-    setSportsDocumentsError(null);
-    void listSportsDocuments(userId)
-      .then((documents) => {
-        if (!cancelled) setSportsDocuments(documents);
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setSportsDocuments([]);
-          setSportsDocumentsError(error instanceof Error ? error.message : "Documents are unavailable.");
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setSportsDocumentsLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [hasSportsProfile, profile.id, sportsDetailsOpen, userId]);
 
   useEffect(() => {
     const path = sportsProfile?.sportsIntroductionPath;
@@ -398,54 +343,6 @@ function ProfilePage() {
       cancelled = true;
     };
   }, [profile.bio, profile.category, profile.id, sportsDetailsOpen, hasSportsProfile, userId]);
-
-  const openSportsDocument = async (document: SportsDocument, download: boolean) => {
-    if (!userId || userId !== profile.id) return;
-    try {
-      const url = await createSportsDocumentSignedUrl(userId, document.path);
-      const anchor = window.document.createElement("a");
-      anchor.href = url;
-      anchor.rel = "noopener noreferrer";
-      if (download) {
-        anchor.download = document.name;
-      } else {
-        anchor.target = "_blank";
-      }
-      anchor.click();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "This document is unavailable.");
-    }
-  };
-
-  const handleSportsDocumentUpload = async (file: File) => {
-    if (!userId || userId !== profile.id) return;
-    setSportsDocumentsUploading(true);
-    try {
-      const document = await uploadSportsDocument(userId, file);
-      setSportsDocuments((current) => [document, ...current]);
-      toast.success("Document uploaded securely");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Couldn't upload this document.");
-    } finally {
-      setSportsDocumentsUploading(false);
-    }
-  };
-
-  const handleSportsDocumentDelete = async () => {
-    if (!sportsDocumentToDelete || !userId || userId !== profile.id) return;
-    const document = sportsDocumentToDelete;
-    setSportsDocumentDeleting(true);
-    try {
-      await deleteSportsDocument(userId, document.path);
-      setSportsDocuments((current) => current.filter((item) => item.path !== document.path));
-      setSportsDocumentToDelete(null);
-      toast.success("Document deleted");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Couldn't delete this document.");
-    } finally {
-      setSportsDocumentDeleting(false);
-    }
-  };
 
   const handleSportsIntroductionUpload = async (file: File) => {
     if (!userId || userId !== profile.id || !sportsProfile) return;
@@ -735,13 +632,6 @@ function ProfilePage() {
             <SportsDetailsPanel
               profile={sportsProfile}
               isOwner={Boolean(userId && userId === profile.id)}
-              documents={sportsDocuments}
-              documentsLoading={sportsDocumentsLoading}
-              documentsError={sportsDocumentsError}
-              documentsUploading={sportsDocumentsUploading}
-              onUploadDocument={handleSportsDocumentUpload}
-              onDocumentAction={openSportsDocument}
-              onDeleteDocument={setSportsDocumentToDelete}
               onSave={saveSportsDetails}
               sportsIntroductionUrl={sportsIntroductionUrl}
               sportsIntroductionUploading={sportsIntroductionUploading}
@@ -881,35 +771,6 @@ function ProfilePage() {
           ) : null}
         </DialogContent>
       </Dialog>
-
-      <AlertDialog
-        open={Boolean(sportsDocumentToDelete)}
-        onOpenChange={(open) => {
-          if (!open && !sportsDocumentDeleting) setSportsDocumentToDelete(null);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete this document?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This permanently removes {sportsDocumentToDelete?.name.split("/").at(-1) || "this document"}
-              from your private sports documents. This can&apos;t be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={sportsDocumentDeleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={sportsDocumentDeleting}
-              onClick={(event) => {
-                event.preventDefault();
-                void handleSportsDocumentDelete();
-              }}
-            >
-              {sportsDocumentDeleting ? "Deleting…" : "Delete"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       <EditProfileSheet
         open={editOpen}

@@ -877,9 +877,10 @@ export function SportsDetailsPanel({
         </>
       )}
 
-      {isOwner ? (
+      {isOwner || profile.sportsIntroductionPath ? (
         <SportsIntroductionSection
           profile={profile}
+          isOwner={isOwner}
           sportsIntroductionUrl={sportsIntroductionUrl}
           sportsIntroductionUploading={sportsIntroductionUploading}
           sportsIntroductionProgress={sportsIntroductionProgress}
@@ -1039,6 +1040,98 @@ function emptySportsVerificationDetails(): SportsVerificationDetails {
   };
 }
 
+function SportsIntroductionSection({
+  profile,
+  isOwner,
+  sportsIntroductionUrl,
+  sportsIntroductionUploading,
+  sportsIntroductionProgress,
+  onUploadSportsIntroduction,
+  onDeleteSportsIntroduction,
+}: {
+  profile: SportsProfileInfo;
+  isOwner: boolean;
+  sportsIntroductionUrl?: string | null;
+  sportsIntroductionUploading: boolean;
+  sportsIntroductionProgress: number;
+  onUploadSportsIntroduction?: (file: File) => void;
+  onDeleteSportsIntroduction?: () => void;
+}) {
+  return (
+    <SportsDetailsSection
+      icon={<Video />}
+      title="Sports Introduction"
+      description="One short vertical video in your own natural voice. No music or platform-added audio."
+    >
+      {profile.sportsIntroductionPath ? (
+        sportsIntroductionUrl ? (
+          <video
+            data-testid="sports-introduction-video"
+            src={sportsIntroductionUrl}
+            controls
+            controlsList="nodownload noplaybackrate"
+            disablePictureInPicture
+            playsInline
+            preload="metadata"
+            className="aspect-[9/16] max-h-80 w-full rounded-2xl border border-amber-200/15 bg-black object-contain"
+          />
+        ) : (
+          <p className="text-sm text-zinc-500">Loading your Sports Introduction…</p>
+        )
+      ) : (
+        <div className="rounded-2xl border border-dashed border-amber-200/20 bg-amber-200/[0.04] p-4">
+          <p className="text-sm leading-6 text-zinc-300">
+            Introduce yourself in your own voice and tell people about your sport, role, major
+            achievements and sports journey.
+          </p>
+        </div>
+      )}
+      {isOwner ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <label
+            htmlFor="sports-introduction-upload"
+            className={`inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-amber-200/25 bg-amber-200/10 px-3 py-1.5 text-xs font-semibold text-amber-100 transition-colors hover:bg-amber-200/20 ${
+              sportsIntroductionUploading ? "pointer-events-none opacity-60" : ""
+            }`}
+          >
+            <Upload className="h-3.5 w-3.5" />
+            {sportsIntroductionUploading
+              ? `Uploading ${sportsIntroductionProgress}%`
+              : profile.sportsIntroductionPath
+                ? "Replace video"
+                : "Upload video"}
+          </label>
+          <input
+            id="sports-introduction-upload"
+            type="file"
+            accept="video/*"
+            className="sr-only"
+            disabled={sportsIntroductionUploading}
+            onChange={(event) => {
+              const file = event.currentTarget.files?.[0];
+              event.currentTarget.value = "";
+              if (file) onUploadSportsIntroduction?.(file);
+            }}
+          />
+          {profile.sportsIntroductionPath ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={sportsIntroductionUploading}
+              onClick={onDeleteSportsIntroduction}
+              className="rounded-full text-red-200 hover:bg-red-400/10 hover:text-red-100"
+            >
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+              Delete video
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+    </SportsDetailsSection>
+  );
+}
+
 function SportsVerificationDetailsSection({
   details,
   isInternational,
@@ -1162,15 +1255,6 @@ function SportsVerificationDetailsSection({
                   kind="passportVisaStampPage"
                   label="Passport Visa / Stamp Page"
                   hint="The page showing the visa or stamp for the tournament/game country."
-                  uploading={uploading}
-                  onUpload={onUploadEvidence}
-                />
-                <VerificationEvidenceRow
-                  accept="image/jpeg,image/png,image/webp"
-                  evidence={details.tournamentPhoto}
-                  kind="tournamentPhoto"
-                  label="One Tournament Photo"
-                  hint="You should be clearly visible with a medal or in India blazer/team representation."
                   uploading={uploading}
                   onUpload={onUploadEvidence}
                 />
