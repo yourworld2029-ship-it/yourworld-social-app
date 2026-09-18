@@ -76,7 +76,8 @@ test("Sports Details renders real fields and the Sports Introduction without the
   assert.match(html, /I Agree to the Terms &amp; Conditions/);
   assert.match(html, /Submit for Verification/);
   assert.match(html, /disabled/);
-  assert.ok(html.indexOf(">Sports Introduction<") < html.indexOf(">Verification Details<"));
+  assert.ok(html.indexOf(">Verification Details<") < html.indexOf(">Sports Introduction<"));
+  assert.ok(html.indexOf(">Sports Introduction<") < html.indexOf(">Save Verification Details<"));
   assert.ok(html.indexOf(">Save Verification Details<") < html.indexOf(">Terms &amp; Conditions<"));
   assert.doesNotMatch(html, /YOURWORLD VERIFIED SPORTS PROFILE/);
 });
@@ -130,6 +131,8 @@ test("International verification shows passport and visa fields", () => {
   assert.match(html, /Sports Certificate/);
   assert.match(html, /Passport First Page/);
   assert.match(html, /Passport Visa \/ Stamp Page/);
+  assert.ok(html.indexOf("Passport Visa / Stamp Page") < html.indexOf(">Sports Introduction<"));
+  assert.ok(html.indexOf(">Sports Introduction<") < html.indexOf(">Save Verification Details<"));
   assert.doesNotMatch(html, /One Tournament Photo/);
   assert.doesNotMatch(html, /INTERNATIONAL PLAYER/);
 });

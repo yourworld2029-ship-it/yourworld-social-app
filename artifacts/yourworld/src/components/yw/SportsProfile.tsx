@@ -877,18 +877,6 @@ export function SportsDetailsPanel({
         </>
       )}
 
-      {isOwner || profile.sportsIntroductionPath ? (
-        <SportsIntroductionSection
-          profile={profile}
-          isOwner={isOwner}
-          sportsIntroductionUrl={sportsIntroductionUrl}
-          sportsIntroductionUploading={sportsIntroductionUploading}
-          sportsIntroductionProgress={sportsIntroductionProgress}
-          onUploadSportsIntroduction={onUploadSportsIntroduction}
-          onDeleteSportsIntroduction={onDeleteSportsIntroduction}
-        />
-      ) : null}
-
       {isOwner ? (
         <SportsVerificationDetailsSection
           details={verificationDraft}
@@ -899,6 +887,12 @@ export function SportsDetailsPanel({
           onChange={setVerificationDraft}
           onSave={onSaveVerificationDetails}
           onUploadEvidence={onUploadVerificationEvidence}
+          profile={profile}
+          sportsIntroductionUrl={sportsIntroductionUrl}
+          sportsIntroductionUploading={sportsIntroductionUploading}
+          sportsIntroductionProgress={sportsIntroductionProgress}
+          onUploadSportsIntroduction={onUploadSportsIntroduction}
+          onDeleteSportsIntroduction={onDeleteSportsIntroduction}
         />
       ) : null}
 
@@ -1141,6 +1135,12 @@ function SportsVerificationDetailsSection({
   onChange,
   onSave,
   onUploadEvidence,
+  profile,
+  sportsIntroductionUrl,
+  sportsIntroductionUploading,
+  sportsIntroductionProgress,
+  onUploadSportsIntroduction,
+  onDeleteSportsIntroduction,
 }: {
   details: SportsVerificationDetails;
   isInternational: boolean;
@@ -1150,6 +1150,12 @@ function SportsVerificationDetailsSection({
   onChange: (details: SportsVerificationDetails) => void;
   onSave?: (details: SportsVerificationDetails) => void | Promise<void>;
   onUploadEvidence?: (kind: SportsVerificationEvidenceKind, file: File) => void | Promise<void>;
+  profile: SportsProfileInfo;
+  sportsIntroductionUrl?: string | null;
+  sportsIntroductionUploading: boolean;
+  sportsIntroductionProgress: number;
+  onUploadSportsIntroduction?: (file: File) => void;
+  onDeleteSportsIntroduction?: () => void;
 }) {
   const setField = (field: "villageTown" | "district" | "state" | "country", value: string) =>
     onChange({ ...details, [field]: value });
@@ -1260,6 +1266,15 @@ function SportsVerificationDetailsSection({
                 />
               </>
             ) : null}
+            <SportsIntroductionSection
+              profile={profile}
+              isOwner
+              sportsIntroductionUrl={sportsIntroductionUrl}
+              sportsIntroductionUploading={sportsIntroductionUploading}
+              sportsIntroductionProgress={sportsIntroductionProgress}
+              onUploadSportsIntroduction={onUploadSportsIntroduction}
+              onDeleteSportsIntroduction={onDeleteSportsIntroduction}
+            />
           </div>
 
           <Button
