@@ -762,17 +762,17 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           </Button>
         </div>
 
-          <div className="flex w-full items-center gap-2 overflow-x-auto border-b border-white/10 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="grid w-full grid-cols-5 gap-1 border-b border-white/10 pb-3">
             <button
               type="button"
               onClick={handleLike}
               aria-label="Like video"
               aria-pressed={Boolean(liked[videoId])}
-              className={`inline-flex h-9 w-[78px] shrink-0 items-center justify-center gap-1.5 rounded-full border border-white/10 bg-white/10 px-2 text-[11px] font-semibold shadow-sm backdrop-blur-md transition-all hover:bg-white/20 ${
+              className={`inline-flex h-9 w-full min-w-0 items-center justify-center gap-0.5 rounded-full border border-white/10 bg-white/10 px-1 text-[9px] font-semibold tracking-tight shadow-sm backdrop-blur-md transition-all hover:bg-white/20 sm:text-[10px] ${
                 liked[videoId] ? "text-pink-300" : "text-white"
               }`}
             >
-              <ThumbsUp className="h-4 w-4" fill={liked[videoId] ? "currentColor" : "none"} />
+              <ThumbsUp className="h-3.5 w-3.5 shrink-0" fill={liked[videoId] ? "currentColor" : "none"} />
               <span>Like</span>
             </button>
             <button
@@ -780,29 +780,29 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
               onClick={handleDislike}
               aria-label="Dislike video"
               aria-pressed={disliked}
-              className={`inline-flex h-9 w-[78px] shrink-0 items-center justify-center gap-1.5 rounded-full border border-white/10 bg-white/10 px-2 text-[11px] font-semibold shadow-sm backdrop-blur-md transition-all hover:bg-white/20 ${
+              className={`inline-flex h-9 w-full min-w-0 items-center justify-center gap-0.5 rounded-full border border-white/10 bg-white/10 px-1 text-[9px] font-semibold tracking-tight shadow-sm backdrop-blur-md transition-all hover:bg-white/20 sm:text-[10px] ${
                 disliked ? "text-pink-300" : "text-white"
               }`}
             >
-              <ThumbsDown className="h-4 w-4" fill={disliked ? "currentColor" : "none"} />
+              <ThumbsDown className="h-3.5 w-3.5 shrink-0" fill={disliked ? "currentColor" : "none"} />
               <span>Dislike</span>
             </button>
             <button
               type="button"
               onClick={() => void handleShare()}
               aria-label="Share video"
-              className="inline-flex h-9 w-[78px] shrink-0 items-center justify-center gap-1.5 rounded-full border border-white/10 bg-white/10 px-2 text-[11px] font-semibold text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20"
+              className="inline-flex h-9 w-full min-w-0 items-center justify-center gap-0.5 rounded-full border border-white/10 bg-white/10 px-1 text-[9px] font-semibold tracking-tight text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20 sm:text-[10px]"
             >
-              <Share2 className="h-4 w-4" />
+              <Share2 className="h-3.5 w-3.5 shrink-0" />
               <span>Share</span>
             </button>
             <button
               type="button"
               onClick={() => setDownloadOpen(true)}
               aria-label="Download video"
-              className="inline-flex h-9 w-[78px] shrink-0 items-center justify-center gap-1.5 rounded-full border border-white/10 bg-white/10 px-2 text-[11px] font-semibold text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20"
+              className="inline-flex h-9 w-full min-w-0 items-center justify-center gap-0.5 rounded-full border border-white/10 bg-white/10 px-1 text-[9px] font-semibold tracking-tight text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20 sm:text-[10px]"
             >
-              <Download className="h-4 w-4" />
+              <Download className="h-3.5 w-3.5 shrink-0" />
               <span>Download</span>
             </button>
             <button
@@ -817,11 +817,11 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
               }}
               aria-label={saved[videoId] ? "Unsave video" : "Save video"}
               aria-pressed={Boolean(saved[videoId])}
-              className={`inline-flex h-10 w-[82px] shrink-0 items-center justify-center gap-1.5 rounded-full border border-white/10 bg-white/10 px-2 text-[11px] font-semibold shadow-sm backdrop-blur-md transition-all hover:bg-white/20 ${
+              className={`inline-flex h-9 w-full min-w-0 items-center justify-center gap-0.5 rounded-full border border-white/10 bg-white/10 px-1 text-[9px] font-semibold tracking-tight shadow-sm backdrop-blur-md transition-all hover:bg-white/20 sm:text-[10px] ${
                 saved[videoId] ? "text-pink-300" : "text-white"
               }`}
             >
-              <Bookmark className="h-4 w-4" fill={saved[videoId] ? "currentColor" : "none"} />
+              <Bookmark className="h-3.5 w-3.5 shrink-0" fill={saved[videoId] ? "currentColor" : "none"} />
               <span>Save</span>
             </button>
           </div>
