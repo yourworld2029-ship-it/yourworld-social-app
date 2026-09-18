@@ -137,6 +137,20 @@ test("International verification shows passport and visa fields", () => {
   assert.doesNotMatch(html, /INTERNATIONAL PLAYER/);
 });
 
+test("Non-owners can still view an existing Sports Introduction", () => {
+  const html = renderToStaticMarkup(
+    createElement(SportsDetailsPanel, {
+      profile: { ...profile, sportsIntroductionPath: "player/intro.mp4" },
+      isOwner: false,
+      sportsIntroductionUrl: "https://example.com/intro.mp4",
+    }),
+  );
+
+  assert.match(html, /Sports Introduction/);
+  assert.match(html, /sports-introduction-video/);
+  assert.doesNotMatch(html, /Upload video/);
+});
+
 test("Sports Introduction metadata persists without creating a Reel", () => {
   const bio = serializeSportsProfileBio("", {
     username: "player",

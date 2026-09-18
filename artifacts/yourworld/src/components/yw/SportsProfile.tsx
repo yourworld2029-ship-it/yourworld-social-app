@@ -896,6 +896,18 @@ export function SportsDetailsPanel({
         />
       ) : null}
 
+      {!isOwner && profile.sportsIntroductionPath ? (
+        <SportsIntroductionSection
+          profile={profile}
+          isOwner={false}
+          sportsIntroductionUrl={sportsIntroductionUrl}
+          sportsIntroductionUploading={sportsIntroductionUploading}
+          sportsIntroductionProgress={sportsIntroductionProgress}
+          onUploadSportsIntroduction={onUploadSportsIntroduction}
+          onDeleteSportsIntroduction={onDeleteSportsIntroduction}
+        />
+      ) : null}
+
       {isOwner ? (
         <SportsDetailsSection
           icon={<ShieldCheck />}
