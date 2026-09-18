@@ -330,14 +330,21 @@ export function Highlights({
         throw new Error("You can only delete your own highlights");
       }
 
-      const { data: deletedRows, error } = await supabase
+      const { error } = await supabase
         .from("highlights" as never)
         .delete()
         .eq("id", viewer.id)
-        .eq("user_id", sessionUserId)
-        .select("id");
+        .eq("user_id", sessionUserId);
       if (error) throw error;
-      if (!deletedRows?.length) throw new Error("This highlight is no longer available");
+
+      const { data: remainingHighlight, error: verifyError } = await supabase
+        .from("highlights" as never)
+        .select("id")
+        .eq("id", viewer.id)
+        .eq("user_id", sessionUserId)
+        .maybeSingle();
+      if (verifyError) throw verifyError;
+      if (remainingHighlight) throw new Error("This highlight could not be deleted");
 
       setHighlights((current) => current.filter((highlight) => highlight.id !== viewer.id));
       setViewer(null);
@@ -394,7 +401,7 @@ export function Highlights({
 
   return (
     <section className="mx-auto max-w-3xl px-3 pt-3 sm:px-4">
-      <div className="no-scrollbar flex gap-3.5 overflow-x-auto pb-0.5">
+      <div className="no-scrollbar flex gap-2.5 overflow-x-auto pb-0.5">
         {/* New highlight */}
         <button
           type="button"
