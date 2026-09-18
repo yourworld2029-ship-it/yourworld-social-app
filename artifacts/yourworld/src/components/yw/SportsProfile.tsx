@@ -9,11 +9,9 @@ import {
   FileCheck2,
   Globe2,
   LockKeyhole,
-  Mail,
   MapPin,
   Medal,
   Pencil,
-  Phone,
   Plus,
   ShieldAlert,
   ShieldCheck,
@@ -1271,7 +1269,7 @@ function SportsVerificationDetailsSection({
                   onChange={(event) => setField("fullName", event.target.value)}
                   placeholder="Exactly as on your identity document"
                   maxLength={200}
-                  disabled={saving || locked}
+                  disabled={locked}
                   className="border-white/10 bg-white/[0.04] text-sm text-white"
                 />
               </label>
@@ -1282,7 +1280,7 @@ function SportsVerificationDetailsSection({
                   onChange={(event) => setField("fatherName", event.target.value)}
                   placeholder="Exactly as on your identity document"
                   maxLength={200}
-                  disabled={saving || locked}
+                  disabled={locked}
                   className="border-white/10 bg-white/[0.04] text-sm text-white"
                 />
               </label>
@@ -1292,7 +1290,7 @@ function SportsVerificationDetailsSection({
                   type="date"
                   value={details.dateOfBirth}
                   onChange={(event) => setField("dateOfBirth", event.target.value)}
-                  disabled={saving || locked}
+                  disabled={locked}
                   className="border-white/10 bg-white/[0.04] text-sm text-white"
                 />
               </label>
@@ -1306,7 +1304,7 @@ function SportsVerificationDetailsSection({
                   onChange={(event) => setField("mobileNumber", event.target.value)}
                   placeholder="Phone number"
                   maxLength={40}
-                  disabled={saving || locked}
+                  disabled={locked}
                   className="border-white/10 bg-white/[0.04] text-sm text-white"
                 />
               </label>
@@ -1318,7 +1316,7 @@ function SportsVerificationDetailsSection({
                   onChange={(event) => setField("email", event.target.value)}
                   placeholder="Gmail / Email"
                   maxLength={255}
-                  disabled={saving || locked}
+                  disabled={locked}
                   className="border-white/10 bg-white/[0.04] text-sm text-white"
                 />
               </label>
@@ -1329,7 +1327,7 @@ function SportsVerificationDetailsSection({
                   onChange={(event) => setField("villageTown", event.target.value)}
                   placeholder="Village or town"
                   maxLength={120}
-                  disabled={saving || locked}
+                  disabled={locked}
                   className="border-white/10 bg-white/[0.04] text-sm text-white"
                 />
               </label>
@@ -1340,7 +1338,7 @@ function SportsVerificationDetailsSection({
                   onChange={(event) => setField("district", event.target.value)}
                   placeholder="District"
                   maxLength={120}
-                  disabled={saving || locked}
+                  disabled={locked}
                   className="border-white/10 bg-white/[0.04] text-sm text-white"
                 />
               </label>
@@ -1351,7 +1349,7 @@ function SportsVerificationDetailsSection({
                   onChange={(event) => setField("state", event.target.value)}
                   placeholder="State"
                   maxLength={120}
-                  disabled={saving || locked}
+                  disabled={locked}
                   className="border-white/10 bg-white/[0.04] text-sm text-white"
                 />
               </label>
@@ -1362,7 +1360,7 @@ function SportsVerificationDetailsSection({
                   onChange={(event) => setField("country", event.target.value)}
                   placeholder="Country"
                   maxLength={120}
-                  disabled={saving || locked}
+                  disabled={locked}
                   className="border-white/10 bg-white/[0.04] text-sm text-white"
                 />
               </label>
@@ -1374,7 +1372,7 @@ function SportsVerificationDetailsSection({
                 onChange={(event) =>
                   onChange({ ...details, identityDetailsConfirmed: event.target.checked })
                 }
-                disabled={saving || locked}
+                disabled={locked}
                 className="mt-1 h-4 w-4 accent-amber-200"
               />
               <span>

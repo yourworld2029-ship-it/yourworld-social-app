@@ -63,6 +63,7 @@ test("Sports Details renders real fields and the Sports Introduction without the
   assert.doesNotMatch(html, /Event \/ position/);
   assert.doesNotMatch(html, /Public sports details/);
   assert.doesNotMatch(html, /Sports ID/);
+  assert.doesNotMatch(html, /Sports identity/);
   assert.match(html, /State League/);
   assert.doesNotMatch(html, /No public medal details listed/);
   assert.doesNotMatch(html, /No public achievement details listed/);
