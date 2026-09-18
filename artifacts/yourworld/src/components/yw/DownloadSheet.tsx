@@ -33,8 +33,51 @@ type Props = {
   title: string;
   durationSeconds?: number | null;
   sourceQualityTier?: VideoQualityTier | null;
+  sourceMediaUrl?: string | null;
+  sourceFileSizeBytes?: number | null;
   onDownload: (choice: DownloadChoice) => void | Promise<void>;
 };
+
+function positiveByteSize(value: number | null | undefined) {
+  const size = Number(value);
+  return Number.isFinite(size) && size > 0 ? size : null;
+}
+
+function contentLengthFromResponse(response: Response) {
+  const contentLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(contentLength) && contentLength > 0) return contentLength;
+  const contentRange = response.headers.get("content-range") ?? "";
+  const total = Number(contentRange.match(/\/(\d+)$/)?.[1]);
+  return Number.isFinite(total) && total > 0 ? total : null;
+}
+
+async function readSourceFileSize(sourceMediaUrl: string, signal: AbortSignal) {
+  if (!/^https?:\/\//i.test(sourceMediaUrl)) return null;
+  try {
+    const response = await fetch(sourceMediaUrl, {
+      method: "HEAD",
+      cache: "no-store",
+      signal,
+    });
+    if (response.ok) {
+      const size = contentLengthFromResponse(response);
+      if (size) return size;
+    }
+  } catch {
+    if (signal.aborted) return null;
+  }
+
+  try {
+    const response = await fetch(sourceMediaUrl, {
+      headers: { Range: "bytes=0-0" },
+      cache: "no-store",
+      signal,
+    });
+    return response.ok ? contentLengthFromResponse(response) : null;
+  } catch {
+    return null;
+  }
+}
 
 export function DownloadSheet({
   open,
@@ -42,6 +85,8 @@ export function DownloadSheet({
   title,
   durationSeconds,
   sourceQualityTier,
+  sourceMediaUrl,
+  sourceFileSizeBytes,
   onDownload,
 }: Props) {
   const choices = useMemo<DownloadChoice[]>(
@@ -57,10 +102,41 @@ export function DownloadSheet({
     sourceQualityTier ?? "original",
   );
   const [busy, setBusy] = useState(false);
+  const [resolvedSourceFileSizeBytes, setResolvedSourceFileSizeBytes] = useState<number | null>(
+    positiveByteSize(sourceFileSizeBytes),
+  );
 
   useEffect(() => {
     if (open) setSelected(sourceQualityTier ?? "original");
   }, [open, sourceQualityTier]);
+
+  useEffect(() => {
+    const providedSize = positiveByteSize(sourceFileSizeBytes);
+    setResolvedSourceFileSizeBytes(providedSize);
+    if (!open || providedSize || !sourceMediaUrl) return;
+
+    const controller = new AbortController();
+    void readSourceFileSize(sourceMediaUrl, controller.signal).then((size) => {
+      if (!controller.signal.aborted) setResolvedSourceFileSizeBytes(size);
+    });
+    return () => controller.abort();
+  }, [open, sourceFileSizeBytes, sourceMediaUrl]);
+
+  const sizeForChoice = (choice: DownloadChoice) => {
+    const isSourceFile = choice === "original" || choice === sourceQualityTier;
+    if (isSourceFile && resolvedSourceFileSizeBytes) {
+      return formatDownloadSizeMb(resolvedSourceFileSizeBytes / 1_000_000, true);
+    }
+
+    if (choice === "mp3") {
+      return formatDownloadSizeMb(estimateDownloadSizeMb(durationSeconds, "mp3"));
+    }
+
+    const estimateTier = isSourceFile ? sourceQualityTier : choice;
+    return formatDownloadSizeMb(
+      estimateTier ? estimateDownloadSizeMb(durationSeconds, estimateTier) : null,
+    );
+  };
 
   const submit = async () => {
     setBusy(true);
@@ -93,7 +169,7 @@ export function DownloadSheet({
              const isOriginal = choice === "original";
              const isSelected = choice === selected;
               const quality = choice !== "original" ? QUALITY_COPY[choice] : null;
-             const size = formatDownloadSizeMb(estimateDownloadSizeMb(durationSeconds, choice));
+              const size = sizeForChoice(choice);
              return (
                <button
                  key={choice}
@@ -156,7 +232,7 @@ export function DownloadSheet({
              <span className="min-w-0 flex-1">
                <span className="block text-sm font-semibold">MP3 Audio</span>
                <span className="mt-0.5 block text-[11px] text-zinc-400">
-                 Extracted / direct audio stream · {formatDownloadSizeMb(estimateDownloadSizeMb(durationSeconds, "mp3"))}
+                  Extracted / direct audio stream · {sizeForChoice("mp3")}
                </span>
              </span>
              {selected === "mp3" ? (

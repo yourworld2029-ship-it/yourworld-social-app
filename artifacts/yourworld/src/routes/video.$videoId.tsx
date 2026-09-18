@@ -836,6 +836,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
            title={video.title || video.caption || "YourWorld video"}
            durationSeconds={video.duration_seconds}
            sourceQualityTier={sourceQualityTier}
+            sourceMediaUrl={playableMediaUrl}
            onDownload={downloadSelected}
          />
 

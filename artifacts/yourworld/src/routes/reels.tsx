@@ -1146,6 +1146,7 @@ function ReelItem({
         title={reel.caption || "YourWorld reel"}
         durationSeconds={reel.durationSeconds ?? REEL_DURATION}
         sourceQualityTier={reel.sourceQualityTier ?? null}
+        sourceMediaUrl={mediaUrl}
         onDownload={handleDownload}
       />
       <AlertDialog

@@ -77,9 +77,12 @@ export function estimateDownloadSizeMb(
   return Math.ceil((duration * (definition.bitrate + 128_000)) / 8 / 1_000_000);
 }
 
-export function formatDownloadSizeMb(sizeMb: number | null) {
-  if (sizeMb == null || !Number.isFinite(sizeMb)) return "Size varies";
-  return sizeMb >= 1_000
-    ? `about ${(sizeMb / 1_000).toFixed(1)} GB`
-    : `about ${sizeMb} MB`;
+export function formatDownloadSizeMb(sizeMb: number | null, exact = false) {
+  if (sizeMb == null || !Number.isFinite(sizeMb) || sizeMb <= 0) {
+    return "Size unavailable";
+  }
+  const formatted = sizeMb >= 1_000
+    ? `${(sizeMb / 1_000).toFixed(1)} GB`
+    : `${sizeMb >= 10 ? Math.round(sizeMb) : sizeMb.toFixed(1)} MB`;
+  return exact ? formatted : `≈ ${formatted}`;
 }
