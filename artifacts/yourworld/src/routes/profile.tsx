@@ -447,9 +447,6 @@ function ProfilePage() {
           fullName: details.fullName,
           fatherName: details.fatherName,
           dateOfBirth: details.dateOfBirth,
-          address: details.address,
-          passportNumber: details.passportNumber,
-          certificateNumber: details.certificateNumber,
           identityDetailsConfirmed: details.identityDetailsConfirmed,
         },
       });

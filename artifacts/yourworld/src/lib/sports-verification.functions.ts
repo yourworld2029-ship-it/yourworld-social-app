@@ -24,13 +24,6 @@ const sportsVerificationSubmissionSchema = z.object({
         date.getTime() <= Date.now()
       );
     }, "Enter a real Date of Birth that is not in the future."),
-  address: z.string().trim().min(1, "Enter your address.").max(500),
-  passportNumber: z.string().trim().max(120).default(""),
-  certificateNumber: z
-    .string()
-    .trim()
-    .min(1, "Enter your Sport Certificate Number.")
-    .max(120),
   identityDetailsConfirmed: z.literal(true, {
     errorMap: () => ({
       message: "Confirm that your Full Name, Father's Name, and DOB match your identity documents exactly.",
@@ -125,11 +118,6 @@ async function getAdminClient() {
   return supabaseAdmin;
 }
 
-function normalizeDocumentNumber(value: string) {
-  const normalized = value.trim().toLowerCase().replace(/\s+/g, "");
-  return normalized || null;
-}
-
 function normalizeIdentityPart(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
@@ -163,22 +151,12 @@ async function findExistingIdentity(
       .neq("user_id", ownerId)
       .in("review_status", ["pending", "approved"])
       .limit(1);
-  const lookups = [
-    normalizeDocumentNumber(data.passportNumber)
-      ? base().eq("passport_number_normalized", normalizeDocumentNumber(data.passportNumber))
-      : null,
-    normalizeDocumentNumber(data.certificateNumber)
-      ? base().eq("certificate_number_normalized", normalizeDocumentNumber(data.certificateNumber))
-      : null,
-    base().eq("identity_key", identityKeyForSubmission(data)),
-  ].filter(Boolean) as Array<ReturnType<typeof base>>;
-
-  const results = await Promise.all(lookups);
-  for (const result of results) {
-    if (result.error) throw new Error(result.error.message);
-    if (result.data?.[0]?.user_id) return result.data[0].user_id;
-  }
-  return null;
+  const { data: existing, error } = await base().eq(
+    "identity_key",
+    identityKeyForSubmission(data),
+  );
+  if (error) throw new Error(error.message);
+  return existing?.[0]?.user_id ?? null;
 }
 
 async function requireSportsVerificationAdmin(userId: string) {
@@ -564,15 +542,6 @@ export const submitSportsVerification = createServerFn({ method: "POST" })
       throw new Error("Upload your Sports Introduction video before submitting verification.");
     }
 
-    const representation =
-      valueAfterLabel(profile.bio, ["representation", "represents", "status"]) ||
-      profile.category ||
-      "";
-    const international = /\binternational\b/i.test(representation);
-    if (international && !data.passportNumber.trim()) {
-      throw new Error("Enter your Passport Number for an international Sports Verification submission.");
-    }
-
     const { data: currentDetails, error: currentDetailsError } = await admin
       .from("sports_verification_details")
       .select("*")
@@ -610,9 +579,6 @@ export const submitSportsVerification = createServerFn({ method: "POST" })
         full_name: data.fullName,
         father_name: data.fatherName,
         date_of_birth: data.dateOfBirth,
-        address: data.address,
-        passport_number: international ? data.passportNumber : "",
-        certificate_number: data.certificateNumber,
         identity_details_confirmed: true,
         review_status: "pending",
         review_reason: null,

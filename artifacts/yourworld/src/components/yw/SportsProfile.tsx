@@ -1284,7 +1284,7 @@ function SportsVerificationDetailsSection({
           ) : null}
           <div className="space-y-3 rounded-2xl border border-amber-200/15 bg-amber-200/[0.04] p-3">
             <div>
-              <p className="text-sm font-semibold text-white">Identity details</p>
+              <p className="text-sm font-semibold text-white">Identity Details</p>
               <p className="mt-1 text-xs leading-5 text-zinc-500">
                 Enter your name, father&apos;s name, and date of birth exactly as shown on your identity
                 documents.
@@ -1323,42 +1323,63 @@ function SportsVerificationDetailsSection({
                   className="border-white/10 bg-white/[0.04] text-sm text-white"
                 />
               </label>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <ReadOnlyVerificationValue
+                icon={<Phone className="h-3.5 w-3.5" />}
+                label="Phone Number"
+                value={details.mobileNumber || "Not provided on this account"}
+              />
+              <ReadOnlyVerificationValue
+                icon={<Mail className="h-3.5 w-3.5" />}
+                label="Gmail / Email"
+                value={details.email || "Not provided on this account"}
+              />
               <label className="space-y-1.5 text-xs text-zinc-400">
-                Sport Certificate Number
+                Village / Town
                 <Input
-                  value={details.certificateNumber}
-                  onChange={(event) => setField("certificateNumber", event.target.value)}
-                  placeholder="Certificate number"
+                  value={details.villageTown}
+                  onChange={(event) => setField("villageTown", event.target.value)}
+                  placeholder="Village or town"
+                  maxLength={120}
+                  disabled={saving || locked}
+                  className="border-white/10 bg-white/[0.04] text-sm text-white"
+                />
+              </label>
+              <label className="space-y-1.5 text-xs text-zinc-400">
+                District
+                <Input
+                  value={details.district}
+                  onChange={(event) => setField("district", event.target.value)}
+                  placeholder="District"
+                  maxLength={120}
+                  disabled={saving || locked}
+                  className="border-white/10 bg-white/[0.04] text-sm text-white"
+                />
+              </label>
+              <label className="space-y-1.5 text-xs text-zinc-400">
+                State
+                <Input
+                  value={details.state}
+                  onChange={(event) => setField("state", event.target.value)}
+                  placeholder="State"
+                  maxLength={120}
+                  disabled={saving || locked}
+                  className="border-white/10 bg-white/[0.04] text-sm text-white"
+                />
+              </label>
+              <label className="space-y-1.5 text-xs text-zinc-400">
+                Country
+                <Input
+                  value={details.country}
+                  onChange={(event) => setField("country", event.target.value)}
+                  placeholder="Country"
                   maxLength={120}
                   disabled={saving || locked}
                   className="border-white/10 bg-white/[0.04] text-sm text-white"
                 />
               </label>
             </div>
-            <label className="space-y-1.5 text-xs text-zinc-400">
-              Address
-              <Textarea
-                value={details.address}
-                onChange={(event) => setField("address", event.target.value)}
-                placeholder="Current residential address"
-                maxLength={500}
-                disabled={saving || locked}
-                className="min-h-20 border-white/10 bg-white/[0.04] text-sm text-white"
-              />
-            </label>
-            {isInternational ? (
-              <label className="space-y-1.5 text-xs text-zinc-400">
-                Passport Number
-                <Input
-                  value={details.passportNumber}
-                  onChange={(event) => setField("passportNumber", event.target.value)}
-                  placeholder="Passport number"
-                  maxLength={120}
-                  disabled={saving || locked}
-                  className="border-white/10 bg-white/[0.04] text-sm text-white"
-                />
-              </label>
-            ) : null}
             <label className="flex cursor-pointer items-start gap-3 pt-1 text-xs leading-5 text-zinc-300">
               <input
                 type="checkbox"
@@ -1373,66 +1394,6 @@ function SportsVerificationDetailsSection({
                 I confirm that my Full Name, Father&apos;s Name, and DOB match my identity documents exactly.
               </span>
             </label>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="space-y-1.5 text-xs text-zinc-400">
-              Village / Town
-              <Input
-                value={details.villageTown}
-                onChange={(event) => setField("villageTown", event.target.value)}
-                placeholder="Village or town"
-                maxLength={120}
-                disabled={saving || locked}
-                className="border-white/10 bg-white/[0.04] text-sm text-white"
-              />
-            </label>
-            <label className="space-y-1.5 text-xs text-zinc-400">
-              District
-              <Input
-                value={details.district}
-                onChange={(event) => setField("district", event.target.value)}
-                placeholder="District"
-                maxLength={120}
-                disabled={saving || locked}
-                className="border-white/10 bg-white/[0.04] text-sm text-white"
-              />
-            </label>
-            <label className="space-y-1.5 text-xs text-zinc-400">
-              State
-              <Input
-                value={details.state}
-                onChange={(event) => setField("state", event.target.value)}
-                placeholder="State"
-                maxLength={120}
-                disabled={saving || locked}
-                className="border-white/10 bg-white/[0.04] text-sm text-white"
-              />
-            </label>
-            <label className="space-y-1.5 text-xs text-zinc-400">
-              Country
-              <Input
-                value={details.country}
-                onChange={(event) => setField("country", event.target.value)}
-                placeholder="Country"
-                maxLength={120}
-                disabled={saving || locked}
-                className="border-white/10 bg-white/[0.04] text-sm text-white"
-              />
-            </label>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <ReadOnlyVerificationValue
-              icon={<Phone className="h-3.5 w-3.5" />}
-              label="Mobile Number"
-              value={details.mobileNumber || "Not provided on this account"}
-            />
-            <ReadOnlyVerificationValue
-              icon={<Mail className="h-3.5 w-3.5" />}
-              label="Gmail / Email"
-              value={details.email || "Not provided on this account"}
-            />
           </div>
 
           <div className="space-y-2 rounded-2xl border border-white/10 bg-white/[0.025] p-3">
@@ -1452,18 +1413,6 @@ function SportsVerificationDetailsSection({
                onDelete={onDeleteEvidence}
                onPreview={onPreviewEvidence}
                locked={locked}
-            />
-            <VerificationEvidenceRow
-              accept="image/jpeg,image/png,image/webp"
-              evidence={details.tournamentPhoto}
-              kind="tournamentPhoto"
-              label="Tournament Photo"
-              hint="A clear photo from the submitted tournament or competition."
-              uploading={uploading}
-              onUpload={onUploadEvidence}
-              onDelete={onDeleteEvidence}
-              onPreview={onPreviewEvidence}
-              locked={locked}
             />
             {isInternational ? (
               <>
@@ -1524,9 +1473,6 @@ function verificationDraftOr(details: SportsVerificationDetails) {
     fullName: details.fullName.trim(),
     fatherName: details.fatherName.trim(),
     dateOfBirth: details.dateOfBirth.trim(),
-    address: details.address.trim(),
-    passportNumber: details.passportNumber.trim(),
-    certificateNumber: details.certificateNumber.trim(),
     villageTown: details.villageTown.trim(),
     district: details.district.trim(),
     state: details.state.trim(),

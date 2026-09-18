@@ -74,9 +74,15 @@ test("Sports Details renders real fields and the Sports Introduction without the
   assert.match(html, /Full Name/);
   assert.match(html, /Father(?:&#x27;|'|&apos;)s Name/);
   assert.match(html, /Date of Birth \(DOB\)/);
-  assert.match(html, /Address/);
-  assert.match(html, /Sport Certificate Number/);
   assert.match(html, /match my identity documents exactly/);
+  assert.match(html, /Phone Number/);
+  assert.match(html, /Gmail \/ Email/);
+  assert.ok(html.indexOf(">Identity Details<") < html.indexOf("Phone Number"));
+  assert.ok(html.indexOf("Phone Number") < html.indexOf("Village / Town"));
+  assert.ok(html.indexOf("Country") < html.indexOf("match my identity documents exactly"));
+  assert.doesNotMatch(html, /Current residential address/);
+  assert.doesNotMatch(html, /Sport Certificate Number/);
+  assert.doesNotMatch(html, /Passport Number/);
   assert.doesNotMatch(html, />Documents</);
   assert.doesNotMatch(html, /One Tournament Photo/);
   assert.match(html, /I Agree to the Terms &amp; Conditions/);
@@ -127,8 +133,6 @@ test("National verification shows the certificate but hides international eviden
   );
 
   assert.match(html, /Sports Certificate/);
-  assert.match(html, /Sport Certificate Number/);
-  assert.doesNotMatch(html, /Passport Number/);
   assert.doesNotMatch(html, /Passport First Page/);
   assert.doesNotMatch(html, /Passport Visa \/ Stamp Page/);
   assert.doesNotMatch(html, /One Tournament Photo/);
@@ -162,7 +166,6 @@ test("International verification shows passport and visa fields", () => {
   );
 
   assert.match(html, /Sports Certificate/);
-  assert.match(html, /Passport Number/);
   assert.match(html, /Passport First Page/);
   assert.match(html, /Passport Visa \/ Stamp Page/);
   assert.ok(html.indexOf("Passport Visa / Stamp Page") < html.indexOf(">Sports Introduction<"));
