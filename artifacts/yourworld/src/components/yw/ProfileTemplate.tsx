@@ -176,9 +176,6 @@ export function ProfileTemplate({
               <p data-testid="text-profile-display-name" className="font-display text-[18px] font-bold tracking-tight sm:text-xl">
                 {profile.display_name || "Add your name"}
               </p>
-              <p data-testid="text-profile-username-inline" className="text-[11px] font-medium tracking-[0.08em] text-zinc-400">
-                @{profile.username || "username"}
-              </p>
               {verifiedSportsIdentity ? (
                 <SportsIdentityBadge
                   identity={verifiedSportsIdentity}

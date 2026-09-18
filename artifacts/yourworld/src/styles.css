@@ -711,7 +711,8 @@
 
 /* Compact horizontal profile identity badge */
 .sports-identity-badge--profile {
-  width: min(100%, 250px);
+  width: max-content;
+  max-width: calc(100vw - 32px);
   height: 44px;
   min-height: 44px;
   align-items: center;
@@ -727,7 +728,7 @@
   position: relative;
   display: inline-flex;
   width: max-content;
-  max-width: 100%;
+  max-width: none;
   min-height: 36px;
   align-items: center;
   justify-content: center;
@@ -801,17 +802,17 @@
 }
 
 .sports-identity-badge__label {
-  min-width: 0;
-  overflow: hidden;
+  min-width: max-content;
+  overflow: visible;
   background: linear-gradient(100deg, var(--sports-badge-bright) 8%, var(--sports-badge-accent) 45%, var(--sports-badge-bright) 80%);
   background-clip: text;
   -webkit-background-clip: text;
   color: transparent;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.055em;
+  letter-spacing: 0.05em;
   line-height: 1;
-  text-overflow: ellipsis;
+  text-overflow: clip;
 }
 
 .sports-identity-badge__laurel {
@@ -917,7 +918,8 @@
 
 @media (max-width: 420px) {
   .sports-identity-badge--profile {
-    width: min(100%, 218px);
+    width: max-content;
+    max-width: calc(100vw - 24px);
     height: 42px;
     min-height: 42px;
   }
@@ -928,8 +930,8 @@
   }
 
   .sports-identity-badge__label {
-    font-size: clamp(10px, 3.2vw, 13px);
-    letter-spacing: 0.04em;
+    font-size: 11px;
+    letter-spacing: 0.05em;
   }
 
   .sports-identity-badge__laurel {
