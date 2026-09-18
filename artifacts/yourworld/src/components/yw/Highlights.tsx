@@ -59,7 +59,12 @@ export type Highlight = {
   created_at: string;
 };
 
+const MAX_HIGHLIGHTS = 5;
 const MAX_COVER_EDGE = 320;
+
+function isVideoItem(item: Pick<HighlightItem, "mediaType"> | null | undefined) {
+  return item?.mediaType === "video" || item?.mediaType?.startsWith("video/") === true;
+}
 
 function Thumb({ src, video }: { src?: string; video?: boolean }) {
   if (!src) return <div className="h-full w-full bg-muted" />;
@@ -178,11 +183,8 @@ export function Highlights({
 
   const toggle = (item: HighlightItem) => {
     setSelected((prev) => {
-      const next = new Map(prev);
       const key = `${item.source}:${item.refId}`;
-      if (next.has(key)) next.delete(key);
-      else next.set(key, item);
-      return next;
+      return prev.has(key) ? new Map() : new Map([[key, item]]);
     });
   };
 
@@ -208,6 +210,10 @@ export function Highlights({
 
   const save = async () => {
     if (!userId) return;
+    if (highlights.length >= MAX_HIGHLIGHTS) {
+      toast.info("Maximum 5 highlights reached.");
+      return;
+    }
     if (!title.trim()) {
       toast.error("Add a highlight title");
       return;
@@ -225,6 +231,19 @@ export function Highlights({
       if (!sessionUserId) throw new Error("Sign in to save a highlight");
       if (sessionUserId !== userId) {
         throw new Error("You can only save highlights to your own profile");
+      }
+
+      const { count, error: countError } = await supabase
+        .from("highlights" as never)
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", sessionUserId);
+      if (countError) throw countError;
+      if ((count ?? 0) >= MAX_HIGHLIGHTS) {
+        await loadHighlights(sessionUserId);
+        toast.info("Maximum 5 highlights reached.");
+        setOpen(false);
+        reset();
+        return;
       }
 
       const coverSource = cover ?? items[0]?.thumb ?? null;
@@ -323,15 +342,12 @@ export function Highlights({
       setHighlights((current) => current.filter((highlight) => highlight.id !== viewer.id));
       setViewer(null);
       toast.success("Highlight deleted");
-      try {
-        await loadHighlights(sessionUserId);
-      } catch (refreshError) {
-        // The row is already confirmed deleted. Keep the local list clean if
-        // the follow-up read is temporarily unavailable.
-        console.error("[highlights] deleted but refresh failed", refreshError);
-        setHighlights((current) => current.filter((highlight) => highlight.id !== viewer.id));
-      }
     } catch (error) {
+      console.error("[highlights] delete failed", {
+        userId,
+        highlightId: viewer.id,
+        error,
+      });
       toast.error(error instanceof Error ? error.message : "Couldn't delete highlight");
     } finally {
       setDeleting(false);
@@ -357,7 +373,7 @@ export function Highlights({
               onClick={() => toggle(item)}
               className="relative aspect-square overflow-hidden rounded-lg border border-border bg-muted transition-transform active:scale-95"
             >
-              <Thumb src={item.thumb} video={item.mediaType === "video"} />
+              <Thumb src={item.thumb} video={isVideoItem(item)} />
               {active ? (
                 <span className="absolute right-1.5 top-1.5 grid h-5 w-5 place-items-center rounded-full bg-primary text-primary-foreground shadow">
                   <Check className="h-3 w-3" />
@@ -382,8 +398,18 @@ export function Highlights({
         {/* New highlight */}
         <button
           type="button"
-          onClick={() => setOpen(true)}
-          className="flex w-[64px] shrink-0 flex-col items-center gap-1 transition-transform active:scale-95"
+          data-testid="button-new-highlight"
+          disabled={highlights.length >= MAX_HIGHLIGHTS}
+          onClick={() => {
+            if (highlights.length >= MAX_HIGHLIGHTS) {
+              toast.info("Maximum 5 highlights reached.");
+              return;
+            }
+            setOpen(true);
+          }}
+          aria-label={highlights.length >= MAX_HIGHLIGHTS ? "Maximum 5 highlights reached" : "New highlight"}
+          title={highlights.length >= MAX_HIGHLIGHTS ? "Maximum 5 highlights reached" : undefined}
+          className="flex w-[64px] shrink-0 flex-col items-center gap-1 transition-transform active:scale-95 disabled:cursor-not-allowed disabled:opacity-45"
         >
           <span className="grid h-[56px] w-[56px] place-items-center rounded-full border border-white/10 bg-white/[0.045] shadow-[0_6px_18px_-12px_rgba(0,0,0,0.9)] backdrop-blur-md">
             <Plus className="h-5 w-5 text-muted-foreground" strokeWidth={1.8} />
@@ -401,7 +427,7 @@ export function Highlights({
             >
               <span className="block h-full w-full overflow-hidden rounded-full">
                 {h.cover_url ? (
-                  h.items?.[0]?.mediaType === "video" && !h.cover_url.startsWith("data:") ? (
+                  isVideoItem(h.items?.[0]) && !h.cover_url.startsWith("data:") ? (
                     <Thumb src={h.cover_url} video />
                   ) : (
                     <Thumb src={h.cover_url} />
@@ -478,7 +504,7 @@ export function Highlights({
                   ) : selected.size ? (
                     <Thumb
                       src={[...selected.values()][0]?.thumb}
-                      video={[...selected.values()][0]?.mediaType === "video"}
+                      video={isVideoItem([...selected.values()][0])}
                     />
                   ) : (
                     <span className="grid h-full w-full place-items-center">
@@ -550,7 +576,9 @@ function HighlightViewer({
   const [index, setIndex] = useState(0);
   const [progress, setProgress] = useState(0);
   const [paused, setPaused] = useState(false);
-  const [muted, setMuted] = useState(true);
+  const [muted, setMuted] = useState(false);
+  const [buffering, setBuffering] = useState(false);
+  const [playbackError, setPlaybackError] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -559,9 +587,11 @@ function HighlightViewer({
   useEffect(() => {
     setProgress(0);
     setPaused(false);
-  }, [index]);
+    setBuffering(isVideoItem(current));
+    setPlaybackError(false);
+  }, [current, index]);
   useEffect(() => {
-    if (!current || current.mediaType === "video" || paused) return;
+    if (!current || isVideoItem(current) || paused) return;
     const timer = window.setInterval(() => {
       setProgress((p) => {
         if (p >= 100) {
@@ -577,9 +607,25 @@ function HighlightViewer({
   useEffect(() => {
     if (!videoRef.current) return;
     if (paused) videoRef.current.pause();
-    else void videoRef.current.play().catch(() => {});
+    else {
+      void videoRef.current.play().catch(() => {
+        setPaused(true);
+      });
+    }
   }, [paused, index]);
   if (!current) return null;
+  const retryPlayback = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    setPlaybackError(false);
+    setBuffering(true);
+    video.load();
+    void video.play().catch(() => {
+      setPaused(true);
+      setPlaybackError(true);
+      setBuffering(false);
+    });
+  };
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black">
       <div className="relative h-full w-full max-w-md overflow-hidden">
@@ -588,15 +634,38 @@ function HighlightViewer({
             <div className="h-full bg-white" style={{ width: i < index ? "100%" : i === index ? `${progress}%` : "0%" }} />
           </div>
         ))}
-        {current.mediaType === "video" ? (
+        {isVideoItem(current) ? (
           <video
             ref={videoRef}
             key={current.refId}
-             src={current.media ?? current.thumb}
+            src={current.media ?? current.thumb}
             autoPlay
             muted={muted}
             playsInline
+            controls
+            preload="auto"
             className="h-full w-full object-contain"
+            onLoadStart={() => {
+              setBuffering(true);
+              setPlaybackError(false);
+            }}
+            onCanPlay={() => {
+              setBuffering(false);
+              setPlaybackError(false);
+            }}
+            onPlaying={() => {
+              setBuffering(false);
+              setPlaybackError(false);
+              setPaused(false);
+            }}
+            onPause={() => setPaused(true)}
+            onWaiting={() => setBuffering(true)}
+            onStalled={() => setBuffering(true)}
+            onError={() => {
+              setBuffering(false);
+              setPlaybackError(true);
+              setPaused(true);
+            }}
             onTimeUpdate={(e) => {
               const v = e.currentTarget;
               if (v.duration) setProgress((v.currentTime / v.duration) * 100);
@@ -604,13 +673,34 @@ function HighlightViewer({
             onEnded={() => index >= highlight.items.length - 1 ? onClose() : setIndex((i) => i + 1)}
           />
         ) : <img src={current.media ?? current.thumb} alt="" className="h-full w-full object-contain" />}
+        {buffering && !playbackError ? (
+          <div className="pointer-events-none absolute inset-0 z-30 grid place-items-center">
+            <span className="rounded-full bg-black/65 px-3 py-2 text-xs font-medium text-white backdrop-blur">
+              Loading video…
+            </span>
+          </div>
+        ) : null}
+        {playbackError ? (
+          <div className="absolute inset-0 z-30 grid place-items-center bg-black/35 px-6 text-center">
+            <div className="rounded-2xl bg-black/75 px-5 py-4 text-sm text-white backdrop-blur">
+              <p>Video couldn’t be loaded.</p>
+              <button
+                type="button"
+                onClick={retryPlayback}
+                className="mt-3 rounded-full bg-white px-4 py-2 text-xs font-semibold text-black"
+              >
+                Try again
+              </button>
+            </div>
+          </div>
+        ) : null}
         <div className="absolute inset-x-0 top-0 z-30 flex items-center justify-between bg-gradient-to-b from-black/75 to-transparent px-3 pb-8 pt-7">
           <span className="text-sm font-semibold text-white">{highlight.title}</span>
           <div className="flex gap-2">
             <button type="button" onClick={() => setPaused((p) => !p)} className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white backdrop-blur-xl" aria-label={paused ? "Play" : "Pause"}>
               {paused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
             </button>
-            {current.mediaType === "video" ? <button type="button" onClick={() => setMuted((m) => !m)} className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white backdrop-blur-xl" aria-label="Toggle sound">{muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}</button> : null}
+            {isVideoItem(current) ? <button type="button" onClick={() => setMuted((m) => !m)} className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white backdrop-blur-xl" aria-label={muted ? "Turn sound on" : "Mute sound"}>{muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}</button> : null}
             <button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white backdrop-blur-xl" aria-label="Close"><X className="h-4 w-4" /></button>
             {canDelete ? (
               <div className="relative">
