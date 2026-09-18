@@ -260,7 +260,7 @@ export function getSportsProfile(profile: SportsProfileSource): SportsProfileInf
     verificationRequested: profile.verification_requested === true,
     sportsIntroductionPath:
       extractLabeledValue(profile.bio, ["sports introduction", "sports introduction video"]) || undefined,
-    publicDetails: stripSportsFields(profile.bio),
+    publicDetails: getUserEnteredProfileBio(profile.bio),
     tournaments: tournamentDetails.length
       ? tournamentDetails.map(formatTournament)
       : tournamentLines,
@@ -315,7 +315,7 @@ export function getOrCreateSportsProfile(profile: SportsProfileSource): SportsPr
       represents: profile.location.trim() || "Not specified",
       verified: false,
       verificationRequested: profile.verification_requested === true,
-      publicDetails: stripSportsFields(profile.bio),
+      publicDetails: getUserEnteredProfileBio(profile.bio),
       tournaments: [],
       medals: [],
       tournamentDetails: [],
@@ -665,7 +665,7 @@ function isSportsFieldLine(line: string) {
   );
 }
 
-function stripSportsFields(text: string) {
+export function getUserEnteredProfileBio(text: string) {
   return text
     .split(/\r?\n/)
     .map((line) => line.trim())

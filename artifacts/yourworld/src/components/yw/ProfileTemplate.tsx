@@ -13,7 +13,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Bio } from "@/components/yw/Bio";
 import { FollowListDialog } from "@/components/yw/FollowListDialog";
 import { Highlights } from "@/components/yw/Highlights";
-import type { SportsProfileInfo } from "@/components/yw/SportsProfile";
+import {
+  getUserEnteredProfileBio,
+  type SportsProfileInfo,
+} from "@/components/yw/SportsProfile";
 import { SportsIdentityBadge } from "@/components/yw/SportsIdentityBadge";
 import { UserWatermark } from "@/components/yw/UserWatermark";
 import { VideoPoster } from "@/components/yw/VideoPoster";
@@ -94,7 +97,7 @@ export function ProfileTemplate({
   mediaLoading,
   counts,
   sportsProfile,
-  isVerifiedSports,
+  isVerifiedSports: _isVerifiedSports,
   isOwner,
   following = false,
   followBusy = false,
@@ -123,9 +126,13 @@ export function ProfileTemplate({
   );
   const verifiedSportsIdentity = useVerifiedSportsIdentity(profile.id);
   const sportsSubLabel = verifiedSportsIdentity ?? sportsProfile;
-  const visibleNormalCategories = normalCategories.filter(
-    (category) => !isSportsProfileLabel(category, sportsProfile),
-  );
+  const primaryCategoryLine =
+    normalCategories[0]
+      ? formatNormalProfileCategoryForDisplay(normalCategories[0])
+      : sportsSubLabel
+        ? `${sportsSubLabel.sport?.trim() || "Sports"} · ${sportsSubLabel.role?.trim() || "Player"}`
+        : "";
+  const userBio = getUserEnteredProfileBio(profile.bio);
 
   return (
     <main className="relative min-h-[100dvh] overflow-hidden bg-[radial-gradient(circle_at_15%_0%,rgba(214,93,177,0.11),transparent_32%),radial-gradient(circle_at_92%_18%,rgba(115,93,214,0.10),transparent_30%)] pb-8">
@@ -177,6 +184,14 @@ export function ProfileTemplate({
               <p data-testid="text-profile-display-name" className="font-display text-[18px] font-bold tracking-tight sm:text-xl">
                 {profile.display_name || "Add your name"}
               </p>
+              {primaryCategoryLine ? (
+                <p
+                  data-testid="text-profile-category"
+                  className="text-[11px] font-medium uppercase tracking-[0.12em] text-amber-100/80"
+                >
+                  {primaryCategoryLine.toLocaleUpperCase()}
+                </p>
+              ) : null}
               {verifiedSportsIdentity ? (
                 <SportsIdentityBadge
                   identity={verifiedSportsIdentity}
@@ -185,23 +200,6 @@ export function ProfileTemplate({
                 />
               ) : null}
             </div>
-            {sportsSubLabel ? (
-              <p data-testid="text-profile-sports-sub-label" className="mt-1 text-[11px] font-medium uppercase tracking-[0.12em] text-amber-100/80">
-                {sportsSubLabel.sport?.trim().toUpperCase() || "SPORTS"} · {sportsSubLabel.role?.trim().toUpperCase() || "PLAYER"}
-              </p>
-            ) : null}
-            {visibleNormalCategories.length > 0 ? (
-              <div className="mt-1 flex flex-wrap gap-1.5">
-                {visibleNormalCategories.map((category) => (
-                  <span
-                    key={category}
-                    className="rounded-full border border-white/10 bg-white/[0.06] px-2 py-0.5 text-[10px] font-semibold tracking-wide text-zinc-300"
-                  >
-                    {formatNormalProfileCategoryForDisplay(category)}
-                  </span>
-                ))}
-              </div>
-            ) : null}
           </div>
 
           <dl data-testid="stats-profile" className="col-span-2 grid grid-cols-3 divide-x divide-white/10 border-y border-white/10 py-0.5 sm:py-1">
@@ -211,7 +209,7 @@ export function ProfileTemplate({
           </dl>
 
           <div className="col-span-2 min-w-0">
-            {profile.bio ? <Bio text={isVerifiedSports ? sportsProfile?.publicDetails || profile.bio : profile.bio} /> : null}
+            {userBio ? <Bio text={userBio} /> : null}
             {(profile.location || profile.website) ? (
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 pt-3 text-xs">
                 {profile.location ? <span className="flex items-center gap-1.5 text-zinc-400"><MapPin className="h-3.5 w-3.5 text-amber-200/80" strokeWidth={1.8} />{profile.location}</span> : null}
@@ -320,15 +318,6 @@ export function ProfileTemplate({
       />
     </main>
   );
-}
-
-function isSportsProfileLabel(category: string, sportsProfile: SportsProfileInfo | null) {
-  if (!sportsProfile?.sport.trim()) return false;
-  const normalize = (value: string) => value.trim().replace(/\s+/g, " ").toLocaleLowerCase();
-  const displayedCategory = normalize(formatNormalProfileCategoryForDisplay(category));
-  const sport = normalize(sportsProfile.sport);
-  const role = normalize(sportsProfile.role);
-  return displayedCategory === `${sport} · ${role}` || displayedCategory === `${role} · ${sport}`;
 }
 
 function sortPinned(list: DbPost[]) {

@@ -4,6 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   getSportsProfile,
+  getUserEnteredProfileBio,
   serializeSportsProfileBio,
   SportsDetailsPanel,
   SportsProfileCard,
@@ -49,6 +50,19 @@ test("Sports Identity card opens details without the removed summary row", () =>
     type?: unknown;
   }>;
   assert.equal(children.some((child) => child?.type === "dl"), false);
+});
+
+test("profile bio display keeps only user-entered lines", () => {
+  assert.equal(
+    getUserEnteredProfileBio(
+      "A short user bio\nSport: Handball\nRepresentation: National\nTournament: State League",
+    ),
+    "A short user bio",
+  );
+  assert.equal(
+    getUserEnteredProfileBio("Sports Introduction: player/intro.mp4\nRepresentation: National"),
+    "",
+  );
 });
 
 test("Sports Details renders real fields and the Sports Introduction without the promo", () => {
