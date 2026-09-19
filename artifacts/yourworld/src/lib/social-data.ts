@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useInfiniteQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { cacheGet, cacheSet } from "@/lib/local-cache";
 import { PAGE_SIZE } from "@/lib/chat-db";
@@ -110,6 +111,27 @@ export function timeAgo(iso: string) {
   return `${Math.round(s / 86400)}d ago`;
 }
 
+export const SOCIAL_PAGE_SIZE = 12;
+
+type SocialPage = {
+  posts: SocialPost[];
+  currentUserId: string | null;
+  hasMore: boolean;
+};
+
+function applyPage<T extends { limit: (count: number) => T }>(
+  query: T,
+  page: number,
+  pageSize: number,
+): T {
+  const rangeQuery = query as T & {
+    range?: (from: number, to: number) => T;
+  };
+  return typeof rangeQuery.range === "function"
+    ? rangeQuery.range(page * pageSize, page * pageSize + pageSize - 1)
+    : query.limit(pageSize);
+}
+
 /* -------------------------------------------------------------------------
  * Media URL resolution for reels/posts
  * ---------------------------------------------------------------------- */
@@ -163,17 +185,20 @@ export async function loadSocialPosts(
   kind: "post" | "reel" | "video" | "creator-media",
   client: typeof supabase = supabase,
   userId?: string,
-): Promise<{ posts: SocialPost[]; currentUserId: string | null }> {
+  page = 0,
+  pageSize = SOCIAL_PAGE_SIZE,
+): Promise<SocialPage> {
   const { data: sessionData } = await client.auth.getSession();
   const uid = sessionData.session?.user.id ?? null;
-  const scoped = Boolean(userId);
   let query = client.from("posts").select("*");
   if (kind === "creator-media") query = query.in("kind", ["reel", "video"]);
   else query = query.eq("kind", kind);
   if (userId) query = query.eq("user_id", userId);
-  let { data: posts, error } = await query
-    .order("created_at", { ascending: false })
-    .limit(scoped ? 100 : 50);
+  let { data: posts, error } = await applyPage(
+    query.order("created_at", { ascending: false }),
+    page,
+    pageSize,
+  );
 
   if (missingColumn(error) === "kind") {
     const legacyKind = kind === "post" ? "story" : kind;
@@ -182,17 +207,21 @@ export async function loadSocialPosts(
       .select("*")
       .eq("type" as "kind", legacyKind);
     if (userId) legacyQuery = legacyQuery.eq("user_id", userId);
-    const legacy = await legacyQuery
-      .order("created_at", { ascending: false })
-      .limit(scoped ? 100 : 50);
+    const legacy = await applyPage(
+      legacyQuery.order("created_at", { ascending: false }),
+      page,
+      pageSize,
+    );
     posts = legacy.data;
     error = legacy.error;
     if (missingColumn(error) === "type" || kind === "creator-media") {
       let unfilteredQuery = client.from("posts").select("*");
       if (userId) unfilteredQuery = unfilteredQuery.eq("user_id", userId);
-      const unfiltered = await unfilteredQuery
-        .order("created_at", { ascending: false })
-        .limit(100);
+      const unfiltered = await applyPage(
+        unfilteredQuery.order("created_at", { ascending: false }),
+        page,
+        pageSize,
+      );
       posts = (unfiltered.data ?? []).filter((row) =>
         kind === "creator-media"
           ? postKind(row) === "reel" || postKind(row) === "video"
@@ -204,7 +233,7 @@ export async function loadSocialPosts(
 
   if (error || !posts?.length) {
     if (error) console.error(`Unable to load ${kind} feed`, error);
-    return { posts: [], currentUserId: uid };
+    return { posts: [], currentUserId: uid, hasMore: false };
   }
 
   const ids = posts.map((p) => p.id);
@@ -240,7 +269,11 @@ export async function loadSocialPosts(
     likedByMe: !!uid && likeRows.some((like) => like.post_id === p.id && like.user_id === uid),
   }));
 
-  return { posts: next, currentUserId: uid };
+  return {
+    posts: next,
+    currentUserId: uid,
+    hasMore: posts.length >= pageSize,
+  };
 }
 
 /** Loads one post/reel for the dedicated media viewer without inventing a
@@ -373,34 +406,63 @@ export function useSocialPosts(
   kind: "post" | "reel" | "video" | "creator-media",
   userId?: string,
 ) {
-  // Keep the server and first client render identical, then hydrate the local
-  // cache after mount. Reading localStorage during render breaks mobile SSR.
-  const [rows, setRows] = useState<SocialPost[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [me, setMe] = useState<string | null>(null);
-  // While the user is interacting we keep the optimistic state and skip
-  // realtime refetches so the UI never flickers back to the old value.
+  const queryClient = useQueryClient();
+  const queryKey = useMemo(
+    () => ["social-posts", kind, userId ?? null] as const,
+    [kind, userId],
+  );
   const muteUntil = useRef(0);
   const pendingLikes = useRef(new Set<string>());
   const viewedRef = useRef(new Set<string>());
   const removedRef = useRef(new Set<string>());
+  const feedQuery = useInfiniteQuery({
+    queryKey,
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) =>
+      loadSocialPosts(kind, supabase, userId, pageParam, SOCIAL_PAGE_SIZE),
+    getNextPageParam: (lastPage, _allPages, lastPageParam) =>
+      lastPage.hasMore ? lastPageParam + 1 : undefined,
+  });
+  const rows = useMemo(
+    () =>
+      (feedQuery.data?.pages ?? [])
+        .flatMap((page) => page.posts)
+        .filter((post) => !removedRef.current.has(post.id)),
+    [feedQuery.data],
+  );
+  const me = feedQuery.data?.pages[0]?.currentUserId ?? null;
+  const loading = feedQuery.isLoading;
 
-  const load = useCallback(async () => {
-    if (Date.now() < muteUntil.current) return;
-    const next = await loadSocialPosts(kind, supabase, userId);
-    setMe(next.currentUserId);
-    setRows(next.posts.filter((post) => !removedRef.current.has(post.id)));
-    setLoading(false);
-  }, [kind, userId]);
+  const updateRows = useCallback(
+    (update: (post: SocialPost) => SocialPost | null) => {
+      queryClient.setQueryData<InfiniteData<SocialPage, number>>(queryKey, (current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          pages: current.pages.map((page) => ({
+            ...page,
+            posts: page.posts.flatMap((post) => {
+              const next = update(post);
+              return next ? [next] : [];
+            }),
+          })),
+        };
+      });
+    },
+    [queryClient, queryKey],
+  );
 
   useEffect(() => {
     removedRef.current.clear();
-    void load();
     // Coalesce realtime bursts so a flood of likes never triggers a refetch storm.
     let timer: number | undefined;
     const queue = () => {
       window.clearTimeout(timer);
-      timer = window.setTimeout(() => void load(), 500);
+      timer = window.setTimeout(() => {
+        if (Date.now() >= muteUntil.current) {
+          void queryClient.invalidateQueries({ queryKey });
+        }
+      }, 500);
     };
     let channel: ReturnType<typeof supabase.channel> | null = null;
     // Subscribe after first paint so the socket handshake doesn't delay render.
@@ -417,7 +479,7 @@ export function useSocialPosts(
       window.clearTimeout(timer);
       if (channel) void supabase.removeChannel(channel);
     };
-  }, [kind, load, userId]);
+  }, [kind, queryClient, queryKey, userId]);
 
   const toggleLike = useCallback(
     async (postId: string) => {
@@ -425,18 +487,17 @@ export function useSocialPosts(
       if (pendingLikes.current.has(postId)) return;
       pendingLikes.current.add(postId);
       muteUntil.current = Date.now() + 1500;
-      let wasLiked = false;
-      // optimistic, instant
-      setRows((prev) =>
-        prev.map((r) => {
-          if (r.id !== postId) return r;
-          wasLiked = !!r.likedByMe;
-           return {
-             ...r,
-             likedByMe: !r.likedByMe,
-             likeCount: Math.max(0, r.likeCount + (r.likedByMe ? -1 : 1)),
-           };
-        }),
+      const current = rows.find((row) => row.id === postId);
+      if (!current) return;
+      const wasLiked = current.likedByMe;
+      updateRows((row) =>
+        row.id === postId
+          ? {
+              ...row,
+              likedByMe: !row.likedByMe,
+              likeCount: Math.max(0, row.likeCount + (row.likedByMe ? -1 : 1)),
+            }
+          : row,
       );
       try {
         if (wasLiked) {
@@ -456,26 +517,24 @@ export function useSocialPosts(
       } catch (error) {
         // Realtime reloads are muted briefly after a tap. Roll back directly
         // so an RLS/network failure can never leave a false optimistic like.
-        setRows((prev) =>
-          prev.map((row) => {
-            if (row.id !== postId) return row;
-            const optimisticLiked = row.likedByMe;
-            return {
-              ...row,
-              likedByMe: wasLiked,
-              likeCount: Math.max(
-                0,
-                row.likeCount + (optimisticLiked === wasLiked ? 0 : wasLiked ? 1 : -1),
-              ),
-            };
-          }),
-        );
+        updateRows((row) => {
+          if (row.id !== postId) return row;
+          const optimisticLiked = row.likedByMe;
+          return {
+            ...row,
+            likedByMe: wasLiked,
+            likeCount: Math.max(
+              0,
+              row.likeCount + (optimisticLiked === wasLiked ? 0 : wasLiked ? 1 : -1),
+            ),
+          };
+        });
         throw error;
       } finally {
         pendingLikes.current.delete(postId);
       }
     },
-    [me],
+    [me, rows, updateRows],
   );
 
   const countView = useCallback(
@@ -487,32 +546,28 @@ export function useSocialPosts(
       const counted = await registerUniqueView(postId, contentType);
       if (!counted) return false;
       viewedRef.current.add(postId);
-      setRows((prev) =>
-        prev.map((row) =>
-          row.id === postId ? { ...row, views: (row.views ?? 0) + 1 } : row,
-        ),
+      updateRows((row) =>
+        row.id === postId ? { ...row, views: (row.views ?? 0) + 1 } : row,
       );
       return true;
     },
-    [rows],
+    [rows, updateRows],
   );
 
   /** Optimistically bump a post's comment count (call when a comment is posted). */
   const bumpComment = useCallback((postId: string, delta = 1) => {
     muteUntil.current = Date.now() + 1500;
-    setRows((prev) =>
-      prev.map((r) =>
-        r.id === postId
-          ? { ...r, commentCount: Math.max(0, r.commentCount + delta) }
-          : r,
-      ),
+    updateRows((row) =>
+      row.id === postId
+        ? { ...row, commentCount: Math.max(0, row.commentCount + delta) }
+        : row,
     );
-  }, []);
+  }, [updateRows]);
 
   const removePost = useCallback((postId: string) => {
     removedRef.current.add(postId);
-    setRows((prev) => prev.filter((row) => row.id !== postId));
-  }, []);
+    updateRows((row) => (row.id === postId ? null : row));
+  }, [updateRows]);
 
   return {
     posts: rows,
@@ -522,7 +577,10 @@ export function useSocialPosts(
     countView,
     bumpComment,
     removePost,
-    reload: load,
+    reload: () => feedQuery.refetch(),
+    loadMore: () => feedQuery.fetchNextPage(),
+    hasNextPage: feedQuery.hasNextPage,
+    isFetchingNextPage: feedQuery.isFetchingNextPage,
   };
 }
 

@@ -626,13 +626,13 @@ export function useMyProfile() {
               .select("*")
               .eq("user_id", uid)
               .order("created_at", { ascending: false })
-              .limit(100),
+              .limit(12),
             supabase.from("post_saves").select("post_id").eq("user_id", uid),
           ]);
           if (generation !== loadGeneration.current) return;
           const savedIds = ((saves ?? []) as { post_id: string }[]).map((s) => s.post_id);
           const savedResult = savedIds.length
-            ? await supabase.from("posts").select("*").in("id", savedIds).limit(200)
+            ? await supabase.from("posts").select("*").in("id", savedIds).limit(12)
             : { data: [], error: null };
           if (generation !== loadGeneration.current) return;
 

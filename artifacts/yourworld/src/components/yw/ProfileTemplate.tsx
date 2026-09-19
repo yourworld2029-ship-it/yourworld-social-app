@@ -252,7 +252,7 @@ export function ProfileTemplate({
 
       <Highlights
         userId={userId}
-        posts={posts.map((post) => ({ ...post, media_url: src(post.media_url) }))}
+        posts={posts}
         canManage={isOwner}
       />
 
@@ -272,7 +272,9 @@ export function ProfileTemplate({
         <TabsContent value="videos" className="mt-0">
           {grid.length ? (
             <MediaGrid onOpen={onOpen} onManage={onManage} items={sortPinned(grid).map((post) => ({
-              src: src(post.media_url),
+              src: post.thumbnail_url ?? (post.kind === "video" || post.kind === "reel" ? post.media_url : src(post.media_url)),
+              mediaUrl: post.media_url,
+              thumbnail: post.thumbnail_url,
               type: post.kind === "video" ? "video" : post.media_type,
               post,
               ratio: mediaAspect(post),
@@ -284,7 +286,9 @@ export function ProfileTemplate({
         <TabsContent value="reels" className="mt-0">
           {reels.length ? (
             <MediaGrid onOpen={onOpen} onManage={onManage} items={sortPinned(reels).map((post) => ({
-              src: src(post.media_url),
+              src: post.thumbnail_url ?? post.media_url,
+              mediaUrl: post.media_url,
+              thumbnail: post.thumbnail_url,
               type: "video",
               post,
               ratio: mediaAspect(post),
@@ -296,7 +300,9 @@ export function ProfileTemplate({
         <TabsContent value="saved" className="mt-0">
           {savedPosts.length ? (
             <MediaGrid onOpen={onOpen} items={savedPosts.map((post) => ({
-              src: src(post.media_url),
+              src: post.thumbnail_url ?? post.media_url,
+              mediaUrl: post.media_url,
+              thumbnail: post.thumbnail_url,
               type: "video",
               post,
               ratio: mediaAspect(post),
@@ -348,7 +354,14 @@ function MediaGrid({
   onOpen,
   onManage,
 }: {
-  items: { src: string; type: string; post?: DbPost; ratio?: number }[];
+  items: {
+    src: string;
+    mediaUrl?: string;
+    thumbnail?: string | null;
+    type: string;
+    post?: DbPost;
+    ratio?: number;
+  }[];
   onOpen?: (post: DbPost) => void;
   onManage?: (post: DbPost) => void;
 }) {
@@ -357,7 +370,12 @@ function MediaGrid({
       {items.map((it, i) => (
         <li key={`${it.post?.id ?? it.src}-${i}`} data-testid={`card-profile-media-${it.post?.id ?? i}`} className="media-frame relative overflow-hidden rounded-lg bg-secondary" style={{ aspectRatio: it.ratio ?? 1 }}>
           {it.post?.kind === "video" || it.post?.kind === "reel" || it.type?.startsWith("video") ? (
-            <VideoPoster mediaUrl={it.src} thumbnailUrl={it.post?.thumbnail_url} alt="" className="h-full w-full object-cover" />
+              <VideoPoster
+                mediaUrl={it.mediaUrl ?? it.src}
+                thumbnailUrl={it.thumbnail ?? it.post?.thumbnail_url}
+                alt=""
+                className="h-full w-full object-cover"
+              />
           ) : (
             <img src={it.src} alt="" loading="lazy" className="h-full w-full object-cover" />
           )}

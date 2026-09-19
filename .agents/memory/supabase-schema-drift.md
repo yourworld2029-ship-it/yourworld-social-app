@@ -32,3 +32,9 @@ Cross-table RLS policies must not recursively query each other: when a posts pol
 **Why:** PostgreSQL raised `42P17` while loading the public video feed because the two policy subqueries caused recursive evaluation of `posts`.
 
 **How to apply:** Keep the generated live schema authoritative, isolate retired/optional client paths behind an explicit loose compatibility boundary, and use a security-definer ownership helper for cross-table entitlement policies.
+
+For performance DDL, query `information_schema.columns` in the runtime Supabase project before composing indexes; local migrations can mention columns absent from the deployed project.
+
+**Why:** The runtime `posts` table exposed `user_id`, `kind`, and `created_at` but not the status columns suggested by older local assumptions. An initial multi-index migration failed as a batch until it was reduced to confirmed columns.
+
+**How to apply:** Apply only indexes backed by live column metadata, keep the local migration aligned with the successful remote DDL, and treat a failed migration as a transaction to verify rather than assuming any earlier statements applied.

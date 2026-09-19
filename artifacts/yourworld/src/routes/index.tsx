@@ -42,12 +42,33 @@ function MomentAvatar({
 function HomePage() {
   const navigate = useNavigate();
   const [hydrated, setHydrated] = React.useState(false);
-  const { videos, loading, currentUserId, countView, toggleLike, reload } = useLongVideos();
+  const {
+    videos,
+    loading,
+    currentUserId,
+    countView,
+    toggleLike,
+    reload,
+    loadMore,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useLongVideos();
   const { saved, toggleSave } = usePostSaves();
   const { moments } = useMoments();
   const { user } = useAuth();
   const { count: alertCount } = useAlertsCount();
   React.useEffect(() => setHydrated(true), []);
+
+  React.useEffect(() => {
+    if (!hasNextPage || isFetchingNextPage) return;
+    const onScroll = () => {
+      if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 900) {
+        void loadMore();
+      }
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [hasNextPage, isFetchingNextPage, loadMore]);
 
   // Keep the fullscreen swipe queue in sync with the feed.
   React.useEffect(() => {
@@ -319,6 +340,9 @@ function HomePage() {
             ),
           )
         )}
+        {isFetchingNextPage ? (
+          <p className="py-3 text-center text-xs text-neutral-500">Loading more videos…</p>
+        ) : null}
 
       </main>
     </div>

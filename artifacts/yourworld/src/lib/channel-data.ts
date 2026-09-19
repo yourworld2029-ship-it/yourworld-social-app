@@ -60,7 +60,7 @@ export async function loadChannelData(
       .select("*")
       .eq("user_id", uid)
       .order("created_at", { ascending: false })
-      .limit(200),
+      .limit(12),
     client.rpc("list_follows", { _user_id: uid, _kind: "followers", _limit: 500 }),
     client.rpc("get_follow_counts", { ids: [uid] }),
     client.rpc("get_channel_watch_hours", {
@@ -79,7 +79,7 @@ export async function loadChannelData(
       .select("*")
       .eq("user_id", uid)
       .order("created_at", { ascending: false })
-      .limit(200);
+      .limit(12);
     rows = fallback.data?.map(normalizePostRow) ?? null;
     error = fallback.error;
   }

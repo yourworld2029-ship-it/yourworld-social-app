@@ -119,6 +119,9 @@ function ReelsList() {
     currentUserId,
     removePost,
     loading,
+    loadMore,
+    hasNextPage,
+    isFetchingNextPage,
   } = useSocialPosts(scoped ? "creator-media" : "reel", userId);
   const viewedRef = useRef(new Set<string>());
   const recordView = useCallback(async (id: string) => {
@@ -206,6 +209,18 @@ function ReelsList() {
     nodes.current.forEach((n) => n && io.observe(n));
     return () => io.disconnect();
   }, [items.length]);
+
+  useEffect(() => {
+    const scroller = document.getElementById("yw-reels-scroller");
+    if (!scroller || !hasNextPage || isFetchingNextPage) return;
+    const onScroll = () => {
+      if (scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - scroller.clientHeight * 2) {
+        void loadMore();
+      }
+    };
+    scroller.addEventListener("scroll", onScroll, { passive: true });
+    return () => scroller.removeEventListener("scroll", onScroll);
+  }, [hasNextPage, isFetchingNextPage, loadMore]);
 
   if (loading) {
     return (

@@ -1,4 +1,5 @@
-import { useCallback, useRef, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useInfiniteQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
   getLocalMedia,
@@ -417,124 +418,172 @@ export async function publishLongVideo(opts: {
 }
 
 /** Live list of published long videos (scheduled ones appear at their release time). */
-export function useLongVideos() {
-  const [videos, setVideos] = useState<LongVideo[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [me, setMe] = useState<string | null>(null);
+export const VIDEO_PAGE_SIZE = 12;
 
-  const load = useCallback(async () => {
-    const { data: sessionData } = await supabase.auth.getSession();
-    const uid = sessionData.session?.user.id ?? null;
-    setMe(uid);
+type LongVideoPage = {
+  videos: LongVideo[];
+  currentUserId: string | null;
+  hasMore: boolean;
+};
 
-    let { data: posts, error } = await supabase
+function applyVideoPage<T extends { limit: (count: number) => T }>(
+  query: T,
+  page: number,
+  pageSize: number,
+): T {
+  const rangeQuery = query as T & {
+    range?: (from: number, to: number) => T;
+  };
+  return typeof rangeQuery.range === "function"
+    ? rangeQuery.range(page * pageSize, page * pageSize + pageSize - 1)
+    : query.limit(pageSize);
+}
+
+async function loadLongVideoPage(
+  page = 0,
+  pageSize = VIDEO_PAGE_SIZE,
+): Promise<LongVideoPage> {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const uid = sessionData.session?.user.id ?? null;
+  let { data: posts, error } = await applyVideoPage(
+    supabase
       .from("posts")
       .select("*")
       .eq("kind", "video")
-      .order("created_at", { ascending: false })
-      .limit(30);
+      .order("created_at", { ascending: false }),
+    page,
+    pageSize,
+  );
 
-    if (missingColumn(error) === "kind") {
-      const legacy = await supabase
-        .from("posts")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(100);
-      posts = (legacy.data ?? []).filter((row) => postKind(row) === "video");
-      error = legacy.error;
-    }
+  if (missingColumn(error) === "kind") {
+    const legacy = await applyVideoPage(
+      supabase.from("posts").select("*").order("created_at", { ascending: false }),
+      page,
+      pageSize,
+    );
+    posts = (legacy.data ?? []).filter((row) => postKind(row) === "video");
+    error = legacy.error;
+  }
 
-    if (error || !posts?.length) {
-      if (error) console.error("Unable to load videos", error);
-      setVideos([]);
-      setLoading(false);
-      return;
-    }
+  if (error || !posts?.length) {
+    if (error) console.error("Unable to load videos", error);
+    return { videos: [], currentUserId: uid, hasMore: false };
+  }
 
-    const now = Date.now();
-    const visible = posts.map(normalizePostRow).filter(
+  const now = Date.now();
+  const visible = posts
+    .map(normalizePostRow)
+    .filter(
       (p) =>
         !p.scheduled_at ||
         new Date(p.scheduled_at).getTime() <= now ||
         (uid && p.user_id === uid),
-    ).filter(
+    )
+    .filter(
       (p) =>
         (p as { review_status?: string }).review_status !== "pending_review" ||
         (uid && p.user_id === uid),
     );
 
-    const ids = visible.map((p) => p.id);
-    const authorIds = [...new Set(visible.map((p) => p.user_id))];
+  const ids = visible.map((p) => p.id);
+  const authorIds = [...new Set(visible.map((p) => p.user_id))];
+  const [{ data: profiles }, { data: likes }, { data: comments }] = await Promise.all([
+    supabase.rpc("get_public_profiles", { ids: authorIds }),
+    liveLikesTable().select("post_id,user_id").in("post_id", ids),
+    supabase.from("comments").select("post_id").in("post_id", ids),
+  ]);
+  const byId = new Map(((profiles ?? []) as DbProfile[]).map((p) => [p.id, p]));
 
-    const [{ data: profiles }, { data: likes }, { data: comments }] = await Promise.all([
-      supabase.rpc("get_public_profiles", { ids: authorIds }),
-      liveLikesTable().select("post_id,user_id").in("post_id", ids),
-      supabase.from("comments").select("post_id").in("post_id", ids),
-    ]);
+  const videos: LongVideo[] = visible.map((p) => {
+    const metadata = p as typeof p & {
+      aspect_ratio?: string | null;
+      video_type?: string | null;
+      is_reel?: boolean | null;
+      original_width?: number | null;
+      original_height?: number | null;
+      source_quality_tier?: string | null;
+      type?: string | null;
+    };
+    const prof = byId.get(p.user_id);
+    const username = prof?.username ?? `user${p.user_id.slice(0, 4)}`;
+    const name = prof?.display_name ?? username;
+    return {
+      id: p.id,
+      userId: p.user_id,
+      title: p.title || p.caption || "Untitled video",
+      caption: p.caption ?? "",
+      mediaUrl: p.media_url,
+      thumbnailUrl: p.thumbnail_url,
+      orientation: p.orientation === "portrait" ? "portrait" : "landscape",
+      aspectRatio: metadata.aspect_ratio ?? null,
+      videoType: metadata.video_type ?? null,
+      isReel: metadata.is_reel ?? null,
+      postType: metadata.type ?? p.kind ?? null,
+      durationSeconds: p.duration_seconds,
+      originalWidth: typeof metadata.original_width === "number" ? metadata.original_width : null,
+      originalHeight: typeof metadata.original_height === "number" ? metadata.original_height : null,
+      sourceQualityTier: isVideoQualityTier(metadata.source_quality_tier)
+        ? metadata.source_quality_tier
+        : qualityTierFromDimensions(metadata.original_width, metadata.original_height),
+      views: Number(p.views ?? (p as typeof p & { views_count?: number | null }).views_count ?? 0),
+      hashtags: p.hashtags ?? [],
+      createdAt: p.created_at,
+      scheduledAt: p.scheduled_at,
+      author: { name, username, letter: (name || "Y").charAt(0).toUpperCase() },
+      likeCount: (likes ?? []).filter((l) => l.post_id === p.id).length,
+      commentCount: (comments ?? []).filter((c) => c.post_id === p.id).length,
+      likedByMe: !!uid && (likes ?? []).some((l) => l.post_id === p.id && l.user_id === uid),
+      commentsOff: !!(p as typeof p & { comments_off?: boolean }).comments_off,
+      access: ((p as typeof p & { video_access?: string }).video_access ?? "public") as
+        | "public"
+        | "vip"
+        | "paid",
+      price: (p as typeof p & { price?: number | null }).price ?? null,
+    } satisfies LongVideo;
+  });
 
-    const byId = new Map(((profiles ?? []) as DbProfile[]).map((p) => [p.id, p]));
+  return { videos, currentUserId: uid, hasMore: posts.length >= pageSize };
+}
 
-    const next: LongVideo[] = visible.map((p) => {
-      const metadata = p as typeof p & {
-        aspect_ratio?: string | null;
-        video_type?: string | null;
-        is_reel?: boolean | null;
-        original_width?: number | null;
-        original_height?: number | null;
-        source_quality_tier?: string | null;
-        type?: string | null;
-      };
-      const prof = byId.get(p.user_id);
-      const username = prof?.username ?? `user${p.user_id.slice(0, 4)}`;
-      const name = prof?.display_name ?? username;
-      return {
-        id: p.id,
-        userId: p.user_id,
-        title: p.title || p.caption || "Untitled video",
-        caption: p.caption ?? "",
-        mediaUrl: p.media_url,
-        thumbnailUrl: p.thumbnail_url,
-        orientation: p.orientation === "portrait" ? "portrait" : "landscape",
-        aspectRatio: metadata.aspect_ratio ?? null,
-        videoType: metadata.video_type ?? null,
-        isReel: metadata.is_reel ?? null,
-        postType: metadata.type ?? p.kind ?? null,
-        durationSeconds: p.duration_seconds,
-        originalWidth: typeof metadata.original_width === "number" ? metadata.original_width : null,
-        originalHeight: typeof metadata.original_height === "number" ? metadata.original_height : null,
-        sourceQualityTier: isVideoQualityTier(metadata.source_quality_tier)
-          ? metadata.source_quality_tier
-          : qualityTierFromDimensions(metadata.original_width, metadata.original_height),
-        views: Number(
-          p.views ??
-            (p as typeof p & { views_count?: number | null }).views_count ??
-            0,
-        ),
-        hashtags: p.hashtags ?? [],
-        createdAt: p.created_at,
-        scheduledAt: p.scheduled_at,
-        author: { name, username, letter: (name || "Y").charAt(0).toUpperCase() },
-        likeCount: (likes ?? []).filter((l) => l.post_id === p.id).length,
-        commentCount: (comments ?? []).filter((c) => c.post_id === p.id).length,
-        likedByMe: !!uid && (likes ?? []).some((l) => l.post_id === p.id && l.user_id === uid),
-        commentsOff: !!(p as typeof p & { comments_off?: boolean }).comments_off,
-        access: ((p as typeof p & { video_access?: string }).video_access ?? "public") as
-          | "public"
-          | "vip"
-          | "paid",
-        price: (p as typeof p & { price?: number | null }).price ?? null,
-      } satisfies LongVideo;
-    });
-    setVideos(next);
-    setLoading(false);
-  }, []);
+export function useLongVideos() {
+  const queryClient = useQueryClient();
+  const queryKey = useMemo(() => ["long-videos"] as const, []);
+  const feedQuery = useInfiniteQuery({
+    queryKey,
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) => loadLongVideoPage(pageParam, VIDEO_PAGE_SIZE),
+    getNextPageParam: (lastPage, _allPages, lastPageParam) =>
+      lastPage.hasMore ? lastPageParam + 1 : undefined,
+  });
+  const videos = useMemo(
+    () => feedQuery.data?.pages.flatMap((page) => page.videos) ?? [],
+    [feedQuery.data],
+  );
+  const me = feedQuery.data?.pages[0]?.currentUserId ?? null;
+  const updateVideos = useCallback(
+    (update: (video: LongVideo) => LongVideo) => {
+      queryClient.setQueryData<InfiniteData<LongVideoPage, number>>(queryKey, (current) =>
+        current
+          ? {
+              ...current,
+              pages: current.pages.map((page) => ({
+                ...page,
+                videos: page.videos.map(update),
+              })),
+            }
+          : current,
+      );
+    },
+    [queryClient, queryKey],
+  );
 
   useEffect(() => {
-    void load();
     let timer: number | undefined;
     const queue = () => {
       window.clearTimeout(timer);
-      timer = window.setTimeout(() => void load(), 500);
+      timer = window.setTimeout(() => {
+        void queryClient.invalidateQueries({ queryKey });
+      }, 500);
     };
     let channel: ReturnType<typeof supabase.channel> | null = null;
     const boot = window.setTimeout(() => {
@@ -550,7 +599,7 @@ export function useLongVideos() {
       window.clearTimeout(timer);
       if (channel) void supabase.removeChannel(channel);
     };
-  }, [load]);
+  }, [queryClient, queryKey]);
 
   // Avoid duplicate requests in this tab; the database RPC is still the
   // authoritative cross-tab/device uniqueness guard.
@@ -561,24 +610,24 @@ export function useLongVideos() {
     const counted = await registerUniqueView(id, "video");
     if (!counted) return false;
     viewedRef.current.add(id);
-    setVideos((prev) => prev.map((v) => (v.id === id ? { ...v, views: v.views + 1 } : v)));
+    updateVideos((video) => (video.id === id ? { ...video, views: video.views + 1 } : video));
     return true;
-  }, []);
+  }, [updateVideos]);
 
   const toggleLike = useCallback(
     async (id: string) => {
       if (!me) throw new Error("Sign in required");
-      let wasLiked = false;
-      setVideos((prev) =>
-        prev.map((v) => {
-          if (v.id !== id) return v;
-          wasLiked = v.likedByMe;
-           return {
-             ...v,
-             likedByMe: !v.likedByMe,
-             likeCount: Math.max(0, v.likeCount + (v.likedByMe ? -1 : 1)),
-           };
-        }),
+      const current = videos.find((video) => video.id === id);
+      if (!current) return;
+      const wasLiked = current.likedByMe;
+      updateVideos((video) =>
+        video.id === id
+          ? {
+              ...video,
+              likedByMe: !video.likedByMe,
+              likeCount: Math.max(0, video.likeCount + (video.likedByMe ? -1 : 1)),
+            }
+          : video,
       );
       const { error } = wasLiked
         ? await liveLikesTable().delete().eq("post_id", id).eq("user_id", me)
@@ -587,22 +636,30 @@ export function useLongVideos() {
             { onConflict: "post_id,user_id", ignoreDuplicates: true },
           );
       if (error) {
-        setVideos((prev) =>
-          prev.map((v) =>
-            v.id === id
-               ? {
-                   ...v,
-                   likedByMe: wasLiked,
-                   likeCount: Math.max(0, v.likeCount + (wasLiked ? 1 : -1)),
-                 }
-              : v,
-          ),
+        updateVideos((video) =>
+          video.id === id
+            ? {
+                ...video,
+                likedByMe: wasLiked,
+                likeCount: Math.max(0, video.likeCount + (wasLiked ? 1 : -1)),
+              }
+            : video,
         );
         throw error;
       }
     },
-    [me],
+    [me, updateVideos, videos],
   );
 
-  return { videos, loading, currentUserId: me, countView, toggleLike, reload: load };
+  return {
+    videos,
+    loading: feedQuery.isLoading,
+    currentUserId: me,
+    countView,
+    toggleLike,
+    reload: () => feedQuery.refetch(),
+    loadMore: () => feedQuery.fetchNextPage(),
+    hasNextPage: feedQuery.hasNextPage,
+    isFetchingNextPage: feedQuery.isFetchingNextPage,
+  };
 }

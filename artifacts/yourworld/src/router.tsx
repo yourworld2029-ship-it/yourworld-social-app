@@ -53,8 +53,10 @@ export const getRouter = () => {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: {
-        staleTime: 60_000,
-        gcTime: 5 * 60_000,
+        // Feed tabs should render from the local cache while still becoming
+        // fresh again during a normal session.
+        staleTime: 5 * 60_000,
+        gcTime: 30 * 60_000,
         refetchOnWindowFocus: false,
         refetchOnReconnect: false,
         retry: 1,

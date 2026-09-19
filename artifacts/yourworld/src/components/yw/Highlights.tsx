@@ -77,7 +77,7 @@ function Thumb({ src, video }: { src?: string; video?: boolean }) {
         src={src}
         muted
         playsInline
-        preload="metadata"
+        preload="none"
         className="h-full w-full object-cover"
       />
     );
@@ -115,25 +115,31 @@ export function Highlights({
   const coverInput = useRef<HTMLInputElement | null>(null);
 
   const loadHighlights = useCallback(async (ownerId: string) => {
-    const { data, error } = await supabase
-      .from("highlights" as never)
-      .select("*")
-      .eq("user_id", ownerId)
-      .order("created_at", { ascending: true });
-    if (error) {
-      console.error("[highlights] load failed", {
-        ownerId,
-        code: error.code,
-        message: error.message,
-        details: error.details,
-        hint: error.hint,
-      });
-      throw error;
-    }
-    const next = (data ?? []) as unknown as Highlight[];
+    const next = await queryClient.fetchQuery({
+      queryKey: ["highlights", ownerId],
+      queryFn: async () => {
+        const { data, error } = await supabase
+          .from("highlights" as never)
+          .select("*")
+          .eq("user_id", ownerId)
+          .order("created_at", { ascending: true })
+          .limit(MAX_HIGHLIGHTS);
+        if (error) {
+          console.error("[highlights] load failed", {
+            ownerId,
+            code: error.code,
+            message: error.message,
+            details: error.details,
+            hint: error.hint,
+          });
+          throw error;
+        }
+        return (data ?? []) as unknown as Highlight[];
+      },
+    });
     setHighlights(next);
     return next;
-  }, []);
+  }, [queryClient]);
 
   useEffect(() => {
     if (!userId) return;
@@ -167,7 +173,7 @@ export function Highlights({
         .map((p) => ({
           source: "post",
           refId: p.id,
-          thumb: p.media_url,
+          thumb: p.thumbnail_url ?? p.media_url,
           media: p.media_url,
           mediaType: "video",
         })),
@@ -179,7 +185,7 @@ export function Highlights({
       posts.map((p) => ({
         source: "post",
         refId: p.id,
-        thumb: p.media_url,
+        thumb: p.thumbnail_url ?? p.media_url,
         media: p.media_url,
         mediaType: p.media_type,
       })),
@@ -304,6 +310,7 @@ export function Highlights({
       const saved = data as unknown as Highlight;
       setHighlights((h) => [...h, saved]);
       try {
+        await queryClient.invalidateQueries({ queryKey: ["highlights", sessionUserId] });
         await loadHighlights(sessionUserId);
       } catch (refreshError) {
         console.error("[highlights] saved but refresh failed", refreshError);

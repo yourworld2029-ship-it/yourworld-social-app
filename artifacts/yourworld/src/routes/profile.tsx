@@ -36,7 +36,6 @@ import { YwAvatar } from "@/components/yw/Avatar";
 import { EditProfileSheet, type ProfileEdit } from "@/components/yw/EditProfileSheet";
 import {
   useMyProfile,
-  useResolvedMedia,
   updateMyPost,
   deleteSportsIntroduction,
   uploadSportsIntroduction,
@@ -220,20 +219,6 @@ function ProfilePage() {
   };
 
 
-
-  const reelMedia = useResolvedMedia(
-    [...posts, ...savedPosts]
-      .filter((p) => p.kind === "reel")
-      .map((p) => p.media_url),
-    "reels",
-  );
-  const videoMedia = useResolvedMedia(
-    [...posts, ...savedPosts]
-      .filter((p) => p.kind === "video")
-      .map((p) => p.media_url),
-    "videos",
-  );
-  const src = (u: string) => reelMedia[u] ?? videoMedia[u] ?? u;
 
   const avatarUser = {
     id: userId ?? "me",
@@ -547,7 +532,6 @@ function ProfilePage() {
       }}
       onOpen={openViewer}
       onManage={openManage}
-      mediaSrc={src}
       emptyVideos={mediaLoading ? "Loading your posts…" : "No posts yet. Create your first one."}
       emptyReels={mediaLoading ? "Loading reels…" : "No reels yet."}
     >
@@ -706,13 +690,13 @@ function ProfilePage() {
               <div className="relative bg-secondary">
                 {manage.media_type?.startsWith("video") ? (
                   <video
-                    src={src(manage.media_url)}
+                    src={manage.media_url}
                     controls
                     playsInline
                     className="max-h-64 w-full object-contain"
                   />
                 ) : (
-                  <img src={src(manage.media_url)} alt="" className="max-h-64 w-full object-contain" />
+                  <img src={manage.media_url} alt="" className="max-h-64 w-full object-contain" />
                 )}
               </div>
               <div className="space-y-1 px-4 py-3">
