@@ -282,7 +282,7 @@ export function ProfileTemplate({
             Videos
           </TabsTrigger>
           <TabsTrigger value="reels" className="rounded-lg py-2 text-[11px] data-[state=active]:bg-white/[0.09] data-[state=active]:text-white" aria-label="Reels">
-             Moments
+             Reels
           </TabsTrigger>
           <TabsTrigger value="downloads" className="rounded-lg py-2 text-[11px] data-[state=active]:bg-white/[0.09] data-[state=active]:text-white" aria-label="Downloads">
             Downloads
