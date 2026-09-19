@@ -32,3 +32,4 @@
 - [Supabase MFA factor listing](supabase-mfa-factor-listing.md) — `listFactors().totp` only contains verified factors; inspect `all` to resume unverified TOTP verification.
 - [Highlight deletion boundary](highlight-deletion-boundary.md) — route destructive Highlight deletes through authenticated server code and verify the single JSONB row is gone before updating the UI.
 - [Account deletion pipeline](account-deletion-pipeline.md) — use a transactional SECURITY DEFINER Supabase function for authenticated cleanup before removing auth.users.
+- [Capacitor Android wrapper](capacitor-android-wrapper.md) — TanStack Start needs a generated static client shell for Capacitor, while APK builds require an Android SDK outside the web workspace.
