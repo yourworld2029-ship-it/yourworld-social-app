@@ -1358,6 +1358,14 @@ function MomentCreatePage() {
   // AUDIO
   // =====================================================
 
+  const setEditorVideoMuted = (muted: boolean) => {
+    setVideoMuted(muted);
+    const editorVideo = document.querySelector(
+      "video[data-editor-video]",
+    ) as HTMLVideoElement | null;
+    if (editorVideo) editorVideo.muted = muted;
+  };
+
   const handleAudioUpload = (
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
@@ -1380,6 +1388,7 @@ function MomentCreatePage() {
     setSelectedAudio(title);
     setMusicTitle(title);
     setMusicArtist(null);
+    setEditorVideoMuted(true);
     setAudioDuration(0);
     setAudioStart(0);
     setAudioEnd(0);
@@ -1441,6 +1450,7 @@ function MomentCreatePage() {
     setSelectedAudio(null);
     setMusicTitle(null);
     setMusicArtist(null);
+    setEditorVideoMuted(false);
     setAudioDuration(0);
     setAudioStart(0);
     setAudioEnd(0);
@@ -1881,10 +1891,11 @@ function MomentCreatePage() {
       videoSpeed;
 
     video.muted =
-      videoMuted;
+      videoMuted || Boolean(audioUrl);
   }, [
     videoSpeed,
     videoMuted,
+    audioUrl,
     isVideo,
     mediaUrl,
   ]);
@@ -2441,8 +2452,6 @@ function MomentCreatePage() {
   // =====================================================
   const [showExtraTools, setShowExtraTools] =
     useState(false);
-  const [snapDuration, setSnapDuration] =
-    useState<3 | 5 | 10 | null>(null);
 
   // =====================================================
   // CAMERA SCREEN
@@ -3074,7 +3083,7 @@ function MomentCreatePage() {
 
         {/* RIGHT TOOLS DOCK */}
 
-        {(() => {
+        {!showMusicPanel && !showMusicLibrary && (() => {
           const closeAll = () => {
             setShowTextInput(false);
             setDrawMode(false);
@@ -3117,16 +3126,6 @@ function MomentCreatePage() {
               />
 
               <EditorTool
-                icon={<Music />}
-                label="Sound"
-                active={showMusicPanel || showMusicLibrary}
-                onClick={() => {
-                  closeAll();
-                  setShowMusicLibrary(true);
-                }}
-              />
-
-              <EditorTool
                 icon={<Sparkles />}
                 label="Filters"
                 active={panel === "filter"}
@@ -3161,28 +3160,6 @@ function MomentCreatePage() {
                 active={isMediaTransforming}
                 onClick={resetMediaTransform}
               />
-
-              <EditorTool
-                icon={<Timer />}
-                label={
-                  snapDuration
-                    ? `Timer ${snapDuration}s`
-                    : "Timer"
-                }
-                active={!!snapDuration}
-                onClick={() =>
-                  setSnapDuration((value) =>
-                    value === null
-                      ? 3
-                      : value === 3
-                      ? 5
-                      : value === 5
-                      ? 10
-                      : null
-                  )
-                }
-              />
-
 
             </div>
           );
@@ -3539,13 +3516,15 @@ function MomentCreatePage() {
               />
 
               <button
+                disabled={!!audioUrl}
                 onClick={() =>
                   setVideoMuted(
                     (value) =>
                       !value
                   )
                 }
-                className="w-12 h-12 rounded-2xl bg-black/60 backdrop-blur-xl flex items-center justify-center"
+                aria-label={audioUrl ? "Original video audio muted while music is attached" : "Toggle original video audio"}
+                className="w-12 h-12 rounded-2xl bg-black/60 backdrop-blur-xl flex items-center justify-center disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {videoMuted ? (
                   <VolumeX />
@@ -3657,6 +3636,7 @@ function MomentCreatePage() {
                       setSelectedAudio(`${track.title} — ${track.artist}`);
                       setMusicTitle(track.title);
                       setMusicArtist(track.artist);
+                      setEditorVideoMuted(true);
                       setAudioDuration(0);
                       setAudioStart(0);
                       setAudioEnd(0);
