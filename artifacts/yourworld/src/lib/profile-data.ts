@@ -544,7 +544,7 @@ export function useMyProfile() {
   const [avatarSrc, setAvatarSrc] = useState<string | null>(null);
   const [coverSrc, setCoverSrc] = useState<string | null>(null);
   const [posts, setPosts] = useState<DbPost[]>([]);
-  const [savedPosts, setSavedPosts] = useState<DbPost[]>([]);
+  const [likedPosts, setLikedPosts] = useState<DbPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [mediaLoading, setMediaLoading] = useState(true);
   const loadInFlight = useRef<Promise<void> | null>(null);
@@ -574,13 +574,13 @@ export function useMyProfile() {
         setAvatarSrc(null);
         setCoverSrc(null);
         setPosts([]);
-        setSavedPosts([]);
+        setLikedPosts([]);
         setMediaLoading(false);
         setLoading(false);
         return;
       }
 
-      // The profile row is the critical path. Posts, saved posts, and media
+      // The profile row is the critical path. Posts, liked posts, and media
       // URLs are independent secondary data and must not delay the shell.
       const { data: row } = await supabase
         .from("profiles")
@@ -620,25 +620,25 @@ export function useMyProfile() {
 
       const loadSecondary = async () => {
         try {
-          const [{ data: myPosts }, { data: saves }] = await Promise.all([
+          const [{ data: myPosts }, { data: likes }] = await Promise.all([
             supabase
               .from("posts")
               .select("*")
               .eq("user_id", uid)
               .order("created_at", { ascending: false })
               .limit(12),
-            supabase.from("post_saves").select("post_id").eq("user_id", uid),
+            supabase.from("likes").select("post_id").eq("user_id", uid),
           ]);
           if (generation !== loadGeneration.current) return;
-          const savedIds = ((saves ?? []) as { post_id: string }[]).map((s) => s.post_id);
-          const savedResult = savedIds.length
-            ? await supabase.from("posts").select("*").in("id", savedIds).limit(12)
+          const likedIds = ((likes ?? []) as { post_id: string }[]).map((like) => like.post_id);
+          const likedResult = likedIds.length
+            ? await supabase.from("posts").select("*").in("id", likedIds).limit(12)
             : { data: [], error: null };
           if (generation !== loadGeneration.current) return;
 
           setPosts((myPosts ?? []).map(normalizePostRow) as DbPost[]);
-          setSavedPosts(
-            (savedResult.data ?? [])
+          setLikedPosts(
+            (likedResult.data ?? [])
               .map(normalizePostRow)
               .filter((post) => post.kind === "video" || post.kind === "reel") as DbPost[],
           );
@@ -674,7 +674,7 @@ export function useMyProfile() {
         setAvatarSrc(null);
         setCoverSrc(null);
         setPosts([]);
-        setSavedPosts([]);
+        setLikedPosts([]);
         setLoading(true);
         setMediaLoading(false);
         void load();
@@ -753,7 +753,7 @@ export function useMyProfile() {
     avatarSrc,
     coverSrc,
     posts,
-    savedPosts,
+    likedPosts,
     grid,
     reels,
     loading,

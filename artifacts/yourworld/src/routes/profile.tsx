@@ -62,19 +62,38 @@ import {
   SPORTS_VERIFICATION_DUPLICATE_MESSAGE,
   submitSportsVerification,
 } from "@/lib/sports-verification.functions";
+import {
+  getDownloadedVideoUrl,
+  listDownloadedVideos,
+  removeDownloadedVideo,
+  type DownloadedVideo,
+} from "@/lib/yw-download";
+import { useVideoPlayback } from "@/lib/video-playback";
 
 
 
 
 
 export const Route = createFileRoute("/profile")({
-  validateSearch: (search: Record<string, unknown>): { connections?: "followers" | "following" } => ({
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { connections?: "followers" | "following"; tab?: "videos" | "reels" | "downloads" | "liked" } => ({
     connections:
       search.connections === "following"
         ? "following"
         : search.connections === "followers"
           ? "followers"
           : undefined,
+      tab:
+        search.tab === "reels"
+          ? "reels"
+          : search.tab === "downloads"
+            ? "downloads"
+            : search.tab === "liked"
+              ? "liked"
+            : search.tab === "videos"
+              ? "videos"
+              : undefined,
   }),
   head: () => ({
     meta: [
@@ -102,7 +121,7 @@ function ProfilePage() {
     grid,
     reels,
     posts,
-    savedPosts,
+    likedPosts,
     loading,
     mediaLoading,
     save,
@@ -111,7 +130,10 @@ function ProfilePage() {
   } =
     useMyProfile();
   const navigate = useNavigate();
-  const { connections } = Route.useSearch();
+  const { connections, tab } = Route.useSearch();
+  const { activateVideo } = useVideoPlayback();
+  const [downloads, setDownloads] = useState<DownloadedVideo[]>([]);
+  const [downloadsLoading, setDownloadsLoading] = useState(true);
   const [editOpen, setEditOpen] = useState(false);
   const counts = useFollowCounts(userId);
   const [listOpen, setListOpen] = useState(false);
@@ -136,6 +158,53 @@ function ProfilePage() {
   const [sportsDuplicateSubmissionWarning, setSportsDuplicateSubmissionWarning] = useState<string | null>(
     null,
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!userId) {
+      setDownloads([]);
+      setDownloadsLoading(false);
+      return;
+    }
+    setDownloadsLoading(true);
+    void listDownloadedVideos(userId)
+      .then((records) => {
+        if (!cancelled) setDownloads(records);
+      })
+      .finally(() => {
+        if (!cancelled) setDownloadsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  const openDownloadedVideo = async (record: DownloadedVideo) => {
+    const url = await getDownloadedVideoUrl(record);
+    if (!url) {
+      setDownloads((current) => current.filter((item) => item.id !== record.id));
+      toast.error("This download is no longer available on this device");
+      return;
+    }
+    activateVideo({
+      id: record.id,
+      url,
+      title: record.title || "Downloaded video",
+      thumbnailUrl: record.thumbnailUrl,
+      detailRoute: `/downloads/${encodeURIComponent(record.id)}`,
+      backTo: "/profile?tab=downloads",
+    });
+    await navigate({
+      to: "/downloads/$downloadId",
+      params: { downloadId: record.id },
+    });
+  };
+
+  const deleteDownloadedVideo = async (record: DownloadedVideo) => {
+    await removeDownloadedVideo(record);
+    setDownloads((current) => current.filter((item) => item.id !== record.id));
+    toast.success("Removed from downloads");
+  };
 
   useEffect(() => {
     if (connections === "followers" || connections === "following") {
@@ -492,7 +561,9 @@ function ProfilePage() {
       posts={posts}
       grid={grid}
       reels={reels}
-      savedPosts={savedPosts}
+      likedPosts={likedPosts}
+      downloads={downloads}
+      downloadsLoading={downloadsLoading}
       mediaLoading={mediaLoading}
       counts={counts}
       sportsProfile={sportsProfile}
@@ -532,6 +603,21 @@ function ProfilePage() {
       }}
       onOpen={openViewer}
       onManage={openManage}
+      onOpenDownload={(record) => void openDownloadedVideo(record)}
+      onDeleteDownload={deleteDownloadedVideo}
+      onOpenDownloadAthlete={(record) => {
+        if (record.creatorId) {
+          void navigate({ to: "/u/$userId", params: { userId: record.creatorId } });
+        }
+      }}
+      selectedTab={tab ?? "videos"}
+      onTabChange={(nextTab) => {
+        void navigate({
+          to: "/profile",
+          search: { connections: undefined, tab: nextTab === "videos" ? undefined : nextTab },
+          replace: true,
+        });
+      }}
       emptyVideos={mediaLoading ? "Loading your posts…" : "No posts yet. Create your first one."}
       emptyReels={mediaLoading ? "Loading reels…" : "No reels yet."}
     >

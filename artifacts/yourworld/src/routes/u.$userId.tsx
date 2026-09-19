@@ -232,7 +232,7 @@ function PublicProfilePage() {
       posts={posts}
       grid={grid}
       reels={reels}
-      savedPosts={[]}
+      likedPosts={[]}
       mediaLoading={loading}
       counts={counts}
       sportsProfile={sportsProfile}

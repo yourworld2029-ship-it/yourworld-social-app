@@ -48,6 +48,8 @@ export type PersistentVideo = {
   url: string;
   title: string;
   thumbnailUrl?: string | null;
+  detailRoute?: string;
+  backTo?: string;
 };
 
 type VideoPlaybackContextValue = {
@@ -83,6 +85,10 @@ function getDetailVideoId(pathname: string) {
   }
 }
 
+function getDownloadDetailPath(pathname: string) {
+  return pathname.startsWith("/downloads/") ? pathname : null;
+}
+
 export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -103,8 +109,12 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const feedbackTimerRef = useRef<number | null>(null);
 
   const detailVideoId = getDetailVideoId(location.pathname);
-  const isDetailPlayer = Boolean(activeVideo && detailVideoId === activeVideo.id);
-  const isVideoDetailRoute = Boolean(detailVideoId);
+  const downloadDetailPath = getDownloadDetailPath(location.pathname);
+  const isDetailPlayer = Boolean(
+    activeVideo &&
+      (detailVideoId === activeVideo.id || activeVideo.detailRoute === downloadDetailPath),
+  );
+  const isPlayerRoute = Boolean(detailVideoId || downloadDetailPath);
 
   const activateVideo = useCallback((video: PersistentVideo) => {
     setActiveVideo((current) => {
@@ -395,10 +405,14 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
 
   const openDetail = useCallback(() => {
     if (!activeVideo) return;
-    void navigate({
-      to: "/video/$videoId",
-      params: { videoId: activeVideo.id },
-    });
+    if (activeVideo.detailRoute?.startsWith("/downloads/")) {
+      void navigate({
+        to: "/downloads/$downloadId",
+        params: { downloadId: activeVideo.id },
+      });
+      return;
+    }
+    void navigate({ to: "/video/$videoId", params: { videoId: activeVideo.id } });
   }, [activeVideo, navigate]);
 
   const contextValue = useMemo<VideoPlaybackContextValue>(
@@ -424,7 +438,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               ? "pointer-events-none fixed left-[-9999px] top-[-9999px] z-[-1] h-px w-px opacity-0"
               : isDetailPlayer
                 ? "absolute inset-x-0 top-0 z-50 mx-auto w-full max-w-lg bg-black"
-                : isVideoDetailRoute
+                : isPlayerRoute
                   ? "pointer-events-none fixed left-[-9999px] top-[-9999px] z-[-1] h-px w-px opacity-0"
                   : "fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] right-3 z-[70] w-[min(68vw,280px)] overflow-hidden rounded-xl border border-white/15 bg-zinc-950 shadow-2xl"
           }
@@ -521,9 +535,11 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               <button
                 type="button"
                 onClick={() =>
-                  window.history.length > 1
-                    ? window.history.back()
-                    : void navigate({ to: "/" })
+                  activeVideo.backTo
+                    ? (closeVideo(), void navigate({ to: activeVideo.backTo as never }))
+                    : window.history.length > 1
+                      ? window.history.back()
+                      : void navigate({ to: "/" })
                 }
                 className="absolute left-3 top-3 z-50 rounded-full bg-black/60 p-2 text-white backdrop-blur-md transition-all hover:bg-black/80"
                 aria-label="Go back"
@@ -548,7 +564,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               </button>
             ) : null}
 
-            {!isDetailPlayer && !isVideoDetailRoute && !pictureInPicture ? (
+            {!isDetailPlayer && !isPlayerRoute && !pictureInPicture ? (
               <>
                 <button
                   type="button"
@@ -570,7 +586,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               </>
             ) : null}
           </div>
-          {!isDetailPlayer && !isVideoDetailRoute && !pictureInPicture ? (
+          {!isDetailPlayer && !isPlayerRoute && !pictureInPicture ? (
             <button
               type="button"
               onClick={openDetail}

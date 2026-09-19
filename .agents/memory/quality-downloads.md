@@ -15,6 +15,12 @@ Keep quality/audio labels and selection behavior in the shared download sheet; r
 
 **How to apply:** When adding a new download entry point, pass its source tier, duration, title, and download callback into the shared sheet instead of rebuilding the option list.
 
+Offline library surfaces must pair cached video bytes with an IndexedDB metadata record scoped to the downloading user. CacheStorage alone can play a file but cannot populate a reliable Downloads list or support safe deletion.
+
+**Why:** Browser downloads previously had no searchable catalog, and signed-in users sharing a device must not see another account's offline records.
+
+**How to apply:** Write metadata only after the selected video bytes are cached, resolve playback from the cache record, and delete both the cache entry and metadata row together.
+
 Upload size must not be coupled to compression success. Resumable TUS should receive the original File when browser metadata, codecs, or device memory make adaptive compression unavailable.
 
 **Why:** A client-side compression ceiling turns large uploads into hard failures and defeats resumable storage; preserving the source keeps multi-gigabyte uploads possible.

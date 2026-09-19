@@ -678,19 +678,42 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
      if (!playableMediaUrl) throw new Error("This video has no downloadable media");
     const toastId = toast.loading("Preparing download... 0%");
     const baseName = sanitizeDownloadName(video.title || "yourworld-video", `yourworld-${videoId}`);
+       const downloadMetadata = {
+         ownerId: user?.id || "anonymous",
+         mediaId: video.id,
+         title: video.title || video.caption || "Untitled Video",
+         creatorName,
+         creatorUsername,
+         creatorId: creatorId || null,
+         views: Number(viewCount),
+         createdAt: video.created_at || null,
+         durationSeconds: video.duration_seconds || null,
+         thumbnailUrl: video.thumbnail_url || null,
+         quality:
+           choice === "original" || choice === "mp3"
+             ? "original" as const
+             : choice as VideoQualityTier,
+       };
     try {
       if (choice === "mp3") {
          await downloadAudioOnly(playableMediaUrl, baseName, (percent) =>
           toast.loading(`Preparing MP3 audio... ${percent}%`, { id: toastId }),
         );
       } else if (choice === "original" || choice === sourceQualityTier) {
-         await downloadVideoInBackground(playableMediaUrl, `${baseName}.mp4`, (percent) =>
-          toast.loading(`Downloading original video... ${percent}%`, { id: toastId }),
-        );
+         await downloadVideoInBackground(
+           playableMediaUrl,
+           `${baseName}.mp4`,
+           (percent) => toast.loading(`Downloading original video... ${percent}%`, { id: toastId }),
+           downloadMetadata,
+         );
       } else {
-         await downloadVideoAtQuality(playableMediaUrl, baseName, choice, (percent) =>
-          toast.loading(`Creating ${choice} video... ${percent}%`, { id: toastId }),
-        );
+         await downloadVideoAtQuality(
+           playableMediaUrl,
+           baseName,
+           choice,
+           (percent) => toast.loading(`Creating ${choice} video... ${percent}%`, { id: toastId }),
+           downloadMetadata,
+         );
       }
       toast.success("Download started", { id: toastId });
     } catch (cause) {

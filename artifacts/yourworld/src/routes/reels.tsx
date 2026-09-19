@@ -35,7 +35,11 @@ import { cn } from "@/lib/utils";
 import { SportsIdentityMark } from "@/components/yw/SportsIdentityBadge";
 import { toast } from "sonner";
 import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadSheet";
-import { isVideoQualityTier, qualityTierFromDimensions } from "@/lib/video-quality";
+import {
+  isVideoQualityTier,
+  qualityTierFromDimensions,
+  type VideoQualityTier,
+} from "@/lib/video-quality";
 import { trackEvent } from "@/lib/analytics";
 import { deleteMyPost } from "@/lib/profile-data";
 import {
@@ -261,6 +265,7 @@ function ReelsList() {
           {Math.abs(i - active) <= 1 ? (
             <ReelItem
               reel={reel}
+              currentUserId={currentUserId}
               active={i === active}
               author={author}
               likedByMe={likedByMe}
@@ -485,6 +490,7 @@ function ReelMedia({
 
 function ReelItem({
   reel,
+  currentUserId,
   active,
   author,
   likedByMe,
@@ -502,6 +508,7 @@ function ReelItem({
   onDeleted,
 }: {
   reel: Reel;
+  currentUserId?: string | null;
   active: boolean;
   author?: User;
   likedByMe?: boolean;
@@ -790,6 +797,19 @@ function ReelItem({
       if (isVideo) {
         const playableUrl = getLocalMedia(source) ?? await resolveMediaUrl(source);
         const baseName = sanitizeDownloadName(reel.caption, `yw-reel-${reel.id}`);
+        const downloadMetadata = {
+          ownerId: currentUserId || "anonymous",
+          mediaId: reel.id,
+          title: reel.caption || "Untitled Moment",
+          creatorName: author?.name ?? "YourWorld athlete",
+          creatorUsername: author?.username ?? "user",
+          creatorId: author?.id ?? null,
+          views: reel.views,
+          createdAt: reel.createdAt,
+          durationSeconds: reel.durationSeconds,
+          thumbnailUrl: reel.poster,
+          quality: choice === "original" ? "original" as const : choice as VideoQualityTier,
+        };
         if (choice === "mp3") {
           await downloadAudioOnly(playableUrl, baseName, (percent) =>
             toast.loading(`Preparing MP3 audio... ${percent}%`, { id: toastId }),
@@ -799,10 +819,15 @@ function ReelItem({
             playableUrl,
             `${baseName}.mp4`,
             (percent) => toast.loading(`Downloading ${choice} video... ${percent}%`, { id: toastId }),
+            downloadMetadata,
           );
         } else if (choice) {
-          await downloadVideoAtQuality(playableUrl, baseName, choice, (percent) =>
-            toast.loading(`Creating ${choice} video... ${percent}%`, { id: toastId }),
+          await downloadVideoAtQuality(
+            playableUrl,
+            baseName,
+            choice,
+            (percent) => toast.loading(`Creating ${choice} video... ${percent}%`, { id: toastId }),
+            downloadMetadata,
           );
         }
         trackEvent("reel_downloaded", {

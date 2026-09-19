@@ -7,6 +7,7 @@ import {
   Pin,
   Play,
   Settings,
+  Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -29,6 +30,8 @@ import {
   resolveNormalProfileCategories,
 } from "@/lib/profile-category";
 import { useVerifiedSportsIdentity } from "@/lib/sports-identity";
+import { DownloadedVideoList } from "@/components/yw/DownloadedVideoList";
+import type { DownloadedVideo } from "@/lib/yw-download";
 
 export type ProfileTemplateProfile = {
   id: string;
@@ -51,7 +54,9 @@ export type ProfileTemplateProps = {
   posts: DbPost[];
   grid: DbPost[];
   reels: DbPost[];
-  savedPosts: DbPost[];
+  likedPosts?: DbPost[];
+  downloads?: DownloadedVideo[];
+  downloadsLoading?: boolean;
   mediaLoading: boolean;
   counts: Pick<FollowCounts, "followers" | "following">;
   sportsProfile: SportsProfileInfo | null;
@@ -71,10 +76,14 @@ export type ProfileTemplateProps = {
   onShare: () => void;
   onOpen: (post: DbPost) => void;
   onManage?: (post: DbPost) => void;
+  onOpenDownload?: (video: DownloadedVideo) => void;
+  onDeleteDownload?: (video: DownloadedVideo) => Promise<void> | void;
+  onOpenDownloadAthlete?: (video: DownloadedVideo) => void;
+  selectedTab?: "videos" | "reels" | "downloads" | "liked";
+  onTabChange?: (tab: "videos" | "reels" | "downloads" | "liked") => void;
   mediaSrc?: (url: string) => string;
   emptyVideos?: string;
   emptyReels?: string;
-  emptySaved?: string;
   children?: ReactNode;
 };
 
@@ -93,7 +102,9 @@ export function ProfileTemplate({
   posts,
   grid,
   reels,
-  savedPosts,
+  likedPosts = [],
+  downloads = [],
+  downloadsLoading = false,
   mediaLoading,
   counts,
   sportsProfile,
@@ -113,10 +124,14 @@ export function ProfileTemplate({
   onShare,
   onOpen,
   onManage,
+  onOpenDownload,
+  onDeleteDownload,
+  onOpenDownloadAthlete,
+  selectedTab,
+  onTabChange,
   mediaSrc = (url) => url,
   emptyVideos = "No posts yet. Create your first one.",
   emptyReels = "No reels yet.",
-  emptySaved = "Nothing saved yet. Tap the bookmark on a post to keep it here.",
   children,
 }: ProfileTemplateProps) {
   const src = mediaSrc;
@@ -256,16 +271,30 @@ export function ProfileTemplate({
         canManage={isOwner}
       />
 
-      <Tabs defaultValue="videos" className="mx-auto w-full max-w-3xl pt-4">
-        <TabsList className="mx-3 grid w-auto grid-cols-3 rounded-xl border border-white/10 bg-black/20 p-1 backdrop-blur-xl sm:mx-4">
+      <Tabs
+        value={selectedTab ?? "videos"}
+        onValueChange={(value) => {
+          if (value === "videos" || value === "reels" || value === "downloads" || value === "liked") {
+            onTabChange?.(value);
+          }
+        }}
+        className="mx-auto w-full max-w-3xl pt-4"
+      >
+        <TabsList className="mx-3 grid w-auto grid-cols-4 rounded-xl border border-white/10 bg-black/20 p-1 backdrop-blur-xl sm:mx-4">
           <TabsTrigger value="videos" className="rounded-lg py-2 text-[11px] data-[state=active]:bg-white/[0.09] data-[state=active]:text-white" aria-label="Videos">
             Videos
           </TabsTrigger>
           <TabsTrigger value="reels" className="rounded-lg py-2 text-[11px] data-[state=active]:bg-white/[0.09] data-[state=active]:text-white" aria-label="Reels">
-            Reels
+             Moments
           </TabsTrigger>
-          <TabsTrigger value="saved" className="rounded-lg py-2 text-[11px] data-[state=active]:bg-white/[0.09] data-[state=active]:text-white" aria-label="Saved">
-            Saved
+          <TabsTrigger value="downloads" className="rounded-lg py-2 text-[11px] data-[state=active]:bg-white/[0.09] data-[state=active]:text-white" aria-label="Downloads">
+            <span className="inline-flex items-center gap-1.5">
+              <Download className="h-3.5 w-3.5" strokeWidth={1.9} />
+              Downloads
+            </span>
+          </TabsTrigger>
+          <TabsTrigger value="liked" className="rounded-lg py-2 text-[11px] data-[state=active]:bg-white/[0.09] data-[state=active]:text-white" aria-label="Liked">
+            Liked
           </TabsTrigger>
         </TabsList>
 
@@ -297,18 +326,27 @@ export function ProfileTemplate({
             <Empty text={emptyReels} />
           )}
         </TabsContent>
-        <TabsContent value="saved" className="mt-0">
-          {savedPosts.length ? (
-            <MediaGrid onOpen={onOpen} items={savedPosts.map((post) => ({
+        <TabsContent value="downloads" className="mt-0">
+          <DownloadedVideoList
+            videos={downloads}
+            loading={downloadsLoading}
+            onOpen={onOpenDownload ?? (() => undefined)}
+            onDelete={onDeleteDownload ?? (() => undefined)}
+            onOpenAthlete={onOpenDownloadAthlete}
+          />
+        </TabsContent>
+        <TabsContent value="liked" className="mt-0">
+          {likedPosts.length ? (
+            <MediaGrid onOpen={onOpen} items={likedPosts.map((post) => ({
               src: post.thumbnail_url ?? post.media_url,
               mediaUrl: post.media_url,
               thumbnail: post.thumbnail_url,
-              type: "video",
+              type: post.kind === "video" ? "video" : post.media_type,
               post,
               ratio: mediaAspect(post),
             }))} />
           ) : (
-            <Empty text={emptySaved} />
+            <Empty text="No liked videos yet." />
           )}
         </TabsContent>
       </Tabs>
