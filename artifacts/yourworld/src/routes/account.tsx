@@ -10,7 +10,6 @@ import {
   Lock,
   Link2,
   Trash2,
-  LogOut,
   Eye,
   EyeOff,
   Check,
@@ -732,13 +731,6 @@ function AccountPage() {
     setTimeout(() => setSaved(false), 2000);
   };
 
-  const handleLogout = async () => {
-    await queryClient.cancelQueries();
-    queryClient.clear();
-    await signOut();
-    navigate({ to: "/auth", search: { redirect: undefined }, replace: true });
-  };
-
   const handleDeleteAccount = async () => {
     if (deleting) return;
     setDeleting(true);
@@ -890,20 +882,6 @@ function AccountPage() {
             </div>
           </div>
         </Section>
-
-        {/* ── log out ── */}
-        <div className="surface-card overflow-hidden rounded-[22px]">
-          <button
-            onClick={handleLogout}
-            className="flex w-full items-center gap-3.5 px-4 py-3.5 text-left transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--foreground)_4%,transparent)] active:opacity-70"
-          >
-            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[color-mix(in_oklab,var(--foreground)_8%,transparent)] text-muted-foreground">
-              <LogOut className="h-[18px] w-[18px]" strokeWidth={1.7} />
-            </span>
-            <span className="font-ui text-[14px] font-medium text-foreground">Log Out</span>
-            <ChevronRight className="ml-auto h-4 w-4 text-muted-foreground/40" strokeWidth={1.8} />
-          </button>
-        </div>
 
         {/* ── danger zone ── */}
         <Section icon={Trash2} title="Danger Zone" danger>
