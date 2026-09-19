@@ -544,7 +544,6 @@ export function useMyProfile() {
   const [avatarSrc, setAvatarSrc] = useState<string | null>(null);
   const [coverSrc, setCoverSrc] = useState<string | null>(null);
   const [posts, setPosts] = useState<DbPost[]>([]);
-  const [likedPosts, setLikedPosts] = useState<DbPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [mediaLoading, setMediaLoading] = useState(true);
   const loadInFlight = useRef<Promise<void> | null>(null);
@@ -574,13 +573,12 @@ export function useMyProfile() {
         setAvatarSrc(null);
         setCoverSrc(null);
         setPosts([]);
-        setLikedPosts([]);
         setMediaLoading(false);
         setLoading(false);
         return;
       }
 
-      // The profile row is the critical path. Posts, liked posts, and media
+      // The profile row is the critical path. Posts and media
       // URLs are independent secondary data and must not delay the shell.
       const { data: row } = await supabase
         .from("profiles")
@@ -620,28 +618,15 @@ export function useMyProfile() {
 
       const loadSecondary = async () => {
         try {
-          const [{ data: myPosts }, { data: likes }] = await Promise.all([
-            supabase
-              .from("posts")
-              .select("*")
-              .eq("user_id", uid)
-              .order("created_at", { ascending: false })
-              .limit(12),
-            supabase.from("likes").select("post_id").eq("user_id", uid),
-          ]);
-          if (generation !== loadGeneration.current) return;
-          const likedIds = ((likes ?? []) as { post_id: string }[]).map((like) => like.post_id);
-          const likedResult = likedIds.length
-            ? await supabase.from("posts").select("*").in("id", likedIds).limit(12)
-            : { data: [], error: null };
+          const { data: myPosts } = await supabase
+            .from("posts")
+            .select("*")
+            .eq("user_id", uid)
+            .order("created_at", { ascending: false })
+            .limit(12);
           if (generation !== loadGeneration.current) return;
 
           setPosts((myPosts ?? []).map(normalizePostRow) as DbPost[]);
-          setLikedPosts(
-            (likedResult.data ?? [])
-              .map(normalizePostRow)
-              .filter((post) => post.kind === "video" || post.kind === "reel") as DbPost[],
-          );
         } finally {
           if (generation === loadGeneration.current) setMediaLoading(false);
         }
@@ -674,7 +659,6 @@ export function useMyProfile() {
         setAvatarSrc(null);
         setCoverSrc(null);
         setPosts([]);
-        setLikedPosts([]);
         setLoading(true);
         setMediaLoading(false);
         void load();
@@ -753,7 +737,6 @@ export function useMyProfile() {
     avatarSrc,
     coverSrc,
     posts,
-    likedPosts,
     grid,
     reels,
     loading,

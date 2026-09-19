@@ -77,7 +77,7 @@ import { useVideoPlayback } from "@/lib/video-playback";
 export const Route = createFileRoute("/profile")({
   validateSearch: (
     search: Record<string, unknown>,
-  ): { connections?: "followers" | "following"; tab?: "videos" | "reels" | "downloads" | "liked" } => ({
+  ): { connections?: "followers" | "following"; tab?: "videos" | "reels" | "downloads" } => ({
     connections:
       search.connections === "following"
         ? "following"
@@ -89,8 +89,6 @@ export const Route = createFileRoute("/profile")({
           ? "reels"
           : search.tab === "downloads"
             ? "downloads"
-            : search.tab === "liked"
-              ? "liked"
             : search.tab === "videos"
               ? "videos"
               : undefined,
@@ -121,7 +119,6 @@ function ProfilePage() {
     grid,
     reels,
     posts,
-    likedPosts,
     loading,
     mediaLoading,
     save,
@@ -561,7 +558,6 @@ function ProfilePage() {
       posts={posts}
       grid={grid}
       reels={reels}
-      likedPosts={likedPosts}
       downloads={downloads}
       downloadsLoading={downloadsLoading}
       mediaLoading={mediaLoading}
