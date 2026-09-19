@@ -1,0 +1,36 @@
+CRITICAL FEATURE OVERHAUL: Replace Crop tool with Snapchat-Style Freeform Canvas Gestures (Screen 1 Moment Editor)
+
+Replicate the exact Snapchat Story editing canvas experience shown in the reference:
+
+1. Freeform Touch Gestures on Main Canvas (Pinch, Zoom, Rotate, Pan):
+- Remove modal/button-based cropping. The main media (image/video) on the editor canvas must be fully interactive by default.
+- Implement multi-touch touch gestures (use Hammer.js or Framer Motion / react-use-gesture):
+  - 2-finger pinch: Smooth scale / zoom (from 0.3x to 5x+ freely).
+  - 2-finger rotate: Freely rotate the image at any angle (0 to 360 deg).
+  - 1-finger / 2-finger drag: Pan and place the media anywhere across the screen.
+- Set CSS `touch-action: none` on the media element so browser scrolling doesn't interfere.
+- Ensure 60fps hardware-accelerated transforms (`transform: translate3d(x, y, 0) scale(s) rotate(r)`).
+
+2. Snapping Guides (Yellow Dashed Alignment Line):
+- When the user drags the media near the vertical or horizontal center, render a subtle yellow dashed guideline (as seen in Snapchat) and provide a soft haptic / magnetic snap feel.
+
+3. Snapchat-Style UI Overlay Layout (Screen 1):
+- Top-Left: Close (X) icon, Author Avatar + Name ("Sandeep Poonia") + Date/Time tag.
+- Top-Center: Pill button with music icon "Add a Sound".
+- Right Vertical Floating Tool Rail (Clean translucent icon buttons):
+  - Text (T)
+  - Scissors / Cutout
+  - Music / Sound
+  - Stickers / Emoji
+  - Filters / Magic FX
+  - Link / Attach
+  - Crop / Freeform Transform Toggle
+- Bottom Row:
+  - Download / Save icon (bottom-left)
+  - Horizontal Story Filters thumbnail strip (Normal, Time stamp, Locations, Filters)
+  - Bottom-Right action pills: "+ Stories" and primary gradient button "Send to >"
+
+4. Final Render Output:
+- When "Send to >" or "+ Stories" is tapped, capture the exact visual viewport of the media (applied scale, rotation, translation, stickers, and overlays) using an HTML5 canvas render so the posted moment matches exactly what the user arranged on screen.
+
+Do not touch other screens or routes. Make this 1st editor screen smooth and responsive.
