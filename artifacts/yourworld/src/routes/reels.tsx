@@ -985,9 +985,6 @@ function ReelItem({
           >
             {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
           </button>
-          <span className="rounded-full bg-background/40 px-3 py-1 text-xs backdrop-blur">
-            Following
-          </span>
         </div>
       </div>
 
