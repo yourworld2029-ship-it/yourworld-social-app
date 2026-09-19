@@ -102,6 +102,8 @@ const fmtTime = (s: number) => {
   return `${m}:${String(sec).padStart(2, "0")}`;
 };
 
+const MIN_AUDIO_CLIP_LENGTH = 5;
+
 /** Reads the duration of a video url (0 when unknown). */
 const readVideoDuration = (
   url: string
@@ -1414,13 +1416,19 @@ function MomentCreatePage() {
     }
   };
 
-  const moveAudioWindow = (nextStart: number, length = audioSegmentLength) => {
+  const updateAudioRange = (nextStart: number, nextEnd: number) => {
     if (!audioDuration) return;
-    const segmentLength = Math.min(length, audioDuration);
-    const maxStart = Math.max(0, audioDuration - segmentLength);
-    const start = Math.min(maxStart, Math.max(0, nextStart));
+    const minimumLength = Math.min(MIN_AUDIO_CLIP_LENGTH, audioDuration);
+    const start = Math.max(
+      0,
+      Math.min(audioDuration - minimumLength, nextStart),
+    );
+    const end = Math.max(
+      start + minimumLength,
+      Math.min(audioDuration, nextEnd),
+    );
     setAudioStart(start);
-    setAudioEnd(start + segmentLength);
+    setAudioEnd(end);
     previewAudioAt(start);
   };
 
@@ -3677,92 +3685,82 @@ function MomentCreatePage() {
 
         {showMusicPanel && audioUrl && (
           <div className="gpu-layer absolute bottom-0 left-0 right-0 z-[80] rounded-t-3xl border-t border-white/10 bg-zinc-950/95 p-3 pb-[max(env(safe-area-inset-bottom),0.75rem)] shadow-[0_-20px_60px_rgba(0,0,0,0.45)] backdrop-blur-2xl">
-            <div className="flex items-center gap-2 mb-3">
-              <button
-                onClick={
-                  toggleAudioPreview
-                }
-                className="w-10 h-10 rounded-full bg-white text-black flex items-center justify-center flex-shrink-0"
-              >
-                {audioPlaying ? (
-                  <Pause size={18} />
-                ) : (
-                  <Play size={18} />
-                )}
-              </button>
-
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-bold truncate">
-                  {selectedAudio}
-                </p>
-                <p className="text-[10px] text-white/50 font-mono">
-                  {fmtTime(audioStart)} –{" "}
-                  {fmtTime(audioEnd)} ·{" "}
-                  {(
-                    audioEnd - audioStart
-                  ).toFixed(1)}
-                  s
-                </p>
-              </div>
-
-              <button
-                onClick={() =>
-                  setShowMusicLibrary(true)
-                }
-                className="px-3 py-1.5 rounded-full bg-white/10 text-[10px] font-black uppercase"
-              >
-                Change
-              </button>
-
-              <button
-                onClick={removeAudio}
-                className="px-3 py-1.5 rounded-full bg-red-500/20 text-red-300 text-[10px] font-black uppercase"
-              >
-                Remove
-              </button>
-            </div>
-
-            <div className="mb-2 flex items-center justify-between">
+             <div className="mb-3 flex items-center justify-between gap-3">
               <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/50">
                 Choose clip
               </span>
+               <span className="shrink-0 font-mono text-[10px] text-white/70">
+                 {fmtTime(audioStart)} - {fmtTime(audioEnd)}{" "}
+                 <span className="text-white/40">•</span>{" "}
+                 {(audioEnd - audioStart).toFixed(1).replace(/\.0$/, "")}s
+               </span>
             </div>
 
             <AudioTimeline
               duration={audioDuration}
               start={audioStart}
               end={audioEnd}
-              onChangeStart={(nextStart) => moveAudioWindow(nextStart)}
+               onChangeRange={updateAudioRange}
             />
 
-            <label className="block text-[10px] uppercase tracking-wider text-white/50 mt-2 mb-1">
-              Volume
-            </label>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.05}
-              value={audioVolume}
-              onChange={(e) => {
-                const v = Number(
-                  e.target.value
-                );
-                setAudioVolume(v);
-                if (
-                  previewAudioRef.current
-                ) {
-                  previewAudioRef.current.volume =
-                    v;
-                }
-              }}
-              className="w-full accent-pink-500"
-            />
+             <div className="my-3 flex items-center gap-3">
+               <button
+                 type="button"
+                 onClick={toggleAudioPreview}
+                 aria-label={audioPlaying ? "Pause audio" : "Play audio"}
+                 className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-black"
+               >
+                 {audioPlaying ? <Pause size={18} /> : <Play size={18} />}
+               </button>
+
+               <div className="min-w-0 flex-1">
+                 <p className="truncate text-xs font-bold">{selectedAudio}</p>
+                 <p className="truncate font-mono text-[10px] text-white/50">
+                   {fmtTime(audioStart)} – {fmtTime(audioEnd)}
+                 </p>
+               </div>
+
+               <button
+                 type="button"
+                 onClick={() => setShowMusicLibrary(true)}
+                 className="shrink-0 rounded-full bg-white/10 px-3 py-1.5 text-[10px] font-black uppercase"
+               >
+                 Change
+               </button>
+
+               <button
+                 type="button"
+                 onClick={removeAudio}
+                 className="shrink-0 rounded-full bg-red-500/20 px-3 py-1.5 text-[10px] font-black uppercase text-red-300"
+               >
+                 Remove
+               </button>
+             </div>
+
+             <div className="my-3 flex items-center gap-3">
+               <label className="shrink-0 text-[10px] uppercase tracking-wider text-white/50">
+                 Volume
+               </label>
+               <input
+                 type="range"
+                 min={0}
+                 max={1}
+                 step={0.05}
+                 value={audioVolume}
+                 onChange={(e) => {
+                   const v = Number(e.target.value);
+                   setAudioVolume(v);
+                   if (previewAudioRef.current) {
+                     previewAudioRef.current.volume = v;
+                   }
+                 }}
+                 className="w-full accent-pink-500"
+               />
+             </div>
 
             <button
-              onClick={() =>
-                setShowMusicPanel(false)
-              }
+               type="button"
+               onClick={() => setShowMusicPanel(false)}
               className="mt-3 w-full py-2 rounded-full bg-gradient-to-r from-cyan-400 via-pink-500 to-pink-600 text-xs font-black"
             >
               Done
@@ -4650,68 +4648,138 @@ function AudioTimeline({
   duration,
   start,
   end,
-  onChangeStart,
+  onChangeRange,
 }: {
   duration: number;
   start: number;
   end: number;
-  onChangeStart: (start: number) => void;
+  onChangeRange: (start: number, end: number) => void;
 }) {
   const timelineRef = useRef<HTMLDivElement>(null);
-  const dragging = useRef(false);
+  const dragging = useRef<{
+    mode: "start" | "end" | "move";
+    pointerId: number;
+    startX: number;
+    originStart: number;
+    originEnd: number;
+  } | null>(null);
   const selectionLength = Math.max(0, end - start);
   const safeDuration = Math.max(duration, 0.1);
-  const maxStart = Math.max(0, duration - selectionLength);
+  const minimumLength = Math.min(MIN_AUDIO_CLIP_LENGTH, duration);
 
-  const updateFromClientX = (clientX: number) => {
-    const rect = timelineRef.current?.getBoundingClientRect();
-    if (!rect || !duration) return;
-    const position = ((clientX - rect.left) / rect.width) * duration;
-    onChangeStart(Math.min(maxStart, Math.max(0, position - selectionLength / 2)));
-  };
-
-  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!duration) return;
-    dragging.current = true;
-    event.currentTarget.setPointerCapture(event.pointerId);
-    updateFromClientX(event.clientX);
-  };
+  const beginDrag =
+    (mode: "start" | "end" | "move") =>
+    (event: React.PointerEvent<HTMLElement>) => {
+      if (!duration || !timelineRef.current) return;
+      event.preventDefault();
+      event.stopPropagation();
+      dragging.current = {
+        mode,
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        originStart: start,
+        originEnd: end,
+      };
+      timelineRef.current.setPointerCapture(event.pointerId);
+    };
 
   const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (dragging.current) updateFromClientX(event.clientX);
+    const drag = dragging.current;
+    const rect = timelineRef.current?.getBoundingClientRect();
+    if (!drag || !rect || !duration || rect.width <= 0) return;
+
+    const delta = ((event.clientX - drag.startX) / rect.width) * duration;
+    if (drag.mode === "start") {
+      const nextStart = Math.min(
+        drag.originEnd - minimumLength,
+        Math.max(0, drag.originStart + delta),
+      );
+      onChangeRange(nextStart, drag.originEnd);
+    } else if (drag.mode === "end") {
+      const nextEnd = Math.max(
+        drag.originStart + minimumLength,
+        Math.min(duration, drag.originEnd + delta),
+      );
+      onChangeRange(drag.originStart, nextEnd);
+    } else {
+      const rangeLength = drag.originEnd - drag.originStart;
+      const maxStart = Math.max(0, duration - rangeLength);
+      const nextStart = Math.min(
+        maxStart,
+        Math.max(0, drag.originStart + delta),
+      );
+      onChangeRange(nextStart, nextStart + rangeLength);
+    }
   };
 
   const handlePointerEnd = (event: React.PointerEvent<HTMLDivElement>) => {
-    dragging.current = false;
-    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    const timeline = timelineRef.current;
+    dragging.current = null;
+    if (timeline?.hasPointerCapture(event.pointerId)) {
+      timeline.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  const handleKeyDown =
+    (mode: "start" | "end" | "move") =>
+    (event: React.KeyboardEvent<HTMLElement>) => {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      event.preventDefault();
+      const step = event.shiftKey ? 5 : 1;
+      const direction = event.key === "ArrowRight" ? 1 : -1;
+
+      if (mode === "start") {
+        onChangeRange(
+          Math.min(
+            end - minimumLength,
+            Math.max(0, start + direction * step),
+          ),
+          end,
+        );
+      } else if (mode === "end") {
+        onChangeRange(
+          start,
+          Math.max(
+            start + minimumLength,
+            Math.min(duration, end + direction * step),
+          ),
+        );
+      } else {
+        const maxStart = Math.max(0, duration - selectionLength);
+        const nextStart = Math.min(
+          maxStart,
+          Math.max(0, start + direction * step),
+        );
+        onChangeRange(nextStart, nextStart + selectionLength);
+      }
+    };
+
+  const handleBackgroundPointerDown = (
+    event: React.PointerEvent<HTMLDivElement>,
+  ) => {
+    if (!duration || event.target !== event.currentTarget) return;
+    const rect = timelineRef.current?.getBoundingClientRect();
+    if (!rect || rect.width <= 0) return;
+    const position = ((event.clientX - rect.left) / rect.width) * duration;
+    const maxStart = Math.max(0, duration - selectionLength);
+    const nextStart = Math.min(
+      maxStart,
+      Math.max(0, position - selectionLength / 2),
+    );
+    onChangeRange(nextStart, nextStart + selectionLength);
   };
 
   return (
     <div className="space-y-1.5">
       <div
         ref={timelineRef}
-        role="slider"
-        tabIndex={duration ? 0 : -1}
-        aria-label="Move selected audio segment"
-        aria-valuemin={0}
-        aria-valuemax={maxStart}
-        aria-valuenow={Math.round(start * 10) / 10}
+        role="group"
+        aria-label="Audio clip selection"
         className="relative h-14 touch-none select-none overflow-hidden rounded-xl border border-white/10 bg-white/[0.04] px-2 py-2 outline-none focus-visible:ring-2 focus-visible:ring-pink-400/80"
-        onPointerDown={handlePointerDown}
+        onPointerDown={handleBackgroundPointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerEnd}
         onPointerCancel={handlePointerEnd}
-        onKeyDown={(event) => {
-          if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-          event.preventDefault();
-          const step = event.shiftKey ? 5 : 1;
-          onChangeStart(
-            Math.min(
-              maxStart,
-              Math.max(0, start + (event.key === "ArrowRight" ? step : -step)),
-            ),
-          );
-        }}
       >
         <div className="absolute inset-2 flex items-center justify-between gap-0.5 opacity-55">
           {Array.from({ length: 48 }, (_, index) => {
@@ -4727,21 +4795,56 @@ function AudioTimeline({
         </div>
 
         <div
-          className="pointer-events-none absolute bottom-1.5 top-1.5 rounded-lg border border-pink-200/90 bg-pink-400/20 shadow-[0_0_22px_rgba(236,72,153,0.24)]"
+          data-audio-selection
+          role="button"
+          tabIndex={duration ? 0 : -1}
+          aria-label="Move selected audio clip"
+          className="absolute bottom-1.5 top-1.5 z-10 touch-none cursor-grab rounded-lg border border-pink-200/90 bg-pink-400/20 shadow-[0_0_22px_rgba(236,72,153,0.24)] active:cursor-grabbing"
           style={{
             left: `${(start / safeDuration) * 100}%`,
             width: `${(selectionLength / safeDuration) * 100}%`,
           }}
+          onPointerDown={beginDrag("move")}
+          onKeyDown={handleKeyDown("move")}
         >
-          <span className="absolute bottom-0 left-0 top-0 w-1 rounded-full bg-white" />
-          <span className="absolute bottom-0 right-0 top-0 w-1 rounded-full bg-white" />
+          <span className="absolute inset-x-3 top-1/2 h-px -translate-y-1/2 bg-pink-100/45" />
         </div>
+
+        <button
+          type="button"
+          data-audio-handle="start"
+          aria-label={`Adjust clip start, currently ${fmtTime(start)}`}
+          className="absolute bottom-1.5 top-1.5 z-20 flex w-6 -translate-x-1/2 cursor-ew-resize touch-none items-center justify-center"
+          style={{ left: `${(start / safeDuration) * 100}%` }}
+          onPointerDown={beginDrag("start")}
+          onKeyDown={handleKeyDown("start")}
+        >
+          <span className="relative flex h-9 w-3 items-center justify-center rounded-full bg-white shadow-[0_0_12px_rgba(255,255,255,0.55)]">
+            <span className="h-4 w-px bg-pink-500" />
+            <span className="absolute h-1.5 w-1.5 rounded-full border border-pink-500" />
+          </span>
+        </button>
+
+        <button
+          type="button"
+          data-audio-handle="end"
+          aria-label={`Adjust clip end, currently ${fmtTime(end)}`}
+          className="absolute bottom-1.5 top-1.5 z-20 flex w-6 -translate-x-1/2 cursor-ew-resize touch-none items-center justify-center"
+          style={{ left: `${(end / safeDuration) * 100}%` }}
+          onPointerDown={beginDrag("end")}
+          onKeyDown={handleKeyDown("end")}
+        >
+          <span className="relative flex h-9 w-3 items-center justify-center rounded-full bg-white shadow-[0_0_12px_rgba(255,255,255,0.55)]">
+            <span className="h-4 w-px bg-pink-500" />
+            <span className="absolute h-1.5 w-1.5 rounded-full border border-pink-500" />
+          </span>
+        </button>
       </div>
 
       <div className="flex items-center justify-between font-mono text-[10px] text-white/55">
         <span>{fmtTime(start)}</span>
         <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-white/80">
-          {fmtTime(start)} / {fmtTime(duration)}
+          {fmtTime(end - start)} clip
         </span>
         <span>{fmtTime(end)}</span>
       </div>
