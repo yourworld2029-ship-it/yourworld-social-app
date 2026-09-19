@@ -26,6 +26,7 @@ import { toast } from "sonner";
 import { approxDistance, type OrbitProfile } from "@/lib/orbit-data";
 import { useOrbitProfiles } from "@/lib/orbit-live";
 import { useOrbit, useScreenCaptureShield } from "@/lib/orbit-store";
+import { historyBackLink } from "@/lib/navigation";
 import { sendOrbitMatch, useOrbitMatches } from "@/lib/orbit-match";
 import { useNotifications } from "@/lib/notifications-store";
 import { analyzeProfile } from "@/lib/orbit-trust";
@@ -141,6 +142,7 @@ function OrbitBrowse() {
       <header className="sticky top-0 z-50 flex items-center gap-1.5 border-b border-border bg-background px-3 pb-2.5 pt-[calc(env(safe-area-inset-top,0px)+0.625rem)]">
         <Link
           to="/settings"
+          onClick={historyBackLink}
           aria-label="Back to settings"
           className="grid h-8 w-8 place-items-center rounded-full transition-transform active:scale-90"
         >

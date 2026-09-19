@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowLeft, FileText } from "lucide-react";
+import { historyBackLink } from "@/lib/navigation";
 
 export const Route = createFileRoute("/terms")({
   head: () => ({
@@ -39,7 +40,7 @@ function TermsPage() {
     <div className="min-h-screen bg-[#09090b] text-white">
       <div className="max-w-2xl mx-auto px-4 py-6">
         <div className="flex items-center gap-3 mb-6">
-          <Link to="/settings" className="p-1 text-zinc-300 hover:text-white">
+          <Link to="/settings" onClick={historyBackLink} className="p-1 text-zinc-300 hover:text-white">
             <ArrowLeft size={22} />
           </Link>
           <h1 className="text-xl font-bold">Terms of Service</h1>

@@ -4,6 +4,7 @@ import { ChevronLeft, Lock } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { isUnlockedForSession, useOrbit } from "@/lib/orbit-store";
+import { historyBackLink } from "@/lib/navigation";
 
 /** Blocks the whole Orbit tree behind the device PIN/password when the lock is on. */
 export function OrbitLockGate({ children }: { children: ReactNode }) {
@@ -37,6 +38,7 @@ export function OrbitLockGate({ children }: { children: ReactNode }) {
       <header className="flex items-center gap-2 px-3 py-3">
         <Link
           to="/settings"
+          onClick={historyBackLink}
           aria-label="Back to settings"
           className="grid h-9 w-9 place-items-center rounded-full transition-transform active:scale-90"
         >

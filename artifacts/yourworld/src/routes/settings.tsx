@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { User, Megaphone, Lock, Bell, Palette, HelpCircle, Info, LogOut, ChevronRight, ArrowLeft, X, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-store";
+import { historyBackOr } from "@/lib/navigation";
 import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/settings")({
@@ -121,7 +122,10 @@ function SettingsPage() {
       
       {/* Header */}
       <div className="flex items-center gap-3 mb-6 mt-2">
-        <button onClick={() => navigate({ to: "/profile" })} className="p-1 text-zinc-300 hover:text-white">
+        <button
+          onClick={() => historyBackOr(() => void navigate({ to: "/profile" }))}
+          className="p-1 text-zinc-300 hover:text-white"
+        >
           <ArrowLeft size={22} />
         </button>
         <h1 className="text-xl font-bold">Settings</h1>

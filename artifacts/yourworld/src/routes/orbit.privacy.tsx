@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { useOrbitProfiles } from "@/lib/orbit-live";
 import { clearSessionUnlock, useOrbit, type OrbitAudience, type OrbitVisibility } from "@/lib/orbit-store";
+import { historyBackLink } from "@/lib/navigation";
 
 export const Route = createFileRoute("/orbit/privacy")({
   head: () => ({
@@ -79,6 +80,7 @@ function OrbitPrivacy() {
       <header className="sticky top-0 z-40 flex items-center gap-2 border-b border-border glass px-3 py-3">
         <Link
           to="/orbit"
+          onClick={historyBackLink}
           aria-label="Back to Orbit"
           className="grid h-9 w-9 place-items-center rounded-full transition-transform active:scale-90"
         >

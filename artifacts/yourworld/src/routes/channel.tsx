@@ -1,5 +1,6 @@
 import { createFileRoute, Outlet, useNavigate, useLocation } from "@tanstack/react-router";
 import { ArrowLeft, Megaphone, Video, Film, FileText, Users, DollarSign, BarChart2 } from "lucide-react";
+import { historyBackOr } from "@/lib/navigation";
 
 export const Route = createFileRoute("/channel")({
   component: ChannelLayout,
@@ -23,7 +24,10 @@ function ChannelLayout() {
     <div className="min-h-screen bg-[#09090b] text-white font-sans pb-24">
       {/* Top Bar */}
       <div className="sticky top-0 z-40 bg-[#09090b]/90 backdrop-blur-md border-b border-zinc-800 px-4 py-3 flex items-center justify-between">
-        <button onClick={() => navigate({ to: "/settings" })} className="p-1 text-zinc-300 hover:text-white">
+        <button
+          onClick={() => historyBackOr(() => void navigate({ to: "/settings" }))}
+          className="p-1 text-zinc-300 hover:text-white"
+        >
           <ArrowLeft size={22} />
         </button>
         <span className="font-bold text-base">Channel Studio</span>

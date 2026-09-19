@@ -23,6 +23,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { historyBackLink } from "@/lib/navigation";
 import { useAuth } from "@/lib/auth-store";
 import { YwAvatar } from "@/components/yw/Avatar";
 import { useMyProfile } from "@/lib/profile-data";
@@ -739,6 +740,7 @@ function AccountPage() {
       <header className="header-lux sticky top-0 z-40 flex h-14 items-center gap-3 px-4">
         <Link
           to="/settings"
+          onClick={historyBackLink}
           aria-label="Back"
           className="icon-pill -ml-1 grid h-9 w-9 place-items-center rounded-full transition-all duration-200 active:scale-90"
         >

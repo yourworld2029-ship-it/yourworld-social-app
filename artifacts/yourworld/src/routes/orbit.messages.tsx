@@ -19,6 +19,7 @@ import { useOrbit } from "@/lib/orbit-store";
 import { useOrbitMatches, useOrbitThreadPreviews } from "@/lib/orbit-match";
 import type { OrbitProfile } from "@/lib/orbit-data";
 import { cn } from "@/lib/utils";
+import { historyBackLink } from "@/lib/navigation";
 import { useChatNames } from "@/lib/chat-names";
 import { useSecretChats } from "@/lib/secret-chats";
 import { useProfiles } from "@/lib/profiles-map";
@@ -266,6 +267,7 @@ function OrbitMessagesPage() {
         <div className="flex items-center gap-2">
           <Link
             to="/orbit"
+            onClick={historyBackLink}
             aria-label="Back to Orbit"
             className="grid h-9 w-9 place-items-center rounded-full transition-transform active:scale-90"
           >

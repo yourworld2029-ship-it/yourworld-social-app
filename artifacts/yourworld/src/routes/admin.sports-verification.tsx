@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { getSportsProfile, type SportsProfileInfo } from "@/components/yw/SportsProfile";
+import { historyBackOr } from "@/lib/navigation";
 import {
   listSportsVerificationApplications,
   reviewSportsVerification,
@@ -130,7 +131,7 @@ function AdminSportsVerification() {
         <div className="mb-6 mt-2 flex items-center gap-3">
           <button
             type="button"
-            onClick={() => navigate({ to: "/profile" })}
+            onClick={() => historyBackOr(() => void navigate({ to: "/profile" }))}
             className="p-1 text-zinc-300 hover:text-white"
             aria-label="Back to profile"
           >

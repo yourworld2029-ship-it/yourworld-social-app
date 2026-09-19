@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowLeft, Mail, Shield, Scale, AlertTriangle, Ban } from "lucide-react";
+import { historyBackLink } from "@/lib/navigation";
 
 export const Route = createFileRoute("/copyright-policy")({
   head: () => ({
@@ -49,6 +50,7 @@ function CopyrightPolicyPage() {
       <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-zinc-800 bg-black/90 px-4 py-3 backdrop-blur">
         <Link
           to="/settings"
+          onClick={historyBackLink}
           className="grid h-9 w-9 place-items-center rounded-full bg-zinc-900 hover:bg-zinc-800"
           aria-label="Back to settings"
         >

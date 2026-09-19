@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { historyBackOr } from "@/lib/navigation";
 import {
   ChevronLeft,
   EyeOff,
@@ -830,7 +831,7 @@ function OrbitChatPage() {
       <header className="sticky top-0 z-50 flex shrink-0 items-center gap-2 border-b border-border bg-background px-3 pb-2.5 pt-[calc(env(safe-area-inset-top,0px)+0.625rem)]">
         <button
           type="button"
-          onClick={() => navigate({ to: "/orbit/messages" })}
+          onClick={() => historyBackOr(() => void navigate({ to: "/orbit/messages" }))}
           aria-label="Back to Orbit Messages"
           className="grid h-9 w-9 place-items-center rounded-full transition-transform active:scale-90"
         >

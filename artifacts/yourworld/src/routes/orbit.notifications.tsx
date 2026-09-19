@@ -3,6 +3,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { CheckCheck, ChevronLeft, X } from "lucide-react";
 import { ORBIT_KINDS, kindMeta, timeAgo, useNotifications } from "@/lib/notifications-store";
 import { cn } from "@/lib/utils";
+import { historyBackLink } from "@/lib/navigation";
 
 export const Route = createFileRoute("/orbit/notifications")({
   head: () => ({
@@ -42,6 +43,7 @@ function OrbitNotificationsPage() {
       <header className="sticky top-0 z-40 flex items-center gap-2 border-b border-border glass px-3 py-3">
         <Link
           to="/orbit"
+          onClick={historyBackLink}
           aria-label="Back to Orbit"
           className="grid h-9 w-9 place-items-center rounded-full transition-transform active:scale-90"
         >

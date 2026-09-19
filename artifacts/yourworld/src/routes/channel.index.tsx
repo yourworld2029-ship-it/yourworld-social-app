@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft, Camera, Image } from "lucide-react";
+import { historyBackOr } from "@/lib/navigation";
 
 export const Route = createFileRoute("/channel/")({
   component: ChannelIndexPage,
@@ -12,7 +13,10 @@ function ChannelIndexPage() {
     <div className="min-h-screen bg-[#09090b] text-white p-4 font-sans select-none pb-24">
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
-        <button onClick={() => navigate({ to: "/settings" })} className="p-1 text-zinc-300 hover:text-white">
+        <button
+          onClick={() => historyBackOr(() => void navigate({ to: "/settings" }))}
+          className="p-1 text-zinc-300 hover:text-white"
+        >
           <ArrowLeft size={22} />
         </button>
         <h1 className="text-xl font-bold">Create Channel</h1>

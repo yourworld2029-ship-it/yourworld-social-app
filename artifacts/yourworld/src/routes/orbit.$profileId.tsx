@@ -17,6 +17,7 @@ import { sendOrbitMatch, useOrbitMatches } from "@/lib/orbit-match";
 import { moodById } from "@/lib/orbit-mood";
 import { OrbitCallActions } from "@/components/yw/OrbitCallActions";
 import { useChatNames } from "@/lib/chat-names";
+import { historyBackOr } from "@/lib/navigation";
 
 export const Route = createFileRoute("/orbit/$profileId")({
   head: () => ({
@@ -93,7 +94,7 @@ function OrbitProfilePage() {
       <header className="sticky top-0 z-40 flex items-center gap-2 border-b border-border glass px-3 py-3">
         <button
           type="button"
-          onClick={() => navigate({ to: "/orbit" })}
+          onClick={() => historyBackOr(() => void navigate({ to: "/orbit" }))}
           aria-label="Back to Orbit feed"
           className="grid h-9 w-9 place-items-center rounded-full transition-transform active:scale-90"
         >

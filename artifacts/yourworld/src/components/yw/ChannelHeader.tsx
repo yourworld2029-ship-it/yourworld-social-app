@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { ChevronLeft } from "lucide-react";
 import type { ReactNode } from "react";
+import { historyBackLink } from "@/lib/navigation";
 
 export function ChannelHeader({
   title,
@@ -15,6 +16,7 @@ export function ChannelHeader({
     <header className="sticky top-0 z-40 flex items-center gap-2 border-b border-border glass px-3 py-3">
       <Link
         to={backTo}
+        onClick={historyBackLink}
         aria-label="Go back"
         className="grid h-9 w-9 place-items-center rounded-full transition-transform active:scale-90"
       >

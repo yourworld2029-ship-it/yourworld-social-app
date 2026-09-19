@@ -3,6 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowLeft, CheckCircle2, LockKeyhole, RefreshCw, ShieldAlert, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { historyBackLink } from "@/lib/navigation";
 import {
   getAdminSecurityStatus,
   listAdminConsole,
@@ -96,7 +97,12 @@ function AdminConsole() {
     <main className="min-h-screen bg-[#09090b] p-4 text-white">
       <div className="mx-auto max-w-7xl">
         <header className="mb-5 flex flex-wrap items-center gap-3">
-          <Link to="/profile" className="p-1 text-zinc-300 hover:text-white" aria-label="Back to profile">
+          <Link
+            to="/profile"
+            onClick={historyBackLink}
+            className="p-1 text-zinc-300 hover:text-white"
+            aria-label="Back to profile"
+          >
             <ArrowLeft size={22} />
           </Link>
           <div className="min-w-0 flex-1">

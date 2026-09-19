@@ -14,6 +14,7 @@ import {
 } from "@/lib/channel-store";
 import { supabase } from "@/integrations/supabase/client";
 import { STORAGE_BUCKETS, uploadWithProgress } from "@/lib/storage-upload";
+import { historyBackLink } from "@/lib/navigation";
 
 export const Route = createFileRoute("/channel/create")({
   head: () => ({
@@ -71,6 +72,7 @@ function ChannelCreate() {
       <header className="sticky top-0 z-40 flex items-center gap-2 border-b border-border glass px-3 py-3">
         <Link
           to={hasChannel ? "/channel" : "/settings"}
+          onClick={historyBackLink}
           aria-label="Go back"
           className="grid h-9 w-9 place-items-center rounded-full transition-transform active:scale-90"
         >

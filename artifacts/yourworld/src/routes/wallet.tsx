@@ -9,6 +9,7 @@ import { computeBreakdown, inr, type GrossBySource } from "@/lib/payout-math";
 import { downloadPayoutPdf, payoutPdfBase64, type StatementInfo } from "@/lib/payout-pdf";
 import { emailPayoutInvoice, processPayout } from "@/lib/payouts.functions";
 import { postKind } from "@/lib/supabase-compat";
+import { historyBackOr } from "@/lib/navigation";
 
 export const Route = createFileRoute("/wallet")({
   head: () => ({
@@ -254,7 +255,7 @@ function WalletPage() {
     <div className="min-h-screen bg-[#09090b] pb-16 font-sans text-white">
       <header className="sticky top-0 z-40 flex items-center gap-3 border-b border-zinc-800 bg-[#09090b]/90 px-4 py-3 backdrop-blur">
         <button
-          onClick={() => navigate({ to: "/settings" })}
+          onClick={() => historyBackOr(() => void navigate({ to: "/settings" }))}
           aria-label="Back to settings"
           className="p-1 text-zinc-300 hover:text-white"
         >

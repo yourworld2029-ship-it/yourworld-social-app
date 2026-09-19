@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { historyBackOr } from "@/lib/navigation";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -177,7 +178,7 @@ function DirectReelUploadPage() {
         <header className="mb-6 flex items-center gap-3">
           <button
             type="button"
-            onClick={() => navigate({ to: "/" })}
+            onClick={() => historyBackOr(() => void navigate({ to: "/" }))}
             className="rounded-full p-2 text-white/80 transition hover:bg-white/10"
             aria-label="Go back"
           >

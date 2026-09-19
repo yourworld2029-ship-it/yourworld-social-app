@@ -11,6 +11,7 @@ import {
   type NotificationKind,
 } from "@/lib/notifications-store";
 import { cn } from "@/lib/utils";
+import { historyBackLink } from "@/lib/navigation";
 import { SportsIdentityMark } from "@/components/yw/SportsIdentityBadge";
 
 export const Route = createFileRoute("/notifications")({
@@ -79,6 +80,7 @@ function NotificationsPage() {
         <div className="flex items-center gap-2 px-3 py-3">
           <Link
             to="/"
+            onClick={historyBackLink}
             aria-label="Back"
             className="grid h-9 w-9 place-items-center rounded-full transition-transform active:scale-90"
           >

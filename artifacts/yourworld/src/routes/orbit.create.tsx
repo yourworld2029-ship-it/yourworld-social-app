@@ -3,6 +3,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { ChevronLeft, MapPin } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { historyBackLink } from "@/lib/navigation";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -77,6 +78,7 @@ function OrbitCreate() {
       <header className="sticky top-0 z-40 flex items-center gap-2 border-b border-border glass px-3 py-3">
         <Link
           to="/orbit"
+          onClick={historyBackLink}
           aria-label="Back to Orbit"
           className="grid h-9 w-9 place-items-center rounded-full transition-transform active:scale-90"
         >

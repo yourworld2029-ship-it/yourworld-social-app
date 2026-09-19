@@ -3,6 +3,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { ChevronLeft, Pencil, MapPin, ImagePlus, Video, Sparkles, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { historyBackOr } from "@/lib/navigation";
 import { useOrbit, ORBIT_PHOTO_MAX, type OrbitPhoto } from "@/lib/orbit-store";
 import { moodById } from "@/lib/orbit-mood";
 import {
@@ -119,7 +120,7 @@ function OrbitMyProfile() {
       <header className="sticky top-0 z-40 flex items-center gap-2 border-b border-border glass px-3 py-3">
         <button
           type="button"
-          onClick={() => navigate({ to: "/orbit" })}
+          onClick={() => historyBackOr(() => void navigate({ to: "/orbit" }))}
           aria-label="Back to Orbit feed"
           className="grid h-9 w-9 place-items-center rounded-full transition-transform active:scale-90"
         >
