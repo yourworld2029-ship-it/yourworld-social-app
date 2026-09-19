@@ -1,5 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useState, useRef } from "react";
 import {
   ChevronLeft,
@@ -21,10 +22,13 @@ import {
   X,
   AlertTriangle,
   ShieldCheck,
+  Loader2,
 } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { historyBackLink } from "@/lib/navigation";
 import { useAuth } from "@/lib/auth-store";
+import { deleteMyAccount } from "@/lib/account.functions";
 import { YwAvatar } from "@/components/yw/Avatar";
 import { useMyProfile } from "@/lib/profile-data";
 import {
@@ -683,6 +687,7 @@ function AccountPage() {
   const { profile, avatarSrc, save } = useMyProfile();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const runDeleteAccount = useServerFn(deleteMyAccount);
 
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
@@ -695,6 +700,8 @@ function AccountPage() {
   const [igOn, setIgOn] = useState(false);
   const [scOn, setScOn] = useState(false);
   const [sessionsOpen, setSessionsOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     setName(profile.display_name);
@@ -730,6 +737,29 @@ function AccountPage() {
     queryClient.clear();
     await signOut();
     navigate({ to: "/auth", search: { redirect: undefined }, replace: true });
+  };
+
+  const handleDeleteAccount = async () => {
+    if (deleting) return;
+    setDeleting(true);
+    try {
+      await runDeleteAccount();
+      await queryClient.cancelQueries();
+      queryClient.clear();
+      await signOut("local");
+      try {
+        localStorage.clear();
+        sessionStorage.clear();
+      } catch (storageError) {
+        console.warn("[account] local browser storage could not be cleared", storageError);
+      }
+      toast.success("Your account has been deleted");
+      navigate({ to: "/auth", search: { redirect: undefined }, replace: true });
+    } catch (error) {
+      console.error("[account] delete request failed", error);
+      setDeleting(false);
+      toast.error(error instanceof Error ? error.message : "Could not delete your account");
+    }
   };
 
   return (
@@ -881,7 +911,11 @@ function AccountPage() {
             <p className="font-ui text-[13px] leading-relaxed text-muted-foreground">
               Once you delete your account, all your moments, posts, and data will be permanently removed. This action cannot be undone.
             </p>
-            <button className="flex w-full items-center justify-center gap-2 rounded-[13px] border border-destructive/30 bg-destructive/10 py-2.5 font-ui text-[14px] font-semibold text-destructive transition-all duration-200 hover:bg-destructive/15 active:scale-[0.98]">
+            <button
+              type="button"
+              onClick={() => setDeleteOpen(true)}
+              className="flex w-full items-center justify-center gap-2 rounded-[13px] border border-destructive/30 bg-destructive/10 py-2.5 font-ui text-[14px] font-semibold text-destructive transition-all duration-200 hover:bg-destructive/15 active:scale-[0.98]"
+            >
               <Trash2 className="h-4 w-4" strokeWidth={1.8} />
               Delete My Account
             </button>
@@ -892,6 +926,39 @@ function AccountPage() {
 
       {/* ── active sessions sheet ── */}
       <ActiveSessionsSheet open={sessionsOpen} onOpenChange={setSessionsOpen} />
+
+      <Dialog
+        open={deleteOpen}
+        onOpenChange={(open) => {
+          if (!deleting) setDeleteOpen(open);
+        }}
+      >
+        <DialogContent className="max-w-[calc(100%-2rem)] rounded-[22px] border-destructive/20">
+          <DialogTitle className="font-ui text-[18px]">Delete your account?</DialogTitle>
+          <p className="font-ui text-[14px] leading-relaxed text-muted-foreground">
+            Are you sure you want to delete your account? This action is permanent and will delete all your data.
+          </p>
+          <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              disabled={deleting}
+              onClick={() => setDeleteOpen(false)}
+              className="rounded-[12px] border border-border px-4 py-2.5 font-ui text-[14px] font-semibold text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={deleting}
+              onClick={() => void handleDeleteAccount()}
+              className="inline-flex items-center justify-center gap-2 rounded-[12px] bg-destructive px-4 py-2.5 font-ui text-[14px] font-semibold text-destructive-foreground transition-colors hover:bg-destructive/90 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {deleting && <Loader2 className="h-4 w-4 animate-spin" />}
+              {deleting ? "Deleting…" : "Confirm Delete"}
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }

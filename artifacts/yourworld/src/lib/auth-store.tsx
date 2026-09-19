@@ -14,7 +14,7 @@ type AuthValue = {
   session: Session | null;
   user: User | null;
   loading: boolean;
-  signOut: () => Promise<void>;
+  signOut: (scope?: "global" | "local" | "others") => Promise<void>;
 };
 
 const AuthContext = createContext<AuthValue | null>(null);
@@ -87,8 +87,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       session,
       user: session?.user ?? null,
       loading,
-      signOut: async () => {
-        await supabase.auth.signOut();
+      signOut: async (scope = "global") => {
+        const { error } = await supabase.auth.signOut({ scope });
+        if (error && scope !== "local") {
+          // Account deletion invalidates the remote session before the browser
+          // can sign out globally. Always remove the local token in that case.
+          const { error: localError } = await supabase.auth.signOut({ scope: "local" });
+          if (localError) throw error;
+        } else if (error) {
+          throw error;
+        }
       },
     }),
     [session, loading],

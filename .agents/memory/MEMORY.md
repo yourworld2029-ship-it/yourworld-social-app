@@ -31,3 +31,4 @@
 - [Owner admin moderation security](admin-moderation-security.md) — sensitive moderation is server-side, owner-admin plus AAL2, privately evidenced, audited, and never an automatic forfeiture.
 - [Supabase MFA factor listing](supabase-mfa-factor-listing.md) — `listFactors().totp` only contains verified factors; inspect `all` to resume unverified TOTP verification.
 - [Highlight deletion boundary](highlight-deletion-boundary.md) — route destructive Highlight deletes through authenticated server code and verify the single JSONB row is gone before updating the UI.
+- [Account deletion pipeline](account-deletion-pipeline.md) — use a transactional SECURITY DEFINER Supabase function for authenticated cleanup before removing auth.users.
