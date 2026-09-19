@@ -345,6 +345,9 @@ function MomentCreatePage() {
   const [audioPlaying, setAudioPlaying] =
     useState(false);
 
+  const [audioSegmentLength, setAudioSegmentLength] =
+    useState<15 | 30>(30);
+
   const [showMusicLibrary, setShowMusicLibrary] =
     useState(false);
   const [showMusicPanel, setShowMusicPanel] =
@@ -1169,11 +1172,37 @@ function MomentCreatePage() {
       setAudioDuration(dur);
       setAudioStart(0);
       setAudioEnd(
-        Math.min(dur, 30) || dur
+        Math.min(dur, audioSegmentLength) || dur
       );
     };
 
     event.target.value = "";
+  };
+
+  const previewAudioAt = (time: number, play = true) => {
+    const el = previewAudioRef.current;
+    if (!el) return;
+    el.currentTime = Math.max(0, time);
+    el.volume = audioVolume;
+    if (play) {
+      void el.play().then(() => setAudioPlaying(true)).catch(() => {});
+    }
+  };
+
+  const moveAudioWindow = (nextStart: number, length = audioSegmentLength) => {
+    if (!audioDuration) return;
+    const segmentLength = Math.min(length, audioDuration);
+    const maxStart = Math.max(0, audioDuration - segmentLength);
+    const start = Math.min(maxStart, Math.max(0, nextStart));
+    setAudioStart(start);
+    setAudioEnd(start + segmentLength);
+    previewAudioAt(start);
+  };
+
+  const chooseAudioSegmentLength = (length: 15 | 30) => {
+    setAudioSegmentLength(length);
+    if (!audioDuration) return;
+    moveAudioWindow(audioStart, length);
   };
 
   const removeAudio = () => {
@@ -2397,7 +2426,7 @@ function MomentCreatePage() {
 
   if (step === 1) {
     return (
-      <div className="relative w-full h-screen bg-black text-white overflow-hidden select-none">
+      <div className="relative h-[100dvh] w-full overflow-hidden bg-black text-white select-none">
         <input
           ref={audioInputRef}
           type="file"
@@ -2410,15 +2439,16 @@ function MomentCreatePage() {
 
         {/* MEDIA */}
 
-        <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
+        <div className="absolute inset-0 flex items-center justify-center overflow-hidden px-3 pb-36 pt-20">
           <div
             ref={frameRef}
             className={`relative ${
               cropRatio ===
               "original"
-                ? "w-full h-full"
-                : `${cropClass()} w-full max-w-full`
+                ? "h-full w-full max-h-full max-w-full"
+                : `${cropClass()} h-auto w-full max-h-full max-w-full`
             }`}
+            style={{ touchAction: cropMode ? "none" : "auto" }}
           >
             {mediaUrl &&
               (isVideo ? (
@@ -2429,7 +2459,7 @@ function MomentCreatePage() {
                   loop
                   playsInline
                   muted={videoMuted}
-                  className="absolute object-cover"
+                  className="absolute object-contain"
                   style={{
                     ...cropStyle(),
                     ...getMediaStyle(),
@@ -2439,7 +2469,7 @@ function MomentCreatePage() {
                 <img
                   src={mediaUrl}
                   alt="Moment"
-                  className="absolute object-cover"
+                  className="absolute object-contain"
                   style={{
                     ...cropStyle(),
                     ...getMediaStyle(),
@@ -3196,6 +3226,14 @@ function MomentCreatePage() {
             src={audioUrl}
             preload="metadata"
             className="hidden"
+            onLoadedMetadata={(e) => {
+              const duration = e.currentTarget.duration;
+              if (!Number.isFinite(duration) || duration <= 0) return;
+              const segmentLength = Math.min(audioSegmentLength, duration);
+              setAudioDuration(duration);
+              setAudioStart(0);
+              setAudioEnd(segmentLength);
+            }}
             onEnded={() =>
               setAudioPlaying(false)
             }
@@ -3297,7 +3335,7 @@ function MomentCreatePage() {
         {/* MUSIC TRIM PANEL */}
 
         {showMusicPanel && audioUrl && (
-          <div className="gpu-layer transition-transform duration-200 ease-out absolute bottom-0 left-0 right-0 z-[80] bg-black/90 backdrop-blur-2xl rounded-t-3xl p-4 pb-8 border-t border-white/10">
+          <div className="gpu-layer absolute bottom-0 left-0 right-0 z-[80] rounded-t-3xl border-t border-white/10 bg-zinc-950/95 p-3 pb-[max(env(safe-area-inset-bottom),0.75rem)] shadow-[0_-20px_60px_rgba(0,0,0,0.45)] backdrop-blur-2xl">
             <div className="flex items-center gap-2 mb-3">
               <button
                 onClick={
@@ -3343,57 +3381,33 @@ function MomentCreatePage() {
               </button>
             </div>
 
-            <label className="block text-[10px] uppercase tracking-wider text-white/50 mb-1">
-              Start
-            </label>
-            <input
-              type="range"
-              min={0}
-              max={Math.max(
-                0.1,
-                audioDuration
-              )}
-              step={0.1}
-              value={audioStart}
-              onChange={(e) => {
-                const v = Math.min(
-                  Number(e.target.value),
-                  audioEnd - 0.5
-                );
-                setAudioStart(
-                  Math.max(0, v)
-                );
-                if (
-                  previewAudioRef.current
-                ) {
-                  previewAudioRef.current.currentTime =
-                    Math.max(0, v);
-                }
-              }}
-              className="w-full accent-pink-500"
-            />
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/50">
+                Choose clip
+              </span>
+              <div className="flex items-center gap-1 rounded-full bg-white/[0.06] p-1">
+                {[15, 30].map((length) => (
+                  <button
+                    key={length}
+                    type="button"
+                    onClick={() => chooseAudioSegmentLength(length as 15 | 30)}
+                    className={`rounded-full px-2.5 py-1 text-[10px] font-bold transition ${
+                      audioSegmentLength === length
+                        ? "bg-white text-black"
+                        : "text-white/55 hover:bg-white/10 hover:text-white"
+                    }`}
+                  >
+                    {length}s
+                  </button>
+                ))}
+              </div>
+            </div>
 
-            <label className="block text-[10px] uppercase tracking-wider text-white/50 mt-2 mb-1">
-              End
-            </label>
-            <input
-              type="range"
-              min={0}
-              max={Math.max(
-                0.1,
-                audioDuration
-              )}
-              step={0.1}
-              value={audioEnd}
-              onChange={(e) =>
-                setAudioEnd(
-                  Math.max(
-                    audioStart + 0.5,
-                    Number(e.target.value)
-                  )
-                )
-              }
-              className="w-full accent-pink-500"
+            <AudioTimeline
+              duration={audioDuration}
+              start={audioStart}
+              end={audioEnd}
+              onChangeStart={(nextStart) => moveAudioWindow(nextStart)}
             />
 
             <label className="block text-[10px] uppercase tracking-wider text-white/50 mt-2 mb-1">
@@ -3509,7 +3523,9 @@ function MomentCreatePage() {
         {/* BOTTOM NAV BAR */}
 
         {!(showTextInput || drawMode || cropMode || showMusicPanel || panel) && (
-        <div className="absolute bottom-0 left-0 right-0 z-[70] flex items-center justify-between gap-3 px-4 pb-6 pt-4 bg-gradient-to-t from-black via-black/70 to-transparent backdrop-blur-md">
+        <div
+          className="absolute bottom-4 left-4 right-4 z-[70] flex items-center justify-between gap-3 bg-gradient-to-t from-black/90 via-black/70 to-transparent pb-[max(env(safe-area-inset-bottom),0.25rem)] pt-6 backdrop-blur-md"
+        >
 
           <button
             onClick={handleDownload}
@@ -4295,6 +4311,109 @@ function TextLayerView({
 // FREE CROP OVERLAY
 // =====================================================
 
+function AudioTimeline({
+  duration,
+  start,
+  end,
+  onChangeStart,
+}: {
+  duration: number;
+  start: number;
+  end: number;
+  onChangeStart: (start: number) => void;
+}) {
+  const timelineRef = useRef<HTMLDivElement>(null);
+  const dragging = useRef(false);
+  const selectionLength = Math.max(0, end - start);
+  const safeDuration = Math.max(duration, 0.1);
+  const maxStart = Math.max(0, duration - selectionLength);
+
+  const updateFromClientX = (clientX: number) => {
+    const rect = timelineRef.current?.getBoundingClientRect();
+    if (!rect || !duration) return;
+    const position = ((clientX - rect.left) / rect.width) * duration;
+    onChangeStart(Math.min(maxStart, Math.max(0, position - selectionLength / 2)));
+  };
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!duration) return;
+    dragging.current = true;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    updateFromClientX(event.clientX);
+  };
+
+  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (dragging.current) updateFromClientX(event.clientX);
+  };
+
+  const handlePointerEnd = (event: React.PointerEvent<HTMLDivElement>) => {
+    dragging.current = false;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+  };
+
+  return (
+    <div className="space-y-1.5">
+      <div
+        ref={timelineRef}
+        role="slider"
+        tabIndex={duration ? 0 : -1}
+        aria-label="Move selected audio segment"
+        aria-valuemin={0}
+        aria-valuemax={maxStart}
+        aria-valuenow={Math.round(start * 10) / 10}
+        className="relative h-14 touch-none select-none overflow-hidden rounded-xl border border-white/10 bg-white/[0.04] px-2 py-2 outline-none focus-visible:ring-2 focus-visible:ring-pink-400/80"
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerEnd}
+        onPointerCancel={handlePointerEnd}
+        onKeyDown={(event) => {
+          if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+          event.preventDefault();
+          const step = event.shiftKey ? 5 : 1;
+          onChangeStart(
+            Math.min(
+              maxStart,
+              Math.max(0, start + (event.key === "ArrowRight" ? step : -step)),
+            ),
+          );
+        }}
+      >
+        <div className="absolute inset-2 flex items-center justify-between gap-0.5 opacity-55">
+          {Array.from({ length: 48 }, (_, index) => {
+            const height = 28 + ((index * 37) % 68);
+            return (
+              <span
+                key={index}
+                className="w-full rounded-full bg-white/45"
+                style={{ height: `${height}%` }}
+              />
+            );
+          })}
+        </div>
+
+        <div
+          className="pointer-events-none absolute bottom-1.5 top-1.5 rounded-lg border border-pink-200/90 bg-pink-400/20 shadow-[0_0_22px_rgba(236,72,153,0.24)]"
+          style={{
+            left: `${(start / safeDuration) * 100}%`,
+            width: `${(selectionLength / safeDuration) * 100}%`,
+          }}
+        >
+          <span className="absolute bottom-0 left-0 top-0 w-1 rounded-full bg-white" />
+          <span className="absolute bottom-0 right-0 top-0 w-1 rounded-full bg-white" />
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between font-mono text-[10px] text-white/55">
+        <span>{fmtTime(start)}</span>
+        <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-white/80">
+          {fmtTime(start)} / {fmtTime(duration)}
+        </span>
+        <span>{fmtTime(end)}</span>
+      </div>
+    </div>
+  );
+}
+
 function CropOverlay({
   rect,
   onChange,
@@ -4310,6 +4429,28 @@ function CropOverlay({
     startY: number;
     rect: Rect;
   } | null>(null);
+  const pointers = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pinch = useRef<{
+    rect: Rect;
+    distance: number;
+    centerX: number;
+    centerY: number;
+  } | null>(null);
+  const gridTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [gridActive, setGridActive] = useState(false);
+
+  const showGrid = () => {
+    setGridActive(true);
+    if (gridTimer.current) clearTimeout(gridTimer.current);
+    gridTimer.current = setTimeout(() => setGridActive(false), 650);
+  };
+
+  const pointerDistance = (points: { x: number; y: number }[]) => {
+    const a = points[0];
+    const b = points[1];
+    if (!a || !b) return 0;
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  };
 
   const start =
     (handle: "move" | "nw" | "ne" | "sw" | "se") =>
@@ -4317,13 +4458,74 @@ function CropOverlay({
       e.stopPropagation();
       e.preventDefault();
       (e.target as Element).setPointerCapture?.(e.pointerId);
+      showGrid();
+
+      if (handle === "move") {
+        pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        const points = [...pointers.current.values()];
+        if (points.length >= 2) {
+          const frame = frameRef.current?.getBoundingClientRect();
+          const center = points.reduce(
+            (result, point) => ({
+              x: result.x + point.x / points.length,
+              y: result.y + point.y / points.length,
+            }),
+            { x: 0, y: 0 },
+          );
+          pinch.current = {
+            rect,
+            distance: Math.max(1, pointerDistance(points)),
+            centerX: frame ? (center.x - frame.left) / frame.width : center.x,
+            centerY: frame ? (center.y - frame.top) / frame.height : center.y,
+          };
+          drag.current = null;
+        } else {
+          drag.current = { handle, startX: e.clientX, startY: e.clientY, rect };
+        }
+        return;
+      }
+
       drag.current = { handle, startX: e.clientX, startY: e.clientY, rect };
     };
 
   const move = (e: React.PointerEvent) => {
-    const d = drag.current;
     const r = frameRef.current?.getBoundingClientRect();
-    if (!d || !r) return;
+    if (!r) return;
+
+    if (pointers.current.has(e.pointerId)) {
+      pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+
+    const pinchState = pinch.current;
+    const activePoints = [...pointers.current.values()];
+    if (pinchState && activePoints.length >= 2) {
+      const points = activePoints.slice(0, 2);
+      const center = points.reduce(
+        (result, point) => ({
+          x: result.x + point.x / points.length,
+          y: result.y + point.y / points.length,
+        }),
+        { x: 0, y: 0 },
+      );
+      // A wider finger distance should zoom the media in, which means the
+      // crop window becomes smaller around the current pinch center.
+      const scale = pinchState.distance / pointerDistance(points);
+      const width = Math.min(1, Math.max(0.1, pinchState.rect.w * scale));
+      const height = Math.min(1, Math.max(0.1, pinchState.rect.h * scale));
+      const centerX = (center.x - r.left) / r.width;
+      const centerY = (center.y - r.top) / r.height;
+      onChange({
+        x: Math.min(1 - width, Math.max(0, centerX - width / 2)),
+        y: Math.min(1 - height, Math.max(0, centerY - height / 2)),
+        w: width,
+        h: height,
+      });
+      showGrid();
+      return;
+    }
+
+    const d = drag.current;
+    if (!d) return;
 
     const dx = (e.clientX - d.startX) / r.width;
     const dy = (e.clientY - d.startY) / r.height;
@@ -4365,7 +4567,22 @@ function CropOverlay({
 
   const end = (e: React.PointerEvent) => {
     (e.target as Element).releasePointerCapture?.(e.pointerId);
-    drag.current = null;
+    pointers.current.delete(e.pointerId);
+    if (pointers.current.size < 2) pinch.current = null;
+
+    const remaining = [...pointers.current.values()][0];
+    if (remaining) {
+      drag.current = {
+        handle: "move",
+        startX: remaining.x,
+        startY: remaining.y,
+        rect,
+      };
+    } else {
+      drag.current = null;
+      pinch.current = null;
+      showGrid();
+    }
   };
 
   const handles: Array<["nw" | "ne" | "sw" | "se", string]> = [
@@ -4394,7 +4611,11 @@ function CropOverlay({
         }}
         onPointerDown={start("move")}
       >
-        <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 pointer-events-none">
+        <div
+          className={`pointer-events-none absolute inset-0 grid grid-cols-3 grid-rows-3 transition-opacity duration-300 ${
+            gridActive ? "opacity-100" : "opacity-20"
+          }`}
+        >
           {Array.from({ length: 9 }).map((_, i) => (
             <div key={i} className="border border-white/25" />
           ))}
