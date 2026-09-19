@@ -89,8 +89,8 @@ export type MyMoment = {
   location?: string;
   mentions: string[];
   privacy: MomentPrivacy;
-  /** hours */
-  duration: 24;
+  /** hours until the Moment expires */
+  duration: number;
   effect: MomentEffect;
   ai: Partial<Record<AiTool, boolean>>;
   allowDownload: boolean;
@@ -103,7 +103,7 @@ export type MyMoment = {
   saveToArchive?: boolean;
   poll: MomentPoll | null;
   createdAt: number;
-  /** epoch ms when this moment expires (24h for new moments) */
+  /** epoch ms when this moment expires */
   expiresAt?: number;
   archived: boolean;
   viewers: MomentViewer[];
@@ -259,7 +259,10 @@ function hasProfileJoinError(error: unknown) {
 function postRowToMoment(row: Record<string, unknown>): DbMoment {
   const createdAt =
     typeof row.created_at === "string" ? row.created_at : new Date().toISOString();
-  const durationHours = 24;
+  const durationHours =
+    typeof row.duration === "number" && Number.isFinite(row.duration) && row.duration > 0
+      ? row.duration
+      : 24;
   return {
     id: String(row.id),
     user_id: String(row.user_id),
@@ -351,7 +354,7 @@ function rowToMoment(
       ? p.mentions.filter((mention): mention is string => typeof mention === "string")
       : [],
     privacy,
-    duration: 24,
+    duration: Number.isFinite(row.duration) && row.duration > 0 ? row.duration : 24,
     effect:
       p.effect === "boomerang" ||
       p.effect === "slowmo" ||
@@ -401,6 +404,7 @@ function payloadOf(m: NewMoment) {
     allowSharing: m.allowSharing ?? true,
     showLocation: m.showLocation ?? true,
     saveToArchive: m.saveToArchive ?? true,
+    durationHours: m.duration,
   };
 }
 
@@ -947,7 +951,8 @@ export function MomentProvider({ children }: { children: ReactNode }) {
             setMoments((p) => p.filter((x) => x.id !== tempId));
             return { error: "Couldn't upload this moment's media" };
           }
-           const hours = 24;
+            const hours =
+              Number.isFinite(m.duration) && m.duration > 0 ? m.duration : 24;
 
           let error: { message: string } | null = null;
           try {

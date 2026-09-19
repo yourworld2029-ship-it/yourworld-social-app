@@ -4114,18 +4114,18 @@ function SettingRow({
   return (
     <button
       onClick={onChange}
-      className="w-full rounded-2xl bg-white/[0.04] border border-white/10 px-3 py-2.5 flex items-center gap-3 text-left"
+      className="flex min-h-[68px] w-full items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-2.5 py-2 text-left"
     >
-      <div className="w-7 h-7 shrink-0 rounded-xl bg-white/5 flex items-center justify-center text-zinc-400 [&>svg]:h-3.5 [&>svg]:w-3.5">
+      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-white/5 text-zinc-400 [&>svg]:h-3.5 [&>svg]:w-3.5">
         {icon}
       </div>
 
-      <div className="flex-1 min-w-0">
-        <p className="font-semibold text-[12px] leading-tight">
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[11px] font-semibold leading-tight">
           {title}
         </p>
 
-        <p className="text-[10px] text-zinc-500 mt-0.5 leading-tight">
+        <p className="mt-0.5 truncate text-[9px] leading-tight text-zinc-500">
           {subtitle}
         </p>
       </div>
@@ -4133,13 +4133,13 @@ function SettingRow({
       <span
         role="switch"
         aria-checked={checked}
-        className={`relative h-[26px] w-[46px] shrink-0 rounded-full transition-colors duration-300 ease-out ${
+        className={`relative h-[22px] w-[38px] shrink-0 rounded-full transition-colors duration-300 ease-out ${
           checked ? "bg-pink-500" : "bg-zinc-700"
         }`}
       >
         <span
-          className={`absolute top-[3px] left-[3px] h-5 w-5 rounded-full bg-white shadow-md transition-transform duration-300 ease-out ${
-            checked ? "translate-x-5" : "translate-x-0"
+          className={`absolute left-[3px] top-[3px] h-4 w-4 rounded-full bg-white shadow-md transition-transform duration-300 ease-out ${
+          checked ? "translate-x-4" : "translate-x-0"
           }`}
         />
       </span>
