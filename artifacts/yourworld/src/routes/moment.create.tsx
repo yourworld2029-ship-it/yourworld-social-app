@@ -35,6 +35,9 @@ import {
   Type,
   Pencil,
   Smile,
+  Scissors,
+  Link2,
+  Sparkles,
   Crop,
   Undo2,
   Redo2,
@@ -54,6 +57,8 @@ import { useMoments } from "@/lib/moment-context";
 import { useUploads } from "@/lib/upload-progress";
 import { splitMomentIntoParts } from "@/lib/moment-parts";
 import { adaptiveCameraCaptureAttempts } from "@/lib/adaptive-performance";
+import { useAuth } from "@/lib/auth-store";
+import { ProfileAvatar } from "@/components/yw/ProfileAvatar";
 
 export const Route = createFileRoute("/moment/create")({
   component: MomentCreatePage,
@@ -71,18 +76,18 @@ type TextLayer = {
   color: string;
 };
 
+type MediaTransform = {
+  x: number;
+  y: number;
+  scale: number;
+  rotation: number;
+};
+
 type Rect = {
   x: number;
   y: number;
   w: number;
   h: number;
-};
-
-const FULL_RECT: Rect = {
-  x: 0,
-  y: 0,
-  w: 1,
-  h: 1,
 };
 
 const clamp01 = (v: number) =>
@@ -191,6 +196,7 @@ function MomentCreatePage() {
   const navigate = useNavigate();
   const { addMoment } = useMoments();
   const { startUpload } = useUploads();
+  const { user } = useAuth();
 
   // =====================================================
   // CAMERA REFS
@@ -284,7 +290,7 @@ function MomentCreatePage() {
   const [mediaUrl, setMediaUrl] =
     useState<string | null>(null);
 
-  const [mediaBlob, setMediaBlob] =
+  const [, setMediaBlob] =
     useState<Blob | null>(null);
 
   const [isVideo, setIsVideo] =
@@ -308,9 +314,6 @@ function MomentCreatePage() {
 
   const [cropRatio, setCropRatio] =
     useState<CropRatio>("original");
-
-  const [rotation, setRotation] =
-    useState(0);
 
   const [videoSpeed, setVideoSpeed] =
     useState(1);
@@ -356,6 +359,12 @@ function MomentCreatePage() {
     useState<null | "sticker" | "filter">(null);
   const [showFinalPreview, setShowFinalPreview] =
     useState(false);
+  const [renderedPreviewUrl, setRenderedPreviewUrl] =
+    useState<string | null>(null);
+  const [renderedMediaUrl, setRenderedMediaUrl] =
+    useState<string | null>(null);
+  const [isRenderingPreview, setIsRenderingPreview] =
+    useState(false);
   const [photoSeconds, setPhotoSeconds] =
     useState(15);
 
@@ -398,6 +407,50 @@ function MomentCreatePage() {
   const frameRef =
     useRef<HTMLDivElement>(null);
 
+  const mediaTransformRef =
+    useRef<MediaTransform>({
+      x: 0,
+      y: 0,
+      scale: 1,
+      rotation: 0,
+    });
+
+  const mediaPointersRef =
+    useRef<Map<number, { x: number; y: number }>>(
+      new Map(),
+    );
+
+  const mediaGestureRef =
+    useRef<{
+      startTransform: MediaTransform;
+      startCenter: { x: number; y: number };
+      startDistance: number;
+      startAngle: number;
+    } | null>(null);
+
+  const guideTimerRef =
+    useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const hapticGuideRef =
+    useRef({ vertical: false, horizontal: false });
+
+  const [mediaTransform, setMediaTransform] =
+    useState<MediaTransform>({
+      x: 0,
+      y: 0,
+      scale: 1,
+      rotation: 0,
+    });
+
+  const [snapGuides, setSnapGuides] =
+    useState({ vertical: false, horizontal: false });
+
+  const [isMediaTransforming, setIsMediaTransforming] =
+    useState(false);
+
+  const [editorTimeLabel, setEditorTimeLabel] =
+    useState("Now");
+
   const updateActiveText = (
     patch: Partial<TextLayer>
   ) =>
@@ -408,27 +461,6 @@ function MomentCreatePage() {
           : item
       )
     );
-
-  // =====================================================
-  // FREE CROP
-  // =====================================================
-
-  const [cropRect, setCropRect] =
-    useState<Rect>(FULL_RECT);
-
-  const [cropMode, setCropMode] =
-    useState(false);
-
-  const [cropDraft, setCropDraft] =
-    useState<Rect>(FULL_RECT);
-
-  const cropStyle =
-    (): React.CSSProperties => ({
-      left: `${(-cropRect.x / cropRect.w) * 100}%`,
-      top: `${(-cropRect.y / cropRect.h) * 100}%`,
-      width: `${100 / cropRect.w}%`,
-      height: `${100 / cropRect.h}%`,
-    });
 
   // =====================================================
   // STICKERS
@@ -466,6 +498,199 @@ function MomentCreatePage() {
 
   const isDrawing =
     useRef(false);
+
+  const userMetadata =
+    (user?.user_metadata ?? {}) as Record<string, unknown>;
+
+  const editorName =
+    (typeof userMetadata.full_name === "string"
+      ? userMetadata.full_name
+      : typeof userMetadata.name === "string"
+        ? userMetadata.name
+        : typeof userMetadata.username === "string"
+          ? userMetadata.username
+          : null) || "Sandeep Poonia";
+
+  const editorUsername =
+    (typeof userMetadata.username === "string"
+      ? userMetadata.username
+      : typeof user?.email === "string"
+        ? user.email.split("@")[0]
+        : null) || "yourworld";
+
+  const editorAvatarUrl =
+    typeof userMetadata.avatar_url === "string"
+      ? userMetadata.avatar_url
+      : typeof userMetadata.profile_pic === "string"
+        ? userMetadata.profile_pic
+        : typeof userMetadata.profile_image === "string"
+          ? userMetadata.profile_image
+          : null;
+
+  useEffect(() => {
+    if (step !== 1) return;
+    setEditorTimeLabel(
+      new Intl.DateTimeFormat(undefined, {
+        hour: "numeric",
+        minute: "2-digit",
+      }).format(new Date()),
+    );
+  }, [step]);
+
+  const updateMediaTransform = (
+    next: MediaTransform,
+    options?: { snap?: boolean },
+  ) => {
+    const snap = options?.snap !== false;
+    const scale = Math.min(5, Math.max(0.3, next.scale));
+    const snapDistance = 16;
+    const snappedX =
+      snap && Math.abs(next.x) <= snapDistance ? 0 : next.x;
+    const snappedY =
+      snap && Math.abs(next.y) <= snapDistance ? 0 : next.y;
+    const nextTransform = {
+      x: snappedX,
+      y: snappedY,
+      scale,
+      rotation: next.rotation,
+    };
+
+    mediaTransformRef.current = nextTransform;
+    setMediaTransform(nextTransform);
+
+    const vertical = snap && Math.abs(next.x) <= snapDistance;
+    const horizontal = snap && Math.abs(next.y) <= snapDistance;
+    setSnapGuides({ vertical, horizontal });
+
+    if (vertical && !hapticGuideRef.current.vertical) {
+      navigator.vibrate?.(8);
+    }
+    if (horizontal && !hapticGuideRef.current.horizontal) {
+      navigator.vibrate?.(8);
+    }
+    hapticGuideRef.current = { vertical, horizontal };
+  };
+
+  const getPointerCenter = (
+    points: { x: number; y: number }[],
+  ) => {
+    const total = points.reduce(
+      (result, point) => ({
+        x: result.x + point.x,
+        y: result.y + point.y,
+      }),
+      { x: 0, y: 0 },
+    );
+    return {
+      x: total.x / Math.max(1, points.length),
+      y: total.y / Math.max(1, points.length),
+    };
+  };
+
+  const getPointerDistance = (
+    points: { x: number; y: number }[],
+  ) => {
+    const [a, b] = points;
+    return a && b ? Math.hypot(a.x - b.x, a.y - b.y) : 0;
+  };
+
+  const getPointerAngle = (
+    points: { x: number; y: number }[],
+  ) => {
+    const [a, b] = points;
+    return a && b ? Math.atan2(b.y - a.y, b.x - a.x) : 0;
+  };
+
+  const handleMediaPointerDown = (
+    event: React.PointerEvent<HTMLDivElement>,
+  ) => {
+    if (drawMode) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    mediaPointersRef.current.set(event.pointerId, {
+      x: event.clientX,
+      y: event.clientY,
+    });
+
+    const points = [...mediaPointersRef.current.values()];
+    const center = getPointerCenter(points);
+    mediaGestureRef.current = {
+      startTransform: mediaTransformRef.current,
+      startCenter: center,
+      startDistance: Math.max(1, getPointerDistance(points)),
+      startAngle: getPointerAngle(points),
+    };
+    setIsMediaTransforming(true);
+  };
+
+  const handleMediaPointerMove = (
+    event: React.PointerEvent<HTMLDivElement>,
+  ) => {
+    if (!mediaPointersRef.current.has(event.pointerId)) return;
+    const gesture = mediaGestureRef.current;
+    if (!gesture) return;
+
+    event.preventDefault();
+    mediaPointersRef.current.set(event.pointerId, {
+      x: event.clientX,
+      y: event.clientY,
+    });
+
+    const points = [...mediaPointersRef.current.values()];
+    const center = getPointerCenter(points);
+    const dx = center.x - gesture.startCenter.x;
+    const dy = center.y - gesture.startCenter.y;
+    const next: MediaTransform = {
+      ...gesture.startTransform,
+      x: gesture.startTransform.x + dx,
+      y: gesture.startTransform.y + dy,
+    };
+
+    if (points.length >= 2) {
+      next.scale =
+        gesture.startTransform.scale *
+        (getPointerDistance(points) / gesture.startDistance);
+      next.rotation =
+        gesture.startTransform.rotation +
+        ((getPointerAngle(points) - gesture.startAngle) * 180) /
+          Math.PI;
+    }
+
+    updateMediaTransform(next);
+  };
+
+  const handleMediaPointerUp = (
+    event: React.PointerEvent<HTMLDivElement>,
+  ) => {
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    mediaPointersRef.current.delete(event.pointerId);
+
+    const remaining = [...mediaPointersRef.current.values()];
+    if (remaining.length) {
+      mediaGestureRef.current = {
+        startTransform: mediaTransformRef.current,
+        startCenter: getPointerCenter(remaining),
+        startDistance: 1,
+        startAngle: 0,
+      };
+      return;
+    }
+
+    mediaGestureRef.current = null;
+    setIsMediaTransforming(false);
+    if (guideTimerRef.current) clearTimeout(guideTimerRef.current);
+    guideTimerRef.current = setTimeout(() => {
+      setSnapGuides({ vertical: false, horizontal: false });
+    }, 700);
+  };
+
+  const resetMediaTransform = () => {
+    updateMediaTransform(
+      { x: 0, y: 0, scale: 1, rotation: 0 },
+      { snap: false },
+    );
+    setSnapGuides({ vertical: false, horizontal: false });
+  };
 
   // =====================================================
   // SHARE
@@ -1245,7 +1470,7 @@ function MomentCreatePage() {
     setContrast(100);
     setSaturation(100);
     setCropRatio("original");
-    setRotation(0);
+    resetMediaTransform();
     setVideoSpeed(1);
     setVideoMuted(false);
     setOverlayText("");
@@ -1254,9 +1479,6 @@ function MomentCreatePage() {
     setDrawMode(false);
     setTextLayers([]);
     setActiveTextId(null);
-    setCropRect(FULL_RECT);
-    setCropDraft(FULL_RECT);
-    setCropMode(false);
 
     clearDrawing();
   };
@@ -1271,47 +1493,40 @@ function MomentCreatePage() {
         FILTERS[selectedFilter]
           .css;
 
-      // Filters + rotation run purely on the compositor (translateZ keeps
-      // the layer on the GPU), so grading never re-renders the canvas.
       return {
         filter: `${filter} brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%)`,
-        transform: `rotate(${rotation}deg) translateZ(0)`,
-        willChange: "filter, transform",
+        willChange: "filter",
         backfaceVisibility: "hidden",
-        transition:
-          "filter .15s linear, transform .2s cubic-bezier(.22,1,.36,1)",
+        transition: "filter .15s linear",
       };
     };
 
-  // =====================================================
-  // CROP
-  // =====================================================
+  const getMediaTransformStyle =
+    (): React.CSSProperties => ({
+      transform: `translate3d(${mediaTransform.x}px, ${mediaTransform.y}px, 0) scale(${mediaTransform.scale}) rotate(${mediaTransform.rotation}deg)`,
+      transformOrigin: "center center",
+      willChange: "transform",
+      transition: isMediaTransforming
+        ? "none"
+        : "transform 180ms cubic-bezier(.22,1,.36,1)",
+    });
 
-  const cropClass = () => {
-    switch (cropRatio) {
-      case "9:16":
-        return "aspect-[9/16]";
-
-      case "4:5":
-        return "aspect-[4/5]";
-
-      case "1:1":
-        return "aspect-square";
-
-      default:
-        return "w-full h-full";
-    }
-  };
+  const getMediaRenderTransform =
+    (): React.CSSProperties => ({
+      ...getMediaStyle(),
+      ...getMediaTransformStyle(),
+    });
 
   // =====================================================
-  // ROTATE
+  // FREEFORM TRANSFORM
   // =====================================================
 
-  const rotateMedia = () => {
-    setRotation(
-      (value) =>
-        (value + 90) % 360
+  const getTransformLabel = () => {
+    const scale = mediaTransform.scale.toFixed(1);
+    const rotationValue = Math.round(
+      ((mediaTransform.rotation % 360) + 360) % 360,
     );
+    return `${scale}× · ${rotationValue}°`;
   };
 
   // =====================================================
@@ -1320,7 +1535,6 @@ function MomentCreatePage() {
 
   const addText = () => {
     setShowTextInput(true);
-    setCropMode(false);
 
     const layer: TextLayer = {
       id: Date.now(),
@@ -1673,104 +1887,286 @@ function MomentCreatePage() {
     mediaUrl,
   ]);
 
+  const drawEditorFrame = (
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    height: number,
+    pixelRatio: number,
+    source: CanvasImageSource,
+    sourceWidth: number,
+    sourceHeight: number,
+  ) => {
+    const fit = Math.min(width / sourceWidth, height / sourceHeight);
+    const mediaWidth = sourceWidth * fit;
+    const mediaHeight = sourceHeight * fit;
+    const transform = mediaTransformRef.current;
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, width * pixelRatio, height * pixelRatio);
+    ctx.scale(pixelRatio, pixelRatio);
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, width, height);
+    ctx.save();
+    ctx.translate(
+      width / 2 + transform.x,
+      height / 2 + transform.y,
+    );
+    ctx.rotate((transform.rotation * Math.PI) / 180);
+    ctx.scale(transform.scale, transform.scale);
+    ctx.filter = `${FILTERS[selectedFilter].css} brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%)`;
+    ctx.drawImage(
+      source,
+      -mediaWidth / 2,
+      -mediaHeight / 2,
+      mediaWidth,
+      mediaHeight,
+    );
+    ctx.restore();
+    ctx.filter = "none";
+
+    const drawing = drawingCanvasRef.current;
+    if (drawing) {
+      ctx.drawImage(drawing, 0, 0, width, height);
+    }
+
+    textLayers.forEach((layer) => {
+      ctx.save();
+      ctx.translate(
+        (layer.x / 100) * width,
+        (layer.y / 100) * height,
+      );
+      ctx.rotate((layer.rotation * Math.PI) / 180);
+      ctx.font = `900 ${layer.size}px sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.shadowColor = "rgba(0,0,0,.72)";
+      ctx.shadowBlur = 8;
+      ctx.fillStyle = layer.color;
+      ctx.fillText(layer.text || " ", 0, 0);
+      ctx.restore();
+    });
+
+    stickers.forEach((sticker) => {
+      ctx.save();
+      ctx.translate(
+        (sticker.x / 100) * width,
+        (sticker.y / 100) * height,
+      );
+      ctx.font = `${sticker.size}px sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(sticker.emoji, 0, 0);
+      ctx.restore();
+    });
+
+    if (caption) {
+      ctx.font = "600 14px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const captionY = height - 30;
+      ctx.fillStyle = "rgba(0,0,0,.62)";
+      ctx.fillRect(16, captionY - 18, width - 32, 36);
+      ctx.fillStyle = "#fff";
+      ctx.fillText(caption, width / 2, captionY);
+    }
+  };
+
+  const renderEditorToCanvas = async () => {
+    if (!mediaUrl || !frameRef.current) return null;
+
+    const frame = frameRef.current.getBoundingClientRect();
+    const width = Math.max(1, frame.width);
+    const height = Math.max(1, frame.height);
+    const pixelRatio = Math.min(3, window.devicePixelRatio || 2);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(width * pixelRatio);
+    canvas.height = Math.round(height * pixelRatio);
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+
+    let source: CanvasImageSource;
+    let sourceWidth = 0;
+    let sourceHeight = 0;
+
+    if (isVideo) {
+      const video = document.querySelector(
+        "video[data-editor-video]",
+      ) as HTMLVideoElement | null;
+      if (!video || !video.videoWidth || !video.videoHeight) return null;
+      source = video;
+      sourceWidth = video.videoWidth;
+      sourceHeight = video.videoHeight;
+    } else {
+      const image = new Image();
+      image.src = mediaUrl;
+      await new Promise<void>((resolve, reject) => {
+        image.onload = () => resolve();
+        image.onerror = () => reject(new Error("Could not render media"));
+      });
+      source = image;
+      sourceWidth = image.naturalWidth;
+      sourceHeight = image.naturalHeight;
+    }
+
+    drawEditorFrame(
+      ctx,
+      width,
+      height,
+      pixelRatio,
+      source,
+      sourceWidth,
+      sourceHeight,
+    );
+
+    return canvas;
+  };
+
+  const renderEditorVideo = async () => {
+    if (!mediaUrl || !frameRef.current || !HTMLCanvasElement.prototype.captureStream) {
+      return null;
+    }
+
+    const frame = frameRef.current.getBoundingClientRect();
+    const width = Math.max(1, frame.width);
+    const height = Math.max(1, frame.height);
+    const pixelRatio = Math.min(2, window.devicePixelRatio || 1);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(width * pixelRatio);
+    canvas.height = Math.round(height * pixelRatio);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+
+    const source = document.createElement("video");
+    source.src = mediaUrl;
+    source.preload = "auto";
+    source.playsInline = true;
+    source.crossOrigin = "anonymous";
+
+    await new Promise<void>((resolve, reject) => {
+      source.onloadedmetadata = () => resolve();
+      source.onerror = () => reject(new Error("Could not load video render source"));
+    });
+
+    const canvasStream = canvas.captureStream(30);
+    let audioContext: AudioContext | null = null;
+    try {
+      audioContext = new AudioContext();
+      const audioSource = audioContext.createMediaElementSource(source);
+      const audioDestination = audioContext.createMediaStreamDestination();
+      audioSource.connect(audioDestination);
+      audioDestination.stream
+        .getAudioTracks()
+        .forEach((track) => canvasStream.addTrack(track));
+    } catch {
+      audioContext = null;
+    }
+
+    const mimeType = [
+      "video/webm;codecs=vp8,opus",
+      "video/webm",
+    ].find((type) => MediaRecorder.isTypeSupported(type));
+    if (!mimeType) {
+      audioContext?.close();
+      return null;
+    }
+
+    const recorder = new MediaRecorder(canvasStream, { mimeType });
+    const chunks: Blob[] = [];
+    const finished = new Promise<Blob>((resolve) => {
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) chunks.push(event.data);
+      };
+      recorder.onstop = () => {
+        resolve(new Blob(chunks, { type: mimeType }));
+      };
+    });
+
+    const stop = () => {
+      if (recorder.state !== "inactive") recorder.stop();
+      source.pause();
+      audioContext?.close();
+    };
+
+    await source.play();
+    recorder.start();
+
+    const drawFrame = () => {
+      drawEditorFrame(
+        ctx,
+        width,
+        height,
+        pixelRatio,
+        source,
+        source.videoWidth,
+        source.videoHeight,
+      );
+      if (
+        source.ended ||
+        (Number.isFinite(source.duration) &&
+          source.currentTime >= source.duration - 0.05)
+      ) {
+        stop();
+      } else {
+        requestAnimationFrame(drawFrame);
+      }
+    };
+
+    drawFrame();
+    const blob = await finished;
+    const url = URL.createObjectURL(blob);
+    registerBlob(url, blob);
+    return url;
+  };
+
+  const openFinalPreview = async () => {
+    setIsRenderingPreview(true);
+    try {
+      const canvas = await renderEditorToCanvas();
+      setRenderedPreviewUrl(canvas?.toDataURL("image/jpeg", 0.96) ?? null);
+      if (renderedMediaUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(renderedMediaUrl);
+      }
+      if (isVideo) {
+        setRenderedMediaUrl(await renderEditorVideo());
+      } else if (canvas) {
+        const blob = await new Promise<Blob | null>((resolve) =>
+          canvas.toBlob(resolve, "image/jpeg", 0.96),
+        );
+        if (blob) {
+          const url = URL.createObjectURL(blob);
+          registerBlob(url, blob);
+          setRenderedMediaUrl(url);
+        } else {
+          setRenderedMediaUrl(null);
+        }
+      }
+    } catch (error) {
+      console.error("Could not render Moment preview", error);
+      setRenderedPreviewUrl(null);
+      setRenderedMediaUrl(null);
+    } finally {
+      setIsRenderingPreview(false);
+      setShowFinalPreview(true);
+    }
+  };
+
   // =====================================================
   // DOWNLOAD PHOTO
   // =====================================================
 
   const downloadPhotoWithEdits =
     async () => {
-      if (
-        !mediaUrl ||
-        !mediaBlob ||
-        isVideo
-      ) {
-        return;
-      }
-
-      const image =
-        new Image();
-
-      image.src = mediaUrl;
-
-      await new Promise<void>(
-        (resolve) => {
-          image.onload = () =>
-            resolve();
-        }
-      );
-
-      const canvas =
-        document.createElement(
-          "canvas"
-        );
-
-      const sx =
-        cropRect.x *
-        image.naturalWidth;
-
-      const sy =
-        cropRect.y *
-        image.naturalHeight;
-
-      const sw =
-        cropRect.w *
-        image.naturalWidth;
-
-      const sh =
-        cropRect.h *
-        image.naturalHeight;
-
-      canvas.width = sw;
-
-      canvas.height = sh;
-
-      const ctx =
-        canvas.getContext("2d");
-
-      if (!ctx) return;
-
-      ctx.save();
-
-      ctx.translate(
-        canvas.width / 2,
-        canvas.height / 2
-      );
-
-      ctx.rotate(
-        (rotation * Math.PI) /
-          180
-      );
-
-      const filter =
-        FILTERS[selectedFilter]
-          .css;
-
-      ctx.filter = `${filter} brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%)`;
-
-      ctx.drawImage(
-        image,
-        sx,
-        sy,
-        sw,
-        sh,
-        -canvas.width / 2,
-        -canvas.height / 2,
-        canvas.width,
-        canvas.height
-      );
-
-      ctx.restore();
+      if (!mediaUrl || isVideo) return;
+      const canvas = await renderEditorToCanvas();
+      if (!canvas) return;
 
       const link =
         document.createElement(
           "a"
         );
 
-      link.href =
-        canvas.toDataURL(
-          "image/jpeg",
-          0.98
-        );
+      link.href = canvas.toDataURL("image/jpeg", 0.98);
 
       link.download = `yourworld-moment-${Date.now()}.jpg`;
 
@@ -1838,6 +2234,10 @@ function MomentCreatePage() {
 
   const handlePublish = async () => {
     if (!mediaUrl) return;
+    const publishMediaUrl =
+      renderedMediaUrl
+        ? renderedMediaUrl
+        : mediaUrl;
 
     const createdAt =
       new Date();
@@ -1869,7 +2269,7 @@ function MomentCreatePage() {
       : [{ start: 0, end: 0 }];
 
     const base = {
-      mediaUrl,
+      mediaUrl: publishMediaUrl,
 
       mediaType: isVideo
         ? "video"
@@ -1909,7 +2309,7 @@ function MomentCreatePage() {
 
       cropRatio,
 
-      rotation,
+      rotation: mediaTransform.rotation,
 
       videoSpeed,
 
@@ -1975,7 +2375,7 @@ function MomentCreatePage() {
         kind: isVideo
           ? "video"
           : "photo",
-        media: mediaUrl,
+        media: publishMediaUrl,
         mediaType: part.mediaType,
         text: part.caption ?? "",
         textBg: "",
@@ -2442,40 +2842,50 @@ function MomentCreatePage() {
         <div className="absolute inset-0 flex items-center justify-center overflow-hidden px-3 pb-36 pt-20">
           <div
             ref={frameRef}
-            className={`relative ${
-              cropRatio ===
-              "original"
-                ? "h-full w-full max-h-full max-w-full"
-                : `${cropClass()} h-auto w-full max-h-full max-w-full`
-            }`}
-            style={{ touchAction: cropMode ? "none" : "auto" }}
+            className="relative h-full w-full max-h-full max-w-full"
           >
-            {mediaUrl &&
-              (isVideo ? (
-                <video
-                  data-editor-video
-                  src={mediaUrl}
-                  autoPlay
-                  loop
-                  playsInline
-                  muted={videoMuted}
-                  className="absolute object-contain"
-                  style={{
-                    ...cropStyle(),
-                    ...getMediaStyle(),
-                  }}
-                />
-              ) : (
-                <img
-                  src={mediaUrl}
-                  alt="Moment"
-                  className="absolute object-contain"
-                  style={{
-                    ...cropStyle(),
-                    ...getMediaStyle(),
-                  }}
-                />
-              ))}
+            <div
+              className="absolute inset-0 z-10 flex touch-none items-center justify-center"
+              onPointerDown={handleMediaPointerDown}
+              onPointerMove={handleMediaPointerMove}
+              onPointerUp={handleMediaPointerUp}
+              onPointerCancel={handleMediaPointerUp}
+              aria-label="Move, scale, and rotate your media"
+            >
+              {mediaUrl &&
+                (isVideo ? (
+                  <video
+                    data-editor-video
+                    src={mediaUrl}
+                    autoPlay
+                    loop
+                    playsInline
+                    muted={videoMuted}
+                    className="h-full w-full object-contain"
+                    style={getMediaRenderTransform()}
+                  />
+                ) : (
+                  <img
+                    src={mediaUrl}
+                    alt="Moment"
+                    className="h-full w-full object-contain"
+                    style={getMediaRenderTransform()}
+                  />
+                ))}
+            </div>
+
+            {isMediaTransforming && (
+              <div className="pointer-events-none absolute left-1/2 top-20 z-40 -translate-x-1/2 rounded-full border border-white/15 bg-black/45 px-3 py-1.5 font-mono text-[10px] font-bold text-white/75 backdrop-blur-xl">
+                {getTransformLabel()}
+              </div>
+            )}
+
+            {snapGuides.vertical && (
+              <div className="pointer-events-none absolute bottom-0 left-1/2 top-0 z-35 border-l border-dashed border-yellow-300/80" />
+            )}
+            {snapGuides.horizontal && (
+              <div className="pointer-events-none absolute left-0 right-0 top-1/2 z-35 border-t border-dashed border-yellow-300/80" />
+            )}
 
             {/* DRAWING */}
 
@@ -2520,8 +2930,7 @@ function MomentCreatePage() {
                     frameRef
                   }
                   locked={
-                    drawMode ||
-                    cropMode
+                    drawMode
                   }
                   onSelect={() => {
                     setActiveTextId(
@@ -2597,17 +3006,6 @@ function MomentCreatePage() {
               )
             )}
 
-            {/* FREE CROP OVERLAY */}
-
-            {cropMode && (
-              <CropOverlay
-                rect={cropDraft}
-                onChange={
-                  setCropDraft
-                }
-                frameRef={frameRef}
-              />
-            )}
           </div>
         </div>
 
@@ -2619,31 +3017,53 @@ function MomentCreatePage() {
 
         {/* TOP */}
 
-        <div className="absolute top-4 left-4 right-4 z-50 flex justify-between items-start">
-          <button
-            onClick={retake}
-            className="w-11 h-11 rounded-full bg-black/60 backdrop-blur-xl flex items-center justify-center"
-          >
-            <X />
-          </button>
+        <div className="absolute left-3 right-3 top-3 z-50 flex items-start justify-between">
+          <div className="flex min-w-0 items-center gap-2">
+            <button
+              onClick={retake}
+              aria-label="Close editor"
+              className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-black/55 backdrop-blur-xl"
+            >
+              <X size={20} />
+            </button>
+            <div className="flex min-w-0 items-center gap-2 rounded-full bg-black/45 py-1.5 pl-1.5 pr-3 backdrop-blur-xl">
+              <span className="h-8 w-8 flex-shrink-0 overflow-hidden rounded-full border border-white/30 bg-gradient-to-br from-pink-500 to-cyan-400">
+                <ProfileAvatar
+                  user={{
+                    full_name: editorName,
+                    username: editorUsername,
+                    avatar_url: editorAvatarUrl,
+                  }}
+                />
+              </span>
+              <span className="min-w-0">
+                <span className="block max-w-32 truncate text-[11px] font-bold">
+                  {editorName}
+                </span>
+                <span className="block truncate text-[9px] text-white/55">
+                  @{editorUsername} · Today {editorTimeLabel}
+                </span>
+              </span>
+            </div>
+          </div>
 
           <button
             onClick={() => {
               setShowTextInput(false);
               setDrawMode(false);
-              setCropMode(false);
               setShowMusicPanel(false);
               setPanel(null);
               setShowMusicLibrary(true);
             }}
-            className="absolute left-1/2 -translate-x-1/2 px-5 py-2.5 rounded-full bg-black/60 backdrop-blur-xl border border-white/15 text-sm font-bold whitespace-nowrap active:scale-95"
-           >
-             Add a Sound
+            className="absolute left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-white/15 bg-black/60 px-4 py-2.5 text-xs font-bold whitespace-nowrap backdrop-blur-xl active:scale-95"
+          >
+            <Music size={14} />
+            {selectedAudio || "Add a Sound"}
           </button>
 
           <div className="flex gap-2">
             {isVideo && (
-              <div className="px-4 py-2 rounded-full bg-black/60 backdrop-blur-xl text-xs font-bold">
+              <div className="rounded-full bg-black/55 px-3 py-2 text-[10px] font-bold backdrop-blur-xl">
                 VIDEO
               </div>
             )}
@@ -2656,13 +3076,12 @@ function MomentCreatePage() {
           const closeAll = () => {
             setShowTextInput(false);
             setDrawMode(false);
-            setCropMode(false);
             setShowMusicPanel(false);
             setPanel(null);
           };
 
           return (
-            <div className="gpu-layer absolute right-3 top-24 z-[85] flex flex-col items-end gap-3">
+            <div className="gpu-layer absolute right-3 top-24 z-[85] flex max-h-[calc(100dvh-10rem)] flex-col items-end gap-2 overflow-y-auto py-1 no-scrollbar">
               <EditorTool
                 icon={<Pencil />}
                 label="Draw"
@@ -2695,25 +3114,18 @@ function MomentCreatePage() {
                 }}
               />
 
-
-
-
               <EditorTool
-                icon={<Crop />}
-                label="Crop & Rotate"
-                active={cropMode}
+                icon={<Music />}
+                label="Sound"
+                active={showMusicPanel || showMusicLibrary}
                 onClick={() => {
-                  const next = cropMode;
                   closeAll();
-                  if (!next) {
-                    setCropDraft(cropRect);
-                    setCropMode(true);
-                  }
+                  setShowMusicLibrary(true);
                 }}
               />
 
               <EditorTool
-                icon={<Palette />}
+                icon={<Sparkles />}
                 label="Filters"
                 active={panel === "filter"}
                 onClick={() => {
@@ -2721,6 +3133,31 @@ function MomentCreatePage() {
                   closeAll();
                   if (!next) setPanel("filter");
                 }}
+              />
+
+              <EditorTool
+                icon={<Scissors />}
+                label="Cutout"
+                onClick={() => {
+                  closeAll();
+                  setDrawMode(true);
+                }}
+              />
+
+              <EditorTool
+                icon={<Link2 />}
+                label="Link"
+                onClick={() => {
+                  closeAll();
+                  setCaption((value) => value || "Add a link in your caption");
+                }}
+              />
+
+              <EditorTool
+                icon={<Crop />}
+                label="Transform"
+                active={isMediaTransforming}
+                onClick={resetMediaTransform}
               />
 
               <EditorTool
@@ -2903,96 +3340,6 @@ function MomentCreatePage() {
                 className="flex-1 py-2 rounded-xl bg-white text-black text-xs font-bold"
               >
                 Done
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* CROP PANEL */}
-
-        {cropMode && (
-          <div className="gpu-layer transition-transform duration-200 ease-out absolute bottom-0 left-0 right-0 z-[80] bg-black/90 backdrop-blur-2xl rounded-t-3xl p-4 pb-8 border-t border-white/10">
-            <p className="text-[11px] text-white/60 mb-3">
-              Drag the corners to crop freely
-            </p>
-
-            <div className="flex gap-2 overflow-x-auto no-scrollbar mb-3">
-              {(
-                [
-                  "original",
-                  "9:16",
-                  "4:5",
-                  "1:1",
-                ] as CropRatio[]
-              ).map((ratio) => (
-                <button
-                  key={ratio}
-                  onClick={() =>
-                    setCropRatio(
-                      ratio
-                    )
-                  }
-                  className={`px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap ${
-                    cropRatio ===
-                    ratio
-                      ? "bg-white text-black"
-                      : "bg-white/10"
-                  }`}
-                >
-                  {ratio}
-                </button>
-              ))}
-            </div>
-
-            <div className="flex gap-2">
-              <button
-                onClick={() => {
-                  setCropDraft(
-                    FULL_RECT
-                  );
-                  setCropRect(
-                    FULL_RECT
-                  );
-                }}
-                className="px-4 py-3 rounded-2xl bg-white/10 text-xs font-bold"
-              >
-                Reset
-              </button>
-
-              <button
-                onClick={rotateMedia}
-                className="px-4 py-3 rounded-2xl bg-white/10 text-xs font-bold flex items-center gap-1.5"
-              >
-                <RotateCcw size={14} />
-                Rotate
-              </button>
-
-              <button
-                onClick={() => {
-                  setCropDraft(
-                    cropRect
-                  );
-                  setCropMode(
-                    false
-                  );
-                }}
-                className="flex-1 py-3 rounded-2xl bg-white/10 text-xs font-bold"
-              >
-                Cancel
-              </button>
-
-              <button
-                onClick={() => {
-                  setCropRect(
-                    cropDraft
-                  );
-                  setCropMode(
-                    false
-                  );
-                }}
-                className="flex-1 py-3 rounded-2xl bg-white text-black text-xs font-bold"
-              >
-                Apply
               </button>
             </div>
           </div>
@@ -3448,7 +3795,7 @@ function MomentCreatePage() {
 
         {/* FILTER THUMBNAILS ROW */}
 
-        {!(showTextInput || drawMode || cropMode || showMusicPanel || panel) && (
+        {!(showTextInput || drawMode || showMusicPanel || panel) && (
           <div className="absolute bottom-40 left-0 right-0 z-[65] px-4">
             <div className="flex gap-3 overflow-x-auto no-scrollbar py-1">
               {(
@@ -3505,7 +3852,7 @@ function MomentCreatePage() {
 
         {/* CAPTION */}
 
-        {!(showTextInput || drawMode || cropMode || showMusicPanel || panel) && (
+        {!(showTextInput || drawMode || showMusicPanel || panel) && (
         <div className="absolute bottom-24 left-0 right-0 z-[70] px-4">
           <input
             value={caption}
@@ -3522,7 +3869,7 @@ function MomentCreatePage() {
 
         {/* BOTTOM NAV BAR */}
 
-        {!(showTextInput || drawMode || cropMode || showMusicPanel || panel) && (
+        {!(showTextInput || drawMode || showMusicPanel || panel) && (
         <div
           className="absolute bottom-4 left-4 right-4 z-[70] flex items-center justify-between gap-3 bg-gradient-to-t from-black/90 via-black/70 to-transparent pb-[max(env(safe-area-inset-bottom),0.25rem)] pt-6 backdrop-blur-md"
         >
@@ -3535,22 +3882,20 @@ function MomentCreatePage() {
             <Download size={20} />
           </button>
 
-          <button
-            onClick={() =>
-              setShowFinalPreview(true)
-            }
+            <button
+              onClick={openFinalPreview}
+              disabled={isRenderingPreview}
             className="px-5 py-3 rounded-full bg-zinc-800/90 backdrop-blur-xl border border-white/10 text-sm font-bold active:scale-95"
           >
-            + Stories
+              {isRenderingPreview ? "Rendering…" : "+ Stories"}
           </button>
 
           <button
-            onClick={() =>
-              setShowFinalPreview(true)
-            }
+              onClick={openFinalPreview}
+              disabled={isRenderingPreview}
             className="px-6 py-3 rounded-full bg-gradient-to-r from-cyan-400 via-pink-500 to-pink-600 font-black text-sm flex items-center gap-1.5 active:scale-95"
           >
-            Send to
+              {isRenderingPreview ? "Rendering…" : "Send to"}
             <ChevronRight
               size={18}
             />
@@ -3578,11 +3923,17 @@ function MomentCreatePage() {
 
             <div className="flex-1 min-h-0 flex items-center justify-center px-4">
               <div className="relative w-full h-full max-h-full rounded-2xl overflow-hidden bg-zinc-900">
-                {mediaUrl && isVideo ? (
+                {renderedPreviewUrl ? (
+                  <img
+                    src={renderedPreviewUrl}
+                    alt="Rendered Moment preview"
+                    className="h-full w-full object-contain"
+                  />
+                ) : mediaUrl && isVideo ? (
                   <video
                     src={mediaUrl}
                     className="w-full h-full object-contain"
-                    style={getMediaStyle()}
+                    style={getMediaRenderTransform()}
                     autoPlay
                     loop
                     playsInline
@@ -3594,7 +3945,7 @@ function MomentCreatePage() {
                     src={mediaUrl}
                     alt="Moment preview"
                     className="w-full h-full object-contain"
-                    style={getMediaStyle()}
+                    style={getMediaRenderTransform()}
                   />
                 ) : null}
 
@@ -3681,7 +4032,13 @@ function MomentCreatePage() {
 
         {mediaUrl && (
           <div className="relative mx-auto mb-2 h-28 w-20 overflow-hidden rounded-2xl">
-            {isVideo ? (
+            {renderedPreviewUrl ? (
+              <img
+                src={renderedPreviewUrl}
+                className="h-full w-full object-cover"
+                alt="Rendered Moment"
+              />
+            ) : isVideo ? (
               <video
                 src={mediaUrl}
                 muted
@@ -4633,3 +4990,5 @@ function CropOverlay({
     </div>
   );
 }
+
+void CropOverlay;
