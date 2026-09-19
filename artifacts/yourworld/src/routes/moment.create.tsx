@@ -471,8 +471,8 @@ function MomentCreatePage() {
   const [audience, setAudience] =
     useState<Audience>("everyone");
 
-  const [durationHours, setDurationHours] =
-    useState<24>(24);
+  const [duration, setDuration] =
+    useState<12 | 24 | 48>(24);
 
   const [allowPoll, setAllowPoll] =
     useState(false);
@@ -1816,7 +1816,7 @@ function MomentCreatePage() {
     const expiresAt =
       new Date(
         createdAt.getTime() +
-          durationHours *
+          duration *
             60 *
             60 *
             1000
@@ -1861,7 +1861,7 @@ function MomentCreatePage() {
       privacy:
         audience,
 
-      durationHours,
+      durationHours: duration,
 
       createdAt:
         createdAt.toISOString(),
@@ -1990,7 +1990,7 @@ function MomentCreatePage() {
             : audience === "only_me"
               ? "onlyme"
               : audience,
-        duration: durationHours,
+        duration,
         effect: "none",
         ai: {},
         allowDownload:
@@ -3752,18 +3752,21 @@ function MomentCreatePage() {
 
         <SectionTitle title="DURATION" />
 
-        <div className="grid grid-cols-2 gap-2 mb-5">
+        <div className="mb-5 grid grid-cols-3 gap-2">
           <DurationButton
-            active={
-              durationHours ===
-              24
-            }
+            active={duration === 12}
+            title="12 Hours"
+            onClick={() => setDuration(12)}
+          />
+          <DurationButton
+            active={duration === 24}
             title="24 Hours"
-            onClick={() =>
-              setDurationHours(
-                24
-              )
-            }
+            onClick={() => setDuration(24)}
+          />
+          <DurationButton
+            active={duration === 48}
+            title="48 Hours"
+            onClick={() => setDuration(48)}
           />
         </div>
 
@@ -3771,7 +3774,7 @@ function MomentCreatePage() {
 
         <SectionTitle title="INTERACTION & SAFETY" />
 
-        <div className="space-y-2">
+        <div className="grid grid-cols-2 gap-2">
           <SettingRow
             icon={<MessageCircle />}
             title="Add a poll"
@@ -4082,7 +4085,7 @@ function DurationButton({
       onClick={onClick}
       className={`py-2.5 rounded-2xl border text-[12px] font-semibold transition-colors ${
         active
-          ? "border-pink-500/70 bg-pink-500/10"
+          ? "border-pink-500/80 bg-pink-500/15 text-white shadow-[0_0_18px_rgba(236,72,153,0.2)]"
           : "border-white/10 bg-white/[0.04] text-zinc-400"
       }`}
     >
