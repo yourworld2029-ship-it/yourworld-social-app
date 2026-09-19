@@ -3640,21 +3640,21 @@ function MomentCreatePage() {
   // =====================================================
 
   return (
-    <div className="w-full h-screen bg-[#101010] text-white overflow-y-auto">
-      <div className="max-w-xl mx-auto px-5 pt-5 pb-10">
+    <div className="h-screen w-full overflow-hidden bg-[#101010] text-white">
+      <div className="mx-auto max-w-xl px-3 py-2">
         {/* HEADER */}
 
-        <div className="flex items-center justify-between mb-5">
+        <div className="mb-2 flex items-center justify-between">
           <button
             onClick={() =>
               setStep(1)
             }
-            className="w-11 h-11 rounded-full bg-white/5 flex items-center justify-center"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-white/5"
           >
             <X />
           </button>
 
-          <h1 className="text-lg font-bold">
+          <h1 className="text-base font-bold">
             Share Moment
           </h1>
 
@@ -3664,7 +3664,7 @@ function MomentCreatePage() {
         {/* PREVIEW */}
 
         {mediaUrl && (
-          <div className="relative w-28 h-40 rounded-2xl overflow-hidden mx-auto mb-5">
+          <div className="relative mx-auto mb-2 h-28 w-20 overflow-hidden rounded-2xl">
             {isVideo ? (
               <video
                 src={mediaUrl}
@@ -3686,7 +3686,7 @@ function MomentCreatePage() {
 
         <SectionTitle title="AUDIENCE" />
 
-        <div className="grid grid-cols-2 gap-2 mb-5">
+        <div className="mb-2 grid grid-cols-2 gap-1.5">
           <AudienceButton
             active={
               audience ===
@@ -3752,7 +3752,7 @@ function MomentCreatePage() {
 
         <SectionTitle title="DURATION" />
 
-        <div className="mb-5 grid grid-cols-3 gap-2">
+        <div className="mb-2 grid grid-cols-3 gap-1.5">
           <DurationButton
             active={duration === 12}
             title="12 Hours"
@@ -3774,7 +3774,7 @@ function MomentCreatePage() {
 
         <SectionTitle title="INTERACTION & SAFETY" />
 
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-2 gap-1.5">
           <SettingRow
             icon={<MessageCircle />}
             title="Add a poll"
@@ -3884,13 +3884,13 @@ function MomentCreatePage() {
 
         {/* SHARE */}
 
-        <div className="mt-5 flex items-center gap-2.5">
+        <div className="mt-2 flex items-center gap-2">
           <button
             onClick={
               handleDownload
             }
             aria-label="Save to gallery"
-            className="h-12 w-12 shrink-0 rounded-full border border-white/15 bg-white/[0.06] flex items-center justify-center active:scale-95 transition"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/[0.06] transition active:scale-95"
           >
             <Download size={18} />
           </button>
@@ -3899,14 +3899,14 @@ function MomentCreatePage() {
             onClick={
               handlePublish
             }
-            className="flex-1 py-3.5 rounded-full bg-gradient-to-r from-cyan-400 via-pink-500 to-pink-600 font-bold text-[15px] flex items-center justify-center gap-2"
+            className="flex flex-1 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-cyan-400 via-pink-500 to-pink-600 py-2.5 text-sm font-bold"
           >
             Share Moment
             <Share2 size={17} />
           </button>
         </div>
 
-        <p className="mt-2 text-center text-[10px] text-zinc-500">
+        <p className="mt-1 text-center text-[9px] text-zinc-500">
           Save to gallery ya seedha share karein
         </p>
       </div>
@@ -4005,7 +4005,7 @@ function SectionTitle({
   title: string;
 }) {
   return (
-    <h2 className="text-[10px] uppercase tracking-[0.18em] text-zinc-500 font-semibold mb-2">
+    <h2 className="mb-1.5 text-[9px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
       {title}
     </h2>
   );
@@ -4031,17 +4031,17 @@ function AudienceButton({
   return (
     <button
       onClick={onClick}
-      className={`text-left rounded-2xl px-3 py-2.5 border transition-colors ${
+      className={`rounded-xl border px-2 py-1.5 text-left transition-colors ${
         active
           ? "border-pink-500/70 bg-pink-500/10"
           : "border-white/10 bg-white/[0.04]"
       }`}
     >
-      <div className="flex items-center justify-between mb-1.5">
+      <div className="mb-1 flex items-center justify-between">
         <span
           className={`[&>svg]:h-4 [&>svg]:w-4 ${
             active
-              ? "text-pink-400"
+            ? "text-pink-400"
               : "text-zinc-400"
           }`}
         >
@@ -4056,11 +4056,11 @@ function AudienceButton({
         )}
       </div>
 
-      <p className="font-semibold text-[12px] leading-tight">
+      <p className="text-[11px] font-semibold leading-tight">
         {title}
       </p>
 
-      <p className="text-[10px] text-zinc-500 mt-0.5 leading-tight">
+      <p className="mt-0.5 text-[9px] leading-tight text-zinc-500">
         {subtitle}
       </p>
     </button>
@@ -4083,7 +4083,7 @@ function DurationButton({
   return (
     <button
       onClick={onClick}
-      className={`py-2.5 rounded-2xl border text-[12px] font-semibold transition-colors ${
+      className={`rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors ${
         active
           ? "border-pink-500/80 bg-pink-500/15 text-white shadow-[0_0_18px_rgba(236,72,153,0.2)]"
           : "border-white/10 bg-white/[0.04] text-zinc-400"
@@ -4114,14 +4114,14 @@ function SettingRow({
   return (
     <button
       onClick={onChange}
-      className="flex min-h-[68px] w-full items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-2.5 py-2 text-left"
+      className="flex min-h-[52px] w-full items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.04] px-1.5 py-1.5 text-left"
     >
-      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-white/5 text-zinc-400 [&>svg]:h-3.5 [&>svg]:w-3.5">
+      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-white/5 text-zinc-400 [&>svg]:h-3 [&>svg]:w-3">
         {icon}
       </div>
 
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[11px] font-semibold leading-tight">
+        <p className="truncate text-xs font-semibold leading-tight">
           {title}
         </p>
 
@@ -4133,13 +4133,13 @@ function SettingRow({
       <span
         role="switch"
         aria-checked={checked}
-        className={`relative h-[22px] w-[38px] shrink-0 rounded-full transition-colors duration-300 ease-out ${
+        className={`relative h-[18px] w-[32px] shrink-0 rounded-full transition-colors duration-300 ease-out ${
           checked ? "bg-pink-500" : "bg-zinc-700"
         }`}
       >
         <span
-          className={`absolute left-[3px] top-[3px] h-4 w-4 rounded-full bg-white shadow-md transition-transform duration-300 ease-out ${
-          checked ? "translate-x-4" : "translate-x-0"
+          className={`absolute left-[2px] top-[2px] h-3.5 w-3.5 rounded-full bg-white shadow-md transition-transform duration-300 ease-out ${
+          checked ? "translate-x-3.5" : "translate-x-0"
           }`}
         />
       </span>
