@@ -348,7 +348,7 @@ function MomentCreatePage() {
   const [audioPlaying, setAudioPlaying] =
     useState(false);
 
-  const [audioSegmentLength, setAudioSegmentLength] =
+  const [audioSegmentLength] =
     useState<15 | 30>(30);
 
   const [showMusicLibrary, setShowMusicLibrary] =
@@ -1422,12 +1422,6 @@ function MomentCreatePage() {
     setAudioStart(start);
     setAudioEnd(start + segmentLength);
     previewAudioAt(start);
-  };
-
-  const chooseAudioSegmentLength = (length: 15 | 30) => {
-    setAudioSegmentLength(length);
-    if (!audioDuration) return;
-    moveAudioWindow(audioStart, length);
   };
 
   const removeAudio = () => {
@@ -3732,22 +3726,6 @@ function MomentCreatePage() {
               <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/50">
                 Choose clip
               </span>
-              <div className="flex items-center gap-1 rounded-full bg-white/[0.06] p-1">
-                {[15, 30].map((length) => (
-                  <button
-                    key={length}
-                    type="button"
-                    onClick={() => chooseAudioSegmentLength(length as 15 | 30)}
-                    className={`rounded-full px-2.5 py-1 text-[10px] font-bold transition ${
-                      audioSegmentLength === length
-                        ? "bg-white text-black"
-                        : "text-white/55 hover:bg-white/10 hover:text-white"
-                    }`}
-                  >
-                    {length}s
-                  </button>
-                ))}
-              </div>
             </div>
 
             <AudioTimeline
