@@ -243,6 +243,9 @@ function ChatThreadPage() {
   const [localMessages, setLocalMessages] = useState<Message[]>([]);
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
+  const [isBlurred, setIsBlurred] = useState(false);
+  const securityAlertAtRef = useRef(0);
+  const blurResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fmtTime = (iso: string) =>
     new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -569,6 +572,95 @@ function ChatThreadPage() {
 
 
   const captureChannelName = conversationId ? `social-chat-capture-${conversationId}` : null;
+  const captureAlertsEnabled = screenshotAlert || recordingAlert;
+
+  const dispatchChatSecurityAlert = useCallback(
+    (kind: "screenshot" | "recording") => {
+      if (!captureAlertsEnabled) return;
+
+      setIsBlurred(true);
+      if (blurResetTimerRef.current) {
+        clearTimeout(blurResetTimerRef.current);
+        blurResetTimerRef.current = null;
+      }
+      if (navigator.clipboard?.writeText) {
+        void navigator.clipboard.writeText("").catch(() => {});
+      }
+
+      const now = Date.now();
+      if (
+        !captureChannelName ||
+        !currentUserId ||
+        now - securityAlertAtRef.current < 4000
+      ) {
+        return;
+      }
+      securityAlertAtRef.current = now;
+
+      const channel = supabase.channel(captureChannelName);
+      channel.subscribe((status) => {
+        if (status !== "SUBSCRIBED") return;
+        void channel
+          .send({
+            type: "broadcast",
+            event: "chat_security_alert",
+            payload: {
+              chatId: conversationId,
+              type: "screenshot_or_recording_attempt",
+              byUserId: currentUserId,
+              senderId: currentUserId,
+              actorName: currentUserName,
+              kind,
+            },
+          })
+          .finally(() => void supabase.removeChannel(channel));
+      });
+    },
+    [
+      captureAlertsEnabled,
+      captureChannelName,
+      conversationId,
+      currentUserId,
+      currentUserName,
+    ],
+  );
+
+  useEffect(() => {
+    if (!captureAlertsEnabled) {
+      setIsBlurred(false);
+      return;
+    }
+
+    const handleBlur = () => dispatchChatSecurityAlert("screenshot");
+    const handleFocus = () => {
+      if (blurResetTimerRef.current) clearTimeout(blurResetTimerRef.current);
+      blurResetTimerRef.current = setTimeout(() => {
+        blurResetTimerRef.current = null;
+        setIsBlurred(false);
+      }, 500);
+    };
+    const handleVisibilityChange = () => {
+      if (document.hidden) handleBlur();
+      else handleFocus();
+    };
+
+    window.addEventListener("blur", handleBlur);
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.removeEventListener("blur", handleBlur);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      if (blurResetTimerRef.current) {
+        clearTimeout(blurResetTimerRef.current);
+        blurResetTimerRef.current = null;
+      }
+    };
+  }, [captureAlertsEnabled, dispatchChatSecurityAlert]);
+
+  useEffect(() => () => {
+    if (blurResetTimerRef.current) clearTimeout(blurResetTimerRef.current);
+  }, []);
 
   // Capture alerts are broadcast immediately. The recipient decides locally
   // whether their alert and mute preferences allow the alert to be shown.
@@ -576,15 +668,20 @@ function ChatThreadPage() {
     if (!captureChannelName || !currentUserId) return;
     const channel = supabase
       .channel(captureChannelName)
-      .on("broadcast", { event: "capture_alert" }, ({ payload }) => {
-        if (payload?.senderId === currentUserId) return;
+      .on("broadcast", { event: "chat_security_alert" }, ({ payload }) => {
+        if (
+          payload?.chatId !== conversationId ||
+          payload?.byUserId === currentUserId ||
+          payload?.senderId === currentUserId
+        ) return;
         const kind = payload?.kind === "recording" ? "recording" : "screenshot";
         if (muted || (kind === "recording" ? !recordingAlert : !screenshotAlert)) return;
+        const actorName = String(payload?.actorName ?? "Someone");
+        const captureLabel = kind === "recording" ? "screen recording" : "screenshot";
         void pushSystem(
-          `${kind === "recording" ? "🎥" : "📸"} ${String(payload?.actorName ?? "Someone")} took a ${
-            kind === "recording" ? "recording" : "screenshot"
-          }`,
+          `⚠️ ${actorName} took a ${captureLabel} of this chat.`,
         );
+        toast.error(`⚠️ ${actorName} took a ${captureLabel}!`);
       })
       .subscribe();
     return () => {
@@ -593,6 +690,7 @@ function ChatThreadPage() {
     };
   }, [
     captureChannelName,
+    conversationId,
     currentUserId,
     muted,
     recordingAlert,
@@ -600,20 +698,10 @@ function ChatThreadPage() {
     pushSystem,
   ]);
 
-  useCaptureDetect(Boolean(captureChannelName && currentUserId), (kind) => {
-    if (!captureChannelName || !currentUserId) return;
-    const channel = supabase.channel(captureChannelName);
-    channel.subscribe((status) => {
-      if (status !== "SUBSCRIBED") return;
-      void channel
-        .send({
-          type: "broadcast",
-          event: "capture_alert",
-          payload: { senderId: currentUserId, actorName: currentUserName, kind },
-        })
-        .finally(() => void supabase.removeChannel(channel));
-    });
-  });
+  useCaptureDetect(
+    Boolean(captureChannelName && currentUserId && captureAlertsEnabled),
+    dispatchChatSecurityAlert,
+  );
 
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | undefined;
@@ -977,8 +1065,14 @@ function ChatThreadPage() {
         </div>
       )}
 
-      <div ref={scrollRef} onScroll={onScrollMessages} className="relative min-h-0 flex-1 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] p-4 space-y-3.5 bg-zinc-950/50" onClick={() => setShowOptionsMenu(false)}>
-        <UserWatermark username={currentUsername} className="fixed text-white" />
+      <div ref={scrollRef} onScroll={onScrollMessages} className="relative min-h-0 flex-1 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] p-4 bg-zinc-950/50" onClick={() => setShowOptionsMenu(false)}>
+        <div
+          aria-hidden={isBlurred}
+          className={`relative min-h-full space-y-3.5 transition-[filter] duration-150 ${
+            isBlurred ? "pointer-events-none blur-[25px] backdrop-blur-[25px]" : ""
+          }`}
+        >
+         <UserWatermark username={currentUsername} className="fixed text-white" />
         {messagesLoading && messages.length > 0 ? (
           <p className="flex items-center justify-center gap-2 py-1 text-[11px] text-zinc-500" aria-live="polite">
             <span className="h-3 w-3 animate-spin rounded-full border border-zinc-600 border-t-zinc-300" />
@@ -1174,7 +1268,15 @@ function ChatThreadPage() {
              </div>
            </div>
          ) : null}
-         <div ref={messagesEndRef} />
+          <div ref={messagesEndRef} />
+        </div>
+        {isBlurred ? (
+          <div className="pointer-events-auto absolute inset-0 z-20 flex items-center justify-center bg-black/90 p-6 text-center">
+            <p role="alert" className="max-w-xs text-sm font-semibold leading-relaxed text-white">
+              ⚠️ Screen Capture Blocked for Privacy
+            </p>
+          </div>
+        ) : null}
       </div>
 
       {/* LONG-PRESS ACTION SHEET */}

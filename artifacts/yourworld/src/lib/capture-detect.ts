@@ -22,9 +22,18 @@ export function useCaptureDetect(enabled: boolean, onCapture: (kind: "screenshot
     };
 
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "PrintScreen" || (e.metaKey && e.shiftKey && ["3", "4", "5"].includes(e.key))) {
-        fire(e.key === "5" ? "recording" : "screenshot");
-      }
+      const key = e.key.toLowerCase();
+      const macCaptureShortcut =
+        e.metaKey && e.shiftKey && ["3", "4", "5"].includes(key);
+      const windowsSnipShortcut =
+        e.shiftKey &&
+        key === "s" &&
+        (e.metaKey || e.getModifierState?.("OS") === true);
+      const printScreen = e.key === "PrintScreen";
+      if (!printScreen && !macCaptureShortcut && !windowsSnipShortcut) return;
+      e.preventDefault();
+      e.stopPropagation();
+      fire(macCaptureShortcut && key === "5" ? "recording" : "screenshot");
     };
     const onVisibility = () => {
       if (document.visibilityState === "hidden") fire("screenshot");
