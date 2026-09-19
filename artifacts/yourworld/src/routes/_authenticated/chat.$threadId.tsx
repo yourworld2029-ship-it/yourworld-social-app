@@ -243,7 +243,7 @@ function ChatThreadPage() {
   const [localMessages, setLocalMessages] = useState<Message[]>([]);
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
-  const [isBlurred, setIsBlurred] = useState(false);
+  const [isShieldActive, setIsShieldActive] = useState(false);
   const securityAlertAtRef = useRef(0);
   const blurResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -575,10 +575,13 @@ function ChatThreadPage() {
   const captureAlertsEnabled = screenshotAlert || recordingAlert;
 
   const dispatchChatSecurityAlert = useCallback(
-    (kind: "screenshot" | "recording") => {
+    (
+      kind: "screenshot" | "recording",
+      eventReason: "shortcut" | "blur" | "hidden" | "three_finger_swipe" = "shortcut",
+    ) => {
       if (!captureAlertsEnabled) return;
 
-      setIsBlurred(true);
+      setIsShieldActive(true);
       if (blurResetTimerRef.current) {
         clearTimeout(blurResetTimerRef.current);
         blurResetTimerRef.current = null;
@@ -610,6 +613,9 @@ function ChatThreadPage() {
               byUserId: currentUserId,
               senderId: currentUserId,
               actorName: currentUserName,
+              alertType: kind === "recording" ? "recording" : "screenshot",
+              message: `${currentUserName} attempted a screenshot / screen recording.`,
+              reason: eventReason,
               kind,
             },
           })
@@ -636,21 +642,28 @@ function ChatThreadPage() {
       if (blurResetTimerRef.current) clearTimeout(blurResetTimerRef.current);
       blurResetTimerRef.current = setTimeout(() => {
         blurResetTimerRef.current = null;
-        setIsBlurred(false);
+        setIsShieldActive(false);
       }, 500);
     };
     const handleVisibilityChange = () => {
       if (document.hidden) handleBlur();
       else handleFocus();
     };
+    const handleTouchStart = (event: TouchEvent) => {
+      if (event.touches.length >= 3) {
+        dispatchChatSecurityAlert("screenshot", "three_finger_swipe");
+      }
+    };
 
     window.addEventListener("blur", handleBlur);
     window.addEventListener("focus", handleFocus);
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("touchstart", handleTouchStart, { passive: true });
     return () => {
       window.removeEventListener("blur", handleBlur);
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("touchstart", handleTouchStart);
       if (blurResetTimerRef.current) {
         clearTimeout(blurResetTimerRef.current);
         blurResetTimerRef.current = null;
