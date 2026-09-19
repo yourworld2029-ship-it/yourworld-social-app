@@ -568,7 +568,7 @@ export function Highlights({
           highlight={viewer}
           canDelete={canManage}
           deleting={deleting}
-          onDelete={() => void deleteHighlight()}
+          onDelete={deleteHighlight}
           onClose={() => setViewer(null)}
         />
       ) : null}
@@ -586,7 +586,7 @@ function HighlightViewer({
   highlight: Highlight;
   canDelete?: boolean;
   deleting?: boolean;
-  onDelete?: () => void;
+  onDelete?: () => Promise<void>;
   onClose: () => void;
 }) {
   const [index, setIndex] = useState(0);
@@ -767,9 +767,9 @@ function HighlightViewer({
               <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
               <AlertDialogAction
                 disabled={deleting}
-                onClick={(event) => {
+                onClick={async (event) => {
                   event.preventDefault();
-                  onDelete?.();
+                  await onDelete?.();
                 }}
               >
                 {deleting ? "Deleting…" : "Delete"}
