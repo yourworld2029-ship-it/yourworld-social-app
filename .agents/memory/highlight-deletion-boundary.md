@@ -7,4 +7,4 @@ Highlights are stored as one row in `public.highlights`; the live schema has no 
 
 **Why:** A client-side mutation can appear successful while the row remains or while a response representation is ambiguous; a later profile load then restores the bubble. Relying on a deployed RLS policy alone can also hide a stale-policy failure from the user-scoped client.
 
-**How to apply:** Keep source-media rows untouched. Authenticate first, verify ownership, delete with the server-only client and an owner predicate, log the affected-row result, return an explicit failure when the owner check, delete, or post-delete verification fails, and only then update/invalidate the profile Highlights state.
+**How to apply:** Keep source-media rows untouched. Authenticate first, verify ownership, delete with the server-only client and an owner predicate, log the affected-row result, return an explicit failure when the owner check, delete, or post-delete verification fails, and only then patch the local/query Highlight list. Do not immediately refetch through a stale cache path after success; that can restore the deleted bubble or report a false failure.

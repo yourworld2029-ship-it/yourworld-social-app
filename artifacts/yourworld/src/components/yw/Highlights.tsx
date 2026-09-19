@@ -349,19 +349,19 @@ export function Highlights({
       });
       if (!result.deleted) throw new Error("This highlight is no longer available");
 
-      setHighlights((current) => current.filter((highlight) => highlight.id !== highlightId));
+      const removeDeletedHighlight = (current: Highlight[] | undefined) =>
+        current?.filter((highlight) => highlight.id !== highlightId) ?? [];
+      queryClient.setQueryData<Highlight[]>(
+        ["highlights", sessionUserId],
+        removeDeletedHighlight,
+      );
+      setHighlights(removeDeletedHighlight);
       setViewer(null);
 
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["highlights", sessionUserId] }),
-        queryClient.invalidateQueries({ queryKey: ["/api/highlights", sessionUserId] }),
         queryClient.invalidateQueries({ queryKey: ["profile", sessionUserId] }),
         queryClient.invalidateQueries({ queryKey: ["/api/profile", sessionUserId] }),
       ]);
-      const refreshed = await loadHighlights(sessionUserId);
-      if (refreshed.some((highlight) => highlight.id === highlightId)) {
-        throw new Error("Deleted highlight returned after refresh");
-      }
 
       toast.success("Highlight deleted");
     } catch (error) {
