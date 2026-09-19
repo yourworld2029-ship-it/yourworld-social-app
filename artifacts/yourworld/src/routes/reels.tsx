@@ -177,6 +177,7 @@ function ReelsList() {
       })(),
       durationSeconds: p.duration_seconds,
       createdAt: p.created_at,
+      thumbnailUrl: p.thumbnail_url ?? null,
     } satisfies Reel,
     author: p.author,
     likedByMe: p.likedByMe,
@@ -797,6 +798,9 @@ function ReelItem({
       if (isVideo) {
         const playableUrl = getLocalMedia(source) ?? await resolveMediaUrl(source);
         const baseName = sanitizeDownloadName(reel.caption, `yw-reel-${reel.id}`);
+        const resolvedThumbnailUrl = reel.thumbnailUrl
+          ? await resolveMediaUrl(reel.thumbnailUrl, mediaBucket ?? "reels")
+          : null;
         const downloadMetadata = {
           ownerId: currentUserId || "anonymous",
           mediaId: reel.id,
@@ -807,7 +811,8 @@ function ReelItem({
           views: reel.views,
           createdAt: reel.createdAt,
           durationSeconds: reel.durationSeconds,
-          thumbnailUrl: reel.poster,
+          thumbnailUrl: resolvedThumbnailUrl,
+          posterUrl: resolvedThumbnailUrl,
           quality: choice === "original" ? "original" as const : choice as VideoQualityTier,
         };
         if (choice === "mp3") {

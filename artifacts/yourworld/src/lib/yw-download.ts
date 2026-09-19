@@ -38,6 +38,7 @@ export type DownloadedVideoMetadata = {
   createdAt?: string | null;
   durationSeconds?: number | null;
   thumbnailUrl?: string | null;
+  posterUrl?: string | null;
   quality: DownloadQuality;
 };
 
@@ -139,8 +140,11 @@ function downloadRecord(
   cacheKey: string,
   fileName: string,
 ): DownloadedVideo {
+  const posterUrl = metadata.posterUrl ?? metadata.thumbnailUrl ?? null;
   return {
     ...metadata,
+    thumbnailUrl: metadata.thumbnailUrl ?? posterUrl,
+    posterUrl,
     id: `${metadata.ownerId}:${metadata.mediaId}:${metadata.quality}`,
     cacheKey,
     fileName,

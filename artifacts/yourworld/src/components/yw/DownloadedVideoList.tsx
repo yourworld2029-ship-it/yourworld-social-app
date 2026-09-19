@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   CheckCircle2,
   Download,
   MoreVertical,
+  Play,
   Trash2,
   UserRound,
 } from "lucide-react";
@@ -13,7 +14,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { formatCount } from "@/lib/yw-data";
-import type { DownloadedVideo } from "@/lib/yw-download";
+import {
+  getDownloadedVideoUrl,
+  type DownloadedVideo,
+} from "@/lib/yw-download";
 
 type DownloadedVideoListProps = {
   videos: DownloadedVideo[];
@@ -103,25 +107,7 @@ function DownloadedVideoCard({
         className="flex min-w-0 flex-1 items-center gap-3 text-left"
         aria-label={`Play ${title}`}
       >
-        <span className="relative block aspect-video w-[42%] max-w-[190px] shrink-0 overflow-hidden rounded-xl bg-zinc-900">
-          {video.thumbnailUrl ? (
-            <img
-              src={video.thumbnailUrl}
-              alt=""
-              loading="lazy"
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            <span className="grid h-full w-full place-items-center bg-[radial-gradient(circle_at_30%_20%,rgba(217,70,239,0.22),transparent_55%),#10111a]">
-              <Download className="h-6 w-6 text-white/40" />
-            </span>
-          )}
-          {video.durationSeconds != null ? (
-            <span className="absolute bottom-1.5 right-1.5 rounded-md bg-black/75 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-white backdrop-blur-sm">
-              {formatVideoDuration(video.durationSeconds)}
-            </span>
-          ) : null}
-        </span>
+        <DownloadedVideoThumbnail video={video} />
 
         <span className="min-w-0 flex-1 self-stretch py-0.5">
           <span className="line-clamp-2 font-display text-[13px] font-semibold leading-[1.25] text-white sm:text-[14px]">
@@ -173,6 +159,124 @@ function DownloadedVideoCard({
       </DropdownMenu>
     </li>
   );
+}
+
+function DownloadedVideoThumbnail({ video }: { video: DownloadedVideo }) {
+  const initialSource = video.thumbnailUrl || video.posterUrl || null;
+  const [imageSource, setImageSource] = useState<string | null>(initialSource);
+  const [showFallback, setShowFallback] = useState(false);
+  const snapshotStarted = useRef(false);
+
+  const captureSnapshot = () => {
+    if (snapshotStarted.current) return;
+    snapshotStarted.current = true;
+    void captureCachedVideoFrame(video).then((snapshot) => {
+      if (snapshot) {
+        setImageSource(snapshot);
+      } else {
+        setShowFallback(true);
+      }
+    });
+  };
+
+  useEffect(() => {
+    if (!initialSource) captureSnapshot();
+  }, [initialSource]);
+
+  const handleImageError = () => {
+    if (imageSource?.startsWith("data:")) {
+      setShowFallback(true);
+      return;
+    }
+    setImageSource(null);
+    captureSnapshot();
+  };
+
+  return (
+    <span className="relative block aspect-video w-[42%] max-w-[190px] shrink-0 overflow-hidden rounded-xl bg-[radial-gradient(circle_at_30%_20%,rgba(217,70,239,0.22),transparent_55%),#10111a]">
+      {imageSource && !showFallback ? (
+        <img
+          src={imageSource}
+          alt=""
+          loading="lazy"
+          onError={handleImageError}
+          className="w-full h-full object-cover rounded-md"
+        />
+      ) : (
+        <span className="grid h-full w-full place-items-center bg-[radial-gradient(circle_at_30%_20%,rgba(56,189,248,0.18),transparent_52%),linear-gradient(135deg,#10111a,#1d1630)]">
+          <Play className="h-6 w-6 fill-white/50 text-white/60" />
+        </span>
+      )}
+      {video.durationSeconds != null ? (
+        <span className="absolute bottom-1.5 right-1.5 rounded-md bg-black/75 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-white backdrop-blur-sm">
+          {formatVideoDuration(video.durationSeconds)}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+async function captureCachedVideoFrame(record: DownloadedVideo) {
+  if (typeof document === "undefined") return null;
+  const objectUrl = await getDownloadedVideoUrl(record);
+  if (!objectUrl) return null;
+
+  const source = document.createElement("video");
+  source.muted = true;
+  source.playsInline = true;
+  source.preload = "metadata";
+  source.src = objectUrl;
+
+  try {
+    await waitForVideoEvent(source, "loadedmetadata");
+    if (source.duration > 0 && Number.isFinite(source.duration)) {
+      source.currentTime = Math.min(Math.max(source.duration * 0.08, 0.1), 1.5);
+      await waitForVideoEvent(source, "seeked");
+    } else {
+      await waitForVideoEvent(source, "loadeddata");
+    }
+
+    const width = source.videoWidth || 640;
+    const height = source.videoHeight || 360;
+    const scale = Math.min(1, 640 / width);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(width * scale));
+    canvas.height = Math.max(1, Math.round(height * scale));
+    const context = canvas.getContext("2d");
+    if (!context) return null;
+    context.drawImage(source, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.84);
+  } catch {
+    return null;
+  } finally {
+    source.removeAttribute("src");
+    source.load();
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+function waitForVideoEvent(video: HTMLVideoElement, eventName: "loadedmetadata" | "loadeddata" | "seeked") {
+  return new Promise<void>((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      cleanup();
+      reject(new Error(`Timed out waiting for ${eventName}`));
+    }, 7000);
+    const cleanup = () => {
+      window.clearTimeout(timeout);
+      video.removeEventListener(eventName, onEvent);
+      video.removeEventListener("error", onError);
+    };
+    const onEvent = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = () => {
+      cleanup();
+      reject(new Error("Cached video could not load"));
+    };
+    video.addEventListener(eventName, onEvent, { once: true });
+    video.addEventListener("error", onError, { once: true });
+  });
 }
 
 export function DownloadsEmptyState() {

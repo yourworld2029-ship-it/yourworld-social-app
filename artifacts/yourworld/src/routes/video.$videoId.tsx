@@ -45,7 +45,7 @@ import { useAuth } from "@/lib/auth-store";
 import { useYw } from "@/lib/yw-store";
 import { formatDuration, formatViews } from "@/lib/video-data";
 import { resolveLongVideoUrl } from "@/lib/video-data";
-import { usePostComments } from "@/lib/social-data";
+import { resolveMediaUrl, usePostComments } from "@/lib/social-data";
 import { registerUniqueView } from "@/lib/unique-views";
 import { supabase } from "@/integrations/supabase/client";
 import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadSheet";
@@ -688,7 +688,9 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
          views: Number(viewCount),
          createdAt: video.created_at || null,
          durationSeconds: video.duration_seconds || null,
-         thumbnailUrl: video.thumbnail_url || null,
+          thumbnailUrl: video.thumbnail_url
+            ? await resolveMediaUrl(video.thumbnail_url, "videos")
+            : null,
          quality:
            choice === "original" || choice === "mp3"
              ? "original" as const

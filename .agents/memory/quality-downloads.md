@@ -21,6 +21,12 @@ Offline library surfaces must pair cached video bytes with an IndexedDB metadata
 
 **How to apply:** Write metadata only after the selected video bytes are cached, resolve playback from the cache record, and delete both the cache entry and metadata row together.
 
+Reel playback metadata may use a `poster` field for the media source, so download catalog metadata must use the explicit thumbnail reference instead of assuming `poster` is an image.
+
+**Why:** A video URL is not a valid `<img>` source; older download rows can also have expired or missing remote thumbnails.
+
+**How to apply:** Persist a resolved thumbnail when available, and fall back to a poster frame generated from the cached video bytes before showing a gradient placeholder.
+
 Upload size must not be coupled to compression success. Resumable TUS should receive the original File when browser metadata, codecs, or device memory make adaptive compression unavailable.
 
 **Why:** A client-side compression ceiling turns large uploads into hard failures and defeats resumable storage; preserving the source keeps multi-gigabyte uploads possible.
