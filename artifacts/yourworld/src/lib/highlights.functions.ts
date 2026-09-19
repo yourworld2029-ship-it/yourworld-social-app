@@ -21,6 +21,8 @@ export const deleteHighlight = createServerFn({ method: "POST" })
       const db = supabaseAdmin as unknown as {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         from: (table: string) => any;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        rpc: (functionName: string, args: Record<string, unknown>) => any;
       };
 
       const { data: highlight, error: lookupError } = await db
@@ -48,24 +50,18 @@ export const deleteHighlight = createServerFn({ method: "POST" })
         throw new Error("You can only delete your own highlights");
       }
 
-      // The live schema stores all Highlight items in one JSONB column. There
-      // are no highlight_items/highlight_stories child rows to delete first.
-      console.log("[highlights] child cleanup skipped: items are JSONB on highlights", {
-        highlightId: data.highlightId,
-        childTables: [],
+      // Perform the destructive operation inside a database transaction. The
+      // SQL function conditionally clears legacy/optional mapping tables before
+      // deleting the owner-scoped parent row, so a foreign key cannot block the
+      // final delete.
+      const { data: deletedId, error: deleteError } = await db.rpc("delete_highlight_hard", {
+        p_highlight_id: data.highlightId,
+        p_user_id: userId,
       });
-
-      const { data: deletedRows, error: deleteError } = await db
-        .from("highlights")
-        .delete()
-        .eq("id", data.highlightId)
-        .eq("user_id", userId)
-        .select("id");
-      console.log("[highlights] database delete result", {
+      console.log("[highlights] hard delete result", {
         highlightId: data.highlightId,
         requestedBy: userId,
-        deletedCount: deletedRows?.length ?? 0,
-        deletedIds: deletedRows?.map((row: { id: string }) => row.id) ?? [],
+        deletedId: deletedId ?? null,
         error: deleteError
           ? {
               code: deleteError.code,
@@ -76,7 +72,7 @@ export const deleteHighlight = createServerFn({ method: "POST" })
           : null,
       });
       if (deleteError) throw new Error(`Highlight delete failed: ${deleteError.message}`);
-      if (!deletedRows?.some((row: { id: string }) => row.id === data.highlightId)) {
+      if (deletedId !== data.highlightId) {
         throw new Error("Highlight delete affected no row");
       }
 
