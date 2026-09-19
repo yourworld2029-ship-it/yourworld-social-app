@@ -326,6 +326,7 @@ export function Highlights({
 
   const deleteHighlight = async () => {
     if (!viewer || !userId || !canManage || deleting) return;
+    const highlightId = viewer.id;
     setDeleting(true);
     try {
       const { data: userData, error: userError } = await supabase.auth.getUser();
@@ -335,33 +336,31 @@ export function Highlights({
         throw new Error("You can only delete your own highlights");
       }
 
+      console.log("===> HIGHLIGHT DELETE REQUEST ID:", highlightId, "USER:", sessionUserId);
       const result = await runDeleteHighlight({
-        data: { highlightId: viewer.id },
+        data: { highlightId },
       });
       if (!result.deleted) throw new Error("This highlight is no longer available");
 
-      setHighlights((current) => current.filter((highlight) => highlight.id !== viewer.id));
+      setHighlights((current) => current.filter((highlight) => highlight.id !== highlightId));
       setViewer(null);
 
-      try {
-        await queryClient.invalidateQueries({ queryKey: ["highlights", sessionUserId] });
-        const refreshed = await loadHighlights(sessionUserId);
-        if (refreshed.some((highlight) => highlight.id === viewer.id)) {
-          console.error("[highlights] deleted highlight returned during refresh", {
-            highlightId: viewer.id,
-          });
-          setHighlights((current) => current.filter((highlight) => highlight.id !== viewer.id));
-        }
-      } catch (refreshError) {
-        console.error("[highlights] deleted but refresh failed", refreshError);
-        setHighlights((current) => current.filter((highlight) => highlight.id !== viewer.id));
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["highlights", sessionUserId] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/highlights", sessionUserId] }),
+        queryClient.invalidateQueries({ queryKey: ["profile", sessionUserId] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/profile", sessionUserId] }),
+      ]);
+      const refreshed = await loadHighlights(sessionUserId);
+      if (refreshed.some((highlight) => highlight.id === highlightId)) {
+        throw new Error("Deleted highlight returned after refresh");
       }
 
       toast.success("Highlight deleted");
     } catch (error) {
       console.error("[highlights] delete failed", {
         userId,
-        highlightId: viewer.id,
+        highlightId,
         error,
       });
       toast.error("Failed to delete highlight");
