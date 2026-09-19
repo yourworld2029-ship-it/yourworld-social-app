@@ -633,20 +633,20 @@ function ChatThreadPage() {
 
   useEffect(() => {
     if (!captureAlertsEnabled) {
-      setIsBlurred(false);
+      setIsShieldActive(false);
       return;
     }
 
-    const handleBlur = () => dispatchChatSecurityAlert("screenshot");
+    const handleBlur = () => dispatchChatSecurityAlert("screenshot", "blur");
     const handleFocus = () => {
       if (blurResetTimerRef.current) clearTimeout(blurResetTimerRef.current);
       blurResetTimerRef.current = setTimeout(() => {
         blurResetTimerRef.current = null;
         setIsShieldActive(false);
-      }, 500);
+      }, 1200);
     };
     const handleVisibilityChange = () => {
-      if (document.hidden) handleBlur();
+      if (document.hidden) dispatchChatSecurityAlert("screenshot", "hidden");
       else handleFocus();
     };
     const handleTouchStart = (event: TouchEvent) => {
@@ -1078,11 +1078,17 @@ function ChatThreadPage() {
         </div>
       )}
 
-      <div ref={scrollRef} onScroll={onScrollMessages} className="relative min-h-0 flex-1 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] p-4 bg-zinc-950/50" onClick={() => setShowOptionsMenu(false)}>
+      <div
+        ref={scrollRef}
+        onScroll={onScrollMessages}
+        className="relative min-h-0 flex-1 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] p-4 bg-zinc-950/50"
+        style={captureAlertsEnabled ? { WebkitUserSelect: "none", userSelect: "none" } : undefined}
+        onClick={() => setShowOptionsMenu(false)}
+      >
         <div
-          aria-hidden={isBlurred}
+          aria-hidden={isShieldActive}
           className={`relative min-h-full space-y-3.5 transition-[filter] duration-150 ${
-            isBlurred ? "pointer-events-none blur-[25px] backdrop-blur-[25px]" : ""
+            isShieldActive ? "pointer-events-none blur-[25px] backdrop-blur-[25px]" : ""
           }`}
         >
          <UserWatermark username={currentUsername} className="fixed text-white" />
@@ -1283,13 +1289,11 @@ function ChatThreadPage() {
          ) : null}
           <div ref={messagesEndRef} />
         </div>
-        {isBlurred ? (
-          <div className="pointer-events-auto absolute inset-0 z-20 flex items-center justify-center bg-black/90 p-6 text-center">
-            <p role="alert" className="max-w-xs text-sm font-semibold leading-relaxed text-white">
-              ⚠️ Screen Capture Blocked for Privacy
-            </p>
-          </div>
-        ) : null}
+         {isShieldActive ? (
+           <div className="pointer-events-auto absolute inset-0 z-50 flex items-center justify-center bg-black/95 text-white font-semibold">
+             🔒 Protected Content
+           </div>
+         ) : null}
       </div>
 
       {/* LONG-PRESS ACTION SHEET */}
