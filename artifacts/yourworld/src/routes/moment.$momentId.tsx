@@ -2,7 +2,6 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { createFileRoute, useParams, useNavigate } from "@tanstack/react-router";
 import { type MyMoment } from "@/lib/moment-store";
 import { useMoments } from "@/lib/moment-context";
-import { MAX_MOMENT_PART_SECONDS } from "@/lib/moment-parts";
 import { aiFilterCss } from "@/lib/moment-utils";
 import { useProfiles } from "@/lib/profiles-map";
 import { cn } from "@/lib/utils";
@@ -28,8 +27,6 @@ import { SportsIdentityMark } from "@/components/yw/SportsIdentityBadge";
 /** photo / text segment length (ms) */
 const PHOTO_DURATION = 5000;
 const TICK = 60;
-/** Must stay aligned with the upload trim windows. */
-const SEGMENT_DURATION = MAX_MOMENT_PART_SECONDS;
 
 export const Route = createFileRoute("/moment/$momentId")({
   head: () => ({
@@ -91,8 +88,6 @@ function MomentViewRoute() {
   const [index, setIndex] = useState(0);
   const [progress, setProgress] = useState(0);
   const boundaryHandledRef = useRef<string | null>(null);
-  const [videoChunks, setVideoChunks] = useState(1);
-  const [chunk, setChunk] = useState(0);
   const [paused, setPaused] = useState(false);
   const [muted, setMuted] = useState(false);
   const [liked, setLiked] = useState(false);
@@ -116,7 +111,6 @@ function MomentViewRoute() {
     if (!selected) return;
     const i = items.findIndex((m) => m.id === selected.id);
     setIndex(i >= 0 ? i : 0);
-    setChunk(0);
     setProgress(0);
   }, [selected, items]);
 
@@ -143,48 +137,27 @@ function MomentViewRoute() {
   const goNext = useCallback(() => {
     if (replying || replyFocused) return;
     setProgress(0);
-    if (chunk < videoChunks - 1) {
-      const next = chunk + 1;
-      setChunk(next);
-      if (videoRef.current) videoRef.current.currentTime = next * SEGMENT_DURATION;
-      return;
-    }
-    setChunk(0);
     if (index < items.length - 1) {
       setIndex(index + 1);
       return;
     }
     openGroup(1);
-  }, [chunk, videoChunks, index, items.length, openGroup, replyFocused, replying]);
+  }, [index, items.length, openGroup, replyFocused, replying]);
 
   const goPrev = useCallback(() => {
     setProgress(0);
-    if (chunk > 0) {
-      const prev = chunk - 1;
-      setChunk(prev);
-      if (videoRef.current) videoRef.current.currentTime = prev * SEGMENT_DURATION;
-      return;
-    }
-    const v = videoRef.current;
-    if (v && v.currentTime > 2) {
-      v.currentTime = 0;
-      return;
-    }
-    setChunk(0);
     if (index > 0) {
       setIndex(index - 1);
       return;
     }
     openGroup(-1);
-  }, [chunk, index, openGroup]);
+  }, [index, openGroup]);
 
   // reset per-moment state + mark viewed
   useEffect(() => {
     if (!current) return;
     setLiked(false);
     setProgress(0);
-    setChunk(0);
-    setVideoChunks(1);
     setShowViewers(false);
     registerView(current.id);
   }, [current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -240,7 +213,7 @@ function MomentViewRoute() {
         }
       });
     }
-  }, [paused, replyFocused, replying, showViewers, index, chunk, muted]);
+  }, [paused, replyFocused, replying, showViewers, index, muted]);
 
   // background music
   useEffect(() => {
@@ -359,7 +332,7 @@ function MomentViewRoute() {
 
   const filter = aiFilterCss(current.ai, current.effect);
   const displayMomentText = current.text.replace(/\s+\(\d+\/\d+\)\s*$/, "");
-  const segments = current.kind === "video" ? videoChunks : 1;
+  const segments = items.length;
   const likeCount = current.viewers.filter((v) => v.liked).length;
 
   return (
@@ -398,24 +371,18 @@ function MomentViewRoute() {
               preload="metadata"
               style={{ filter }}
               className="h-full w-full object-cover"
-              onLoadedMetadata={(e) => {
-                const d = e.currentTarget.duration;
-                setVideoChunks(Number.isFinite(d) && d > 0 ? Math.max(1, Math.ceil(d / SEGMENT_DURATION)) : 1);
-              }}
               onTimeUpdate={(e) => {
                 const v = e.currentTarget;
                 if (!v.duration || Number.isNaN(v.duration)) return;
-                const start = chunk * SEGMENT_DURATION;
-                const end = Math.min(start + SEGMENT_DURATION, v.duration);
-                setProgress(Math.min(100, Math.max(0, ((v.currentTime - start) / (end - start)) * 100)));
-                const boundaryKey = `${current.id}:${chunk}`;
-                if (v.currentTime >= end - 0.05 && boundaryHandledRef.current !== boundaryKey) {
+                 setProgress(Math.min(100, Math.max(0, (v.currentTime / v.duration) * 100)));
+                 const boundaryKey = String(current.id);
+                 if (v.currentTime >= v.duration - 0.05 && boundaryHandledRef.current !== boundaryKey) {
                   boundaryHandledRef.current = boundaryKey;
                   goNext();
                 }
               }}
               onEnded={() => {
-                const boundaryKey = `${current.id}:${chunk}`;
+                 const boundaryKey = String(current.id);
                 if (boundaryHandledRef.current === boundaryKey) return;
                 boundaryHandledRef.current = boundaryKey;
                 goNext();
@@ -552,27 +519,24 @@ function MomentViewRoute() {
 
         {/* PROGRESS */}
         <div
-          className={cn(
-            "pointer-events-none absolute left-0 right-0 top-0 z-[10004] p-3 pt-2 transition-opacity duration-300",
-            "opacity-100",
-          )}
+          className="pointer-events-none absolute left-2 right-2 top-2 z-50 flex gap-1"
         >
-          <div className="flex w-full gap-1.5">
-            {Array.from({ length: segments }).map((_, idx) => (
+          {Array.from({ length: segments }).map((_, idx) => (
+            <div
+              key={idx}
+              className="h-[2.5px] flex-1 overflow-hidden rounded-full bg-white/30"
+            >
               <div
-                key={idx}
-                className="h-[3px] flex-1 overflow-hidden rounded-full bg-[rgba(255,255,255,0.35)]"
-              >
-                <div
-                  className="h-full rounded-full bg-white will-change-[width]"
-                  style={{
-                    width: idx < chunk ? "100%" : idx === chunk ? `${progress}%` : "0%",
-                    transition: idx === chunk ? "width 120ms linear" : "width 180ms ease-out",
-                  }}
-                />
-              </div>
-            ))}
-          </div>
+                className={cn(
+                  "h-full rounded-full bg-white",
+                  idx === index && "transition-all duration-100 ease-linear",
+                )}
+                style={{
+                  width: idx < index ? "100%" : idx === index ? `${progress}%` : "0%",
+                }}
+              />
+            </div>
+          ))}
         </div>
 
         {/* HEADER */}
