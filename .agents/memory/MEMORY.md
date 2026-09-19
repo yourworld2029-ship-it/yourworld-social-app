@@ -30,3 +30,4 @@
 - [Public sports badge data contract](sports-badge-data-contract.md) — derive public badges from public profile identity plus existing active monetization signals; never query private verification details.
 - [Owner admin moderation security](admin-moderation-security.md) — sensitive moderation is server-side, owner-admin plus AAL2, privately evidenced, audited, and never an automatic forfeiture.
 - [Supabase MFA factor listing](supabase-mfa-factor-listing.md) — `listFactors().totp` only contains verified factors; inspect `all` to resume unverified TOTP verification.
+- [Highlight deletion boundary](highlight-deletion-boundary.md) — route destructive Highlight deletes through authenticated server code and verify the single JSONB row is gone before updating the UI.

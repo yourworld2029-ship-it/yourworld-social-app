@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import {
   Plus,
   ImagePlus,
@@ -39,6 +41,7 @@ import { type MyMoment } from "@/lib/moment-store";
 import { useMoments } from "@/lib/moment-context";
 import { compressImageFile } from "@/lib/image-compress";
 import { STORAGE_BUCKETS, uploadSourceWithProgress } from "@/lib/storage-upload";
+import { deleteHighlight as deleteHighlightOnServer } from "@/lib/highlights.functions";
 import type { DbPost } from "@/lib/social-data";
 
 type HighlightItem = {
@@ -98,6 +101,8 @@ export function Highlights({
   canManage?: boolean;
 }) {
   const { moments, archive } = useMoments();
+  const queryClient = useQueryClient();
+  const runDeleteHighlight = useServerFn(deleteHighlightOnServer);
   const [highlights, setHighlights] = useState<Highlight[]>([]);
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<0 | 1>(0);
@@ -330,24 +335,28 @@ export function Highlights({
         throw new Error("You can only delete your own highlights");
       }
 
-      const { error } = await supabase
-        .from("highlights" as never)
-        .delete()
-        .eq("id", viewer.id)
-        .eq("user_id", sessionUserId);
-      if (error) throw error;
-
-      const { data: remainingHighlight, error: verifyError } = await supabase
-        .from("highlights" as never)
-        .select("id")
-        .eq("id", viewer.id)
-        .eq("user_id", sessionUserId)
-        .maybeSingle();
-      if (verifyError) throw verifyError;
-      if (remainingHighlight) throw new Error("This highlight could not be deleted");
+      const result = await runDeleteHighlight({
+        data: { highlightId: viewer.id },
+      });
+      if (!result.deleted) throw new Error("This highlight is no longer available");
 
       setHighlights((current) => current.filter((highlight) => highlight.id !== viewer.id));
       setViewer(null);
+
+      try {
+        await queryClient.invalidateQueries({ queryKey: ["highlights", sessionUserId] });
+        const refreshed = await loadHighlights(sessionUserId);
+        if (refreshed.some((highlight) => highlight.id === viewer.id)) {
+          console.error("[highlights] deleted highlight returned during refresh", {
+            highlightId: viewer.id,
+          });
+          setHighlights((current) => current.filter((highlight) => highlight.id !== viewer.id));
+        }
+      } catch (refreshError) {
+        console.error("[highlights] deleted but refresh failed", refreshError);
+        setHighlights((current) => current.filter((highlight) => highlight.id !== viewer.id));
+      }
+
       toast.success("Highlight deleted");
     } catch (error) {
       console.error("[highlights] delete failed", {
@@ -355,7 +364,7 @@ export function Highlights({
         highlightId: viewer.id,
         error,
       });
-      toast.error(error instanceof Error ? error.message : "Couldn't delete highlight");
+      toast.error("Failed to delete highlight");
     } finally {
       setDeleting(false);
     }
