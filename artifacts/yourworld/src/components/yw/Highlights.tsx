@@ -37,12 +37,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
-import { type MyMoment } from "@/lib/moment-store";
-import { useMoments } from "@/lib/moment-context";
 import { compressImageFile } from "@/lib/image-compress";
 import { STORAGE_BUCKETS, uploadSourceWithProgress } from "@/lib/storage-upload";
 import { deleteHighlight as deleteHighlightOnServer } from "@/lib/highlights.functions";
 import type { DbPost } from "@/lib/social-data";
+import {
+  isHighlightVideoType,
+  MAX_HIGHLIGHTS,
+  MAX_HIGHLIGHTS_MESSAGE,
+  videoPreviewUrl,
+} from "@/lib/highlight-rules";
 
 type HighlightItem = {
   /** source: "story" | "post" */
@@ -62,11 +66,10 @@ export type Highlight = {
   created_at: string;
 };
 
-const MAX_HIGHLIGHTS = 5;
 const MAX_COVER_EDGE = 320;
 
 function isVideoItem(item: Pick<HighlightItem, "mediaType"> | null | undefined) {
-  return item?.mediaType === "video" || item?.mediaType?.startsWith("video/") === true;
+  return isHighlightVideoType(item?.mediaType);
 }
 
 function Thumb({ src, video }: { src?: string; video?: boolean }) {
@@ -74,10 +77,10 @@ function Thumb({ src, video }: { src?: string; video?: boolean }) {
   if (video)
     return (
       <video
-        src={src}
+        src={videoPreviewUrl(src)}
         muted
         playsInline
-        preload="none"
+        preload="metadata"
         className="h-full w-full object-cover"
       />
     );
@@ -100,7 +103,6 @@ export function Highlights({
   posts: DbPost[];
   canManage?: boolean;
 }) {
-  const { moments, archive } = useMoments();
   const queryClient = useQueryClient();
   const runDeleteHighlight = useServerFn(deleteHighlightOnServer);
   const [highlights, setHighlights] = useState<Highlight[]>([]);
@@ -153,22 +155,24 @@ export function Highlights({
     };
   }, [loadHighlights, userId]);
 
-  const storyItems = useMemo<HighlightItem[]>(
-    () =>
-      [...moments, ...archive].filter((m: MyMoment) => m.mine).map((m: MyMoment) => ({
-        source: "story",
-        refId: m.id,
-        thumb: m.media ?? "",
-        media: m.media,
-        mediaType: m.kind === "video" ? "video" : "image",
-      })),
-    [moments, archive],
-  );
-
-  const topReels = useMemo<HighlightItem[]>(
+  const videoItems = useMemo<HighlightItem[]>(
     () =>
       [...posts]
-        .filter((p) => p.kind === "reel")
+        .filter((p) => p.kind === "video" && Boolean(p.media_url))
+        .map((p) => ({
+          source: "post",
+          refId: p.id,
+          thumb: p.thumbnail_url ?? p.media_url,
+          media: p.media_url,
+          mediaType: p.media_type ?? "video",
+        })),
+    [posts],
+  );
+
+  const reelItems = useMemo<HighlightItem[]>(
+    () =>
+      [...posts]
+        .filter((p) => p.kind === "reel" && Boolean(p.media_url))
         .sort((a, b) => (b.views ?? 0) - (a.views ?? 0))
         .map((p) => ({
           source: "post",
@@ -177,18 +181,6 @@ export function Highlights({
           media: p.media_url,
           mediaType: "video",
         })),
-    [posts],
-  );
-
-  const postItems = useMemo<HighlightItem[]>(
-    () =>
-      posts.map((p) => ({
-        source: "post",
-        refId: p.id,
-        thumb: p.thumbnail_url ?? p.media_url,
-        media: p.media_url,
-        mediaType: p.media_type,
-      })),
     [posts],
   );
 
@@ -222,7 +214,7 @@ export function Highlights({
   const save = async () => {
     if (!userId) return;
     if (highlights.length >= MAX_HIGHLIGHTS) {
-      toast.info("Maximum 5 highlights reached.");
+      toast.info(MAX_HIGHLIGHTS_MESSAGE);
       return;
     }
     if (!title.trim()) {
@@ -232,6 +224,16 @@ export function Highlights({
     const items = [...selected.values()];
     if (!items.length) {
       toast.error("Select at least one item");
+      return;
+    }
+    if (
+      items.some(
+        (item) =>
+          item.source !== "post" ||
+          !isHighlightVideoType(item.mediaType),
+      )
+    ) {
+      toast.error("Only published videos and reels can be added to highlights");
       return;
     }
     setSaving(true);
@@ -251,7 +253,7 @@ export function Highlights({
       if (countError) throw countError;
       if ((count ?? 0) >= MAX_HIGHLIGHTS) {
         await loadHighlights(sessionUserId);
-        toast.info("Maximum 5 highlights reached.");
+      toast.info(MAX_HIGHLIGHTS_MESSAGE);
         setOpen(false);
         reset();
         return;
@@ -372,9 +374,9 @@ export function Highlights({
       // circle disappears immediately.
       setViewer(null);
 
-      await queryClient.invalidateQueries({ queryKey: ["highlights"] });
+      // Keep the local circle removal authoritative. A refetch from a stale
+      // replica immediately after deletion can otherwise restore the bubble.
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["highlights", sessionUserId] }),
         queryClient.invalidateQueries({ queryKey: ["profile", sessionUserId] }),
         queryClient.invalidateQueries({ queryKey: ["/api/profile", sessionUserId] }),
       ]);
@@ -434,26 +436,20 @@ export function Highlights({
     <section className="mx-auto max-w-3xl px-3 pt-3 sm:px-4">
       <div className="no-scrollbar flex gap-2.5 overflow-x-auto pb-0.5">
         {/* New highlight */}
-        <button
-          type="button"
-          data-testid="button-new-highlight"
-          disabled={highlights.length >= MAX_HIGHLIGHTS}
-          onClick={() => {
-            if (highlights.length >= MAX_HIGHLIGHTS) {
-              toast.info("Maximum 5 highlights reached.");
-              return;
-            }
-            setOpen(true);
-          }}
-          aria-label={highlights.length >= MAX_HIGHLIGHTS ? "Maximum 5 highlights reached" : "New highlight"}
-          title={highlights.length >= MAX_HIGHLIGHTS ? "Maximum 5 highlights reached" : undefined}
-          className="flex w-[64px] shrink-0 flex-col items-center gap-1 transition-transform active:scale-95 disabled:cursor-not-allowed disabled:opacity-45"
-        >
-          <span className="grid h-[56px] w-[56px] place-items-center rounded-full border border-white/10 bg-white/[0.045] shadow-[0_6px_18px_-12px_rgba(0,0,0,0.9)] backdrop-blur-md">
-            <Plus className="h-5 w-5 text-muted-foreground" strokeWidth={1.8} />
-          </span>
-          <span className="w-full truncate text-center text-[10px] font-medium text-muted-foreground">New</span>
-        </button>
+        {highlights.length < MAX_HIGHLIGHTS ? (
+          <button
+            type="button"
+            data-testid="button-new-highlight"
+            onClick={() => setOpen(true)}
+            aria-label="New highlight"
+            className="flex w-[64px] shrink-0 flex-col items-center gap-1 transition-transform active:scale-95"
+          >
+            <span className="grid h-[56px] w-[56px] place-items-center rounded-full border border-white/10 bg-white/[0.045] shadow-[0_6px_18px_-12px_rgba(0,0,0,0.9)] backdrop-blur-md">
+              <Plus className="h-5 w-5 text-muted-foreground" strokeWidth={1.8} />
+            </span>
+            <span className="w-full truncate text-center text-[10px] font-medium text-muted-foreground">New</span>
+          </button>
+        ) : null}
 
         {highlights.map((h) => (
           <div key={h.id} className="relative flex w-[64px] shrink-0 flex-col items-center gap-1">
@@ -464,8 +460,9 @@ export function Highlights({
               className="h-[56px] w-[56px] overflow-hidden rounded-full border border-white/15 bg-white/[0.045] p-[2px] shadow-[0_6px_18px_-12px_rgba(0,0,0,0.9)]"
             >
               <span className="block h-full w-full overflow-hidden rounded-full">
-                {h.cover_url ? (
-                  isVideoItem(h.items?.[0]) && !h.cover_url.startsWith("data:") ? (
+                 {h.cover_url ? (
+                   isVideoItem(h.items?.[0]) &&
+                   h.cover_url === (h.items?.[0]?.thumb ?? h.items?.[0]?.media) ? (
                     <Thumb src={h.cover_url} video />
                   ) : (
                     <Thumb src={h.cover_url} />
@@ -498,21 +495,17 @@ export function Highlights({
 
           {step === 0 ? (
             <div className="px-4 pb-4">
-              <Tabs defaultValue="stories">
-                <TabsList className="grid w-full grid-cols-3">
-                  <TabsTrigger value="stories">Stories</TabsTrigger>
-                  <TabsTrigger value="top">Reels</TabsTrigger>
-                  <TabsTrigger value="posts">Posts</TabsTrigger>
+               <Tabs defaultValue="videos">
+                 <TabsList className="grid w-full grid-cols-2">
+                   <TabsTrigger value="videos">Videos</TabsTrigger>
+                   <TabsTrigger value="reels">Reels</TabsTrigger>
                 </TabsList>
                 <div className="mt-3 max-h-[46vh] overflow-y-auto pr-1">
-                  <TabsContent value="stories" className="mt-0">
-                    {renderGrid(storyItems)}
-                  </TabsContent>
-                  <TabsContent value="top" className="mt-0">
-                    {renderGrid(topReels)}
-                  </TabsContent>
-                  <TabsContent value="posts" className="mt-0">
-                    {renderGrid(postItems)}
+                   <TabsContent value="videos" className="mt-0">
+                     {renderGrid(videoItems)}
+                   </TabsContent>
+                   <TabsContent value="reels" className="mt-0">
+                     {renderGrid(reelItems)}
                   </TabsContent>
                 </div>
               </Tabs>
