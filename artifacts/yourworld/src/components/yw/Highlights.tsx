@@ -332,12 +332,21 @@ export function Highlights({
   };
 
   const handleDeleteHighlight = async (
-    highlightId: string,
-    event?: React.MouseEvent,
+    highlightId: string | number,
+    event: React.MouseEvent,
   ) => {
-    event?.preventDefault();
-    event?.stopPropagation();
-    if (!viewer || viewer.id !== highlightId || !userId || !canManage || deleting) return;
+    event.stopPropagation();
+    event.preventDefault();
+    const normalizedHighlightId = String(highlightId);
+    if (
+      !viewer ||
+      viewer.id !== normalizedHighlightId ||
+      !userId ||
+      !canManage ||
+      deleting
+    ) {
+      return;
+    }
     setDeleting(true);
     try {
       const { data: userData, error: userError } = await supabase.auth.getUser();
@@ -347,26 +356,24 @@ export function Highlights({
         throw new Error("You can only delete your own highlights");
       }
 
-      console.log("===> HIGHLIGHT DELETE REQUEST ID:", highlightId, "USER:", sessionUserId);
+      console.log("Deleting highlight ID:", normalizedHighlightId);
       const result = await runDeleteHighlight({
-        data: { highlightId },
+        data: { highlightId: normalizedHighlightId },
       });
       if (!result.deleted) throw new Error("This highlight is no longer available");
 
-      const removeDeletedHighlight = (current: Highlight[] | undefined) =>
-        current?.filter((highlight) => highlight.id !== highlightId) ?? [];
       queryClient.setQueryData<Highlight[]>(
         ["highlights", sessionUserId],
-        removeDeletedHighlight,
+        (current) => current?.filter((highlight) => highlight.id !== normalizedHighlightId) ?? [],
       );
-      setHighlights(removeDeletedHighlight);
+      setHighlights((prev) => prev.filter((highlight) => highlight.id !== normalizedHighlightId));
       // This viewer is an in-place overlay on the profile page. Close it
       // without navigating so the profile remains mounted and the deleted
       // circle disappears immediately.
       setViewer(null);
 
+      await queryClient.invalidateQueries({ queryKey: ["highlights"] });
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["highlights"] }),
         queryClient.invalidateQueries({ queryKey: ["highlights", sessionUserId] }),
         queryClient.invalidateQueries({ queryKey: ["profile", sessionUserId] }),
         queryClient.invalidateQueries({ queryKey: ["/api/profile", sessionUserId] }),
@@ -601,7 +608,7 @@ function HighlightViewer({
   highlight: Highlight;
   canDelete?: boolean;
   deleting?: boolean;
-  onDelete?: (event?: React.MouseEvent) => Promise<void>;
+  onDelete?: (event: React.MouseEvent) => Promise<void>;
   onClose: () => void;
 }) {
   const [index, setIndex] = useState(0);
@@ -796,7 +803,7 @@ function HighlightViewer({
                 onClick={async (event) => {
                   event.preventDefault();
                   event.stopPropagation();
-                   await onDelete?.(event);
+                    await onDelete?.(event);
                 }}
               >
                 {deleting ? "Deleting…" : "Delete"}
