@@ -331,7 +331,12 @@ export function Highlights({
     }
   };
 
-  const handleDeleteHighlight = async (highlightId: string) => {
+  const handleDeleteHighlight = async (
+    highlightId: string,
+    event?: React.MouseEvent,
+  ) => {
+    event?.preventDefault();
+    event?.stopPropagation();
     if (!viewer || viewer.id !== highlightId || !userId || !canManage || deleting) return;
     setDeleting(true);
     try {
@@ -361,6 +366,7 @@ export function Highlights({
       setViewer(null);
 
       await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["highlights"] }),
         queryClient.invalidateQueries({ queryKey: ["highlights", sessionUserId] }),
         queryClient.invalidateQueries({ queryKey: ["profile", sessionUserId] }),
         queryClient.invalidateQueries({ queryKey: ["/api/profile", sessionUserId] }),
@@ -577,7 +583,7 @@ export function Highlights({
           highlight={viewer}
           canDelete={canManage}
           deleting={deleting}
-          onDelete={() => handleDeleteHighlight(viewer.id)}
+           onDelete={(event) => handleDeleteHighlight(viewer.id, event)}
           onClose={() => setViewer(null)}
         />
       ) : null}
@@ -595,7 +601,7 @@ function HighlightViewer({
   highlight: Highlight;
   canDelete?: boolean;
   deleting?: boolean;
-  onDelete?: () => Promise<void>;
+  onDelete?: (event?: React.MouseEvent) => Promise<void>;
   onClose: () => void;
 }) {
   const [index, setIndex] = useState(0);
@@ -790,7 +796,7 @@ function HighlightViewer({
                 onClick={async (event) => {
                   event.preventDefault();
                   event.stopPropagation();
-                  await onDelete?.();
+                   await onDelete?.(event);
                 }}
               >
                 {deleting ? "Deleting…" : "Delete"}

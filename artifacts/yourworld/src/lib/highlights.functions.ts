@@ -50,28 +50,56 @@ export const deleteHighlight = createServerFn({ method: "POST" })
         throw new Error("You can only delete your own highlights");
       }
 
-      // Perform the destructive operation inside a database transaction. The
-      // SQL function conditionally clears legacy/optional mapping tables before
-      // deleting the owner-scoped parent row, so a foreign key cannot block the
-      // final delete.
-      const { data: deletedId, error: deleteError } = await db.rpc("delete_highlight_hard", {
+      // Prefer the transactional SECURITY DEFINER RPC. If an older deployment
+      // has not received that migration yet, use the same owner-checked
+      // service-role client to clear optional legacy mappings and delete the
+      // parent row directly.
+      let deletedId: string | null = null;
+      const { data: rpcDeletedId, error: rpcError } = await db.rpc("delete_highlight_hard", {
         p_highlight_id: data.highlightId,
         p_user_id: userId,
       });
+      if (!rpcError) {
+        deletedId = rpcDeletedId ?? null;
+      } else {
+        console.warn("[highlights] hard delete RPC unavailable; using direct cleanup", {
+          highlightId: data.highlightId,
+          code: rpcError.code,
+          message: rpcError.message,
+        });
+        const optionalTables = ["highlight_stories", "highlight_items"];
+        for (const table of optionalTables) {
+          const { error: childError } = await db
+            .from(table)
+            .delete()
+            .eq("highlight_id", data.highlightId);
+          const missingOptionalTable =
+            childError?.code === "PGRST205" ||
+            /could not find the table|relation .* does not exist/i.test(childError?.message ?? "");
+          if (childError && !missingOptionalTable) throw childError;
+        }
+        const { data: deletedRows, error: directDeleteError } = await db
+          .from("highlights")
+          .delete()
+          .eq("id", data.highlightId)
+          .eq("user_id", userId)
+          .select("id");
+        if (directDeleteError) throw directDeleteError;
+        deletedId = (deletedRows?.[0] as { id?: string } | undefined)?.id ?? null;
+      }
       console.log("[highlights] hard delete result", {
         highlightId: data.highlightId,
         requestedBy: userId,
         deletedId: deletedId ?? null,
-        error: deleteError
+        error: rpcError
           ? {
-              code: deleteError.code,
-              message: deleteError.message,
-              details: deleteError.details,
-              hint: deleteError.hint,
+              code: rpcError.code,
+              message: rpcError.message,
+              details: rpcError.details,
+              hint: rpcError.hint,
             }
           : null,
       });
-      if (deleteError) throw new Error(`Highlight delete failed: ${deleteError.message}`);
       if (deletedId !== data.highlightId) {
         throw new Error("Highlight delete affected no row");
       }
