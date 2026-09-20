@@ -126,7 +126,7 @@ function WalletPage() {
         { data: det },
         { data: prof },
         { data: hist },
-        { data: counts },
+        { count: followerCount },
         { data: myPosts },
         { data: watchHours },
       ] = await Promise.all([
@@ -138,7 +138,10 @@ function WalletPage() {
             .select("*")
             .eq("user_id", uid)
             .order("created_at", { ascending: false }),
-          supabase.from("follow_counts").select("followers").eq("user_id", uid).maybeSingle(),
+          supabase
+            .from("follows")
+            .select("id", { count: "exact", head: true })
+            .eq("following_id", uid),
           supabase.from("posts").select("*").eq("user_id", uid),
           supabase.rpc("get_channel_watch_hours", {
             _channel_id: uid,
@@ -184,7 +187,7 @@ function WalletPage() {
           ? watchHours
           : Number((watchHours as { watch_hours?: number } | null)?.watch_hours ?? 0);
       setStats({
-        followers: Number(counts?.followers ?? 0),
+        followers: Number(followerCount ?? 0),
         watchHours: Number.isFinite(rawWatchHours)
           ? Math.round(Math.max(0, rawWatchHours) * 100) / 100
           : 0,
