@@ -118,9 +118,12 @@ function TermsPage() {
           <p>
             Creators participating in eligible monetization features or paid promotional or Promote
             features, when available and officially enabled by YourWorld, are subject to the
-            applicable Monetization policies. Eligibility, revenue share, payout schedules, payment
-            methods, fees, refunds, and tax requirements may be governed by separate
-            monetization or payment terms where applicable.
+            applicable{" "}
+            <Link to="/terms/monetization" className="text-indigo-400 underline">
+              Creator Monetization Terms
+            </Link>
+            . Eligibility, revenue share, payout schedules, payment methods, fees, refunds, and tax
+            requirements are governed by those terms where applicable.
           </p>
           <p>
             Payouts, where offered, are processed according to the applicable eligibility requirements

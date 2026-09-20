@@ -52,6 +52,7 @@ import { Route as OrbitNotificationsRouteImport } from './routes/orbit.notificat
 import { Route as OrbitPrivacyRouteImport } from './routes/orbit.privacy'
 import { Route as PostCreateRouteImport } from './routes/post.create'
 import { Route as ReelReelIdRouteImport } from './routes/reel.$reelId'
+import { Route as TermsMonetizationRouteImport } from './routes/terms.monetization'
 import { Route as UUserIdRouteImport } from './routes/u.$userId'
 import { Route as VideoVideoIdRouteImport } from './routes/video.$videoId'
 import { Route as VideoUploadRouteImport } from './routes/video.upload'
@@ -273,6 +274,11 @@ const ReelReelIdRoute = ReelReelIdRouteImport.update({
   path: '/reel/$reelId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TermsMonetizationRoute = TermsMonetizationRouteImport.update({
+  id: '/monetization',
+  path: '/monetization',
+  getParentRoute: () => TermsRoute,
+} as any)
 const UUserIdRoute = UUserIdRouteImport.update({
   id: '/u/$userId',
   path: '/u/$userId',
@@ -323,7 +329,7 @@ export interface FileRoutesByFullPath {
   '/search': typeof SearchRoute
   '/settings': typeof SettingsRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
-  '/terms': typeof TermsRoute
+  '/terms': typeof TermsRouteWithChildren
   '/wallet': typeof WalletRoute
   '/admin/copyright-reports': typeof AdminCopyrightReportsRoute
   '/admin/sports-verification': typeof AdminSportsVerificationRoute
@@ -345,6 +351,7 @@ export interface FileRoutesByFullPath {
   '/orbit/privacy': typeof OrbitPrivacyRoute
   '/post/create': typeof PostCreateRoute
   '/reel/$reelId': typeof ReelReelIdRoute
+  '/terms/monetization': typeof TermsMonetizationRoute
   '/u/$userId': typeof UUserIdRoute
   '/video/$videoId': typeof VideoVideoIdRoute
   '/video/upload': typeof VideoUploadRoute
@@ -371,7 +378,7 @@ export interface FileRoutesByTo {
   '/search': typeof SearchRoute
   '/settings': typeof SettingsRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
-  '/terms': typeof TermsRoute
+  '/terms': typeof TermsRouteWithChildren
   '/wallet': typeof WalletRoute
   '/admin/copyright-reports': typeof AdminCopyrightReportsRoute
   '/admin/sports-verification': typeof AdminSportsVerificationRoute
@@ -393,6 +400,7 @@ export interface FileRoutesByTo {
   '/orbit/privacy': typeof OrbitPrivacyRoute
   '/post/create': typeof PostCreateRoute
   '/reel/$reelId': typeof ReelReelIdRoute
+  '/terms/monetization': typeof TermsMonetizationRoute
   '/u/$userId': typeof UUserIdRoute
   '/video/$videoId': typeof VideoVideoIdRoute
   '/video/upload': typeof VideoUploadRoute
@@ -423,7 +431,7 @@ export interface FileRoutesById {
   '/search': typeof SearchRoute
   '/settings': typeof SettingsRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
-  '/terms': typeof TermsRoute
+  '/terms': typeof TermsRouteWithChildren
   '/wallet': typeof WalletRoute
   '/admin/copyright-reports': typeof AdminCopyrightReportsRoute
   '/admin/sports-verification': typeof AdminSportsVerificationRoute
@@ -445,6 +453,7 @@ export interface FileRoutesById {
   '/orbit/privacy': typeof OrbitPrivacyRoute
   '/post/create': typeof PostCreateRoute
   '/reel/$reelId': typeof ReelReelIdRoute
+  '/terms/monetization': typeof TermsMonetizationRoute
   '/u/$userId': typeof UUserIdRoute
   '/video/$videoId': typeof VideoVideoIdRoute
   '/video/upload': typeof VideoUploadRoute
@@ -497,6 +506,7 @@ export interface FileRouteTypes {
     | '/orbit/privacy'
     | '/post/create'
     | '/reel/$reelId'
+    | '/terms/monetization'
     | '/u/$userId'
     | '/video/$videoId'
     | '/video/upload'
@@ -545,6 +555,7 @@ export interface FileRouteTypes {
     | '/orbit/privacy'
     | '/post/create'
     | '/reel/$reelId'
+    | '/terms/monetization'
     | '/u/$userId'
     | '/video/$videoId'
     | '/video/upload'
@@ -596,6 +607,7 @@ export interface FileRouteTypes {
     | '/orbit/privacy'
     | '/post/create'
     | '/reel/$reelId'
+    | '/terms/monetization'
     | '/u/$userId'
     | '/video/$videoId'
     | '/video/upload'
@@ -626,7 +638,7 @@ export interface RootRouteChildren {
   SearchRoute: typeof SearchRoute
   SettingsRoute: typeof SettingsRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
-  TermsRoute: typeof TermsRoute
+  TermsRoute: typeof TermsRouteWithChildren
   WalletRoute: typeof WalletRoute
   DownloadsDownloadIdRoute: typeof DownloadsDownloadIdRoute
   MomentMomentIdRoute: typeof MomentMomentIdRoute
@@ -942,6 +954,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ReelReelIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/terms/monetization': {
+      id: '/terms/monetization'
+      path: '/monetization'
+      fullPath: '/terms/monetization'
+      preLoaderRoute: typeof TermsMonetizationRouteImport
+      parentRoute: typeof TermsRoute
+    }
     '/u/$userId': {
       id: '/u/$userId'
       path: '/u/$userId'
@@ -1061,6 +1080,16 @@ const OrbitRouteChildren: OrbitRouteChildren = {
 
 const OrbitRouteWithChildren = OrbitRoute._addFileChildren(OrbitRouteChildren)
 
+interface TermsRouteChildren {
+  TermsMonetizationRoute: typeof TermsMonetizationRoute
+}
+
+const TermsRouteChildren: TermsRouteChildren = {
+  TermsMonetizationRoute: TermsMonetizationRoute,
+}
+
+const TermsRouteWithChildren = TermsRoute._addFileChildren(TermsRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
@@ -1080,7 +1109,7 @@ const rootRouteChildren: RootRouteChildren = {
   SearchRoute: SearchRoute,
   SettingsRoute: SettingsRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
-  TermsRoute: TermsRoute,
+  TermsRoute: TermsRouteWithChildren,
   WalletRoute: WalletRoute,
   DownloadsDownloadIdRoute: DownloadsDownloadIdRoute,
   MomentMomentIdRoute: MomentMomentIdRoute,

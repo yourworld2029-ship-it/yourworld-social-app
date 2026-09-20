@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { computeDirectCheckout, inr } from "@/lib/payout-math";
 import {
   VIDEO_CATEGORIES,
   formatDuration,
@@ -431,6 +432,24 @@ function VideoUploadPage() {
                 placeholder="Enter amount in ₹"
                 className="h-11 rounded-xl border-zinc-800 bg-zinc-900/60 placeholder:text-zinc-500"
               />
+              {Number(price) > 0 && Number.isFinite(Number(price)) ? (
+                <div className="mt-3 space-y-1 text-[11px] leading-relaxed text-zinc-400">
+                  <p>
+                    Buyer total:{" "}
+                    <span className="font-semibold text-zinc-200">
+                      {inr(computeDirectCheckout(Number(price)).buyerTotal)}
+                    </span>{" "}
+                    including the 2% gateway fee.
+                  </p>
+                  <p>
+                    Your creator earning:{" "}
+                    <span className="font-semibold text-emerald-300">
+                      {inr(computeDirectCheckout(Number(price)).creatorShare)}
+                    </span>{" "}
+                    from the base price.
+                  </p>
+                </div>
+              ) : null}
             </div>
           )}
         </Field>

@@ -1,5 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { Check, Coins, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,23 @@ export const Route = createFileRoute("/channel/monetization")({
 function ChannelMonetization() {
   const { stats, loading, watchTimeError } = useChannelData();
   const [applying, setApplying] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      const { data } = await supabase.auth.getUser();
+      if (!active || !data.user) return;
+      const { data: profile } = await supabase
+        .from("creator_payout_profiles")
+        .select("terms_accepted_at")
+        .eq("user_id", data.user.id)
+        .maybeSingle();
+      if (active) setTermsAccepted(Boolean(profile?.terms_accepted_at));
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
   const reqs = [
     {
       label: `${formatCount(MONETIZATION.minSubscribers)} subscribers`,
@@ -104,18 +121,41 @@ function ChannelMonetization() {
       </div>
 
       <div className="px-4 pt-4">
+        <label className="flex items-start gap-3 rounded-2xl border border-border bg-card p-4 text-xs leading-relaxed text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={termsAccepted}
+            onChange={(event) => setTermsAccepted(event.target.checked)}
+            className="mt-0.5 h-4 w-4 accent-indigo-500"
+          />
+          <span>
+            I accept the{" "}
+            <Link to="/terms/monetization" className="font-semibold text-indigo-300 underline">
+              Creator Monetization Terms & Conditions
+            </Link>
+            .
+          </span>
+        </label>
         <Button
           className="h-11 w-full rounded-full"
-          disabled={loading || applying || !!watchTimeError || !eligible}
+          disabled={loading || applying || !!watchTimeError || !eligible || !termsAccepted}
           onClick={() => {
             void (async () => {
+              if (!termsAccepted) {
+                toast.error("Accept the Creator Monetization Terms before applying");
+                return;
+              }
               setApplying(true);
               try {
                 const { data } = await supabase.auth.getSession();
                 const uid = data.session?.user.id;
                 if (!uid) throw new Error("Sign in to apply for monetization");
                 const { error } = await supabase.from("creator_payout_profiles").upsert(
-                  { user_id: uid, monetization_eligible: true },
+                  {
+                    user_id: uid,
+                    monetization_eligible: true,
+                    terms_accepted_at: new Date().toISOString(),
+                  },
                   { onConflict: "user_id" },
                 );
                 if (error) throw new Error(error.message);

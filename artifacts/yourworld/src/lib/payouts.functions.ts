@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { computeBreakdown, type GrossBySource } from "./payout-math";
+import { computeBreakdown, MIN_PAYOUT, type GrossBySource } from "./payout-math";
 
 const emptyGross = (): GrossBySource => ({ ads: 0, course: 0, vip: 0 });
 
@@ -72,8 +72,8 @@ export const processPayout = createServerFn({ method: "POST" })
       if (key in bySource) bySource[key] += Number(row.gross_amount ?? 0);
     }
     const breakdown = computeBreakdown(bySource);
-    if (breakdown.net < 5000)
-      throw new Error("Minimum balance to withdraw instantly is ₹5,000");
+    if (breakdown.creatorShare < MIN_PAYOUT)
+      throw new Error("Minimum available balance to request a payout is ₹5,000");
 
     const { data: details } = await db
       .from("creator_payout_details")

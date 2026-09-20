@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { ArrowLeft, CheckCircle2, Coins, ExternalLink, Loader2, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-store";
-import { computeBreakdown, inr, type GrossBySource } from "@/lib/payout-math";
+import { computeBreakdown, inr, MIN_PAYOUT, type GrossBySource } from "@/lib/payout-math";
 import { submitPayoutRequest } from "@/lib/payouts.functions";
 import { postKind } from "@/lib/supabase-compat";
 import { historyBackOr } from "@/lib/navigation";
@@ -32,7 +32,6 @@ export const Route = createFileRoute("/wallet")({
   component: WalletPage,
 });
 
-const MIN_WITHDRAW = 5000;
 const STANDARD_TRACKER_REQUIREMENTS = {
   followers: 15000,
   watchHours: 2500,
@@ -93,6 +92,32 @@ const emptyDetails: Details = {
   pan_number: "",
 };
 
+function MonetizationTermsCheckbox({
+  accepted,
+  onChange,
+}: {
+  accepted: boolean;
+  onChange: (accepted: boolean) => void;
+}) {
+  return (
+    <label className="flex items-start gap-3 rounded-2xl border border-zinc-800 bg-[#141418] p-4 text-xs leading-relaxed text-zinc-300">
+      <input
+        type="checkbox"
+        checked={accepted}
+        onChange={(event) => onChange(event.target.checked)}
+        className="mt-0.5 h-4 w-4 accent-indigo-500"
+      />
+      <span>
+        I accept the{" "}
+        <Link to="/terms/monetization" className="font-semibold text-indigo-300 underline">
+          Creator Monetization Terms & Conditions
+        </Link>
+        .
+      </span>
+    </label>
+  );
+}
+
 function WalletPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -110,6 +135,7 @@ function WalletPage() {
   const [saving, setSaving] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
   useEffect(() => {
     const uid = user?.id;
@@ -162,9 +188,7 @@ function WalletPage() {
           cumulativeDirectGross[key] += Number(row.gross_amount ?? 0);
         }
       }
-      setCumulativeDirectSalesNet(
-        computeBreakdown(cumulativeDirectGross).net,
-      );
+      setCumulativeDirectSalesNet(computeBreakdown(cumulativeDirectGross).creatorShare);
       if (det) {
         setDetails({
           creator_email: det.email ?? "",
@@ -181,9 +205,11 @@ function WalletPage() {
             : "pending",
         );
         setEligible(Boolean(det.monetization_eligible));
+        setTermsAccepted(Boolean(det.terms_accepted_at));
       } else {
         setDetails((d) => ({ ...d, creator_email: user?.email ?? "" }));
         setKycStatus("pending");
+        setTermsAccepted(false);
       }
       setPayouts((payoutHistory ?? []) as PayoutRequestRow[]);
 
@@ -243,12 +269,16 @@ function WalletPage() {
     ads: 0,
     course: gross.course,
     vip: gross.vip,
-  }).net;
-  const directSalesUnlocked = cumulativeDirectSalesNet >= MIN_WITHDRAW;
+  }).creatorShare;
+  const directSalesUnlocked = cumulativeDirectSalesNet >= MIN_PAYOUT;
   const showWallet = eligible || canApply || directSalesUnlocked;
 
   const saveDetails = async () => {
     if (!user?.id) return;
+    if (!termsAccepted) {
+      toast.error("Accept the Creator Monetization Terms before saving payout details");
+      return;
+    }
     setSaving(true);
     const nextKycStatus: KycStatus = kycStatus === "verified" ? "verified" : "pending";
     const { error } = await supabase
@@ -265,6 +295,7 @@ function WalletPage() {
           payout_schedule: schedule,
           kyc_status: nextKycStatus,
           monetization_eligible: eligible,
+          terms_accepted_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         },
         { onConflict: "user_id" },
@@ -284,6 +315,10 @@ function WalletPage() {
 
   const applyForMonetization = async () => {
     if (!user?.id || !canApply) return;
+    if (!termsAccepted) {
+      toast.error("Accept the Creator Monetization Terms before applying");
+      return;
+    }
     setApplying(true);
     const { error } = await supabase
       .from("creator_payout_profiles")
@@ -299,6 +334,7 @@ function WalletPage() {
           payout_schedule: schedule,
           kyc_status: kycStatus,
           monetization_eligible: true,
+          terms_accepted_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         },
         { onConflict: "user_id" },
@@ -310,6 +346,10 @@ function WalletPage() {
   };
 
   const withdraw = async () => {
+    if (!termsAccepted) {
+      toast.error("Accept the Creator Monetization Terms before requesting a payout");
+      return;
+    }
     if (kycStatus !== "verified") {
       toast.error("KYC verification is required before requesting a payout");
       return;
@@ -388,9 +428,10 @@ function WalletPage() {
               );
             })}
 
+            <MonetizationTermsCheckbox accepted={termsAccepted} onChange={setTermsAccepted} />
             <button
               onClick={applyForMonetization}
-              disabled={!canApply || applying}
+              disabled={!canApply || applying || !termsAccepted}
               className="w-full rounded-full bg-indigo-500 py-3 text-sm font-semibold disabled:opacity-50"
             >
               {applying ? "Applying…" : "Apply for Monetization Program"}
@@ -417,7 +458,7 @@ function WalletPage() {
                 </p>
                 <button
                   onClick={applyForMonetization}
-                  disabled={applying}
+                    disabled={applying || !termsAccepted}
                   className="mt-3 w-full rounded-full bg-indigo-500 py-2.5 text-sm font-semibold disabled:opacity-50"
                 >
                   {applying ? "Applying…" : "Apply for Monetization Program"}
@@ -435,15 +476,15 @@ function WalletPage() {
               </div>
               <p className="pt-2 text-3xl font-extrabold">{inr(b.creatorShare)}</p>
               <p className="pt-1 text-[11px] text-zinc-500">
-                Withdrawable after 1% TDS: <span className="text-zinc-300">{inr(b.net)}</span>
+                Net creator earnings, before any payout-time TDS deduction.
               </p>
             </section>
 
             {/* Revenue breakdown */}
             <section className="grid grid-cols-3 gap-3">
               {[
-                { label: "Ad & Brand Deals", v: b.creatorBySource.ads },
-                { label: "Course Sales", v: b.creatorBySource.course },
+                { label: "Ad & View Earnings", v: b.creatorBySource.ads },
+                { label: "Course Earnings", v: b.creatorBySource.course },
                 { label: "VIP Memberships", v: b.creatorBySource.vip },
               ].map((c) => (
                 <div key={c.label} className="rounded-2xl border border-zinc-800 bg-[#141418] p-3">
@@ -454,6 +495,26 @@ function WalletPage() {
                 </div>
               ))}
             </section>
+
+            <section className="rounded-2xl border border-indigo-500/20 bg-indigo-500/10 p-4">
+              <p className="text-sm font-semibold">Payout preview</p>
+              <div className="mt-3 space-y-2 text-xs">
+                <div className="flex justify-between gap-3 text-zinc-300">
+                  <span>Requested amount</span>
+                  <span className="font-semibold text-white">{inr(b.creatorShare)}</span>
+                </div>
+                <div className="flex justify-between gap-3 text-zinc-400">
+                  <span>TDS under Section 194-O (1%)</span>
+                  <span>- {inr(b.tds)}</span>
+                </div>
+                <div className="flex justify-between gap-3 border-t border-indigo-300/20 pt-2 font-semibold text-white">
+                  <span>Net payout to bank</span>
+                  <span>{inr(b.net)}</span>
+                </div>
+              </div>
+            </section>
+
+            <MonetizationTermsCheckbox accepted={termsAccepted} onChange={setTermsAccepted} />
 
             {/* Payout details */}
             <section className="rounded-2xl border border-zinc-800 bg-[#141418] p-4">
@@ -512,7 +573,7 @@ function WalletPage() {
               </div>
               <button
                 onClick={saveDetails}
-                disabled={saving}
+                disabled={saving || !termsAccepted}
                 className="mt-3 w-full rounded-full bg-white py-2.5 text-sm font-semibold text-black disabled:opacity-60"
               >
                 {saving ? "Saving…" : "Save Details"}
@@ -523,17 +584,24 @@ function WalletPage() {
             <div>
               <button
                 onClick={withdraw}
-                disabled={processing || b.net < MIN_WITHDRAW || kycStatus !== "verified"}
+                disabled={
+                  processing ||
+                  b.creatorShare < MIN_PAYOUT ||
+                  kycStatus !== "verified" ||
+                  !termsAccepted
+                }
                 className="flex w-full items-center justify-center gap-2 rounded-full bg-indigo-500 py-3 text-sm font-semibold disabled:opacity-50"
               >
                 {processing ? <Loader2 className="animate-spin" size={16} /> : <Coins size={16} />}
-                {processing ? "Processing payout…" : `Withdraw Balance (${inr(b.net)})`}
+                {processing ? "Processing payout…" : `Request Payout (Net ${inr(b.net)})`}
               </button>
               <p className="pt-2 text-center text-[11px] text-zinc-500">
-                {kycStatus !== "verified"
+                {!termsAccepted
+                  ? "Accept the Creator Monetization Terms before requesting a payout"
+                  : kycStatus !== "verified"
                   ? "KYC verification is required before requesting a payout"
-                  : b.net < MIN_WITHDRAW
-                  ? "Minimum balance to withdraw instantly is ₹5,000"
+                  : b.creatorShare < MIN_PAYOUT
+                  ? "Minimum available balance for payout is ₹5,000"
                   : `Processing via your ${schedule === "15_days" ? "15 Days" : "30 Days"} Cycle / Direct Bank.`}
               </p>
             </div>

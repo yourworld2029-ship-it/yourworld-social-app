@@ -35,9 +35,9 @@ export function EarningsCreditWatcher() {
           },
           (payload) => {
             const row = payload.new as { source?: string; gross_amount?: number | string };
-            const net = netFor(String(row.source ?? "ads"), Number(row.gross_amount ?? 0));
-            if (net <= 0) return;
-            toast.success(`Earnings credited: ${inr(net)} added to your Monetization Wallet.`);
+            const creatorShare = netFor(String(row.source ?? "ads"), Number(row.gross_amount ?? 0));
+            if (creatorShare <= 0) return;
+            toast.success(`Earnings credited: ${inr(creatorShare)} added to your Monetization Wallet.`);
           },
         )
         .subscribe();

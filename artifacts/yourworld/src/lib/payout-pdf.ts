@@ -66,15 +66,12 @@ export function buildPayoutPdf(info: StatementInfo, b: PayoutBreakdown) {
   y += 12;
 
   const tableRows: Array<[string, string, boolean?]> = [
-    ["Gross Deal Value (Ads & Brand)", inr(b.bySource.ads)],
-    ["Gross Course Sales", inr(b.bySource.course)],
-    ["Gross VIP Memberships", inr(b.bySource.vip)],
-    ["Total Gross Value", inr(b.gross), true],
-    ["GST @ 18% (on gross)", inr(b.gst)],
-    ["Platform Share Deduction (30% Ads / 15% Courses & VIP)", `- ${inr(b.platformShare)}`],
-    ["Creator Share", inr(b.creatorShare), true],
-    ["TDS @ 1% (Sec 194J)", `- ${inr(b.tds)}`],
-    ["Final Net Credited Amount", inr(b.net), true],
+    ["Ad & View Earnings", inr(b.creatorBySource.ads)],
+    ["Course Earnings", inr(b.creatorBySource.course)],
+    ["VIP Memberships", inr(b.creatorBySource.vip)],
+    ["Available for Payout", inr(b.creatorShare), true],
+    ["TDS @ 1% (Sec 194-O)", `- ${inr(b.tds)}`],
+    ["Net Payout to Bank", inr(b.net), true],
   ];
 
   doc.setFontSize(10);
@@ -94,7 +91,7 @@ export function buildPayoutPdf(info: StatementInfo, b: PayoutBreakdown) {
   // Tax certificate note
   y += 32;
   const noteLines = doc.splitTextToSize(
-    `Tax Certificate Note: TDS of ${inr(b.tds)} has been deposited to the Income Tax Department against your PAN ${info.pan || "—"}. Form 16A will be made available in your Wallet section at the end of the financial quarter for your ITR filing.`,
+    `Tax Certificate Note: TDS of ${inr(b.tds)} will be deposited to the Income Tax Department against your PAN ${info.pan || "—"}. Form 16A will be made available in your Wallet section at the end of the financial quarter for your ITR filing.`,
     W - M * 2 - 24,
   );
   const boxH = noteLines.length * 14 + 24;
