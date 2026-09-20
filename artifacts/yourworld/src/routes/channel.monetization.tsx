@@ -114,7 +114,7 @@ function ChannelMonetization() {
                 const { data } = await supabase.auth.getSession();
                 const uid = data.session?.user.id;
                 if (!uid) throw new Error("Sign in to apply for monetization");
-                const { error } = await supabase.from("creator_payout_details").upsert(
+                const { error } = await supabase.from("creator_payout_profiles").upsert(
                   { user_id: uid, monetization_eligible: true },
                   { onConflict: "user_id" },
                 );

@@ -1,13 +1,12 @@
 import { useEffect, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowLeft, Coins, Download, Loader2, Wallet } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Coins, ExternalLink, Loader2, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-store";
 import { computeBreakdown, inr, type GrossBySource } from "@/lib/payout-math";
-import { downloadPayoutPdf, payoutPdfBase64, type StatementInfo } from "@/lib/payout-pdf";
-import { emailPayoutInvoice, processPayout } from "@/lib/payouts.functions";
+import { submitPayoutRequest } from "@/lib/payouts.functions";
 import { postKind } from "@/lib/supabase-compat";
 import { historyBackOr } from "@/lib/navigation";
 import { useVerifiedSportsIdentity } from "@/lib/sports-identity";
@@ -59,20 +58,20 @@ function trackerRequirements(identity: ReturnType<typeof useVerifiedSportsIdenti
   return STANDARD_TRACKER_REQUIREMENTS;
 }
 
-type PayoutRow = {
+type KycStatus = "pending" | "verified" | "rejected";
+type PayoutSchedule = "15_days" | "30_days";
+
+type PayoutRequestRow = {
   id: string;
-  statement_id: string;
-  gross_amount: number;
-  gst_amount: number;
-  platform_share: number;
-  tds_amount: number;
+  user_id: string;
+  amount: number;
   net_amount: number;
-  ads_gross: number;
-  course_gross: number;
-  vip_gross: number;
-  pan_number: string | null;
-  status: string;
-  email_sent: boolean;
+  tds_deducted: number;
+  status: "processing" | "completed" | "failed" | string;
+  schedule_type: PayoutSchedule;
+  form_16a_url: string | null;
+  failure_reason: string | null;
+  completed_at: string | null;
   created_at: string;
 };
 
@@ -98,20 +97,16 @@ function WalletPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const sportsIdentity = useVerifiedSportsIdentity(user?.id ?? null);
-  const runPayout = useServerFn(processPayout);
-  const sendInvoice = useServerFn(emailPayoutInvoice);
+  const runPayout = useServerFn(submitPayoutRequest);
 
   const [gross, setGross] = useState<GrossBySource>({ ads: 0, course: 0, vip: 0 });
   const [cumulativeDirectSalesNet, setCumulativeDirectSalesNet] = useState(0);
   const [details, setDetails] = useState<Details>(emptyDetails);
-  const [schedule, setSchedule] = useState<"15" | "30">("15");
+  const [schedule, setSchedule] = useState<PayoutSchedule>("15_days");
+  const [kycStatus, setKycStatus] = useState<KycStatus>("pending");
   const [eligible, setEligible] = useState(false);
   const [stats, setStats] = useState({ followers: 0, watchHours: 0, videoViews: 0 });
-  const [profile, setProfile] = useState<{ display_name: string; username: string }>({
-    display_name: "",
-    username: "",
-  });
-  const [payouts, setPayouts] = useState<PayoutRow[]>([]);
+  const [payouts, setPayouts] = useState<PayoutRequestRow[]>([]);
   const [saving, setSaving] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [applying, setApplying] = useState(false);
@@ -125,18 +120,21 @@ function WalletPage() {
         { data: earnings },
         { data: allEarnings },
         { data: det },
-        { data: prof },
-        { data: hist },
+        { data: payoutHistory },
         { count: followerCount },
         { data: myPosts },
         { data: watchHours },
       ] = await Promise.all([
-          supabase.from("creator_earnings").select("source, gross_amount").eq("user_id", uid).is("payout_id", null),
-          supabase.from("creator_earnings").select("source, gross_amount").eq("user_id", uid),
-          supabase.from("creator_payout_details").select("*").eq("user_id", uid).maybeSingle(),
-          supabase.from("profiles").select("display_name, username").eq("id", uid).maybeSingle(),
           supabase
-            .from("creator_payouts")
+            .from("creator_earnings")
+            .select("source, gross_amount")
+            .eq("user_id", uid)
+            .is("payout_id", null)
+            .is("payout_request_id", null),
+          supabase.from("creator_earnings").select("source, gross_amount").eq("user_id", uid),
+          supabase.from("creator_payout_profiles").select("*").eq("user_id", uid).maybeSingle(),
+          supabase
+            .from("payout_requests")
             .select("*")
             .eq("user_id", uid)
             .order("created_at", { ascending: false }),
@@ -169,23 +167,25 @@ function WalletPage() {
       );
       if (det) {
         setDetails({
-          creator_email: det.creator_email ?? "",
+          creator_email: det.email ?? "",
           upi_id: det.upi_id ?? "",
-          bank_account: det.bank_account ?? "",
-          ifsc_code: det.ifsc_code ?? "",
-          account_holder: det.account_holder ?? "",
+          bank_account: det.account_number ?? "",
+          ifsc_code: det.ifsc ?? "",
+          account_holder: det.holder_name ?? "",
           pan_number: det.pan_number ?? "",
         });
-        setSchedule((det.payout_schedule === "30" ? "30" : "15") as "15" | "30");
+        setSchedule(det.payout_schedule === "30_days" ? "30_days" : "15_days");
+        setKycStatus(
+          det.kyc_status === "verified" || det.kyc_status === "rejected"
+            ? det.kyc_status
+            : "pending",
+        );
         setEligible(Boolean(det.monetization_eligible));
       } else {
         setDetails((d) => ({ ...d, creator_email: user?.email ?? "" }));
+        setKycStatus("pending");
       }
-      setProfile({
-        display_name: prof?.display_name ?? "",
-        username: prof?.username ?? "",
-      });
-      setPayouts((hist ?? []) as PayoutRow[]);
+      setPayouts((payoutHistory ?? []) as PayoutRequestRow[]);
 
       let videoViews = 0;
       for (const p of myPosts ?? []) {
@@ -211,6 +211,29 @@ function WalletPage() {
     };
   }, [user?.id, user?.email]);
 
+  useEffect(() => {
+    const uid = user?.id;
+    if (!uid) return;
+    const channel = supabase
+      .channel(`payout-requests-${uid}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "payout_requests", filter: `user_id=eq.${uid}` },
+        async () => {
+          const { data } = await supabase
+            .from("payout_requests")
+            .select("*")
+            .eq("user_id", uid)
+            .order("created_at", { ascending: false });
+          if (data) setPayouts(data as PayoutRequestRow[]);
+        },
+      )
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [user?.id]);
+
   const b = computeBreakdown(gross);
   const requirements = trackerRequirements(sportsIdentity);
   const canApply =
@@ -224,44 +247,60 @@ function WalletPage() {
   const directSalesUnlocked = cumulativeDirectSalesNet >= MIN_WITHDRAW;
   const showWallet = eligible || canApply || directSalesUnlocked;
 
-  const statementInfo = (p: {
-    statement_id: string;
-    created_at: string;
-    pan_number: string | null;
-  }): StatementInfo => ({
-    statementId: p.statement_id,
-    date: new Date(p.created_at).toLocaleDateString("en-IN", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    }),
-    creatorName: details.account_holder || profile.display_name || "Creator",
-    username: profile.username ? `@${profile.username}` : "—",
-    email: details.creator_email || user?.email || "—",
-    pan: p.pan_number || details.pan_number || "",
-  });
-
   const saveDetails = async () => {
     if (!user?.id) return;
     setSaving(true);
+    const nextKycStatus: KycStatus = kycStatus === "verified" ? "verified" : "pending";
     const { error } = await supabase
-      .from("creator_payout_details")
+      .from("creator_payout_profiles")
       .upsert(
-        { user_id: user.id, ...details, payout_schedule: schedule },
+        {
+          user_id: user.id,
+          email: details.creator_email,
+          upi_id: details.upi_id,
+          account_number: details.bank_account,
+          ifsc: details.ifsc_code,
+          holder_name: details.account_holder,
+          pan_number: details.pan_number,
+          payout_schedule: schedule,
+          kyc_status: nextKycStatus,
+          monetization_eligible: eligible,
+          updated_at: new Date().toISOString(),
+        },
         { onConflict: "user_id" },
       );
     setSaving(false);
-    if (error) toast.error(error.message);
-    else toast.success("Payout details saved");
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    setKycStatus(nextKycStatus);
+    toast.success(
+      nextKycStatus === "verified"
+        ? "Payout details saved"
+        : "Payout details saved. KYC is now under review.",
+    );
   };
 
   const applyForMonetization = async () => {
     if (!user?.id || !canApply) return;
     setApplying(true);
     const { error } = await supabase
-      .from("creator_payout_details")
+      .from("creator_payout_profiles")
       .upsert(
-        { user_id: user.id, ...details, payout_schedule: schedule, monetization_eligible: true },
+        {
+          user_id: user.id,
+          email: details.creator_email,
+          upi_id: details.upi_id,
+          account_number: details.bank_account,
+          ifsc: details.ifsc_code,
+          holder_name: details.account_holder,
+          pan_number: details.pan_number,
+          payout_schedule: schedule,
+          kyc_status: kycStatus,
+          monetization_eligible: true,
+          updated_at: new Date().toISOString(),
+        },
         { onConflict: "user_id" },
       );
     setApplying(false);
@@ -271,34 +310,17 @@ function WalletPage() {
   };
 
   const withdraw = async () => {
-    if (!details.creator_email && !user?.email) {
-      toast.error("Add your creator email before requesting a payout");
+    if (kycStatus !== "verified") {
+      toast.error("KYC verification is required before requesting a payout");
       return;
     }
     setProcessing(true);
     try {
       const res = await runPayout({});
-      const payout = res.payout as unknown as PayoutRow;
+      const payout = res.payoutRequest as PayoutRequestRow;
       setPayouts((p) => [payout, ...p]);
       setGross({ ads: 0, course: 0, vip: 0 });
-
-      const info = statementInfo(payout);
-      const bd = computeBreakdown({
-        ads: Number(payout.ads_gross),
-        course: Number(payout.course_gross),
-        vip: Number(payout.vip_gross),
-      });
-      const pdfBase64 = payoutPdfBase64(info, bd);
-      const mail = await sendInvoice({
-        data: {
-          payoutId: payout.id,
-          to: details.creator_email || user!.email!,
-          statementId: payout.statement_id,
-          pdfBase64,
-        },
-      });
-      if (mail.sent) toast.success("Payout processed — invoice emailed to you");
-      else toast.success(`Payout processed. ${mail.reason ?? ""} Download the PDF below.`);
+      toast.success("Payout request submitted successfully. Processing via your chosen schedule.");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Payout failed");
     } finally {
@@ -435,7 +457,26 @@ function WalletPage() {
 
             {/* Payout details */}
             <section className="rounded-2xl border border-zinc-800 bg-[#141418] p-4">
-              <h2 className="text-sm font-bold">Payout & Bank Details</h2>
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-sm font-bold">Payout & Bank Details</h2>
+                <span
+                  className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${
+                    kycStatus === "verified"
+                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                      : kycStatus === "rejected"
+                        ? "border-red-500/30 bg-red-500/10 text-red-300"
+                        : "border-amber-500/30 bg-amber-500/10 text-amber-300"
+                  }`}
+                >
+                  {kycStatus === "verified" ? <CheckCircle2 size={12} /> : null}
+                  KYC Status:{" "}
+                  {kycStatus === "verified"
+                    ? "Verified"
+                    : kycStatus === "rejected"
+                      ? "Rejected"
+                      : "Under Review"}
+                </span>
+              </div>
               <div className="grid gap-2.5 pt-3">
                 {(
                   [
@@ -461,11 +502,11 @@ function WalletPage() {
                   <span className="mb-1 block text-[11px] text-zinc-500">Auto-Payout Schedule</span>
                   <select
                     value={schedule}
-                    onChange={(e) => setSchedule(e.target.value as "15" | "30")}
+                    onChange={(e) => setSchedule(e.target.value as PayoutSchedule)}
                     className="w-full rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm outline-none focus:border-zinc-600"
                   >
-                    <option value="15">Every 15 Days</option>
-                    <option value="30">Every 30 Days</option>
+                    <option value="15_days">Every 15 Days</option>
+                    <option value="30_days">Every 30 Days</option>
                   </select>
                 </label>
               </div>
@@ -482,16 +523,18 @@ function WalletPage() {
             <div>
               <button
                 onClick={withdraw}
-                disabled={processing || b.net < MIN_WITHDRAW}
+                disabled={processing || b.net < MIN_WITHDRAW || kycStatus !== "verified"}
                 className="flex w-full items-center justify-center gap-2 rounded-full bg-indigo-500 py-3 text-sm font-semibold disabled:opacity-50"
               >
                 {processing ? <Loader2 className="animate-spin" size={16} /> : <Coins size={16} />}
                 {processing ? "Processing payout…" : `Withdraw Balance (${inr(b.net)})`}
               </button>
               <p className="pt-2 text-center text-[11px] text-zinc-500">
-                {b.net < MIN_WITHDRAW
+                {kycStatus !== "verified"
+                  ? "KYC verification is required before requesting a payout"
+                  : b.net < MIN_WITHDRAW
                   ? "Minimum balance to withdraw instantly is ₹5,000"
-                  : `Instant transfer to your UPI / bank. Auto-payout every ${schedule} days.`}
+                  : `Processing via your ${schedule === "15_days" ? "15 Days" : "30 Days"} Cycle / Direct Bank.`}
               </p>
             </div>
 
@@ -505,34 +548,53 @@ function WalletPage() {
               ) : (
                 <ul className="divide-y divide-zinc-800/80 pt-1">
                   {payouts.map((p) => (
-                    <li key={p.id} className="flex items-center gap-3 py-3">
+                    <li key={p.id} className="flex items-start gap-3 py-3">
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-semibold">{inr(Number(p.net_amount))}</p>
-                        <p className="truncate text-[11px] text-zinc-500">
-                          {p.statement_id} ·{" "}
+                        <p className="truncate text-sm font-semibold">{inr(Number(p.amount))}</p>
+                        <p className="pt-0.5 text-[11px] text-zinc-400">
+                          {p.schedule_type === "15_days" ? "15 Days Cycle" : "30 Days Cycle"} / Direct Bank
+                        </p>
+                        <p className="truncate pt-0.5 text-[11px] text-zinc-500">
                           {new Date(p.created_at).toLocaleDateString("en-IN", {
                             day: "2-digit",
                             month: "short",
                             year: "numeric",
-                          })}{" "}
-                          · {p.status}
+                          })}
                         </p>
                       </div>
-                      <button
-                        onClick={() =>
-                          downloadPayoutPdf(
-                            statementInfo(p),
-                            computeBreakdown({
-                              ads: Number(p.ads_gross),
-                              course: Number(p.course_gross),
-                              vip: Number(p.vip_gross),
-                            }),
+                      <div className="flex shrink-0 flex-col items-end gap-2">
+                        <span
+                          className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${
+                            p.status === "completed"
+                              ? "bg-emerald-500/15 text-emerald-300"
+                              : p.status === "failed"
+                                ? "bg-red-500/15 text-red-300"
+                                : "bg-amber-500/15 text-amber-300"
+                          }`}
+                        >
+                          {p.status === "completed"
+                            ? "Completed"
+                            : p.status === "failed"
+                              ? "Failed"
+                              : "Processing"}
+                        </span>
+                        {p.status === "completed" ? (
+                          p.form_16a_url ? (
+                            <a
+                              href={p.form_16a_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="flex items-center gap-1 text-[10px] font-semibold text-zinc-300 hover:text-white"
+                            >
+                              <ExternalLink size={12} /> Form 16A
+                            </a>
+                          ) : (
+                            <span className="text-right text-[10px] text-zinc-500">
+                              Form 16A pending
+                            </span>
                           )
-                        }
-                        className="flex items-center gap-1.5 rounded-full border border-zinc-700 px-3 py-1.5 text-[11px] font-semibold hover:bg-zinc-800"
-                      >
-                        <Download size={13} /> PDF
-                      </button>
+                        ) : null}
+                      </div>
                     </li>
                   ))}
                 </ul>

@@ -5,6 +5,36 @@ import { computeBreakdown, type GrossBySource } from "./payout-math";
 
 const emptyGross = (): GrossBySource => ({ ads: 0, course: 0, vip: 0 });
 
+export type PayoutRequestResult = {
+  id: string;
+  user_id: string;
+  amount: number | string;
+  net_amount: number | string;
+  tds_deducted: number | string;
+  status: "processing" | "completed" | "failed" | string;
+  schedule_type: "15_days" | "30_days";
+  form_16a_url: string | null;
+  failure_reason: string | null;
+  completed_at: string | null;
+  created_at: string;
+};
+
+/** Submits the authenticated creator's active wallet balance for payout. */
+export const submitPayoutRequest = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const db = context.supabase as unknown as {
+      rpc: (
+        functionName: string,
+      ) => Promise<{ data: PayoutRequestResult | PayoutRequestResult[] | null; error: { message: string } | null }>;
+    };
+    const { data, error } = await db.rpc("submit_payout_request");
+    if (error) throw new Error(error.message);
+    const payoutRequest = Array.isArray(data) ? data[0] : data;
+    if (!payoutRequest) throw new Error("Payout request could not be created");
+    return { payoutRequest };
+  });
+
 /** Creates a payout statement from all pending (unpaid) creator earnings. */
 export const processPayout = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
