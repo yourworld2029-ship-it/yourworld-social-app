@@ -186,7 +186,8 @@ export function DownloadSheet({
             {choices.map((choice) => {
              const isOriginal = choice === "original";
              const isSelected = choice === selected;
-              const quality = choice !== "original" ? QUALITY_COPY[choice] : null;
+              const quality =
+                choice !== "original" && choice !== "mp3" ? QUALITY_COPY[choice] : null;
               const size = sizeForChoice(choice);
              return (
                <button
