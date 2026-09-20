@@ -794,7 +794,7 @@ function ReelItem({
     const source = mediaUrl ?? reel.poster;
     const toastId = toast.loading(
       isVideo && choice === "mp3" ? "Preparing MP3 audio… 0%" :
-      isVideo ? `Downloading ${choice} video… 0%` :
+      isVideo ? `Preparing video... 0%` :
       "Preparing image download…",
     );
     try {
@@ -854,7 +854,7 @@ function ReelItem({
         toast.success(
           choice === "mp3"
             ? "Saved to your device"
-            : "Saved offline. You can watch anytime in Profile > Downloads",
+             : "Saved to Downloads in Profile",
           { id: toastId },
         );
       } else {

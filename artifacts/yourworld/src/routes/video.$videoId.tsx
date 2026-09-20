@@ -679,7 +679,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     reportProgress?: (percent: number) => void,
   ) => {
      if (!playableMediaUrl) throw new Error("This video has no downloadable media");
-    const toastId = toast.loading("Preparing download... 0%");
+     const toastId = toast.loading("Preparing video... 0%");
     const baseName = sanitizeDownloadName(video.title || "yourworld-video", `yourworld-${videoId}`);
        const downloadMetadata = {
          ownerId: user?.id || "anonymous",
@@ -731,7 +731,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
       toast.success(
         choice === "mp3"
           ? "Saved to your device"
-          : "Saved offline. You can watch anytime in Profile > Downloads",
+             : "Saved to Downloads in Profile",
         { id: toastId },
       );
     } catch (cause) {

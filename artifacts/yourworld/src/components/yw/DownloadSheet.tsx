@@ -1,4 +1,4 @@
-import { AudioLines, Circle, CircleDot, Download, Film, Loader2 } from "lucide-react";
+import { Circle, CircleDot, Download, Film, Loader2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
   Sheet,
@@ -97,7 +97,7 @@ export function DownloadSheet({
       const qualityTiers = sourceQualityTier
         ? availableVideoQualityTiers(sourceQualityTier)
         : [];
-      return [...qualityTiers.map((choice) => choice.id), "original", "mp3"];
+      return [...qualityTiers.map((choice) => choice.id), "original"];
     },
     [sourceQualityTier],
   );
@@ -137,10 +137,6 @@ export function DownloadSheet({
       return formatDownloadSizeMb(resolvedSourceFileSizeBytes / 1_000_000, true);
     }
 
-    if (choice === "mp3") {
-      return formatDownloadSizeMb(estimateDownloadSizeMb(durationSeconds, "mp3"));
-    }
-
     const estimateTier = isSourceFile ? sourceQualityTier : choice;
     return formatDownloadSizeMb(
       estimateTier ? estimateDownloadSizeMb(durationSeconds, estimateTier) : null,
@@ -173,10 +169,11 @@ export function DownloadSheet({
     >
       <SheetContent
         side="bottom"
-        className="relative rounded-t-3xl border-zinc-800 bg-[#15151a] px-4 pb-8 text-white"
+        overlayClassName="fixed inset-0 z-[120] bg-black/70 backdrop-blur-sm"
+        className="fixed inset-x-0 bottom-0 z-[130] flex max-h-[85vh] flex-col overflow-y-auto rounded-t-2xl border-t border-zinc-800 bg-[#121216] p-5 text-white"
       >
         <SheetHeader className="mx-auto max-w-lg pb-4 pt-1 text-left">
-           <SheetTitle className="text-base text-white">Download Video / Audio</SheetTitle>
+            <SheetTitle className="text-base text-white">Download Video</SheetTitle>
           <SheetDescription className="truncate text-xs text-zinc-400">
              {title}
           </SheetDescription>
@@ -186,7 +183,7 @@ export function DownloadSheet({
            <p className="px-1 pt-1 text-[11px] font-bold uppercase tracking-[0.16em] text-zinc-400">
              Video Qualities
            </p>
-           {choices.filter((choice) => choice !== "mp3").map((choice) => {
+            {choices.map((choice) => {
              const isOriginal = choice === "original";
              const isSelected = choice === selected;
               const quality = choice !== "original" ? QUALITY_COPY[choice] : null;
@@ -230,39 +227,6 @@ export function DownloadSheet({
              );
            })}
 
-           <p className="px-1 pt-4 text-[11px] font-bold uppercase tracking-[0.16em] text-zinc-400">
-             Audio Only
-           </p>
-           <button
-             type="button"
-             role="radio"
-             aria-checked={selected === "mp3"}
-             disabled={busy}
-             onClick={() => setSelected("mp3")}
-             className={cn(
-               "flex w-full items-center gap-3 rounded-2xl border px-3.5 py-3 text-left shadow-sm transition-all active:scale-[0.99]",
-               selected === "mp3"
-                 ? "border-pink-500/70 bg-pink-500/10"
-                 : "border-zinc-800 bg-zinc-900/70 hover:border-zinc-700 hover:bg-zinc-800",
-               busy && "opacity-60",
-             )}
-           >
-             <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-zinc-800 text-zinc-200">
-               <AudioLines size={18} />
-             </span>
-             <span className="min-w-0 flex-1">
-               <span className="block text-sm font-semibold">MP3 Audio</span>
-               <span className="mt-0.5 block text-[11px] text-zinc-400">
-                  Extracted / direct audio stream · {sizeForChoice("mp3")}
-               </span>
-             </span>
-             {selected === "mp3" ? (
-               <CircleDot size={22} className="shrink-0 text-pink-500" />
-             ) : (
-               <Circle size={22} className="shrink-0 text-zinc-600" />
-             )}
-           </button>
-
           <button
             type="button"
             disabled={busy}
@@ -270,7 +234,7 @@ export function DownloadSheet({
             className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-white py-3 text-sm font-bold text-black transition-transform active:scale-[0.98] disabled:opacity-50"
           >
             {busy ? <Loader2 size={17} className="animate-spin" /> : <Download size={17} />}
-              {busy ? `Downloading to app storage: ${progress}%` : "Download Selected"}
+              {busy ? `Preparing video... ${progress}%` : "Download Selected"}
           </button>
            {errorMessage ? (
              <p role="alert" className="pt-2 text-center text-xs text-red-300">
@@ -284,7 +248,7 @@ export function DownloadSheet({
                <div className="flex items-center gap-3">
                  <Loader2 className="h-5 w-5 animate-spin text-pink-400" />
                  <p className="text-sm font-semibold text-white">
-                   Downloading to app storage: {progress}%
+                   Preparing video... {progress}%
                  </p>
                </div>
                <div
