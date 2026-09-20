@@ -373,7 +373,7 @@ export function Highlights({
         highlightId,
         error,
       });
-      toast.error("Failed to delete highlight");
+      toast.error(error instanceof Error ? error.message : "Failed to delete highlight");
     } finally {
       setDeleting(false);
     }
