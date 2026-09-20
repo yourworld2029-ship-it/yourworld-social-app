@@ -102,10 +102,10 @@ function WalletPage() {
   const sendInvoice = useServerFn(emailPayoutInvoice);
 
   const [gross, setGross] = useState<GrossBySource>({ ads: 0, course: 0, vip: 0 });
+  const [cumulativeDirectSalesNet, setCumulativeDirectSalesNet] = useState(0);
   const [details, setDetails] = useState<Details>(emptyDetails);
   const [schedule, setSchedule] = useState<"15" | "30">("15");
   const [eligible, setEligible] = useState(false);
-  const [simulate, setSimulate] = useState(false);
   const [stats, setStats] = useState({ followers: 0, watchHours: 0, videoViews: 0 });
   const [profile, setProfile] = useState<{ display_name: string; username: string }>({
     display_name: "",
@@ -123,6 +123,7 @@ function WalletPage() {
     (async () => {
       const [
         { data: earnings },
+        { data: allEarnings },
         { data: det },
         { data: prof },
         { data: hist },
@@ -131,6 +132,7 @@ function WalletPage() {
         { data: watchHours },
       ] = await Promise.all([
           supabase.from("creator_earnings").select("source, gross_amount").eq("user_id", uid).is("payout_id", null),
+          supabase.from("creator_earnings").select("source, gross_amount").eq("user_id", uid),
           supabase.from("creator_payout_details").select("*").eq("user_id", uid).maybeSingle(),
           supabase.from("profiles").select("display_name, username").eq("id", uid).maybeSingle(),
           supabase
@@ -155,6 +157,16 @@ function WalletPage() {
         if (key in next) next[key] += Number(row.gross_amount ?? 0);
       }
       setGross(next);
+      const cumulativeDirectGross: GrossBySource = { ads: 0, course: 0, vip: 0 };
+      for (const row of allEarnings ?? []) {
+        const key = row.source as keyof GrossBySource;
+        if (key === "course" || key === "vip") {
+          cumulativeDirectGross[key] += Number(row.gross_amount ?? 0);
+        }
+      }
+      setCumulativeDirectSalesNet(
+        computeBreakdown(cumulativeDirectGross).net,
+      );
       if (det) {
         setDetails({
           creator_email: det.creator_email ?? "",
@@ -200,11 +212,17 @@ function WalletPage() {
   }, [user?.id, user?.email]);
 
   const b = computeBreakdown(gross);
-  const showWallet = eligible || simulate;
   const requirements = trackerRequirements(sportsIdentity);
   const canApply =
     stats.followers >= requirements.followers &&
     (stats.watchHours >= requirements.watchHours || stats.videoViews >= requirements.videoViews);
+  const directSalesBalance = computeBreakdown({
+    ads: 0,
+    course: gross.course,
+    vip: gross.vip,
+  }).net;
+  const directSalesUnlocked = cumulativeDirectSalesNet >= MIN_WITHDRAW;
+  const showWallet = eligible || canApply || directSalesUnlocked;
 
   const statementInfo = (p: {
     statement_id: string;
@@ -308,29 +326,6 @@ function WalletPage() {
       </header>
 
       <div className="space-y-4 p-4">
-        {/* Testing toggle */}
-        <div className="flex items-center justify-between rounded-2xl border border-zinc-800 bg-[#141418] px-4 py-3">
-          <div>
-            <p className="text-sm font-semibold">Simulate Eligible Creator</p>
-            <p className="text-[11px] text-zinc-500">Preview the tracker and wallet views</p>
-          </div>
-          <button
-            role="switch"
-            aria-checked={simulate}
-            aria-label="Simulate eligible creator"
-            onClick={() => setSimulate((s) => !s)}
-            className={`relative h-6 w-11 rounded-full transition-colors ${
-              simulate ? "bg-indigo-500" : "bg-zinc-700"
-            }`}
-          >
-            <span
-              className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${
-                simulate ? "left-[22px]" : "left-0.5"
-              }`}
-            />
-          </button>
-        </div>
-
         {!showWallet ? (
           <>
             <section className="rounded-2xl border border-zinc-800 bg-gradient-to-br from-[#17171c] to-[#101014] p-5">
@@ -380,15 +375,34 @@ function WalletPage() {
             </button>
 
             <section className="rounded-2xl border border-zinc-800 bg-[#141418] p-4">
-              <h2 className="text-sm font-bold">Available from Day 1</h2>
+              <h2 className="text-sm font-bold">Day 1 Direct Earnings</h2>
+              <p className="pt-1.5 text-sm font-semibold text-zinc-200">
+                Current sales balance: {inr(directSalesBalance)}
+              </p>
               <p className="pt-1.5 text-[11px] leading-relaxed text-zinc-500">
-                Paid Courses, Single Video Paywalls and VIP Memberships are open to every creator —
-                no eligibility required. Ad revenue payouts unlock after you join the program.
+                Earn ₹5,000 from courses/memberships to unlock bank withdrawal (Current:{" "}
+                {inr(directSalesBalance)} / ₹5,000)
               </p>
             </section>
           </>
         ) : (
           <>
+            {canApply && !eligible ? (
+              <section className="rounded-2xl border border-indigo-500/30 bg-indigo-500/10 p-4">
+                <p className="text-sm font-semibold">Standard ad monetization threshold reached</p>
+                <p className="pt-1 text-[11px] leading-relaxed text-zinc-400">
+                  Apply to save your monetization eligibility and keep earning from ad revenue.
+                </p>
+                <button
+                  onClick={applyForMonetization}
+                  disabled={applying}
+                  className="mt-3 w-full rounded-full bg-indigo-500 py-2.5 text-sm font-semibold disabled:opacity-50"
+                >
+                  {applying ? "Applying…" : "Apply for Monetization Program"}
+                </button>
+              </section>
+            ) : null}
+
             {/* Total earnings */}
             <section className="rounded-2xl border border-zinc-800 bg-gradient-to-br from-[#17171c] to-[#101014] p-5">
               <div className="flex items-center gap-2 text-zinc-400">
