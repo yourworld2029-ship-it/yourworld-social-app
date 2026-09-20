@@ -722,20 +722,20 @@ function HighlightViewer({
         <div className="absolute inset-x-0 top-0 z-30 flex items-center justify-between bg-gradient-to-b from-black/75 to-transparent px-3 pb-8 pt-7">
           <span className="text-sm font-semibold text-white">{highlight.title}</span>
           <div className="flex gap-2">
-             <button type="button" onClick={(event) => { event.stopPropagation(); setPaused((p) => !p); }} className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white backdrop-blur-xl" aria-label={paused ? "Play" : "Pause"}>
+            <button type="button" onClick={(event) => { event.stopPropagation(); setPaused((p) => !p); }} className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white backdrop-blur-xl" aria-label={paused ? "Play" : "Pause"}>
               {paused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
             </button>
-             {isVideoItem(current) ? <button type="button" onClick={(event) => { event.stopPropagation(); setMuted((m) => !m); }} className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white backdrop-blur-xl" aria-label={muted ? "Turn sound on" : "Mute sound"}>{muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}</button> : null}
-             <button type="button" onClick={(event) => { event.stopPropagation(); onClose(); }} className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white backdrop-blur-xl" aria-label="Close"><X className="h-4 w-4" /></button>
+            {isVideoItem(current) ? <button type="button" onClick={(event) => { event.stopPropagation(); setMuted((m) => !m); }} className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white backdrop-blur-xl" aria-label={muted ? "Turn sound on" : "Mute sound"}>{muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}</button> : null}
+            <button type="button" onClick={(event) => { event.stopPropagation(); onClose(); }} className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white backdrop-blur-xl" aria-label="Close"><X className="h-4 w-4" /></button>
             {canDelete ? (
               <div className="relative">
                 <button
                   type="button"
-                   onClick={(event) => {
-                     event.preventDefault();
-                     event.stopPropagation();
-                     setMenuOpen((open) => !open);
-                   }}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setMenuOpen((open) => !open);
+                  }}
                   className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white backdrop-blur-xl"
                   aria-label="More options"
                 >
