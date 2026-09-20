@@ -722,16 +722,20 @@ function HighlightViewer({
         <div className="absolute inset-x-0 top-0 z-30 flex items-center justify-between bg-gradient-to-b from-black/75 to-transparent px-3 pb-8 pt-7">
           <span className="text-sm font-semibold text-white">{highlight.title}</span>
           <div className="flex gap-2">
-            <button type="button" onClick={() => setPaused((p) => !p)} className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white backdrop-blur-xl" aria-label={paused ? "Play" : "Pause"}>
+             <button type="button" onClick={(event) => { event.stopPropagation(); setPaused((p) => !p); }} className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white backdrop-blur-xl" aria-label={paused ? "Play" : "Pause"}>
               {paused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
             </button>
-            {isVideoItem(current) ? <button type="button" onClick={() => setMuted((m) => !m)} className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white backdrop-blur-xl" aria-label={muted ? "Turn sound on" : "Mute sound"}>{muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}</button> : null}
-            <button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white backdrop-blur-xl" aria-label="Close"><X className="h-4 w-4" /></button>
+             {isVideoItem(current) ? <button type="button" onClick={(event) => { event.stopPropagation(); setMuted((m) => !m); }} className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white backdrop-blur-xl" aria-label={muted ? "Turn sound on" : "Mute sound"}>{muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}</button> : null}
+             <button type="button" onClick={(event) => { event.stopPropagation(); onClose(); }} className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white backdrop-blur-xl" aria-label="Close"><X className="h-4 w-4" /></button>
             {canDelete ? (
               <div className="relative">
                 <button
                   type="button"
-                  onClick={() => setMenuOpen((open) => !open)}
+                   onClick={(event) => {
+                     event.preventDefault();
+                     event.stopPropagation();
+                     setMenuOpen((open) => !open);
+                   }}
                   className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white backdrop-blur-xl"
                   aria-label="More options"
                 >
@@ -741,7 +745,9 @@ function HighlightViewer({
                   <div className="absolute right-0 top-11 z-40 w-44 overflow-hidden rounded-xl border border-white/15 bg-black/85 shadow-2xl backdrop-blur-xl">
                     <button
                       type="button"
-                      onClick={() => {
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
                         setMenuOpen(false);
                         setDeleteOpen(true);
                       }}
@@ -773,11 +779,17 @@ function HighlightViewer({
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+              <AlertDialogCancel
+                disabled={deleting}
+                onClick={(event) => event.stopPropagation()}
+              >
+                Cancel
+              </AlertDialogCancel>
               <AlertDialogAction
                 disabled={deleting}
                 onClick={async (event) => {
                   event.preventDefault();
+                  event.stopPropagation();
                   await onDelete?.();
                 }}
               >
