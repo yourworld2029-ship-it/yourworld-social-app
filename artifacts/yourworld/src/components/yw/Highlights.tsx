@@ -331,9 +331,8 @@ export function Highlights({
     }
   };
 
-  const deleteHighlight = async () => {
-    if (!viewer || !userId || !canManage || deleting) return;
-    const highlightId = viewer.id;
+  const handleDeleteHighlight = async (highlightId: string) => {
+    if (!viewer || viewer.id !== highlightId || !userId || !canManage || deleting) return;
     setDeleting(true);
     try {
       const { data: userData, error: userError } = await supabase.auth.getUser();
@@ -356,9 +355,13 @@ export function Highlights({
         removeDeletedHighlight,
       );
       setHighlights(removeDeletedHighlight);
+      // This viewer is an in-place overlay on the profile page. Close it
+      // without navigating so the profile remains mounted and the deleted
+      // circle disappears immediately.
       setViewer(null);
 
       await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["highlights", sessionUserId] }),
         queryClient.invalidateQueries({ queryKey: ["profile", sessionUserId] }),
         queryClient.invalidateQueries({ queryKey: ["/api/profile", sessionUserId] }),
       ]);
@@ -574,7 +577,7 @@ export function Highlights({
           highlight={viewer}
           canDelete={canManage}
           deleting={deleting}
-          onDelete={deleteHighlight}
+          onDelete={() => handleDeleteHighlight(viewer.id)}
           onClose={() => setViewer(null)}
         />
       ) : null}
