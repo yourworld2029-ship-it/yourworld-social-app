@@ -23,6 +23,7 @@ import { ChannelProvider } from "@/lib/channel-store";
 import { CallProvider } from "@/lib/call-store";
 import { UploadProvider } from "@/lib/upload-progress";
 import { Toaster } from "@/components/ui/sonner";
+import { DownloadBanner } from "@/components/yw/DownloadBanner";
 import { EarningsCreditWatcher } from "@/lib/earnings-credit";
 import { SafeProvider } from "@/lib/safe-provider";
 import { AdaptiveMediaController } from "@/lib/adaptive-performance";
@@ -195,6 +196,7 @@ function RootComponent() {
                                 <SafeProvider name="Upload">
                                   <UploadProvider>
                                     <VideoPlaybackProvider>
+                                       <DownloadBanner />
                                       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
                                       <AuthGate>
                                         <div className={cn("mx-auto min-h-screen w-full", wideProfileLayout ? "max-w-4xl" : "max-w-lg", hideNav ? "" : "pb-20")}>

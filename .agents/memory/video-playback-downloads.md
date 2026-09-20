@@ -7,4 +7,4 @@ Playback and downloading are separate paths: native video elements should use me
 
 **Why:** Remote signed Supabase media is not controlled by the app server, so the client cannot guarantee or retrofit `Accept-Ranges` headers. Intercepting partial video responses in CacheStorage can also break range semantics and signed URLs.
 
-**How to apply:** Preserve valid signed media URLs for playback. Use the service worker to continue full-file download work and CacheStorage to hold completed bytes, then trigger the browser save when the page has a client; use a page-side streamed fallback when worker support is unavailable.
+**How to apply:** Preserve valid signed media URLs for playback. For in-app offline video downloads, use a page-owned streamed fetch, report progress from response bytes, and write the completed Blob directly to IndexedDB so the task survives route changes without client-side re-encoding.

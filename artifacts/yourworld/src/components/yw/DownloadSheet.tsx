@@ -1,4 +1,4 @@
-import { Circle, CircleDot, Download, Film, Loader2 } from "lucide-react";
+import { Circle, CircleDot, Download, Film } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
   Sheet,
@@ -104,9 +104,6 @@ export function DownloadSheet({
   const [selected, setSelected] = useState<DownloadChoice>(
     sourceQualityTier ?? "original",
   );
-  const [busy, setBusy] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [resolvedSourceFileSizeBytes, setResolvedSourceFileSizeBytes] = useState<number | null>(
     positiveByteSize(sourceFileSizeBytes),
   );
@@ -114,8 +111,6 @@ export function DownloadSheet({
   useEffect(() => {
     if (open) {
       setSelected(sourceQualityTier ?? "original");
-      setProgress(0);
-      setErrorMessage(null);
     }
   }, [open, sourceQualityTier]);
 
@@ -143,29 +138,18 @@ export function DownloadSheet({
     );
   };
 
-  const submit = async () => {
-    setBusy(true);
-    setProgress(0);
-    setErrorMessage(null);
-    try {
-      await onDownload(selected, (percent) =>
-        setProgress(Math.max(0, Math.min(100, Math.round(percent)))),
-      );
-      onOpenChange(false);
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Could not save this video offline");
-    } finally {
-      setBusy(false);
-    }
+  const submit = () => {
+    const choice = selected;
+    onOpenChange(false);
+    void Promise.resolve(onDownload(choice)).catch((error) => {
+      console.error("[downloads] background download failed", error);
+    });
   };
 
   return (
     <Sheet
       open={open}
-      onOpenChange={(nextOpen) => {
-        if (!nextOpen && busy) return;
-        onOpenChange(nextOpen);
-      }}
+      onOpenChange={onOpenChange}
     >
       <SheetContent
         side="bottom"
@@ -195,14 +179,12 @@ export function DownloadSheet({
                  type="button"
                  role="radio"
                  aria-checked={isSelected}
-                 disabled={busy}
                  onClick={() => setSelected(choice)}
                  className={cn(
                    "flex w-full items-center gap-3 rounded-2xl border px-3.5 py-3 text-left shadow-sm transition-all active:scale-[0.99]",
                    isSelected
                      ? "border-pink-500/70 bg-pink-500/10"
                      : "border-zinc-800 bg-zinc-900/70 hover:border-zinc-700 hover:bg-zinc-800",
-                   busy && "opacity-60",
                  )}
                >
                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-zinc-800 text-zinc-200">
@@ -230,47 +212,13 @@ export function DownloadSheet({
 
           <button
             type="button"
-            disabled={busy}
             onClick={() => void submit()}
             className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-white py-3 text-sm font-bold text-black transition-transform active:scale-[0.98] disabled:opacity-50"
           >
-            {busy ? <Loader2 size={17} className="animate-spin" /> : <Download size={17} />}
-              {busy ? `Preparing video... ${progress}%` : "Download Selected"}
+             <Download size={17} />
+             Download Selected
           </button>
-           {errorMessage ? (
-             <p role="alert" className="pt-2 text-center text-xs text-red-300">
-               {errorMessage}
-             </p>
-           ) : null}
         </div>
-         {busy ? (
-           <div className="absolute inset-0 z-50 flex items-center justify-center rounded-t-3xl bg-black/75 px-6 backdrop-blur-sm">
-             <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-zinc-950/95 p-5 shadow-2xl">
-               <div className="flex items-center gap-3">
-                 <Loader2 className="h-5 w-5 animate-spin text-pink-400" />
-                 <p className="text-sm font-semibold text-white">
-                   Preparing video... {progress}%
-                 </p>
-               </div>
-               <div
-                 className="mt-4 h-2 overflow-hidden rounded-full bg-white/10"
-                 role="progressbar"
-                 aria-label="Offline video download progress"
-                 aria-valuemin={0}
-                 aria-valuemax={100}
-                 aria-valuenow={progress}
-               >
-                 <div
-                   className="h-full rounded-full bg-gradient-to-r from-pink-500 to-violet-500 transition-[width]"
-                   style={{ width: `${progress}%` }}
-                 />
-               </div>
-               <p className="mt-3 text-center text-[11px] text-zinc-400">
-                 Keep this screen open while the video is saved.
-               </p>
-             </div>
-           </div>
-         ) : null}
       </SheetContent>
     </Sheet>
   );

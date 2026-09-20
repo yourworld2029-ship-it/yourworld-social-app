@@ -13,24 +13,48 @@ import {
   saveOfflineVideo,
   type OfflineVideo,
 } from "@/lib/offlineVideosDB";
+import { toast } from "sonner";
 
-const VIDEO_DOWNLOAD_CACHE = "yourworld-video-downloads-v1";
 const activeVideoDownloads = new Map<string, Promise<void>>();
-const serviceWorkerTasks = new Map<
-  string,
-  {
-    cacheKey: string;
-    fileName: string;
-    onProgress?: (percent: number) => void;
-    resolve: (started: boolean) => void;
-    reject: (error: Error) => void;
-    started: boolean;
-    timeout: number;
-  }
->();
-let serviceWorkerListenerInstalled = false;
+const downloadTaskListeners = new Set<() => void>();
+const downloadTasks = new Map<string, DownloadTask>();
+let downloadTaskSnapshot: DownloadTask[] = [];
 
 export type DownloadQuality = VideoQualityTier | "original";
+
+export type DownloadTask = {
+  id: string;
+  title: string;
+  percent: number;
+};
+
+export function subscribeDownloadTasks(listener: () => void) {
+  downloadTaskListeners.add(listener);
+  return () => downloadTaskListeners.delete(listener);
+}
+
+export function getDownloadTasksSnapshot() {
+  return downloadTaskSnapshot;
+}
+
+function publishDownloadTasks() {
+  downloadTaskSnapshot = [...downloadTasks.values()];
+  downloadTaskListeners.forEach((listener) => listener());
+}
+
+function updateDownloadTask(id: string, title: string, percent: number) {
+  downloadTasks.set(id, {
+    id,
+    title,
+    percent: Math.max(0, Math.min(100, Math.round(percent))),
+  });
+  publishDownloadTasks();
+}
+
+function removeDownloadTask(id: string) {
+  downloadTasks.delete(id);
+  publishDownloadTasks();
+}
 
 export type DownloadedVideoMetadata = {
   ownerId: string;
@@ -126,109 +150,6 @@ export async function saveDownloadedVideo(
   });
 }
 
-function downloadCacheKey(src: string, fileName: string) {
-  return `${location.origin}/__yw-video-download/${encodeURIComponent(src)}?name=${encodeURIComponent(fileName)}`;
-}
-
-function installServiceWorkerListener() {
-  if (serviceWorkerListenerInstalled || !("serviceWorker" in navigator)) return;
-  serviceWorkerListenerInstalled = true;
-  navigator.serviceWorker.addEventListener("message", (event: MessageEvent) => {
-    const data = event.data as {
-      type?: string;
-      id?: string;
-      percent?: number;
-      error?: string;
-    };
-    if (!data.id) return;
-    const task = serviceWorkerTasks.get(data.id);
-    if (!task) return;
-    if (data.type === "yw-video-download-started") {
-      task.started = true;
-      window.clearTimeout(task.timeout);
-    } else if (data.type === "yw-video-download-progress") {
-      task.onProgress?.(Math.max(0, Math.min(99, data.percent ?? 0)));
-    } else if (data.type === "yw-video-download-error") {
-      window.clearTimeout(task.timeout);
-      serviceWorkerTasks.delete(data.id);
-      if (task.started) task.reject(new Error(data.error || "Video download failed"));
-      else task.resolve(false);
-    } else if (data.type === "yw-video-download-ready") {
-      window.clearTimeout(task.timeout);
-      serviceWorkerTasks.delete(data.id);
-      task.resolve(true);
-    }
-  });
-}
-
-async function getVideoDownloadWorker() {
-  if (!("serviceWorker" in navigator)) return null;
-  installServiceWorkerListener();
-  try {
-    const registration = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
-    const worker = registration.active ?? registration.waiting ?? registration.installing;
-    if (!worker) return null;
-    if (worker.state === "installing") {
-      await new Promise<void>((resolve) => {
-        const timeout = window.setTimeout(resolve, 2_000);
-        worker.addEventListener("statechange", () => {
-          if (worker.state !== "installing") {
-            window.clearTimeout(timeout);
-            resolve();
-          }
-        }, { once: true });
-      });
-    }
-    return registration.active ?? registration.waiting ?? worker;
-  } catch {
-    return null;
-  }
-}
-
-async function downloadThroughServiceWorker(
-  src: string,
-  fileName: string,
-  cacheKey: string,
-  onProgress?: (percent: number) => void,
-) {
-  const worker = await getVideoDownloadWorker();
-  if (!worker) return false;
-  const id = `video-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const started = await new Promise<boolean>((resolve, reject) => {
-    const timeout = window.setTimeout(() => {
-      if (!serviceWorkerTasks.get(id)?.started) {
-        serviceWorkerTasks.delete(id);
-        resolve(false);
-      }
-    }, 2_500);
-    serviceWorkerTasks.set(id, {
-      cacheKey,
-      fileName,
-      onProgress,
-      resolve,
-      reject,
-      started: false,
-      timeout,
-    });
-    worker.postMessage({
-      type: "yw-start-video-download",
-      id,
-      url: src,
-      cacheKey,
-      fileName,
-    });
-  });
-  if (!started) return false;
-
-  // The worker resolves its ready message only after CacheStorage contains
-  // the complete response. The caller moves those bytes into IndexedDB.
-  const cache = await caches.open(VIDEO_DOWNLOAD_CACHE);
-  const cached = await cache.match(cacheKey);
-  if (!cached) throw new Error("Completed video download was not found");
-  onProgress?.(100);
-  return true;
-}
-
 export function sanitizeDownloadName(value: string, fallback: string) {
   const clean = value
     .replace(/[^\p{L}\p{N}\s._-]/gu, "")
@@ -254,7 +175,10 @@ async function readResponseWithProgress(
   response: Response,
   onProgress?: (percent: number) => void,
 ) {
-  const total = Number(response.headers.get("content-length")) || 0;
+  const total =
+    Number(response.headers.get("content-length")) ||
+    Number(response.headers.get("content-range")?.match(/\/(\d+)$/)?.[1]) ||
+    0;
   if (!response.body) {
     const blob = await response.blob();
     onProgress?.(100);
@@ -295,62 +219,24 @@ export async function downloadVideoInBackground(
   if (existing) return existing;
 
   const task = (async () => {
-    const cacheKey = downloadCacheKey(src, fileName);
-    let blob: Blob | null = null;
+    const title = metadata?.title || fileName.replace(/\.mp4$/i, "");
+    updateDownloadTask(key, title, 0);
     try {
-      if ("caches" in window) {
-        const cache = await caches.open(VIDEO_DOWNLOAD_CACHE);
-        const cached = await cache.match(cacheKey);
-        if (cached) {
-          blob = await cached.blob();
-          onProgress?.(100);
-        }
-      }
-
-      if (!blob) {
-        const handledByServiceWorker = await downloadThroughServiceWorker(
-          src,
-          fileName,
-          cacheKey,
-          onProgress,
-        );
-        if (handledByServiceWorker) {
-          const cache = await caches.open(VIDEO_DOWNLOAD_CACHE);
-          const cached = await cache.match(cacheKey);
-          if (!cached) throw new Error("Completed video download was not found");
-          blob = await cached.blob();
-          if (metadata) await saveDownloadedVideo(metadata, blob);
-          await cache.delete(cacheKey).catch(() => false);
-          return;
-        }
-
-        const response = await fetch(src, { cache: "force-cache" });
-        if (!response.ok) throw new Error(`Video download failed (${response.status})`);
-        blob = await readResponseWithProgress(response, onProgress);
-        if ("caches" in window) {
-          try {
-            const cache = await caches.open(VIDEO_DOWNLOAD_CACHE);
-            await cache.put(
-              cacheKey,
-              new Response(blob, {
-                headers: {
-                  "Content-Type": "video/mp4",
-                  "Cache-Control": "private, max-age=86400",
-                },
-              }),
-            );
-          } catch {
-            // CacheStorage is only a service-worker staging area. IndexedDB
-            // remains the source of truth for in-app offline playback.
-          }
-        }
-      }
-
-      if (metadata && blob) await saveDownloadedVideo(metadata, blob);
-      if ("caches" in window) {
-        const cache = await caches.open(VIDEO_DOWNLOAD_CACHE);
-        await cache.delete(cacheKey).catch(() => false);
-      }
+      const response = await fetch(src);
+      if (!response.ok) throw new Error(`Video download failed (${response.status})`);
+      const blob = await readResponseWithProgress(response, (percent) => {
+        updateDownloadTask(key, title, percent);
+        onProgress?.(percent);
+      });
+      if (metadata) await saveDownloadedVideo(metadata, blob);
+      updateDownloadTask(key, title, 100);
+      toast.success("Download complete! Ready offline in Profile > Downloads", {
+        duration: 3_000,
+      });
+      window.setTimeout(() => removeDownloadTask(key), 400);
+    } catch (error) {
+      removeDownloadTask(key);
+      throw error;
     } finally {
       activeVideoDownloads.delete(key);
     }
@@ -397,9 +283,8 @@ function audioContextConstructor() {
 }
 
 /**
- * Creates a lower-resolution copy in the browser. This keeps the existing
- * signed-URL download path for source quality and only processes when the
- * viewer explicitly chooses a smaller tier.
+ * Quality selection now controls the saved metadata only. The browser stores
+ * the original response bytes directly instead of re-encoding video locally.
  */
 export async function downloadVideoAtQuality(
   src: string,
@@ -410,70 +295,12 @@ export async function downloadVideoAtQuality(
 ) {
   const target = VIDEO_QUALITY_TIERS.find((candidate) => candidate.id === quality);
   if (!target) throw new Error("Unsupported video quality");
-  if (typeof MediaRecorder === "undefined" || !HTMLCanvasElement.prototype.captureStream) {
-    throw new Error("This browser cannot create a quality-specific video download");
-  }
-  const video = await loadVideoForExport(src);
-  const Ctx = audioContextConstructor();
-  if (!Ctx) throw new Error("This browser cannot export video audio");
-
-  const sourceShortSide = Math.min(video.videoWidth, video.videoHeight);
-  if (target.shortSide > sourceShortSide) {
-    throw new Error("That resolution is not available for this video");
-  }
-  const scale = Math.min(1, target.shortSide / Math.max(1, sourceShortSide));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(2, Math.floor((video.videoWidth * scale) / 2) * 2);
-  canvas.height = Math.max(2, Math.floor((video.videoHeight * scale) / 2) * 2);
-  const context = canvas.getContext("2d", { alpha: false });
-  if (!context) throw new Error("Canvas unavailable");
-
-  const audioContext = new Ctx();
-  const audioDestination = audioContext.createMediaStreamDestination();
-  try {
-    audioContext.createMediaElementSource(video).connect(audioDestination);
-  } catch {
-    // Some source files have no audio track; video export can continue.
-  }
-  const stream = new MediaStream([
-    ...canvas.captureStream(30).getVideoTracks(),
-    ...audioDestination.stream.getAudioTracks(),
-  ]);
-  const mime = recorderMime(false);
-  const recorder = new MediaRecorder(
-    stream,
-    mime ? { mimeType: mime, videoBitsPerSecond: target.bitrate, audioBitsPerSecond: 128_000 } : undefined,
+  await downloadVideoInBackground(
+    src,
+    `${sanitizeDownloadName(_fileNameBase, "yourworld-video")}.mp4`,
+    onProgress,
+    metadata ? { ...metadata, quality } : undefined,
   );
-  const chunks: BlobPart[] = [];
-  let raf = 0;
-  const result = new Promise<Blob>((resolve, reject) => {
-    recorder.ondataavailable = (event) => {
-      if (event.data.size) chunks.push(event.data);
-    };
-    recorder.onerror = () => reject(new Error("Video export failed"));
-    recorder.onstop = () => resolve(new Blob(chunks, { type: mime || "video/webm" }));
-  });
-  const draw = () => {
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    onProgress?.(Math.min(99, Math.round((video.currentTime / video.duration) * 100)));
-    if (!video.ended) raf = requestAnimationFrame(draw);
-  };
-  const stop = () => {
-    if (recorder.state !== "inactive") recorder.stop();
-  };
-  video.addEventListener("ended", stop, { once: true });
-  video.muted = false;
-  await audioContext.resume().catch(() => {});
-  recorder.start(250);
-  await video.play();
-  raf = requestAnimationFrame(draw);
-  const blob = await result.finally(() => {
-    cancelAnimationFrame(raf);
-    video.pause();
-    void audioContext.close().catch(() => {});
-  });
-  onProgress?.(100);
-  if (metadata) await saveDownloadedVideo({ ...metadata, quality }, blob, quality);
 }
 
 /** Extracts an audio-only download. Browsers that support audio/mpeg produce a true MP3. */

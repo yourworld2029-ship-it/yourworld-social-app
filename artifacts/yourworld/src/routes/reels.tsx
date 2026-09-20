@@ -26,7 +26,6 @@ import { getLocalMedia, resolveMediaUrl, timeAgo, useSocialPosts } from "@/lib/s
 import { useDoubleTapLike, useYw } from "@/lib/yw-store";
 import {
   downloadVideoInBackground,
-  downloadVideoAtQuality,
   downloadAudioOnly,
   downloadWithWatermark,
   sanitizeDownloadName,
@@ -792,11 +791,9 @@ function ReelItem({
       return;
     }
     const source = mediaUrl ?? reel.poster;
-    const toastId = toast.loading(
-      isVideo && choice === "mp3" ? "Preparing MP3 audio… 0%" :
-      isVideo ? `Preparing video... 0%` :
-      "Preparing image download…",
-    );
+    const toastId = !isVideo || choice === "mp3"
+      ? toast.loading(isVideo ? "Preparing MP3 audio… 0%" : "Preparing image download…")
+      : undefined;
     try {
       if (isVideo) {
         const playableUrl = getLocalMedia(source) ?? await resolveMediaUrl(source);
@@ -824,7 +821,7 @@ function ReelItem({
             toast.loading(`Preparing MP3 audio... ${percent}%`, { id: toastId });
           },
           );
-        } else if (choice === "original" || choice === reel.sourceQualityTier) {
+        } else {
           await downloadVideoInBackground(
             playableUrl,
             `${baseName}.mp4`,
@@ -834,29 +831,15 @@ function ReelItem({
             },
             downloadMetadata,
           );
-        } else if (choice) {
-          await downloadVideoAtQuality(
-            playableUrl,
-            baseName,
-            choice,
-            (percent) => {
-              reportProgress?.(percent);
-              toast.loading(`Creating ${choice} video... ${percent}%`, { id: toastId });
-            },
-            downloadMetadata,
-          );
         }
         trackEvent("reel_downloaded", {
           surface: "reels_feed",
           media_type: "video",
           download_type: choice === "mp3" ? "audio" : choice || "original",
         });
-        toast.success(
-          choice === "mp3"
-            ? "Saved to your device"
-             : "Saved to Downloads in Profile",
-          { id: toastId },
-        );
+        if (choice === "mp3") {
+          toast.success("Saved to your device", { id: toastId });
+        }
       } else {
         await downloadWithWatermark(reel.poster, user.username, `yw-reel-${reel.id}.jpg`);
         trackEvent("reel_downloaded", {
@@ -868,7 +851,7 @@ function ReelItem({
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Download failed";
-      toast.error(message, { id: toastId });
+      toast.error(message, toastId ? { id: toastId } : undefined);
       if (isVideo && choice) throw error;
     }
   };

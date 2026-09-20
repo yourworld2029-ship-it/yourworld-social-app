@@ -51,7 +51,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadSheet";
 import {
   downloadAudioOnly,
-  downloadVideoAtQuality,
   downloadVideoInBackground,
   sanitizeDownloadName,
 } from "@/lib/yw-download";
@@ -679,7 +678,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     reportProgress?: (percent: number) => void,
   ) => {
      if (!playableMediaUrl) throw new Error("This video has no downloadable media");
-     const toastId = toast.loading("Preparing video... 0%");
+      const toastId = choice === "mp3" ? toast.loading("Preparing MP3 audio… 0%") : undefined;
     const baseName = sanitizeDownloadName(video.title || "yourworld-video", `yourworld-${videoId}`);
        const downloadMetadata = {
          ownerId: user?.id || "anonymous",
@@ -706,39 +705,23 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
            toast.loading(`Preparing MP3 audio... ${percent}%`, { id: toastId });
          },
         );
-      } else if (choice === "original" || choice === sourceQualityTier) {
-         await downloadVideoInBackground(
-           playableMediaUrl,
-           `${baseName}.mp4`,
-            (percent) => {
-              reportProgress?.(percent);
-              toast.loading(`Downloading original video... ${percent}%`, { id: toastId });
-            },
-           downloadMetadata,
-         );
       } else {
-         await downloadVideoAtQuality(
+          await downloadVideoInBackground(
            playableMediaUrl,
-           baseName,
-           choice,
-            (percent) => {
-              reportProgress?.(percent);
-              toast.loading(`Creating ${choice} video... ${percent}%`, { id: toastId });
-            },
-           downloadMetadata,
+            `${baseName}.mp4`,
+            (percent) => reportProgress?.(percent),
+            { ...downloadMetadata, quality: choice as VideoQualityTier },
          );
       }
-      toast.success(
-        choice === "mp3"
-          ? "Saved to your device"
-             : "Saved to Downloads in Profile",
-        { id: toastId },
-      );
+       if (choice === "mp3") {
+         toast.success("Saved to your device", { id: toastId });
+       }
     } catch (cause) {
       console.error("Video download failed:", cause);
-      toast.error(cause instanceof Error ? cause.message : "Couldn't prepare this download", {
-        id: toastId,
-      });
+      toast.error(
+        cause instanceof Error ? cause.message : "Couldn't prepare this download",
+        toastId ? { id: toastId } : undefined,
+      );
       throw cause;
     }
   };
