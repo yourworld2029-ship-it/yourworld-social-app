@@ -674,7 +674,10 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
       video.original_height,
     ) ?? video.sourceQualityTier;
 
-  const downloadSelected = async (choice: DownloadChoice) => {
+  const downloadSelected = async (
+    choice: DownloadChoice,
+    reportProgress?: (percent: number) => void,
+  ) => {
      if (!playableMediaUrl) throw new Error("This video has no downloadable media");
     const toastId = toast.loading("Preparing download... 0%");
     const baseName = sanitizeDownloadName(video.title || "yourworld-video", `yourworld-${videoId}`);
@@ -698,14 +701,19 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
        };
     try {
       if (choice === "mp3") {
-         await downloadAudioOnly(playableMediaUrl, baseName, (percent) =>
-          toast.loading(`Preparing MP3 audio... ${percent}%`, { id: toastId }),
+         await downloadAudioOnly(playableMediaUrl, baseName, (percent) => {
+           reportProgress?.(percent);
+           toast.loading(`Preparing MP3 audio... ${percent}%`, { id: toastId });
+         },
         );
       } else if (choice === "original" || choice === sourceQualityTier) {
          await downloadVideoInBackground(
            playableMediaUrl,
            `${baseName}.mp4`,
-           (percent) => toast.loading(`Downloading original video... ${percent}%`, { id: toastId }),
+            (percent) => {
+              reportProgress?.(percent);
+              toast.loading(`Downloading original video... ${percent}%`, { id: toastId });
+            },
            downloadMetadata,
          );
       } else {
@@ -713,14 +721,25 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
            playableMediaUrl,
            baseName,
            choice,
-           (percent) => toast.loading(`Creating ${choice} video... ${percent}%`, { id: toastId }),
+            (percent) => {
+              reportProgress?.(percent);
+              toast.loading(`Creating ${choice} video... ${percent}%`, { id: toastId });
+            },
            downloadMetadata,
          );
       }
-      toast.success("Download started", { id: toastId });
+      toast.success(
+        choice === "mp3"
+          ? "Saved to your device"
+          : "Saved offline. You can watch anytime in Profile > Downloads",
+        { id: toastId },
+      );
     } catch (cause) {
       console.error("Video download failed:", cause);
-      toast.error("Couldn't prepare this download", { id: toastId });
+      toast.error(cause instanceof Error ? cause.message : "Couldn't prepare this download", {
+        id: toastId,
+      });
+      throw cause;
     }
   };
 

@@ -35,7 +35,10 @@ type Props = {
   sourceQualityTier?: VideoQualityTier | null;
   sourceMediaUrl?: string | null;
   sourceFileSizeBytes?: number | null;
-  onDownload: (choice: DownloadChoice) => void | Promise<void>;
+  onDownload: (
+    choice: DownloadChoice,
+    onProgress?: (percent: number) => void,
+  ) => void | Promise<void>;
 };
 
 function positiveByteSize(value: number | null | undefined) {
@@ -102,12 +105,18 @@ export function DownloadSheet({
     sourceQualityTier ?? "original",
   );
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [resolvedSourceFileSizeBytes, setResolvedSourceFileSizeBytes] = useState<number | null>(
     positiveByteSize(sourceFileSizeBytes),
   );
 
   useEffect(() => {
-    if (open) setSelected(sourceQualityTier ?? "original");
+    if (open) {
+      setSelected(sourceQualityTier ?? "original");
+      setProgress(0);
+      setErrorMessage(null);
+    }
   }, [open, sourceQualityTier]);
 
   useEffect(() => {
@@ -140,19 +149,31 @@ export function DownloadSheet({
 
   const submit = async () => {
     setBusy(true);
+    setProgress(0);
+    setErrorMessage(null);
     try {
-      await onDownload(selected);
+      await onDownload(selected, (percent) =>
+        setProgress(Math.max(0, Math.min(100, Math.round(percent)))),
+      );
       onOpenChange(false);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Could not save this video offline");
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && busy) return;
+        onOpenChange(nextOpen);
+      }}
+    >
       <SheetContent
         side="bottom"
-        className="rounded-t-3xl border-zinc-800 bg-[#15151a] px-4 pb-8 text-white"
+        className="relative rounded-t-3xl border-zinc-800 bg-[#15151a] px-4 pb-8 text-white"
       >
         <SheetHeader className="mx-auto max-w-lg pb-4 pt-1 text-left">
            <SheetTitle className="text-base text-white">Download Video / Audio</SheetTitle>
@@ -249,9 +270,42 @@ export function DownloadSheet({
             className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-white py-3 text-sm font-bold text-black transition-transform active:scale-[0.98] disabled:opacity-50"
           >
             {busy ? <Loader2 size={17} className="animate-spin" /> : <Download size={17} />}
-             {busy ? "Preparing download…" : "Download Selected"}
+              {busy ? `Downloading to app storage: ${progress}%` : "Download Selected"}
           </button>
+           {errorMessage ? (
+             <p role="alert" className="pt-2 text-center text-xs text-red-300">
+               {errorMessage}
+             </p>
+           ) : null}
         </div>
+         {busy ? (
+           <div className="absolute inset-0 z-50 flex items-center justify-center rounded-t-3xl bg-black/75 px-6 backdrop-blur-sm">
+             <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-zinc-950/95 p-5 shadow-2xl">
+               <div className="flex items-center gap-3">
+                 <Loader2 className="h-5 w-5 animate-spin text-pink-400" />
+                 <p className="text-sm font-semibold text-white">
+                   Downloading to app storage: {progress}%
+                 </p>
+               </div>
+               <div
+                 className="mt-4 h-2 overflow-hidden rounded-full bg-white/10"
+                 role="progressbar"
+                 aria-label="Offline video download progress"
+                 aria-valuemin={0}
+                 aria-valuemax={100}
+                 aria-valuenow={progress}
+               >
+                 <div
+                   className="h-full rounded-full bg-gradient-to-r from-pink-500 to-violet-500 transition-[width]"
+                   style={{ width: `${progress}%` }}
+                 />
+               </div>
+               <p className="mt-3 text-center text-[11px] text-zinc-400">
+                 Keep this screen open while the video is saved.
+               </p>
+             </div>
+           </div>
+         ) : null}
       </SheetContent>
     </Sheet>
   );

@@ -64,10 +64,11 @@ import {
 } from "@/lib/sports-verification.functions";
 import {
   getDownloadedVideoUrl,
-  listDownloadedVideos,
   removeDownloadedVideo,
+  toDownloadedVideo,
   type DownloadedVideo,
 } from "@/lib/yw-download";
+import { getAllOfflineVideos } from "@/lib/offlineVideosDB";
 import { useVideoPlayback } from "@/lib/video-playback";
 
 
@@ -164,9 +165,21 @@ function ProfilePage() {
       return;
     }
     setDownloadsLoading(true);
-    void listDownloadedVideos(userId)
+    void getAllOfflineVideos()
       .then((records) => {
-        if (!cancelled) setDownloads(records);
+        if (!cancelled) {
+          setDownloads(
+            records
+              .filter((record) => record.ownerId === userId)
+              .map(toDownloadedVideo),
+          );
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setDownloads([]);
+          toast.error(error instanceof Error ? error.message : "Could not load offline videos");
+        }
       })
       .finally(() => {
         if (!cancelled) setDownloadsLoading(false);

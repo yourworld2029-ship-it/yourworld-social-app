@@ -781,7 +781,10 @@ function ReelItem({
     enableAudio();
   };
 
-  const handleDownload = async (choice?: DownloadChoice) => {
+  const handleDownload = async (
+    choice?: DownloadChoice,
+    reportProgress?: (percent: number) => void,
+  ) => {
     if (!user) return;
     const isVideo = mediaType?.startsWith("video") && Boolean(mediaUrl);
     if (isVideo && !choice) {
@@ -816,14 +819,19 @@ function ReelItem({
           quality: choice === "original" ? "original" as const : choice as VideoQualityTier,
         };
         if (choice === "mp3") {
-          await downloadAudioOnly(playableUrl, baseName, (percent) =>
-            toast.loading(`Preparing MP3 audio... ${percent}%`, { id: toastId }),
+          await downloadAudioOnly(playableUrl, baseName, (percent) => {
+            reportProgress?.(percent);
+            toast.loading(`Preparing MP3 audio... ${percent}%`, { id: toastId });
+          },
           );
         } else if (choice === "original" || choice === reel.sourceQualityTier) {
           await downloadVideoInBackground(
             playableUrl,
             `${baseName}.mp4`,
-            (percent) => toast.loading(`Downloading ${choice} video... ${percent}%`, { id: toastId }),
+            (percent) => {
+              reportProgress?.(percent);
+              toast.loading(`Downloading ${choice} video... ${percent}%`, { id: toastId });
+            },
             downloadMetadata,
           );
         } else if (choice) {
@@ -831,7 +839,10 @@ function ReelItem({
             playableUrl,
             baseName,
             choice,
-            (percent) => toast.loading(`Creating ${choice} video... ${percent}%`, { id: toastId }),
+            (percent) => {
+              reportProgress?.(percent);
+              toast.loading(`Creating ${choice} video... ${percent}%`, { id: toastId });
+            },
             downloadMetadata,
           );
         }
@@ -840,7 +851,12 @@ function ReelItem({
           media_type: "video",
           download_type: choice === "mp3" ? "audio" : choice || "original",
         });
-        toast.success("Saved to your device", { id: toastId });
+        toast.success(
+          choice === "mp3"
+            ? "Saved to your device"
+            : "Saved offline. You can watch anytime in Profile > Downloads",
+          { id: toastId },
+        );
       } else {
         await downloadWithWatermark(reel.poster, user.username, `yw-reel-${reel.id}.jpg`);
         trackEvent("reel_downloaded", {
@@ -850,8 +866,10 @@ function ReelItem({
         });
         toast.success("Downloaded in original quality with YW watermark", { id: toastId });
       }
-    } catch {
-      toast.error("Download failed", { id: toastId });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Download failed";
+      toast.error(message, { id: toastId });
+      if (isVideo && choice) throw error;
     }
   };
 

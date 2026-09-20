@@ -6,10 +6,15 @@ import {
   VIDEO_QUALITY_TIERS,
   type VideoQualityTier,
 } from "@/lib/video-quality";
+import {
+  deleteOfflineVideo,
+  getAllOfflineVideos,
+  getOfflineVideoById,
+  saveOfflineVideo,
+  type OfflineVideo,
+} from "@/lib/offlineVideosDB";
 
 const VIDEO_DOWNLOAD_CACHE = "yourworld-video-downloads-v1";
-const DOWNLOAD_DB_NAME = "yourworld-downloads-v1";
-const DOWNLOAD_STORE_NAME = "videos";
 const activeVideoDownloads = new Map<string, Promise<void>>();
 const serviceWorkerTasks = new Map<
   string,
@@ -44,112 +49,81 @@ export type DownloadedVideoMetadata = {
 
 export type DownloadedVideo = DownloadedVideoMetadata & {
   id: string;
-  cacheKey: string;
-  fileName: string;
+  sizeBytes: number;
+  videoBlob: Blob;
   downloadedAt: string;
+  cacheKey?: string;
 };
 
-type DownloadDbRequest<T> = IDBRequest<T>;
-
-function openDownloadDatabase() {
-  if (typeof indexedDB === "undefined") return Promise.resolve<IDBDatabase | null>(null);
-  return new Promise<IDBDatabase | null>((resolve) => {
-    const request = indexedDB.open(DOWNLOAD_DB_NAME, 1);
-    request.onupgradeneeded = () => {
-      request.result.createObjectStore(DOWNLOAD_STORE_NAME, { keyPath: "id" });
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => resolve(null);
-  });
-}
-
-function requestResult<T>(request: DownloadDbRequest<T>) {
-  return new Promise<T | null>((resolve) => {
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => resolve(null);
-  });
-}
-
-async function storeDownloadedVideo(record: DownloadedVideo) {
-  const db = await openDownloadDatabase();
-  if (!db) return false;
-  const transaction = db.transaction(DOWNLOAD_STORE_NAME, "readwrite");
-  transaction.objectStore(DOWNLOAD_STORE_NAME).put(record);
-  return new Promise<boolean>((resolve) => {
-    transaction.oncomplete = () => {
-      db.close();
-      resolve(true);
-    };
-    transaction.onerror = () => {
-      db.close();
-      resolve(false);
-    };
-  });
+export function toDownloadedVideo(record: OfflineVideo): DownloadedVideo {
+  return {
+    id: String(record.id),
+    ownerId: record.ownerId ?? "",
+    mediaId: record.mediaId ?? String(record.id),
+    title: record.title,
+    creatorName: record.creatorName ?? record.author,
+    creatorUsername: record.creatorUsername ?? "",
+    creatorId: record.creatorId,
+    views: record.views,
+    createdAt: record.createdAt,
+    durationSeconds: record.durationSeconds,
+    thumbnailUrl: record.thumbnailUrl || null,
+    posterUrl: record.posterUrl ?? (record.thumbnailUrl || null),
+    quality: record.quality as DownloadQuality,
+    sizeBytes: record.sizeBytes,
+    videoBlob: record.videoBlob,
+    downloadedAt: record.downloadedAt,
+  };
 }
 
 export async function listDownloadedVideos(ownerId: string) {
-  const db = await openDownloadDatabase();
-  if (!db) return [] as DownloadedVideo[];
-  const result = await requestResult<DownloadedVideo[]>(
-    db.transaction(DOWNLOAD_STORE_NAME, "readonly").objectStore(DOWNLOAD_STORE_NAME).getAll(),
-  );
-  db.close();
-  return (result ?? [])
+  const records = await getAllOfflineVideos();
+  return records
     .filter((record) => record.ownerId === ownerId)
-    .sort((a, b) => b.downloadedAt.localeCompare(a.downloadedAt));
+    .map(toDownloadedVideo);
 }
 
 export async function getDownloadedVideo(id: string, ownerId?: string) {
-  const db = await openDownloadDatabase();
-  if (!db) return null;
-  const result = await requestResult<DownloadedVideo>(
-    db.transaction(DOWNLOAD_STORE_NAME, "readonly").objectStore(DOWNLOAD_STORE_NAME).get(id),
-  );
-  db.close();
+  const result = await getOfflineVideoById(id);
   if (!result || (ownerId && result.ownerId !== ownerId)) return null;
-  return result;
+  return toDownloadedVideo(result);
 }
 
 export async function removeDownloadedVideo(record: DownloadedVideo) {
-  if ("caches" in window) {
-    const cache = await caches.open(VIDEO_DOWNLOAD_CACHE);
-    await cache.delete(record.cacheKey);
-  }
-  const db = await openDownloadDatabase();
-  if (!db) return;
-  const transaction = db.transaction(DOWNLOAD_STORE_NAME, "readwrite");
-  transaction.objectStore(DOWNLOAD_STORE_NAME).delete(record.id);
-  await new Promise<void>((resolve) => {
-    transaction.oncomplete = transaction.onerror = transaction.onabort = () => {
-      db.close();
-      resolve();
-    };
-  });
+  await deleteOfflineVideo(record.id);
 }
 
 export async function getDownloadedVideoUrl(record: DownloadedVideo) {
-  if (!("caches" in window)) return null;
-  const cache = await caches.open(VIDEO_DOWNLOAD_CACHE);
-  const response = await cache.match(record.cacheKey);
-  if (!response) return null;
-  return URL.createObjectURL(await response.blob());
+  const storedVideo = await getOfflineVideoById(record.id);
+  if (!storedVideo) return null;
+  return URL.createObjectURL(storedVideo.videoBlob);
 }
 
-function downloadRecord(
+export async function saveDownloadedVideo(
   metadata: DownloadedVideoMetadata,
-  cacheKey: string,
-  fileName: string,
-): DownloadedVideo {
-  const posterUrl = metadata.posterUrl ?? metadata.thumbnailUrl ?? null;
-  return {
-    ...metadata,
-    thumbnailUrl: metadata.thumbnailUrl ?? posterUrl,
-    posterUrl,
-    id: `${metadata.ownerId}:${metadata.mediaId}:${metadata.quality}`,
-    cacheKey,
-    fileName,
+  videoBlob: Blob,
+  quality: DownloadQuality = metadata.quality,
+) {
+  const thumbnailUrl = metadata.thumbnailUrl ?? metadata.posterUrl ?? "";
+  await saveOfflineVideo({
+    id: `${metadata.ownerId}:${metadata.mediaId}:${quality}`,
+    title: metadata.title,
+    author: metadata.creatorName,
+    thumbnailUrl,
+    quality,
+    sizeBytes: videoBlob.size,
+    videoBlob,
     downloadedAt: new Date().toISOString(),
-  };
+    ownerId: metadata.ownerId,
+    mediaId: metadata.mediaId,
+    creatorName: metadata.creatorName,
+    creatorUsername: metadata.creatorUsername,
+    creatorId: metadata.creatorId,
+    views: metadata.views,
+    createdAt: metadata.createdAt,
+    durationSeconds: metadata.durationSeconds,
+    posterUrl: metadata.posterUrl ?? thumbnailUrl,
+  });
 }
 
 function downloadCacheKey(src: string, fileName: string) {
@@ -247,13 +221,11 @@ async function downloadThroughServiceWorker(
   if (!started) return false;
 
   // The worker resolves its ready message only after CacheStorage contains
-  // the complete response. This is the only point where a native save starts.
+  // the complete response. The caller moves those bytes into IndexedDB.
   const cache = await caches.open(VIDEO_DOWNLOAD_CACHE);
   const cached = await cache.match(cacheKey);
   if (!cached) throw new Error("Completed video download was not found");
-  const blob = await cached.blob();
   onProgress?.(100);
-  triggerBlobDownload(new Blob([blob], { type: "video/mp4" }), fileName);
   return true;
 }
 
@@ -308,9 +280,9 @@ async function readResponseWithProgress(
 }
 
 /**
- * Streams a video without blocking the player, persists the completed bytes
- * in CacheStorage, and triggers a native .mp4 save. The task map is module
- * scoped so route/card unmounts do not cancel an active download.
+ * Streams a video without blocking the player and persists the completed bytes
+ * in IndexedDB. The task map is module scoped so route/card unmounts do not
+ * cancel an active download.
  */
 export async function downloadVideoInBackground(
   src: string,
@@ -343,9 +315,12 @@ export async function downloadVideoInBackground(
           onProgress,
         );
         if (handledByServiceWorker) {
-          if (metadata) {
-            await storeDownloadedVideo(downloadRecord(metadata, cacheKey, fileName));
-          }
+          const cache = await caches.open(VIDEO_DOWNLOAD_CACHE);
+          const cached = await cache.match(cacheKey);
+          if (!cached) throw new Error("Completed video download was not found");
+          blob = await cached.blob();
+          if (metadata) await saveDownloadedVideo(metadata, blob);
+          await cache.delete(cacheKey).catch(() => false);
           return;
         }
 
@@ -365,18 +340,17 @@ export async function downloadVideoInBackground(
               }),
             );
           } catch {
-            // Quota/private-mode failures must not prevent the native save.
+            // CacheStorage is only a service-worker staging area. IndexedDB
+            // remains the source of truth for in-app offline playback.
           }
         }
       }
 
-      if (metadata && blob && "caches" in window) {
+      if (metadata && blob) await saveDownloadedVideo(metadata, blob);
+      if ("caches" in window) {
         const cache = await caches.open(VIDEO_DOWNLOAD_CACHE);
-        if (await cache.match(cacheKey)) {
-          await storeDownloadedVideo(downloadRecord(metadata, cacheKey, fileName));
-        }
+        await cache.delete(cacheKey).catch(() => false);
       }
-      triggerBlobDownload(new Blob([blob], { type: "video/mp4" }), fileName);
     } finally {
       activeVideoDownloads.delete(key);
     }
@@ -429,7 +403,7 @@ function audioContextConstructor() {
  */
 export async function downloadVideoAtQuality(
   src: string,
-  fileNameBase: string,
+  _fileNameBase: string,
   quality: VideoQualityTier,
   onProgress?: (percent: number) => void,
   metadata?: DownloadedVideoMetadata,
@@ -499,32 +473,7 @@ export async function downloadVideoAtQuality(
     void audioContext.close().catch(() => {});
   });
   onProgress?.(100);
-  if (metadata && "caches" in window) {
-    const fileName = `${sanitizeDownloadName(fileNameBase, "yourworld-video")}.${extensionForMime(mime, "webm")}`;
-    const cacheKey = downloadCacheKey(
-      `quality:${metadata.ownerId}:${metadata.mediaId}:${quality}`,
-      fileName,
-    );
-    try {
-      const cache = await caches.open(VIDEO_DOWNLOAD_CACHE);
-      await cache.put(
-        cacheKey,
-        new Response(blob, {
-          headers: {
-            "Content-Type": blob.type || "video/webm",
-            "Cache-Control": "private, max-age=86400",
-          },
-        }),
-      );
-      await storeDownloadedVideo(downloadRecord({ ...metadata, quality }, cacheKey, fileName));
-    } catch {
-      // Cache quota/private-mode failures must not block the native export.
-    }
-  }
-  triggerBlobDownload(
-    blob,
-    `${sanitizeDownloadName(fileNameBase, "yourworld-video")}.${extensionForMime(mime, "webm")}`,
-  );
+  if (metadata) await saveDownloadedVideo({ ...metadata, quality }, blob, quality);
 }
 
 /** Extracts an audio-only download. Browsers that support audio/mpeg produce a true MP3. */

@@ -84,7 +84,7 @@ function DownloadedVideoCard({
   const [deleting, setDeleting] = useState(false);
   const title = video.title.trim() || "Untitled video";
   const creator = video.creatorName.trim() || video.creatorUsername.trim() || "YourWorld athlete";
-  const quality = video.quality === "original" ? "Original" : video.quality;
+  const quality = qualityLabel(video.quality);
 
   const handleDelete = async () => {
     if (deleting) return;
@@ -126,6 +126,7 @@ function DownloadedVideoCard({
             <span className="rounded-full border border-sky-200/15 bg-sky-300/10 px-1.5 py-0.5 text-[9px] text-sky-100/80">
               {quality}
             </span>
+             <span className="text-zinc-500">{formatFileSize(video.sizeBytes)}</span>
           </span>
         </span>
       </button>
@@ -309,4 +310,17 @@ function formatDate(value: string) {
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return "";
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+function qualityLabel(value: string) {
+  if (value === "original") return "Original";
+  if (value === "720p") return "720p HD";
+  return value;
+}
+
+function formatFileSize(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "Size unavailable";
+  if (bytes >= 1_000_000_000) return `${(bytes / 1_000_000_000).toFixed(1)} GB`;
+  if (bytes >= 1_000_000) return `${(bytes / 1_000_000).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1_000))} KB`;
 }
