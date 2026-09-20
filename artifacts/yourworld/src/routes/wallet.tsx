@@ -10,6 +10,7 @@ import { downloadPayoutPdf, payoutPdfBase64, type StatementInfo } from "@/lib/pa
 import { emailPayoutInvoice, processPayout } from "@/lib/payouts.functions";
 import { postKind } from "@/lib/supabase-compat";
 import { historyBackOr } from "@/lib/navigation";
+import { useVerifiedSportsIdentity } from "@/lib/sports-identity";
 
 export const Route = createFileRoute("/wallet")({
   head: () => ({
@@ -33,7 +34,30 @@ export const Route = createFileRoute("/wallet")({
 });
 
 const MIN_WITHDRAW = 5000;
-const REQ = { followers: 8000, watchHours: 2500, videoViews: 100000 };
+const STANDARD_TRACKER_REQUIREMENTS = {
+  followers: 15000,
+  watchHours: 2500,
+  videoViews: 150000,
+  badgeTag: null,
+};
+const NATIONAL_TRACKER_REQUIREMENTS = {
+  followers: 12000,
+  watchHours: 2000,
+  videoViews: 100000,
+  badgeTag: "National Athlete Benefit",
+};
+const INTERNATIONAL_TRACKER_REQUIREMENTS = {
+  followers: 10000,
+  watchHours: 1500,
+  videoViews: 70000,
+  badgeTag: "International Athlete Benefit",
+};
+
+function trackerRequirements(identity: ReturnType<typeof useVerifiedSportsIdentity>) {
+  if (identity?.status === "International") return INTERNATIONAL_TRACKER_REQUIREMENTS;
+  if (identity?.status === "National") return NATIONAL_TRACKER_REQUIREMENTS;
+  return STANDARD_TRACKER_REQUIREMENTS;
+}
 
 type PayoutRow = {
   id: string;
@@ -73,6 +97,7 @@ const emptyDetails: Details = {
 function WalletPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const sportsIdentity = useVerifiedSportsIdentity(user?.id ?? null);
   const runPayout = useServerFn(processPayout);
   const sendInvoice = useServerFn(emailPayoutInvoice);
 
@@ -96,8 +121,15 @@ function WalletPage() {
     if (!uid) return;
     let alive = true;
     (async () => {
-      const [{ data: earnings }, { data: det }, { data: prof }, { data: hist }, { data: counts }, { data: myPosts }] =
-        await Promise.all([
+      const [
+        { data: earnings },
+        { data: det },
+        { data: prof },
+        { data: hist },
+        { data: counts },
+        { data: myPosts },
+        { data: watchHours },
+      ] = await Promise.all([
           supabase.from("creator_earnings").select("source, gross_amount").eq("user_id", uid).is("payout_id", null),
           supabase.from("creator_payout_details").select("*").eq("user_id", uid).maybeSingle(),
           supabase.from("profiles").select("display_name, username").eq("id", uid).maybeSingle(),
@@ -108,6 +140,10 @@ function WalletPage() {
             .order("created_at", { ascending: false }),
           supabase.from("follow_counts").select("followers").eq("user_id", uid).maybeSingle(),
           supabase.from("posts").select("*").eq("user_id", uid),
+          supabase.rpc("get_channel_watch_hours", {
+            _channel_id: uid,
+            _period_start: new Date(0).toISOString(),
+          }),
         ]);
       if (!alive) return;
       const next: GrossBySource = { ads: 0, course: 0, vip: 0 };
@@ -136,19 +172,22 @@ function WalletPage() {
       });
       setPayouts((hist ?? []) as PayoutRow[]);
 
-      let watchSeconds = 0;
       let videoViews = 0;
       for (const p of myPosts ?? []) {
-        const views = Number(p.views ?? 0);
         const kind = postKind(p);
         if (kind === "video") {
-          watchSeconds += views * Number(p.duration_seconds ?? 0);
-          videoViews += views;
+          videoViews += Number(p.views_count ?? p.views ?? 0);
         }
       }
+      const rawWatchHours =
+        typeof watchHours === "number"
+          ? watchHours
+          : Number((watchHours as { watch_hours?: number } | null)?.watch_hours ?? 0);
       setStats({
         followers: Number(counts?.followers ?? 0),
-        watchHours: Math.round(watchSeconds / 3600),
+        watchHours: Number.isFinite(rawWatchHours)
+          ? Math.round(Math.max(0, rawWatchHours) * 100) / 100
+          : 0,
         videoViews,
       });
     })();
@@ -159,9 +198,10 @@ function WalletPage() {
 
   const b = computeBreakdown(gross);
   const showWallet = eligible || simulate;
+  const requirements = trackerRequirements(sportsIdentity);
   const canApply =
-    stats.followers >= REQ.followers &&
-    (stats.watchHours >= REQ.watchHours || stats.videoViews >= REQ.videoViews);
+    stats.followers >= requirements.followers &&
+    (stats.watchHours >= requirements.watchHours || stats.videoViews >= requirements.videoViews);
 
   const statementInfo = (p: {
     statement_id: string;
@@ -246,9 +286,9 @@ function WalletPage() {
   };
 
   const trackers = [
-    { label: "Followers", value: stats.followers, target: REQ.followers, unit: "Followers" },
-    { label: "Watch Hours", value: stats.watchHours, target: REQ.watchHours, unit: "Hours" },
-    { label: "Video Views", value: stats.videoViews, target: REQ.videoViews, unit: "Views" },
+    { label: "Followers", value: stats.followers, target: requirements.followers, unit: "Followers" },
+    { label: "Watch Hours", value: stats.watchHours, target: requirements.watchHours, unit: "Hours" },
+    { label: "Video Views", value: stats.videoViews, target: requirements.videoViews, unit: "Views" },
   ];
 
   return (
@@ -294,18 +334,18 @@ function WalletPage() {
               <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
                 Monetization Eligibility Tracker
               </p>
+              {requirements.badgeTag ? (
+                <p className="pt-1 text-[11px] font-semibold text-indigo-300">{requirements.badgeTag}</p>
+              ) : null}
               <p className="pt-2 text-sm text-zinc-300">
-                Reach {REQ.followers.toLocaleString("en-IN")} followers and either{" "}
-                {REQ.watchHours.toLocaleString("en-IN")} watch hours or{" "}
-                {REQ.videoViews.toLocaleString("en-IN")} video views to join the program.
+                Reach {requirements.followers.toLocaleString("en-IN")} followers and either{" "}
+                {requirements.watchHours.toLocaleString("en-IN")} watch hours or{" "}
+                {requirements.videoViews.toLocaleString("en-IN")} video views to join the program.
               </p>
             </section>
 
             {trackers.map((t) => {
-              const pct =
-                t.label === "Video Views"
-                  ? Math.min(100, (stats.videoViews / 100000) * 100)
-                  : Math.min(100, Math.round((t.value / t.target) * 100));
+              const pct = Math.min(100, Math.round((t.value / t.target) * 100));
               return (
                 <section
                   key={t.label}
