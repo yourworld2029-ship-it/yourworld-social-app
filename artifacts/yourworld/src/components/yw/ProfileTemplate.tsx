@@ -389,6 +389,8 @@ function MediaGrid({
                 mediaUrl={it.mediaUrl ?? it.src}
                 thumbnailUrl={it.thumbnail ?? it.post?.thumbnail_url}
                 alt=""
+                loading="lazy"
+                bucket={it.post?.kind === "reel" ? "reels" : "videos"}
                 className="h-full w-full object-cover"
               />
           ) : (

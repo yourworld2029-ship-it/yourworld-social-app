@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Play } from "lucide-react";
 import { resolveMediaUrl } from "@/lib/social-data";
 import { cn } from "@/lib/utils";
 
@@ -7,42 +8,80 @@ type Props = {
   mediaUrl: string;
   alt: string;
   className?: string;
+  loading?: "lazy" | "eager";
+  bucket?: "reels" | "videos";
 };
 
+function firstFrameUrl(url: string) {
+  return url.includes("#") ? url : `${url}#t=0.001`;
+}
+
 /**
- * Shows the stored thumbnail without mounting the source video. Video
- * publishers generate a durable first-frame JPEG when a custom thumbnail is
- * not supplied, so grid cards never need to buffer the source media.
+ * Uses the stored thumbnail as a real video poster. When no thumbnail exists,
+ * the browser loads only metadata and the first frame instead of downloading
+ * the full source video just to paint a card.
  */
-export function VideoPoster({ thumbnailUrl, alt, className }: Props) {
+export function VideoPoster({
+  thumbnailUrl,
+  mediaUrl,
+  alt,
+  className,
+  loading = "lazy",
+  bucket = "videos",
+}: Props) {
   const [resolvedThumbnail, setResolvedThumbnail] = useState<string | null>(thumbnailUrl ?? null);
-  const [thumbnailFailed, setThumbnailFailed] = useState(false);
-  const [loadState, setLoadState] = useState<"loading" | "loaded" | "error">(
-    thumbnailUrl ? "loading" : "loaded",
-  );
+  const [resolvedMedia, setResolvedMedia] = useState(mediaUrl);
+  const [mediaReady, setMediaReady] = useState(false);
+  const [mediaFailed, setMediaFailed] = useState(false);
 
   useEffect(() => {
-    setThumbnailFailed(false);
     setResolvedThumbnail(thumbnailUrl ?? null);
-    setLoadState(thumbnailUrl ? "loading" : "loaded");
   }, [thumbnailUrl]);
 
   useEffect(() => {
-    if (!thumbnailUrl) return;
     let alive = true;
-    void resolveMediaUrl(thumbnailUrl, "videos").then((url) => {
-      if (!alive) return;
-      setResolvedThumbnail(url || thumbnailUrl);
-    }).catch(() => {
-      if (!alive) return;
-      setResolvedThumbnail(thumbnailUrl);
-    });
+    setResolvedMedia(mediaUrl);
+    setMediaReady(false);
+    setMediaFailed(false);
+    if (!mediaUrl) {
+      return () => {
+        alive = false;
+      };
+    }
+
+    void resolveMediaUrl(mediaUrl, bucket)
+      .then((url) => {
+        if (alive && url) setResolvedMedia(url);
+      })
+      .catch(() => {
+        // Keep the original reference as a last attempt.
+      });
+
     return () => {
       alive = false;
     };
-  }, [thumbnailUrl]);
+  }, [bucket, mediaUrl]);
 
-  const showThumbnail = resolvedThumbnail && !thumbnailFailed;
+  useEffect(() => {
+    if (!thumbnailUrl) {
+      setResolvedThumbnail(null);
+      return;
+    }
+    let alive = true;
+    void resolveMediaUrl(thumbnailUrl, bucket)
+      .then((url) => {
+        if (alive) setResolvedThumbnail(url || thumbnailUrl);
+      })
+      .catch(() => {
+        if (alive) setResolvedThumbnail(thumbnailUrl);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [bucket, thumbnailUrl]);
+
+  const source = resolvedMedia ? firstFrameUrl(resolvedMedia) : "";
+  const showFallback = !resolvedThumbnail && (!source || mediaFailed || !mediaReady);
 
   return (
     <div className={cn("relative h-full w-full overflow-hidden bg-zinc-900", className)}>
@@ -50,28 +89,33 @@ export function VideoPoster({ thumbnailUrl, alt, className }: Props) {
         aria-hidden="true"
         className={cn(
           "absolute inset-0 bg-[linear-gradient(110deg,#18181b_8%,#27272a_18%,#18181b_33%)] bg-[length:200%_100%] transition-opacity duration-300",
-          loadState === "loading" ? "animate-thumbnail-shimmer opacity-100" : "opacity-0",
+          showFallback ? "animate-thumbnail-shimmer opacity-100" : "opacity-0",
         )}
       />
-      {showThumbnail ? (
-        <img
-          src={resolvedThumbnail || thumbnailUrl || undefined}
-          alt={alt}
-          loading="lazy"
-          decoding="async"
-          onLoad={() => setLoadState("loaded")}
-          onError={() => {
-            setThumbnailFailed(true);
-            setLoadState("error");
-          }}
+      {source ? (
+        <video
+          {...({ loading } as const)}
+          src={source}
+          poster={resolvedThumbnail ?? undefined}
+          aria-label={alt}
+          playsInline
+          muted
+          preload="metadata"
+          onLoadedData={() => setMediaReady(true)}
+          onError={() => setMediaFailed(true)}
           className={cn(
             "absolute inset-0 h-full w-full object-cover transition-opacity duration-300",
-            loadState === "loaded" ? "opacity-100" : "opacity-0",
+            showFallback ? "opacity-0" : "opacity-100",
           )}
         />
-      ) : (
-        <div className="absolute inset-0 bg-gradient-to-br from-zinc-800 via-zinc-900 to-zinc-950" />
-      )}
+      ) : null}
+      {showFallback ? (
+        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-zinc-800 via-zinc-900 to-zinc-950">
+          <span className="grid h-11 w-11 place-items-center rounded-full border border-white/20 bg-black/45 text-white/90 shadow-lg">
+            <Play className="ml-0.5 h-5 w-5 fill-current" aria-hidden="true" />
+          </span>
+        </div>
+      ) : null}
     </div>
   );
 }

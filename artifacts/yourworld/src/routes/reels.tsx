@@ -17,6 +17,7 @@ import {
   Star,
   ArrowLeft,
   Trash2,
+  Play,
 } from "lucide-react";
 import { YwAvatar } from "@/components/yw/Avatar";
 import { ShareSheet } from "@/components/yw/ShareSheet";
@@ -291,6 +292,10 @@ function ReelsList() {
 
 const REEL_DURATION = 15;
 
+function firstFrameUrl(url: string) {
+  return url.includes("#") ? url : `${url}#t=0.001`;
+}
+
 function formatTime(value: number) {
   const totalSeconds = Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
   const minutes = Math.floor(totalSeconds / 60);
@@ -310,6 +315,7 @@ function ReelMedia({
   alt,
   posterUrl,
   active,
+  muted,
   mediaRef,
   paused = false,
   onLoadedMetadata,
@@ -324,6 +330,7 @@ function ReelMedia({
   alt: string;
   posterUrl?: string | null;
   active: boolean;
+  muted: boolean;
   mediaRef: React.MutableRefObject<HTMLElement | null>;
   paused?: boolean;
   onLoadedMetadata?: (event: React.SyntheticEvent<HTMLVideoElement>) => void;
@@ -336,6 +343,7 @@ function ReelMedia({
   const [src, setSrc] = useState(url);
   const [asImage, setAsImage] = useState(!type.startsWith("video"));
   const [posterSrc, setPosterSrc] = useState<string | null>(null);
+  const [mediaFailed, setMediaFailed] = useState(false);
   const tried = useRef<Set<string>>(new Set());
   const retryGeneration = useRef(0);
 
@@ -344,6 +352,7 @@ function ReelMedia({
     tried.current = new Set();
     setSrc(url);
     setAsImage(!type.startsWith("video"));
+    setMediaFailed(false);
   }, [url, type]);
 
   useEffect(() => {
@@ -352,13 +361,13 @@ function ReelMedia({
       return;
     }
     let alive = true;
-    void resolveMediaUrl(posterUrl, "videos").then((resolved) => {
+    void resolveMediaUrl(posterUrl, bucket).then((resolved) => {
       if (alive) setPosterSrc(resolved || posterUrl);
     });
     return () => {
       alive = false;
     };
-  }, [posterUrl]);
+  }, [bucket, posterUrl]);
 
   const handleError = useCallback(() => {
     tried.current.add(src);
@@ -384,38 +393,32 @@ function ReelMedia({
       }
       if (generation === retryGeneration.current) {
         setAsImage(true);
+        setMediaFailed(true);
       }
     })();
   }, [bucket, src, url]);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const forceSound = useCallback(() => {
-    const video = videoRef.current;
-    if (!video) return;
-    video.muted = false;
-    video.defaultMuted = false;
-    video.volume = 1;
-  }, []);
-
   useEffect(() => {
     const v = videoRef.current;
     if (!v || asImage) return;
-    forceSound();
-    v.volume = 1;
-  }, [asImage, forceSound, src]);
+    v.muted = muted || !active;
+    v.defaultMuted = muted || !active;
+    v.volume = active && !muted ? 1 : 0;
+  }, [active, asImage, muted, src]);
 
   useEffect(() => {
     const v = videoRef.current;
     if (!v || asImage) return;
     if (active && !paused) {
-      forceSound();
       void v.play()
         .then(() => onSoundReady?.())
         .catch(() => onSoundBlocked?.());
     } else {
       v.pause();
+      v.muted = true;
     }
-  }, [active, asImage, forceSound, onSoundBlocked, onSoundReady, paused, src]);
+  }, [active, asImage, onSoundBlocked, onSoundReady, paused, src]);
 
   const className = cn(
     "h-full w-full object-cover will-change-transform [backface-visibility:hidden]",
@@ -423,39 +426,28 @@ function ReelMedia({
     paused && "[animation-play-state:paused]",
   );
 
-  if (!active && !asImage) {
-    if (posterSrc) {
+  if (asImage) {
+    if (mediaFailed && !posterSrc) {
       return (
-        <img
+        <div
           ref={(el) => {
             mediaRef.current = el;
           }}
-          src={posterSrc}
-          alt={alt}
-          decoding="async"
-          loading="lazy"
-          className={className}
-        />
+          aria-label={alt}
+          className="flex h-full w-full items-center justify-center bg-gradient-to-br from-zinc-800 via-zinc-900 to-zinc-950"
+        >
+          <span className="grid h-14 w-14 place-items-center rounded-full border border-white/20 bg-black/45 text-white/90 shadow-lg">
+            <Play className="ml-0.5 h-6 w-6 fill-current" aria-hidden="true" />
+          </span>
+        </div>
       );
     }
-    return (
-      <div
-        ref={(el) => {
-          mediaRef.current = el;
-        }}
-        aria-label={alt}
-        className="h-full w-full bg-zinc-950"
-      />
-    );
-  }
-
-  if (asImage) {
     return (
       <img
         ref={(el) => {
           mediaRef.current = el;
         }}
-        src={src}
+        src={mediaFailed && posterSrc ? posterSrc : src}
         alt={alt}
         decoding="async"
         loading={active ? "eager" : "lazy"}
@@ -471,13 +463,14 @@ function ReelMedia({
         videoRef.current = el;
         mediaRef.current = el;
       }}
-      src={src}
+      src={posterSrc ? src : firstFrameUrl(src)}
       poster={posterSrc ?? undefined}
       playsInline
-      preload={active ? "metadata" : "none"}
+      muted
+      preload="metadata"
+      {...({ loading: active ? "eager" : "lazy" } as const)}
       onError={handleError}
       onPlay={() => {
-        forceSound();
         onSoundReady?.();
       }}
       onLoadedMetadata={onLoadedMetadata}
@@ -530,7 +523,7 @@ function ReelItem({
   const { burst, onDoubleTap } = useDoubleTapLike(reel.id);
   const [expanded, setExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [muted, setMuted] = useState(false);
+  const [muted, setMuted] = useState(true);
   const [soundBlocked, setSoundBlocked] = useState(false);
   const lastTap = useRef(0);
   const isLiked = !!likedByMe;
@@ -923,6 +916,7 @@ function ReelItem({
           posterUrl={thumbnailUrl}
           bucket={mediaBucket}
           active={active}
+          muted={muted}
           mediaRef={mediaRef}
           paused={paused}
           onLoadedMetadata={handleLoadedMetadata}

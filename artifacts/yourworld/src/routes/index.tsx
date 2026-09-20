@@ -304,6 +304,8 @@ function HomePage() {
                           post.thumbnail_url || post.poster_url || post.thumbnailUrl || undefined
                         }
                         alt={post.title || "Shorts"}
+                        loading="lazy"
+                        bucket="videos"
                         className="pointer-events-none select-none"
                       />
                       <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/15">
