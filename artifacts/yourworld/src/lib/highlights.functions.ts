@@ -55,18 +55,7 @@ export const deleteHighlight = createServerFn({ method: "POST" })
       // service-role client to clear optional legacy mappings and delete the
       // parent row directly.
       let deletedId: string | null = null;
-      const { data: rpcDeletedId, error: rpcError } = await db.rpc("delete_highlight_hard", {
-        p_highlight_id: data.highlightId,
-        p_user_id: userId,
-      });
-      if (!rpcError) {
-        deletedId = rpcDeletedId ?? null;
-      } else {
-        console.warn("[highlights] hard delete RPC unavailable; using direct cleanup", {
-          highlightId: data.highlightId,
-          code: rpcError.code,
-          message: rpcError.message,
-        });
+      const deleteDirectly = async () => {
         const optionalTables = ["highlight_stories", "highlight_items"];
         for (const table of optionalTables) {
           const { error: childError } = await db
@@ -85,7 +74,22 @@ export const deleteHighlight = createServerFn({ method: "POST" })
           .eq("user_id", userId)
           .select("id");
         if (directDeleteError) throw directDeleteError;
-        deletedId = (deletedRows?.[0] as { id?: string } | undefined)?.id ?? null;
+        return (deletedRows?.[0] as { id?: string } | undefined)?.id ?? null;
+      };
+
+      const { data: rpcDeletedId, error: rpcError } = await db.rpc("delete_highlight_hard", {
+        p_highlight_id: data.highlightId,
+        p_user_id: userId,
+      });
+      if (!rpcError && rpcDeletedId === data.highlightId) {
+        deletedId = rpcDeletedId ?? null;
+      } else {
+        console.warn("[highlights] hard delete RPC did not remove the row; using direct cleanup", {
+          highlightId: data.highlightId,
+          code: rpcError?.code ?? null,
+          message: rpcError?.message ?? null,
+        });
+        deletedId = await deleteDirectly();
       }
       console.log("[highlights] hard delete result", {
         highlightId: data.highlightId,
