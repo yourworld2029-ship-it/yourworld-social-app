@@ -18,7 +18,9 @@ import {
   Maximize,
   Minimize,
   MoreVertical,
+  Pause,
   PictureInPicture,
+  Play,
   Repeat,
   Settings2,
   Sun,
@@ -47,7 +49,7 @@ function isHlsUrl(url: string) {
 
 function qualityLabel(quality: QualityId, activeHeight?: number | null) {
   if (quality === "auto") {
-    return activeHeight ? `Auto (${activeHeight}p)` : "Auto";
+    return activeHeight ? `Auto ${activeHeight}p` : "Auto";
   }
   return quality;
 }
@@ -155,6 +157,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const [activeVideo, setActiveVideo] = useState<PersistentVideo | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [screenLocked, setScreenLocked] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [controlsVisible, setControlsVisible] = useState(true);
+  const [controlsActivity, setControlsActivity] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
@@ -177,6 +182,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const touchGestureRef = useRef<TouchGesture | null>(null);
   const lastTapRef = useRef<{ time: number; x: number } | null>(null);
   const feedbackTimerRef = useRef<number | null>(null);
+  const controlsHideTimerRef = useRef<number | null>(null);
 
   const detailVideoId = getDetailVideoId(location.pathname);
   const downloadDetailPath = getDownloadDetailPath(location.pathname);
@@ -220,6 +226,8 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     setActiveVideo(null);
     setPictureInPicture(false);
     setSettingsMenu("closed");
+    setIsPlaying(false);
+    setControlsVisible(true);
     setCurrentTime(0);
     setDuration(0);
     setIsMuted(false);
@@ -227,6 +235,11 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     setLoopVideo(false);
     setHlsLevels([]);
     setActiveHlsHeight(null);
+  }, []);
+
+  const markControlsActivity = useCallback(() => {
+    setControlsVisible(true);
+    setControlsActivity((activity) => activity + 1);
   }, []);
 
   useEffect(() => {
@@ -253,6 +266,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     hlsRef.current = null;
     setCurrentTime(isSameVideo ? previousTime : 0);
     setDuration(0);
+    setControlsVisible(true);
     setQuality("auto");
     setLoopVideo(false);
     setHlsLevels([]);
@@ -303,14 +317,16 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
         hls.currentLevel = nextLevel;
       }
       setQuality(nextQuality);
-      setSettingsMenu("root");
+      setSettingsMenu("closed");
+      markControlsActivity();
       return;
     }
 
     const nextUrl = nextQuality === "auto" ? activeVideo.url : activeVideo.qualityUrls?.[nextQuality];
     if (!nextUrl || nextUrl === activeSourceRef.current?.url) {
       if (nextQuality === "auto" || nextUrl === activeVideo.url) setQuality(nextQuality);
-      setSettingsMenu("root");
+      setSettingsMenu("closed");
+      markControlsActivity();
       return;
     }
 
@@ -326,8 +342,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     video.load();
     video.addEventListener("loadedmetadata", onMetadata, { once: true });
     setQuality(nextQuality);
-    setSettingsMenu("root");
-  }, [activeVideo, hlsLevels]);
+    setSettingsMenu("closed");
+    markControlsActivity();
+  }, [activeVideo, hlsLevels, markControlsActivity]);
 
   const togglePictureInPicture = useCallback(() => {
     const video = videoRef.current;
@@ -338,13 +355,15 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       void video.requestPictureInPicture().catch(() => {});
     }
     setSettingsMenu("closed");
-  }, []);
+    markControlsActivity();
+  }, [markControlsActivity]);
 
   const setRate = useCallback((rate: number) => {
     setPlaybackRate(rate);
     if (videoRef.current) videoRef.current.playbackRate = rate;
-    setSettingsMenu("root");
-  }, []);
+    setSettingsMenu("closed");
+    markControlsActivity();
+  }, [markControlsActivity]);
 
   const togglePlayPause = useCallback(() => {
     const video = videoRef.current;
@@ -361,7 +380,8 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     if (!video) return;
     video.muted = !video.muted;
     setIsMuted(video.muted);
-  }, []);
+    markControlsActivity();
+  }, [markControlsActivity]);
 
   const handleSeek = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const video = videoRef.current;
@@ -369,7 +389,8 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     if (!video || !Number.isFinite(nextTime)) return;
     video.currentTime = nextTime;
     setCurrentTime(nextTime);
-  }, []);
+    markControlsActivity();
+  }, [markControlsActivity]);
 
   const toggleFullscreen = useCallback(() => {
     const container = containerRef.current;
@@ -379,7 +400,64 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     } else {
       void container.requestFullscreen?.().catch(() => {});
     }
+    markControlsActivity();
+  }, [markControlsActivity]);
+
+  const clearControlsHideTimer = useCallback(() => {
+    if (controlsHideTimerRef.current !== null) {
+      window.clearTimeout(controlsHideTimerRef.current);
+      controlsHideTimerRef.current = null;
+    }
   }, []);
+
+  const handlePlayerSurfaceClick = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>) => {
+      if (!isDetailPlayer || screenLocked) return;
+      const target = event.target;
+      if (target instanceof Element && target.closest("button, input, [role='menu']")) return;
+      if (settingsMenu !== "closed") {
+        setSettingsMenu("closed");
+        markControlsActivity();
+        return;
+      }
+      if (controlsVisible) {
+        setControlsVisible(false);
+      } else {
+        markControlsActivity();
+      }
+    },
+    [controlsVisible, isDetailPlayer, markControlsActivity, screenLocked, settingsMenu],
+  );
+
+  const handleVideoPlay = useCallback(() => {
+    setIsPlaying(true);
+    setControlsVisible(true);
+  }, []);
+
+  const handleVideoPause = useCallback(() => {
+    setIsPlaying(false);
+    setControlsVisible(true);
+  }, []);
+
+  useEffect(() => {
+    clearControlsHideTimer();
+    if (!isDetailPlayer || !isPlaying || !controlsVisible || settingsMenu !== "closed" || screenLocked) {
+      return;
+    }
+    controlsHideTimerRef.current = window.setTimeout(() => {
+      setControlsVisible(false);
+      controlsHideTimerRef.current = null;
+    }, 3000);
+    return clearControlsHideTimer;
+  }, [
+    clearControlsHideTimer,
+    controlsVisible,
+    controlsActivity,
+    isDetailPlayer,
+    isPlaying,
+    screenLocked,
+    settingsMenu,
+  ]);
 
   const qualityOptions = QUALITY_OPTIONS.map((option) => ({
     ...option,
@@ -673,7 +751,14 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
           onTouchEnd={isDetailPlayer ? handleTouchEnd : undefined}
           style={isDetailPlayer ? { touchAction: isFullscreen ? "none" : "auto" } : undefined}
         >
-          <div className={isDetailPlayer ? `relative w-full bg-black ${isFullscreen ? "h-screen w-screen" : "aspect-video"}` : "relative aspect-video w-full bg-black"}>
+          <div
+            className={
+              isDetailPlayer
+                ? `relative w-full bg-black ${isFullscreen ? "h-screen w-screen" : "aspect-video"}`
+                : "relative aspect-video w-full bg-black"
+            }
+            onClick={isDetailPlayer ? handlePlayerSurfaceClick : undefined}
+          >
             <video
               ref={videoRef}
               controls={false}
@@ -681,10 +766,11 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               loop={loopVideo}
               muted={isMuted}
               playsInline
-              onClick={isDetailPlayer ? togglePlayPause : openDetail}
               onLoadedMetadata={handleLoadedMetadata}
               onTimeUpdate={handleTimeUpdate}
               onVolumeChange={handleVolumeChange}
+              onPlay={handleVideoPlay}
+              onPause={handleVideoPause}
               className={`video-player-native-controls h-full w-full ${displayMode === "fill" ? "object-cover" : "object-contain"}`}
               style={{
                 transform: `scale(${zoom})`,
@@ -696,8 +782,32 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
             />
 
             {isDetailPlayer && !screenLocked ? (
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-40">
-                <div className="pointer-events-auto bg-gradient-to-t from-black/90 via-black/45 to-transparent px-3 pb-2 pt-12">
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  togglePlayPause();
+                }}
+                className={`absolute left-1/2 top-1/2 z-50 grid h-14 w-14 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-black/65 text-white shadow-xl backdrop-blur-md transition-opacity duration-200 hover:bg-black/80 ${
+                  controlsVisible ? "opacity-100" : "pointer-events-none opacity-0"
+                }`}
+                aria-label={isPlaying ? "Pause video" : "Play video"}
+              >
+                {isPlaying ? <Pause className="h-7 w-7 fill-current" /> : <Play className="ml-0.5 h-7 w-7 fill-current" />}
+              </button>
+            ) : null}
+
+            {isDetailPlayer && !screenLocked ? (
+              <div
+                className={`pointer-events-none absolute inset-x-0 bottom-0 z-40 transition-opacity duration-200 ${
+                  controlsVisible ? "opacity-100" : "opacity-0"
+                }`}
+              >
+                <div
+                  className={`bg-gradient-to-t from-black/90 via-black/45 to-transparent px-3 pb-2 pt-12 ${
+                    controlsVisible ? "pointer-events-auto" : "pointer-events-none"
+                  }`}
+                >
                   <div className="flex items-center justify-between gap-3 text-white">
                     <span className="text-xs font-medium tabular-nums">
                       {formatTime(currentTime)} / {formatTime(duration)}
@@ -809,7 +919,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                       ? window.history.back()
                       : void navigate({ to: "/" })
                 }
-                className="absolute left-3 top-3 z-50 rounded-full bg-black/60 p-2 text-white backdrop-blur-md transition-all hover:bg-black/80"
+                className={`absolute left-3 top-3 z-50 rounded-full bg-black/60 p-2 text-white transition-opacity duration-200 hover:bg-black/80 ${
+                  controlsVisible ? "opacity-100" : "pointer-events-none opacity-0"
+                }`}
                 aria-label="Go back"
                 onTouchStart={(event) => event.stopPropagation()}
                 onTouchEnd={(event) => event.stopPropagation()}
@@ -822,7 +934,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               <button
                 type="button"
                 onClick={toggleScreenLock}
-                className="absolute right-14 top-3 z-50 rounded-full bg-black/60 p-2 text-white backdrop-blur-md transition-all hover:bg-black/80"
+                className={`absolute right-14 top-3 z-50 rounded-full bg-black/60 p-2 text-white transition-opacity duration-200 hover:bg-black/80 ${
+                  controlsVisible ? "opacity-100" : "pointer-events-none opacity-0"
+                }`}
                 aria-label="Lock player controls"
                 onTouchStart={(event) => event.stopPropagation()}
                 onTouchEnd={(event) => event.stopPropagation()}
@@ -862,7 +976,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                     event.stopPropagation();
                     setSettingsMenu((current) => (current === "closed" ? "root" : "closed"));
                   }}
-                  className="absolute right-3 top-3 z-[70] rounded-full bg-black/60 p-2 text-white backdrop-blur-md transition-all hover:bg-black/90"
+                  className={`absolute right-3 top-3 z-[70] rounded-full bg-black/60 p-2 text-white transition-opacity duration-200 hover:bg-black/90 ${
+                    controlsVisible ? "opacity-100" : "pointer-events-none opacity-0"
+                  }`}
                   aria-label="Player settings"
                   aria-expanded={settingsMenu !== "closed"}
                   onTouchStart={(event) => event.stopPropagation()}
@@ -918,7 +1034,10 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                         <button
                           type="button"
                           role="menuitem"
-                          onClick={() => setLoopVideo((current) => !current)}
+                          onClick={() => {
+                            setLoopVideo((current) => !current);
+                            setSettingsMenu("closed");
+                          }}
                           className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm transition hover:bg-white/10"
                         >
                           <span className="flex items-center gap-3">
