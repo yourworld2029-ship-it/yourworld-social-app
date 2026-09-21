@@ -12,7 +12,6 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Bio } from "@/components/yw/Bio";
 import { FollowListDialog } from "@/components/yw/FollowListDialog";
-import { Highlights } from "@/components/yw/Highlights";
 import {
   getUserEnteredProfileBio,
   type SportsProfileInfo,
@@ -261,12 +260,6 @@ export function ProfileTemplate({
           </div>
         </div>
       </section>
-
-      <Highlights
-        userId={userId}
-        posts={posts}
-        canManage={isOwner}
-      />
 
       <Tabs
         value={selectedTab ?? "videos"}
