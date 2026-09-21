@@ -377,12 +377,14 @@ export function Highlights({
       // Keep the local circle removal authoritative. A refetch from a stale
       // replica immediately after deletion can otherwise restore the bubble.
       await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["highlights", sessionUserId] }),
         queryClient.invalidateQueries({ queryKey: ["profile", sessionUserId] }),
         queryClient.invalidateQueries({ queryKey: ["/api/profile", sessionUserId] }),
       ]);
 
-      toast.success("Highlight deleted");
+      toast.success("Highlight removed");
     } catch (error) {
+      console.error("Highlight delete error:", error);
       console.error("[highlights] delete failed", {
         userId,
         highlightId,
