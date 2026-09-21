@@ -17,6 +17,7 @@ import {
   Lock,
   MoreVertical,
   PictureInPicture,
+  Repeat,
   Settings2,
   Sun,
   Unlock,
@@ -146,6 +147,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const [pictureInPicture, setPictureInPicture] = useState(false);
   const [settingsMenu, setSettingsMenu] = useState<"closed" | "root" | "speed" | "quality">("closed");
   const [playbackRate, setPlaybackRate] = useState(1);
+  const [loopVideo, setLoopVideo] = useState(false);
   const [quality, setQuality] = useState<QualityId>("auto");
   const [hlsLevels, setHlsLevels] = useState<Hls["levels"]>([]);
   const [activeHlsHeight, setActiveHlsHeight] = useState<number | null>(null);
@@ -201,6 +203,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     setPictureInPicture(false);
     setSettingsMenu("closed");
     setQuality("auto");
+    setLoopVideo(false);
     setHlsLevels([]);
     setActiveHlsHeight(null);
   }, []);
@@ -228,6 +231,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     hlsRef.current?.destroy();
     hlsRef.current = null;
     setQuality("auto");
+    setLoopVideo(false);
     setHlsLevels([]);
     setActiveHlsHeight(null);
     activeSourceRef.current = { id: activeVideo.id, url: activeVideo.url };
@@ -255,6 +259,12 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       hlsRef.current = null;
     };
   }, [activeVideo]);
+
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.loop = loopVideo;
+    }
+  }, [loopVideo]);
 
   const selectQuality = useCallback((nextQuality: QualityId) => {
     const video = videoRef.current;
@@ -735,7 +745,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                     event.stopPropagation();
                     setSettingsMenu((current) => (current === "closed" ? "root" : "closed"));
                   }}
-                  className="absolute bottom-2 right-12 z-[70] rounded-full bg-black/70 p-2 text-white backdrop-blur-md transition-all hover:bg-black/90"
+                  className="absolute bottom-10 right-3 z-[70] rounded-full bg-black/70 p-2 text-white backdrop-blur-md transition-all hover:bg-black/90"
                   aria-label="Player settings"
                   aria-expanded={settingsMenu !== "closed"}
                   onTouchStart={(event) => event.stopPropagation()}
@@ -747,31 +757,13 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                 {settingsMenu !== "closed" ? (
                   <div
                     role="menu"
-                    className="absolute bottom-14 right-3 z-[70] w-56 overflow-hidden rounded-2xl border border-white/15 bg-black/85 p-1 text-white shadow-2xl backdrop-blur-xl"
+                    className="absolute bottom-20 right-3 z-[70] w-56 overflow-hidden rounded-2xl border border-white/15 bg-black/85 p-1 text-white shadow-2xl backdrop-blur-xl"
                     onClick={(event) => event.stopPropagation()}
                     onTouchStart={(event) => event.stopPropagation()}
                     onTouchEnd={(event) => event.stopPropagation()}
                   >
                     {settingsMenu === "root" ? (
                       <>
-                        <button
-                          type="button"
-                          role="menuitem"
-                          onClick={() => setSettingsMenu("speed")}
-                          className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm transition hover:bg-white/10"
-                        >
-                          <span>Playback speed</span>
-                          <span className="text-xs text-white/60">{playbackRate}×</span>
-                        </button>
-                        <button
-                          type="button"
-                          role="menuitem"
-                          onClick={togglePictureInPicture}
-                          className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition hover:bg-white/10"
-                        >
-                          <PictureInPicture className="h-4 w-4 text-white/70" />
-                          Picture-in-picture
-                        </button>
                         <button
                           type="button"
                           role="menuitem"
@@ -786,6 +778,38 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                             {qualityLabel(quality, quality === "auto" ? activeHlsHeight : null)}
                           </span>
                         </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => setSettingsMenu("speed")}
+                          className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm transition hover:bg-white/10"
+                        >
+                          <span>Playback speed</span>
+                          <span className="text-xs text-white/60">
+                            {playbackRate === 1 ? "Normal" : `${playbackRate}×`}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={togglePictureInPicture}
+                          className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition hover:bg-white/10"
+                        >
+                          <PictureInPicture className="h-4 w-4 text-white/70" />
+                          Picture-in-picture
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => setLoopVideo((current) => !current)}
+                          className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm transition hover:bg-white/10"
+                        >
+                          <span className="flex items-center gap-3">
+                            <Repeat className="h-4 w-4 text-white/70" />
+                            Loop video
+                          </span>
+                          <span className="text-xs text-white/60">{loopVideo ? "On" : "Off"}</span>
+                        </button>
                       </>
                     ) : settingsMenu === "speed" ? (
                       <>
@@ -797,7 +821,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                           <ArrowLeft className="h-4 w-4" />
                           Playback speed
                         </button>
-                        {[0.5, 1, 1.25, 1.5, 2].map((rate) => (
+                        {[0.25, 0.5, 0.75, 1, 1.25, 1.5, 2].map((rate) => (
                           <button
                             key={rate}
                             type="button"
@@ -805,7 +829,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                             onClick={() => setRate(rate)}
                             className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition hover:bg-white/10"
                           >
-                            {rate}×
+                            {rate === 1 ? "Normal" : `${rate}×`}
                             {playbackRate === rate ? <Check className="h-4 w-4" /> : null}
                           </button>
                         ))}
