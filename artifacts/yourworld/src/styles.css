@@ -157,6 +157,7 @@
    * The persistent player provides its own settings popup so browsers do not
    * render a second native overflow/settings button beside fullscreen.
    */
+  .video-player-native-controls::-webkit-media-controls-menu-button,
   .video-player-native-controls::-webkit-media-controls-overflow-button,
   .video-player-native-controls::-webkit-media-controls-picture-in-picture-button {
     display: none !important;
