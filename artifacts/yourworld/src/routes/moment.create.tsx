@@ -59,6 +59,8 @@ import { splitMomentIntoParts } from "@/lib/moment-parts";
 import { adaptiveCameraCaptureAttempts } from "@/lib/adaptive-performance";
 import { useAuth } from "@/lib/auth-store";
 import { ProfileAvatar } from "@/components/yw/ProfileAvatar";
+import { downloadMedia } from "@/lib/yw-download";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/moment/create")({
   component: MomentCreatePage,
@@ -711,6 +713,9 @@ function MomentCreatePage() {
     useState(true);
 
   const [allowDownloads, setAllowDownloads] =
+    useState(true);
+
+  const [saveToGallery, setSaveToGallery] =
     useState(true);
 
   const [saveToArchive, setSaveToArchive] =
@@ -2375,8 +2380,9 @@ function MomentCreatePage() {
     );
 
     // Publish each part into the live moments feed, oldest part first.
+    let publishError: string | null = null;
     for (const part of newMoments) {
-      await startUpload(
+      const result = await startUpload(
         {
           kind: "moment",
           label: part.caption ?? "New moment",
@@ -2442,6 +2448,31 @@ function MomentCreatePage() {
             onUploadProgress: onProgress,
           }),
       );
+      if (result?.error) {
+        publishError = result.error;
+        break;
+      }
+    }
+
+    if (publishError) {
+      toast.error(publishError);
+      return;
+    }
+
+    if (saveToGallery && publishMediaUrl) {
+      try {
+        await downloadMedia(
+          publishMediaUrl,
+          `yourworld-moment-${Date.now()}.${isVideo ? "mp4" : "jpg"}`,
+        );
+        toast.success("Saved to gallery!");
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? `Moment posted, but ${error.message.toLowerCase()}`
+            : "Moment posted, but it could not be saved to your gallery.",
+        );
+      }
     }
 
     navigate({
@@ -4149,6 +4180,18 @@ function MomentCreatePage() {
             }
             onChange={() =>
               setScreenshotAlert(
+                (v) => !v
+              )
+            }
+          />
+
+          <SettingRow
+            icon={<Download />}
+            title="Save to device gallery"
+            subtitle="Save a local copy when posted"
+            checked={saveToGallery}
+            onChange={() =>
+              setSaveToGallery(
                 (v) => !v
               )
             }

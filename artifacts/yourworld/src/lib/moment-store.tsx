@@ -577,17 +577,26 @@ export function MomentProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      // Run the backend purge opportunistically on authenticated app loads.
+      // The function is idempotent and uses the service role only server-side;
+      // this keeps expired rows and their private bucket objects from lingering
+      // even when the database scheduler is unavailable.
+      void supabase.functions.invoke("purge-expired-moments").catch((error) => {
+        console.warn("Expired Moment purge unavailable", error);
+      });
+
+      const activeMomentCutoff = new Date().toISOString();
       let momentsResult = (await supabase
         .from("moments")
         .select(MOMENT_WITH_PROFILE_SELECT)
-        .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()},user_id.eq.${uid}`)
+        .gt("expires_at", activeMomentCutoff)
         .order("created_at", { ascending: false })
         .limit(200)) as unknown as MomentDbResult;
       if (momentsResult.error && hasProfileJoinError(momentsResult.error)) {
         momentsResult = (await supabase
           .from("moments")
           .select("*")
-          .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()},user_id.eq.${uid}`)
+          .gt("expires_at", activeMomentCutoff)
           .order("created_at", { ascending: false })
           .limit(200)) as unknown as MomentDbResult;
       }
@@ -598,14 +607,14 @@ export function MomentProvider({ children }: { children: ReactNode }) {
         let postsResult = (await supabase
           .from("posts")
           .select(MOMENT_WITH_PROFILE_SELECT)
-          .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()},user_id.eq.${uid}`)
+          .gt("expires_at", activeMomentCutoff)
           .order("created_at", { ascending: false })
           .limit(200)) as unknown as MomentDbResult;
         if (postsResult.error && hasProfileJoinError(postsResult.error)) {
           postsResult = (await supabase
             .from("posts")
             .select("*")
-            .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()},user_id.eq.${uid}`)
+            .gt("expires_at", activeMomentCutoff)
             .order("created_at", { ascending: false })
             .limit(200)) as unknown as MomentDbResult;
         }

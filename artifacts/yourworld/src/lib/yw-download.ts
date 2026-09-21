@@ -425,6 +425,15 @@ export async function downloadMedia(src: string, fileName: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }
 
+/** Download the original Moment bytes without applying a preview watermark. */
+export async function downloadOriginalMomentMedia(
+  src: string,
+  kind: "photo" | "video",
+  id: string,
+) {
+  await downloadMedia(src, `yourworld-moment-${id}.${kind === "video" ? "mp4" : "jpg"}`);
+}
+
 /** Photo → watermarked jpg, anything else → raw file. */
 export async function downloadMomentMedia(
   src: string,

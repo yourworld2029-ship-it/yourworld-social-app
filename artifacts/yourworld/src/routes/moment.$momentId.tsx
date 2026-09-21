@@ -20,7 +20,7 @@ import {
   ChevronUp,
   Plus,
 } from "lucide-react";
-import { downloadMomentMedia } from "@/lib/yw-download";
+import { downloadMomentMedia, downloadOriginalMomentMedia } from "@/lib/yw-download";
 import { toast } from "sonner";
 import { SportsIdentityMark } from "@/components/yw/SportsIdentityBadge";
 
@@ -327,6 +327,15 @@ function MomentViewRoute() {
     if (dir === "next") goNext();
     else goPrev();
   };
+
+  const saveOwnerMoment = useCallback(() => {
+    if (!current || !current.mine || !current.media || current.kind === "text") return;
+    void downloadOriginalMomentMedia(current.media, current.kind, current.id)
+      .then(() => toast.success("Saved to gallery!"))
+      .catch((error) => {
+        toast.error(error instanceof Error ? error.message : "Couldn't save this Moment.");
+      });
+  }, [current]);
 
   if (!current) return null;
 
@@ -735,6 +744,17 @@ function MomentViewRoute() {
               <Heart className="h-4 w-4" /> {likeCount}
             </button>
             <div className="flex items-center gap-2">
+              {current.media && current.kind !== "text" ? (
+                <button
+                  type="button"
+                  aria-label="Save to device gallery"
+                  onClick={saveOwnerMoment}
+                  className="flex items-center gap-1.5 rounded-full border border-white/25 bg-gradient-to-r from-cyan-400 via-pink-500 to-pink-600 px-3 py-2 text-xs font-bold text-white shadow-lg shadow-pink-950/30 backdrop-blur-md active:scale-95"
+                >
+                  <Download className="h-4 w-4" />
+                  <span className="hidden min-[380px]:inline">Save</span>
+                </button>
+              ) : null}
               <button
                 type="button"
                 aria-label="Add another moment"
