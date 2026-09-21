@@ -13,13 +13,56 @@ import {
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
   ArrowLeft,
+  Check,
   Lock,
+  MoreVertical,
+  PictureInPicture,
+  Settings2,
   Sun,
   Unlock,
   Volume2,
   X,
   ZoomIn,
 } from "lucide-react";
+import Hls from "hls.js";
+
+const QUALITY_OPTIONS = [
+  { id: "auto", label: "Auto", description: "Recommended", shortSide: null },
+  { id: "1080p", label: "1080p", description: "HD", shortSide: 1080 },
+  { id: "720p", label: "720p", description: "", shortSide: 720 },
+  { id: "480p", label: "480p", description: "", shortSide: 480 },
+  { id: "360p", label: "360p", description: "Data Saver", shortSide: 360 },
+] as const;
+
+export type QualityId = (typeof QUALITY_OPTIONS)[number]["id"];
+export type QualityUrls = Partial<Record<Exclude<QualityId, "auto">, string>>;
+
+function isHlsUrl(url: string) {
+  return /\.m3u8(?:$|[?#])/i.test(url);
+}
+
+function qualityLabel(quality: QualityId, activeHeight?: number | null) {
+  if (quality === "auto") {
+    return activeHeight ? `Auto (${activeHeight}p)` : "Auto";
+  }
+  return quality;
+}
+
+function levelForQuality(levels: Hls["levels"], quality: Exclude<QualityId, "auto">) {
+  const target = QUALITY_OPTIONS.find((option) => option.id === quality)?.shortSide;
+  if (!target || levels.length === 0) return -1;
+  const candidates = levels
+    .map((level, index) => ({ index, height: Number(level.height) }))
+    .filter((level) => Number.isFinite(level.height) && level.height > 0);
+  if (candidates.length === 0) return -1;
+  return (
+    candidates
+      .filter((level) => level.height <= target)
+      .sort((a, b) => b.height - a.height)[0]?.index ??
+    candidates.sort((a, b) => a.height - b.height)[0]?.index ??
+    -1
+  );
+}
 
 type GestureFeedback = {
   kind: "seek" | "volume" | "brightness" | "zoom";
@@ -50,6 +93,7 @@ export type PersistentVideo = {
   thumbnailUrl?: string | null;
   detailRoute?: string;
   backTo?: string;
+  qualityUrls?: QualityUrls;
 };
 
 type VideoPlaybackContextValue = {
@@ -100,9 +144,15 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const [displayMode, setDisplayMode] = useState<"fit" | "fill">("fit");
   const [brightness, setBrightness] = useState(1);
   const [pictureInPicture, setPictureInPicture] = useState(false);
+  const [settingsMenu, setSettingsMenu] = useState<"closed" | "root" | "speed" | "quality">("closed");
+  const [playbackRate, setPlaybackRate] = useState(1);
+  const [quality, setQuality] = useState<QualityId>("auto");
+  const [hlsLevels, setHlsLevels] = useState<Hls["levels"]>([]);
+  const [activeHlsHeight, setActiveHlsHeight] = useState<number | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const activeSourceRef = useRef<{ id: string; url: string } | null>(null);
+  const hlsRef = useRef<Hls | null>(null);
   const timeUpdateHandlerRef = useRef<((currentTime: number) => void) | null>(null);
   const touchGestureRef = useRef<TouchGesture | null>(null);
   const lastTapRef = useRef<{ time: number; x: number } | null>(null);
@@ -139,6 +189,8 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
 
   const closeVideo = useCallback(() => {
     const video = videoRef.current;
+    hlsRef.current?.destroy();
+    hlsRef.current = null;
     if (video) {
       video.pause();
       video.removeAttribute("src");
@@ -147,6 +199,10 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     activeSourceRef.current = null;
     setActiveVideo(null);
     setPictureInPicture(false);
+    setSettingsMenu("closed");
+    setQuality("auto");
+    setHlsLevels([]);
+    setActiveHlsHeight(null);
   }, []);
 
   useEffect(() => {
@@ -169,15 +225,100 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     };
 
     video.pause();
+    hlsRef.current?.destroy();
+    hlsRef.current = null;
+    setQuality("auto");
+    setHlsLevels([]);
+    setActiveHlsHeight(null);
     activeSourceRef.current = { id: activeVideo.id, url: activeVideo.url };
-    video.src = activeVideo.url;
-    video.load();
+    if (isHlsUrl(activeVideo.url) && Hls.isSupported()) {
+      const hls = new Hls({ enableWorker: true });
+      hlsRef.current = hls;
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        setHlsLevels([...hls.levels]);
+        setActiveHlsHeight(hls.levels[hls.currentLevel]?.height ?? hls.levels[hls.levels.length - 1]?.height ?? null);
+      });
+      hls.on(Hls.Events.LEVEL_SWITCHED, (_event, data) => {
+        setActiveHlsHeight(hls.levels[data.level]?.height ?? null);
+      });
+      hls.loadSource(activeVideo.url);
+      hls.attachMedia(video);
+    } else {
+      video.src = activeVideo.url;
+      video.load();
+    }
     video.addEventListener("loadedmetadata", restorePlayback, { once: true });
 
     return () => {
       video.removeEventListener("loadedmetadata", restorePlayback);
+      hlsRef.current?.destroy();
+      hlsRef.current = null;
     };
   }, [activeVideo]);
+
+  const selectQuality = useCallback((nextQuality: QualityId) => {
+    const video = videoRef.current;
+    if (!video || !activeVideo) return;
+    const hls = hlsRef.current;
+    if (hls && hlsLevels.length > 0) {
+      if (nextQuality === "auto") {
+        hls.currentLevel = -1;
+      } else {
+        const nextLevel = levelForQuality(hlsLevels, nextQuality);
+        if (nextLevel < 0) return;
+        hls.currentLevel = nextLevel;
+      }
+      setQuality(nextQuality);
+      setSettingsMenu("root");
+      return;
+    }
+
+    const nextUrl = nextQuality === "auto" ? activeVideo.url : activeVideo.qualityUrls?.[nextQuality];
+    if (!nextUrl || nextUrl === activeSourceRef.current?.url) {
+      if (nextQuality === "auto" || nextUrl === activeVideo.url) setQuality(nextQuality);
+      setSettingsMenu("root");
+      return;
+    }
+
+    const previousTime = Number.isFinite(video.currentTime) ? video.currentTime : 0;
+    const shouldPlay = !video.paused;
+    const onMetadata = () => {
+      if (Number.isFinite(video.duration)) video.currentTime = Math.min(previousTime, video.duration);
+      if (shouldPlay) void video.play().catch(() => {});
+    };
+    video.pause();
+    activeSourceRef.current = { id: activeVideo.id, url: nextUrl };
+    video.src = nextUrl;
+    video.load();
+    video.addEventListener("loadedmetadata", onMetadata, { once: true });
+    setQuality(nextQuality);
+    setSettingsMenu("root");
+  }, [activeVideo, hlsLevels]);
+
+  const togglePictureInPicture = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (document.pictureInPictureElement === video) {
+      void document.exitPictureInPicture?.();
+    } else if (typeof video.requestPictureInPicture === "function") {
+      void video.requestPictureInPicture().catch(() => {});
+    }
+    setSettingsMenu("closed");
+  }, []);
+
+  const setRate = useCallback((rate: number) => {
+    setPlaybackRate(rate);
+    if (videoRef.current) videoRef.current.playbackRate = rate;
+    setSettingsMenu("root");
+  }, []);
+
+  const qualityOptions = QUALITY_OPTIONS.map((option) => ({
+    ...option,
+    available:
+      option.id === "auto" ||
+      (hlsLevels.length > 0 && levelForQuality(hlsLevels, option.id as Exclude<QualityId, "auto">) >= 0) ||
+      Boolean(activeVideo?.qualityUrls?.[option.id as Exclude<QualityId, "auto">]),
+  }));
 
   useEffect(() => {
     const video = videoRef.current;
@@ -562,6 +703,124 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               >
                 <Lock className="h-5 w-5" />
               </button>
+            ) : null}
+
+            {isDetailPlayer && !screenLocked ? (
+              <>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setSettingsMenu((current) => (current === "closed" ? "root" : "closed"));
+                  }}
+                  className="absolute right-3 top-3 z-50 rounded-full bg-black/60 p-2 text-white backdrop-blur-md transition-all hover:bg-black/80"
+                  aria-label="Player settings"
+                  aria-expanded={settingsMenu !== "closed"}
+                  onTouchStart={(event) => event.stopPropagation()}
+                  onTouchEnd={(event) => event.stopPropagation()}
+                >
+                  <MoreVertical className="h-5 w-5" />
+                </button>
+
+                {settingsMenu !== "closed" ? (
+                  <div
+                    role="menu"
+                    className="absolute right-3 top-14 z-[70] w-56 overflow-hidden rounded-2xl border border-white/15 bg-black/85 p-1 text-white shadow-2xl backdrop-blur-xl"
+                    onClick={(event) => event.stopPropagation()}
+                    onTouchStart={(event) => event.stopPropagation()}
+                    onTouchEnd={(event) => event.stopPropagation()}
+                  >
+                    {settingsMenu === "root" ? (
+                      <>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => setSettingsMenu("speed")}
+                          className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm transition hover:bg-white/10"
+                        >
+                          <span>Playback speed</span>
+                          <span className="text-xs text-white/60">{playbackRate}×</span>
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={togglePictureInPicture}
+                          className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition hover:bg-white/10"
+                        >
+                          <PictureInPicture className="h-4 w-4 text-white/70" />
+                          Picture-in-picture
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => setSettingsMenu("quality")}
+                          className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm transition hover:bg-white/10"
+                        >
+                          <span className="flex items-center gap-3">
+                            <Settings2 className="h-4 w-4 text-white/70" />
+                            Quality
+                          </span>
+                          <span className="max-w-[92px] truncate text-xs text-white/60">
+                            {qualityLabel(quality, quality === "auto" ? activeHlsHeight : null)}
+                          </span>
+                        </button>
+                      </>
+                    ) : settingsMenu === "speed" ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setSettingsMenu("root")}
+                          className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-xs font-semibold text-white/60 transition hover:bg-white/10"
+                        >
+                          <ArrowLeft className="h-4 w-4" />
+                          Playback speed
+                        </button>
+                        {[0.5, 1, 1.25, 1.5, 2].map((rate) => (
+                          <button
+                            key={rate}
+                            type="button"
+                            role="menuitem"
+                            onClick={() => setRate(rate)}
+                            className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition hover:bg-white/10"
+                          >
+                            {rate}×
+                            {playbackRate === rate ? <Check className="h-4 w-4" /> : null}
+                          </button>
+                        ))}
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setSettingsMenu("root")}
+                          className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-xs font-semibold text-white/60 transition hover:bg-white/10"
+                        >
+                          <ArrowLeft className="h-4 w-4" />
+                          Quality
+                        </button>
+                        {qualityOptions.map((option) => (
+                          <button
+                            key={option.id}
+                            type="button"
+                            role="menuitem"
+                            disabled={!option.available}
+                            onClick={() => selectQuality(option.id)}
+                            className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-35"
+                          >
+                            <span>
+                              {option.label}
+                              {option.description ? (
+                                <span className="ml-1 text-xs text-white/50">({option.description})</span>
+                              ) : null}
+                            </span>
+                            {quality === option.id ? <Check className="h-4 w-4" /> : null}
+                          </button>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                ) : null}
+              </>
             ) : null}
 
             {!isDetailPlayer && !isPlayerRoute && !pictureInPicture ? (

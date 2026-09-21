@@ -55,7 +55,11 @@ import {
   sanitizeDownloadName,
 } from "@/lib/yw-download";
 import { qualityTierFromMetadata, type VideoQualityTier } from "@/lib/video-quality";
-import { useVideoPlayback, VideoPlaybackSlot } from "@/lib/video-playback";
+import {
+  useVideoPlayback,
+  VideoPlaybackSlot,
+  type QualityUrls,
+} from "@/lib/video-playback";
 
 type VideoUser = {
   id?: string;
@@ -86,6 +90,8 @@ type Video = {
   source_quality_tier?: string | null;
   original_width?: number | null;
   original_height?: number | null;
+  quality_urls?: QualityUrls | null;
+  qualityUrls?: QualityUrls | null;
   user?: VideoUser | null;
   sourceQualityTier?: VideoQualityTier | null;
 };
@@ -226,6 +232,8 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           source_quality_tier?: string | null;
           original_width?: number | null;
           original_height?: number | null;
+          quality_urls?: QualityUrls | null;
+          qualityUrls?: QualityUrls | null;
         };
         const sourceQualityTier = qualityTierFromMetadata(
           metadata.source_quality_tier,
@@ -233,7 +241,12 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           metadata.original_height,
         );
 
-        return { ...(data as unknown as Video), sourceQualityTier, user: profile };
+        return {
+          ...(data as unknown as Video),
+          sourceQualityTier,
+          qualityUrls: metadata.qualityUrls ?? metadata.quality_urls ?? null,
+          user: profile,
+        };
       } catch (cause) {
         console.error("Error fetching video:", cause);
         return null;
@@ -458,6 +471,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
       url: playableMediaUrl,
       title: video.title || video.caption || "Untitled Video",
       thumbnailUrl: video.thumbnail_url,
+      qualityUrls: video.qualityUrls ?? video.quality_urls ?? undefined,
     });
   }, [activateVideo, playableMediaUrl, video]);
 
