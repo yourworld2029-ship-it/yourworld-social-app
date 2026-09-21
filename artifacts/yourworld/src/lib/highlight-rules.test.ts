@@ -19,9 +19,9 @@ test("video highlight previews seek past the black first frame", () => {
   assert.equal(videoPreviewUrl("https://cdn.example/video.mp4"), "https://cdn.example/video.mp4#t=0.001");
   assert.equal(videoPreviewUrl("https://cdn.example/video.mp4#foo"), "https://cdn.example/video.mp4#t=0.001");
   assert.equal(videoPreviewUrl(undefined), undefined);
-  assert.equal(MAX_HIGHLIGHTS, 5);
+  assert.equal(MAX_HIGHLIGHTS, 10);
   assert.equal(
     MAX_HIGHLIGHTS_MESSAGE,
-    "Maximum 5 highlights reached. Delete an existing highlight to add a new one.",
+    "Limit Reached: You can create a maximum of 10 highlights. Please delete an existing highlight to add a new one.",
   );
 });

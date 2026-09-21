@@ -161,21 +161,33 @@ export function Highlights({
   const videoItems = useMemo<HighlightItem[]>(
     () =>
       [...posts]
-        .filter((p) => p.kind === "video" && Boolean(p.media_url))
+        .filter(
+          (p) =>
+            p.user_id === userId &&
+            p.kind === "video" &&
+            Boolean(p.media_url) &&
+            isHighlightVideoType(p.media_type || "video"),
+        )
         .map((p) => ({
           source: "post",
           refId: p.id,
           thumb: p.thumbnail_url ?? p.media_url,
           media: p.media_url,
-          mediaType: p.media_type ?? "video",
+          mediaType: p.media_type || "video",
         })),
-    [posts],
+    [posts, userId],
   );
 
   const reelItems = useMemo<HighlightItem[]>(
     () =>
       [...posts]
-        .filter((p) => p.kind === "reel" && Boolean(p.media_url))
+        .filter(
+          (p) =>
+            p.user_id === userId &&
+            p.kind === "reel" &&
+            Boolean(p.media_url) &&
+            isHighlightVideoType(p.media_type || "video"),
+        )
         .sort((a, b) => (b.views ?? 0) - (a.views ?? 0))
         .map((p) => ({
           source: "post",
@@ -184,7 +196,7 @@ export function Highlights({
           media: p.media_url,
           mediaType: "video",
         })),
-    [posts],
+    [posts, userId],
   );
 
   const toggle = (item: HighlightItem) => {
@@ -352,6 +364,8 @@ export function Highlights({
     ) {
       return;
     }
+    const deletedHighlight = viewer;
+    const previousHighlights = highlights;
     setDeleting(true);
     try {
       const { data: userData, error: userError } = await supabase.auth.getUser();
@@ -361,21 +375,33 @@ export function Highlights({
         throw new Error("You can only delete your own highlights");
       }
 
+      const deletedIndex = previousHighlights.findIndex(
+        (highlight) => highlight.id === normalizedHighlightId,
+      );
+      const remainingHighlights = previousHighlights.filter(
+        (highlight) => highlight.id !== normalizedHighlightId,
+      );
+      const nextViewer =
+        deletedIndex >= 0
+          ? remainingHighlights[Math.min(deletedIndex, remainingHighlights.length - 1)] ?? null
+          : null;
+
+      // Update the row and query cache before awaiting the server response so
+      // the circle disappears immediately. A failed request restores both.
+      queryClient.setQueryData<Highlight[]>(
+        ["highlights", sessionUserId],
+        remainingHighlights,
+      );
+      setHighlights(remainingHighlights);
+      // Stay on the profile: show the next highlight in sequence, or close
+      // the in-place viewer when there are no highlights left.
+      setViewer(nextViewer);
+
       console.log("Deleting highlight ID:", normalizedHighlightId);
       const result = await runDeleteHighlight({
         data: { highlightId: normalizedHighlightId },
       });
       if (!result.deleted) throw new Error("This highlight is no longer available");
-
-      queryClient.setQueryData<Highlight[]>(
-        ["highlights", sessionUserId],
-        (current) => current?.filter((highlight) => highlight.id !== normalizedHighlightId) ?? [],
-      );
-      setHighlights((prev) => prev.filter((highlight) => highlight.id !== normalizedHighlightId));
-      // This viewer is an in-place overlay on the profile page. Close it
-      // without navigating so the profile remains mounted and the deleted
-      // circle disappears immediately.
-      setViewer(null);
 
       // Re-fetch the owner list after the optimistic removal, but keep the
       // deleted id filtered if a stale replica briefly returns it.
@@ -390,6 +416,12 @@ export function Highlights({
         );
         setHighlights(refreshedWithoutDeleted);
         queryClient.setQueryData(["highlights", sessionUserId], refreshedWithoutDeleted);
+        setViewer((currentViewer) => {
+          if (!currentViewer) return null;
+          return (
+            refreshedWithoutDeleted.find((highlight) => highlight.id === currentViewer.id) ?? null
+          );
+        });
       } catch (refreshError) {
         console.error("[highlights] delete refresh failed", refreshError);
       }
@@ -400,6 +432,25 @@ export function Highlights({
 
       toast.success("Highlight removed");
     } catch (error) {
+      setHighlights((current) =>
+        current.some((highlight) => highlight.id === normalizedHighlightId)
+          ? current
+          : [...current, deletedHighlight].sort((a, b) =>
+              a.created_at.localeCompare(b.created_at),
+            ),
+      );
+      queryClient.setQueryData<Highlight[]>(
+        ["highlights", userId],
+        (current) => {
+          const restored = current ?? [];
+          return restored.some((highlight) => highlight.id === normalizedHighlightId)
+            ? restored
+            : [...restored, deletedHighlight].sort((a, b) =>
+                a.created_at.localeCompare(b.created_at),
+              );
+        },
+      );
+      setViewer(deletedHighlight);
       console.error("Highlight delete error:", error);
       console.error("[highlights] delete failed", {
         userId,
@@ -452,7 +503,7 @@ export function Highlights({
 
   return (
     <section className="mx-auto max-w-3xl px-3 pt-3 sm:px-4">
-      <div className="no-scrollbar flex gap-2.5 overflow-x-auto pb-0.5">
+      <div className="no-scrollbar flex flex-row gap-3 overflow-x-auto pb-0.5">
         {/* New highlight */}
         {canManage ? (
           <button
@@ -604,6 +655,7 @@ export function Highlights({
       </Dialog>
       {viewer ? (
         <HighlightViewer
+          key={viewer.id}
           highlight={viewer}
           canDelete={canManage}
           deleting={deleting}

@@ -1,6 +1,6 @@
-export const MAX_HIGHLIGHTS = 5;
+export const MAX_HIGHLIGHTS = 10;
 export const MAX_HIGHLIGHTS_MESSAGE =
-  "Maximum 5 highlights reached. Delete an existing highlight to add a new one.";
+  "Limit Reached: You can create a maximum of 10 highlights. Please delete an existing highlight to add a new one.";
 
 export function isHighlightVideoType(mediaType: string | null | undefined): boolean {
   const normalized = mediaType?.toLowerCase() ?? "";
