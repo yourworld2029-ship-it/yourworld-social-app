@@ -443,12 +443,36 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   }, [markControlsActivity]);
 
   const toggleFullscreen = useCallback(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    if (document.fullscreenElement) {
-      void document.exitFullscreen?.().catch(() => {});
+    const fullscreenElement = getPlayerFullscreenElement();
+    if (fullscreenElement) {
+      void exitPlayerFullscreen().finally(() => {
+        unlockPlayerOrientation();
+        setIsFullscreen(false);
+        setScreenLocked(false);
+        setZoom(1);
+        setDisplayMode("fit");
+        setBrightness(1);
+      });
     } else {
-      void container.requestFullscreen?.().catch(() => {});
+      const container = containerRef.current;
+      const video = videoRef.current;
+      const primaryTarget = container ?? video;
+      if (!primaryTarget) return;
+      const fallbackTarget = container && video ? video : null;
+      void requestPlayerFullscreen(primaryTarget)
+        .then((enteredFullscreen) =>
+          enteredFullscreen || !fallbackTarget
+            ? enteredFullscreen
+            : requestPlayerFullscreen(fallbackTarget),
+        )
+        .then((enteredFullscreen) => {
+        if (!enteredFullscreen) return;
+        setIsFullscreen(true);
+        const orientation = window.screen?.orientation as LockableScreenOrientation | undefined;
+        if (typeof orientation?.lock === "function") {
+          void orientation.lock("landscape").catch(() => {});
+        }
+        });
     }
     markControlsActivity();
   }, [markControlsActivity]);
@@ -556,7 +580,10 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (isDetailPlayer || !isFullscreen) return;
-    void document.exitFullscreen?.().catch(() => {});
+    void exitPlayerFullscreen().finally(() => {
+      unlockPlayerOrientation();
+      setIsFullscreen(false);
+    });
   }, [isDetailPlayer, isFullscreen]);
 
   useEffect(
@@ -570,12 +597,13 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const syncFullscreenState = () => {
-      const fullscreenElement = document.fullscreenElement;
+      const fullscreenElement = getPlayerFullscreenElement();
       const fullscreenTarget =
         fullscreenElement === containerRef.current || fullscreenElement === videoRef.current;
-      const horizontalFullscreen = fullscreenTarget && window.innerWidth > window.innerHeight;
-      setIsFullscreen(horizontalFullscreen);
-      if (!horizontalFullscreen) {
+      const fullscreenActive = Boolean(fullscreenTarget);
+      setIsFullscreen(fullscreenActive);
+      if (!fullscreenActive) {
+        unlockPlayerOrientation();
         setScreenLocked(false);
         setZoom(1);
         setDisplayMode("fit");
@@ -790,7 +818,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
             pictureInPicture
               ? "pointer-events-none fixed left-[-9999px] top-[-9999px] z-[-1] h-px w-px opacity-0"
               : isDetailPlayer
-                ? "absolute inset-x-0 top-0 z-50 mx-auto w-full max-w-lg bg-black"
+                ? isFullscreen
+                  ? "fixed inset-0 z-50 h-screen w-screen max-w-none bg-black"
+                  : "absolute inset-x-0 top-0 z-50 mx-auto w-full max-w-lg bg-black"
                 : isPlayerRoute
                   ? "pointer-events-none fixed left-[-9999px] top-[-9999px] z-[-1] h-px w-px opacity-0"
                   : "fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] right-3 z-[70] w-[min(68vw,280px)] overflow-hidden rounded-xl border border-white/15 bg-zinc-950 shadow-2xl"
@@ -808,6 +838,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                 : "relative aspect-video w-full bg-black"
             }
             onClick={isDetailPlayer ? handlePlayerSurfaceClick : undefined}
+            style={isFullscreen ? { width: "100vw", height: "100vh" } : undefined}
           >
             <video
               ref={videoRef}
@@ -821,11 +852,13 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               onVolumeChange={handleVolumeChange}
               onPlay={handleVideoPlay}
               onPause={handleVideoPause}
-              className={`video-player-native-controls h-full w-full ${displayMode === "fill" ? "object-cover" : "object-contain"}`}
+              className={`video-player-native-controls h-full w-full ${
+                !isFullscreen && displayMode === "fill" ? "object-cover" : "object-contain"
+              }`}
               style={{
                 transform: `scale(${zoom})`,
                 transformOrigin: "center center",
-                objectFit: displayMode === "fill" ? "cover" : "contain",
+                objectFit: isFullscreen || displayMode !== "fill" ? "contain" : "cover",
                 filter: `brightness(${brightness})`,
                 transition: gestureFeedback?.kind === "zoom" ? "none" : "transform 160ms ease-out",
               }}
