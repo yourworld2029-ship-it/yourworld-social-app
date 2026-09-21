@@ -368,12 +368,11 @@ export function Highlights({
     const previousHighlights = highlights;
     setDeleting(true);
     try {
-      const { data: userData, error: userError } = await supabase.auth.getUser();
-      if (userError) throw userError;
-      const sessionUserId = userData.user?.id;
-      if (!sessionUserId || sessionUserId !== userId || viewer.user_id !== sessionUserId) {
-        throw new Error("You can only delete your own highlights");
-      }
+      // The server function authenticates the bearer token and derives the
+      // owner ID there. Do not perform a second client-side auth lookup here:
+      // on mobile, that lookup can race token refresh and prevent the delete
+      // request from ever reaching the server.
+      const ownerId = userId;
 
       const deletedIndex = previousHighlights.findIndex(
         (highlight) => highlight.id === normalizedHighlightId,
@@ -389,7 +388,7 @@ export function Highlights({
       // Update the row and query cache before awaiting the server response so
       // the circle disappears immediately. A failed request restores both.
       queryClient.setQueryData<Highlight[]>(
-        ["highlights", sessionUserId],
+        ["highlights", ownerId],
         remainingHighlights,
       );
       setHighlights(remainingHighlights);
@@ -403,19 +402,18 @@ export function Highlights({
       });
       if (!result.deleted) throw new Error("This highlight is no longer available");
 
-      // Re-fetch the owner list after the optimistic removal, but keep the
+      // Invalidate the owner list after the server confirms 200 OK. Keep the
       // deleted id filtered if a stale replica briefly returns it.
       try {
         await queryClient.invalidateQueries({
-          queryKey: ["highlights", sessionUserId],
-          refetchType: "none",
+          queryKey: ["highlights", ownerId],
         });
-        const refreshed = await loadHighlights(sessionUserId, false);
+        const refreshed = await loadHighlights(ownerId, false);
         const refreshedWithoutDeleted = refreshed.filter(
           (highlight) => highlight.id !== normalizedHighlightId,
         );
         setHighlights(refreshedWithoutDeleted);
-        queryClient.setQueryData(["highlights", sessionUserId], refreshedWithoutDeleted);
+        queryClient.setQueryData(["highlights", ownerId], refreshedWithoutDeleted);
         setViewer((currentViewer) => {
           if (!currentViewer) return null;
           return (
@@ -426,8 +424,8 @@ export function Highlights({
         console.error("[highlights] delete refresh failed", refreshError);
       }
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["profile", sessionUserId] }),
-        queryClient.invalidateQueries({ queryKey: ["/api/profile", sessionUserId] }),
+        queryClient.invalidateQueries({ queryKey: ["profile", ownerId] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/profile", ownerId] }),
       ]);
 
       toast.success("Highlight removed");
@@ -451,6 +449,7 @@ export function Highlights({
         },
       );
       setViewer(deletedHighlight);
+      console.error("HIGHLIGHT DELETE FAILED:", error);
       console.error("Highlight delete error:", error);
       console.error("[highlights] delete failed", {
         userId,

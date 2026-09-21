@@ -50,59 +50,39 @@ export const deleteHighlight = createServerFn({ method: "POST" })
         throw new Error("You can only delete your own highlights");
       }
 
-      // Prefer the transactional SECURITY DEFINER RPC. If an older deployment
-      // has not received that migration yet, use the same owner-checked
-      // service-role client to clear optional legacy mappings and delete the
-      // parent row directly.
-      let deletedId: string | null = null;
-      const deleteDirectly = async () => {
-        const optionalTables = ["highlight_stories", "highlight_items"];
-        for (const table of optionalTables) {
-          const { error: childError } = await db
-            .from(table)
-            .delete()
-            .eq("highlight_id", data.highlightId);
-          const missingOptionalTable =
-            childError?.code === "PGRST205" ||
-            /could not find the table|relation .* does not exist/i.test(childError?.message ?? "");
-          if (childError && !missingOptionalTable) throw childError;
-        }
-        const { data: deletedRows, error: directDeleteError } = await db
-          .from("highlights")
+      // The request is already authenticated by requireSupabaseAuth. Delete
+      // through the server-only service-role client with the authenticated
+      // owner in the predicate. This avoids depending on a browser session
+      // lookup or a client-side RLS policy for the destructive mutation.
+      const optionalTables = ["highlight_stories", "highlight_items", "highlight_media"];
+      for (const table of optionalTables) {
+        const { error: childError } = await db
+          .from(table)
           .delete()
-          .eq("id", data.highlightId)
-          .eq("user_id", userId)
-          .select("id");
-        if (directDeleteError) throw directDeleteError;
-        return (deletedRows?.[0] as { id?: string } | undefined)?.id ?? null;
-      };
-
-      const { data: rpcDeletedId, error: rpcError } = await db.rpc("delete_highlight_hard", {
-        p_highlight_id: data.highlightId,
-        p_user_id: userId,
-      });
-      if (!rpcError && rpcDeletedId === data.highlightId) {
-        deletedId = rpcDeletedId ?? null;
-      } else {
-        console.warn("[highlights] hard delete RPC did not remove the row; using direct cleanup", {
-          highlightId: data.highlightId,
-          code: rpcError?.code ?? null,
-          message: rpcError?.message ?? null,
-        });
-        deletedId = await deleteDirectly();
+          .eq("highlight_id", data.highlightId);
+        const missingOptionalTable =
+          childError?.code === "PGRST205" ||
+          /could not find the table|relation .* does not exist/i.test(childError?.message ?? "");
+        if (childError && !missingOptionalTable) throw childError;
       }
+
+      const { data: deletedRows, error: directDeleteError } = await db
+        .from("highlights")
+        .delete()
+        .eq("id", data.highlightId)
+        .eq("user_id", userId)
+        .select("id");
+      if (directDeleteError) {
+        console.error("HIGHLIGHT DELETE FAILED:", directDeleteError);
+        throw new Error(directDeleteError.message || "Failed to delete highlight");
+      }
+      const deletedId =
+        (deletedRows?.[0] as { id?: string } | undefined)?.id ?? null;
       console.log("[highlights] hard delete result", {
         highlightId: data.highlightId,
         requestedBy: userId,
         deletedId: deletedId ?? null,
-        error: rpcError
-          ? {
-              code: rpcError.code,
-              message: rpcError.message,
-              details: rpcError.details,
-              hint: rpcError.hint,
-            }
-          : null,
+        ownerPredicate: userId,
       });
       if (deletedId !== data.highlightId) {
         throw new Error("Highlight delete affected no row");
