@@ -24,7 +24,6 @@ import {
   Repeat,
   Settings2,
   Sun,
-  Unlock,
   Volume2,
   VolumeX,
   X,
@@ -661,8 +660,19 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
 
   const toggleScreenLock = useCallback(() => {
     if (!isFullscreen) return;
-    setScreenLocked((locked) => !locked);
-  }, [isFullscreen]);
+    if (screenLocked) {
+      clearLockedUnlockTimer();
+      setLockedUnlockVisible(false);
+      setScreenLocked(false);
+      markControlsActivity();
+      return;
+    }
+    clearLockedUnlockTimer();
+    setLockedUnlockVisible(false);
+    setControlsVisible(false);
+    setSettingsMenu("closed");
+    setScreenLocked(true);
+  }, [clearLockedUnlockTimer, isFullscreen, markControlsActivity, screenLocked]);
 
   const seekBy = useCallback(
     (seconds: number) => {
@@ -687,7 +697,11 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
 
   const handleTouchStart = useCallback(
     (event: ReactTouchEvent<HTMLDivElement>) => {
-      if (!isFullscreen || screenLocked) return;
+      if (!isFullscreen) return;
+      if (screenLocked) {
+        event.preventDefault();
+        return;
+      }
       const rect = event.currentTarget.getBoundingClientRect();
       const firstTouch = event.touches.item(0);
       if (!firstTouch) return;
@@ -721,7 +735,11 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
 
   const handleTouchMove = useCallback(
     (event: ReactTouchEvent<HTMLDivElement>) => {
-      if (!isFullscreen || screenLocked) return;
+      if (!isFullscreen) return;
+      if (screenLocked) {
+        event.preventDefault();
+        return;
+      }
       const gesture = touchGestureRef.current;
       if (!gesture) return;
       if (event.touches.length >= 2 && gesture.initialDistance) {
@@ -769,7 +787,12 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
 
   const handleTouchEnd = useCallback(
     (event: ReactTouchEvent<HTMLDivElement>) => {
-      if (!isFullscreen || screenLocked) return;
+      if (!isFullscreen) return;
+      if (screenLocked) {
+        event.preventDefault();
+        revealLockedUnlock();
+        return;
+      }
       const gesture = touchGestureRef.current;
       touchGestureRef.current = null;
       if (!gesture || gesture.moved) return;
@@ -787,7 +810,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       }
       lastTapRef.current = { time: now, x: gesture.startX };
     },
-    [isFullscreen, screenLocked, seekBy],
+    [isFullscreen, revealLockedUnlock, screenLocked, seekBy],
   );
 
   const handleTimeUpdate = useCallback((event: React.SyntheticEvent<HTMLVideoElement>) => {
@@ -1005,16 +1028,21 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
             ) : null}
 
             {isDetailPlayer && isFullscreen && screenLocked ? (
-              <div className="absolute inset-0 z-[60] flex items-center justify-center bg-black/10">
-                <button
-                  type="button"
-                  onClick={toggleScreenLock}
-                  className="inline-flex items-center gap-2 rounded-full bg-black/70 px-4 py-2 text-xs font-semibold text-white shadow-lg backdrop-blur-md transition hover:bg-black/85"
-                  aria-label="Unlock player controls"
-                >
-                  <Unlock className="h-4 w-4" /> Unlock controls
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  toggleScreenLock();
+                }}
+                className={`absolute right-3 top-3 z-[60] rounded-full bg-black/45 p-1.5 text-white/80 shadow-lg backdrop-blur-sm transition-opacity duration-300 hover:bg-black/70 hover:text-white ${
+                  lockedUnlockVisible ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
+                }`}
+                aria-label="Unlock player controls"
+                onTouchStart={(event) => event.stopPropagation()}
+                onTouchEnd={(event) => event.stopPropagation()}
+              >
+                <Lock className="h-4 w-4" />
+              </button>
             ) : null}
 
             {isDetailPlayer && !screenLocked ? (
