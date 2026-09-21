@@ -593,12 +593,12 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
             <video
               ref={videoRef}
               controls={isDetailPlayer ? !isFullscreen || !screenLocked : false}
-              controlsList="nodownload"
+              controlsList="nodownload noplaybackrate"
               autoPlay
               playsInline
               onTimeUpdate={handleTimeUpdate}
               onClick={isDetailPlayer ? undefined : openDetail}
-              className={`h-full w-full ${displayMode === "fill" ? "object-cover" : "object-contain"}`}
+               className={`video-player-native-controls h-full w-full ${displayMode === "fill" ? "object-cover" : "object-contain"}`}
               style={{
                 transform: `scale(${zoom})`,
                 transformOrigin: "center center",
