@@ -214,6 +214,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const [duration, setDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [gestureFeedback, setGestureFeedback] = useState<GestureFeedback | null>(null);
+  const [lockedUnlockVisible, setLockedUnlockVisible] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [displayMode, setDisplayMode] = useState<"fit" | "fill">("fit");
   const [brightness, setBrightness] = useState(1);
@@ -233,6 +234,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const lastTapRef = useRef<{ time: number; x: number } | null>(null);
   const feedbackTimerRef = useRef<number | null>(null);
   const controlsHideTimerRef = useRef<number | null>(null);
+  const lockedUnlockTimerRef = useRef<number | null>(null);
 
   const detailVideoId = getDetailVideoId(location.pathname);
   const downloadDetailPath = getDownloadDetailPath(location.pathname);
@@ -291,6 +293,22 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     setControlsVisible(true);
     setControlsActivity((activity) => activity + 1);
   }, []);
+
+  const clearLockedUnlockTimer = useCallback(() => {
+    if (lockedUnlockTimerRef.current !== null) {
+      window.clearTimeout(lockedUnlockTimerRef.current);
+      lockedUnlockTimerRef.current = null;
+    }
+  }, []);
+
+  const revealLockedUnlock = useCallback(() => {
+    setLockedUnlockVisible(true);
+    clearLockedUnlockTimer();
+    lockedUnlockTimerRef.current = window.setTimeout(() => {
+      setLockedUnlockVisible(false);
+      lockedUnlockTimerRef.current = null;
+    }, 3000);
+  }, [clearLockedUnlockTimer]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -486,7 +504,11 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
 
   const handlePlayerSurfaceClick = useCallback(
     (event: ReactMouseEvent<HTMLDivElement>) => {
-      if (!isDetailPlayer || screenLocked) return;
+      if (!isDetailPlayer) return;
+      if (screenLocked) {
+        revealLockedUnlock();
+        return;
+      }
       const target = event.target;
       if (target instanceof Element && target.closest("button, input, [role='menu']")) return;
       if (settingsMenu !== "closed") {
@@ -500,7 +522,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
         markControlsActivity();
       }
     },
-    [controlsVisible, isDetailPlayer, markControlsActivity, screenLocked, settingsMenu],
+    [controlsVisible, isDetailPlayer, markControlsActivity, revealLockedUnlock, screenLocked, settingsMenu],
   );
 
   const handleVideoPlay = useCallback(() => {
@@ -591,8 +613,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       if (feedbackTimerRef.current !== null) {
         window.clearTimeout(feedbackTimerRef.current);
       }
+      clearLockedUnlockTimer();
     },
-    [],
+    [clearLockedUnlockTimer],
   );
 
   useEffect(() => {
@@ -605,6 +628,8 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       if (!fullscreenActive) {
         unlockPlayerOrientation();
         setScreenLocked(false);
+        setLockedUnlockVisible(false);
+        clearLockedUnlockTimer();
         setZoom(1);
         setDisplayMode("fit");
         setBrightness(1);
@@ -618,7 +643,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       document.removeEventListener("fullscreenchange", syncFullscreenState);
       window.removeEventListener("resize", syncFullscreenState);
     };
-  }, []);
+  }, [clearLockedUnlockTimer]);
 
   const showGestureFeedback = useCallback(
     (kind: GestureFeedback["kind"], value: number, label: string) => {
