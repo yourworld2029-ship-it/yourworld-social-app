@@ -116,32 +116,35 @@ export function Highlights({
   const [deleting, setDeleting] = useState(false);
   const coverInput = useRef<HTMLInputElement | null>(null);
 
-  const loadHighlights = useCallback(async (ownerId: string) => {
-    const next = await queryClient.fetchQuery({
-      queryKey: ["highlights", ownerId],
-      queryFn: async () => {
-        const { data, error } = await supabase
-          .from("highlights" as never)
-          .select("*")
-          .eq("user_id", ownerId)
-          .order("created_at", { ascending: true })
-          .limit(MAX_HIGHLIGHTS);
-        if (error) {
-          console.error("[highlights] load failed", {
-            ownerId,
-            code: error.code,
-            message: error.message,
-            details: error.details,
-            hint: error.hint,
-          });
-          throw error;
-        }
-        return (data ?? []) as unknown as Highlight[];
-      },
-    });
-    setHighlights(next);
-    return next;
-  }, [queryClient]);
+  const loadHighlights = useCallback(
+    async (ownerId: string, applyToState = true) => {
+      const next = await queryClient.fetchQuery({
+        queryKey: ["highlights", ownerId],
+        queryFn: async () => {
+          const { data, error } = await supabase
+            .from("highlights" as never)
+            .select("*")
+            .eq("user_id", ownerId)
+            .order("created_at", { ascending: true })
+            .limit(MAX_HIGHLIGHTS);
+          if (error) {
+            console.error("[highlights] load failed", {
+              ownerId,
+              code: error.code,
+              message: error.message,
+              details: error.details,
+              hint: error.hint,
+            });
+            throw error;
+          }
+          return (data ?? []) as unknown as Highlight[];
+        },
+      });
+      if (applyToState) setHighlights(next);
+      return next;
+    },
+    [queryClient],
+  );
 
   useEffect(() => {
     if (!userId) return;
@@ -374,10 +377,23 @@ export function Highlights({
       // circle disappears immediately.
       setViewer(null);
 
-      // Keep the local circle removal authoritative. A refetch from a stale
-      // replica immediately after deletion can otherwise restore the bubble.
+      // Re-fetch the owner list after the optimistic removal, but keep the
+      // deleted id filtered if a stale replica briefly returns it.
+      try {
+        await queryClient.invalidateQueries({
+          queryKey: ["highlights", sessionUserId],
+          refetchType: "none",
+        });
+        const refreshed = await loadHighlights(sessionUserId, false);
+        const refreshedWithoutDeleted = refreshed.filter(
+          (highlight) => highlight.id !== normalizedHighlightId,
+        );
+        setHighlights(refreshedWithoutDeleted);
+        queryClient.setQueryData(["highlights", sessionUserId], refreshedWithoutDeleted);
+      } catch (refreshError) {
+        console.error("[highlights] delete refresh failed", refreshError);
+      }
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["highlights", sessionUserId] }),
         queryClient.invalidateQueries({ queryKey: ["profile", sessionUserId] }),
         queryClient.invalidateQueries({ queryKey: ["/api/profile", sessionUserId] }),
       ]);
@@ -438,11 +454,17 @@ export function Highlights({
     <section className="mx-auto max-w-3xl px-3 pt-3 sm:px-4">
       <div className="no-scrollbar flex gap-2.5 overflow-x-auto pb-0.5">
         {/* New highlight */}
-        {highlights.length < MAX_HIGHLIGHTS ? (
+        {canManage ? (
           <button
             type="button"
             data-testid="button-new-highlight"
-            onClick={() => setOpen(true)}
+            onClick={() => {
+              if (highlights.length >= MAX_HIGHLIGHTS) {
+                toast.info(MAX_HIGHLIGHTS_MESSAGE);
+                return;
+              }
+              setOpen(true);
+            }}
             aria-label="New highlight"
             className="flex w-[64px] shrink-0 flex-col items-center gap-1 transition-transform active:scale-95"
           >
