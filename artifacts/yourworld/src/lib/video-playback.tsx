@@ -1131,7 +1131,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                 {settingsMenu !== "closed" ? (
                   <div
                     role="menu"
-                    className="absolute bottom-20 right-3 z-[70] w-56 overflow-hidden rounded-2xl border border-white/15 bg-black/85 p-1 text-white shadow-2xl backdrop-blur-xl"
+                    className="absolute bottom-20 right-3 z-[70] w-52 overflow-hidden rounded-xl border border-white/15 bg-black/85 p-1.5 text-white shadow-2xl backdrop-blur-xl"
                     onClick={(event) => event.stopPropagation()}
                     onTouchStart={(event) => event.stopPropagation()}
                     onTouchEnd={(event) => event.stopPropagation()}
@@ -1142,13 +1142,13 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                           type="button"
                           role="menuitem"
                           onClick={() => setSettingsMenu("quality")}
-                          className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm transition hover:bg-white/10"
+                          className="flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs transition hover:bg-white/10"
                         >
-                          <span className="flex items-center gap-3">
+                          <span className="flex items-center gap-2">
                             <Settings2 className="h-4 w-4 text-white/70" />
                             Quality
                           </span>
-                          <span className="max-w-[92px] truncate text-xs text-white/60">
+                          <span className="max-w-[84px] truncate text-[11px] text-white/60">
                             {qualityLabel(quality, quality === "auto" ? activeHlsHeight : null)}
                           </span>
                         </button>
@@ -1156,10 +1156,10 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                           type="button"
                           role="menuitem"
                           onClick={() => setSettingsMenu("speed")}
-                          className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm transition hover:bg-white/10"
+                          className="flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs transition hover:bg-white/10"
                         >
                           <span>Playback speed</span>
-                          <span className="text-xs text-white/60">
+                          <span className="text-[11px] text-white/60">
                             {playbackRate === 1 ? "Normal" : `${playbackRate}×`}
                           </span>
                         </button>
@@ -1167,7 +1167,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                           type="button"
                           role="menuitem"
                           onClick={togglePictureInPicture}
-                          className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition hover:bg-white/10"
+                          className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs transition hover:bg-white/10"
                         >
                           <PictureInPicture className="h-4 w-4 text-white/70" />
                           Picture-in-picture
@@ -1179,13 +1179,13 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                             setLoopVideo((current) => !current);
                             setSettingsMenu("closed");
                           }}
-                          className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm transition hover:bg-white/10"
+                          className="flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs transition hover:bg-white/10"
                         >
-                          <span className="flex items-center gap-3">
+                          <span className="flex items-center gap-2">
                             <Repeat className="h-4 w-4 text-white/70" />
                             Loop video
                           </span>
-                          <span className="text-xs text-white/60">{loopVideo ? "On" : "Off"}</span>
+                          <span className="text-[11px] text-white/60">{loopVideo ? "On" : "Off"}</span>
                         </button>
                       </>
                     ) : settingsMenu === "speed" ? (
@@ -1193,7 +1193,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                         <button
                           type="button"
                           onClick={() => setSettingsMenu("root")}
-                          className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-xs font-semibold text-white/60 transition hover:bg-white/10"
+                          className="flex w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-left text-[11px] font-semibold text-white/60 transition hover:bg-white/10"
                         >
                           <ArrowLeft className="h-4 w-4" />
                           Playback speed
@@ -1204,7 +1204,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                             type="button"
                             role="menuitem"
                             onClick={() => setRate(rate)}
-                            className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition hover:bg-white/10"
+                            className="flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs transition hover:bg-white/10"
                           >
                             {rate === 1 ? "Normal" : `${rate}×`}
                             {playbackRate === rate ? <Check className="h-4 w-4" /> : null}
@@ -1216,7 +1216,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                         <button
                           type="button"
                           onClick={() => setSettingsMenu("root")}
-                          className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-xs font-semibold text-white/60 transition hover:bg-white/10"
+                          className="flex w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-left text-[11px] font-semibold text-white/60 transition hover:bg-white/10"
                         >
                           <ArrowLeft className="h-4 w-4" />
                           Quality
@@ -1228,12 +1228,12 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                             role="menuitem"
                             disabled={!option.available}
                             onClick={() => selectQuality(option.id)}
-                            className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-35"
+                            className="flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-35"
                           >
                             <span>
                               {option.label}
                               {option.description ? (
-                                <span className="ml-1 text-xs text-white/50">({option.description})</span>
+                                <span className="ml-1 text-[11px] text-white/50">({option.description})</span>
                               ) : null}
                             </span>
                             {quality === option.id ? <Check className="h-4 w-4" /> : null}
