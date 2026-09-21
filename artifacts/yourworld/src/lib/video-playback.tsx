@@ -705,6 +705,28 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               </button>
             ) : null}
 
+            {!isDetailPlayer && !isPlayerRoute && !pictureInPicture ? (
+              <>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    closeVideo();
+                  }}
+                  className="absolute right-1.5 top-1.5 z-10 grid h-7 w-7 place-items-center rounded-full bg-black/75 text-white backdrop-blur-sm transition hover:bg-black"
+                  aria-label="Close mini-player"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={openDetail}
+                  className="absolute inset-0 z-[1] cursor-pointer"
+                  aria-label={`Open ${activeVideo.title}`}
+                />
+              </>
+            ) : null}
+
             {isDetailPlayer && !screenLocked ? (
               <>
                 <button
@@ -713,7 +735,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                     event.stopPropagation();
                     setSettingsMenu((current) => (current === "closed" ? "root" : "closed"));
                   }}
-                  className="absolute right-3 top-3 z-50 rounded-full bg-black/60 p-2 text-white backdrop-blur-md transition-all hover:bg-black/80"
+                  className="absolute bottom-2 right-12 z-[70] rounded-full bg-black/70 p-2 text-white backdrop-blur-md transition-all hover:bg-black/90"
                   aria-label="Player settings"
                   aria-expanded={settingsMenu !== "closed"}
                   onTouchStart={(event) => event.stopPropagation()}
@@ -725,7 +747,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                 {settingsMenu !== "closed" ? (
                   <div
                     role="menu"
-                    className="absolute right-3 top-14 z-[70] w-56 overflow-hidden rounded-2xl border border-white/15 bg-black/85 p-1 text-white shadow-2xl backdrop-blur-xl"
+                    className="absolute bottom-14 right-3 z-[70] w-56 overflow-hidden rounded-2xl border border-white/15 bg-black/85 p-1 text-white shadow-2xl backdrop-blur-xl"
                     onClick={(event) => event.stopPropagation()}
                     onTouchStart={(event) => event.stopPropagation()}
                     onTouchEnd={(event) => event.stopPropagation()}
@@ -820,28 +842,6 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                     )}
                   </div>
                 ) : null}
-              </>
-            ) : null}
-
-            {!isDetailPlayer && !isPlayerRoute && !pictureInPicture ? (
-              <>
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    closeVideo();
-                  }}
-                  className="absolute right-1.5 top-1.5 z-10 grid h-7 w-7 place-items-center rounded-full bg-black/75 text-white backdrop-blur-sm transition hover:bg-black"
-                  aria-label="Close mini-player"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={openDetail}
-                  className="absolute inset-0 z-[1] cursor-pointer"
-                  aria-label={`Open ${activeVideo.title}`}
-                />
               </>
             ) : null}
           </div>
