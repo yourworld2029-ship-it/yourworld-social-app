@@ -101,7 +101,7 @@ type FullscreenDocument = Document & {
 };
 
 type LockableScreenOrientation = ScreenOrientation & {
-  lock?: (orientation: "landscape") => Promise<void>;
+  lock?: (orientation: "portrait" | "landscape") => Promise<void>;
   unlock?: () => void;
 };
 
@@ -205,6 +205,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const [activeVideo, setActiveVideo] = useState<PersistentVideo | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isVerticalVideo, setIsVerticalVideo] = useState(false);
   const [screenLocked, setScreenLocked] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
@@ -275,6 +276,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     }
     activeSourceRef.current = null;
     setActiveVideo(null);
+    setIsVerticalVideo(false);
     setPictureInPicture(false);
     setSettingsMenu("closed");
     setIsPlaying(false);
@@ -333,6 +335,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     hlsRef.current = null;
     setCurrentTime(isSameVideo ? previousTime : 0);
     setDuration(0);
+    setIsVerticalVideo(false);
     setControlsVisible(true);
     setQuality("auto");
     setLoopVideo(false);
@@ -487,12 +490,12 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
         setIsFullscreen(true);
         const orientation = window.screen?.orientation as LockableScreenOrientation | undefined;
         if (typeof orientation?.lock === "function") {
-          void orientation.lock("landscape").catch(() => {});
+            void orientation.lock(isVerticalVideo ? "portrait" : "landscape").catch(() => {});
         }
         });
     }
     markControlsActivity();
-  }, [markControlsActivity]);
+  }, [isVerticalVideo, markControlsActivity]);
 
   const clearControlsHideTimer = useCallback(() => {
     if (controlsHideTimerRef.current !== null) {
@@ -822,6 +825,8 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
 
   const handleLoadedMetadata = useCallback((event: React.SyntheticEvent<HTMLVideoElement>) => {
     const video = event.currentTarget;
+    const isVertical = video.videoHeight > video.videoWidth;
+    setIsVerticalVideo(isVertical);
     if (Number.isFinite(video.duration)) setDuration(video.duration);
     setCurrentTime(Number.isFinite(video.currentTime) ? video.currentTime : 0);
     setIsMuted(video.muted);
