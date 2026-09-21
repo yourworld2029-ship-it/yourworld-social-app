@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Lock, Mail, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { trackEvent } from "@/lib/analytics";
+import { PasswordSecurityModal } from "@/components/yw/PasswordSecurityModal";
 
 export const Route = createFileRoute("/auth")({
   component: AuthPage,
@@ -45,6 +46,7 @@ function AuthPage() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [passwordRecoveryOpen, setPasswordRecoveryOpen] = useState(false);
   const navigate = useNavigate();
 
   // Supabase persists password and OAuth sessions in the browser.
@@ -236,9 +238,25 @@ function AuthPage() {
                 : mode === "signin" ? "Sign In" : "Create Account"}
               <ArrowRight className="w-4 h-4" />
             </Button>
+            {mode === "signin" && (
+              <button
+                type="button"
+                onClick={() => setPasswordRecoveryOpen(true)}
+                className="w-full pt-1 text-center text-xs font-medium text-slate-400 transition-colors hover:text-pink-300"
+              >
+                Forgot Password?
+              </button>
+            )}
           </form>
         </CardContent>
       </Card>
+      <PasswordSecurityModal
+        open={passwordRecoveryOpen}
+        onOpenChange={setPasswordRecoveryOpen}
+        initialEmail={email}
+        initialFlow="forgot"
+        onSuccess={() => navigate({ to: "/", replace: true })}
+      />
     </div>
   );
 }

@@ -29,6 +29,7 @@ import { historyBackLink } from "@/lib/navigation";
 import { useAuth } from "@/lib/auth-store";
 import { deleteMyAccount } from "@/lib/account.functions";
 import { YwAvatar } from "@/components/yw/Avatar";
+import { PasswordSecurityModal } from "@/components/yw/PasswordSecurityModal";
 import { useMyProfile } from "@/lib/profile-data";
 import {
   Sheet,
@@ -699,6 +700,7 @@ function AccountPage() {
   const [igOn, setIgOn] = useState(false);
   const [scOn, setScOn] = useState(false);
   const [sessionsOpen, setSessionsOpen] = useState(false);
+  const [passwordOpen, setPasswordOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -819,7 +821,11 @@ function AccountPage() {
 
         {/* ── security ── */}
         <Section icon={Lock} title="Security">
-          <ActionRow label="Change Password" hint="Last changed 3 months ago" />
+          <ActionRow
+            label="Change Password"
+            hint="Verify with your current password or email"
+            onClick={() => setPasswordOpen(true)}
+          />
           <Divider />
           <ToggleRow
             label="Two-Factor Authentication"
@@ -904,6 +910,12 @@ function AccountPage() {
 
       {/* ── active sessions sheet ── */}
       <ActiveSessionsSheet open={sessionsOpen} onOpenChange={setSessionsOpen} />
+
+      <PasswordSecurityModal
+        open={passwordOpen}
+        onOpenChange={setPasswordOpen}
+        initialEmail={user?.email ?? email}
+      />
 
       <Dialog
         open={deleteOpen}
