@@ -15,13 +15,18 @@ import {
   ArrowLeft,
   Check,
   Lock,
+  Maximize,
+  Minimize,
   MoreVertical,
+  Pause,
   PictureInPicture,
+  Play,
   Repeat,
   Settings2,
   Sun,
   Unlock,
   Volume2,
+  VolumeX,
   X,
   ZoomIn,
 } from "lucide-react";
@@ -112,6 +117,18 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+function formatTime(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
+  const totalSeconds = Math.floor(seconds);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const remainder = totalSeconds % 60;
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
+  }
+  return `${minutes}:${String(remainder).padStart(2, "0")}`;
+}
+
 function touchDistance(touches: TouchPointList) {
   if (touches.length < 2) return 0;
   const first = touches.item(0);
@@ -140,6 +157,10 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const [activeVideo, setActiveVideo] = useState<PersistentVideo | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [screenLocked, setScreenLocked] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [isMuted, setIsMuted] = useState(false);
   const [gestureFeedback, setGestureFeedback] = useState<GestureFeedback | null>(null);
   const [zoom, setZoom] = useState(1);
   const [displayMode, setDisplayMode] = useState<"fit" | "fill">("fit");
