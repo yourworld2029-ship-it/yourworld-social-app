@@ -8,7 +8,6 @@ import {
   Camera,
   Mail,
   Lock,
-  Link2,
   Trash2,
   Eye,
   EyeOff,
@@ -324,25 +323,12 @@ function ToggleRow({
   );
 }
 
-function SocialIcon({ brand }: { brand: "facebook" | "instagram" | "snapchat" }) {
-  if (brand === "facebook")
-    return (
-      <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current" aria-hidden>
-        <path d="M24 12.073C24 5.406 18.627 0 12 0S0 5.406 0 12.073C0 18.1 4.388 23.094 10.125 24v-8.437H7.078v-3.49h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.234 2.686.234v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.49h-2.796V24C19.612 23.094 24 18.1 24 12.073z" />
-      </svg>
-    );
-  if (brand === "instagram")
-    return (
-      <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current" aria-hidden>
+/* function SocialIcon({ brand }: { brand: "facebook" | "instagram" | "snapchat" }) {
         <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z" />
-      </svg>
-    );
-  return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current" aria-hidden>
       <path d="M12.065.001c1.587.01 6.682.464 8.913 5.213.698 1.46.527 3.821.387 5.596-.035.458-.068.891-.085 1.291.264.13.697.27 1.404.27.498 0 1.035-.146 1.594-.439l.031-.016a.746.746 0 01.323-.085c.304 0 .612.206.612.549 0 .655-.991.996-1.272 1.073-.072.019-.162.039-.267.063-.71.162-1.993.462-2.381 1.722-.038.124-.049.24-.03.318.226.935 1.66 2.68 4.026 4.578.176.143.387.388.389.742.003.509-.38.96-.93 1.132-.354.112-.69.126-.909.126-.18 0-.302-.012-.322-.014-.52-.062-1.021-.325-1.612-.627-.824-.419-1.756-.895-3.018-.895-.18 0-.362.01-.543.03-.746.082-1.39.418-2.083.782-.966.507-2.057 1.08-3.784 1.08h-.001c-1.726 0-2.813-.573-3.778-1.08-.694-.363-1.339-.7-2.086-.782a5.647 5.647 0 00-.543-.03c-1.266 0-2.202.477-3.028.896-.588.302-1.089.563-1.613.625-.018.002-.14.015-.32.015-.218 0-.556-.015-.91-.127-.553-.173-.934-.624-.93-1.134.002-.352.213-.598.389-.74 2.37-1.898 3.803-3.643 4.028-4.579.019-.076.009-.192-.03-.316-.389-1.261-1.672-1.56-2.382-1.723-.105-.024-.194-.043-.267-.063-.388-.105-1.272-.473-1.272-1.074 0-.343.308-.549.612-.549.098 0 .201.028.302.083l.052.019c.56.293 1.097.439 1.595.439.747 0 1.195-.26 1.412-.277-.018-.4-.05-.832-.084-1.29-.142-1.775-.312-4.136.385-5.597C5.264.463 10.378.01 11.966 0l.1-.001z" />
     </svg>
   );
-}
+}*/
 
 /* ══════════════════ PASSWORD GATE DIALOG ══════════════════ */
 
@@ -737,9 +723,6 @@ function AccountPage() {
   const [phone, setPhone] = useState("");
   const [twoFa, setTwoFa] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [fbOn, setFbOn] = useState(false);
-  const [igOn, setIgOn] = useState(false);
-  const [scOn, setScOn] = useState(false);
   const [sessionsOpen, setSessionsOpen] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [twoFactorSetupOpen, setTwoFactorSetupOpen] = useState(false);
@@ -929,48 +912,6 @@ function AccountPage() {
             hint="Review where you're signed in"
             onClick={() => setSessionsOpen(true)}
           />
-        </Section>
-
-        {/* ── linked accounts ── */}
-        <Section icon={Link2} title="Linked Accounts">
-          <div className="flex items-center gap-3">
-            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[11px] text-white" style={{ background: "#1877F2" }}>
-              <SocialIcon brand="facebook" />
-            </span>
-            <div className="flex flex-1 items-center justify-between gap-4">
-              <div>
-                <p className="font-ui text-[14px] font-medium text-foreground">Facebook</p>
-                <p className="font-ui text-[12px] text-muted-foreground">{fbOn ? "Connected" : "Not connected"}</p>
-              </div>
-              <Toggle checked={fbOn} onChange={setFbOn} accent="bg-[#1877F2]" />
-            </div>
-          </div>
-          <Divider />
-          <div className="flex items-center gap-3">
-            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[11px] text-white" style={{ background: "linear-gradient(135deg,#f09433 0%,#e6683c 25%,#dc2743 50%,#cc2366 75%,#bc1888 100%)" }}>
-              <SocialIcon brand="instagram" />
-            </span>
-            <div className="flex flex-1 items-center justify-between gap-4">
-              <div>
-                <p className="font-ui text-[14px] font-medium text-foreground">Instagram</p>
-                <p className="font-ui text-[12px] text-muted-foreground">{igOn ? "Connected as @you" : "Not connected"}</p>
-              </div>
-              <Toggle checked={igOn} onChange={setIgOn} accent="bg-[#dc2743]" />
-            </div>
-          </div>
-          <Divider />
-          <div className="flex items-center gap-3">
-            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[11px] text-black" style={{ background: "#FFFC00" }}>
-              <SocialIcon brand="snapchat" />
-            </span>
-            <div className="flex flex-1 items-center justify-between gap-4">
-              <div>
-                <p className="font-ui text-[14px] font-medium text-foreground">Snapchat</p>
-                <p className="font-ui text-[12px] text-muted-foreground">{scOn ? "Connected" : "Not connected"}</p>
-              </div>
-              <Toggle checked={scOn} onChange={setScOn} accent="bg-[#FFFC00]" />
-            </div>
-          </div>
         </Section>
 
         {/* ── danger zone ── */}
