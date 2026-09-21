@@ -28,6 +28,7 @@ import { Route as SearchRouteImport } from './routes/search'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as TermsRouteImport } from './routes/terms'
+import { Route as Verify2faRouteImport } from './routes/verify-2fa'
 import { Route as WalletRouteImport } from './routes/wallet'
 import { Route as AdminCopyrightReportsRouteImport } from './routes/admin.copyright-reports'
 import { Route as AdminSportsVerificationRouteImport } from './routes/admin.sports-verification'
@@ -152,6 +153,11 @@ const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
   path: '/terms',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const Verify2faRoute = Verify2faRouteImport.update({
+  id: '/verify-2fa',
+  path: '/verify-2fa',
   getParentRoute: () => rootRouteImport,
 } as any)
 const WalletRoute = WalletRouteImport.update({
@@ -330,6 +336,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/terms': typeof TermsRouteWithChildren
+  '/verify-2fa': typeof Verify2faRoute
   '/wallet': typeof WalletRoute
   '/admin/copyright-reports': typeof AdminCopyrightReportsRoute
   '/admin/sports-verification': typeof AdminSportsVerificationRoute
@@ -379,6 +386,7 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/terms': typeof TermsRouteWithChildren
+  '/verify-2fa': typeof Verify2faRoute
   '/wallet': typeof WalletRoute
   '/admin/copyright-reports': typeof AdminCopyrightReportsRoute
   '/admin/sports-verification': typeof AdminSportsVerificationRoute
@@ -432,6 +440,7 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/terms': typeof TermsRouteWithChildren
+  '/verify-2fa': typeof Verify2faRoute
   '/wallet': typeof WalletRoute
   '/admin/copyright-reports': typeof AdminCopyrightReportsRoute
   '/admin/sports-verification': typeof AdminSportsVerificationRoute
@@ -485,6 +494,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/sitemap.xml'
     | '/terms'
+    | '/verify-2fa'
     | '/wallet'
     | '/admin/copyright-reports'
     | '/admin/sports-verification'
@@ -534,6 +544,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/sitemap.xml'
     | '/terms'
+    | '/verify-2fa'
     | '/wallet'
     | '/admin/copyright-reports'
     | '/admin/sports-verification'
@@ -586,6 +597,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/sitemap.xml'
     | '/terms'
+    | '/verify-2fa'
     | '/wallet'
     | '/admin/copyright-reports'
     | '/admin/sports-verification'
@@ -639,6 +651,7 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   TermsRoute: typeof TermsRouteWithChildren
+  Verify2faRoute: typeof Verify2faRoute
   WalletRoute: typeof WalletRoute
   DownloadsDownloadIdRoute: typeof DownloadsDownloadIdRoute
   MomentMomentIdRoute: typeof MomentMomentIdRoute
@@ -784,6 +797,13 @@ declare module '@tanstack/react-router' {
       path: '/terms'
       fullPath: '/terms'
       preLoaderRoute: typeof TermsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/verify-2fa': {
+      id: '/verify-2fa'
+      path: '/verify-2fa'
+      fullPath: '/verify-2fa'
+      preLoaderRoute: typeof Verify2faRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/wallet': {
@@ -1110,6 +1130,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   TermsRoute: TermsRouteWithChildren,
+  Verify2faRoute: Verify2faRoute,
   WalletRoute: WalletRoute,
   DownloadsDownloadIdRoute: DownloadsDownloadIdRoute,
   MomentMomentIdRoute: MomentMomentIdRoute,

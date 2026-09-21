@@ -774,6 +774,7 @@ export type Database = {
           full_name: string | null
           id: string
           is_verified: boolean | null
+          two_factor_enabled: boolean
           updated_at: string | null
           username: string | null
           verification_requested: boolean | null
@@ -790,6 +791,7 @@ export type Database = {
           full_name?: string | null
           id: string
           is_verified?: boolean | null
+          two_factor_enabled?: boolean
           updated_at?: string | null
           username?: string | null
           verification_requested?: boolean | null
@@ -806,10 +808,50 @@ export type Database = {
           full_name?: string | null
           id?: string
           is_verified?: boolean | null
+          two_factor_enabled?: boolean
           updated_at?: string | null
           username?: string | null
           verification_requested?: boolean | null
           website?: string | null
+        }
+        Relationships: []
+      }
+      user_sessions: {
+        Row: {
+          created_at: string
+          device_name: string
+          id: string
+          ip_address: string | null
+          is_current: boolean
+          last_active_at: string
+          location_city: string | null
+          revoked_at: string | null
+          session_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          device_name?: string
+          id?: string
+          ip_address?: string | null
+          is_current?: boolean
+          last_active_at?: string
+          location_city?: string | null
+          revoked_at?: string | null
+          session_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          device_name?: string
+          id?: string
+          ip_address?: string | null
+          is_current?: boolean
+          last_active_at?: string
+          location_city?: string | null
+          revoked_at?: string | null
+          session_id?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -1042,6 +1084,7 @@ export type Database = {
     }
     Functions: {
       burn_view_once: { Args: { _msg_id: string }; Returns: boolean }
+      current_user_session_is_active: { Args: never; Returns: boolean }
       clear_orbit_conversation: {
         Args: { _peer_id: string }
         Returns: undefined
@@ -1110,12 +1153,48 @@ export type Database = {
           id: string
         }[]
       }
+      list_current_user_sessions: {
+        Args: never
+        Returns: {
+          created_at: string
+          device_name: string
+          id: string
+          ip_address: string | null
+          is_current: boolean
+          last_active_at: string
+          location_city: string | null
+        }[]
+      }
+      register_current_user_session: {
+        Args: {
+          _device_name?: string
+          _ip_address?: string | null
+          _location_city?: string | null
+        }
+        Returns: {
+          created_at: string
+          device_name: string
+          id: string
+          ip_address: string | null
+          is_current: boolean
+          last_active_at: string
+          location_city: string | null
+          revoked_at: string | null
+          session_id: string
+          user_id: string
+        }[]
+      }
       register_unique_view: {
         Args: { _content_id: string; _content_type: string }
         Returns: boolean
       }
       respond_to_orbit_chat_request: {
         Args: { _status: string; _target_id: string }
+        Returns: boolean
+      }
+      revoke_other_user_sessions: { Args: never; Returns: number }
+      revoke_user_session: {
+        Args: { _session_row_id: string }
         Returns: boolean
       }
       search_profiles: {

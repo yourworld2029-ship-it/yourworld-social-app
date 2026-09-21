@@ -9,6 +9,11 @@ import {
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
+import {
+  currentUserSessionIsActive,
+  registerCurrentUserSession,
+} from "@/lib/session-security";
 
 type AuthValue = {
   session: Session | null;
@@ -20,7 +25,7 @@ type AuthValue = {
 const AuthContext = createContext<AuthValue | null>(null);
 
 /** Routes reachable without a session. */
-export const PUBLIC_ROUTES = ["/auth", "/reset-password"];
+export const PUBLIC_ROUTES = ["/auth", "/reset-password", "/verify-2fa"];
 
 export function isPublicRoute(pathname: string) {
   return PUBLIC_ROUTES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
@@ -29,6 +34,7 @@ export function isPublicRoute(pathname: string) {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
   useEffect(() => {
     let alive = true;
@@ -80,7 +86,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       alive = false;
     };
-  }, [session?.user.id]);
+  }, [session]);
+
+  useEffect(() => {
+    if (!session) return;
+    let alive = true;
+    let signingOut = false;
+
+    const enforceSession = async (register: boolean) => {
+      const result = register
+        ? await registerCurrentUserSession()
+        : await currentUserSessionIsActive();
+      if (!alive || signingOut || result.error || result.active) return;
+
+      signingOut = true;
+      await supabase.auth.signOut({ scope: "local" });
+      toast.error("Session ended from primary device.");
+      await navigate({ to: "/auth", replace: true });
+    };
+
+    void enforceSession(true);
+    const interval = window.setInterval(() => void enforceSession(false), 15_000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") void enforceSession(false);
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      alive = false;
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [navigate, session]);
 
   const value = useMemo<AuthValue>(
     () => ({

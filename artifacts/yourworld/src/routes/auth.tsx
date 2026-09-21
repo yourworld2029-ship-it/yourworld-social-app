@@ -101,14 +101,14 @@ function AuthPage() {
           password,
         });
 
-    setLoading(false);
-
     if (error) {
+      setLoading(false);
       toast.error(error.message);
       return;
     }
 
     if (mode === "signup" && !data.session) {
+      setLoading(false);
       trackEvent("account_created", {
         method: "email",
         email_confirmation_required: true,
@@ -120,6 +120,44 @@ function AuthPage() {
       return;
     }
 
+    if (mode === "signin" && data.session) {
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("two_factor_enabled")
+        .eq("id", data.session.user.id)
+        .maybeSingle();
+
+      if (profileError) {
+        await supabase.auth.signOut({ scope: "local" });
+        setLoading(false);
+        toast.error("Could not verify your account security settings");
+        return;
+      }
+
+      if (profile?.two_factor_enabled === true) {
+        // Password validation has succeeded, but do not retain its session.
+        // The OTP flow creates the final session only after the second factor.
+        await supabase.auth.signOut({ scope: "local" });
+        const { error: otpError } = await supabase.auth.signInWithOtp({
+          email: normalizedEmail,
+          options: { shouldCreateUser: false },
+        });
+        setLoading(false);
+        if (otpError) {
+          toast.error(otpError.message || "Could not send your 2FA code");
+          return;
+        }
+        toast.success("Enter the 6-digit code sent to your email");
+        await navigate({
+          to: "/verify-2fa",
+          search: { email: normalizedEmail },
+          replace: true,
+        });
+        return;
+      }
+    }
+
+    setLoading(false);
     if (mode === "signup") {
       trackEvent("account_created", {
         method: "email",

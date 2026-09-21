@@ -27,9 +27,17 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { historyBackLink } from "@/lib/navigation";
 import { useAuth } from "@/lib/auth-store";
+import { supabase } from "@/integrations/supabase/client";
 import { deleteMyAccount } from "@/lib/account.functions";
 import { YwAvatar } from "@/components/yw/Avatar";
 import { PasswordSecurityModal } from "@/components/yw/PasswordSecurityModal";
+import { TwoFactorSetupModal } from "@/components/yw/TwoFactorSetupModal";
+import {
+  listActiveUserSessions,
+  revokeOtherUserSessions,
+  revokeUserSession,
+  type ActiveUserSession,
+} from "@/lib/session-security";
 import { useMyProfile } from "@/lib/profile-data";
 import {
   Sheet,
@@ -63,46 +71,26 @@ type Session = {
   kind: "phone" | "laptop" | "desktop";
 };
 
-/** Builds the real current-device session from the browser environment. */
-function currentSession(): Session {
-  const ua = typeof navigator === "undefined" ? "" : navigator.userAgent;
-  const isPhone = /Android|iPhone|iPad|Mobile/i.test(ua);
-  const browser = /Edg\//.test(ua)
-    ? "Edge"
-    : /Chrome\//.test(ua)
-      ? "Chrome"
-      : /Firefox\//.test(ua)
-        ? "Firefox"
-        : /Safari\//.test(ua)
-          ? "Safari"
-          : "Browser";
-  const os = /Android/i.test(ua)
-    ? "Android"
-    : /iPhone|iPad|iOS/i.test(ua)
-      ? "iOS"
-      : /Mac OS X/i.test(ua)
-        ? "macOS"
-        : /Windows/i.test(ua)
-          ? "Windows"
-          : /Linux/i.test(ua)
-            ? "Linux"
-            : "Unknown OS";
-  let zone = "";
-  try {
-    zone = Intl.DateTimeFormat().resolvedOptions().timeZone ?? "";
-  } catch {
-    zone = "";
-  }
+function sessionFromRow(row: ActiveUserSession): Session {
+  const label = row.device_name || "Unknown device";
+  const isPhone = /iphone|ipad|android/i.test(label);
+  const isLaptop = /mac|windows|linux|chrome|edge|firefox|safari/i.test(label) && !isPhone;
+  const lastActive = row.is_current
+    ? "Active now"
+    : new Intl.DateTimeFormat(undefined, {
+        dateStyle: "medium",
+        timeStyle: "short",
+      }).format(new Date(row.last_active_at));
   return {
-    id: "current",
-    label: `${os} · ${browser}`,
-    browser,
-    os,
-    location: zone || "Unknown location",
-    ip: "This device",
-    lastActive: "Active now",
-    isCurrent: true,
-    kind: isPhone ? "phone" : "desktop",
+    id: row.id,
+    label,
+    browser: "",
+    os: "",
+    location: row.location_city || "Location unavailable",
+    ip: row.ip_address || "IP unavailable",
+    lastActive,
+    isCurrent: row.is_current,
+    kind: isPhone ? "phone" : isLaptop ? "laptop" : "desktop",
   };
 }
 
@@ -370,28 +358,38 @@ function PasswordGateDialog({
 }: {
   open: boolean;
   pending: PendingAction | null;
-  onConfirm: (password: string) => void;
+  onConfirm: (password: string) => Promise<void>;
   onCancel: () => void;
 }) {
   const [pwd, setPwd] = useState("");
   const [error, setError] = useState("");
   const [showPwd, setShowPwd] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const isRemoveAll = pending?.kind === "remove-all";
 
-  function handleConfirm() {
+  async function handleConfirm() {
+    if (submitting) return;
     if (pwd.length < 1) {
       setError("Please enter your password.");
       inputRef.current?.focus();
       return;
     }
     setError("");
-    onConfirm(pwd);
-    setPwd("");
+    setSubmitting(true);
+    try {
+      await onConfirm(pwd);
+      setPwd("");
+    } catch (confirmError) {
+      setError(confirmError instanceof Error ? confirmError.message : "Could not update sessions.");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   function handleCancel() {
+    if (submitting) return;
     setPwd("");
     setError("");
     onCancel();
@@ -424,7 +422,9 @@ function PasswordGateDialog({
                 type={showPwd ? "text" : "password"}
                 value={pwd}
                 onChange={(e) => { setPwd(e.target.value); setError(""); }}
-                onKeyDown={(e) => e.key === "Enter" && handleConfirm()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void handleConfirm();
+                }}
                 placeholder="Enter your password"
                 autoFocus
                 className={cn(
@@ -452,21 +452,23 @@ function PasswordGateDialog({
 
           <div className="mt-5 flex gap-2.5">
             <button
-              onClick={handleCancel}
+                onClick={handleCancel}
+                disabled={submitting}
               className="flex-1 rounded-[13px] bg-[color-mix(in_oklab,var(--foreground)_8%,transparent)] py-2.5 font-ui text-[14px] font-medium text-foreground transition-all duration-150 active:scale-95"
             >
               Cancel
             </button>
             <button
-              onClick={handleConfirm}
+              onClick={() => void handleConfirm()}
+              disabled={submitting}
               className={cn(
                 "flex-1 rounded-[13px] py-2.5 font-ui text-[14px] font-semibold transition-all duration-150 active:scale-95",
                 isRemoveAll
                   ? "bg-destructive text-destructive-foreground"
                   : "bg-primary text-primary-foreground",
               )}
-            >
-              {isRemoveAll ? "Log Out All" : "Remove"}
+              >
+                {submitting ? "Working…" : isRemoveAll ? "Log Out All" : "Remove"}
             </button>
           </div>
         </div>
@@ -484,12 +486,33 @@ function ActiveSessionsSheet({
   open: boolean;
   onOpenChange: (v: boolean) => void;
 }) {
-  const [sessions, setSessions] = useState<Session[]>(() => [currentSession()]);
+  const { user } = useAuth();
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [loading, setLoading] = useState(false);
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [pwdOpen, setPwdOpen] = useState(false);
   const [removedId, setRemovedId] = useState<string | null>(null);
 
   const others = sessions.filter((s) => !s.isCurrent);
+
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    setLoading(true);
+    void listActiveUserSessions()
+      .then((rows) => {
+        if (alive) setSessions(rows.map(sessionFromRow));
+      })
+      .catch((error) => {
+        if (alive) toast.error(error instanceof Error ? error.message : "Could not load active sessions");
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [open]);
 
   function requestRemoveOne(id: string) {
     setPending({ kind: "remove-one", sessionId: id });
@@ -501,27 +524,33 @@ function ActiveSessionsSheet({
     setPwdOpen(true);
   }
 
-  function handleConfirm(_pwd: string) {
-    setPwdOpen(false);
+  async function handleConfirm(password: string) {
     if (!pending) return;
+    if (!user?.email) throw new Error("Your account email is unavailable.");
+
+    const { error: passwordError } = await supabase.auth.signInWithPassword({
+      email: user.email,
+      password,
+    });
+    if (passwordError) throw new Error("Current password is incorrect");
 
     if (pending.kind === "remove-one") {
+      await revokeUserSession(pending.sessionId);
       setRemovedId(pending.sessionId);
-      setTimeout(() => {
-        setSessions((prev) => prev.filter((s) => s.id !== pending.sessionId));
-        setRemovedId(null);
-      }, 350);
+      setSessions((prev) => prev.filter((s) => s.id !== pending.sessionId));
+      setTimeout(() => setRemovedId(null), 350);
+      toast.success("Device session removed");
     } else {
-      others.forEach((s) => {
-        setTimeout(() => {
-          setSessions((prev) => prev.filter((p) => p.id !== s.id));
-        }, 350);
-      });
+      await revokeOtherUserSessions();
+      setSessions((prev) => prev.filter((session) => session.isCurrent));
+      toast.success("All other sessions were logged out");
     }
+    setPwdOpen(false);
     setPending(null);
   }
 
   function handlePwdCancel() {
+    if (loading) return;
     setPwdOpen(false);
     setPending(null);
   }
@@ -545,7 +574,9 @@ function ActiveSessionsSheet({
                 Active Sessions
               </h2>
               <p className="font-ui text-[12px] text-muted-foreground">
-                {sessions.length} device{sessions.length !== 1 ? "s" : ""} signed in
+                {loading
+                  ? "Checking signed-in devices…"
+                  : `${sessions.length} device${sessions.length !== 1 ? "s" : ""} signed in`}
               </p>
             </div>
             <button
@@ -572,12 +603,6 @@ function ActiveSessionsSheet({
                   <p className="font-ui text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/50">
                     Other devices ({others.length})
                   </p>
-                  <button
-                    onClick={requestRemoveAll}
-                    className="font-ui text-[12px] font-semibold text-destructive/80 transition-opacity active:opacity-60"
-                  >
-                    Log out all
-                  </button>
                 </div>
                 <div className="space-y-2.5">
                   {others.map((s) => (
@@ -598,6 +623,19 @@ function ActiveSessionsSheet({
                 <p className="font-ui text-[13px] text-muted-foreground">
                   No other active sessions
                 </p>
+              </div>
+            )}
+
+            {others.length > 0 && (
+              <div className="px-5 pt-5">
+                <button
+                  type="button"
+                  onClick={requestRemoveAll}
+                  className="flex w-full items-center justify-center gap-2 rounded-[13px] border border-destructive/30 bg-destructive/10 py-2.5 font-ui text-[13px] font-semibold text-destructive transition-colors hover:bg-destructive/15 active:scale-[0.98]"
+                >
+                  <X className="h-4 w-4" strokeWidth={2.2} />
+                  Log Out All Other Devices
+                </button>
               </div>
             )}
           </div>
@@ -648,13 +686,15 @@ function SessionCard({
           </p>
           {session.isCurrent && (
             <span className="shrink-0 rounded-full bg-green-500/20 px-2 py-0.5 font-ui text-[10px] font-semibold text-green-400">
-              Current
+              This device
             </span>
           )}
         </div>
-        <p className="font-ui text-[12px] text-muted-foreground">
-          {session.browser} · {session.os}
-        </p>
+        {(session.browser || session.os) && (
+          <p className="font-ui text-[12px] text-muted-foreground">
+            {[session.browser, session.os].filter(Boolean).join(" · ")}
+          </p>
+        )}
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5">
           <span className="flex items-center gap-1 font-ui text-[11px] text-muted-foreground/70">
             <MapPin className="h-3 w-3" strokeWidth={1.8} />
@@ -669,11 +709,12 @@ function SessionCard({
 
       {onRemove && (
         <button
+          type="button"
           onClick={onRemove}
-          aria-label="Remove device"
-          className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[color-mix(in_oklab,var(--foreground)_8%,transparent)] text-muted-foreground/60 transition-all duration-150 hover:bg-destructive/15 hover:text-destructive active:scale-90"
+          aria-label={`Remove ${session.label}`}
+          className="mt-0.5 shrink-0 rounded-[10px] bg-[color-mix(in_oklab,var(--foreground)_8%,transparent)] px-2.5 py-1.5 font-ui text-[11px] font-semibold text-muted-foreground/80 transition-all duration-150 hover:bg-destructive/15 hover:text-destructive active:scale-95"
         >
-          <X className="h-3.5 w-3.5" strokeWidth={2.2} />
+          Remove
         </button>
       )}
     </div>
@@ -701,6 +742,7 @@ function AccountPage() {
   const [scOn, setScOn] = useState(false);
   const [sessionsOpen, setSessionsOpen] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
+  const [twoFactorSetupOpen, setTwoFactorSetupOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -711,6 +753,48 @@ function AccountPage() {
     setEmail(user?.email ?? "");
     setPhone(user?.phone ?? "");
   }, [profile, user]);
+
+  useEffect(() => {
+    if (!user?.id) {
+      setTwoFa(false);
+      return;
+    }
+    let alive = true;
+    void supabase
+      .from("profiles")
+      .select("two_factor_enabled")
+      .eq("id", user.id)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (!alive) return;
+        if (error) {
+          console.error("[account] Could not load 2FA setting", error);
+          return;
+        }
+        setTwoFa(data?.two_factor_enabled === true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [user?.id]);
+
+  const handleTwoFactorToggle = async (nextValue: boolean) => {
+    if (nextValue) {
+      setTwoFactorSetupOpen(true);
+      return;
+    }
+    if (!user?.id) return;
+    const { error } = await supabase
+      .from("profiles")
+      .update({ two_factor_enabled: false })
+      .eq("id", user.id);
+    if (error) {
+      toast.error(error.message || "Could not disable 2FA");
+      return;
+    }
+    setTwoFa(false);
+    toast.success("Two-factor authentication disabled");
+  };
 
   const avatarUser = {
     id: profile.id,
@@ -829,9 +913,9 @@ function AccountPage() {
           <Divider />
           <ToggleRow
             label="Two-Factor Authentication"
-            hint={twoFa ? "Enabled via authenticator app" : "Add an extra layer of security"}
+            hint={twoFa ? "Enabled via email OTP" : "Add an extra layer of security"}
             checked={twoFa}
-            onChange={setTwoFa}
+            onChange={(value) => void handleTwoFactorToggle(value)}
           />
           {twoFa && (
             <>
@@ -915,6 +999,13 @@ function AccountPage() {
         open={passwordOpen}
         onOpenChange={setPasswordOpen}
         initialEmail={user?.email ?? email}
+      />
+
+      <TwoFactorSetupModal
+        open={twoFactorSetupOpen}
+        email={user?.email ?? email}
+        onOpenChange={setTwoFactorSetupOpen}
+        onEnabled={() => setTwoFa(true)}
       />
 
       <Dialog
