@@ -92,6 +92,20 @@ type TouchPointList = {
   item: (index: number) => { clientX: number; clientY: number } | null;
 };
 
+type FullscreenElement = HTMLElement & {
+  webkitRequestFullscreen?: () => Promise<void> | void;
+};
+
+type FullscreenDocument = Document & {
+  webkitFullscreenElement?: Element | null;
+  webkitExitFullscreen?: () => Promise<void> | void;
+};
+
+type LockableScreenOrientation = ScreenOrientation & {
+  lock?: (orientation: "landscape") => Promise<void>;
+  unlock?: () => void;
+};
+
 export type PersistentVideo = {
   id: string;
   url: string;
@@ -149,6 +163,42 @@ function getDetailVideoId(pathname: string) {
 
 function getDownloadDetailPath(pathname: string) {
   return pathname.startsWith("/downloads/") ? pathname : null;
+}
+
+function getPlayerFullscreenElement() {
+  const fullscreenDocument = document as FullscreenDocument;
+  return document.fullscreenElement ?? fullscreenDocument.webkitFullscreenElement ?? null;
+}
+
+function requestPlayerFullscreen(element: HTMLElement) {
+  const fullscreenElement = element as FullscreenElement;
+  if (typeof fullscreenElement.requestFullscreen === "function") {
+    return Promise.resolve(fullscreenElement.requestFullscreen()).then(
+      () => true,
+      () => false,
+    );
+  }
+  if (typeof fullscreenElement.webkitRequestFullscreen === "function") {
+    return Promise.resolve(fullscreenElement.webkitRequestFullscreen()).then(
+      () => true,
+      () => false,
+    );
+  }
+  return Promise.resolve(false);
+}
+
+function exitPlayerFullscreen() {
+  const fullscreenDocument = document as FullscreenDocument;
+  const exitResult =
+    typeof document.exitFullscreen === "function"
+      ? document.exitFullscreen()
+      : fullscreenDocument.webkitExitFullscreen?.();
+  return Promise.resolve(exitResult).catch(() => {});
+}
+
+function unlockPlayerOrientation() {
+  const orientation = window.screen?.orientation as LockableScreenOrientation | undefined;
+  orientation?.unlock?.();
 }
 
 export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
