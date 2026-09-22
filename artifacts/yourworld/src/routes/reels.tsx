@@ -321,8 +321,6 @@ function ReelMedia({
   onLoadedMetadata,
   onTimeUpdate,
   onEnded,
-  onSoundBlocked,
-  onSoundReady,
   bucket = "reels",
 }: {
   url: string;
@@ -336,8 +334,6 @@ function ReelMedia({
   onLoadedMetadata?: (event: React.SyntheticEvent<HTMLVideoElement>) => void;
   onTimeUpdate?: (event: React.SyntheticEvent<HTMLVideoElement>) => void;
   onEnded?: (event: React.SyntheticEvent<HTMLVideoElement>) => void;
-  onSoundBlocked?: () => void;
-  onSoundReady?: () => void;
   bucket?: "reels" | "videos";
 }) {
   const [src, setSrc] = useState(url);
@@ -411,14 +407,15 @@ function ReelMedia({
     const v = videoRef.current;
     if (!v || asImage) return;
     if (active && !paused) {
-      void v.play()
-        .then(() => onSoundReady?.())
-        .catch(() => onSoundBlocked?.());
+      void v.play().catch(() => {
+        // Some browsers block unmuted autoplay. Keep the requested audio
+        // state and let the normal tap-to-pause/play gesture retry playback.
+      });
     } else {
       v.pause();
       v.muted = true;
     }
-  }, [active, asImage, onSoundBlocked, onSoundReady, paused, src]);
+  }, [active, asImage, paused, src]);
 
   const className = cn(
     "h-full w-full object-cover will-change-transform [backface-visibility:hidden]",
@@ -466,13 +463,10 @@ function ReelMedia({
       src={posterSrc ? src : firstFrameUrl(src)}
       poster={posterSrc ?? undefined}
       playsInline
-      muted
+      muted={muted || !active}
       preload="metadata"
       {...({ loading: active ? "eager" : "lazy" } as const)}
       onError={handleError}
-      onPlay={() => {
-        onSoundReady?.();
-      }}
       onLoadedMetadata={onLoadedMetadata}
       onTimeUpdate={onTimeUpdate}
       onEnded={onEnded}
@@ -523,8 +517,7 @@ function ReelItem({
   const { burst, onDoubleTap } = useDoubleTapLike(reel.id);
   const [expanded, setExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [muted, setMuted] = useState(true);
-  const [soundBlocked, setSoundBlocked] = useState(false);
+  const [muted, setMuted] = useState(false);
   const lastTap = useRef(0);
   const isLiked = !!likedByMe;
   const isSaved = !!saved[reel.id];
@@ -596,13 +589,14 @@ function ReelItem({
     setProgress(0);
     if (!active) return;
     video.currentTime = 0;
-    video.muted = false;
-    video.defaultMuted = false;
-    video.volume = 1;
+    video.muted = muted;
+    video.defaultMuted = muted;
+    video.volume = muted ? 0 : 1;
     void video.play()
-      .then(() => setSoundBlocked(false))
-      .catch(() => setSoundBlocked(true));
-  }, [active]);
+      .catch(() => {
+        // The next normal tap can retry playback without changing audio state.
+      });
+  }, [active, muted]);
 
   const seekFromEvent = useCallback((clientX: number) => {
     const el = barRef.current;
@@ -718,10 +712,6 @@ function ReelItem({
   useEffect(() => () => cancelHold(), []);
 
   const handleTap = () => {
-    if (soundBlocked) {
-      enableAudio();
-      return;
-    }
     const now = Date.now();
     if (now - lastTap.current < 300) {
       onDoubleTap();
@@ -740,11 +730,12 @@ function ReelItem({
     video.defaultMuted = false;
     video.volume = 1;
     setMuted(false);
-    setSoundBlocked(false);
     if (active && !paused) {
       void video.play()
         .then(() => trackEvent("reel_sound_enabled", { surface: "reels_feed" }))
-        .catch(() => setSoundBlocked(true));
+        .catch(() => {
+          // Keep the speaker state unmuted; a later speaker tap can retry.
+        });
     } else {
       trackEvent("reel_sound_enabled", { surface: "reels_feed" });
     }
@@ -757,19 +748,6 @@ function ReelItem({
       setMuted(true);
       return;
     }
-    enableAudio();
-  };
-
-  const handleSoundBlocked = useCallback(() => {
-    setSoundBlocked(true);
-  }, []);
-
-  const handleSoundReady = useCallback(() => {
-    setSoundBlocked(false);
-  }, []);
-
-  const handleTapForSound = (event: React.MouseEvent) => {
-    event.stopPropagation();
     enableAudio();
   };
 
@@ -922,18 +900,7 @@ function ReelItem({
           onLoadedMetadata={handleLoadedMetadata}
           onTimeUpdate={handleTimeUpdate}
           onEnded={handleEnded}
-          onSoundBlocked={handleSoundBlocked}
-          onSoundReady={handleSoundReady}
         />
-        {soundBlocked && active ? (
-          <button
-            type="button"
-            onClick={handleTapForSound}
-            className="pointer-events-auto absolute left-1/2 top-1/2 z-20 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/75 px-4 py-2.5 text-xs font-semibold text-white shadow-xl backdrop-blur-md"
-          >
-            Tap anywhere for sound
-          </button>
-        ) : null}
         <div className="pointer-events-none absolute inset-0 veil" />
         <div
           className={cn(
