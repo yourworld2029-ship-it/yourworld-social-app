@@ -17,6 +17,7 @@ import {
   ChevronUp,
   Download,
   Heart,
+  LockKeyhole,
   MessageCircle,
   Reply,
   Send,
@@ -87,6 +88,9 @@ type Video = {
   likes_count?: number | null;
   like_count?: number | null;
   likes?: number | null;
+  price?: number | null;
+  video_access?: string | null;
+  is_paid?: boolean | null;
   source_quality_tier?: string | null;
   original_width?: number | null;
   original_height?: number | null;
@@ -140,6 +144,73 @@ function VideoErrorFallback() {
   );
 }
 
+function formatUnlockPrice(value: number) {
+  if (!Number.isFinite(value)) return "0";
+  return Number.isInteger(value)
+    ? value.toLocaleString("en-IN")
+    : value.toLocaleString("en-IN", { maximumFractionDigits: 2 });
+}
+
+function LockedVideoPlayer({
+  video,
+  mediaUrl,
+  price,
+  access,
+  checkingAccess,
+  onUnlock,
+}: {
+  video: Video;
+  mediaUrl: string;
+  price: number;
+  access: "paid" | "vip";
+  checkingAccess: boolean;
+  onUnlock: () => void;
+}) {
+  const isPaid = access === "paid";
+  return (
+    <div className="relative aspect-video w-full overflow-hidden rounded-xl bg-zinc-950">
+      <VideoPoster
+        thumbnailUrl={video.thumbnail_url}
+        mediaUrl={mediaUrl}
+        alt={video.title || video.caption || "Locked video"}
+        loading="eager"
+        bucket="videos"
+        className="absolute inset-0 opacity-45"
+      />
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/60 px-6 text-center">
+        <span className="grid h-12 w-12 place-items-center rounded-full bg-white/10 text-white backdrop-blur-sm">
+          <LockKeyhole className="h-5 w-5" />
+        </span>
+        <div>
+          <p className="font-semibold text-white">
+            {checkingAccess
+              ? "Checking access…"
+              : isPaid
+                ? "This video is locked"
+                : "Subscribers-only video"}
+          </p>
+          <p className="mt-1 text-xs text-white/70">
+            {checkingAccess
+              ? "Please wait a moment."
+              : isPaid
+                ? "Unlock it to watch the full video."
+                : "Follow this creator to watch this video."}
+          </p>
+        </div>
+        {!checkingAccess && isPaid ? (
+          <Button
+            type="button"
+            onClick={onUnlock}
+            className="rounded-full bg-pink-600 px-5 text-sm font-semibold text-white hover:bg-pink-700"
+          >
+            Unlock &amp; Watch (₹{formatUnlockPrice(price)})
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function cleanVideoId(value: unknown) {
   if (typeof value !== "string") return "";
   let decoded = value;
@@ -185,7 +256,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   const { focusComments } = Route.useSearch();
   const { user } = useAuth();
   const { liked, saved, following, toggleLike, toggleSave, toggleFollow } = useYw();
-  const { activateVideo, setTimeUpdateHandler } = useVideoPlayback();
+  const { activateVideo, closeVideo, setTimeUpdateHandler } = useVideoPlayback();
   const queryClient = useQueryClient();
   const commentsRef = useRef<HTMLDivElement>(null);
   const [commentText, setCommentText] = useState("");
@@ -257,6 +328,43 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
 
   const creatorId = video?.user_id || video?.user?.id || "";
   const subscribed = Boolean(creatorId && following[creatorId]);
+  const access = video?.video_access === "paid" || video?.is_paid
+    ? "paid"
+    : video?.video_access === "vip"
+      ? "vip"
+      : "public";
+  const isCreator = Boolean(user?.id && creatorId && user.id === creatorId);
+
+  const paidGrantQuery = useQuery<boolean>({
+    queryKey: ["video-access-grant", videoId, user?.id],
+    queryFn: async () => {
+      if (!user?.id) return false;
+      const { data, error } = await supabase
+        .from("video_access_grants")
+        .select("post_id")
+        .eq("post_id", videoId)
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (error) {
+        console.error("Error checking video access:", error);
+        return false;
+      }
+      return Boolean(data);
+    },
+    enabled: Boolean(video && access === "paid" && user?.id && !isCreator),
+  });
+  const checkingAccess = Boolean(
+    video &&
+      access === "paid" &&
+      user?.id &&
+      !isCreator &&
+      paidGrantQuery.isPending,
+  );
+  const hasPaidAccess = isCreator || Boolean(paidGrantQuery.data);
+  const isLocked =
+    !checkingAccess &&
+    !isCreator &&
+    ((access === "paid" && !hasPaidAccess) || (access === "vip" && !subscribed));
 
   const { data: subscriberCount = 0 } = useQuery<number>({
     queryKey: ["video-subscriber-count", creatorId],
@@ -465,7 +573,10 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   const playableMediaUrl = resolvedMediaUrl || mediaUrl;
 
   useEffect(() => {
-    if (!video || !playableMediaUrl) return;
+    if (!video || !playableMediaUrl || checkingAccess || isLocked) {
+      if (checkingAccess || isLocked) closeVideo();
+      return;
+    }
     activateVideo({
       id: video.id,
       url: playableMediaUrl,
@@ -473,7 +584,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
       thumbnailUrl: video.thumbnail_url,
       qualityUrls: video.qualityUrls ?? video.quality_urls ?? undefined,
     });
-  }, [activateVideo, playableMediaUrl, video]);
+  }, [activateVideo, checkingAccess, closeVideo, isLocked, playableMediaUrl, video]);
 
   useEffect(() => {
     setTimeUpdateHandler(handleVideoTimeUpdate);
@@ -740,9 +851,28 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     }
   };
 
+  const handleUnlock = () => {
+    if (!user) {
+      toast.error("Sign in to unlock this video.");
+      return;
+    }
+    toast.info("Complete the UPI payment to unlock this video.");
+  };
+
   return (
     <div className="min-h-screen bg-black text-white pb-24">
-      <VideoPlaybackSlot />
+      {isLocked || checkingAccess ? (
+        <LockedVideoPlayer
+          video={video}
+          mediaUrl={mediaUrl}
+          price={Number(video.price ?? 0)}
+          access={access === "vip" ? "vip" : "paid"}
+          checkingAccess={checkingAccess}
+          onUnlock={handleUnlock}
+        />
+      ) : (
+        <VideoPlaybackSlot />
+      )}
 
       <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-3 px-3 py-3 sm:gap-4 sm:px-4 sm:py-4">
         <div className="space-y-1">

@@ -270,6 +270,7 @@ export async function publishLongVideo(opts: {
   scheduledAt?: string | null;
   access?: "public" | "vip" | "paid";
   price?: number | null;
+  isPaid?: boolean;
   paidPromotion?: boolean;
   officialSponsorshipId?: string | null;
   onProgress?: ProgressFn;
@@ -377,6 +378,7 @@ export async function publishLongVideo(opts: {
         scheduled_at: opts.scheduledAt ?? null,
         video_access: opts.access ?? "public",
         price: opts.price ?? null,
+        is_paid: opts.isPaid ?? opts.access === "paid",
         paid_promotion: !!opts.paidPromotion,
         review_status: needsReview ? "pending_review" : "approved",
         review_note: needsReview
@@ -534,11 +536,11 @@ async function loadLongVideoPage(
       commentCount: (comments ?? []).filter((c) => c.post_id === p.id).length,
       likedByMe: !!uid && (likes ?? []).some((l) => l.post_id === p.id && l.user_id === uid),
       commentsOff: !!(p as typeof p & { comments_off?: boolean }).comments_off,
-      access: ((p as typeof p & { video_access?: string }).video_access ?? "public") as
+       access: ((p as typeof p & { video_access?: string }).video_access ?? "public") as
         | "public"
         | "vip"
         | "paid",
-      price: (p as typeof p & { price?: number | null }).price ?? null,
+       price: (p as typeof p & { price?: number | null }).price ?? null,
     } satisfies LongVideo;
   });
 
