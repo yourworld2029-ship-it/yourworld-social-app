@@ -28,10 +28,22 @@ test("ads and direct sales use their configured creator shares", () => {
   assert.equal(MIN_PAYOUT, 5000);
 });
 
-test("paid video purchases split the creator price 85/15", () => {
+test("paid video purchases preserve the full 15% platform cut", () => {
   assert.deepEqual(computeVideoPurchaseSplit(199), {
     totalAmount: 199,
     platformFee: 29.85,
-    creatorShare: 169.15,
+    gatewayFee: 4.7,
+    creatorPayout: 164.45,
+    estimatedCreatorNet: 164,
+  });
+});
+
+test("paid video purchases use an actual gateway fee when supplied", () => {
+  assert.deepEqual(computeVideoPurchaseSplit(199, 3.5), {
+    totalAmount: 199,
+    platformFee: 29.85,
+    gatewayFee: 3.5,
+    creatorPayout: 165.65,
+    estimatedCreatorNet: 164,
   });
 });

@@ -34,8 +34,15 @@ export function EarningsCreditWatcher() {
             filter: `user_id=eq.${uid}`,
           },
           (payload) => {
-            const row = payload.new as { source?: string; gross_amount?: number | string };
-            const creatorShare = netFor(String(row.source ?? "ads"), Number(row.gross_amount ?? 0));
+            const row = payload.new as {
+              source?: string;
+              gross_amount?: number | string;
+              creator_amount?: number | string | null;
+            };
+            const creatorShare =
+              row.source === "video" && row.creator_amount != null
+                ? Number(row.creator_amount)
+                : netFor(String(row.source ?? "ads"), Number(row.gross_amount ?? 0));
             if (creatorShare <= 0) return;
             toast.success(`Earnings credited: ${inr(creatorShare)} added to your Monetization Wallet.`);
           },

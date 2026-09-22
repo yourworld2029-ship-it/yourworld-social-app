@@ -9,7 +9,7 @@ Direct Course/VIP earnings use the base price as the settlement base: buyers pay
 
 **How to apply:** Keep the database earning trigger/RPC authoritative for settlement, preserve creator-facing net-only labels, and require `terms_accepted_at` for both payout requests and payout-detail writes.
 
-Paid-video purchases use a service-only, idempotent settlement RPC: derive the charge from the paid post, then write the purchase ledger, access grant, creator wallet credit, and platform balance in one transaction.
+Paid-video purchases use a service-only, idempotent settlement RPC: derive the charge from the paid post, reserve the full 15% platform commission, deduct the actual gateway charge or 2.36% estimate from the creator amount, then write the purchase ledger, access grant, creator wallet credit, and platform balance in one transaction.
 
 **Why:** Payment retries and client-supplied amounts must never create duplicate access or double-credit either side of the 85/15 split.
 

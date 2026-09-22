@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { computeVideoPurchaseSplit, inr } from "@/lib/payout-math";
+import { computeVideoPurchaseSplit, inr, inrWhole } from "@/lib/payout-math";
 import {
   VIDEO_CATEGORIES,
   formatDuration,
@@ -457,15 +457,17 @@ function VideoUploadPage() {
                     const split = computeVideoPurchaseSplit(Number(price));
                     return (
                       <p>
-                        You earn:{" "}
-                        <span className="font-semibold text-emerald-300">
-                          {inr(split.creatorShare)}
-                        </span>{" "}
-                        (85%) | Platform fee:{" "}
+                        Total Price:{" "}
+                        <span className="font-semibold text-zinc-200">{inr(split.totalAmount)}</span>{" "}
+                        | Platform Fee:{" "}
                         <span className="font-semibold text-zinc-200">
                           {inr(split.platformFee)}
                         </span>{" "}
-                        (15%)
+                        (15%) | Estimated Creator Net:{" "}
+                        <span className="font-semibold text-emerald-300">
+                          {inrWhole(split.estimatedCreatorNet)}
+                        </span>{" "}
+                        (after standard gateway &amp; tax processing)
                       </p>
                     );
                   })()}

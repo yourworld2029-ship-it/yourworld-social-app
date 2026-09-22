@@ -3,6 +3,7 @@
 export const CREATOR_SHARE = { ads: 0.7, course: 0.85, vip: 0.85 } as const;
 export const PLATFORM_SHARE = { ads: 0.3, course: 0.15, vip: 0.15 } as const;
 export const PAYMENT_GATEWAY_SURCHARGE_RATE = 0.02;
+export const VIDEO_GATEWAY_FALLBACK_RATE = 0.0236;
 export const TDS_RATE = 0.01; // Section 194-O
 export const MIN_PAYOUT = 5000;
 
@@ -33,16 +34,27 @@ export const round2 = (n: number) => Math.round(n * 100) / 100;
 export type VideoPurchaseSplit = {
   totalAmount: number;
   platformFee: number;
-  creatorShare: number;
+  gatewayFee: number;
+  creatorPayout: number;
+  estimatedCreatorNet: number;
 };
 
-export function computeVideoPurchaseSplit(totalAmount: number): VideoPurchaseSplit {
+export function computeVideoPurchaseSplit(
+  totalAmount: number,
+  actualGatewayFee?: number | null,
+): VideoPurchaseSplit {
   const total = round2(Math.max(0, Number(totalAmount) || 0));
   const platformFee = round2(total * PLATFORM_SHARE.course);
+  const gatewayFee =
+    Number.isFinite(actualGatewayFee) && Number(actualGatewayFee) >= 0
+      ? round2(Number(actualGatewayFee))
+      : round2(total * VIDEO_GATEWAY_FALLBACK_RATE);
   return {
     totalAmount: total,
     platformFee,
-    creatorShare: round2(total - platformFee),
+    gatewayFee,
+    creatorPayout: round2(Math.max(0, total - platformFee - gatewayFee)),
+    estimatedCreatorNet: Math.round(total * 0.826),
   };
 }
 
@@ -93,3 +105,6 @@ export const inr = (n: number) =>
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
+
+export const inrWhole = (n: number) =>
+  `₹${Math.round(Number.isFinite(n) ? n : 0).toLocaleString("en-IN")}`;

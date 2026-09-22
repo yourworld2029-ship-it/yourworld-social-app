@@ -5,7 +5,14 @@ import { ArrowLeft, CheckCircle2, Coins, ExternalLink, Loader2, Wallet } from "l
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-store";
-import { computeBreakdown, inr, MIN_PAYOUT, type GrossBySource } from "@/lib/payout-math";
+import {
+  computeBreakdown,
+  inr,
+  MIN_PAYOUT,
+  round2,
+  TDS_RATE,
+  type GrossBySource,
+} from "@/lib/payout-math";
 import { submitPayoutRequest } from "@/lib/payouts.functions";
 import { postKind } from "@/lib/supabase-compat";
 import { historyBackOr } from "@/lib/navigation";
@@ -125,6 +132,7 @@ function WalletPage() {
   const runPayout = useServerFn(submitPayoutRequest);
 
   const [gross, setGross] = useState<GrossBySource>({ ads: 0, course: 0, vip: 0 });
+  const [videoNet, setVideoNet] = useState(0);
   const [cumulativeDirectSalesNet, setCumulativeDirectSalesNet] = useState(0);
   const [details, setDetails] = useState<Details>(emptyDetails);
   const [schedule, setSchedule] = useState<PayoutSchedule>("15_days");
@@ -153,11 +161,14 @@ function WalletPage() {
       ] = await Promise.all([
           supabase
             .from("creator_earnings")
-            .select("source, gross_amount")
+            .select("source, gross_amount, creator_amount")
             .eq("user_id", uid)
             .is("payout_id", null)
             .is("payout_request_id", null),
-          supabase.from("creator_earnings").select("source, gross_amount").eq("user_id", uid),
+          supabase
+            .from("creator_earnings")
+            .select("source, gross_amount, creator_amount")
+            .eq("user_id", uid),
           supabase.from("creator_payout_profiles").select("*").eq("user_id", uid).maybeSingle(),
           supabase
             .from("payout_requests")
@@ -181,14 +192,32 @@ function WalletPage() {
         if (key in next) next[key] += Number(row.gross_amount ?? 0);
       }
       setGross(next);
+      const unpaidVideoNet = (earnings ?? []).reduce((sum, raw) => {
+        const row = raw as { source?: string; creator_amount?: number | string | null };
+        return row.source === "video" ? sum + Number(row.creator_amount ?? 0) : sum;
+      }, 0);
+      setVideoNet(round2(unpaidVideoNet));
+
       const cumulativeDirectGross: GrossBySource = { ads: 0, course: 0, vip: 0 };
+      let cumulativeVideoNet = 0;
       for (const row of allEarnings ?? []) {
-        const key = row.source as keyof GrossBySource;
+        const typedRow = row as {
+          source?: string;
+          gross_amount?: number | string | null;
+          creator_amount?: number | string | null;
+        };
+        if (typedRow.source === "video") {
+          cumulativeVideoNet += Number(typedRow.creator_amount ?? 0);
+          continue;
+        }
+        const key = typedRow.source as keyof GrossBySource;
         if (key === "course" || key === "vip") {
-          cumulativeDirectGross[key] += Number(row.gross_amount ?? 0);
+          cumulativeDirectGross[key] += Number(typedRow.gross_amount ?? 0);
         }
       }
-      setCumulativeDirectSalesNet(computeBreakdown(cumulativeDirectGross).creatorShare);
+      setCumulativeDirectSalesNet(
+        round2(computeBreakdown(cumulativeDirectGross).creatorShare + cumulativeVideoNet),
+      );
       if (det) {
         setDetails({
           creator_email: det.email ?? "",
@@ -265,11 +294,15 @@ function WalletPage() {
   const canApply =
     stats.followers >= requirements.followers &&
     (stats.watchHours >= requirements.watchHours || stats.videoViews >= requirements.videoViews);
-  const directSalesBalance = computeBreakdown({
+  const directSalesBalance =
+    computeBreakdown({
     ads: 0,
     course: gross.course,
     vip: gross.vip,
-  }).creatorShare;
+    }).creatorShare + videoNet;
+  const totalNetCreatorEarnings = round2(b.creatorShare + videoNet);
+  const totalTds = round2(b.tds + videoNet * TDS_RATE);
+  const totalNetPayout = round2(totalNetCreatorEarnings - totalTds);
   const directSalesUnlocked = cumulativeDirectSalesNet >= MIN_PAYOUT;
   const showWallet = eligible || canApply || directSalesUnlocked;
 
@@ -360,6 +393,7 @@ function WalletPage() {
       const payout = res.payoutRequest as PayoutRequestRow;
       setPayouts((p) => [payout, ...p]);
       setGross({ ads: 0, course: 0, vip: 0 });
+      setVideoNet(0);
       toast.success("Payout request submitted successfully. Processing via your chosen schedule.");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Payout failed");
@@ -474,18 +508,19 @@ function WalletPage() {
                   Total Earnings (Net Creator Share)
                 </p>
               </div>
-              <p className="pt-2 text-3xl font-extrabold">{inr(b.creatorShare)}</p>
+              <p className="pt-2 text-3xl font-extrabold">{inr(totalNetCreatorEarnings)}</p>
               <p className="pt-1 text-[11px] text-zinc-500">
                 Net creator earnings, before any payout-time TDS deduction.
               </p>
             </section>
 
             {/* Revenue breakdown */}
-            <section className="grid grid-cols-3 gap-3">
+            <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               {[
                 { label: "Ad & View Earnings", v: b.creatorBySource.ads },
                 { label: "Course Earnings", v: b.creatorBySource.course },
                 { label: "VIP Memberships", v: b.creatorBySource.vip },
+                { label: "Paid Video Net", v: videoNet },
               ].map((c) => (
                 <div key={c.label} className="rounded-2xl border border-zinc-800 bg-[#141418] p-3">
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
@@ -501,15 +536,15 @@ function WalletPage() {
               <div className="mt-3 space-y-2 text-xs">
                 <div className="flex justify-between gap-3 text-zinc-300">
                   <span>Requested amount</span>
-                  <span className="font-semibold text-white">{inr(b.creatorShare)}</span>
+                  <span className="font-semibold text-white">{inr(totalNetCreatorEarnings)}</span>
                 </div>
                 <div className="flex justify-between gap-3 text-zinc-400">
                   <span>TDS under Section 194-O (1%)</span>
-                  <span>- {inr(b.tds)}</span>
+                  <span>- {inr(totalTds)}</span>
                 </div>
                 <div className="flex justify-between gap-3 border-t border-indigo-300/20 pt-2 font-semibold text-white">
                   <span>Net payout to bank</span>
-                  <span>{inr(b.net)}</span>
+                  <span>{inr(totalNetPayout)}</span>
                 </div>
               </div>
             </section>
