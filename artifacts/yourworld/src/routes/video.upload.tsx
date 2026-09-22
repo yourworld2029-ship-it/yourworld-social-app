@@ -17,6 +17,8 @@ import { trackEvent } from "@/lib/analytics";
 import { historyBackOr } from "@/lib/navigation";
 
 type AccessOption = "public" | "vip" | "paid";
+const MIN_PAID_VIDEO_PRICE = 10;
+const MAX_PAID_VIDEO_PRICE = 9999;
 
 export const Route = createFileRoute("/video/upload")({
   head: () => ({
@@ -74,8 +76,8 @@ function VideoUploadPage() {
 
   const accessOptions: { value: AccessOption; label: string; hint: string }[] = [
     { value: "public", label: "Public (Free)", hint: "Anyone can watch for free" },
-    { value: "vip", label: "VIP Members Only", hint: "Only VIP members can watch" },
-    { value: "paid", label: "Paid Course / Single Video", hint: "Charge a one-time fee" },
+    { value: "paid", label: "Paid (Pay-per-view)", hint: "Charge a one-time fee" },
+    { value: "vip", label: "Subscribers Only", hint: "Only subscribers can watch" },
   ];
 
   const pickVideo = (file: File | undefined) => {
@@ -160,11 +162,17 @@ function VideoUploadPage() {
       toast.error("Pick a future date and time to schedule");
       return;
     }
-    const parsedPrice = price.trim() ? Number(price) : null;
-    if (access === "paid" && (!parsedPrice || !Number.isFinite(parsedPrice) || parsedPrice <= 0)) {
-      toast.error("Enter a valid price for paid videos.");
+    const parsedInputPrice = price.trim() ? Number(price) : 0;
+    if (
+      access === "paid" &&
+      (!Number.isFinite(parsedInputPrice) ||
+        parsedInputPrice < MIN_PAID_VIDEO_PRICE ||
+        parsedInputPrice > MAX_PAID_VIDEO_PRICE)
+    ) {
+      toast.error(`Enter a price between ₹${MIN_PAID_VIDEO_PRICE} and ₹${MAX_PAID_VIDEO_PRICE}.`);
       return;
     }
+    const parsedPrice = access === "paid" ? parsedInputPrice : 0;
 
     setBusy(true);
 
@@ -187,6 +195,7 @@ function VideoUploadPage() {
           scheduledAt: scheduledAt ? scheduledAt.toISOString() : null,
             access,
             price: parsedPrice,
+            isPaid: access === "paid",
           paidPromotion,
           onProgress,
         }),
@@ -405,6 +414,11 @@ function VideoUploadPage() {
                     type="button"
                     onClick={() => {
                       setAccess(o.value);
+                      if (o.value === "public") {
+                        setPrice("0");
+                      } else if (o.value === "paid" && price === "0") {
+                        setPrice("");
+                      }
                       setAccessOpen(false);
                     }}
                     className={`flex w-full flex-col items-start gap-0.5 px-3.5 py-2.5 text-left transition-colors ${
@@ -421,17 +435,22 @@ function VideoUploadPage() {
           {access === "paid" && (
             <div className="mt-3">
               <label className="pb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
-                Course Price (₹)
+                Enter Price (₹)
               </label>
               <Input
                 type="number"
                 inputMode="numeric"
-                min={0}
+                min={MIN_PAID_VIDEO_PRICE}
+                max={MAX_PAID_VIDEO_PRICE}
+                step={1}
                 value={price}
                 onChange={(e) => setPrice(e.target.value)}
-                placeholder="Enter amount in ₹"
+                placeholder="e.g. 49, 99, 199"
                 className="h-11 rounded-xl border-zinc-800 bg-zinc-900/60 placeholder:text-zinc-500"
               />
+              <p className="mt-2 text-[11px] leading-relaxed text-zinc-400">
+                Viewers must pay this amount via UPI to unlock and watch your video.
+              </p>
               {Number(price) > 0 && Number.isFinite(Number(price)) ? (
                 <div className="mt-3 space-y-1 text-[11px] leading-relaxed text-zinc-400">
                   <p>
