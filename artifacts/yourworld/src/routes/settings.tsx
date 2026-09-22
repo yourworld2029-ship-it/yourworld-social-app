@@ -38,6 +38,13 @@ type BlockedAccount = {
   avatarUrl: string | null;
 };
 
+type PublicProfile = {
+  id: string;
+  username: string | null;
+  display_name: string | null;
+  avatar_url: string | null;
+};
+
 function SettingsPage() {
   const navigate = useNavigate();
   const { signOut, user } = useAuth();
@@ -81,10 +88,9 @@ function SettingsPage() {
         return;
       }
 
-      const { data: profiles, error: profileError } = await supabase
-        .from("profiles")
-        .select("id, username, display_name, avatar_url")
-        .in("id", blockedIds);
+      const { data: profiles, error: profileError } = await supabase.rpc("get_public_profiles", {
+        ids: blockedIds,
+      });
 
       if (!alive) return;
       if (profileError) {
@@ -96,7 +102,7 @@ function SettingsPage() {
       }
 
       const next = await Promise.all(
-        (profiles ?? []).map(async (profile) => ({
+        (profiles as PublicProfile[] | null ?? []).map(async (profile) => ({
           id: profile.id,
           username: profile.username?.trim() || "user",
           displayName:
@@ -602,7 +608,7 @@ function Panel({
             aria-label={backLabel ?? "Close"}
             className="p-1.5 text-zinc-400 hover:text-white"
           >
-            <X size={18} />
+            {backLabel ? <ArrowLeft size={18} /> : <X size={18} />}
           </button>
         </div>
         <div className="space-y-1">{children}</div>
