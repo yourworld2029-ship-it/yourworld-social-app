@@ -297,7 +297,11 @@ function SettingsPage() {
 
       {panel === "help" && (
         <Panel title="Help & Support" onClose={() => setPanel(null)}>
-          <Row label="Help center" hint="Guides and troubleshooting" />
+          <Row
+            label="Help center"
+            hint="Guides and troubleshooting"
+            onClick={() => navigate({ to: "/help-center" })}
+          />
           <Row label="Report a problem" hint="Tell us what went wrong" onClick={() => setReportStep("options")} />
           <Row label="Community guidelines" />
           <Row
