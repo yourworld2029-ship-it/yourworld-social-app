@@ -46,98 +46,96 @@ function TermsPage() {
           <h1 className="text-xl font-bold">Terms of Service</h1>
         </div>
 
-        <p className="text-xs text-zinc-500 mb-6">Last updated: August 30, 2026</p>
+        <p className="text-xs text-zinc-500 mb-6">Last updated: September 22, 2026</p>
 
         <Section title="1. Acceptance of Terms">
           <p>
             By creating an account or using YourWorld ("YW"), you agree to be bound by these Terms of
-            Service. If you do not agree, you may not access or use the platform.
+            Service. If you do not agree, you may not access or use the platform. YourWorld is owned
+            and operated by YourWorld Social (Proprietorship, India).
           </p>
           <p>
-            YourWorld is available to users worldwide. You may access the platform and upload content
-            recorded in different countries, subject to applicable laws, these Terms, our platform
-            rules, and your rights and permissions in that content. We do not represent that YourWorld
-            is automatically compliant with every country's laws; requirements may vary based on where
-            you live or use the platform.
+            YourWorld is available to users worldwide. You may access the platform and upload content recorded
+            in different countries, subject to applicable laws, these Terms, our platform rules, and your rights
+            and permissions in that content. We do not represent that YourWorld is automatically compliant with
+            every country's laws; requirements may vary based on where you live or use the platform.
           </p>
         </Section>
 
         <Section title="2. Your Account">
           <p>
-            You are responsible for safeguarding your account credentials and for all activity that
-            occurs under your account. You must be at least 13 years old (or the minimum age in your
-            country) to use YourWorld.
+            You are responsible for safeguarding your account credentials and for all activity that occurs under
+            your account. You must be at least 13 years old (or the minimum age required in your country) to use
+            YourWorld. Creators receiving payouts or participating in monetization features must be at least 18
+            years old.
           </p>
         </Section>
 
         <Section title="3. Content & Conduct">
           <p>
-            You retain ownership of content you post. You grant YourWorld a worldwide, non-exclusive,
-            royalty-free license to host, store, use, display, and distribute your content within the
-            platform. You must not post content that is unlawful, infringing, hateful, harassing, or
-            that violates our Community Guidelines.
+            You retain ownership of content you post. You grant YourWorld Social a worldwide, non-exclusive,
+            royalty-free license to host, store, use, display, and distribute your content within the platform
+            ecosystem. You must not post content that is unlawful, infringing, hateful, harassing, sexually
+            explicit, violent, or that violates our Community Guidelines.
           </p>
           <p>
-            You are responsible for having all rights, permissions, consents, and legal authority
-            necessary to upload and share your content, including photos, videos, posts, reels,
-            stories, messages, and other material.
+            You are responsible for having all rights, permissions, consents, and legal authority necessary to
+            upload and share your content, including photos, videos, posts, reels, stories, messages, and other
+            material.
           </p>
         </Section>
 
         <Section title="4. Sports Verification">
           <p>
-            Sports Verification may require supporting evidence such as certificates, passport pages,
-            visa or stamp pages, tournament photos, identity or contact information, or other evidence
-            where applicable. All submitted verification documents and identity or contact evidence
-            are private and are not publicly displayed to normal users.
+            Sports Verification may require supporting evidence such as certificates, tournament photos, identity
+            or contact information, or other evidence where applicable. All submitted verification documents and
+            identity or contact evidence are private and are not publicly displayed to normal users.
           </p>
           <p>
-            Verification materials may be accessed only by authorized verification or safety personnel
-            when necessary for verification, security, fraud prevention, legal compliance, or related
-            legitimate purposes. YourWorld may support both National Player or Coach verification and
-            International Player or Coach verification, including international sporting events held
-            outside India.
+            Verification materials may be accessed only by authorized verification or safety personnel when
+            necessary for verification, security, fraud prevention, legal compliance, or related legitimate
+            purposes. YourWorld may support both National Player or Coach verification and International Player
+            or Coach verification, including international sporting events held outside India.
           </p>
           <p>
-            The Sports Introduction video is separate from private verification documents. It is a
-            short video recorded by the Player or Coach in their natural or original voice and may
-            explain their sport, role, achievements, and journey. It may be publicly displayed on
-            YourWorld as a Reel-style Sports Introduction or verification video. Certificates,
-            passport pages, visa or stamp pages, phone numbers, email addresses, and other private
+            The Sports Introduction video is separate from private verification documents. It is a short video
+            recorded by the Player or Coach in their natural or original voice and may explain their sport, role,
+            achievements, and journey. It may be publicly displayed on YourWorld as a Reel-style Sports
+            Introduction or verification video. Certificates, phone numbers, email addresses, and other private
             verification evidence must not be made public.
           </p>
           <p>
-            Submitting false, forged, altered, misleading, or fraudulent certificates, achievements,
-            identity information, or verification evidence may result in rejection or revocation of
-            verification, removal of a sports badge, content removal, account restriction or
-            suspension, and other remedies permitted by applicable law.
+            Submitting false, forged, altered, misleading, or fraudulent certificates, achievements, identity
+            information, or verification evidence may result in rejection or revocation of verification, removal
+            of a sports badge, content removal, account restriction or suspension, and other remedies permitted by
+            applicable law.
           </p>
         </Section>
 
         <Section title="5. Monetization & Payments">
           <p>
-            Creators participating in eligible monetization features or paid promotional or Promote
-            features, when available and officially enabled by YourWorld, are subject to the
-            applicable{" "}
+            Creators participating in eligible monetization features or paid promotional or Promote features, when
+            available and officially enabled by YourWorld, are subject to the applicable{" "}
             <Link to="/terms/monetization" className="text-indigo-400 underline">
               Creator Monetization Terms
             </Link>
-            . Eligibility, revenue share, payout schedules, payment methods, fees, refunds, and tax
-            requirements are governed by those terms where applicable.
+            . Eligibility, platform commission (net 15% platform fee), payout schedules, payment processing fees,
+            and tax requirements are governed by those terms.
           </p>
           <p>
-            Payouts, where offered, are processed according to the applicable eligibility requirements
-            and schedule. YourWorld does not promise earnings, guaranteed reach, views, impressions,
-            followers, engagement, or sales.
+            Payouts, where offered, are processed according to the applicable eligibility requirements and
+            schedule. YourWorld does not promise earnings, guaranteed reach, views, impressions, followers,
+            engagement, or sales. All consumer purchases (such as digital tips, coins, or virtual goods) provide
+            immediate access and are non-refundable once delivered, except in verifiable cases of duplicate billing
+            or technical failed transactions.
           </p>
         </Section>
 
         <Section title="6. Promotion">
           <p>
-            Paid Promote or advertising features, when available, are subject to eligibility
-            requirements, applicable advertising rules, payment and refund rules, and YourWorld
-            policies. Promoted content does not guarantee impressions, views, followers, engagement,
-            or sales.
+            Paid Promote or advertising features, when available, are subject to eligibility requirements,
+            applicable advertising rules, payment terms, and YourWorld policies. Promoted content does not
+            guarantee impressions, views, followers, engagement, or sales.
           </p>
         </Section>
 
@@ -153,38 +151,80 @@ function TermsPage() {
 
         <Section title="8. Intellectual Property">
           <p>
-            YourWorld respects intellectual property. See our{" "}
+            YourWorld respects intellectual property rights. See our{" "}
             <Link to="/copyright-policy" className="text-indigo-400 underline">
               Copyright & DMCA Policy
             </Link>{" "}
-            for the takedown procedure and designated copyright agent.
+            for our takedown procedure and designated agent contact details.
           </p>
         </Section>
 
-        <Section title="9. Termination">
+        <Section title="9. Termination, Suspension & Asset Forfeiture">
           <p>
-            YourWorld may suspend, restrict, or terminate your account if you violate these Terms, our
-            Community Guidelines, Copyright & DMCA Policy, or applicable law, or if we detect fraudulent
-            activity. You may delete your account at any time from Settings.
+            YourWorld reserves the right to suspend, restrict, or terminate your account at any time if you
+            violate these Terms, our Community Guidelines, our Copyright & DMCA Policy, applicable law, or if we
+            detect fraudulent, abusive, or unauthorized commercial activities. You may delete your account at any
+            time from Settings.
+          </p>
+          <p>
+            Upon suspension or termination of an account due to policy violations, illegal conduct, copyright
+            infringement, or fraudulent behavior, any accumulated virtual wallet balance, unredeemed coins, or
+            promotional credits shall be forfeited. YourWorld Social explicitly reserves the right to freeze,
+            withhold, or offset pending payouts and balances against damages, chargebacks, third-party claims, or
+            administrative and legal expenses.
           </p>
         </Section>
 
         <Section title="10. Disclaimer & Limitation of Liability">
           <p>
-            YourWorld is provided "as is" without warranties of any kind. To the maximum extent
-            permitted by applicable law, YourWorld shall not be liable for indirect, incidental, or
-            consequential damages arising from your use of the platform.
+            YourWorld is provided "as is" and "as available" without warranties of any kind, whether express or
+            implied. YourWorld Social operates as an intermediary under Section 79 of the Information Technology
+            Act, 2000, and does not actively monitor or endorse user-generated content. To the maximum extent
+            permitted by applicable law, YourWorld Social shall not be liable for any indirect, incidental,
+            special, consequential, or punitive damages arising out of or related to your use of the platform.
           </p>
         </Section>
 
-        <Section title="11. Contact">
+        <Section title="11. Governing Law & Dispute Resolution">
           <p>
-            Questions about these Terms? Contact us at{" "}
-            <a href="mailto:Yourworld2029@gmail.com" className="text-indigo-400 underline">
-              Yourworld2029@gmail.com
-            </a>
-            .
+            These Terms shall be governed by, interpreted, and construed in accordance with the substantive laws
+            of India. Any legal dispute, controversy, claim, or action arising out of or relating to these Terms or
+            the platform shall be subject to the exclusive jurisdiction of the competent courts situated in Hisar,
+            Haryana, India.
           </p>
+        </Section>
+
+        <Section title="12. Contact & Grievance Redressal">
+          <p>
+            In accordance with the Information Technology Act, 2000 and the Intermediary Guidelines and Digital
+            Media Ethics Code Rules, 2021:
+          </p>
+          <dl className="space-y-2">
+            <div>
+              <dt className="font-semibold text-white">Enterprise Legal Name</dt>
+              <dd>YourWorld Social</dd>
+            </div>
+            <div>
+              <dt className="font-semibold text-white">Grievance & Compliance Officer</dt>
+              <dd>S. Kumar</dd>
+            </div>
+            <div>
+              <dt className="font-semibold text-white">Official Support & Grievance Email</dt>
+              <dd>
+                <a href="mailto:yourworld2029@gmail.com" className="text-indigo-400 underline">
+                  yourworld2029@gmail.com
+                </a>
+              </dd>
+            </div>
+            <div>
+              <dt className="font-semibold text-white">Jurisdiction / City</dt>
+              <dd>Hisar, Haryana, India</dd>
+            </div>
+            <div>
+              <dt className="font-semibold text-white">Response Timelines</dt>
+              <dd>Acknowledgment within 24–48 hours; resolution within 15 working days.</dd>
+            </div>
+          </dl>
         </Section>
       </div>
     </div>
