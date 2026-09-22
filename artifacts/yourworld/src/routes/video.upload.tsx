@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { computeDirectCheckout, inr } from "@/lib/payout-math";
+import { computeVideoPurchaseSplit, inr } from "@/lib/payout-math";
 import {
   VIDEO_CATEGORIES,
   formatDuration,
@@ -452,21 +452,23 @@ function VideoUploadPage() {
                 Viewers must pay this amount via UPI to unlock and watch your video.
               </p>
               {Number(price) > 0 && Number.isFinite(Number(price)) ? (
-                <div className="mt-3 space-y-1 text-[11px] leading-relaxed text-zinc-400">
-                  <p>
-                    Buyer total:{" "}
-                    <span className="font-semibold text-zinc-200">
-                      {inr(computeDirectCheckout(Number(price)).buyerTotal)}
-                    </span>{" "}
-                    including the 2% gateway fee.
-                  </p>
-                  <p>
-                    Your creator earning:{" "}
-                    <span className="font-semibold text-emerald-300">
-                      {inr(computeDirectCheckout(Number(price)).creatorShare)}
-                    </span>{" "}
-                    from the base price.
-                  </p>
+                <div className="mt-3 text-[11px] leading-relaxed text-zinc-300">
+                  {(() => {
+                    const split = computeVideoPurchaseSplit(Number(price));
+                    return (
+                      <p>
+                        You earn:{" "}
+                        <span className="font-semibold text-emerald-300">
+                          {inr(split.creatorShare)}
+                        </span>{" "}
+                        (85%) | Platform fee:{" "}
+                        <span className="font-semibold text-zinc-200">
+                          {inr(split.platformFee)}
+                        </span>{" "}
+                        (15%)
+                      </p>
+                    );
+                  })()}
                 </div>
               ) : null}
             </div>

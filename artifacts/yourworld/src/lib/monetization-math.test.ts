@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   computeBreakdown,
   computeDirectCheckout,
+  computeVideoPurchaseSplit,
   MIN_PAYOUT,
 } from "./payout-math";
 
@@ -25,4 +26,12 @@ test("ads and direct sales use their configured creator shares", () => {
   assert.equal(breakdown.tds, 13.38);
   assert.equal(breakdown.net, 1324.12);
   assert.equal(MIN_PAYOUT, 5000);
+});
+
+test("paid video purchases split the creator price 85/15", () => {
+  assert.deepEqual(computeVideoPurchaseSplit(199), {
+    totalAmount: 199,
+    platformFee: 29.85,
+    creatorShare: 169.15,
+  });
 });

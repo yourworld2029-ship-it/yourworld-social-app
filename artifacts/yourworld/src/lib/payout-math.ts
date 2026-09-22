@@ -30,6 +30,22 @@ export type DirectCheckoutBreakdown = {
 
 export const round2 = (n: number) => Math.round(n * 100) / 100;
 
+export type VideoPurchaseSplit = {
+  totalAmount: number;
+  platformFee: number;
+  creatorShare: number;
+};
+
+export function computeVideoPurchaseSplit(totalAmount: number): VideoPurchaseSplit {
+  const total = round2(Math.max(0, Number(totalAmount) || 0));
+  const platformFee = round2(total * PLATFORM_SHARE.course);
+  return {
+    totalAmount: total,
+    platformFee,
+    creatorShare: round2(total - platformFee),
+  };
+}
+
 export function computeDirectCheckout(basePrice: number): DirectCheckoutBreakdown {
   const base = round2(Math.max(0, Number(basePrice) || 0));
   const gatewayFee = round2(base * PAYMENT_GATEWAY_SURCHARGE_RATE);

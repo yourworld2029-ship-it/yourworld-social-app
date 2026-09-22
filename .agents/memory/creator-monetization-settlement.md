@@ -8,3 +8,9 @@ Direct Course/VIP earnings use the base price as the settlement base: buyers pay
 **Why:** Creator-facing balances must not expose platform cuts or accidentally reduce the creator share with buyer gateway fees or duplicate TDS.
 
 **How to apply:** Keep the database earning trigger/RPC authoritative for settlement, preserve creator-facing net-only labels, and require `terms_accepted_at` for both payout requests and payout-detail writes.
+
+Paid-video purchases use a service-only, idempotent settlement RPC: derive the charge from the paid post, then write the purchase ledger, access grant, creator wallet credit, and platform balance in one transaction.
+
+**Why:** Payment retries and client-supplied amounts must never create duplicate access or double-credit either side of the 85/15 split.
+
+**How to apply:** Treat the payment provider's verified reference as the idempotency key, validate it against `posts.price`, and keep all balance changes inside the database transaction.
