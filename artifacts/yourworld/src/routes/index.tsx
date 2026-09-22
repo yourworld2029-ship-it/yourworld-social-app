@@ -1,6 +1,5 @@
 import React from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { usePostSaves } from "@/lib/post-actions";
 import { LongVideoCard } from "@/components/yw/LongVideoCard";
 import { VideoPoster } from "@/components/yw/VideoPoster";
 import { useLongVideos, type LongVideo } from "@/lib/video-data";
@@ -53,7 +52,6 @@ function HomePage() {
     hasNextPage,
     isFetchingNextPage,
   } = useLongVideos();
-  const { saved, toggleSave } = usePostSaves();
   const { moments } = useMoments();
   const { user } = useAuth();
   const { count: alertCount } = useAlertsCount();
@@ -335,8 +333,6 @@ function HomePage() {
                 currentUserId={currentUserId}
                 onView={countView}
                 onLike={toggleLike}
-                isSaved={!!saved[group.video.id]}
-                onToggleSave={toggleSave}
                 onDeleted={() => reload()}
               />
             ),

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  Play, Eye, Heart, Clock, MessageCircle, Send, Bookmark,
+  Play, Eye, Heart, Clock, MessageCircle, Send,
   MoreHorizontal, Link2, Trash2, EyeOff,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
@@ -30,8 +30,6 @@ type Props = {
   onView: (id: string) => void | Promise<unknown>;
   onLike: (id: string) => void | Promise<unknown>;
   currentUserId?: string | null;
-  isSaved?: boolean;
-  onToggleSave?: (id: string) => void | Promise<unknown>;
   onDeleted?: (id: string) => void;
 };
 
@@ -55,8 +53,6 @@ export function LongVideoCard({
   video,
   onLike,
   currentUserId = null,
-  isSaved = false,
-  onToggleSave,
   onDeleted,
 }: Props) {
   const { following, toggleFollow } = useYw();
@@ -136,20 +132,6 @@ export function LongVideoCard({
   const isFollowing = !!following[video.userId];
   const shareUrl =
     typeof window !== "undefined" ? `${window.location.origin}/?post=${video.id}` : undefined;
-
-  const handleSave = async () => {
-    if (!onToggleSave) return;
-    if (!currentUserId) {
-      toast.error("Sign in to save videos");
-      return;
-    }
-    try {
-      const savedNow = await onToggleSave(video.id);
-      toast.success(savedNow === false ? "Removed from saved" : "Video saved");
-    } catch {
-      toast.error("Couldn't update saved videos");
-    }
-  };
 
   const handleLike = async () => {
     if (!currentUserId) {
@@ -283,10 +265,6 @@ export function LongVideoCard({
                 <DropdownMenuItem onClick={copyLink}>
                   <Link2 className="mr-2 h-4 w-4" /> Copy link
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleSave}>
-                  <Bookmark className="mr-2 h-4 w-4" />{" "}
-                  {isSaved ? "Remove from saved" : "Save video"}
-                </DropdownMenuItem>
                 {!isMine && (
                   <DropdownMenuItem onClick={() => setHidden(true)}>
                     <EyeOff className="mr-2 h-4 w-4" /> Not interested
@@ -387,13 +365,6 @@ export function LongVideoCard({
 
           </div>
 
-          <button
-            onClick={handleSave}
-            aria-label="Save"
-            className="text-zinc-300 transition-transform active:scale-75"
-          >
-            <Bookmark size={20} className={isSaved ? "fill-white text-white" : "text-zinc-300"} />
-          </button>
         </div>
       </div>
     </article>

@@ -10,7 +10,6 @@ import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-quer
 import {
   AlertCircle,
   ArrowLeft,
-  Bookmark,
   Check,
   ChevronDown,
   ChevronRight,
@@ -255,7 +254,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   const navigate = useNavigate();
   const { focusComments } = Route.useSearch();
   const { user } = useAuth();
-  const { liked, saved, following, toggleLike, toggleSave, toggleFollow } = useYw();
+  const { liked, following, toggleLike, toggleFollow } = useYw();
   const { activateVideo, closeVideo, setTimeUpdateHandler } = useVideoPlayback();
   const queryClient = useQueryClient();
   const commentsRef = useRef<HTMLDivElement>(null);
@@ -979,25 +978,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
             >
               <Download className="h-3.5 w-3.5 shrink-0" />
               <span>Download</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (!user) {
-                  toast.error("Sign in to save videos");
-                  return;
-                }
-                toggleSave(videoId);
-                toast.success(saved[videoId] ? "Removed from saved" : "Saved to your library");
-              }}
-              aria-label={saved[videoId] ? "Unsave video" : "Save video"}
-              aria-pressed={Boolean(saved[videoId])}
-              className={`inline-flex h-9 w-full min-w-0 items-center justify-center gap-0.5 rounded-full border border-white/10 bg-white/10 px-1 text-[9px] font-semibold tracking-tight shadow-sm backdrop-blur-md transition-all hover:bg-white/20 sm:text-[10px] ${
-                saved[videoId] ? "text-pink-300" : "text-white"
-              }`}
-            >
-              <Bookmark className="h-3.5 w-3.5 shrink-0" fill={saved[videoId] ? "currentColor" : "none"} />
-              <span>Save</span>
             </button>
           </div>
 

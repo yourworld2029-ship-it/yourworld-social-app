@@ -4,7 +4,6 @@ import {
   Heart,
   MessageCircle,
   Send,
-  Bookmark,
   Download,
   Music2,
   Volume2,
@@ -513,14 +512,13 @@ function ReelItem({
   onDeleted?: () => void;
 }) {
   const user = author;
-  const { saved, following, toggleSave, toggleFollow } = useYw();
+  const { following, toggleFollow } = useYw();
   const { burst, onDoubleTap } = useDoubleTapLike(reel.id);
   const [expanded, setExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [muted, setMuted] = useState(false);
   const lastTap = useRef(0);
   const isLiked = !!likedByMe;
-  const isSaved = !!saved[reel.id];
   const [liking, setLiking] = useState(false);
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -864,14 +862,6 @@ function ReelItem({
     }
   };
 
-  const handleSave = () => {
-    toggleSave(reel.id);
-    trackEvent("reel_save_toggled", {
-      surface: "reels_feed",
-      saved: !isSaved,
-    });
-  };
-
   if (!user) return null;
 
   return (
@@ -1013,13 +1003,6 @@ function ReelItem({
             <MessageCircle strokeWidth={1.8} className="h-[18px] w-[18px]" />
           </Action>
         </CommentsSheet>
-
-        <Action onClick={handleSave} label="Save" active={isSaved}>
-          <Bookmark
-            strokeWidth={1.8}
-            className={cn("h-[18px] w-[18px]", isSaved && "fill-foreground")}
-          />
-        </Action>
 
         {reel.allowDownload ? (
           <Action onClick={handleDownload} label="Download">
