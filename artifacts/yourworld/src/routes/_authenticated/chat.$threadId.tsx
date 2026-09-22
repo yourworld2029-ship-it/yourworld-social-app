@@ -27,6 +27,7 @@ import { hashPin, randomPinSalt } from "@/lib/secret-chats";
 import { PinDialog } from "@/components/yw/PinDialog";
 import { toast } from "sonner";
 import { AUTO_DELETE_OPTIONS, autoDeleteLabel } from "@/lib/auto-delete";
+import { historyBackOr } from "@/lib/navigation";
 import {
   STORAGE_BUCKETS,
   uploadSourceWithProgress,
@@ -868,7 +869,11 @@ function ChatThreadPage() {
         className="sticky top-0 z-50 flex shrink-0 items-center justify-between border-b border-zinc-800/80 bg-zinc-950 px-4 pb-3 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)]"
       >
         <div className="flex items-center gap-3">
-          <button onClick={() => navigate({ to: ".." })} className="p-1 text-zinc-300 hover:text-white">
+          <button
+            onClick={() => historyBackOr(() => void navigate({ to: "/chat" }))}
+            aria-label="Back to Chat"
+            className="p-1 text-zinc-300 hover:text-white"
+          >
             <ArrowLeft size={22} />
           </button>
           

@@ -23,6 +23,7 @@ import {
 import { downloadMomentMedia, downloadOriginalMomentMedia } from "@/lib/yw-download";
 import { toast } from "sonner";
 import { SportsIdentityMark } from "@/components/yw/SportsIdentityBadge";
+import { historyBackOr } from "@/lib/navigation";
 
 /** photo / text segment length (ms) */
 const PHOTO_DURATION = 5000;
@@ -114,7 +115,10 @@ function MomentViewRoute() {
     setProgress(0);
   }, [selected, items]);
 
-  const close = useCallback(() => navigate({ to: "/" }), [navigate]);
+  const close = useCallback(
+    () => historyBackOr(() => void navigate({ to: "/" })),
+    [navigate],
+  );
 
   const openGroup = useCallback(
     (dir: 1 | -1) => {
