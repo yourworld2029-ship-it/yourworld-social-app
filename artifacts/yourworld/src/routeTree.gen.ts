@@ -15,6 +15,7 @@ import { Route as AccountRouteImport } from './routes/account'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as ChannelRouteImport } from './routes/channel'
+import { Route as CommunityGuidelinesRouteImport } from './routes/community-guidelines'
 import { Route as CopyrightPolicyRouteImport } from './routes/copyright-policy'
 import { Route as CreateRouteImport } from './routes/create'
 import { Route as HelpCenterRouteImport } from './routes/help-center'
@@ -89,6 +90,11 @@ const AuthRoute = AuthRouteImport.update({
 const ChannelRoute = ChannelRouteImport.update({
   id: '/channel',
   path: '/channel',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CommunityGuidelinesRoute = CommunityGuidelinesRouteImport.update({
+  id: '/community-guidelines',
+  path: '/community-guidelines',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CopyrightPolicyRoute = CopyrightPolicyRouteImport.update({
@@ -329,6 +335,7 @@ export interface FileRoutesByFullPath {
   '/admin': typeof AdminRouteWithChildren
   '/auth': typeof AuthRoute
   '/channel': typeof ChannelRouteWithChildren
+  '/community-guidelines': typeof CommunityGuidelinesRoute
   '/copyright-policy': typeof CopyrightPolicyRoute
   '/create': typeof CreateRoute
   '/help-center': typeof HelpCenterRoute
@@ -381,6 +388,7 @@ export interface FileRoutesByTo {
   '/account': typeof AccountRoute
   '/admin': typeof AdminRouteWithChildren
   '/auth': typeof AuthRoute
+  '/community-guidelines': typeof CommunityGuidelinesRoute
   '/copyright-policy': typeof CopyrightPolicyRoute
   '/create': typeof CreateRoute
   '/help-center': typeof HelpCenterRoute
@@ -435,6 +443,7 @@ export interface FileRoutesById {
   '/admin': typeof AdminRouteWithChildren
   '/auth': typeof AuthRoute
   '/channel': typeof ChannelRouteWithChildren
+  '/community-guidelines': typeof CommunityGuidelinesRoute
   '/copyright-policy': typeof CopyrightPolicyRoute
   '/create': typeof CreateRoute
   '/help-center': typeof HelpCenterRoute
@@ -490,6 +499,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/auth'
     | '/channel'
+    | '/community-guidelines'
     | '/copyright-policy'
     | '/create'
     | '/help-center'
@@ -542,6 +552,7 @@ export interface FileRouteTypes {
     | '/account'
     | '/admin'
     | '/auth'
+    | '/community-guidelines'
     | '/copyright-policy'
     | '/create'
     | '/help-center'
@@ -595,6 +606,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/auth'
     | '/channel'
+    | '/community-guidelines'
     | '/copyright-policy'
     | '/create'
     | '/help-center'
@@ -650,6 +662,7 @@ export interface RootRouteChildren {
   AdminRoute: typeof AdminRouteWithChildren
   AuthRoute: typeof AuthRoute
   ChannelRoute: typeof ChannelRouteWithChildren
+  CommunityGuidelinesRoute: typeof CommunityGuidelinesRoute
   CopyrightPolicyRoute: typeof CopyrightPolicyRoute
   CreateRoute: typeof CreateRoute
   HelpCenterRoute: typeof HelpCenterRoute
@@ -719,6 +732,13 @@ declare module '@tanstack/react-router' {
       path: '/channel'
       fullPath: '/channel'
       preLoaderRoute: typeof ChannelRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/community-guidelines': {
+      id: '/community-guidelines'
+      path: '/community-guidelines'
+      fullPath: '/community-guidelines'
+      preLoaderRoute: typeof CommunityGuidelinesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/copyright-policy': {
@@ -1137,6 +1157,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminRoute: AdminRouteWithChildren,
   AuthRoute: AuthRoute,
   ChannelRoute: ChannelRouteWithChildren,
+  CommunityGuidelinesRoute: CommunityGuidelinesRoute,
   CopyrightPolicyRoute: CopyrightPolicyRoute,
   CreateRoute: CreateRoute,
   HelpCenterRoute: HelpCenterRoute,

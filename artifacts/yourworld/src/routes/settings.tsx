@@ -303,7 +303,11 @@ function SettingsPage() {
             onClick={() => navigate({ to: "/help-center" })}
           />
           <Row label="Report a problem" hint="Tell us what went wrong" onClick={() => setReportStep("options")} />
-          <Row label="Community guidelines" />
+          <Row
+            label="Community guidelines"
+            hint="Keep YourWorld safe and positive"
+            onClick={() => navigate({ to: "/community-guidelines" })}
+          />
           <Row
             label="Copyright & DMCA Policy"
             hint="Takedown procedure & Safe Harbor"
