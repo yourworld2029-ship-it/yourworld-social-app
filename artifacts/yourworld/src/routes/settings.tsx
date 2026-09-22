@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { User, Megaphone, Lock, Bell, Palette, HelpCircle, Info, LogOut, ChevronRight, ArrowLeft, X, Wallet } from "lucide-react";
@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-store";
 import { historyBackOr } from "@/lib/navigation";
 import { supabase } from "@/integrations/supabase/client";
+import { resolveMediaUrl, setUserBlock } from "@/lib/social-data";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({
@@ -30,6 +31,13 @@ export const Route = createFileRoute("/settings")({
 
 type PanelId = "privacy" | "notifications" | "appearance" | "help" | "about";
 
+type BlockedAccount = {
+  id: string;
+  username: string;
+  displayName: string;
+  avatarUrl: string | null;
+};
+
 function SettingsPage() {
   const navigate = useNavigate();
   const { signOut, user } = useAuth();
@@ -39,6 +47,76 @@ function SettingsPage() {
   const [dmca, setDmca] = useState({ contentLink: "", originalWork: "", description: "", email: "", fullName: "" });
   const [dmcaAgree, setDmcaAgree] = useState(false);
   const [submittingDmca, setSubmittingDmca] = useState(false);
+  const [blockedAccountsOpen, setBlockedAccountsOpen] = useState(false);
+  const [blockedAccounts, setBlockedAccounts] = useState<BlockedAccount[]>([]);
+  const [blockedAccountsLoading, setBlockedAccountsLoading] = useState(false);
+  const [blockedAccountsError, setBlockedAccountsError] = useState(false);
+  const [unblockingId, setUnblockingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!blockedAccountsOpen || !user) return;
+    let alive = true;
+    setBlockedAccountsLoading(true);
+    setBlockedAccountsError(false);
+
+    void (async () => {
+      const { data: blockRows, error: blockError } = await supabase
+        .from("user_blocks")
+        .select("blocked_id")
+        .eq("blocker_id", user.id);
+
+      if (!alive) return;
+      if (blockError) {
+        console.error("[settings] Could not load blocked accounts", blockError);
+        setBlockedAccounts([]);
+        setBlockedAccountsError(true);
+        setBlockedAccountsLoading(false);
+        return;
+      }
+
+      const blockedIds = [...new Set((blockRows ?? []).map((row) => row.blocked_id))];
+      if (!blockedIds.length) {
+        setBlockedAccounts([]);
+        setBlockedAccountsLoading(false);
+        return;
+      }
+
+      const { data: profiles, error: profileError } = await supabase
+        .from("profiles")
+        .select("id, username, display_name, avatar_url")
+        .in("id", blockedIds);
+
+      if (!alive) return;
+      if (profileError) {
+        console.error("[settings] Could not load blocked account profiles", profileError);
+        setBlockedAccounts([]);
+        setBlockedAccountsError(true);
+        setBlockedAccountsLoading(false);
+        return;
+      }
+
+      const next = await Promise.all(
+        (profiles ?? []).map(async (profile) => ({
+          id: profile.id,
+          username: profile.username?.trim() || "user",
+          displayName:
+            profile.display_name?.trim() ||
+            profile.username?.trim() ||
+            "YourWorld user",
+          avatarUrl: profile.avatar_url
+            ? await resolveMediaUrl(profile.avatar_url, "avatars")
+            : null,
+        })),
+      );
+      if (!alive) return;
+      setBlockedAccounts(next);
+      setBlockedAccountsLoading(false);
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [blockedAccountsOpen, user]);
 
   const submitDmca = async () => {
     const contentLink = dmca.contentLink.trim();
@@ -271,7 +349,81 @@ function SettingsPage() {
           <Toggle label="Private account" hint="Only approved followers can see your posts" on={toggles.privateAccount} onClick={() => flip("privateAccount")} />
           <Toggle label="Allow downloads" hint="Let others save your reels with watermark" on={toggles.allowDownloads} onClick={() => flip("allowDownloads")} />
           <Toggle label="Show activity status" hint="Display when you were last active" on={toggles.activityStatus} onClick={() => flip("activityStatus")} />
-          <Row label="Blocked accounts" hint="No blocked accounts" />
+          <Row
+            label="Blocked accounts"
+            hint="Manage people you have blocked"
+            onClick={() => setBlockedAccountsOpen(true)}
+          />
+        </Panel>
+      )}
+
+      {blockedAccountsOpen && (
+        <Panel
+          title="Blocked Accounts"
+          onClose={() => setBlockedAccountsOpen(false)}
+          backLabel="Back to Privacy & Downloads"
+        >
+          {blockedAccountsLoading ? (
+            <div className="px-3 py-10 text-center text-sm text-zinc-500">Loading blocked accounts…</div>
+          ) : blockedAccountsError ? (
+            <div className="px-3 py-10 text-center text-sm text-zinc-400">
+              Could not load blocked accounts. Please try again.
+            </div>
+          ) : blockedAccounts.length === 0 ? (
+            <div className="px-3 py-10 text-center">
+              <div className="text-sm font-semibold text-white">No blocked accounts</div>
+              <div className="mt-1 text-xs text-zinc-500">People you block will appear here.</div>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {blockedAccounts.map((account) => (
+                <div
+                  key={account.id}
+                  className="flex items-center gap-3 rounded-xl p-3 hover:bg-zinc-800/50"
+                >
+                  {account.avatarUrl ? (
+                    <img
+                      src={account.avatarUrl}
+                      alt=""
+                      className="h-10 w-10 shrink-0 rounded-full object-cover"
+                    />
+                  ) : (
+                    <div
+                      aria-hidden="true"
+                      className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-indigo-500/20 text-sm font-semibold text-indigo-200"
+                    >
+                      {account.username.slice(0, 1).toUpperCase()}
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-semibold text-white">{account.displayName}</div>
+                    <div className="truncate text-xs text-zinc-500">@{account.username}</div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={unblockingId === account.id}
+                    onClick={() => {
+                      if (!user) return;
+                      setUnblockingId(account.id);
+                      void (async () => {
+                        const error = await setUserBlock(user.id, account.id, false);
+                        if (error) {
+                          toast.error("Could not unblock this account. Please try again.");
+                        } else {
+                          setBlockedAccounts((current) => current.filter((item) => item.id !== account.id));
+                          toast.success(`@${account.username} unblocked`);
+                        }
+                        setUnblockingId(null);
+                      })();
+                    }}
+                    className="shrink-0 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs font-semibold text-zinc-200 hover:border-indigo-400 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {unblockingId === account.id ? "Unblocking…" : "Unblock"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </Panel>
       )}
 
@@ -423,7 +575,17 @@ function SettingsPage() {
     </div>
   );
 }
-function Panel({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+function Panel({
+  title,
+  onClose,
+  children,
+  backLabel,
+}: {
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+  backLabel?: string;
+}) {
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center sm:justify-center">
       <div className="absolute inset-0 bg-black/70" onClick={onClose} aria-hidden />
@@ -435,7 +597,11 @@ function Panel({ title, onClose, children }: { title: string; onClose: () => voi
       >
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-base font-bold">{title}</h2>
-          <button onClick={onClose} aria-label="Close" className="p-1.5 text-zinc-400 hover:text-white">
+          <button
+            onClick={onClose}
+            aria-label={backLabel ?? "Close"}
+            className="p-1.5 text-zinc-400 hover:text-white"
+          >
             <X size={18} />
           </button>
         </div>
