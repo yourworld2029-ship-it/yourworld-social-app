@@ -46,7 +46,7 @@ function PrivacyPage() {
           <h1 className="text-xl font-bold">Privacy Policy</h1>
         </div>
 
-        <p className="text-xs text-zinc-500 mb-6">Last updated: August 30, 2026</p>
+        <p className="text-xs text-zinc-500 mb-6">Last updated: September 22, 2026</p>
 
         <Section title="1. Information We Collect">
           <p>
@@ -154,13 +154,26 @@ function PrivacyPage() {
           <p>YourWorld is not directed to children under 13 (or the applicable minimum age).</p>
         </Section>
 
-        <Section title="8. Contact">
+        <Section title="8. Grievance Officer & Contact">
           <p>
-            Privacy questions? Contact us at{" "}
-            <a href="mailto:Yourworld2029@gmail.com" className="text-indigo-400 underline">
-              Yourworld2029@gmail.com
-            </a>
-            .
+            If you have any questions, concerns, or requests regarding this Privacy Policy or data
+            processing practices, contact our designated Grievance Officer:
+          </p>
+          <ul className="list-disc space-y-1 pl-5">
+            <li>Grievance &amp; Compliance Officer: S. Kumar</li>
+            <li>Enterprise: YourWorld Social (Proprietorship, India)</li>
+            <li>
+              Official Email:{" "}
+              <a href="mailto:Yourworld2029@gmail.com" className="text-indigo-400 underline">
+                Yourworld2029@gmail.com
+              </a>
+            </li>
+            <li>Jurisdiction / Location: Hisar, Haryana, India</li>
+          </ul>
+          <p>
+            In accordance with the Information Technology Act, 2000 and the Digital Personal Data
+            Protection (DPDP) framework, we acknowledge privacy inquiries within 12–72 hours and
+            resolve grievances expeditiously.
           </p>
         </Section>
 
