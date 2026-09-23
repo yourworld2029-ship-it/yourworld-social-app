@@ -16,9 +16,9 @@ export function BottomNav({ onOpenCreate }: BottomNavProps) {
   }
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-40 bg-zinc-950/90 backdrop-blur-xl border-t border-zinc-800/60 px-4 py-2">
+    <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-border/70 bg-background/90 px-4 py-2 backdrop-blur-xl">
       <div className="max-w-md mx-auto flex items-center justify-around">
-        <Link to="/" className="flex flex-col items-center gap-1 text-[10px] text-zinc-400 hover:text-white">
+        <Link to="/" className="flex flex-col items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground">
           <Home className="w-5 h-5" />
           <span>Home</span>
         </Link>
@@ -26,7 +26,7 @@ export function BottomNav({ onOpenCreate }: BottomNavProps) {
         <Link
           to="/reels"
           search={{ reelId: undefined, userId: undefined, initialVideoId: undefined, returnTo: undefined }}
-          className="flex flex-col items-center gap-1 text-[10px] text-zinc-400 hover:text-white"
+          className="flex flex-col items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
         >
           <Film className="w-5 h-5" />
           <span>Video</span>
@@ -43,7 +43,7 @@ export function BottomNav({ onOpenCreate }: BottomNavProps) {
         <Link
           to="/chat"
           aria-label={unreadMessages > 0 ? `Chat, ${unreadMessages} unread` : "Chat"}
-          className="flex flex-col items-center gap-1 text-[10px] text-zinc-400 hover:text-white"
+          className="flex flex-col items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
         >
           <span className="relative">
             <MessageSquare className="w-5 h-5" />
@@ -56,7 +56,7 @@ export function BottomNav({ onOpenCreate }: BottomNavProps) {
           <span>Chat</span>
         </Link>
 
-        <Link to="/profile" className="flex flex-col items-center gap-1 text-[10px] text-zinc-400 hover:text-white">
+        <Link to="/profile" className="flex flex-col items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground">
           <User className="w-5 h-5" />
           <span>Profile</span>
         </Link>

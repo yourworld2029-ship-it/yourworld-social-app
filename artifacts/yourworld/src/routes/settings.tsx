@@ -1,12 +1,16 @@
 import React, { useEffect, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { User, Megaphone, Lock, Bell, Palette, HelpCircle, Info, LogOut, ChevronRight, ArrowLeft, X, Wallet } from "lucide-react";
+import {
+  User, Megaphone, Lock, Bell, Palette, HelpCircle, Info, LogOut, ChevronRight, ArrowLeft, X, Wallet,
+  Check, Monitor, Moon, Sparkles, Sun, Zap,
+} from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-store";
 import { historyBackOr } from "@/lib/navigation";
 import { supabase } from "@/integrations/supabase/client";
 import { resolveMediaUrl, setUserBlock } from "@/lib/social-data";
+import { THEME_OPTIONS, useTheme, type ThemeChoice } from "@/lib/theme";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({
@@ -59,6 +63,9 @@ function SettingsPage() {
   const [blockedAccountsLoading, setBlockedAccountsLoading] = useState(false);
   const [blockedAccountsError, setBlockedAccountsError] = useState(false);
   const [unblockingId, setUnblockingId] = useState<string | null>(null);
+  const [themeOpen, setThemeOpen] = useState(false);
+  const { theme, setTheme } = useTheme();
+  const selectedTheme = THEME_OPTIONS.find((option) => option.id === theme) ?? THEME_OPTIONS[1];
 
   useEffect(() => {
     if (!blockedAccountsOpen || !user) return;
@@ -202,48 +209,48 @@ function SettingsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#09090b] text-white p-4 font-sans select-none">
+    <div className="min-h-screen bg-background p-4 font-sans text-foreground select-none">
       
       {/* Header */}
       <div className="flex items-center gap-3 mb-6 mt-2">
         <button
           onClick={() => historyBackOr(() => void navigate({ to: "/profile" }))}
-          className="p-1 text-zinc-300 hover:text-white"
+          className="p-1 text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft size={22} />
         </button>
-        <h1 className="text-xl font-bold">Settings</h1>
+        <h1 className="text-xl font-bold text-foreground">Settings</h1>
       </div>
 
-      <div className="bg-[#141418] rounded-2xl p-2 border border-zinc-800 space-y-1">
+      <div className="space-y-1 rounded-2xl border border-border bg-card p-2">
         
         {/* Account */}
         <div
           role="button"
           tabIndex={0}
           onClick={() => navigate({ to: "/account" })}
-          className="flex items-center justify-between p-3.5 hover:bg-zinc-800/50 rounded-xl cursor-pointer"
+           className="flex cursor-pointer items-center justify-between rounded-xl p-3.5 hover:bg-muted/50"
         >
           <div className="flex items-center gap-4">
-            <User className="text-zinc-400" size={20} />
+            <User className="text-muted-foreground" size={20} />
             <span className="font-semibold text-sm">Account</span>
           </div>
-          <ChevronRight className="text-zinc-600" size={18} />
+          <ChevronRight className="text-muted-foreground" size={18} />
         </div>
 
         {/* Create Channel - ROUTE FIXED TO MAIN CHANNEL SCREEN */}
         <div 
           onClick={() => navigate({ to: "/channel/create" })}
-          className="flex items-center justify-between p-3.5 hover:bg-zinc-800/50 rounded-xl cursor-pointer"
+           className="flex cursor-pointer items-center justify-between rounded-xl p-3.5 hover:bg-muted/50"
         >
           <div className="flex items-center gap-4">
-            <Megaphone className="text-zinc-400" size={20} />
+            <Megaphone className="text-muted-foreground" size={20} />
             <div>
               <div className="font-semibold text-sm">Create Channel</div>
-              <div className="text-[11px] text-zinc-500">Videos, reels, posts & analytics</div>
+              <div className="text-[11px] text-muted-foreground">Videos, reels, posts & analytics</div>
             </div>
           </div>
-          <ChevronRight className="text-zinc-600" size={18} />
+          <ChevronRight className="text-muted-foreground" size={18} />
         </div>
 
         {/* Monetization & Wallet */}
@@ -251,16 +258,16 @@ function SettingsPage() {
           role="button"
           tabIndex={0}
           onClick={() => navigate({ to: "/wallet" })}
-          className="flex items-center justify-between p-3.5 hover:bg-zinc-800/50 rounded-xl cursor-pointer"
+           className="flex cursor-pointer items-center justify-between rounded-xl p-3.5 hover:bg-muted/50"
         >
           <div className="flex items-center gap-4">
-            <Wallet className="text-zinc-400" size={20} />
+            <Wallet className="text-muted-foreground" size={20} />
             <div>
               <div className="font-semibold text-sm">Monetization & Wallet</div>
-              <div className="text-[11px] text-zinc-500">Earnings, courses, payouts & tax invoices</div>
+              <div className="text-[11px] text-muted-foreground">Earnings, courses, payouts & tax invoices</div>
             </div>
           </div>
-          <ChevronRight className="text-zinc-600" size={18} />
+          <ChevronRight className="text-muted-foreground" size={18} />
         </div>
 
         {/* Privacy */}
@@ -268,16 +275,16 @@ function SettingsPage() {
           role="button"
           tabIndex={0}
           onClick={() => setPanel("privacy")}
-          className="flex items-center justify-between p-3.5 hover:bg-zinc-800/50 rounded-xl cursor-pointer"
+           className="flex cursor-pointer items-center justify-between rounded-xl p-3.5 hover:bg-muted/50"
         >
           <div className="flex items-center gap-4">
-            <Lock className="text-zinc-400" size={20} />
+            <Lock className="text-muted-foreground" size={20} />
             <div>
               <div className="font-semibold text-sm">Privacy & Downloads</div>
-              <div className="text-[11px] text-zinc-500">Blocked accounts</div>
+              <div className="text-[11px] text-muted-foreground">Blocked accounts</div>
             </div>
           </div>
-          <ChevronRight className="text-zinc-600" size={18} />
+          <ChevronRight className="text-muted-foreground" size={18} />
         </div>
 
         {/* Notifications */}
@@ -285,16 +292,16 @@ function SettingsPage() {
           role="button"
           tabIndex={0}
           onClick={() => setPanel("notifications")}
-          className="flex items-center justify-between p-3.5 hover:bg-zinc-800/50 rounded-xl cursor-pointer"
+           className="flex cursor-pointer items-center justify-between rounded-xl p-3.5 hover:bg-muted/50"
         >
           <div className="flex items-center gap-4">
-            <Bell className="text-zinc-400" size={20} />
+            <Bell className="text-muted-foreground" size={20} />
             <div>
               <div className="font-semibold text-sm">Notifications</div>
-              <div className="text-[11px] text-zinc-500">Likes, channel & system alerts</div>
+              <div className="text-[11px] text-muted-foreground">Likes, channel & system alerts</div>
             </div>
           </div>
-          <ChevronRight className="text-zinc-600" size={18} />
+          <ChevronRight className="text-muted-foreground" size={18} />
         </div>
 
         {/* Appearance */}
@@ -302,13 +309,13 @@ function SettingsPage() {
           role="button"
           tabIndex={0}
           onClick={() => setPanel("appearance")}
-          className="flex items-center justify-between p-3.5 hover:bg-zinc-800/50 rounded-xl cursor-pointer"
+           className="flex cursor-pointer items-center justify-between rounded-xl p-3.5 hover:bg-muted/50"
         >
           <div className="flex items-center gap-4">
-            <Palette className="text-zinc-400" size={20} />
+            <Palette className="text-muted-foreground" size={20} />
             <span className="font-semibold text-sm">Appearance</span>
           </div>
-          <ChevronRight className="text-zinc-600" size={18} />
+          <ChevronRight className="text-muted-foreground" size={18} />
         </div>
 
         {/* Help & Support */}
@@ -316,13 +323,13 @@ function SettingsPage() {
           role="button"
           tabIndex={0}
           onClick={() => setPanel("help")}
-          className="flex items-center justify-between p-3.5 hover:bg-zinc-800/50 rounded-xl cursor-pointer"
+           className="flex cursor-pointer items-center justify-between rounded-xl p-3.5 hover:bg-muted/50"
         >
           <div className="flex items-center gap-4">
-            <HelpCircle className="text-zinc-400" size={20} />
+            <HelpCircle className="text-muted-foreground" size={20} />
             <span className="font-semibold text-sm">Help & Support</span>
           </div>
-          <ChevronRight className="text-zinc-600" size={18} />
+          <ChevronRight className="text-muted-foreground" size={18} />
         </div>
 
         {/* About */}
@@ -330,19 +337,19 @@ function SettingsPage() {
           role="button"
           tabIndex={0}
           onClick={() => setPanel("about")}
-          className="flex items-center justify-between p-3.5 hover:bg-zinc-800/50 rounded-xl cursor-pointer"
+           className="flex cursor-pointer items-center justify-between rounded-xl p-3.5 hover:bg-muted/50"
         >
           <div className="flex items-center gap-4">
-            <Info className="text-zinc-400" size={20} />
+            <Info className="text-muted-foreground" size={20} />
             <span className="font-semibold text-sm">About</span>
           </div>
-          <ChevronRight className="text-zinc-600" size={18} />
+          <ChevronRight className="text-muted-foreground" size={18} />
         </div>
 
         {/* Logout */}
         <button
           onClick={handleLogout}
-          className="border-t border-zinc-800/80 pt-2 p-3.5 flex w-full items-center gap-4 text-red-500 cursor-pointer hover:bg-red-950/20 rounded-xl"
+           className="flex w-full cursor-pointer items-center gap-4 rounded-xl border-t border-border p-3.5 pt-2 text-destructive hover:bg-destructive/10"
         >
           <LogOut size={20} />
           <span className="font-semibold text-sm">Log Out</span>
@@ -370,22 +377,22 @@ function SettingsPage() {
           backLabel="Back to Privacy & Downloads"
         >
           {blockedAccountsLoading ? (
-            <div className="px-3 py-10 text-center text-sm text-zinc-500">Loading blocked accounts…</div>
+            <div className="px-3 py-10 text-center text-sm text-muted-foreground">Loading blocked accounts…</div>
           ) : blockedAccountsError ? (
-            <div className="px-3 py-10 text-center text-sm text-zinc-400">
+            <div className="px-3 py-10 text-center text-sm text-muted-foreground">
               Could not load blocked accounts. Please try again.
             </div>
           ) : blockedAccounts.length === 0 ? (
             <div className="px-3 py-10 text-center">
-              <div className="text-sm font-semibold text-white">No blocked accounts</div>
-              <div className="mt-1 text-xs text-zinc-500">People you block will appear here.</div>
+              <div className="text-sm font-semibold text-foreground">No blocked accounts</div>
+              <div className="mt-1 text-xs text-muted-foreground">People you block will appear here.</div>
             </div>
           ) : (
             <div className="space-y-1">
               {blockedAccounts.map((account) => (
                 <div
                   key={account.id}
-                  className="flex items-center gap-3 rounded-xl p-3 hover:bg-zinc-800/50"
+                  className="flex items-center gap-3 rounded-xl p-3 hover:bg-muted/50"
                 >
                   {account.avatarUrl ? (
                     <img
@@ -396,14 +403,14 @@ function SettingsPage() {
                   ) : (
                     <div
                       aria-hidden="true"
-                      className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-indigo-500/20 text-sm font-semibold text-indigo-200"
+                      className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary/15 text-sm font-semibold text-primary"
                     >
                       {account.username.slice(0, 1).toUpperCase()}
                     </div>
                   )}
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-semibold text-white">{account.displayName}</div>
-                    <div className="truncate text-xs text-zinc-500">@{account.username}</div>
+                    <div className="truncate text-sm font-semibold text-foreground">{account.displayName}</div>
+                    <div className="truncate text-xs text-muted-foreground">@{account.username}</div>
                   </div>
                   <button
                     type="button"
@@ -422,7 +429,7 @@ function SettingsPage() {
                         setUnblockingId(null);
                       })();
                     }}
-                    className="shrink-0 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs font-semibold text-zinc-200 hover:border-indigo-400 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                    className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-foreground hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {unblockingId === account.id ? "Unblocking…" : "Unblock"}
                   </button>
@@ -447,10 +454,22 @@ function SettingsPage() {
 
       {panel === "appearance" && (
         <Panel title="Appearance" onClose={() => setPanel(null)}>
-          <Row label="Theme" hint="Premium Dark (default)" />
+          <Row
+            label="Theme"
+            hint={`${selectedTheme.label}${theme === "auto" ? " · follows system" : ""}`}
+            onClick={() => setThemeOpen(true)}
+          />
           <Toggle label="Reduce motion" hint="Minimise animations and transitions" on={toggles.reduceMotion} onClick={() => flip("reduceMotion")} />
           <Toggle label="Compact layout" hint="Tighter spacing in feed and lists" on={toggles.compact} onClick={() => flip("compact")} />
         </Panel>
+      )}
+
+      {themeOpen && (
+        <ColorThemeSheet
+          selectedTheme={theme}
+          onSelect={setTheme}
+          onClose={() => setThemeOpen(false)}
+        />
       )}
 
       {panel === "help" && (
@@ -518,14 +537,14 @@ function SettingsPage() {
               placeholder="https://link-to-your-original-work"
             />
             <div>
-              <label className="block text-xs font-semibold text-zinc-400 mb-1">Description of ownership *</label>
+              <label className="mb-1 block text-xs font-semibold text-muted-foreground">Description of ownership *</label>
               <textarea
                 value={dmca.description}
                 onChange={(e) => setDmca((d) => ({ ...d, description: e.target.value }))}
                 placeholder="Explain that you own the original work"
                 maxLength={2000}
                 rows={4}
-                className="w-full rounded-xl border border-zinc-800 bg-zinc-900 p-3 text-sm text-white outline-none focus:border-indigo-500"
+                className="w-full rounded-xl border border-input bg-background p-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring"
               />
             </div>
             <DmcaField
@@ -541,14 +560,14 @@ function SettingsPage() {
               onChange={(v) => setDmca((d) => ({ ...d, email: v }))}
               placeholder="you@example.com"
             />
-            <label className="flex items-start gap-3 rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
+            <label className="flex items-start gap-3 rounded-xl border border-border bg-muted/60 p-3">
               <input
                 type="checkbox"
                 checked={dmcaAgree}
                 onChange={(e) => setDmcaAgree(e.target.checked)}
-                className="mt-0.5 h-4 w-4 shrink-0 accent-indigo-500"
+                className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--primary)]"
               />
-              <span className="text-[11px] leading-relaxed text-zinc-300">
+              <span className="text-[11px] leading-relaxed text-muted-foreground">
                 I confirm under penalty of perjury/account termination that I am the rightful owner or authorized agent of
                 this copyrighted content.
               </span>
@@ -556,7 +575,7 @@ function SettingsPage() {
             <button
               onClick={submitDmca}
               disabled={submittingDmca || !dmcaAgree}
-              className="w-full rounded-xl bg-indigo-500 py-3 text-sm font-semibold text-white hover:bg-indigo-400 disabled:opacity-50"
+              className="w-full rounded-xl bg-primary py-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
               {submittingDmca ? "Submitting…" : "Submit DMCA Report"}
             </button>
@@ -581,6 +600,120 @@ function SettingsPage() {
     </div>
   );
 }
+
+function ColorThemeSheet({
+  selectedTheme,
+  onSelect,
+  onClose,
+}: {
+  selectedTheme: ThemeChoice;
+  onSelect: (theme: ThemeChoice) => void;
+  onClose: () => void;
+}) {
+  return (
+    <Panel title="Color Theme" onClose={onClose}>
+      <div className="mb-3 rounded-2xl border border-border bg-muted/30 p-3">
+        <div className="flex items-start gap-3">
+          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary/15 text-primary">
+            <Palette size={18} />
+          </div>
+          <div>
+            <p className="text-sm font-semibold">Make YourWorld yours</p>
+            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+              Themes apply instantly across cards, sheets, navigation and form controls.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-2.5" role="radiogroup" aria-label="Color theme">
+        {THEME_OPTIONS.map((option) => {
+          const active = selectedTheme === option.id;
+          return (
+            <button
+              key={option.id}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              onClick={() => onSelect(option.id)}
+              className={`group flex w-full items-center gap-3 rounded-2xl border p-2.5 text-left transition-all ${
+                active
+                  ? "border-primary/70 bg-primary/8 shadow-[0_0_0_1px_color-mix(in_oklab,var(--primary)_20%,transparent),0_12px_28px_-20px_var(--primary)]"
+                  : "border-border/70 bg-background/45 hover:border-foreground/20 hover:bg-muted/50"
+              }`}
+            >
+              <ThemePreview option={option} />
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-2">
+                  <span className="truncate text-sm font-semibold">{option.label}</span>
+                  <span className="rounded-full bg-primary/12 px-1.5 py-0.5 text-[9px] font-bold tracking-[0.12em] text-primary">
+                    {option.badge}
+                  </span>
+                </span>
+                <span className="mt-1 block text-[11px] leading-snug text-muted-foreground">
+                  {option.description}
+                </span>
+              </span>
+              <span
+                className={`grid h-6 w-6 shrink-0 place-items-center rounded-full border transition-colors ${
+                  active ? "border-primary bg-primary text-primary-foreground" : "border-border text-transparent"
+                }`}
+                aria-hidden="true"
+              >
+                <Check size={14} strokeWidth={3} />
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </Panel>
+  );
+}
+
+function ThemePreview({
+  option,
+}: {
+  option: (typeof THEME_OPTIONS)[number];
+}) {
+  const PreviewIcon =
+    option.id === "auto"
+      ? Monitor
+      : option.id === "daylight"
+        ? Sun
+        : option.id === "neon"
+          ? Zap
+          : option.id === "midnight"
+            ? Moon
+            : Sparkles;
+
+  return (
+    <span
+      className="relative grid h-[58px] w-[74px] shrink-0 place-items-center overflow-hidden rounded-xl border border-white/10 shadow-inner"
+      style={{ backgroundColor: option.preview.background }}
+      aria-hidden="true"
+    >
+      <span
+        className="absolute inset-x-2 bottom-2 top-3 rounded-lg border border-white/10 p-1.5"
+        style={{ backgroundColor: option.preview.surface }}
+      >
+        <span className="block h-1.5 w-9 rounded-full" style={{ backgroundColor: option.preview.accent }} />
+        <span className="mt-1.5 block h-1 w-12 rounded-full bg-white/20" />
+        <span className="mt-1 block h-1 w-8 rounded-full bg-white/10" />
+      </span>
+      <span
+        className="relative z-10 grid h-7 w-7 place-items-center rounded-full border border-white/25 shadow-lg"
+        style={{ backgroundColor: option.preview.accent, color: option.preview.background }}
+      >
+        <PreviewIcon size={14} strokeWidth={2.5} />
+      </span>
+      <span
+        className="absolute bottom-1 right-1 h-1.5 w-1.5 rounded-full"
+        style={{ backgroundColor: option.preview.secondary }}
+      />
+    </span>
+  );
+}
+
 function Panel({
   title,
   onClose,
@@ -594,19 +727,19 @@ function Panel({
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center sm:justify-center">
-      <div className="absolute inset-0 bg-black/70" onClick={onClose} aria-hidden />
+      <div className="absolute inset-0 bg-background/75 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
       <div
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="relative w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl border border-zinc-800 bg-[#141418] p-4 max-h-[85vh] overflow-y-auto"
+        className="relative max-h-[85vh] w-full overflow-y-auto rounded-t-3xl border border-border bg-card p-4 text-card-foreground sm:max-w-md sm:rounded-3xl"
       >
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-base font-bold">{title}</h2>
           <button
             onClick={onClose}
             aria-label={backLabel ?? "Close"}
-            className="p-1.5 text-zinc-400 hover:text-white"
+            className="p-1.5 text-muted-foreground hover:text-foreground"
           >
             {backLabel ? <ArrowLeft size={18} /> : <X size={18} />}
           </button>
@@ -620,13 +753,13 @@ function Row({ label, hint, onClick }: { label: string; hint?: string; onClick?:
   return (
     <button
       onClick={onClick}
-      className="flex w-full items-center justify-between rounded-xl p-3 text-left hover:bg-zinc-800/50"
+      className="flex w-full items-center justify-between rounded-xl p-3 text-left hover:bg-muted/50"
     >
       <span>
         <span className="block text-sm font-semibold">{label}</span>
-        {hint && <span className="block text-[11px] text-zinc-500">{hint}</span>}
+        {hint && <span className="block text-[11px] text-muted-foreground">{hint}</span>}
       </span>
-      <ChevronRight className="text-zinc-600" size={18} />
+      <ChevronRight className="text-muted-foreground" size={18} />
     </button>
   );
 }
@@ -634,14 +767,14 @@ function Row({ label, hint, onClick }: { label: string; hint?: string; onClick?:
 function DmcaField({ label, value, onChange, placeholder, type = "text" }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; type?: string }) {
   return (
     <div>
-      <label className="block text-xs font-semibold text-zinc-400 mb-1">{label}</label>
+        <label className="mb-1 block text-xs font-semibold text-muted-foreground">{label}</label>
       <input
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         maxLength={2000}
-        className="w-full rounded-xl border border-zinc-800 bg-zinc-900 p-3 text-sm text-white outline-none focus:border-indigo-500"
+        className="w-full rounded-xl border border-input bg-background p-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring"
       />
     </div>
   );
@@ -652,14 +785,14 @@ function Toggle({ label, hint, on, onClick }: { label: string; hint?: string; on
     <div className="flex items-center justify-between rounded-xl p-3">
       <span className="min-w-0 pr-3">
         <span className="block text-sm font-semibold">{label}</span>
-        {hint && <span className="block text-[11px] text-zinc-500">{hint}</span>}
+        {hint && <span className="block text-[11px] text-muted-foreground">{hint}</span>}
       </span>
       <button
         role="switch"
         aria-checked={on}
         aria-label={label}
         onClick={onClick}
-        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${on ? "bg-indigo-500" : "bg-zinc-700"}`}
+        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${on ? "bg-primary" : "bg-muted"}`}
       >
         <span
           className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${on ? "translate-x-[22px]" : "translate-x-0.5"}`}

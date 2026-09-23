@@ -28,6 +28,7 @@ import { EarningsCreditWatcher } from "@/lib/earnings-credit";
 import { SafeProvider } from "@/lib/safe-provider";
 import { AdaptiveMediaController } from "@/lib/adaptive-performance";
 import { VideoPlaybackProvider } from "@/lib/video-playback";
+import { ThemeProvider } from "@/lib/theme";
 
 function NotFoundComponent() {
   return (
@@ -178,9 +179,10 @@ function RootComponent() {
   }, []);
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <AdaptiveMediaController />
-      <AuthProvider>
+    <ThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        <AdaptiveMediaController />
+        <AuthProvider>
         <SafeProvider name="YwStore">
           <YwStoreProvider>
             <SafeProvider name="Notifications">
@@ -222,7 +224,8 @@ function RootComponent() {
             </SafeProvider>
           </YwStoreProvider>
         </SafeProvider>
-      </AuthProvider>
-    </QueryClientProvider>
+        </AuthProvider>
+      </QueryClientProvider>
+    </ThemeProvider>
   );
 }

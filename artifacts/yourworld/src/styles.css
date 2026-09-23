@@ -111,6 +111,11 @@
   --sidebar-accent-foreground: oklch(0.975 0.005 280);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.68 0.245 356);
+  --surface-strong: oklch(0.115 0.012 275);
+  --surface-soft: oklch(0.22 0.018 277);
+  --surface-overlay: oklch(0.13 0.012 275 / 0.84);
+  --theme-accent: oklch(0.68 0.245 356);
+  --theme-accent-secondary: oklch(0.8 0.16 195);
 }
 
 .dark {
@@ -146,6 +151,112 @@
   --sidebar-accent-foreground: oklch(0.984 0.003 247.858);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.551 0.027 264.364);
+}
+
+/*
+ * Runtime themes. The provider writes data-theme on <html>, so these values
+ * update every semantic Tailwind surface without a route reload.
+ */
+html[data-theme="midnight"] {
+  color-scheme: dark;
+  --background: oklch(0 0 0);
+  --foreground: oklch(0.97 0.006 280);
+  --card: oklch(0.09 0.008 280);
+  --card-foreground: oklch(0.97 0.006 280);
+  --popover: oklch(0.075 0.008 280);
+  --popover-foreground: oklch(0.97 0.006 280);
+  --primary: oklch(0.7 0.22 292);
+  --primary-foreground: oklch(0.98 0.004 280);
+  --primary-glow: oklch(0.78 0.17 205);
+  --secondary: oklch(0.16 0.01 280);
+  --secondary-foreground: oklch(0.94 0.008 280);
+  --muted: oklch(0.13 0.008 280);
+  --muted-foreground: oklch(0.68 0.018 280);
+  --accent: oklch(0.78 0.17 205);
+  --accent-foreground: oklch(0.12 0.01 280);
+  --border: oklch(1 0 0 / 11%);
+  --input: oklch(1 0 0 / 14%);
+  --ring: oklch(0.7 0.22 292);
+  --surface-strong: oklch(0.055 0.004 280);
+  --surface-soft: oklch(0.15 0.008 280);
+  --surface-overlay: oklch(0.02 0 0 / 0.88);
+  --theme-accent: oklch(0.7 0.22 292);
+  --theme-accent-secondary: oklch(0.78 0.17 205);
+  --gradient-brand: linear-gradient(135deg, var(--accent) 0%, var(--primary) 55%, var(--primary-glow) 100%);
+  --shadow-glow: 0 12px 40px -12px oklch(0.7 0.22 292 / 0.5);
+}
+
+html[data-theme="obsidian"] {
+  color-scheme: dark;
+  --surface-strong: oklch(0.115 0.012 275);
+  --surface-soft: oklch(0.22 0.018 277);
+  --surface-overlay: oklch(0.13 0.012 275 / 0.84);
+  --theme-accent: oklch(0.68 0.245 356);
+  --theme-accent-secondary: oklch(0.8 0.16 195);
+}
+
+html[data-theme="neon"] {
+  color-scheme: dark;
+  --background: oklch(0.105 0.045 282);
+  --foreground: oklch(0.98 0.012 280);
+  --card: oklch(0.16 0.055 286);
+  --card-foreground: oklch(0.98 0.012 280);
+  --popover: oklch(0.14 0.05 286);
+  --popover-foreground: oklch(0.98 0.012 280);
+  --primary: oklch(0.68 0.27 304);
+  --primary-foreground: oklch(0.985 0.01 280);
+  --primary-glow: oklch(0.72 0.22 202);
+  --secondary: oklch(0.22 0.07 286);
+  --secondary-foreground: oklch(0.98 0.012 280);
+  --muted: oklch(0.2 0.06 285);
+  --muted-foreground: oklch(0.75 0.04 280);
+  --accent: oklch(0.78 0.19 198);
+  --accent-foreground: oklch(0.12 0.04 282);
+  --border: oklch(0.78 0.12 300 / 22%);
+  --input: oklch(0.82 0.1 300 / 22%);
+  --ring: oklch(0.68 0.27 304);
+  --surface-strong: oklch(0.085 0.04 282);
+  --surface-soft: oklch(0.24 0.075 286);
+  --surface-overlay: oklch(0.07 0.04 282 / 0.9);
+  --theme-accent: oklch(0.68 0.27 304);
+  --theme-accent-secondary: oklch(0.78 0.19 198);
+  --gradient-brand: linear-gradient(135deg, var(--accent) 0%, var(--primary) 52%, var(--primary-glow) 100%);
+  --shadow-glow: 0 12px 42px -12px oklch(0.68 0.27 304 / 0.65);
+}
+
+html[data-theme="daylight"] {
+  color-scheme: light;
+  --background: oklch(0.985 0.006 255);
+  --foreground: oklch(0.2 0.025 260);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.2 0.025 260);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.2 0.025 260);
+  --primary: oklch(0.58 0.2 355);
+  --primary-foreground: oklch(0.99 0.005 355);
+  --primary-glow: oklch(0.62 0.15 25);
+  --secondary: oklch(0.95 0.012 255);
+  --secondary-foreground: oklch(0.25 0.025 260);
+  --muted: oklch(0.94 0.014 255);
+  --muted-foreground: oklch(0.48 0.03 260);
+  --accent: oklch(0.58 0.13 205);
+  --accent-foreground: oklch(0.98 0.005 205);
+  --destructive: oklch(0.56 0.2 25);
+  --destructive-foreground: oklch(0.99 0.005 25);
+  --border: oklch(0.2 0.025 260 / 13%);
+  --input: oklch(0.2 0.025 260 / 18%);
+  --ring: oklch(0.58 0.2 355);
+  --surface-strong: oklch(0.96 0.01 255);
+  --surface-soft: oklch(0.92 0.016 255);
+  --surface-overlay: oklch(1 0 0 / 0.9);
+  --theme-accent: oklch(0.58 0.2 355);
+  --theme-accent-secondary: oklch(0.58 0.13 205);
+  --gradient-brand: linear-gradient(135deg, var(--accent) 0%, var(--primary) 55%, var(--primary-glow) 100%);
+  --shadow-glow: 0 12px 36px -14px oklch(0.58 0.2 355 / 0.35);
+}
+
+html[data-theme] body {
+  transition: background-color 180ms ease, color 180ms ease;
 }
 
 @layer base {
