@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { uploadOrbitMedia } from "@/lib/orbit-live";
-import { loadCachedThread, saveCachedThread, PAGE_SIZE } from "@/lib/chat-db";
 import {
+  loadCachedThread,
+  loadCachedThreadSync,
+  saveCachedThread,
+  PAGE_SIZE,
+} from "@/lib/chat-db";
+import {
+  afterViewExpiresAt,
   expiresAtForAutoDelete,
   type AutoDeleteSetting,
 } from "@/lib/auto-delete";
@@ -111,20 +117,8 @@ export const isUnexpiredOrbitRow = (
   viewerOrNow?: string | null | number,
   now = Date.now(),
 ) => {
-  const viewerId = typeof viewerOrNow === "number" ? undefined : viewerOrNow;
   const timestamp = typeof viewerOrNow === "number" ? viewerOrNow : now;
-  return (
-    (!r.expires_at || new Date(r.expires_at).getTime() > timestamp) &&
-    !(
-      viewerId &&
-      r.recipient_id === viewerId &&
-      r.sender_id !== viewerId &&
-      r.auto_delete_setting === "after_view" &&
-      r.is_viewed &&
-      (r as Row).kind !== "text" &&
-      (r as Row).kind !== "system"
-    )
-  )
+  return !r.expires_at || new Date(r.expires_at).getTime() > timestamp;
 };
 
 export const isRenderableOrbitMessage = (
@@ -132,13 +126,7 @@ export const isRenderableOrbitMessage = (
     Partial<Pick<OrbitMessage, "autoDeleteSetting" | "isViewed" | "me" | "kind" | "viewOnce">>,
   now = Date.now(),
 ) =>
-  (!m.expiresAt || m.expiresAt > now) &&
-  !(
-    m.autoDeleteSetting === "after_view" &&
-    m.isViewed &&
-    !m.me &&
-    (m.kind === "photo" || m.kind === "video" || m.kind === "audio" || m.viewOnce)
-  );
+  !m.expiresAt || m.expiresAt > now;
 
 const toMsg = (r: Row, me: string): OrbitMessage => ({
   id: r.id,
@@ -156,7 +144,9 @@ const toMsg = (r: Row, me: string): OrbitMessage => ({
 
 /** Real Orbit one-to-one chat: stored in the database and live for both users. */
 export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: string | null) {
-  const [messages, setMessages] = useState<OrbitMessage[]>([]);
+  const [messages, setMessages] = useState<OrbitMessage[]>(
+    () => loadCachedThreadSync<OrbitMessage>(`orbit:${peerId}`) ?? [],
+  );
   const [meId, setMeId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
@@ -164,7 +154,9 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
   const meRef = useRef<string | null>(null);
   const messagesRef = useRef<OrbitMessage[]>([]);
   const clearChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const deletionChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const clearGenerationRef = useRef(0);
+  const afterViewTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   const merge = useCallback((next: OrbitMessage[]) => {
     setMessages((prev) => {
@@ -317,18 +309,34 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
     };
   }, [peerId, enabled]);
 
+  useEffect(() => {
+    if (!enabled || !isUuid(peerId) || !meId) return;
+    const channel = supabase
+      .channel(`orbit-chat-events-${[meId, peerId].sort().join("-")}`)
+      .on("broadcast", { event: "MESSAGE_DELETED" }, ({ payload }) => {
+        if (typeof payload?.messageId !== "string") return;
+        const next = messagesRef.current.filter((message) => message.id !== payload.messageId);
+        messagesRef.current = next;
+        setMessages(next);
+        saveCachedThread(`orbit:${peerId}`, next);
+      })
+      .subscribe();
+    deletionChannelRef.current = channel;
+    return () => {
+      if (deletionChannelRef.current === channel) deletionChannelRef.current = null;
+      void channel.unsubscribe();
+      void supabase.removeChannel(channel);
+    };
+  }, [enabled, meId, peerId]);
+
   const insert = useCallback(
     async (msg: { kind: OrbitMsgKind; text?: string; url?: string; viewOnce?: boolean; autoDeleteSetting?: AutoDeleteSetting }) => {
       const me = meRef.current;
       if (!me || !isUuid(peerId)) return null;
        const autoDeleteSetting =
-         msg.viewOnce ||
-         ((msg.kind === "photo" || msg.kind === "video" || msg.kind === "audio") &&
-           msg.autoDeleteSetting === "after_view")
-           ? "after_view"
-           : msg.kind === "text" && msg.autoDeleteSetting === "after_view"
-             ? "off"
-             : msg.autoDeleteSetting ?? "off";
+        msg.viewOnce || msg.autoDeleteSetting === "after_view"
+          ? "after_view"
+          : msg.autoDeleteSetting ?? "off";
       const expiresAt = expiresAtForAutoDelete(autoDeleteSetting);
       const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
       merge([
@@ -411,7 +419,6 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
       const message = messagesRef.current.find((candidate) => candidate.id === id);
       return Boolean(
         message &&
-          message.kind !== "text" &&
           message.kind !== "system" &&
           message.autoDeleteSetting === "after_view",
       );
@@ -420,13 +427,67 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
     const viewedAt = new Date().toISOString();
     const { error } = await supabase
       .from("orbit_messages" as never)
-      .update({ is_viewed: true, viewed_at: viewedAt } as never)
+      .update({
+        is_viewed: true,
+        viewed_at: viewedAt,
+        expires_at: afterViewExpiresAt(Date.parse(viewedAt)),
+      } as never)
       .in("id", expiringIds)
       .eq("recipient_id", me)
       .eq("auto_delete_setting", "after_view");
     if (error) return;
-     setMessages((prev) => prev.filter((message) => !expiringIds.includes(message.id) || message.me));
+    setMessages((prev) =>
+      prev.map((message) =>
+        expiringIds.includes(message.id)
+          ? {
+              ...message,
+              isViewed: true,
+              viewedAt: Date.parse(viewedAt),
+              expiresAt: Date.parse(afterViewExpiresAt(Date.parse(viewedAt))),
+            }
+          : message,
+      ),
+    );
   }, []);
+
+  const deleteAfterView = useCallback(async (id: string) => {
+    const { data, error } = await supabase.rpc(
+      "delete_orbit_message_after_view" as never,
+      { _message_id: id } as never,
+    );
+    if (error || data !== true) return false;
+    const next = messagesRef.current.filter((message) => message.id !== id);
+    messagesRef.current = next;
+    setMessages(next);
+    saveCachedThread(`orbit:${peerId}`, next);
+    void deletionChannelRef.current?.send({
+      type: "broadcast",
+      event: "MESSAGE_DELETED",
+      payload: { messageId: id },
+    });
+    return true;
+  }, [peerId]);
+
+  useEffect(() => {
+    if (!enabled || !meId) return;
+    for (const message of messages) {
+      if (
+        message.me ||
+        message.autoDeleteSetting !== "after_view" ||
+        !message.isViewed ||
+        !message.expiresAt ||
+        afterViewTimersRef.current.has(message.id)
+      ) {
+        continue;
+      }
+      const delay = Math.max(0, message.expiresAt - Date.now());
+      const timer = setTimeout(() => {
+        afterViewTimersRef.current.delete(message.id);
+        void deleteAfterView(message.id);
+      }, delay);
+      afterViewTimersRef.current.set(message.id, timer);
+    }
+  }, [deleteAfterView, enabled, meId, messages]);
 
   const remove = useCallback(async (ids: string[]) => {
     if (!ids.length) return;
@@ -498,7 +559,11 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
     };
     sweep();
     const timer = window.setInterval(sweep, 30_000);
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearInterval(timer);
+      afterViewTimersRef.current.forEach((handle) => clearTimeout(handle));
+      afterViewTimersRef.current.clear();
+    };
   }, [enabled]);
 
   return { messages, meId, sendText, sendMedia, insert, consumeViewOnce, markViewed, remove, clear, clearForEveryone, loadOlder, loading, loadingMore, hasMore };

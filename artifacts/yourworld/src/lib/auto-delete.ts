@@ -1,5 +1,5 @@
 export type AutoDeleteSetting = "off" | "after_view" | "6_hours" | "24_hours";
-export const AFTER_VIEW_DELAY_MS = 15_000;
+export const AFTER_VIEW_DELAY_MS = 5_000;
 
 export const AUTO_DELETE_OPTIONS: readonly {
   value: AutoDeleteSetting;

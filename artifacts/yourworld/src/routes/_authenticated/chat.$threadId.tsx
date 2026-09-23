@@ -246,6 +246,8 @@ function ChatThreadPage() {
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
   const captureAlertSequenceRef = useRef(0);
+  const lastScreenshotAlertAtRef = useRef(0);
+  const lastIncomingScreenshotAtRef = useRef(0);
   const captureChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const captureChannelReadyRef = useRef(false);
   const pendingCaptureAlertsRef = useRef<Array<{
@@ -614,6 +616,11 @@ function ChatThreadPage() {
       const senderId = String(payload.senderId ?? "");
       if (!conversationId || payload.chatId !== conversationId || senderId === currentUserId) return;
       if (muted || (kind === "recording" ? !recordingAlert : !screenshotAlert)) return;
+      if (kind === "screenshot") {
+        const now = Date.now();
+        if (now - lastIncomingScreenshotAtRef.current < 5_000) return;
+        lastIncomingScreenshotAtRef.current = now;
+      }
       const actorName = String(payload.actorName ?? "Someone");
       const text =
         kind === "screenshot"
@@ -670,6 +677,11 @@ function ChatThreadPage() {
         (kind === "screenshot" && !screenshotAlert) ||
         (kind === "recording" && !recordingAlert)
       ) return;
+      if (kind === "screenshot") {
+        const now = Date.now();
+        if (now - lastScreenshotAlertAtRef.current < 5_000) return;
+        lastScreenshotAlertAtRef.current = now;
+      }
       const eventId = `${currentUserId}-${Date.now()}-${captureAlertSequenceRef.current++}`;
       const text =
         kind === "screenshot"

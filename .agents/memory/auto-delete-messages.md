@@ -8,3 +8,9 @@ Social DM auto-delete is one setting on the shared conversation, with each new u
 **Why:** Per-user settings can diverge between participants; a conversation-level source of truth makes the checkmark and the next-message behavior agree across sessions while preserving existing message lifetimes.
 
 **How to apply:** Keep the exact shared values `off`, `after_view`, `6_hours`, and `24_hours`; read the conversation setting at send time, exclude system messages from auto-delete metadata, and preserve Orbit’s independent view-once media behavior.
+
+The current product contract makes `after_view` apply to every user message, including text, and uses a five-second server-enforced grace window before hard deletion. Database triggers, receiver-side viewed marking, render guards, and deletion broadcasts must all use the same contract.
+
+**Why:** Leaving any old media-only guard in place makes text messages appear persistent even though the shared setting and database expiry say otherwise.
+
+**How to apply:** When changing After View semantics, update both Social and Orbit server/client paths together; use a message-specific authenticated delete RPC plus `MESSAGE_DELETED` for the live peer update.

@@ -2,7 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { cacheGet, cacheSet } from "@/lib/local-cache";
-import { PAGE_SIZE } from "@/lib/chat-db";
+import {
+  loadCachedThread,
+  loadCachedThreadSync,
+  PAGE_SIZE,
+  saveCachedThread,
+} from "@/lib/chat-db";
 import {
   IMMUTABLE_MEDIA_CACHE_CONTROL,
   STORAGE_BUCKETS,
@@ -641,18 +646,6 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
 }
 
-function isExpiringMediaMessage(
-  row: Pick<PublicMessageRow, "media_url" | "voice_note_url" | "metadata">,
-) {
-  const metadata = asRecord(row.metadata);
-  return Boolean(
-    row.media_url ||
-      row.voice_note_url ||
-      metadata?.expiring_media === true ||
-      metadata?.view_once === true,
-  );
-}
-
 function momentContextFromRow(row: PublicMessageRow) {
   const metadata = asRecord(row.metadata);
   const preview = asRecord(metadata?.preview);
@@ -1153,7 +1146,12 @@ export function useUnreadMessageCount() {
 /** Live public.messages records for the canonical two-person route id. */
 export function useThreadMessages(threadId: string, _opts: { staleTime?: number } = {}) {
   const pair = useMemo(() => dmThreadPair(threadId), [threadId]);
-  const [messages, setMessages] = useState<DbMessage[]>(() => cacheGet<DbMessage[]>(`thread:${threadId}`) ?? []);
+  const [messages, setMessages] = useState<DbMessage[]>(
+    () =>
+      loadCachedThreadSync<DbMessage>(`social:${threadId}`) ??
+      cacheGet<DbMessage[]>(`thread:${threadId}`) ??
+      [],
+  );
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [me, setMe] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1163,9 +1161,26 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
   const messagesRef = useRef<DbMessage[]>([]);
   const meRef = useRef<string | null>(null);
   const clearChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const deletionChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const clearGenerationRef = useRef(0);
   const afterViewTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
-  useEffect(() => { messagesRef.current = messages; cacheSet(`thread:${threadId}`, messages.filter((m) => !m.id.startsWith("tmp-")).slice(-40)); }, [messages, threadId]);
+  useEffect(() => {
+    messagesRef.current = messages;
+    const retained = messages.filter((m) => !m.id.startsWith("tmp-")).slice(-40);
+    cacheSet(`thread:${threadId}`, retained);
+    saveCachedThread(`social:${threadId}`, retained);
+  }, [messages, threadId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadCachedThread<DbMessage>(`social:${threadId}`).then((rows) => {
+      if (cancelled || !rows?.length) return;
+      setMessages((current) => (current.length ? current : rows.filter((row) => isRenderablePublicMessage(row, meRef.current))));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [threadId]);
 
   const belongs = useCallback((row: PublicMessageRow) => !!pair &&
     ((row.sender_id === pair[0] && row.receiver_id === pair[1]) || (row.sender_id === pair[1] && row.receiver_id === pair[0])), [pair]);
@@ -1338,6 +1353,31 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       void supabase.removeChannel(channel);
     };
   }, [conversationId, threadId]);
+
+  useEffect(() => {
+    if (!conversationId) return;
+    const channel = supabase
+      .channel(`social-chat-events-${conversationId}`)
+      .on("broadcast", { event: "MESSAGE_DELETED" }, ({ payload }) => {
+        if (payload?.conversationId !== conversationId || typeof payload?.messageId !== "string") return;
+        setMessages((prev) => prev.filter((message) => message.id !== payload.messageId));
+        cacheSet(
+          `thread:${threadId}`,
+          messagesRef.current.filter((message) => message.id !== payload.messageId),
+        );
+        saveCachedThread(
+          `social:${threadId}`,
+          messagesRef.current.filter((message) => message.id !== payload.messageId),
+        );
+      })
+      .subscribe();
+    deletionChannelRef.current = channel;
+    return () => {
+      if (deletionChannelRef.current === channel) deletionChannelRef.current = null;
+      void channel.unsubscribe();
+      void supabase.removeChannel(channel);
+    };
+  }, [conversationId, threadId]);
   useEffect(() => {
     const sweep = () => {
       setMessages((prev) => prev.filter((message) => isRenderablePublicMessage(message, meRef.current)));
@@ -1349,17 +1389,22 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
   }, []);
 
   const deleteAfterView = useCallback(async (id: string) => {
-    if (!me) return;
-    const { error: deleteError } = await supabase.rpc("delete_expired_chat_messages" as never);
+    if (!me) return false;
+    const { data, error: deleteError } = await supabase.rpc(
+      "delete_social_message_after_view" as never,
+      { _message_id: id } as never,
+    );
     if (deleteError) {
       setError(deleteError.message);
-      return;
+      return false;
     }
+    if (data !== true) return false;
     const now = Date.now();
     setMessages((prev) => prev.filter((message) =>
       message.id !== id &&
       (!message.expires_at || Date.parse(message.expires_at) > now),
     ));
+    return true;
   }, [me]);
 
   useEffect(() => {
@@ -1368,7 +1413,6 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       if (
         message.receiver_id !== me ||
         message.auto_delete_mode !== "after_view" ||
-        !isExpiringMediaMessage(message) ||
         !message.is_viewed ||
         message.is_deleted ||
         afterViewTimersRef.current.has(message.id)
@@ -1382,11 +1426,19 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       const delay = Math.max(0, expiresAt - Date.now());
       const timer = setTimeout(() => {
         afterViewTimersRef.current.delete(message.id);
-        void deleteAfterView(message.id);
+        void deleteAfterView(message.id).then((deleted) => {
+          if (deleted) {
+            void deletionChannelRef.current?.send({
+              type: "broadcast",
+              event: "MESSAGE_DELETED",
+              payload: { conversationId, messageId: message.id },
+            });
+          }
+        });
       }, delay);
       afterViewTimersRef.current.set(message.id, timer);
     });
-  }, [messages, me, deleteAfterView]);
+  }, [messages, me, conversationId, deleteAfterView]);
 
   useEffect(() => () => {
     afterViewTimersRef.current.forEach((timer) => clearTimeout(timer));

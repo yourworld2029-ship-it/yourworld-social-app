@@ -69,6 +69,10 @@ type MigrationQuery = {
 };
 const migrationSupabase = supabase as unknown as { from: (table: string) => MigrationQuery };
 
+function orbitChatIdFor(a: string, b: string) {
+  return `orbit_${[a, b].sort().join("_")}`;
+}
+
 export const Route = createFileRoute("/orbit/chat/$userId")({
   head: () => ({
     meta: [
@@ -220,6 +224,8 @@ function OrbitChatPage() {
   const [actionRect, setActionRect] = useState<{ rect: DOMRect; me: boolean } | null>(null);
   const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const captureAlertSequenceRef = useRef(0);
+  const lastScreenshotAlertAtRef = useRef(0);
+  const lastIncomingScreenshotAtRef = useRef(0);
   const captureChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const captureChannelReadyRef = useRef(false);
   const pendingCaptureAlertsRef = useRef<Array<{
@@ -232,11 +238,13 @@ function OrbitChatPage() {
   const [secretLock, setSecretLock] = useState(false);
   const [viewOnceMode, setViewOnceMode] = useState(false);
   const [autoDelete, setAutoDelete] = useState<AutoDeleteSetting>("off");
+  const autoDeleteChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const [screenshotAlert, setScreenshotAlert] = useState(true);
   const [recordingAlert, setRecordingAlert] = useState(true);
   const [muted, setMuted] = useState(false);
   const [reported, setReported] = useState(false);
   const [settingsReady, setSettingsReady] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [clearedBefore, setClearedBefore] = useState<string | null>(null);
   const [secretPinSalt, setSecretPinSalt] = useState<string | null>(null);
   const [secretPinHash, setSecretPinHash] = useState<string | null>(null);
@@ -252,12 +260,14 @@ function OrbitChatPage() {
 
   // Chat options are per-person and survive leaving the chat.
   const prefsKey = `yw.orbit.chatprefs.${userId}`;
+  const orbitChatId = currentUserId ? orbitChatIdFor(currentUserId, userId) : "";
   useEffect(() => {
     let cancelled = false;
     const loadSettings = async () => {
       try {
         const { data: authData } = await supabase.auth.getUser();
         const me = authData.user?.id ?? null;
+        setCurrentUserId(me);
         const { data } = me
           ? await supabase
               .from("orbit_chat_settings")
@@ -284,6 +294,14 @@ function OrbitChatPage() {
         const raw = window.localStorage.getItem(prefsKey);
         const local = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
         const row = data as null | Record<string, unknown>;
+        const { data: sharedSetting } = me && orbitChatId
+          ? await migrationSupabase
+              .from("chat_auto_delete_settings")
+              .select("*")
+              .eq("chat_id", orbitChatId)
+              .maybeSingle()
+          : { data: null };
+        const sharedRow = sharedSetting as Record<string, unknown> | null;
         const v = row ?? local;
         setDisplayName((v["displayName"] as string | null) ?? null);
         if (row) {
@@ -298,7 +316,7 @@ function OrbitChatPage() {
         setViewOnceMode(row ? !!row["view_once_mode"] : !!v["viewOnceMode"]);
         setAutoDelete(
           normalizeAutoDeleteSetting(
-            row?.["auto_delete_setting"],
+            sharedRow?.["auto_delete_mode"] ?? row?.["auto_delete_setting"],
             Number(v["autoDelete"] ?? row?.["auto_delete_seconds"] ?? 0),
           ),
         );
@@ -329,7 +347,7 @@ function OrbitChatPage() {
     return () => {
       cancelled = true;
     };
-  }, [prefsKey, userId, orbit]);
+  }, [orbitChatId, prefsKey, userId, orbit]);
 
   useEffect(() => {
     if (!settingsReady) return;
@@ -370,6 +388,17 @@ function OrbitChatPage() {
             } as never,
             { onConflict: "user_id,peer_id" },
           );
+          if (orbitChatId) void migrationSupabase.from("chat_auto_delete_settings").upsert(
+            {
+              chat_id: orbitChatId,
+              participant_one_id: [me, userId].sort()[0],
+              participant_two_id: [me, userId].sort()[1],
+              auto_delete_mode: autoDelete,
+              updated_by: me,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "chat_id" },
+          );
         });
       }, 0);
       return () => clearTimeout(t);
@@ -391,6 +420,7 @@ function OrbitChatPage() {
     secretPinHash,
     clearedBefore,
     userId,
+    orbitChatId,
   ]);
 
   // Settings are shared per user/peer, so a second tab or device updates this
@@ -404,6 +434,10 @@ function OrbitChatPage() {
       if (!me || cancelled) return;
       channel = supabase
         .channel(`orbit-chat-settings-${me}-${userId}`)
+        .on("broadcast", { event: "AUTO_DELETE_UPDATED" }, ({ payload }) => {
+          if (payload?.chatId !== orbitChatId) return;
+          setAutoDelete(normalizeAutoDeleteSetting(payload?.autoDeleteMode));
+        })
         .on(
           "postgres_changes",
           {
@@ -432,6 +466,20 @@ function OrbitChatPage() {
           {
             event: "*",
             schema: "public",
+            table: "chat_auto_delete_settings",
+            filter: `chat_id=eq.${orbitChatId}`,
+          },
+          (payload) => {
+            const row = payload.new as Record<string, unknown> | null;
+            if (row?.chat_id !== orbitChatId) return;
+            setAutoDelete(normalizeAutoDeleteSetting(row.auto_delete_mode));
+          },
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
             table: "user_blocks",
             filter: `blocker_id=eq.${me}`,
           },
@@ -450,17 +498,19 @@ function OrbitChatPage() {
                 }
               });
           },
-        )
-        .subscribe();
+        );
+      autoDeleteChannelRef.current = channel;
+      channel.subscribe();
     });
     return () => {
       cancelled = true;
       if (channel) {
+        if (autoDeleteChannelRef.current === channel) autoDeleteChannelRef.current = null;
         void channel.unsubscribe();
         void supabase.removeChannel(channel);
       }
     };
-  }, [orbit, settingsReady, userId]);
+  }, [orbit, orbitChatId, settingsReady, userId]);
 
   const request = orbit.requests[userId];
   const accepted = request?.status === "accepted" || (!request && !!orbit.connected[userId]);
@@ -566,6 +616,11 @@ function OrbitChatPage() {
     const senderId = String(payload.senderId ?? "");
     if (senderId === chat.meId) return;
     if (muted || (kind === "recording" ? !recordingAlert : !screenshotAlert)) return;
+    if (kind === "screenshot") {
+      const now = Date.now();
+      if (now - lastIncomingScreenshotAtRef.current < 5_000) return;
+      lastIncomingScreenshotAtRef.current = now;
+    }
     const actorName = String(payload.actorName ?? "Someone");
     const text =
       kind === "screenshot"
@@ -614,6 +669,11 @@ function OrbitChatPage() {
         (kind === "screenshot" && !screenshotAlert) ||
         (kind === "recording" && !recordingAlert)
       ) return;
+      if (kind === "screenshot") {
+        const now = Date.now();
+        if (now - lastScreenshotAlertAtRef.current < 5_000) return;
+        lastScreenshotAlertAtRef.current = now;
+      }
       const eventId = `${chat.meId}-${Date.now()}-${captureAlertSequenceRef.current++}`;
       const text =
         kind === "screenshot"
@@ -1176,6 +1236,11 @@ function OrbitChatPage() {
                 type="button"
                 onClick={() => {
                   setAutoDelete(opt.value);
+                  void autoDeleteChannelRef.current?.send({
+                    type: "broadcast",
+                    event: "AUTO_DELETE_UPDATED",
+                    payload: { chatId: orbitChatId, autoDeleteMode: opt.value },
+                  });
                   pushSystem(
                     opt.value === "off"
                       ? "Auto-delete turned off"
