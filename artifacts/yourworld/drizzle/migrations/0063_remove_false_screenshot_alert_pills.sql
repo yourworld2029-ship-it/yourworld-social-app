@@ -4,7 +4,10 @@
 
 delete from public.messages
 where is_system_message = true
-  and coalesce(metadata ->> 'capture_kind', '') = 'screenshot';
+  and (
+    coalesce(metadata ->> 'capture_kind', '') = 'screenshot'
+    or content ilike '%took a screenshot%'
+  );
 
 delete from public.orbit_messages
 where kind = 'system'
