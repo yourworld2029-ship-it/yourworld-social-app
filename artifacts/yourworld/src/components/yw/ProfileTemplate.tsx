@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import {
+  ArrowLeft,
   Link2,
   MapPin,
   MoreHorizontal,
@@ -68,6 +69,7 @@ export type ProfileTemplateProps = {
   onListOpenChange: (open: boolean) => void;
   onListTabChange: (tab: "followers" | "following") => void;
   onEditProfile?: () => void;
+  onBack?: () => void;
   onFollow?: () => void;
   onMessage?: () => void;
   onShare: () => void;
@@ -115,6 +117,7 @@ export function ProfileTemplate({
   onListOpenChange,
   onListTabChange,
   onEditProfile,
+  onBack,
   onFollow,
   onMessage,
   onShare,
@@ -149,11 +152,24 @@ export function ProfileTemplate({
     <main className="relative min-h-[100dvh] overflow-hidden bg-[radial-gradient(circle_at_15%_0%,rgba(214,93,177,0.11),transparent_32%),radial-gradient(circle_at_92%_18%,rgba(115,93,214,0.10),transparent_30%)] pb-8">
       <UserWatermark username={profile.username} />
       <header className="header-lux sticky top-0 z-40 flex items-center justify-between gap-3 px-3.5 py-2.5 sm:px-6 sm:py-3">
-        <div className="min-w-0">
-          <p className="text-[9px] font-semibold uppercase tracking-[0.3em] text-amber-200/70">YourWorld</p>
-          <h1 data-testid="text-profile-username" className="mt-0.5 truncate font-display text-[15px] font-bold tracking-tight">
-            @{profile.username || "…"}
-          </h1>
+        <div className="flex min-w-0 items-center gap-2">
+          {onBack ? (
+            <button
+              type="button"
+              onClick={onBack}
+              aria-label="Go back"
+              data-testid="button-profile-back"
+              className="action-btn grid h-9 w-9 shrink-0 place-items-center rounded-full border border-white/10 bg-white/[0.04]"
+            >
+              <ArrowLeft className="h-[18px] w-[18px]" />
+            </button>
+          ) : null}
+          <div className="min-w-0">
+            <p className="text-[9px] font-semibold uppercase tracking-[0.3em] text-amber-200/70">YourWorld</p>
+            <h1 data-testid="text-profile-username" className="mt-0.5 truncate font-display text-[15px] font-bold tracking-tight">
+              @{profile.username || "…"}
+            </h1>
+          </div>
         </div>
         <Link data-testid="link-profile-settings" to="/settings" aria-label="Settings" className="action-btn grid h-9 w-9 shrink-0 place-items-center rounded-full border border-white/10 bg-white/[0.04]">
           <Settings className="h-[18px] w-[18px]" />
@@ -285,9 +301,9 @@ export function ProfileTemplate({
         <TabsContent value="videos" className="mt-0">
           {grid.length ? (
             <MediaGrid onOpen={onOpen} onManage={onManage} items={sortPinned(grid).map((post) => ({
-              src: post.thumbnail_url ?? (post.kind === "video" || post.kind === "reel" ? post.media_url : src(post.media_url)),
+              src: post.thumbnail_url ?? post.cover_image ?? (post.kind === "video" || post.kind === "reel" ? post.media_url : src(post.media_url)),
               mediaUrl: post.media_url,
-              thumbnail: post.thumbnail_url,
+              thumbnail: post.thumbnail_url ?? post.cover_image,
               type: post.kind === "video" ? "video" : post.media_type,
               post,
               ratio: mediaAspect(post),
@@ -299,9 +315,9 @@ export function ProfileTemplate({
         <TabsContent value="reels" className="mt-0">
           {reels.length ? (
             <MediaGrid onOpen={onOpen} onManage={onManage} items={sortPinned(reels).map((post) => ({
-              src: post.thumbnail_url ?? post.media_url,
+              src: post.thumbnail_url ?? post.cover_image ?? post.media_url,
               mediaUrl: post.media_url,
-              thumbnail: post.thumbnail_url,
+              thumbnail: post.thumbnail_url ?? post.cover_image,
               type: "video",
               post,
               ratio: mediaAspect(post),

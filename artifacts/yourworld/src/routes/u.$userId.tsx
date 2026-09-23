@@ -6,6 +6,8 @@ import { dmThreadId, resolveMediaUrl, type DbPost } from "@/lib/social-data";
 import { useResolvedMedia } from "@/lib/profile-data";
 import { isRealUserId, useFollowCounts } from "@/lib/follow-data";
 import { fetchOrbitProfileRow, rowToOrbitProfile } from "@/lib/orbit-live";
+import { missingColumn, normalizePostRow } from "@/lib/supabase-compat";
+import { historyBackOr } from "@/lib/navigation";
 import { useYw } from "@/lib/yw-store";
 import { useAuth } from "@/lib/auth-store";
 import { getOrCreateSportsProfile } from "@/components/yw/SportsProfile";
@@ -48,46 +50,48 @@ type PublicProfile = {
 };
 
 function PublicProfilePage() {
-  const { userId } = Route.useParams();
+  const { userId: routeParam } = Route.useParams();
+  const userId = normalizeProfileRouteParam(routeParam);
   const navigate = useNavigate();
   const { user: authUser } = useAuth();
   const [profile, setProfile] = useState<PublicProfile | null>(null);
   const [avatarSrc, setAvatarSrc] = useState<string | null>(null);
   const [posts, setPosts] = useState<DbPost[]>([]);
   const [loading, setLoading] = useState(true);
+  const [mediaLoading, setMediaLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [mediaError, setMediaError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [listOpen, setListOpen] = useState(false);
   const [listTab, setListTab] = useState<"followers" | "following">("followers");
+  const [resolvedUserId, setResolvedUserId] = useState<string | null>(null);
 
-  const counts = useFollowCounts(isRealUserId(userId) ? userId : null);
+  const counts = useFollowCounts(resolvedUserId);
   const { following, toggleFollow } = useYw();
   const me = authUser?.id ?? null;
-  const isOwnProfile = Boolean(me && me === userId);
+  const isOwnProfile = Boolean(me && resolvedUserId && me === resolvedUserId);
   const loadRequestRef = useRef(0);
 
   const load = useCallback(async () => {
     const requestId = ++loadRequestRef.current;
     setLoading(true);
+    setMediaLoading(true);
     setLoadError(null);
+    setMediaError(null);
     setProfile(null);
     setPosts([]);
     setAvatarSrc(null);
+    setResolvedUserId(null);
 
     try {
-      const [profileResult, postsResult, orbitRow] = await Promise.all([
-        supabase.rpc("get_public_profiles", { ids: [userId] }),
-        supabase
-          .from("posts")
-          .select("*")
-          .eq("user_id", userId)
-          .eq("archived", false)
-          .order("created_at", { ascending: false })
-          .limit(100),
-        fetchOrbitProfileRow(userId),
+      const targetId = await resolvePublicProfileId(userId);
+      if (!targetId) throw new Error("PROFILE_NOT_FOUND");
+
+      const [profileResult, orbitRow] = await Promise.all([
+        supabase.rpc("get_public_profiles", { ids: [targetId] }),
+        fetchOrbitProfileRow(targetId).catch(() => null),
       ]);
       if (profileResult.error) throw profileResult.error;
-      if (postsResult.error) throw postsResult.error;
 
       const row = (profileResult.data ?? [])[0] as
         | {
@@ -102,9 +106,11 @@ function PublicProfilePage() {
           }
         | undefined;
       const orbitProfile = orbitRow ? rowToOrbitProfile(orbitRow) : null;
+      if (!row && !orbitProfile) throw new Error("PROFILE_NOT_FOUND");
+
       const next: PublicProfile = {
-        id: userId,
-        username: row?.username ?? orbitProfile?.handle ?? `user${userId.slice(0, 4)}`,
+        id: targetId,
+        username: row?.username ?? orbitProfile?.handle ?? `user${targetId.slice(0, 4)}`,
         display_name:
           row?.display_name ?? row?.username ?? orbitProfile?.name ?? "YourWorld user",
         bio: row?.bio ?? orbitProfile?.about ?? "",
@@ -117,17 +123,57 @@ function PublicProfilePage() {
         is_verified: row?.is_verified === true,
         verification_requested: false,
       };
-      const nextAvatar = next.avatar_url
-        ? await resolveMediaUrl(next.avatar_url, "avatars")
-        : null;
+      let nextAvatar: string | null = null;
+      if (next.avatar_url) {
+        try {
+          nextAvatar = await resolveMediaUrl(next.avatar_url, "avatars");
+        } catch {
+          // A missing private avatar must not hide the public profile shell.
+          nextAvatar = next.avatar_url;
+        }
+      }
       if (requestId !== loadRequestRef.current) return;
+      setResolvedUserId(targetId);
       setProfile(next);
-      setPosts((postsResult.data ?? []) as DbPost[]);
       setAvatarSrc(nextAvatar);
+      setLoading(false);
+
+      try {
+        let postsResult = await supabase
+          .from("posts")
+          .select("*")
+          .eq("user_id", targetId)
+          .eq("archived", false)
+          .order("created_at", { ascending: false })
+          .limit(100);
+
+        // Older deployments may not have archived yet. Public profile media
+        // should still load rather than taking the whole profile shell down.
+        if (postsResult.error && missingColumn(postsResult.error) === "archived") {
+          postsResult = await supabase
+            .from("posts")
+            .select("*")
+            .eq("user_id", targetId)
+            .order("created_at", { ascending: false })
+            .limit(100);
+        }
+        if (postsResult.error) throw postsResult.error;
+        if (requestId !== loadRequestRef.current) return;
+        setPosts((postsResult.data ?? []).map(normalizePostRow) as DbPost[]);
+      } catch (error) {
+        if (requestId !== loadRequestRef.current) return;
+        console.error("[PublicProfilePage] unable to load profile media", error);
+        setMediaError("Posts are temporarily unavailable.");
+      } finally {
+        if (requestId === loadRequestRef.current) setMediaLoading(false);
+      }
     } catch (error) {
       if (requestId !== loadRequestRef.current) return;
       console.error("[PublicProfilePage] unable to load profile", error);
-      setLoadError("This profile could not be loaded.");
+      setLoadError(error instanceof Error && error.message === "PROFILE_NOT_FOUND"
+        ? "This profile could not be found."
+        : "This profile could not be loaded.");
+      setMediaLoading(false);
     } finally {
       if (requestId === loadRequestRef.current) setLoading(false);
     }
@@ -171,8 +217,9 @@ function PublicProfilePage() {
     if (busy || isOwnProfile) return;
     setBusy(true);
     try {
-      const wasFollowing = Boolean(following[userId]);
-      const changed = await toggleFollow(userId);
+      if (!resolvedUserId) return;
+      const wasFollowing = Boolean(following[resolvedUserId]);
+      const changed = await toggleFollow(resolvedUserId);
       if (!changed) return;
       void counts.reload();
       toast.success(wasFollowing ? "Unfollowed" : `Following @${profile?.username}`);
@@ -184,15 +231,15 @@ function PublicProfilePage() {
   };
 
   const onMessage = () => {
-    if (!me || isOwnProfile) return;
+    if (!me || !resolvedUserId || isOwnProfile) return;
     void navigate({
       to: "/chat/$threadId",
-      params: { threadId: dmThreadId(me, userId) },
+      params: { threadId: dmThreadId(me, resolvedUserId) },
     });
   };
 
   const onShare = async () => {
-    const url = `${window.location.origin}/u/${userId}`;
+    const url = `${window.location.origin}/u/${encodeURIComponent(userId)}`;
     try {
       if (navigator.share) {
         await navigator.share({ title: profile?.username ?? "YourWorld profile", url });
@@ -215,30 +262,44 @@ function PublicProfilePage() {
       to: "/reels",
       search: {
         reelId: undefined,
-        userId,
+        userId: resolvedUserId ?? undefined,
         initialVideoId: id,
         returnTo: "public",
       },
     });
   };
 
-  if (loading || !profile) return null;
+  const onBack = () => historyBackOr(() => void navigate({ to: "/" }));
+
+  if (loading) {
+    return <PublicProfileLoading onBack={onBack} />;
+  }
+
+  if (!profile || !resolvedUserId) {
+    return (
+      <PublicProfileError
+        message={loadError ?? "This profile could not be loaded."}
+        onBack={onBack}
+        onRetry={() => void load()}
+      />
+    );
+  }
 
   return (
     <ProfileTemplate
       profile={profile}
       avatarSrc={avatarSrc}
       coverSrc={null}
-      userId={userId}
+      userId={resolvedUserId}
       posts={posts}
       grid={grid}
       reels={reels}
-      mediaLoading={loading}
+      mediaLoading={mediaLoading}
       counts={counts}
       sportsProfile={sportsProfile}
       isVerifiedSports={isVerifiedSports}
       isOwner={false}
-      following={Boolean(following[userId])}
+      following={Boolean(following[resolvedUserId])}
       followBusy={busy}
       onFollowersClick={() => {
         setListTab("followers");
@@ -255,10 +316,99 @@ function PublicProfilePage() {
       onFollow={onFollow}
       onMessage={onMessage}
       onShare={onShare}
+      onBack={onBack}
       onOpen={openViewer}
       mediaSrc={mediaSrc}
-      emptyVideos={loadError ?? "No posts yet. Create your first one."}
-      emptyReels={loadError ?? "No reels yet."}
+      emptyVideos={mediaError ?? (mediaLoading ? "Loading posts…" : "No posts yet. Create your first one.")}
+      emptyReels={mediaError ?? (mediaLoading ? "Loading reels…" : "No reels yet.")}
     />
+  );
+}
+
+function normalizeProfileRouteParam(value: string) {
+  try {
+    return decodeURIComponent(value).trim().replace(/^@+/, "");
+  } catch {
+    return value.trim().replace(/^@+/, "");
+  }
+}
+
+async function resolvePublicProfileId(routeParam: string) {
+  if (!routeParam) return null;
+  if (isRealUserId(routeParam)) return routeParam;
+
+  const { data, error } = await supabase.rpc("search_profiles", { search: routeParam });
+  if (error) throw error;
+  const rows = (data ?? []) as Array<{ id: string; username: string | null }>;
+  const exact = rows.find(
+    (row) => typeof row.username === "string" && row.username.toLowerCase() === routeParam.toLowerCase(),
+  );
+  return exact?.id ?? rows[0]?.id ?? null;
+}
+
+function PublicProfileLoading({ onBack }: { onBack: () => void }) {
+  return (
+    <main className="min-h-[100dvh] bg-background px-4 pb-8">
+      <header className="flex items-center gap-3 border-b border-border py-3">
+        <button
+          type="button"
+          onClick={onBack}
+          aria-label="Go back"
+          data-testid="button-profile-back"
+          className="grid h-9 w-9 place-items-center rounded-full border border-white/10 bg-white/[0.04]"
+        >
+          ←
+        </button>
+        <span className="text-sm font-semibold">Loading profile…</span>
+      </header>
+      <section className="mx-auto max-w-4xl animate-pulse pt-8">
+        <div className="flex items-center gap-4">
+          <div className="h-24 w-24 rounded-full bg-secondary" />
+          <div className="space-y-3">
+            <div className="h-5 w-40 rounded bg-secondary" />
+            <div className="h-3 w-28 rounded bg-secondary" />
+          </div>
+        </div>
+        <div className="mt-6 h-12 rounded-xl bg-secondary" />
+        <div className="mt-6 grid grid-cols-3 gap-1.5">
+          {[0, 1, 2].map((item) => (
+            <div key={item} className="aspect-square rounded-lg bg-secondary" />
+          ))}
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function PublicProfileError({
+  message,
+  onBack,
+  onRetry,
+}: {
+  message: string;
+  onBack: () => void;
+  onRetry: () => void;
+}) {
+  return (
+    <main className="grid min-h-[100dvh] place-items-center bg-background px-6 text-center">
+      <div>
+        <button
+          type="button"
+          onClick={onBack}
+          data-testid="button-profile-back"
+          className="mb-6 rounded-full border border-white/10 bg-white/[0.05] px-4 py-2 text-sm"
+        >
+          ← Back
+        </button>
+        <p data-testid="status-profile-error" className="text-sm text-muted-foreground">{message}</p>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="mt-4 rounded-full bg-foreground px-5 py-2 text-xs font-semibold text-background"
+        >
+          Try again
+        </button>
+      </div>
+    </main>
   );
 }
