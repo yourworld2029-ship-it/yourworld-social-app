@@ -1,11 +1,6 @@
 import { useEffect, useRef } from "react";
 
-type CaptureKind = "screenshot" | "recording";
-
-type CaptureOptions = {
-  onBeforeCapture?: (kind: CaptureKind) => void;
-  onRecover?: () => void;
-};
+export type CaptureKind = "screenshot" | "recording";
 
 /**
  * Best-effort screenshot / screen-recording detection.
@@ -17,25 +12,16 @@ type CaptureOptions = {
 export function useCaptureDetect(
   enabled: boolean,
   onCapture: (kind: CaptureKind) => void,
-  options: CaptureOptions = {},
 ) {
   const cb = useRef(onCapture);
   cb.current = onCapture;
-  const beforeCapture = useRef(options.onBeforeCapture);
-  beforeCapture.current = options.onBeforeCapture;
-  const recover = useRef(options.onRecover);
-  recover.current = options.onRecover;
 
   useEffect(() => {
-    if (!enabled || typeof window === "undefined") {
-      recover.current?.();
-      return;
-    }
+    if (!enabled || typeof window === "undefined") return;
     let last = 0;
     const fire = (kind: CaptureKind) => {
-      beforeCapture.current?.(kind);
       const now = Date.now();
-      if (now - last < 4000) return;
+      if (now - last < 300) return;
       last = now;
       cb.current(kind);
     };
@@ -48,44 +34,57 @@ export function useCaptureDetect(
         e.shiftKey &&
         key === "s" &&
         (e.metaKey || e.getModifierState?.("OS") === true);
-      const ctrlCaptureShortcut =
-        e.ctrlKey && e.shiftKey && ["3", "4", "5", "s"].includes(key);
+      const ctrlPrintShortcut = e.ctrlKey && key === "p";
       const printScreen = e.key === "PrintScreen";
-      if (!printScreen && !macCaptureShortcut && !windowsSnipShortcut && !ctrlCaptureShortcut) return;
+      if (!printScreen && !macCaptureShortcut && !windowsSnipShortcut && !ctrlPrintShortcut) return;
       e.preventDefault();
       e.stopPropagation();
-      fire(macCaptureShortcut && key === "5" ? "recording" : "screenshot");
+      fire("screenshot");
     };
     const onVisibility = () => {
       if (document.visibilityState === "hidden") fire("screenshot");
-      else recover.current?.();
     };
     const onBlur = () => fire("screenshot");
-    const onFocus = () => recover.current?.();
-    const onBeforePrint = () => beforeCapture.current?.("screenshot");
-    const onAfterPrint = () => recover.current?.();
+    const onBeforePrint = () => fire("screenshot");
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length >= 3) fire("screenshot");
     };
+    const mediaDevices = navigator.mediaDevices;
+    const originalGetDisplayMedia = mediaDevices?.getDisplayMedia;
+    const wrappedGetDisplayMedia = originalGetDisplayMedia
+      ? function (this: MediaDevices, ...args: Parameters<MediaDevices["getDisplayMedia"]>) {
+          fire("recording");
+          return originalGetDisplayMedia.apply(this, args);
+        }
+      : null;
+    if (mediaDevices && wrappedGetDisplayMedia) {
+      try {
+        mediaDevices.getDisplayMedia = wrappedGetDisplayMedia;
+      } catch {
+        // Some browsers expose read-only media device methods.
+      }
+    }
 
     window.addEventListener("keydown", onKey, true);
     window.addEventListener("keyup", onKey, true);
     window.addEventListener("blur", onBlur, true);
-    window.addEventListener("focus", onFocus, true);
     window.addEventListener("beforeprint", onBeforePrint, true);
-    window.addEventListener("afterprint", onAfterPrint, true);
     window.addEventListener("touchstart", onTouchStart, { capture: true, passive: true });
     document.addEventListener("visibilitychange", onVisibility, true);
     return () => {
       window.removeEventListener("keydown", onKey, true);
       window.removeEventListener("keyup", onKey, true);
       window.removeEventListener("blur", onBlur, true);
-      window.removeEventListener("focus", onFocus, true);
       window.removeEventListener("beforeprint", onBeforePrint, true);
-      window.removeEventListener("afterprint", onAfterPrint, true);
       window.removeEventListener("touchstart", onTouchStart, true);
       document.removeEventListener("visibilitychange", onVisibility, true);
-      recover.current?.();
+      if (mediaDevices && wrappedGetDisplayMedia && mediaDevices.getDisplayMedia === wrappedGetDisplayMedia) {
+        try {
+          mediaDevices.getDisplayMedia = originalGetDisplayMedia;
+        } catch {
+          // Some browsers expose read-only media device methods.
+        }
+      }
     };
   }, [enabled]);
 }

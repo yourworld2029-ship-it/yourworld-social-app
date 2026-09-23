@@ -98,6 +98,7 @@ type Msg = {
   audio?: string;
   invite?: InviteCard;
   system?: boolean;
+  captureEventId?: string;
   viewOnce?: boolean;
   at?: number;
 };
@@ -218,7 +219,13 @@ function OrbitChatPage() {
   const [actionSheetId, setActionSheetId] = useState<string | null>(null);
   const [actionRect, setActionRect] = useState<{ rect: DOMRect; me: boolean } | null>(null);
   const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const captureResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const captureAlertSequenceRef = useRef(0);
+  const captureChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const captureChannelReadyRef = useRef(false);
+  const pendingCaptureAlertsRef = useRef<Array<{
+    event: "USER_SCREENSHOT_ALERT" | "USER_SCREEN_RECORDING_ALERT";
+    payload: Record<string, unknown>;
+  }>>([]);
 
   // Chat options (mirrors the Social chat 3-dot menu)
   const [displayName, setDisplayName] = useState<string | null>(null);
@@ -238,25 +245,10 @@ function OrbitChatPage() {
   const [unlockError, setUnlockError] = useState<string | null>(null);
   const [pinMode, setPinMode] = useState<"set" | "remove" | null>(null);
   const [pinError, setPinError] = useState<string | null>(null);
-  const [isSecretPeekActive, setIsSecretPeekActive] = useState(false);
 
   const [nameDialogOpen, setNameDialogOpen] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
   const [autoDeleteOpen, setAutoDeleteOpen] = useState(false);
-  const secretContentHidden = secretLock && chatUnlocked && !isSecretPeekActive;
-
-  useEffect(() => {
-    if (!isSecretPeekActive) return;
-    const release = () => setIsSecretPeekActive(false);
-    window.addEventListener("pointerup", release, true);
-    window.addEventListener("pointercancel", release, true);
-    window.addEventListener("blur", release, true);
-    return () => {
-      window.removeEventListener("pointerup", release, true);
-      window.removeEventListener("pointercancel", release, true);
-      window.removeEventListener("blur", release, true);
-    };
-  }, [isSecretPeekActive]);
 
   // Chat options are per-person and survive leaving the chat.
   const prefsKey = `yw.orbit.chatprefs.${userId}`;
@@ -489,7 +481,20 @@ function OrbitChatPage() {
   const [notes, setNotes] = useState<Msg[]>([]);
 
   const msgs: Msg[] = useMemo(
-    () => [...orbitMessages.map(toUiMsg), ...notes].sort((a, b) => (a.at ?? 0) - (b.at ?? 0)),
+    () => {
+      const persistedCaptureTexts = new Set(
+        orbitMessages
+          .filter((message) => !message.me && message.kind === "system")
+          .map((message) => message.text)
+          .filter((text): text is string => Boolean(text)),
+      );
+      return [
+        ...orbitMessages.map(toUiMsg),
+        ...notes.filter(
+          (note) => !note.captureEventId || !persistedCaptureTexts.has(note.text ?? ""),
+        ),
+      ].sort((a, b) => (a.at ?? 0) - (b.at ?? 0));
+    },
     [orbitMessages, notes],
   );
   const lastMessageKeyRef = useRef<string | null>(null);
@@ -538,91 +543,98 @@ function OrbitChatPage() {
     return () => clearTimeout(t);
   }, [userId]);
 
-  const pushSystem = (text: string) => {
+  const pushSystem = (text: string, captureEventId?: string) => {
     seq.current += 1;
     setNotes((n) => [
       ...n,
-      { id: `note-${seq.current}`, me: false, system: true, text, at: Date.now() },
+      {
+        id: `note-${seq.current}`,
+        me: false,
+        system: true,
+        text,
+        at: Date.now(),
+        captureEventId,
+      },
     ]);
   };
 
   const captureChannelName = `orbit-chat-capture-${[chat.meId, userId].sort().join("-")}`;
-  const protectOrbitContent = () => {
-    const element = msgScrollRef.current;
-    if (element) {
-      element.dataset.captureHidden = "true";
-      element.style.setProperty("visibility", "hidden");
-    }
+  const handleIncomingCaptureAlert = (
+    payload: Record<string, unknown>,
+    kind: "screenshot" | "recording",
+  ) => {
+    const senderId = String(payload.senderId ?? "");
+    if (senderId === chat.meId) return;
+    if (muted || (kind === "recording" ? !recordingAlert : !screenshotAlert)) return;
+    const actorName = String(payload.actorName ?? "Someone");
+    const text =
+      kind === "screenshot"
+        ? `📸 ${actorName} took a screenshot`
+        : `📹 ${actorName} started screen recording`;
+    pushSystem(text, String(payload.eventId ?? `${kind}-${Date.now()}`));
   };
-  const recoverOrbitContent = () => {
-    if (captureResetTimerRef.current) clearTimeout(captureResetTimerRef.current);
-    captureResetTimerRef.current = setTimeout(() => {
-      captureResetTimerRef.current = null;
-      const element = msgScrollRef.current;
-      if (element?.dataset.captureHidden === "true") {
-        element.style.removeProperty("visibility");
-        delete element.dataset.captureHidden;
-      }
-    }, 1200);
-  };
-  useEffect(() => () => {
-    if (captureResetTimerRef.current) clearTimeout(captureResetTimerRef.current);
-    const element = msgScrollRef.current;
-    if (element?.dataset.captureHidden === "true") {
-      element.style.removeProperty("visibility");
-      delete element.dataset.captureHidden;
-    }
-  }, []);
+
   useEffect(() => {
+    captureChannelReadyRef.current = false;
+    captureChannelRef.current = null;
+    pendingCaptureAlertsRef.current = [];
     if (!accepted || !chat.meId) return;
     const channel = supabase
       .channel(captureChannelName)
-      .on("broadcast", { event: "capture_alert" }, ({ payload }) => {
-        if (payload?.senderId === chat.meId) return;
-        const kind = payload?.kind === "recording" ? "recording" : "screenshot";
-        if (muted || (kind === "recording" ? !recordingAlert : !screenshotAlert)) return;
-        const actorName = String(payload?.actorName ?? "Someone");
-        pushSystem(
-          kind === "screenshot"
-            ? `📸 ${actorName} took a screenshot`
-            : `⚠️ ${actorName} took a screen recording`,
-        );
+      .on("broadcast", { event: "USER_SCREENSHOT_ALERT" }, ({ payload }) => {
+        handleIncomingCaptureAlert(payload as Record<string, unknown>, "screenshot");
       })
-      .subscribe();
+      .on("broadcast", { event: "USER_SCREEN_RECORDING_ALERT" }, ({ payload }) => {
+        handleIncomingCaptureAlert(payload as Record<string, unknown>, "recording");
+      })
+      ;
+    captureChannelRef.current = channel;
+    channel.subscribe((status) => {
+      if (status !== "SUBSCRIBED") return;
+      captureChannelReadyRef.current = true;
+      const pending = pendingCaptureAlertsRef.current.splice(0);
+      pending.forEach(({ event, payload }) => {
+        void channel.send({ type: "broadcast", event, payload });
+      });
+    });
     return () => {
+      captureChannelReadyRef.current = false;
+      if (captureChannelRef.current === channel) captureChannelRef.current = null;
+      pendingCaptureAlertsRef.current = [];
       void channel.unsubscribe();
       void supabase.removeChannel(channel);
     };
   }, [accepted, captureChannelName, chat.meId, muted, recordingAlert, screenshotAlert]);
 
   useCaptureDetect(
-    Boolean(accepted && chat.meId && (secretLock || screenshotAlert || recordingAlert)),
+    Boolean(accepted && chat.meId && (screenshotAlert || recordingAlert)),
     (kind) => {
       if (
         !chat.meId ||
         (kind === "screenshot" && !screenshotAlert) ||
         (kind === "recording" && !recordingAlert)
       ) return;
-      pushSystem(
+      const eventId = `${chat.meId}-${Date.now()}-${captureAlertSequenceRef.current++}`;
+      const text =
         kind === "screenshot"
           ? `📸 ${currentUsername} took a screenshot`
-          : `⚠️ ${currentUsername} took a screen recording`,
-      );
-      const channel = supabase.channel(captureChannelName);
-      channel.subscribe((status) => {
-        if (status !== "SUBSCRIBED") return;
-        void channel
-          .send({
-            type: "broadcast",
-            event: "capture_alert",
-            payload: { senderId: chat.meId, actorName: currentUsername, kind },
-          })
-          .finally(() => void supabase.removeChannel(channel));
-      });
-    },
-    {
-      onBeforeCapture: protectOrbitContent,
-      onRecover: recoverOrbitContent,
+          : `📹 ${currentUsername} started screen recording`;
+      void chat.insert({ kind: "system", text });
+
+      const event = kind === "screenshot"
+        ? "USER_SCREENSHOT_ALERT"
+        : "USER_SCREEN_RECORDING_ALERT";
+      const payload = {
+        senderId: chat.meId,
+        actorName: currentUsername,
+        eventId,
+        kind,
+      };
+      if (captureChannelReadyRef.current && captureChannelRef.current) {
+        void captureChannelRef.current.send({ type: "broadcast", event, payload });
+      } else {
+        pendingCaptureAlertsRef.current.push({ event, payload });
+      }
     },
   );
 
@@ -1480,16 +1492,6 @@ function OrbitChatPage() {
             );
           })
         )}
-        {secretContentHidden ? (
-          <button
-            type="button"
-            onPointerDown={() => setIsSecretPeekActive(true)}
-            className="absolute inset-0 z-50 flex items-center justify-center bg-background text-sm font-semibold text-foreground"
-            aria-label="Hold to view protected content"
-          >
-            🔒 Hold to view protected content
-          </button>
-        ) : null}
       </section>
 
       <form
