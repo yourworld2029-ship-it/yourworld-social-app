@@ -319,8 +319,8 @@ function PublicProfilePage() {
       onBack={onBack}
       onOpen={openViewer}
       mediaSrc={mediaSrc}
-      emptyVideos={mediaError ?? (mediaLoading ? "Loading posts…" : "No posts yet. Create your first one.")}
-      emptyReels={mediaError ?? (mediaLoading ? "Loading reels…" : "No reels yet.")}
+      emptyVideos={mediaError ?? (mediaLoading ? "Loading posts…" : "No posts yet.")}
+      emptyReels={mediaError ?? (mediaLoading ? "Loading reels…" : "No posts yet.")}
     />
   );
 }

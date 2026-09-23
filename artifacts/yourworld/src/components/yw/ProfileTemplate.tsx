@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   ArrowLeft,
@@ -86,6 +86,8 @@ export type ProfileTemplateProps = {
   children?: ReactNode;
 };
 
+type ProfileTab = "videos" | "reels" | "downloads";
+
 const ownerEditButtonClass =
   "h-8 rounded-lg border-0 bg-gradient-to-r from-fuchsia-500 to-violet-500 px-3 text-xs font-semibold text-white shadow-[0_8px_20px_-10px_rgba(217,70,239,0.9)] hover:from-fuchsia-400 hover:to-violet-400";
 const ownerShareButtonClass =
@@ -133,7 +135,13 @@ export function ProfileTemplate({
   emptyReels = "No reels yet.",
   children,
 }: ProfileTemplateProps) {
+  const [internalTab, setInternalTab] = useState<ProfileTab>("videos");
   const src = mediaSrc;
+  const activeTab: ProfileTab = isOwner
+    ? selectedTab ?? "videos"
+    : internalTab === "reels"
+      ? "reels"
+      : "videos";
   const normalCategories = resolveNormalProfileCategories(
     profile.normal_categories,
     profile.category,
@@ -278,24 +286,30 @@ export function ProfileTemplate({
       </section>
 
       <Tabs
-        value={selectedTab ?? "videos"}
+        value={activeTab}
         onValueChange={(value) => {
-          if (value === "videos" || value === "reels" || value === "downloads") {
+          if (value === "videos" || value === "reels") {
+            setInternalTab(value);
+            onTabChange?.(value);
+          } else if (isOwner && value === "downloads") {
+            setInternalTab(value);
             onTabChange?.(value);
           }
         }}
         className="mx-auto w-full max-w-3xl pt-4"
       >
-        <TabsList className="mx-3 grid w-auto grid-cols-3 rounded-xl border border-white/10 bg-black/20 p-1 backdrop-blur-xl sm:mx-4">
+        <TabsList className={`mx-3 grid w-auto rounded-xl border border-white/10 bg-black/20 p-1 backdrop-blur-xl sm:mx-4 ${isOwner ? "grid-cols-3" : "grid-cols-2"}`}>
           <TabsTrigger value="videos" className="rounded-lg py-2 text-[11px] data-[state=active]:bg-white/[0.09] data-[state=active]:text-white" aria-label="Videos">
             Videos
           </TabsTrigger>
           <TabsTrigger value="reels" className="rounded-lg py-2 text-[11px] data-[state=active]:bg-white/[0.09] data-[state=active]:text-white" aria-label="Reels">
              Reels
           </TabsTrigger>
-          <TabsTrigger value="downloads" className="rounded-lg py-2 text-[11px] data-[state=active]:bg-white/[0.09] data-[state=active]:text-white" aria-label="Downloads">
-            Downloads
-          </TabsTrigger>
+          {isOwner ? (
+            <TabsTrigger value="downloads" className="rounded-lg py-2 text-[11px] data-[state=active]:bg-white/[0.09] data-[state=active]:text-white" aria-label="Downloads">
+              Downloads
+            </TabsTrigger>
+          ) : null}
         </TabsList>
 
         <TabsContent value="videos" className="mt-0">
@@ -326,15 +340,17 @@ export function ProfileTemplate({
             <Empty text={emptyReels} />
           )}
         </TabsContent>
-        <TabsContent value="downloads" className="mt-0">
-          <DownloadedVideoList
-            videos={downloads}
-            loading={downloadsLoading}
-            onOpen={onOpenDownload ?? (() => undefined)}
-            onDelete={onDeleteDownload ?? (() => undefined)}
-            onOpenAthlete={onOpenDownloadAthlete}
-          />
-        </TabsContent>
+        {isOwner ? (
+          <TabsContent value="downloads" className="mt-0">
+            <DownloadedVideoList
+              videos={downloads}
+              loading={downloadsLoading}
+              onOpen={onOpenDownload ?? (() => undefined)}
+              onDelete={onDeleteDownload ?? (() => undefined)}
+              onOpenAthlete={onOpenDownloadAthlete}
+            />
+          </TabsContent>
+        ) : null}
       </Tabs>
 
       {children}
