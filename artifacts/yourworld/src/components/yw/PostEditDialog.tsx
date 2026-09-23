@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { MapPin, ImagePlus, Pause, Play, Sparkles } from "lucide-react";
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { MapPin, ImagePlus, Pause, Play, Sparkles, Volume2, VolumeX } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -42,8 +42,12 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
   const [duration, setDuration] = useState(0);
   const [saving, setSaving] = useState(false);
   const [mediaSrc, setMediaSrc] = useState<string | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
+  const [playbackIndicator, setPlaybackIndicator] = useState<"play" | "pause" | null>(null);
+  const [playbackIndicatorVisible, setPlaybackIndicatorVisible] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const indicatorTimerRef = useRef<number | null>(null);
+  const hasInteractedRef = useRef(false);
 
   const mediaReference = post?.video_url ?? post?.media_url ?? null;
 
@@ -56,8 +60,19 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
     setThumbnailFile(null);
     setCurrentTime(0);
     setDuration(0);
-    setIsPlaying(false);
+    setIsMuted(true);
+    setPlaybackIndicator(null);
+    setPlaybackIndicatorVisible(false);
+    hasInteractedRef.current = false;
   }, [post]);
+
+  useEffect(() => {
+    return () => {
+      if (indicatorTimerRef.current !== null) {
+        window.clearTimeout(indicatorTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -74,14 +89,98 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
     };
   }, [open, post?.kind, mediaReference]);
 
+  const enableSoundOnFirstInteraction = () => {
+    const video = videoRef.current;
+    if (!video || hasInteractedRef.current) return;
+    hasInteractedRef.current = true;
+    video.muted = false;
+    video.volume = 1.0;
+    setIsMuted(false);
+  };
+
   const togglePlayback = () => {
     const video = videoRef.current;
     if (!video) return;
+    enableSoundOnFirstInteraction();
     if (video.paused) {
-      void video.play().catch(() => setIsPlaying(false));
+      void video.play().then(() => showPlaybackIndicator("play")).catch(() => undefined);
     } else {
       video.pause();
+      showPlaybackIndicator("pause");
     }
+  };
+
+  const showPlaybackIndicator = (next: "play" | "pause") => {
+    if (indicatorTimerRef.current !== null) {
+      window.clearTimeout(indicatorTimerRef.current);
+    }
+    setPlaybackIndicator(next);
+    setPlaybackIndicatorVisible(true);
+    indicatorTimerRef.current = window.setTimeout(() => {
+      setPlaybackIndicatorVisible(false);
+      indicatorTimerRef.current = window.setTimeout(() => setPlaybackIndicator(null), 300);
+    }, 350);
+  };
+
+  const seekToPointer = (event: PointerEvent<HTMLDivElement>) => {
+    enableSoundOnFirstInteraction();
+    const video = videoRef.current;
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (!video || !Number.isFinite(video.duration) || video.duration <= 0 || rect.width <= 0) return;
+    const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+    video.currentTime = ratio * video.duration;
+    setCurrentTime(video.currentTime);
+  };
+
+  const handleProgressPointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    seekToPointer(event);
+  };
+
+  const handleProgressPointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+    event.stopPropagation();
+    seekToPointer(event);
+  };
+
+  const handleProgressPointerUp = (event: PointerEvent<HTMLDivElement>) => {
+    event.stopPropagation();
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  const handleProgressKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const video = videoRef.current;
+    if (!video || !Number.isFinite(video.duration) || video.duration <= 0) return;
+    enableSoundOnFirstInteraction();
+    const step = Math.max(1, Math.min(5, video.duration / 20));
+    let nextTime: number | null = null;
+    if (event.key === "ArrowLeft") nextTime = video.currentTime - step;
+    if (event.key === "ArrowRight") nextTime = video.currentTime + step;
+    if (event.key === "Home") nextTime = 0;
+    if (event.key === "End") nextTime = video.duration;
+    if (nextTime === null) return;
+    event.preventDefault();
+    video.currentTime = Math.min(video.duration, Math.max(0, nextTime));
+    setCurrentTime(video.currentTime);
+  };
+
+  const toggleMute = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (!hasInteractedRef.current) {
+      hasInteractedRef.current = true;
+      video.muted = false;
+      video.volume = 1.0;
+      setIsMuted(false);
+      return;
+    }
+    const nextMuted = !video.muted;
+    video.muted = nextMuted;
+    if (!nextMuted) video.volume = 1.0;
+    setIsMuted(nextMuted);
   };
 
   const save = async () => {
@@ -121,6 +220,7 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
   };
 
   const isVideo = Boolean(post?.media_type?.startsWith("video") || post?.kind === "video" || post?.kind === "reel");
+  const progressPercent = duration > 0 ? Math.min(100, Math.max(0, (currentTime / duration) * 100)) : 0;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -145,9 +245,9 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
                   src={mediaSrc ?? mediaReference ?? undefined}
                   autoPlay
                   loop
-                  muted
+                  muted={isMuted}
                   playsInline
-                  preload="metadata"
+                  preload="auto"
                   controls={false}
                   onLoadedMetadata={(event) => {
                     setCurrentTime(event.currentTarget.currentTime);
@@ -157,8 +257,6 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
                     }
                   }}
                   onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
-                  onPlay={() => setIsPlaying(true)}
-                  onPause={() => setIsPlaying(false)}
                   onClick={togglePlayback}
                   className="max-h-64 w-full cursor-pointer object-contain"
                 />
@@ -167,17 +265,59 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
               )}
               {isVideo ? (
                 <>
-                  <span className="pointer-events-none absolute left-3 top-3 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium tabular-nums text-white/90 backdrop-blur-sm">
-                    {formatVideoTime(currentTime)} / {formatVideoTime(duration)}
-                  </span>
-                  <span className="pointer-events-none absolute inset-0 grid place-items-center">
-                    <span className="grid h-10 w-10 place-items-center rounded-full bg-black/35 text-white/85 backdrop-blur-sm">
-                      {isPlaying ? (
+                  <button
+                    type="button"
+                    className="absolute right-3 top-3 grid h-9 w-9 place-items-center rounded-full bg-black/65 text-white/90 shadow-sm backdrop-blur transition hover:bg-black/80"
+                    aria-label={isMuted ? "Turn sound on" : "Mute video"}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      toggleMute();
+                    }}
+                  >
+                    {isMuted ? (
+                      <VolumeX className="h-4 w-4" aria-hidden="true" />
+                    ) : (
+                      <Volume2 className="h-4 w-4" aria-hidden="true" />
+                    )}
+                  </button>
+                  {playbackIndicator ? (
+                    <span
+                      className={`pointer-events-none absolute inset-0 grid place-items-center transition-opacity duration-300 ${
+                        playbackIndicatorVisible ? "opacity-100" : "opacity-0"
+                      }`}
+                    >
+                      <span className="grid h-10 w-10 place-items-center rounded-full bg-black/35 text-white/85 backdrop-blur-sm">
+                        {playbackIndicator === "pause" ? (
                         <Pause className="h-4 w-4 fill-current" aria-hidden="true" />
                       ) : (
                         <Play className="ml-0.5 h-4 w-4 fill-current" aria-hidden="true" />
                       )}
+                      </span>
                     </span>
+                  ) : null}
+                  <div
+                    role="slider"
+                    tabIndex={0}
+                    aria-label="Video progress"
+                    aria-valuemin={0}
+                    aria-valuemax={duration || 0}
+                    aria-valuenow={Math.min(currentTime, duration || 0)}
+                    className="absolute inset-x-0 bottom-0 h-7 cursor-pointer touch-none px-3 pb-2 pt-3"
+                    onPointerDown={handleProgressPointerDown}
+                    onPointerMove={handleProgressPointerMove}
+                    onPointerUp={handleProgressPointerUp}
+                    onPointerCancel={handleProgressPointerUp}
+                    onKeyDown={handleProgressKeyDown}
+                  >
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/30 shadow-sm">
+                      <div
+                        className="h-full rounded-full bg-white transition-[width] duration-75"
+                        style={{ width: `${progressPercent}%` }}
+                      />
+                    </div>
+                  </div>
+                  <span className="pointer-events-none absolute bottom-3 left-3 rounded-full bg-black/65 px-2 py-0.5 text-[11px] font-medium tabular-nums text-white/90 backdrop-blur-sm">
+                    {formatVideoTime(currentTime)} / {formatVideoTime(duration)}
                   </span>
                 </>
               ) : null}
