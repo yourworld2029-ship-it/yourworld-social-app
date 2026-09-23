@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { MapPin, ImagePlus, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -24,17 +24,24 @@ type Props = {
   onSaved: (post: DbPost) => void;
 };
 
+function formatVideoTime(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
+  const totalSeconds = Math.floor(seconds);
+  const minutes = Math.floor(totalSeconds / 60);
+  const remainingSeconds = totalSeconds % 60;
+  return `${minutes}:${String(remainingSeconds).padStart(2, "0")}`;
+}
+
 export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Props) {
   const [title, setTitle] = useState("");
   const [caption, setCaption] = useState("");
   const [location, setLocation] = useState("");
   const [mentions, setMentions] = useState("");
   const [thumbnailFile, setThumbnailFile] = useState<File | null>(null);
-  const [frameTime, setFrameTime] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [saving, setSaving] = useState(false);
   const [mediaSrc, setMediaSrc] = useState<string | null>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     if (!post) return;
@@ -43,7 +50,7 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
     setLocation(post.location ?? "");
     setMentions((post.mentions ?? []).join(" "));
     setThumbnailFile(null);
-    setFrameTime(0);
+    setCurrentTime(0);
     setDuration(0);
   }, [post]);
 
@@ -61,28 +68,6 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
       cancelled = true;
     };
   }, [open, post?.kind, post?.media_url]);
-
-  const captureFrame = async () => {
-    const video = videoRef.current;
-    if (!video || !video.videoWidth || !video.videoHeight) {
-      return;
-    }
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const context = canvas.getContext("2d");
-    if (!context) return;
-    try {
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    } catch {
-      return;
-    }
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/webp", 0.84));
-    if (!blob) {
-      return;
-    }
-    setThumbnailFile(new File([blob], "cover.webp", { type: "image/webp" }));
-  };
 
   const save = async () => {
     if (!post || saving) return;
@@ -141,7 +126,6 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
             <div className="relative bg-secondary">
               {isVideo ? (
                 <video
-                  ref={videoRef}
                   src={mediaSrc ?? undefined}
                   muted
                   playsInline
@@ -153,36 +137,23 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
                       setDuration(nextDuration);
                     }
                   }}
-                  onSeeked={() => void captureFrame()}
+                  onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
                   className="max-h-64 w-full object-contain"
                 />
               ) : (
                 <img src={mediaSrc ?? post.media_url} alt="" className="max-h-64 w-full object-contain" />
               )}
+              {isVideo ? (
+                <span className="pointer-events-none absolute left-3 top-3 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium tabular-nums text-white/90 backdrop-blur-sm">
+                  {formatVideoTime(currentTime)} / {formatVideoTime(duration)}
+                </span>
+              ) : null}
               <label className="absolute bottom-3 right-3 inline-flex cursor-pointer items-center gap-1.5 rounded-full bg-black/75 px-3 py-2 text-xs font-semibold text-white backdrop-blur">
                 <ImagePlus className="h-4 w-4" />
                 Replace cover
                 <input type="file" accept="image/*" className="sr-only" onChange={(event) => setThumbnailFile(event.target.files?.[0] ?? null)} />
               </label>
             </div>
-            {isVideo ? (
-              <div className="flex items-center gap-3 border-b border-border px-4 py-3">
-                <span className="shrink-0 text-xs text-muted-foreground">Video frame</span>
-                <input
-                  type="range"
-                  min={0}
-                    max={duration || 1}
-                  step={0.1}
-                  value={frameTime}
-                  onChange={(event) => {
-                    const next = Number(event.target.value);
-                    setFrameTime(next);
-                    if (videoRef.current) videoRef.current.currentTime = next;
-                  }}
-                  className="min-w-0 flex-1"
-                />
-              </div>
-            ) : null}
             <div className="space-y-3 px-4 py-4">
               <input value={title} onChange={(event) => setTitle(event.target.value.slice(0, 180))} placeholder="Add a title" className="w-full border-b border-border bg-transparent pb-2 text-sm font-semibold outline-none placeholder:text-muted-foreground" />
               <Textarea value={caption} onChange={(event) => setCaption(event.target.value.slice(0, 2200))} placeholder="Write a caption with emojis and #hashtags…" rows={5} className="resize-none text-sm" />
