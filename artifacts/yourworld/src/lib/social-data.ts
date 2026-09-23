@@ -78,6 +78,9 @@ export type DbPost = {
   comments_off?: boolean | null;
   pinned?: boolean | null;
   archived?: boolean | null;
+  mentions?: string[] | null;
+  category?: string | null;
+  sports_tag?: string | null;
 };
 
 export type SocialPost = DbPost & {

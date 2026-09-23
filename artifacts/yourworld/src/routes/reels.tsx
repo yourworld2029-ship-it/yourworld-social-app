@@ -276,6 +276,8 @@ function ReelsList() {
               scoped={scoped}
               onBack={handleBack}
               commentsDisabled={!!dbReels[i]?.comments_off}
+               hideLikeCount={!!dbReels[i]?.hide_like_count}
+               hideShareCount={!!dbReels[i]?.hide_share_count}
               initialCommentsOpen={focusComments && reel.id === initialId && i === active}
               onDbLike={() => toggleDbLike(reel.id)}
               onView={() => recordView(reel.id)}
@@ -487,6 +489,8 @@ function ReelItem({
   scoped = false,
   onBack,
   commentsDisabled = false,
+  hideLikeCount = false,
+  hideShareCount = false,
   initialCommentsOpen = false,
   onDbLike,
   onView,
@@ -505,6 +509,8 @@ function ReelItem({
   scoped?: boolean;
   onBack?: () => void;
   commentsDisabled?: boolean;
+  hideLikeCount?: boolean;
+  hideShareCount?: boolean;
   initialCommentsOpen?: boolean;
   onDbLike?: () => void | Promise<unknown>;
   onView?: () => void | Promise<unknown>;
@@ -854,7 +860,7 @@ function ReelItem({
       });
       setDeleteOpen(false);
       onDeleted?.();
-      toast.success("Deleted");
+      toast.success("Post deleted");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Couldn't delete this media");
     } finally {
@@ -985,7 +991,7 @@ function ReelItem({
       <div className="absolute bottom-14 right-2 flex flex-col items-center gap-2.5">
         <Action
           onClick={() => void handleLike()}
-          label={formatCount(reel.likes)}
+            label={hideLikeCount ? "Likes hidden" : formatCount(reel.likes)}
           active={isLiked}
         >
           <Heart
@@ -1022,7 +1028,7 @@ function ReelItem({
           media={mediaUrl ?? reel.poster}
           mediaKind={mediaType === "video" ? "video" : "photo"}
         >
-          <Action label={formatCount(reel.shares)}>
+          <Action label={hideShareCount ? "Shares hidden" : formatCount(reel.shares)}>
             <Send strokeWidth={1.8} className="h-[18px] w-[18px]" />
           </Action>
         </ShareSheet>
@@ -1146,7 +1152,7 @@ function ReelItem({
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this {mediaBucket === "reels" ? "reel" : "video"}?</AlertDialogTitle>
             <AlertDialogDescription>
-              This permanently removes the media and its stored files. This can&apos;t be undone.
+              Are you sure you want to delete this post? This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

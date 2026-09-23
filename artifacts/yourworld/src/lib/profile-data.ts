@@ -720,29 +720,36 @@ export function useMyProfile() {
     [profile.avatar_url, profile.cover_url, profile.is_verified, profile.verification_requested, uploadImage, load],
   );
 
+  const visiblePosts = useMemo(() => posts.filter((p) => p.archived !== true), [posts]);
   const grid = useMemo(
     () =>
-      posts.filter(
+      visiblePosts.filter(
         (p) =>
           p.kind === "video" ||
           (p.kind !== "reel" && p.media_type?.startsWith("video")),
       ),
-    [posts],
+    [visiblePosts],
   );
-  const reels = useMemo(() => posts.filter((p) => p.kind === "reel"), [posts]);
+  const reels = useMemo(() => visiblePosts.filter((p) => p.kind === "reel"), [visiblePosts]);
+  const archived = useMemo(() => posts.filter((p) => p.archived === true), [posts]);
 
   return {
     userId,
     profile,
     avatarSrc,
     coverSrc,
-    posts,
+    posts: visiblePosts,
     grid,
     reels,
+    archived,
     loading,
     mediaLoading,
     save,
     reload: () => load(true),
+    removePost: (postId: string) =>
+      setPosts((current) => current.filter((post) => post.id !== postId)),
+    patchPost: (next: DbPost) =>
+      setPosts((current) => current.map((post) => (post.id === next.id ? { ...post, ...next } : post))),
   };
 }
 
@@ -759,6 +766,10 @@ export async function updateMyPost(
     comments_off?: boolean;
     pinned?: boolean;
     archived?: boolean;
+    mentions?: string[];
+    category?: string | null;
+    sports_tag?: string | null;
+    thumbnail_url?: string | null;
   },
 ) {
   const next: {
@@ -772,6 +783,10 @@ export async function updateMyPost(
     comments_off?: boolean;
     pinned?: boolean;
     archived?: boolean;
+    mentions?: string[];
+    category?: string | null;
+    sports_tag?: string | null;
+    thumbnail_url?: string | null;
   } = {};
 
   if (patch.title !== undefined) next.title = patch.title.trim();
@@ -788,12 +803,58 @@ export async function updateMyPost(
   if (patch.comments_off !== undefined) next.comments_off = patch.comments_off;
   if (patch.pinned !== undefined) next.pinned = patch.pinned;
   if (patch.archived !== undefined) next.archived = patch.archived;
+  if (patch.mentions !== undefined) next.mentions = patch.mentions;
+  if (patch.category !== undefined) next.category = patch.category;
+  if (patch.sports_tag !== undefined) next.sports_tag = patch.sports_tag;
+  if (patch.thumbnail_url !== undefined) next.thumbnail_url = patch.thumbnail_url;
 
-  const { error } = await supabase.from("posts").update(next).eq("id", postId);
-  if (error) {
-    console.error("Post update failed", error);
-    throw new Error(error.message);
+  const result = await writeCompat(
+    (payload) =>
+      supabase
+        .from("posts")
+        .update(payload as never)
+        .eq("id", postId),
+    next,
+  );
+  if (result.error) {
+    console.error("Post update failed", result.error);
+    throw new Error(result.error.message);
   }
+}
+
+export async function countPinnedPosts(userId: string) {
+  const { count, error } = await supabase
+    .from("posts")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("pinned", true);
+  if (error) throw new Error(error.message);
+  return count ?? 0;
+}
+
+export async function uploadPostThumbnail(
+  userId: string,
+  source: Blob,
+  onProgress?: ProgressFn,
+) {
+  const extension = source.type.includes("png")
+    ? "png"
+    : source.type.includes("jpeg") || source.type.includes("jpg")
+      ? "jpg"
+      : "webp";
+  const path = `${userId}/post-thumbnails/${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}.${extension}`;
+  const result = await uploadWithProgress(
+    STORAGE_BUCKETS.videos,
+    path,
+    source,
+    source.type || "image/webp",
+    onProgress,
+    "31536000, immutable",
+  );
+  if (result.error || !result.url) throw new Error(result.error ?? "Could not upload the thumbnail.");
+  return { path, url: result.url };
 }
 
 

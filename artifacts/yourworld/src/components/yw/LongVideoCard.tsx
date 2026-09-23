@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Play, Eye, Heart, Clock, MessageCircle, Send,
-  MoreHorizontal, Link2, Trash2, EyeOff,
+  MoreHorizontal, Link2, Trash2, EyeOff, Pencil,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
@@ -24,6 +24,18 @@ import {
 import { formatCount } from "@/lib/yw-data";
 import { useYw } from "@/lib/yw-store";
 import { cn } from "@/lib/utils";
+import { PostEditDialog } from "@/components/yw/PostEditDialog";
+import type { DbPost } from "@/lib/social-data";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 type Props = {
   video: LongVideo;
@@ -31,6 +43,7 @@ type Props = {
   onLike: (id: string) => void | Promise<unknown>;
   currentUserId?: string | null;
   onDeleted?: (id: string) => void;
+  onEdited?: (post: DbPost) => void;
 };
 
 function formatBadgeDuration(seconds: number | null) {
@@ -54,9 +67,13 @@ export function LongVideoCard({
   onLike,
   currentUserId = null,
   onDeleted,
+  onEdited,
 }: Props) {
   const { following, toggleFollow } = useYw();
   const [hidden, setHidden] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [commentCount, setCommentCount] = useState(video.commentCount);
   const [liking, setLiking] = useState(false);
   const [durationSeconds, setDurationSeconds] = useState<number | null>(
@@ -152,13 +169,15 @@ export function LongVideoCard({
   const copyLink = async () => {
     try {
       await navigator.clipboard.writeText(shareUrl ?? "");
-      toast.success("Link copied");
+       toast.success("Link copied to clipboard");
     } catch {
       toast.error("Could not copy link");
     }
   };
 
   const handleDelete = async () => {
+    if (deleting) return;
+    setDeleting(true);
     try {
       await deleteMyPost({
         id: video.id,
@@ -169,10 +188,33 @@ export function LongVideoCard({
       });
       setHidden(true);
       onDeleted?.(video.id);
-      toast.success("Video deleted");
-    } catch {
-      toast.error("Couldn't delete this video");
+      setDeleteOpen(false);
+      toast.success("Post deleted");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't delete this video");
+    } finally {
+      setDeleting(false);
     }
+  };
+
+  const editPost: DbPost = {
+    id: video.id,
+    user_id: video.userId,
+    kind: "video",
+    title: video.title,
+    media_url: video.mediaUrl,
+    media_type: video.videoType ?? "video/mp4",
+    thumbnail_url: video.thumbnailUrl,
+    duration_seconds: video.durationSeconds,
+    original_width: video.originalWidth,
+    original_height: video.originalHeight,
+    caption: video.caption,
+    hashtags: video.hashtags,
+    location: null,
+    audio: null,
+    allow_download: true,
+    created_at: video.createdAt,
+    comments_off: video.commentsOff,
   };
 
   const upcoming =
@@ -182,6 +224,7 @@ export function LongVideoCard({
   if (hidden) return null;
 
   return (
+    <>
     <article
       ref={cardRef}
       className="space-y-3 overflow-hidden border-y border-zinc-800/80 bg-[#141418] shadow-2xl"
@@ -271,8 +314,13 @@ export function LongVideoCard({
                   </DropdownMenuItem>
                 )}
                 {isMine && (
+                  <DropdownMenuItem onClick={() => setEditOpen(true)}>
+                    <Pencil className="mr-2 h-4 w-4" /> Edit video
+                  </DropdownMenuItem>
+                )}
+                {isMine && (
                   <DropdownMenuItem
-                    onClick={handleDelete}
+                    onClick={() => setDeleteOpen(true)}
                     className="text-destructive focus:text-destructive"
                   >
                     <Trash2 className="mr-2 h-4 w-4" /> Delete video
@@ -368,5 +416,35 @@ export function LongVideoCard({
         </div>
       </div>
     </article>
+    <PostEditDialog
+      open={editOpen}
+      post={editPost}
+      userId={video.userId}
+      onOpenChange={setEditOpen}
+      onSaved={(post) => onEdited?.(post)}
+    />
+    <AlertDialog open={deleteOpen} onOpenChange={(open) => !deleting && setDeleteOpen(open)}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete this post?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Are you sure you want to delete this post? This action cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={deleting}
+            onClick={(event) => {
+              event.preventDefault();
+              void handleDelete();
+            }}
+          >
+            {deleting ? "Deleting…" : "Delete"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }

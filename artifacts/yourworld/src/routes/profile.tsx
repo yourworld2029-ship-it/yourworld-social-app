@@ -3,7 +3,6 @@ import type React from "react";
 import { useEffect, useState } from "react";
 import {
   Settings,
-  MapPin,
   Link2,
   Heart,
   MessageCircleOff,
@@ -12,6 +11,7 @@ import {
   Pin,
   PinOff,
   Archive,
+  Trash2,
   Trophy,
 } from "lucide-react";
 import {
@@ -24,7 +24,6 @@ import {
 import { Switch } from "@/components/ui/switch";
 
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -32,11 +31,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { YwAvatar } from "@/components/yw/Avatar";
 import { EditProfileSheet, type ProfileEdit } from "@/components/yw/EditProfileSheet";
 import {
   useMyProfile,
   updateMyPost,
+  countPinnedPosts,
+  deleteMyPost,
   deleteSportsIntroduction,
   uploadSportsIntroduction,
   deleteSportsVerificationEvidence,
@@ -70,6 +70,7 @@ import {
 } from "@/lib/yw-download";
 import { getAllOfflineVideos } from "@/lib/offlineVideosDB";
 import { useVideoPlayback } from "@/lib/video-playback";
+import { PostEditDialog } from "@/components/yw/PostEditDialog";
 
 
 
@@ -78,7 +79,7 @@ import { useVideoPlayback } from "@/lib/video-playback";
 export const Route = createFileRoute("/profile")({
   validateSearch: (
     search: Record<string, unknown>,
-  ): { connections?: "followers" | "following"; tab?: "videos" | "reels" | "downloads" } => ({
+  ): { connections?: "followers" | "following"; tab?: "videos" | "reels" | "downloads" | "archived" } => ({
     connections:
       search.connections === "following"
         ? "following"
@@ -90,6 +91,8 @@ export const Route = createFileRoute("/profile")({
           ? "reels"
           : search.tab === "downloads"
             ? "downloads"
+              : search.tab === "archived"
+                ? "archived"
             : search.tab === "videos"
               ? "videos"
               : undefined,
@@ -125,6 +128,9 @@ function ProfilePage() {
     save,
     userId,
     reload,
+    removePost,
+    archived,
+    patchPost,
   } =
     useMyProfile();
   const navigate = useNavigate();
@@ -138,10 +144,8 @@ function ProfilePage() {
   const [listTab, setListTab] = useState<"followers" | "following">("followers");
   const [manage, setManage] = useState<DbPost | null>(null);
   const [editing, setEditing] = useState(false);
-  const [title, setTitle] = useState("");
-  const [caption, setCaption] = useState("");
-  const [location, setLocation] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<DbPost | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [sportsDetailsOpen, setSportsDetailsOpen] = useState(false);
   const [sportsIntroductionUrl, setSportsIntroductionUrl] = useState<string | null>(null);
   const [sportsIntroductionUploading, setSportsIntroductionUploading] = useState(false);
@@ -241,30 +245,56 @@ function ProfilePage() {
 
   const openManage = (post: DbPost) => {
     setManage(post);
+    setDeleteTarget(null);
     setEditing(false);
-    setTitle(post.title ?? "");
-    setCaption(post.caption ?? "");
-    setLocation(post.location ?? "");
   };
 
   const startEdit = (post: DbPost) => {
-    setTitle(post.title ?? "");
-    setCaption(post.caption ?? "");
-    setLocation(post.location ?? "");
+    setManage(post);
     setEditing(true);
   };
 
   const patchManaged = async (patch: Parameters<typeof updateMyPost>[1], msg: string) => {
     if (!manage) return;
     const prev = manage;
+    if (patch.pinned === true && !manage.pinned && userId) {
+      try {
+        const pinnedCount = await countPinnedPosts(userId);
+        if (pinnedCount >= 3) {
+          toast.error("You can pin at most 3 posts to your profile grid");
+          return;
+        }
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Couldn't check pinned posts");
+        return;
+      }
+    }
     setManage({ ...manage, ...patch } as DbPost);
+    patchPost({ ...prev, ...patch } as DbPost);
     try {
       await updateMyPost(prev.id, patch);
       toast.success(msg);
       await reload();
     } catch (e) {
       setManage(prev);
+      patchPost(prev);
       toast.error(e instanceof Error ? e.message : "Couldn't update");
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget || !userId || deleting) return;
+    setDeleting(true);
+    try {
+      await deleteMyPost(deleteTarget);
+      removePost(deleteTarget.id);
+      setDeleteTarget(null);
+      setManage(null);
+      toast.success("Post deleted");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't delete this post");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -571,6 +601,7 @@ function ProfilePage() {
       posts={posts}
       grid={grid}
       reels={reels}
+      archived={archived}
       downloads={downloads}
       downloadsLoading={downloadsLoading}
       mediaLoading={mediaLoading}
@@ -623,12 +654,13 @@ function ProfilePage() {
       onTabChange={(nextTab) => {
         void navigate({
           to: "/profile",
-          search: { connections: undefined, tab: nextTab === "videos" ? undefined : nextTab },
+           search: { connections: undefined, tab: nextTab === "videos" ? undefined : nextTab },
           replace: true,
         });
       }}
       emptyVideos={mediaLoading ? "Loading your posts…" : "No posts yet. Create your first one."}
       emptyReels={mediaLoading ? "Loading reels…" : "No reels yet."}
+      emptyArchived={mediaLoading ? "Loading archived posts…" : "No archived posts."}
     >
 
       <Sheet open={!!manage && !editing} onOpenChange={(o) => !o && setManage(null)}>
@@ -677,7 +709,7 @@ function ProfilePage() {
                     await navigator.clipboard.writeText(
                       `${window.location.origin}/?post=${manage.id}`,
                     );
-                    toast.success("Link copied");
+                     toast.success("Link copied to clipboard");
                   } catch {
                     toast.error("Couldn't copy link");
                   }
@@ -690,10 +722,36 @@ function ProfilePage() {
                   patchManaged({ archived: !manage.archived }, manage.archived ? "Unarchived" : "Archived")
                 }
               />
+              <OptionRow
+                icon={<Trash2 className="h-5 w-5" />}
+                label="Delete"
+                sub="Permanently remove this post."
+                destructive
+                onClick={() => setDeleteTarget(manage)}
+              />
             </div>
           ) : null}
         </SheetContent>
       </Sheet>
+
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && !deleting && setDeleteTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete this post?</DialogTitle>
+            <p className="text-sm text-muted-foreground">
+              Are you sure you want to delete this post? This action cannot be undone.
+            </p>
+          </DialogHeader>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" disabled={deleting} onClick={() => setDeleteTarget(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" disabled={deleting} onClick={() => void confirmDelete()}>
+              {deleting ? "Deleting…" : "Delete"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {sportsProfile ? (
         <Sheet open={sportsDetailsOpen} onOpenChange={setSportsDetailsOpen}>
@@ -744,122 +802,19 @@ function ProfilePage() {
         </Sheet>
       ) : null}
 
-      <Dialog open={!!manage && editing} onOpenChange={(o) => !o && setEditing(false)}>
-        <DialogContent className="max-w-md gap-0 overflow-hidden p-0">
-          <DialogHeader className="grid grid-cols-[auto_1fr_auto] items-center border-b border-border px-4 py-3 text-center">
-            <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => setEditing(false)}>
-              Cancel
-            </Button>
-            <DialogTitle className="text-sm font-semibold">
-              Edit {manage?.kind === "reel" ? "reel" : "post"}
-            </DialogTitle>
-            <Button
-              size="sm"
-              className="h-8 rounded-full px-4"
-              disabled={busy}
-              onClick={async () => {
-                if (!manage) return;
-                setBusy(true);
-                try {
-                  await updateMyPost(manage.id, {
-                    title,
-                    caption,
-                    location: location.trim() || null,
-                  });
-                  toast.success("Updated");
-                  setEditing(false);
-                  setManage(null);
-                  await reload();
-                } catch (e) {
-                  toast.error(e instanceof Error ? e.message : "Couldn't update");
-                } finally {
-                  setBusy(false);
-                }
-              }}
-            >
-              {busy ? "Saving…" : "Done"}
-            </Button>
-          </DialogHeader>
-          {manage ? (
-            <div className="max-h-[75vh] overflow-y-auto">
-              <div className="relative bg-secondary">
-                {manage.media_type?.startsWith("video") ? (
-                  <video
-                    src={manage.media_url}
-                    controls
-                    playsInline
-                    className="max-h-64 w-full object-contain"
-                  />
-                ) : (
-                  <img src={manage.media_url} alt="" className="max-h-64 w-full object-contain" />
-                )}
-              </div>
-              <div className="space-y-1 px-4 py-3">
-                <div className="flex items-start gap-3 py-1.5">
-                  {avatarSrc ? (
-                    <img src={avatarSrc} alt="" className="h-9 w-9 rounded-full object-cover" />
-                  ) : (
-                    <YwAvatar user={avatarUser} size={36} />
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <p className="pb-1 text-sm font-semibold">@{profile.username || "you"}</p>
-                    <Textarea
-                      value={caption}
-                      onChange={(e) => setCaption(e.target.value.slice(0, 2200))}
-                      placeholder="Write a caption…"
-                      rows={4}
-                      className="resize-none border-0 bg-transparent p-0 text-sm shadow-none focus-visible:ring-0"
-                    />
-                    <input
-                      data-testid="input-edit-post-title"
-                      value={title}
-                      onChange={(e) => setTitle(e.target.value.slice(0, 180))}
-                      placeholder="Add a title"
-                      className="mb-2 w-full border-b border-border/60 bg-transparent pb-2 text-sm font-semibold outline-none placeholder:text-muted-foreground"
-                    />
-                    <p className="pt-1 text-right text-[11px] text-muted-foreground">
-                      {caption.length}/2,200
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 border-t border-border py-3">
-                  <MapPin className="h-5 w-5 shrink-0 text-muted-foreground" strokeWidth={1.8} />
-                  <input
-                    value={location}
-                    onChange={(e) => setLocation(e.target.value)}
-                    placeholder="Add location"
-                    className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-                  />
-                </div>
-                <div className="flex items-center justify-between border-t border-border py-3">
-                  <div>
-                    <p className="text-sm">Hide like count to others</p>
-                    <p className="text-xs text-muted-foreground">Only you will see total likes.</p>
-                  </div>
-                  <Switch
-                    checked={!!manage.hide_like_count}
-                    onCheckedChange={(v) =>
-                      patchManaged({ hide_like_count: v }, v ? "Like count hidden" : "Like count visible")
-                    }
-                  />
-                </div>
-                <div className="flex items-center justify-between border-t border-border py-3">
-                  <div>
-                    <p className="text-sm">Turn off commenting</p>
-                    <p className="text-xs text-muted-foreground">No one can comment on this post.</p>
-                  </div>
-                  <Switch
-                    checked={!!manage.comments_off}
-                    onCheckedChange={(v) =>
-                      patchManaged({ comments_off: v }, v ? "Commenting turned off" : "Commenting turned on")
-                    }
-                  />
-                </div>
-              </div>
-            </div>
-          ) : null}
-        </DialogContent>
-      </Dialog>
+      <PostEditDialog
+        open={!!manage && editing}
+        post={manage}
+        userId={userId}
+        onOpenChange={(open) => {
+          if (!open) setEditing(false);
+        }}
+        onSaved={(next) => {
+          patchPost(next);
+          setManage(null);
+          setEditing(false);
+        }}
+      />
 
       <EditProfileSheet
         open={editOpen}

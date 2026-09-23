@@ -81,6 +81,7 @@ function PublicProfilePage() {
           .from("posts")
           .select("*")
           .eq("user_id", userId)
+          .eq("archived", false)
           .order("created_at", { ascending: false })
           .limit(100),
         fetchOrbitProfileRow(userId),
