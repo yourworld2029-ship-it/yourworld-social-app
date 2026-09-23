@@ -203,6 +203,7 @@ export function LongVideoCard({
     kind: "video",
     title: video.title,
     media_url: video.mediaUrl,
+    video_url: video.mediaUrl,
     media_type: video.videoType ?? "video/mp4",
     thumbnail_url: video.thumbnailUrl,
     duration_seconds: video.durationSeconds,

@@ -61,7 +61,7 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
 
   useEffect(() => {
     let cancelled = false;
-    if (!open || !mediaReference) {
+    if (!open || !post || !mediaReference) {
       setMediaSrc(null);
       return;
     }
