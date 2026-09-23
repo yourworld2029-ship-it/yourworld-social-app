@@ -16,9 +16,6 @@ import {
 import { resolveMediaUrl, type DbPost } from "@/lib/social-data";
 import { STORAGE_BUCKETS } from "@/lib/storage-upload";
 
-const CATEGORIES = ["Vlog", "Podcast", "Tutorial", "Tech", "Gaming", "Music", "Travel", "Fitness", "Comedy", "Education", "News", "Food"];
-const SPORTS = ["Cricket", "Football", "Basketball", "Tennis", "Athletics", "Badminton", "Hockey", "Volleyball"];
-
 type Props = {
   open: boolean;
   post: DbPost | null;
@@ -32,10 +29,9 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
   const [caption, setCaption] = useState("");
   const [location, setLocation] = useState("");
   const [mentions, setMentions] = useState("");
-  const [category, setCategory] = useState("");
-  const [sportsTag, setSportsTag] = useState("");
   const [thumbnailFile, setThumbnailFile] = useState<File | null>(null);
   const [frameTime, setFrameTime] = useState(0);
+  const [duration, setDuration] = useState(0);
   const [saving, setSaving] = useState(false);
   const [mediaSrc, setMediaSrc] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -46,10 +42,9 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
     setCaption(post.caption ?? "");
     setLocation(post.location ?? "");
     setMentions((post.mentions ?? []).join(" "));
-    setCategory(post.category ?? "");
-    setSportsTag(post.sports_tag ?? "");
     setThumbnailFile(null);
     setFrameTime(0);
+    setDuration(0);
   }, [post]);
 
   useEffect(() => {
@@ -70,7 +65,6 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
   const captureFrame = async () => {
     const video = videoRef.current;
     if (!video || !video.videoWidth || !video.videoHeight) {
-      toast.error("Choose a frame after the video preview loads.");
       return;
     }
     const canvas = document.createElement("canvas");
@@ -78,14 +72,16 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
     canvas.height = video.videoHeight;
     const context = canvas.getContext("2d");
     if (!context) return;
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    try {
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    } catch {
+      return;
+    }
     const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/webp", 0.84));
     if (!blob) {
-      toast.error("Could not capture this frame.");
       return;
     }
     setThumbnailFile(new File([blob], "cover.webp", { type: "image/webp" }));
-    toast.success("Cover frame selected");
   };
 
   const save = async () => {
@@ -111,8 +107,6 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
         caption,
         location: location.trim() || null,
         mentions: parsedMentions,
-        category: category.trim() || null,
-        sports_tag: sportsTag.trim() || null,
         thumbnail_url: thumbnailUrl,
       } as const;
       await updateMyPost(post.id, patch);
@@ -146,7 +140,22 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
           <div className="max-h-[78vh] overflow-y-auto">
             <div className="relative bg-secondary">
               {isVideo ? (
-                <video ref={videoRef} src={mediaSrc ?? undefined} controls playsInline className="max-h-64 w-full object-contain" />
+                <video
+                  ref={videoRef}
+                  src={mediaSrc ?? undefined}
+                  muted
+                  playsInline
+                  preload="metadata"
+                  controls={false}
+                  onLoadedMetadata={(event) => {
+                    const nextDuration = event.currentTarget.duration;
+                    if (Number.isFinite(nextDuration) && nextDuration > 0) {
+                      setDuration(nextDuration);
+                    }
+                  }}
+                  onSeeked={() => void captureFrame()}
+                  className="max-h-64 w-full object-contain"
+                />
               ) : (
                 <img src={mediaSrc ?? post.media_url} alt="" className="max-h-64 w-full object-contain" />
               )}
@@ -162,7 +171,7 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
                 <input
                   type="range"
                   min={0}
-                  max={videoRef.current?.duration || 1}
+                    max={duration || 1}
                   step={0.1}
                   value={frameTime}
                   onChange={(event) => {
@@ -172,9 +181,6 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
                   }}
                   className="min-w-0 flex-1"
                 />
-                <Button type="button" variant="outline" size="sm" onClick={() => void captureFrame()}>
-                  Use frame
-                </Button>
               </div>
             ) : null}
             <div className="space-y-3 px-4 py-4">
@@ -184,22 +190,6 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
               <div className="flex items-center gap-3 border-t border-border pt-3">
                 <MapPin className="h-5 w-5 shrink-0 text-muted-foreground" />
                 <input value={location} onChange={(event) => setLocation(event.target.value)} placeholder="Add location (optional)" className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground" />
-              </div>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <label className="text-xs text-muted-foreground">
-                  Category
-                  <select value={category} onChange={(event) => setCategory(event.target.value)} className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground">
-                    <option value="">None</option>
-                    {CATEGORIES.map((value) => <option key={value} value={value}>{value}</option>)}
-                  </select>
-                </label>
-                <label className="text-xs text-muted-foreground">
-                  Sports tag
-                  <select value={sportsTag} onChange={(event) => setSportsTag(event.target.value)} className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground">
-                    <option value="">None</option>
-                    {SPORTS.map((value) => <option key={value} value={value}>{value}</option>)}
-                  </select>
-                </label>
               </div>
               <label className="block text-xs text-muted-foreground">
                 Tag people
