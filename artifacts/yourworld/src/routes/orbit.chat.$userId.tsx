@@ -194,7 +194,6 @@ function MenuItem({
 
 function OrbitChatPage() {
   const { profile: myProfile } = useMyProfile();
-  const currentUserName = myProfile.display_name || myProfile.username || "YourWorld user";
   const currentUsername = myProfile.username || "user";
   const { userId } = Route.useParams();
   const navigate = useNavigate();
@@ -219,6 +218,7 @@ function OrbitChatPage() {
   const [actionSheetId, setActionSheetId] = useState<string | null>(null);
   const [actionRect, setActionRect] = useState<{ rect: DOMRect; me: boolean } | null>(null);
   const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const captureResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Chat options (mirrors the Social chat 3-dot menu)
   const [displayName, setDisplayName] = useState<string | null>(null);
@@ -238,10 +238,25 @@ function OrbitChatPage() {
   const [unlockError, setUnlockError] = useState<string | null>(null);
   const [pinMode, setPinMode] = useState<"set" | "remove" | null>(null);
   const [pinError, setPinError] = useState<string | null>(null);
+  const [isSecretPeekActive, setIsSecretPeekActive] = useState(false);
 
   const [nameDialogOpen, setNameDialogOpen] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
   const [autoDeleteOpen, setAutoDeleteOpen] = useState(false);
+  const secretContentHidden = secretLock && chatUnlocked && !isSecretPeekActive;
+
+  useEffect(() => {
+    if (!isSecretPeekActive) return;
+    const release = () => setIsSecretPeekActive(false);
+    window.addEventListener("pointerup", release, true);
+    window.addEventListener("pointercancel", release, true);
+    window.addEventListener("blur", release, true);
+    return () => {
+      window.removeEventListener("pointerup", release, true);
+      window.removeEventListener("pointercancel", release, true);
+      window.removeEventListener("blur", release, true);
+    };
+  }, [isSecretPeekActive]);
 
   // Chat options are per-person and survive leaving the chat.
   const prefsKey = `yw.orbit.chatprefs.${userId}`;
@@ -532,6 +547,32 @@ function OrbitChatPage() {
   };
 
   const captureChannelName = `orbit-chat-capture-${[chat.meId, userId].sort().join("-")}`;
+  const protectOrbitContent = () => {
+    const element = msgScrollRef.current;
+    if (element) {
+      element.dataset.captureHidden = "true";
+      element.style.setProperty("visibility", "hidden");
+    }
+  };
+  const recoverOrbitContent = () => {
+    if (captureResetTimerRef.current) clearTimeout(captureResetTimerRef.current);
+    captureResetTimerRef.current = setTimeout(() => {
+      captureResetTimerRef.current = null;
+      const element = msgScrollRef.current;
+      if (element?.dataset.captureHidden === "true") {
+        element.style.removeProperty("visibility");
+        delete element.dataset.captureHidden;
+      }
+    }, 1200);
+  };
+  useEffect(() => () => {
+    if (captureResetTimerRef.current) clearTimeout(captureResetTimerRef.current);
+    const element = msgScrollRef.current;
+    if (element?.dataset.captureHidden === "true") {
+      element.style.removeProperty("visibility");
+      delete element.dataset.captureHidden;
+    }
+  }, []);
   useEffect(() => {
     if (!accepted || !chat.meId) return;
     const channel = supabase
@@ -540,10 +581,11 @@ function OrbitChatPage() {
         if (payload?.senderId === chat.meId) return;
         const kind = payload?.kind === "recording" ? "recording" : "screenshot";
         if (muted || (kind === "recording" ? !recordingAlert : !screenshotAlert)) return;
+        const actorName = String(payload?.actorName ?? "Someone");
         pushSystem(
-          `${String(payload?.actorName ?? "Someone")} took a ${
-            kind === "recording" ? "recording" : "screenshot"
-          }`,
+          kind === "screenshot"
+            ? `📸 ${actorName} took a screenshot`
+            : `⚠️ ${actorName} took a screen recording`,
         );
       })
       .subscribe();
@@ -553,20 +595,36 @@ function OrbitChatPage() {
     };
   }, [accepted, captureChannelName, chat.meId, muted, recordingAlert, screenshotAlert]);
 
-  useCaptureDetect(Boolean(accepted && chat.meId), (kind) => {
-    if (!chat.meId) return;
-    const channel = supabase.channel(captureChannelName);
-    channel.subscribe((status) => {
-      if (status !== "SUBSCRIBED") return;
-      void channel
-        .send({
-          type: "broadcast",
-          event: "capture_alert",
-          payload: { senderId: chat.meId, actorName: currentUserName, kind },
-        })
-        .finally(() => void supabase.removeChannel(channel));
-    });
-  });
+  useCaptureDetect(
+    Boolean(accepted && chat.meId && (secretLock || screenshotAlert || recordingAlert)),
+    (kind) => {
+      if (
+        !chat.meId ||
+        (kind === "screenshot" && !screenshotAlert) ||
+        (kind === "recording" && !recordingAlert)
+      ) return;
+      pushSystem(
+        kind === "screenshot"
+          ? `📸 ${currentUsername} took a screenshot`
+          : `⚠️ ${currentUsername} took a screen recording`,
+      );
+      const channel = supabase.channel(captureChannelName);
+      channel.subscribe((status) => {
+        if (status !== "SUBSCRIBED") return;
+        void channel
+          .send({
+            type: "broadcast",
+            event: "capture_alert",
+            payload: { senderId: chat.meId, actorName: currentUsername, kind },
+          })
+          .finally(() => void supabase.removeChannel(channel));
+      });
+    },
+    {
+      onBeforeCapture: protectOrbitContent,
+      onRecover: recoverOrbitContent,
+    },
+  );
 
   const startRecording = async () => {
     if (!accepted) {
@@ -1422,6 +1480,16 @@ function OrbitChatPage() {
             );
           })
         )}
+        {secretContentHidden ? (
+          <button
+            type="button"
+            onPointerDown={() => setIsSecretPeekActive(true)}
+            className="absolute inset-0 z-50 flex items-center justify-center bg-background text-sm font-semibold text-foreground"
+            aria-label="Hold to view protected content"
+          >
+            🔒 Hold to view protected content
+          </button>
+        ) : null}
       </section>
 
       <form

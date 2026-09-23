@@ -389,6 +389,22 @@ function ChatThreadPage() {
   const [pinMode, setPinMode] = useState<"set" | "remove" | null>(null);
   const [pinError, setPinError] = useState<string | null>(null);
   const [autoDeleteOpen, setAutoDeleteOpen] = useState(false);
+  const [isSecretPeekActive, setIsSecretPeekActive] = useState(false);
+
+  const secretContentHidden = secretLock && chatUnlocked && !isSecretPeekActive;
+
+  useEffect(() => {
+    if (!isSecretPeekActive) return;
+    const release = () => setIsSecretPeekActive(false);
+    window.addEventListener("pointerup", release, true);
+    window.addEventListener("pointercancel", release, true);
+    window.addEventListener("blur", release, true);
+    return () => {
+      window.removeEventListener("pointerup", release, true);
+      window.removeEventListener("pointercancel", release, true);
+      window.removeEventListener("blur", release, true);
+    };
+  }, [isSecretPeekActive]);
 
   const toggleSecretLock = () => {
     if (!peer.peerId) {
@@ -448,6 +464,21 @@ function ChatThreadPage() {
     }
     toast.error("Sign in to send messages.");
   }, [currentUserId, sendToDb]);
+
+  const appendSecurityNotice = useCallback((text: string) => {
+    const now = Date.now();
+    setLocalMessages((previous) => [
+      ...previous,
+      {
+        id: `local-security-${now}`,
+        text,
+        sender: "me",
+        system: true,
+        time: fmtTime(new Date(now).toISOString()),
+        ts: now,
+      },
+    ]);
+  }, []);
 
   const updateSetting = async (
     next: Parameters<typeof patch>[0],
@@ -584,7 +615,11 @@ function ChatThreadPage() {
       kind: "screenshot" | "recording",
       eventReason: "shortcut" | "blur" | "hidden" | "three_finger_swipe" = "shortcut",
     ) => {
-      if (!captureAlertsEnabled) return;
+      if (
+        !captureAlertsEnabled ||
+        (kind === "screenshot" && !screenshotAlert) ||
+        (kind === "recording" && !recordingAlert)
+      ) return;
 
       setIsShieldActive(true);
       if (blurResetTimerRef.current) {
@@ -604,6 +639,11 @@ function ChatThreadPage() {
         return;
       }
       securityAlertAtRef.current = now;
+      appendSecurityNotice(
+        kind === "screenshot"
+          ? `📸 ${currentUsername} took a screenshot`
+          : `⚠️ ${currentUsername} took a screen recording`,
+      );
 
       const channel = supabase.channel(captureChannelName);
       channel.subscribe((status) => {
@@ -617,9 +657,12 @@ function ChatThreadPage() {
               type: "screenshot_or_recording_attempt",
               byUserId: currentUserId,
               senderId: currentUserId,
-              actorName: currentUserName,
+              actorName: currentUsername,
               alertType: kind === "recording" ? "recording" : "screenshot",
-              message: `${currentUserName} attempted a screenshot / screen recording.`,
+              message:
+                kind === "screenshot"
+                  ? `📸 ${currentUsername} took a screenshot`
+                  : `⚠️ ${currentUsername} took a screen recording`,
               reason: eventReason,
               kind,
             },
@@ -632,52 +675,46 @@ function ChatThreadPage() {
       captureChannelName,
       conversationId,
       currentUserId,
-      currentUserName,
+      currentUsername,
+      appendSecurityNotice,
+      recordingAlert,
+      screenshotAlert,
     ],
   );
 
-  useEffect(() => {
-    if (!captureAlertsEnabled) {
-      setIsShieldActive(false);
-      return;
+  const protectChatContent = useCallback(() => {
+    if (blurResetTimerRef.current) {
+      clearTimeout(blurResetTimerRef.current);
+      blurResetTimerRef.current = null;
     }
+    const element = scrollRef.current;
+    if (element) {
+      element.dataset.captureHidden = "true";
+      element.style.setProperty("visibility", "hidden");
+    }
+    setIsShieldActive(true);
+  }, []);
 
-    const handleBlur = () => dispatchChatSecurityAlert("screenshot", "blur");
-    const handleFocus = () => {
-      if (blurResetTimerRef.current) clearTimeout(blurResetTimerRef.current);
-      blurResetTimerRef.current = setTimeout(() => {
-        blurResetTimerRef.current = null;
-        setIsShieldActive(false);
-      }, 1200);
-    };
-    const handleVisibilityChange = () => {
-      if (document.hidden) dispatchChatSecurityAlert("screenshot", "hidden");
-      else handleFocus();
-    };
-    const handleTouchStart = (event: TouchEvent) => {
-      if (event.touches.length >= 3) {
-        dispatchChatSecurityAlert("screenshot", "three_finger_swipe");
+  const recoverChatContent = useCallback(() => {
+    if (blurResetTimerRef.current) clearTimeout(blurResetTimerRef.current);
+    blurResetTimerRef.current = setTimeout(() => {
+      blurResetTimerRef.current = null;
+      const element = scrollRef.current;
+      if (element?.dataset.captureHidden === "true") {
+        element.style.removeProperty("visibility");
+        delete element.dataset.captureHidden;
       }
-    };
-
-    window.addEventListener("blur", handleBlur);
-    window.addEventListener("focus", handleFocus);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    window.addEventListener("touchstart", handleTouchStart, { passive: true });
-    return () => {
-      window.removeEventListener("blur", handleBlur);
-      window.removeEventListener("focus", handleFocus);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      window.removeEventListener("touchstart", handleTouchStart);
-      if (blurResetTimerRef.current) {
-        clearTimeout(blurResetTimerRef.current);
-        blurResetTimerRef.current = null;
-      }
-    };
-  }, [captureAlertsEnabled, dispatchChatSecurityAlert]);
+      setIsShieldActive(false);
+    }, 1200);
+  }, []);
 
   useEffect(() => () => {
     if (blurResetTimerRef.current) clearTimeout(blurResetTimerRef.current);
+    const element = scrollRef.current;
+    if (element?.dataset.captureHidden === "true") {
+      element.style.removeProperty("visibility");
+      delete element.dataset.captureHidden;
+    }
   }, []);
 
   // Capture alerts are broadcast immediately. The recipient decides locally
@@ -695,11 +732,12 @@ function ChatThreadPage() {
         const kind = payload?.kind === "recording" ? "recording" : "screenshot";
         if (muted || (kind === "recording" ? !recordingAlert : !screenshotAlert)) return;
         const actorName = String(payload?.actorName ?? "Someone");
-        const captureLabel = kind === "recording" ? "screen recording" : "screenshot";
-        void pushSystem(
-          `⚠️ ${actorName} took a ${captureLabel} of this chat.`,
-        );
-        toast.error(`⚠️ ${actorName} took a ${captureLabel}!`);
+         const alertText =
+           kind === "screenshot"
+             ? `📸 ${actorName} took a screenshot`
+             : `⚠️ ${actorName} took a screen recording`;
+          appendSecurityNotice(alertText);
+         toast.error(alertText);
       })
       .subscribe();
     return () => {
@@ -713,12 +751,16 @@ function ChatThreadPage() {
     muted,
     recordingAlert,
     screenshotAlert,
-    pushSystem,
+    appendSecurityNotice,
   ]);
 
   useCaptureDetect(
-    Boolean(captureChannelName && currentUserId && captureAlertsEnabled),
+    Boolean(captureChannelName && currentUserId && (captureAlertsEnabled || secretLock)),
     dispatchChatSecurityAlert,
+    {
+      onBeforeCapture: protectChatContent,
+      onRecover: recoverChatContent,
+    },
   );
 
   useEffect(() => {
@@ -1095,10 +1137,13 @@ function ChatThreadPage() {
         onClick={() => setShowOptionsMenu(false)}
       >
         <div
-          aria-hidden={isShieldActive}
+          aria-hidden={isShieldActive || secretContentHidden}
           className={`relative min-h-full space-y-3.5 transition-[filter] duration-150 ${
             isShieldActive ? "pointer-events-none blur-[25px] backdrop-blur-[25px]" : ""
           }`}
+          style={{
+            visibility: isShieldActive || secretContentHidden ? "hidden" : "visible",
+          }}
         >
          <UserWatermark username={currentUsername} className="fixed text-white" />
         {messagesLoading && messages.length > 0 ? (
@@ -1298,6 +1343,16 @@ function ChatThreadPage() {
          ) : null}
           <div ref={messagesEndRef} />
         </div>
+          {secretContentHidden && !isShieldActive ? (
+            <button
+              type="button"
+              onPointerDown={() => setIsSecretPeekActive(true)}
+              className="absolute inset-0 z-50 flex items-center justify-center bg-black/95 text-sm font-semibold text-white"
+              aria-label="Hold to view protected content"
+            >
+              🔒 Hold to view protected content
+            </button>
+          ) : null}
          {isShieldActive ? (
            <div className="pointer-events-auto absolute inset-0 z-50 flex items-center justify-center bg-black/95 text-white font-semibold">
              🔒 Protected Content
