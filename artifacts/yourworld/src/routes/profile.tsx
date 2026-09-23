@@ -10,7 +10,6 @@ import {
   Pencil,
   Pin,
   PinOff,
-  Archive,
   Trash2,
   Trophy,
 } from "lucide-react";
@@ -79,7 +78,7 @@ import { PostEditDialog } from "@/components/yw/PostEditDialog";
 export const Route = createFileRoute("/profile")({
   validateSearch: (
     search: Record<string, unknown>,
-  ): { connections?: "followers" | "following"; tab?: "videos" | "reels" | "downloads" | "archived" } => ({
+  ): { connections?: "followers" | "following"; tab?: "videos" | "reels" | "downloads" } => ({
     connections:
       search.connections === "following"
         ? "following"
@@ -91,9 +90,7 @@ export const Route = createFileRoute("/profile")({
           ? "reels"
           : search.tab === "downloads"
             ? "downloads"
-              : search.tab === "archived"
-                ? "archived"
-            : search.tab === "videos"
+          : search.tab === "videos"
               ? "videos"
               : undefined,
   }),
@@ -129,7 +126,6 @@ function ProfilePage() {
     userId,
     reload,
     removePost,
-    archived,
     patchPost,
   } =
     useMyProfile();
@@ -601,7 +597,6 @@ function ProfilePage() {
       posts={posts}
       grid={grid}
       reels={reels}
-      archived={archived}
       downloads={downloads}
       downloadsLoading={downloadsLoading}
       mediaLoading={mediaLoading}
@@ -660,7 +655,6 @@ function ProfilePage() {
       }}
       emptyVideos={mediaLoading ? "Loading your posts…" : "No posts yet. Create your first one."}
       emptyReels={mediaLoading ? "Loading reels…" : "No reels yet."}
-      emptyArchived={mediaLoading ? "Loading archived posts…" : "No archived posts."}
     >
 
       <Sheet open={!!manage && !editing} onOpenChange={(o) => !o && setManage(null)}>
@@ -714,13 +708,6 @@ function ProfilePage() {
                     toast.error("Couldn't copy link");
                   }
                 }}
-              />
-              <OptionRow
-                icon={<Archive className="h-5 w-5" />}
-                label={manage.archived ? "Unarchive" : "Archive"}
-                onClick={() =>
-                  patchManaged({ archived: !manage.archived }, manage.archived ? "Unarchived" : "Archived")
-                }
               />
               <OptionRow
                 icon={<Trash2 className="h-5 w-5" />}
