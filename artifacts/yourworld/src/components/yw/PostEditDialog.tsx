@@ -75,6 +75,18 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
   }, []);
 
   useEffect(() => {
+    if (!open) return;
+    hasInteractedRef.current = false;
+    setIsMuted(true);
+    setPlaybackIndicator(null);
+    setPlaybackIndicatorVisible(false);
+    if (videoRef.current) {
+      videoRef.current.muted = true;
+      videoRef.current.volume = 1.0;
+    }
+  }, [open]);
+
+  useEffect(() => {
     let cancelled = false;
     if (!open || !post || !mediaReference) {
       setMediaSrc(null);
