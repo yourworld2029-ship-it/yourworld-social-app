@@ -249,7 +249,11 @@ function ChatThreadPage() {
   const blurResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fmtTime = (iso: string) =>
-    new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    new Date(iso).toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
 
   const messages = useMemo<Message[]>(() => {
     const fromDb: Message[] = dbMessages.map((m) => ({

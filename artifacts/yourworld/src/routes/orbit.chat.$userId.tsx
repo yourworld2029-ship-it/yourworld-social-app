@@ -142,6 +142,16 @@ function toUiMsg(m: OrbitMessage): Msg {
   };
 }
 
+function formatOrbitChatTime(timestamp: number) {
+  const date = new Date(timestamp);
+  if (!Number.isFinite(date.getTime())) return "";
+  return date.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
 function MenuItem({
   icon,
   label,
@@ -1310,12 +1320,7 @@ function OrbitChatPage() {
                     dateTime={m.at ? new Date(m.at).toISOString() : undefined}
                     className="text-[10px] opacity-70"
                   >
-                    {m.at
-                      ? new Date(m.at).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })
-                      : ""}
+                    {m.at ? formatOrbitChatTime(m.at) : ""}
                   </time>
                 </p>
               );

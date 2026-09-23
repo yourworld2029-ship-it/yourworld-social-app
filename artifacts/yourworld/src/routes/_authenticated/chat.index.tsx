@@ -32,6 +32,28 @@ interface DiscoverProfile {
   profile_image?: string | null;
 }
 
+function formatChatListTime(iso: string) {
+  const timestamp = new Date(iso).getTime();
+  if (!Number.isFinite(timestamp)) return "Just now";
+
+  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+  if (elapsedSeconds < 60) return "Just now";
+  if (elapsedSeconds < 3600) return `${Math.floor(elapsedSeconds / 60)}m ago`;
+  if (elapsedSeconds < 86400) return `${Math.floor(elapsedSeconds / 3600)}h ago`;
+
+  const elapsedDays = Math.floor(elapsedSeconds / 86400);
+  if (elapsedDays === 1) return "Yesterday";
+  if (elapsedDays <= 6) return `${elapsedDays}d ago`;
+
+  const elapsedWeeks = Math.floor(elapsedDays / 7);
+  if (elapsedWeeks <= 4) return `${elapsedWeeks}w ago`;
+
+  const elapsedMonths = Math.floor(elapsedDays / 30);
+  if (elapsedMonths < 12) return `${Math.max(1, elapsedMonths)}mo ago`;
+
+  return `${Math.max(1, Math.floor(elapsedDays / 365))}y ago`;
+}
+
 function ChatListPage() {
   // Paint the cached list immediately, then refresh from the network.
   const [threads, setThreads] = useState<ChatThread[]>(
@@ -104,10 +126,7 @@ function ChatListPage() {
                 name: "Loading…",
                 peerId,
                 lastMessage: msg.content || (msg.voice_note_url ? "Voice note" : msg.media_url ? "Media file" : "Message"),
-                time: new Date(msg.created_at).toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                }),
+                time: formatChatListTime(msg.created_at),
                 unreadCount: unread,
               });
               setLoadError(null);
