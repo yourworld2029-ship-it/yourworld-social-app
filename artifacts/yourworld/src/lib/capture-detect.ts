@@ -4,10 +4,9 @@ export type CaptureKind = "screenshot" | "recording";
 
 /**
  * Best-effort screenshot / screen-recording detection.
- * Browsers can't observe OS captures directly, so we watch for the signals we
- * do get: PrintScreen and macOS capture shortcuts, plus the brief focus/
- * visibility loss that accompanies a system capture UI. Fires `onCapture`
- * (throttled) instead of alerting.
+ * Browsers cannot observe OS captures directly. Keep screenshot detection
+ * limited to explicit desktop keyboard shortcuts; focus, visibility, touch,
+ * and print lifecycle events are too noisy on mobile web.
  */
 export function useCaptureDetect(
   enabled: boolean,
@@ -26,6 +25,10 @@ export function useCaptureDetect(
       cb.current(kind);
     };
 
+    const isDesktop =
+      !/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) &&
+      !("ontouchstart" in window);
+
     const onKey = (e: KeyboardEvent) => {
       const key = e.key.toLowerCase();
       const macCaptureShortcut =
@@ -34,20 +37,11 @@ export function useCaptureDetect(
         e.shiftKey &&
         key === "s" &&
         (e.metaKey || e.getModifierState?.("OS") === true);
-      const ctrlPrintShortcut = e.ctrlKey && key === "p";
       const printScreen = e.key === "PrintScreen";
-      if (!printScreen && !macCaptureShortcut && !windowsSnipShortcut && !ctrlPrintShortcut) return;
+      if (!printScreen && !macCaptureShortcut && !windowsSnipShortcut) return;
       e.preventDefault();
       e.stopPropagation();
       fire("screenshot");
-    };
-    const onVisibility = () => {
-      if (document.visibilityState === "hidden") fire("screenshot");
-    };
-    const onBlur = () => fire("screenshot");
-    const onBeforePrint = () => fire("screenshot");
-    const onTouchStart = (e: TouchEvent) => {
-      if (e.touches.length >= 3) fire("screenshot");
     };
     const mediaDevices = navigator.mediaDevices;
     const originalGetDisplayMedia = mediaDevices?.getDisplayMedia;
@@ -65,19 +59,15 @@ export function useCaptureDetect(
       }
     }
 
-    window.addEventListener("keydown", onKey, true);
-    window.addEventListener("keyup", onKey, true);
-    window.addEventListener("blur", onBlur, true);
-    window.addEventListener("beforeprint", onBeforePrint, true);
-    window.addEventListener("touchstart", onTouchStart, { capture: true, passive: true });
-    document.addEventListener("visibilitychange", onVisibility, true);
+    if (isDesktop) {
+      window.addEventListener("keydown", onKey, true);
+      window.addEventListener("keyup", onKey, true);
+    }
     return () => {
-      window.removeEventListener("keydown", onKey, true);
-      window.removeEventListener("keyup", onKey, true);
-      window.removeEventListener("blur", onBlur, true);
-      window.removeEventListener("beforeprint", onBeforePrint, true);
-      window.removeEventListener("touchstart", onTouchStart, true);
-      document.removeEventListener("visibilitychange", onVisibility, true);
+      if (isDesktop) {
+        window.removeEventListener("keydown", onKey, true);
+        window.removeEventListener("keyup", onKey, true);
+      }
       if (mediaDevices && wrappedGetDisplayMedia && mediaDevices.getDisplayMedia === wrappedGetDisplayMedia) {
         try {
           mediaDevices.getDisplayMedia = originalGetDisplayMedia;

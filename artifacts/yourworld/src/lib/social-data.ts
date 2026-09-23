@@ -646,6 +646,17 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
 }
 
+function isScreenshotAlertMessage(
+  row: Pick<PublicMessageRow, "content" | "metadata" | "is_system_message">,
+) {
+  const metadata = asRecord(row.metadata);
+  return (
+    row.is_system_message === true &&
+    (metadata?.capture_kind === "screenshot" ||
+      /^📸 .*took a screenshot$/.test(row.content?.trim() ?? ""))
+  );
+}
+
 function momentContextFromRow(row: PublicMessageRow) {
   const metadata = asRecord(row.metadata);
   const preview = asRecord(metadata?.preview);
@@ -718,12 +729,15 @@ const isRenderablePublicMessage = (
      | "media_url"
      | "voice_note_url"
      | "metadata"
+     | "content"
+     | "is_system_message"
   >,
   _viewerId: string | null,
   now = Date.now(),
 ) =>
   (!row.expires_at || new Date(row.expires_at).getTime() > now) &&
-  row.is_deleted !== true;
+  row.is_deleted !== true &&
+  !isScreenshotAlertMessage(row);
 
 function isMissingAutoDeleteColumn(error: unknown): boolean {
   const text =
@@ -1148,9 +1162,11 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
   const pair = useMemo(() => dmThreadPair(threadId), [threadId]);
   const [messages, setMessages] = useState<DbMessage[]>(
     () =>
-      loadCachedThreadSync<DbMessage>(`social:${threadId}`) ??
-      cacheGet<DbMessage[]>(`thread:${threadId}`) ??
-      [],
+      (
+        loadCachedThreadSync<DbMessage>(`social:${threadId}`) ??
+        cacheGet<DbMessage[]>(`thread:${threadId}`) ??
+        []
+      ).filter((row) => !isScreenshotAlertMessage(row)),
   );
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [me, setMe] = useState<string | null>(null);

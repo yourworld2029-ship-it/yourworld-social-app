@@ -123,10 +123,16 @@ export const isUnexpiredOrbitRow = (
 
 export const isRenderableOrbitMessage = (
   m: Pick<OrbitMessage, "expiresAt"> &
-    Partial<Pick<OrbitMessage, "autoDeleteSetting" | "isViewed" | "me" | "kind" | "viewOnce">>,
+    Partial<
+      Pick<
+        OrbitMessage,
+        "autoDeleteSetting" | "isViewed" | "me" | "kind" | "viewOnce" | "text"
+      >
+    >,
   now = Date.now(),
 ) =>
-  !m.expiresAt || m.expiresAt > now;
+  (!m.expiresAt || m.expiresAt > now) &&
+  !(m.kind === "system" && (m.text ?? "").includes("took a screenshot"));
 
 const toMsg = (r: Row, me: string): OrbitMessage => ({
   id: r.id,
@@ -145,7 +151,11 @@ const toMsg = (r: Row, me: string): OrbitMessage => ({
 /** Real Orbit one-to-one chat: stored in the database and live for both users. */
 export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: string | null) {
   const [messages, setMessages] = useState<OrbitMessage[]>(
-    () => loadCachedThreadSync<OrbitMessage>(`orbit:${peerId}`) ?? [],
+    () =>
+      (loadCachedThreadSync<OrbitMessage>(`orbit:${peerId}`) ?? []).filter(
+        (message) =>
+          !(message.kind === "system" && (message.text ?? "").includes("took a screenshot")),
+      ),
   );
   const [meId, setMeId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
