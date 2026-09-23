@@ -245,13 +245,17 @@ function ChatThreadPage() {
   const [localMessages, setLocalMessages] = useState<Message[]>([]);
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
+  const [captureObscured, setCaptureObscured] = useState(false);
+  const [revealedProtectedIds, setRevealedProtectedIds] = useState<string[]>([]);
   const captureAlertSequenceRef = useRef(0);
   const lastScreenshotAlertAtRef = useRef(0);
   const lastIncomingScreenshotAtRef = useRef(0);
+  const captureObscureTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const protectedRevealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const captureChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const captureChannelReadyRef = useRef(false);
   const pendingCaptureAlertsRef = useRef<Array<{
-    event: "USER_SCREENSHOT_ALERT" | "USER_SCREEN_RECORDING_ALERT";
+    event: "USER_SCREENSHOT_TAKEN" | "USER_SCREEN_RECORDING_ALERT";
     payload: Record<string, unknown>;
   }>>([]);
 
@@ -400,6 +404,7 @@ function ChatThreadPage() {
 
   const secretLock = settings.secretLock;
   const [chatUnlocked, setChatUnlocked] = useState(false);
+  const protectedMessagesEnabled = secretLock && chatUnlocked;
   const [unlockPin, setUnlockPin] = useState("");
   const [unlockError, setUnlockError] = useState<string | null>(null);
   const [pinMode, setPinMode] = useState<"set" | "remove" | null>(null);
@@ -502,6 +507,19 @@ function ChatThreadPage() {
     if (longPressRef.current) clearTimeout(longPressRef.current);
     longPressRef.current = null;
   };
+  const startProtectedReveal = (id: string) => {
+    if (protectedRevealTimerRef.current) clearTimeout(protectedRevealTimerRef.current);
+    protectedRevealTimerRef.current = setTimeout(() => {
+      setRevealedProtectedIds((previous) =>
+        previous.includes(id) ? previous : [...previous, id],
+      );
+    }, 250);
+  };
+  const endProtectedReveal = (id: string) => {
+    if (protectedRevealTimerRef.current) clearTimeout(protectedRevealTimerRef.current);
+    protectedRevealTimerRef.current = null;
+    setRevealedProtectedIds((previous) => previous.filter((value) => value !== id));
+  };
   const createReplyPreview = (messageToReply: Message): ReplyPreview => ({
     id: messageToReply.id,
     author: messageToReply.sender === "me" ? currentUserName : displayName,
@@ -510,6 +528,11 @@ function ChatThreadPage() {
   });
   const startMessageGesture = (messageToReply: Message, event: React.PointerEvent<HTMLDivElement>) => {
     if (selectMode) return;
+    if (protectedMessagesEnabled) {
+      startProtectedReveal(messageToReply.id);
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+      return;
+    }
     startLongPress(messageToReply.id);
     swipeRef.current = {
       id: messageToReply.id,
@@ -521,6 +544,7 @@ function ChatThreadPage() {
     event.currentTarget.setPointerCapture?.(event.pointerId);
   };
   const moveMessageGesture = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (protectedMessagesEnabled) return;
     const gesture = swipeRef.current;
     if (!gesture) return;
     const deltaX = event.clientX - gesture.startX;
@@ -534,6 +558,10 @@ function ChatThreadPage() {
     setSwipeState({ id: gesture.id, offset: gesture.offset });
   };
   const endMessageGesture = (messageToReply: Message) => {
+    if (protectedMessagesEnabled) {
+      endProtectedReveal(messageToReply.id);
+      return;
+    }
     const gesture = swipeRef.current;
     cancelLongPress();
     if (gesture?.id === messageToReply.id && gesture.active && Math.abs(gesture.offset) >= 64) {
@@ -569,7 +597,14 @@ function ChatThreadPage() {
     setSelectedIds([]);
   };
 
-  useEffect(() => () => cancelLongPress(), []);
+  useEffect(
+    () => () => {
+      cancelLongPress();
+      if (protectedRevealTimerRef.current) clearTimeout(protectedRevealTimerRef.current);
+      if (captureObscureTimerRef.current) clearTimeout(captureObscureTimerRef.current);
+    },
+    [],
+  );
 
   const EMOJIS = ["👍", "❤️", "😂", "🔥", "😍", "🥰", "😘", "💋", "💕", "💖", "💗", "💓", "💞", "💝", "💘", "🥺", "👏", "🎉", "😢"];
 
@@ -618,7 +653,7 @@ function ChatThreadPage() {
       if (muted || (kind === "recording" ? !recordingAlert : !screenshotAlert)) return;
       if (kind === "screenshot") {
         const now = Date.now();
-        if (now - lastIncomingScreenshotAtRef.current < 5_000) return;
+        if (now - lastIncomingScreenshotAtRef.current < 4_000) return;
         lastIncomingScreenshotAtRef.current = now;
       }
       const actorName = String(payload.actorName ?? "Someone");
@@ -645,7 +680,7 @@ function ChatThreadPage() {
     if (!captureChannelName || !currentUserId) return;
     const channel = supabase
       .channel(captureChannelName)
-      .on("broadcast", { event: "USER_SCREENSHOT_ALERT" }, ({ payload }) => {
+       .on("broadcast", { event: "USER_SCREENSHOT_TAKEN" }, ({ payload }) => {
         handleIncomingCaptureAlert(payload as Record<string, unknown>, "screenshot");
       })
       .on("broadcast", { event: "USER_SCREEN_RECORDING_ALERT" }, ({ payload }) => {
@@ -679,8 +714,14 @@ function ChatThreadPage() {
       ) return;
       if (kind === "screenshot") {
         const now = Date.now();
-        if (now - lastScreenshotAlertAtRef.current < 5_000) return;
+        if (now - lastScreenshotAlertAtRef.current < 4_000) return;
         lastScreenshotAlertAtRef.current = now;
+        setCaptureObscured(true);
+        if (captureObscureTimerRef.current) clearTimeout(captureObscureTimerRef.current);
+        captureObscureTimerRef.current = setTimeout(() => {
+          setCaptureObscured(false);
+          captureObscureTimerRef.current = null;
+        }, 1_200);
       }
       const eventId = `${currentUserId}-${Date.now()}-${captureAlertSequenceRef.current++}`;
       const text =
@@ -701,7 +742,7 @@ function ChatThreadPage() {
       });
 
       const event = kind === "screenshot"
-        ? "USER_SCREENSHOT_ALERT"
+        ? "USER_SCREENSHOT_TAKEN"
         : "USER_SCREEN_RECORDING_ALERT";
       const payload = {
         chatId: conversationId,
@@ -728,7 +769,9 @@ function ChatThreadPage() {
     ],
   );
 
-  useCaptureDetect(captureAlertsEnabled, dispatchChatSecurityAlert);
+  useCaptureDetect(captureAlertsEnabled, dispatchChatSecurityAlert, {
+    screenshotEnabled: screenshotAlert,
+  });
 
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | undefined;
@@ -1105,6 +1148,12 @@ function ChatThreadPage() {
         <div
           className="relative min-h-full space-y-3.5"
         >
+         {captureObscured && (
+           <div
+             className="pointer-events-none absolute inset-0 z-30 bg-black/95"
+             aria-hidden="true"
+           />
+         )}
          <UserWatermark username={currentUsername} className="fixed text-white" />
         {messagesLoading && messages.length > 0 ? (
           <p className="flex items-center justify-center gap-2 py-1 text-[11px] text-zinc-500" aria-live="polite">
@@ -1149,6 +1198,10 @@ function ChatThreadPage() {
             style={{
               transform: swipeState?.id === m.id ? `translateX(${swipeState.offset}px)` : undefined,
               transition: swipeState?.id === m.id ? "none" : "transform 120ms ease-out",
+               filter:
+                 protectedMessagesEnabled && !revealedProtectedIds.includes(m.id)
+                   ? "blur(14px)"
+                   : undefined,
             }}
           >
             {selectMode && (

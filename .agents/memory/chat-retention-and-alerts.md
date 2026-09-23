@@ -7,7 +7,7 @@ Lifetime retention is the default for both chat surfaces. `after_view` is a shar
 
 **Why:** Client-only checks are not enough because older clients and direct inserts can still write legacy auto-delete values. The database trigger must normalize the final mode before the row is stored.
 
-**How to apply:** Keep the shared setting and per-message metadata aligned, and preserve the server-side trigger whenever chat schemas or message insert paths change. Screenshot and recording events should be broadcast to the shared conversation channel; the receiving user applies their own alert and mute preferences before creating a local notice. Capture alerts must be native-bridge-only; standard web must not inspect keyboard, focus, visibility, print, touch, or screen-share events.
+**How to apply:** Keep the shared setting and per-message metadata aligned, and preserve the server-side trigger whenever chat schemas or message insert paths change. Screenshot and recording events should be broadcast to the shared conversation channel; the receiving user applies their own alert and mute preferences before creating a local notice. Web screenshot fallback may use blur/visibility only when enabled, must ignore focused inputs and contenteditable elements, and must throttle to four seconds; native bridge events remain authoritative.
 
 Clear Chat must remove both message rows and durable `calls` rows for the participant pair. Any realtime clear channel must use a canonical participant key; a peer-relative channel name gives each side a different subscription.
 

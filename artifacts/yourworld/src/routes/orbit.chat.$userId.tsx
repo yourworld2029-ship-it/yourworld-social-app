@@ -226,10 +226,14 @@ function OrbitChatPage() {
   const captureAlertSequenceRef = useRef(0);
   const lastScreenshotAlertAtRef = useRef(0);
   const lastIncomingScreenshotAtRef = useRef(0);
+  const [captureObscured, setCaptureObscured] = useState(false);
+  const [revealedProtectedIds, setRevealedProtectedIds] = useState<string[]>([]);
+  const captureObscureTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const protectedRevealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const captureChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const captureChannelReadyRef = useRef(false);
   const pendingCaptureAlertsRef = useRef<Array<{
-    event: "USER_SCREENSHOT_ALERT" | "USER_SCREEN_RECORDING_ALERT";
+    event: "USER_SCREENSHOT_TAKEN" | "USER_SCREEN_RECORDING_ALERT";
     payload: Record<string, unknown>;
   }>>([]);
 
@@ -249,6 +253,7 @@ function OrbitChatPage() {
   const [secretPinSalt, setSecretPinSalt] = useState<string | null>(null);
   const [secretPinHash, setSecretPinHash] = useState<string | null>(null);
   const [chatUnlocked, setChatUnlocked] = useState(true);
+  const protectedMessagesEnabled = secretLock && chatUnlocked;
   const [unlockPin, setUnlockPin] = useState("");
   const [unlockError, setUnlockError] = useState<string | null>(null);
   const [pinMode, setPinMode] = useState<"set" | "remove" | null>(null);
@@ -618,7 +623,7 @@ function OrbitChatPage() {
     if (muted || (kind === "recording" ? !recordingAlert : !screenshotAlert)) return;
     if (kind === "screenshot") {
       const now = Date.now();
-      if (now - lastIncomingScreenshotAtRef.current < 5_000) return;
+      if (now - lastIncomingScreenshotAtRef.current < 4_000) return;
       lastIncomingScreenshotAtRef.current = now;
     }
     const actorName = String(payload.actorName ?? "Someone");
@@ -636,7 +641,7 @@ function OrbitChatPage() {
     if (!accepted || !chat.meId) return;
     const channel = supabase
       .channel(captureChannelName)
-      .on("broadcast", { event: "USER_SCREENSHOT_ALERT" }, ({ payload }) => {
+      .on("broadcast", { event: "USER_SCREENSHOT_TAKEN" }, ({ payload }) => {
         handleIncomingCaptureAlert(payload as Record<string, unknown>, "screenshot");
       })
       .on("broadcast", { event: "USER_SCREEN_RECORDING_ALERT" }, ({ payload }) => {
@@ -671,8 +676,14 @@ function OrbitChatPage() {
       ) return;
       if (kind === "screenshot") {
         const now = Date.now();
-        if (now - lastScreenshotAlertAtRef.current < 5_000) return;
+        if (now - lastScreenshotAlertAtRef.current < 4_000) return;
         lastScreenshotAlertAtRef.current = now;
+        setCaptureObscured(true);
+        if (captureObscureTimerRef.current) clearTimeout(captureObscureTimerRef.current);
+        captureObscureTimerRef.current = setTimeout(() => {
+          setCaptureObscured(false);
+          captureObscureTimerRef.current = null;
+        }, 1_200);
       }
       const eventId = `${chat.meId}-${Date.now()}-${captureAlertSequenceRef.current++}`;
       const text =
@@ -682,7 +693,7 @@ function OrbitChatPage() {
       void chat.insert({ kind: "system", text });
 
       const event = kind === "screenshot"
-        ? "USER_SCREENSHOT_ALERT"
+        ? "USER_SCREENSHOT_TAKEN"
         : "USER_SCREEN_RECORDING_ALERT";
       const payload = {
         senderId: chat.meId,
@@ -696,6 +707,7 @@ function OrbitChatPage() {
         pendingCaptureAlertsRef.current.push({ event, payload });
       }
     },
+    { screenshotEnabled: screenshotAlert },
   );
 
   const startRecording = async () => {
@@ -835,6 +847,27 @@ function OrbitChatPage() {
     if (longPressRef.current) clearTimeout(longPressRef.current);
     longPressRef.current = null;
   };
+  const startProtectedReveal = (id: string) => {
+    if (protectedRevealTimerRef.current) clearTimeout(protectedRevealTimerRef.current);
+    protectedRevealTimerRef.current = setTimeout(() => {
+      setRevealedProtectedIds((previous) =>
+        previous.includes(id) ? previous : [...previous, id],
+      );
+    }, 250);
+  };
+  const endProtectedReveal = (id: string) => {
+    if (protectedRevealTimerRef.current) clearTimeout(protectedRevealTimerRef.current);
+    protectedRevealTimerRef.current = null;
+    setRevealedProtectedIds((previous) => previous.filter((value) => value !== id));
+  };
+  useEffect(
+    () => () => {
+      if (longPressRef.current) clearTimeout(longPressRef.current);
+      if (protectedRevealTimerRef.current) clearTimeout(protectedRevealTimerRef.current);
+      if (captureObscureTimerRef.current) clearTimeout(captureObscureTimerRef.current);
+    },
+    [],
+  );
   const toggleSelect = (id: string) =>
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   const deleteIds = (ids: string[]) => {
@@ -1403,6 +1436,12 @@ function OrbitChatPage() {
         className="relative min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-4"
       >
         <UserWatermark username={currentUsername} className="fixed" />
+        {captureObscured && (
+          <div
+            className="pointer-events-none absolute inset-0 z-30 bg-background/95"
+            aria-hidden="true"
+          />
+        )}
         {chat.loadingMore ? (
           <p className="py-1 text-center text-[11px] text-muted-foreground">
             Loading older messages…
@@ -1462,7 +1501,17 @@ function OrbitChatPage() {
             }
             const deletable = isDeletable(m.id);
             const selected = selectedIds.includes(m.id);
-            const handlers = deletable
+            const handlers = protectedMessagesEnabled
+              ? {
+                  onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => {
+                    e.currentTarget.setPointerCapture?.(e.pointerId);
+                    startProtectedReveal(m.id);
+                  },
+                  onPointerUp: () => endProtectedReveal(m.id),
+                  onPointerCancel: () => endProtectedReveal(m.id),
+                  onPointerLeave: () => endProtectedReveal(m.id),
+                }
+              : deletable
               ? {
                   onPointerDown: (e: React.PointerEvent) => {
                     if (!selectMode)
@@ -1487,6 +1536,12 @@ function OrbitChatPage() {
                 className={`flex flex-col ${m.me ? "items-end" : "items-start"} ${
                   selectMode && selected ? "rounded-2xl bg-primary/10 ring-1 ring-primary/40" : ""
                 } ${selectMode && deletable ? "cursor-pointer select-none px-1 py-1" : ""}`}
+                 style={{
+                   filter:
+                     protectedMessagesEnabled && !revealedProtectedIds.includes(m.id)
+                       ? "blur(14px)"
+                       : undefined,
+                 }}
               >
                 {selectMode && deletable && (
                   <span
