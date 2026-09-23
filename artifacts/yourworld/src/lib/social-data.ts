@@ -59,6 +59,7 @@ export type DbPost = {
   kind: string;
   title?: string | null;
   media_url: string;
+  video_url?: string | null;
   media_type: string;
   thumbnail_url?: string | null;
   duration_seconds?: number | null;

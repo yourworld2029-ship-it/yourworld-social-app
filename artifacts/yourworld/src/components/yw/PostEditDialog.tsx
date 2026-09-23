@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { MapPin, ImagePlus, Sparkles } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { MapPin, ImagePlus, Pause, Play, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -42,6 +42,10 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
   const [duration, setDuration] = useState(0);
   const [saving, setSaving] = useState(false);
   const [mediaSrc, setMediaSrc] = useState<string | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  const mediaReference = post?.video_url ?? post?.media_url ?? null;
 
   useEffect(() => {
     if (!post) return;
@@ -52,22 +56,33 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
     setThumbnailFile(null);
     setCurrentTime(0);
     setDuration(0);
+    setIsPlaying(false);
   }, [post]);
 
   useEffect(() => {
     let cancelled = false;
-    if (!open || !post?.media_url) {
+    if (!open || !mediaReference) {
       setMediaSrc(null);
       return;
     }
     const bucket = post.kind === "reel" ? STORAGE_BUCKETS.reels : STORAGE_BUCKETS.videos;
-    void resolveMediaUrl(post.media_url, bucket).then((url) => {
+    void resolveMediaUrl(mediaReference, bucket).then((url) => {
       if (!cancelled) setMediaSrc(url);
     });
     return () => {
       cancelled = true;
     };
-  }, [open, post?.kind, post?.media_url]);
+  }, [open, post?.kind, mediaReference]);
+
+  const togglePlayback = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (video.paused) {
+      void video.play().catch(() => setIsPlaying(false));
+    } else {
+      video.pause();
+    }
+  };
 
   const save = async () => {
     if (!post || saving) return;
@@ -126,27 +141,45 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
             <div className="relative bg-secondary">
               {isVideo ? (
                 <video
-                  src={mediaSrc ?? undefined}
+                  ref={videoRef}
+                  src={mediaSrc ?? mediaReference ?? undefined}
+                  autoPlay
+                  loop
                   muted
                   playsInline
                   preload="metadata"
                   controls={false}
                   onLoadedMetadata={(event) => {
+                    setCurrentTime(event.currentTarget.currentTime);
                     const nextDuration = event.currentTarget.duration;
                     if (Number.isFinite(nextDuration) && nextDuration > 0) {
                       setDuration(nextDuration);
                     }
                   }}
                   onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
-                  className="max-h-64 w-full object-contain"
+                  onPlay={() => setIsPlaying(true)}
+                  onPause={() => setIsPlaying(false)}
+                  onClick={togglePlayback}
+                  className="max-h-64 w-full cursor-pointer object-contain"
                 />
               ) : (
                 <img src={mediaSrc ?? post.media_url} alt="" className="max-h-64 w-full object-contain" />
               )}
               {isVideo ? (
-                <span className="pointer-events-none absolute left-3 top-3 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium tabular-nums text-white/90 backdrop-blur-sm">
-                  {formatVideoTime(currentTime)} / {formatVideoTime(duration)}
-                </span>
+                <>
+                  <span className="pointer-events-none absolute left-3 top-3 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium tabular-nums text-white/90 backdrop-blur-sm">
+                    {formatVideoTime(currentTime)} / {formatVideoTime(duration)}
+                  </span>
+                  <span className="pointer-events-none absolute inset-0 grid place-items-center">
+                    <span className="grid h-10 w-10 place-items-center rounded-full bg-black/35 text-white/85 backdrop-blur-sm">
+                      {isPlaying ? (
+                        <Pause className="h-4 w-4 fill-current" aria-hidden="true" />
+                      ) : (
+                        <Play className="ml-0.5 h-4 w-4 fill-current" aria-hidden="true" />
+                      )}
+                    </span>
+                  </span>
+                </>
               ) : null}
               <label className="absolute bottom-3 right-3 inline-flex cursor-pointer items-center gap-1.5 rounded-full bg-black/75 px-3 py-2 text-xs font-semibold text-white backdrop-blur">
                 <ImagePlus className="h-4 w-4" />
