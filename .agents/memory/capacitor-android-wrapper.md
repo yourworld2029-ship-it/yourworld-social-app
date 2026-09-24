@@ -21,6 +21,12 @@ This Replit shell may start without an Android SDK, and its system-package index
 
 **How to apply:** If `sdkmanager` is absent, use Google's official command-line-tools archive and install the project's compile SDK/build-tools with `sdkmanager` after license consent. Verify the SDK paths before running Gradle.
 
+In September 2026, Google's generic `commandlinetools-linux-latest.zip` URL returned 404, while the repository metadata still advertised the current archive.
+
+**Why:** The official package version changed without the generic download alias resolving in this environment.
+
+**How to apply:** Read `cmdline-tools;latest` from `https://dl.google.com/android/repository/repository2-1.xml`, download its Linux archive URL, and verify the published checksum before extraction instead of guessing or pinning the URL.
+
 Express routes that serve the packaged APK should resolve its path from `import.meta.url`, not `process.cwd()`, because workflow and deployment working directories can differ.
 
 **Why:** A cwd-relative route returned 404 in the running API workflow even though the APK existed in the web artifact.
