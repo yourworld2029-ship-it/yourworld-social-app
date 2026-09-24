@@ -1,18 +1,15 @@
 package com.yourworld.app;
 
 import android.graphics.Color;
-import android.os.Build;
 import android.os.Bundle;
 import android.view.WindowManager;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 
 import androidx.activity.OnBackPressedCallback;
-import androidx.core.graphics.Insets;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
-import androidx.core.view.ViewCompat;
 
 import com.getcapacitor.BridgeActivity;
 
@@ -22,6 +19,8 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(PrivacyBridgePlugin.class);
         super.onCreate(savedInstanceState);
 
+        configureSystemBars();
+
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
             public void handleOnBackPressed() {
@@ -30,7 +29,7 @@ public class MainActivity extends BridgeActivity {
         });
 
         WebView webView = getBridge() != null ? getBridge().getWebView() : null;
-        configureSystemBars(webView);
+        configureSystemBars();
         if (webView != null) {
             webView.getSettings().setCacheMode(WebSettings.LOAD_NO_CACHE);
             // BridgeActivity may have started the initial remote load already.
@@ -43,6 +42,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onResume() {
         super.onResume();
+        configureSystemBars();
 
         WebView webView = getBridge() != null ? getBridge().getWebView() : null;
         if (webView != null) {
@@ -79,38 +79,17 @@ public class MainActivity extends BridgeActivity {
         );
     }
 
-    private void configureSystemBars(WebView webView) {
+    private void configureSystemBars() {
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
-        getWindow().setStatusBarColor(Color.rgb(7, 8, 23));
-        getWindow().getDecorView().setBackgroundColor(Color.rgb(7, 8, 23));
-
-        boolean decorFitsSystemWindows = Build.VERSION.SDK_INT < 35;
-        WindowCompat.setDecorFitsSystemWindows(getWindow(), decorFitsSystemWindows);
-        WindowInsetsControllerCompat controller =
-                WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
+        WindowInsetsControllerCompat controller = new WindowInsetsControllerCompat(
+                getWindow(),
+                getWindow().getDecorView()
+        );
         controller.setAppearanceLightStatusBars(false);
+        getWindow().setStatusBarColor(Color.BLACK);
+        getWindow().getDecorView().setBackgroundColor(Color.BLACK);
         controller.show(WindowInsetsCompat.Type.statusBars());
-
-        if (!decorFitsSystemWindows && webView != null) {
-            int baseLeft = webView.getPaddingLeft();
-            int baseTop = webView.getPaddingTop();
-            int baseRight = webView.getPaddingRight();
-            int baseBottom = webView.getPaddingBottom();
-            int safeDrawingInsets =
-                    WindowInsetsCompat.Type.statusBars() | WindowInsetsCompat.Type.displayCutout();
-
-            ViewCompat.setOnApplyWindowInsetsListener(webView, (view, windowInsets) -> {
-                Insets safeInsets = windowInsets.getInsets(safeDrawingInsets);
-                view.setPadding(
-                        baseLeft + safeInsets.left,
-                        baseTop + safeInsets.top,
-                        baseRight + safeInsets.right,
-                        baseBottom
-                );
-                return windowInsets;
-            });
-            ViewCompat.requestApplyInsets(webView);
-        }
     }
 }
