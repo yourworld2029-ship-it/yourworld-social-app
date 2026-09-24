@@ -10,6 +10,8 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: media
+    description: Media processing operations
 paths:
   /healthz:
     get:
@@ -24,7 +26,67 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /media/transcode:
+    post:
+      operationId: transcodeVideo
+      tags: [media]
+      summary: Prepare uploaded video for fast-start playback
+      security:
+        - SupabaseBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VideoTranscodeInput"
+      responses:
+        "200":
+          description: Processed MP4 storage object
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoTranscodeResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Object is not owned by the caller
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "413":
+          description: Video exceeds the processing limit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "429":
+          description: Video processing capacity is busy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "502":
+          description: Storage or FFmpeg processing failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
 components:
+  securitySchemes:
+    SupabaseBearer:
+      type: http
+      scheme: bearer
   schemas:
     HealthStatus:
       type: object
@@ -33,4 +95,40 @@ components:
           type: string
       required:
         - status
+    VideoTranscodeInput:
+      type: object
+      additionalProperties: false
+      properties:
+        bucket:
+          type: string
+          enum: [videos, reels, moments]
+        path:
+          type: string
+          minLength: 3
+          maxLength: 512
+      required:
+        - bucket
+        - path
+    VideoTranscodeResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        path:
+          type: string
+        contentType:
+          type: string
+          const: video/mp4
+        faststart:
+          type: boolean
+      required:
+        - path
+        - contentType
+        - faststart
+    ApiError:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
 

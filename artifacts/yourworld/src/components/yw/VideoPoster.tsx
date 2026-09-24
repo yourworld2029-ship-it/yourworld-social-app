@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Play } from "lucide-react";
 import { resolveMediaUrl } from "@/lib/social-data";
 import { cn } from "@/lib/utils";
+import { cacheVideoPoster, getVideoPoster, prefetchVideo } from "@/lib/video-prefetch";
 
 type Props = {
   thumbnailUrl?: string | null;
@@ -33,6 +34,8 @@ export function VideoPoster({
   const [resolvedMedia, setResolvedMedia] = useState(mediaUrl);
   const [mediaReady, setMediaReady] = useState(false);
   const [mediaFailed, setMediaFailed] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     setResolvedThumbnail(thumbnailUrl ?? null);
@@ -80,11 +83,32 @@ export function VideoPoster({
     };
   }, [bucket, thumbnailUrl]);
 
+  useEffect(() => {
+    if (!resolvedMedia) return;
+    const cachedPoster = getVideoPoster(resolvedMedia);
+    if (cachedPoster && !thumbnailUrl) setResolvedThumbnail(cachedPoster);
+  }, [resolvedMedia, thumbnailUrl]);
+
+  useEffect(() => {
+    const card = cardRef.current;
+    if (!card || !resolvedMedia || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting && entry.intersectionRatio >= 0.5)) {
+          prefetchVideo(resolvedMedia);
+        }
+      },
+      { threshold: 0.5 },
+    );
+    observer.observe(card);
+    return () => observer.disconnect();
+  }, [resolvedMedia]);
+
   const source = resolvedMedia ? firstFrameUrl(resolvedMedia) : "";
   const showFallback = !resolvedThumbnail && (!source || mediaFailed || !mediaReady);
 
   return (
-    <div className={cn("relative h-full w-full overflow-hidden bg-zinc-900", className)}>
+    <div ref={cardRef} className={cn("relative h-full w-full overflow-hidden bg-zinc-900", className)}>
       <div
         aria-hidden="true"
         className={cn(
@@ -94,14 +118,22 @@ export function VideoPoster({
       />
       {source ? (
         <video
+          ref={videoRef}
           {...({ loading } as const)}
+          crossOrigin="anonymous"
           src={source}
           poster={resolvedThumbnail ?? undefined}
           aria-label={alt}
           playsInline
           muted
           preload="metadata"
-          onLoadedData={() => setMediaReady(true)}
+          onLoadedData={() => {
+            setMediaReady(true);
+            if (!resolvedThumbnail && videoRef.current) {
+              const generatedPoster = cacheVideoPoster(videoRef.current, resolvedMedia);
+              if (generatedPoster) setResolvedThumbnail(generatedPoster);
+            }
+          }}
           onError={() => setMediaFailed(true)}
           className={cn(
             "absolute inset-0 h-full w-full object-cover transition-opacity duration-300",

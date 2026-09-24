@@ -450,7 +450,7 @@ async function uploadMomentMedia(
       ? "png"
       : "jpg";
   const path = `${uid}/${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-  const { url, error } = await uploadWithProgress(
+  const { url, storagePath, error } = await uploadWithProgress(
     STORAGE_BUCKETS.moments,
     path,
     uploadBlob,
@@ -461,7 +461,7 @@ async function uploadMomentMedia(
   );
   if (error && !url) throw new Error(error);
   // Store the storage path; every viewer signs their own short-lived URL.
-  return path;
+  return storagePath ?? path;
 }
 
 

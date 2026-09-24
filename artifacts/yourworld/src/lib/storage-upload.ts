@@ -25,6 +25,7 @@ export const STORAGE_BUCKETS = {
 
 /** Uploaded video and poster objects use unique paths, so they can be cached immutably. */
 export const IMMUTABLE_MEDIA_CACHE_CONTROL = "31536000, immutable";
+const FASTSTART_BUCKETS = new Set(["videos", "reels", "moments"]);
 
 function storageConfig() {
   return {
@@ -161,17 +162,25 @@ export async function uploadWithProgress(
   contentType: string,
   onProgress?: ProgressFn,
   cacheControl = "3600",
-): Promise<{ url: string | null; error: string | null }> {
+): Promise<{ url: string | null; storagePath: string | null; error: string | null }> {
+  const needsFastStart =
+    contentType.toLowerCase().startsWith("video/") && FASTSTART_BUCKETS.has(bucket);
   if (getAdaptivePerformanceSnapshot().networkQuality === "offline") {
-    return { url: null, error: "You appear to be offline. Reconnect and try again." };
+    return {
+      url: null,
+      storagePath: null,
+      error: "You appear to be offline. Reconnect and try again.",
+    };
   }
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
   if (sessionError) {
     console.error("Could not authorize storage upload", sessionError);
-    return { url: null, error: sessionError.message };
+    return { url: null, storagePath: null, error: sessionError.message };
   }
   const token = sessionData.session?.access_token;
-  if (!token) return { url: null, error: "You need to sign in to upload." };
+  if (!token) {
+    return { url: null, storagePath: null, error: "You need to sign in to upload." };
+  }
 
   let upload: { error: string | null };
   try {
@@ -182,31 +191,86 @@ export async function uploadWithProgress(
       contentType,
       token,
       storageConfig().key,
-      onProgress,
+      (percent, detail) => {
+        onProgress?.(needsFastStart ? Math.min(percent, 97) : percent, detail);
+      },
       cacheControl,
     );
   } catch (error) {
     console.error(`Storage upload failed for ${bucket}/${path}`, error);
-    return { url: null, error: readableUploadError(error) };
+    return { url: null, storagePath: null, error: readableUploadError(error) };
   }
 
   if (upload.error) {
     console.error(`Storage upload failed for ${bucket}/${path}: ${upload.error}`);
-    return { url: null, error: upload.error };
+    return { url: null, storagePath: null, error: upload.error };
+  }
+
+  let finalPath = path;
+  if (needsFastStart) {
+    onProgress?.(98, "Preparing video for playback");
+    let response: Response;
+    try {
+      response = await fetch("/api/media/transcode", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ bucket, path }),
+      });
+    } catch (error) {
+      console.error(`Video processing request failed for ${bucket}`, error);
+      return {
+        url: null,
+        storagePath: null,
+        error: "The video uploaded, but playback preparation failed. Please try again.",
+      };
+    }
+
+    const result: unknown = await response.json().catch(() => null);
+    const responseData =
+      result && typeof result === "object" ? (result as Record<string, unknown>) : null;
+    if (!response.ok) {
+      const message =
+        typeof responseData?.error === "string"
+          ? responseData.error
+          : "The video uploaded, but playback preparation failed.";
+      return { url: null, storagePath: null, error: message };
+    }
+    if (
+      typeof responseData?.path !== "string" ||
+      responseData.contentType !== "video/mp4" ||
+      responseData.faststart !== true
+    ) {
+      return {
+        url: null,
+        storagePath: null,
+        error: "The video processor returned an invalid response.",
+      };
+    }
+    finalPath = responseData.path;
   }
 
   const { data: signed, error: signError } = await supabase.storage
     .from(bucket)
-    .createSignedUrl(path, 60 * 60 * 24 * 365);
+    .createSignedUrl(finalPath, 60 * 60 * 24 * 365);
   if (signError || !signed?.signedUrl) {
-    console.error(`Failed to sign uploaded media ${bucket}/${path}`, signError);
+    console.error(`Failed to sign uploaded media ${bucket}/${finalPath}`, signError);
     return {
       url: null,
+      storagePath: null,
       error: signError?.message ?? "Upload completed, but the media URL could not be created.",
     };
   }
+  if (finalPath !== path) {
+    const { error: removeError } = await supabase.storage.from(bucket).remove([path]);
+    if (removeError) {
+      console.warn(`Could not remove unprocessed source video from ${bucket}`, removeError);
+    }
+  }
   onProgress?.(100);
-  return { url: signed.signedUrl, error: null };
+  return { url: signed.signedUrl, storagePath: finalPath, error: null };
 }
 
 export async function uploadSourceWithProgress(
@@ -221,7 +285,7 @@ export async function uploadSourceWithProgress(
     if (!response.ok) {
       const error = "The selected media is no longer available.";
       console.error(error, { source, status: response.status });
-      return { url: null, error };
+      return { url: null, storagePath: null, error };
     }
     const blob = await response.blob();
     return uploadWithProgress(bucket, path, blob, blob.type || fallbackType, onProgress);
@@ -229,6 +293,7 @@ export async function uploadSourceWithProgress(
     console.error("Could not prepare media for upload", error);
     return {
       url: null,
+      storagePath: null,
       error: error instanceof Error ? error.message : "Could not prepare media for upload.",
     };
   }
