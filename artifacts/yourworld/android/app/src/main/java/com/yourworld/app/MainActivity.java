@@ -4,6 +4,8 @@ import android.os.Bundle;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 
+import androidx.activity.OnBackPressedCallback;
+
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
@@ -11,6 +13,13 @@ public class MainActivity extends BridgeActivity {
     protected void onCreate(Bundle savedInstanceState) {
         registerPlugin(PrivacyBridgePlugin.class);
         super.onCreate(savedInstanceState);
+
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                handleAppBack();
+            }
+        });
 
         WebView webView = getBridge() != null ? getBridge().getWebView() : null;
         if (webView != null) {
@@ -33,5 +42,32 @@ public class MainActivity extends BridgeActivity {
                     null
             );
         }
+    }
+
+    private void handleAppBack() {
+        WebView webView = getBridge() != null ? getBridge().getWebView() : null;
+        if (webView == null) {
+            moveTaskToBack(true);
+            return;
+        }
+
+        webView.evaluateJavascript(
+                "(function() {"
+                        + "var path = window.location.pathname.replace(/\\/$/, '') || '/';"
+                        + "if (path === '/') return 'exit';"
+                        + "if (window.history.length > 1) {"
+                        + "window.history.back();"
+                        + "return 'back';"
+                        + "}"
+                        + "window.history.replaceState(window.history.state, '', '/');"
+                        + "window.dispatchEvent(new PopStateEvent('popstate', {state: window.history.state}));"
+                        + "return 'home';"
+                        + "})()",
+                result -> {
+                    if ("\"exit\"".equals(result)) {
+                        moveTaskToBack(true);
+                    }
+                }
+        );
     }
 }
