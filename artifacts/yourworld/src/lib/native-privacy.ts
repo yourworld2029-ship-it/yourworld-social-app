@@ -17,7 +17,21 @@ function updateAndroidSecureFlag(enabled: boolean) {
 
 export function useAndroidSecureFlag(enabled: boolean) {
   useEffect(() => {
-    updateAndroidSecureFlag(enabled);
-    return () => updateAndroidSecureFlag(false);
+    const reapplyProtection = () => updateAndroidSecureFlag(enabled);
+    const reapplyWhenVisible = () => {
+      if (document.visibilityState === "visible") reapplyProtection();
+    };
+
+    reapplyProtection();
+    window.addEventListener("focus", reapplyProtection);
+    window.addEventListener("yw-app-resume", reapplyProtection);
+    document.addEventListener("visibilitychange", reapplyWhenVisible);
+
+    return () => {
+      window.removeEventListener("focus", reapplyProtection);
+      window.removeEventListener("yw-app-resume", reapplyProtection);
+      document.removeEventListener("visibilitychange", reapplyWhenVisible);
+      updateAndroidSecureFlag(false);
+    };
   }, [enabled]);
 }
