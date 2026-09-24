@@ -1,15 +1,18 @@
 package com.yourworld.app;
 
 import android.graphics.Color;
+import android.os.Build;
 import android.os.Bundle;
 import android.view.WindowManager;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 
 import androidx.activity.OnBackPressedCallback;
+import androidx.core.graphics.Insets;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
+import androidx.core.view.ViewCompat;
 
 import com.getcapacitor.BridgeActivity;
 
@@ -31,6 +34,7 @@ public class MainActivity extends BridgeActivity {
         WebView webView = getBridge() != null ? getBridge().getWebView() : null;
         configureSystemBars();
         if (webView != null) {
+            applyWebViewInsets(webView);
             webView.getSettings().setCacheMode(WebSettings.LOAD_NO_CACHE);
             // BridgeActivity may have started the initial remote load already.
             // Restart it after applying the no-cache policy so it uses fresh HTML.
@@ -91,5 +95,31 @@ public class MainActivity extends BridgeActivity {
         getWindow().setStatusBarColor(Color.BLACK);
         getWindow().getDecorView().setBackgroundColor(Color.BLACK);
         controller.show(WindowInsetsCompat.Type.statusBars());
+    }
+
+    private void applyWebViewInsets(WebView webView) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+            return;
+        }
+
+        final int initialLeft = webView.getPaddingLeft();
+        final int initialTop = webView.getPaddingTop();
+        final int initialRight = webView.getPaddingRight();
+        final int initialBottom = webView.getPaddingBottom();
+
+        ViewCompat.setOnApplyWindowInsetsListener(webView, (view, windowInsets) -> {
+            Insets safeInsets = windowInsets.getInsets(
+                    WindowInsetsCompat.Type.statusBars()
+                            | WindowInsetsCompat.Type.displayCutout()
+            );
+            view.setPadding(
+                    initialLeft + safeInsets.left,
+                    initialTop + safeInsets.top,
+                    initialRight + safeInsets.right,
+                    initialBottom + safeInsets.bottom
+            );
+            return windowInsets;
+        });
+        ViewCompat.requestApplyInsets(webView);
     }
 }

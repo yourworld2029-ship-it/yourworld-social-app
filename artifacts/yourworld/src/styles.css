@@ -4,6 +4,10 @@
 
 @custom-variant dark (&:is(.dark *));
 
+.app-safe-content {
+  padding-top: max(env(safe-area-inset-top, 0px), 32px);
+}
+
 @theme {
   --font-display: "Sora", ui-sans-serif, system-ui, sans-serif;
   --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
