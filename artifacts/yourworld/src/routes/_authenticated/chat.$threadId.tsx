@@ -28,6 +28,7 @@ import { PinDialog } from "@/components/yw/PinDialog";
 import { toast } from "sonner";
 import { AUTO_DELETE_OPTIONS, autoDeleteLabel } from "@/lib/auto-delete";
 import { historyBackOr } from "@/lib/navigation";
+import { useAndroidSecureFlag } from "@/lib/native-privacy";
 import {
   STORAGE_BUCKETS,
   uploadSourceWithProgress,
@@ -642,6 +643,7 @@ function ChatThreadPage() {
 
   const captureChannelName = conversationId ? `social-chat-capture-${conversationId}` : null;
   const captureAlertsEnabled = screenshotAlert || recordingAlert;
+  useAndroidSecureFlag(captureAlertsEnabled);
 
   const handleIncomingCaptureAlert = useCallback(
     (payload: Record<string, unknown>, kind: "screenshot" | "recording") => {

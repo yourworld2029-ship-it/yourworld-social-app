@@ -52,6 +52,7 @@ import {
   normalizeAutoDeleteSetting,
   type AutoDeleteSetting,
 } from "@/lib/auto-delete";
+import { useAndroidSecureFlag } from "@/lib/native-privacy";
 
 // Relations added by migration 0015 are intentionally not in checked-in
 // generated Supabase types. Keep this narrow escape hatch at that boundary.
@@ -705,6 +706,7 @@ function OrbitChatPage() {
     },
     { screenshotEnabled: screenshotAlert, protectedElementId: "chat-messages-container" },
   );
+  useAndroidSecureFlag(screenshotAlert || recordingAlert);
 
   const startRecording = async () => {
     if (!accepted) {
