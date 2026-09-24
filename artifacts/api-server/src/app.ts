@@ -2,6 +2,7 @@ import express, { type Express } from "express";
 import cors from "cors";
 import compression from "compression";
 import pinoHttp from "pino-http";
+import apkRouter from "./routes/apk";
 import router from "./routes";
 import { logger } from "./lib/logger";
 
@@ -31,6 +32,7 @@ app.use(compression());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+app.use(apkRouter);
 app.use("/api", router);
 
 export default app;

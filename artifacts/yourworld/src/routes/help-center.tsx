@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowLeft, CircleHelp, Mail, ShieldCheck, WalletCards } from "lucide-react";
+import { ArrowLeft, CircleHelp, Download, Mail, ShieldCheck, WalletCards } from "lucide-react";
 import { historyBackLink } from "@/lib/navigation";
 
 export const Route = createFileRoute("/help-center")({
@@ -125,6 +125,28 @@ function HelpCenterPage() {
             &gt; Copyright &amp; DMCA Policy to file a formal takedown request.
           </Question>
         </HelpSection>
+
+        <section className="rounded-2xl border border-emerald-500/25 bg-emerald-500/10 p-5">
+          <div className="flex items-start gap-3">
+            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-emerald-500/15">
+              <Download className="h-5 w-5 text-emerald-300" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h2 className="text-base font-semibold text-white">Install the Android app</h2>
+              <p className="mt-1.5 text-sm leading-relaxed text-zinc-300">
+                Download the latest YourWorld Android debug build directly to your phone.
+              </p>
+              <a
+                href="/yourworld-debug.apk"
+                download="yourworld-debug.apk"
+                className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-black transition-colors hover:bg-emerald-400 active:bg-emerald-600 sm:w-auto"
+              >
+                <Download className="h-4 w-4" />
+                Download APK
+              </a>
+            </div>
+          </div>
+        </section>
 
         <section className="rounded-2xl border border-indigo-500/20 bg-indigo-500/10 p-5">
           <div className="flex items-center gap-2">
