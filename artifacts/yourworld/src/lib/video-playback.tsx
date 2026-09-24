@@ -200,6 +200,17 @@ function unlockPlayerOrientation() {
   orientation?.unlock?.();
 }
 
+function lockPlayerOrientation(video: HTMLVideoElement | null, fallbackIsVertical: boolean) {
+  const orientation = window.screen?.orientation as LockableScreenOrientation | undefined;
+  if (typeof orientation?.lock !== "function") return;
+
+  const hasVideoDimensions = Boolean(video && video.videoWidth > 0 && video.videoHeight > 0);
+  const isVertical = hasVideoDimensions
+    ? video!.videoHeight > video!.videoWidth
+    : fallbackIsVertical;
+  void orientation.lock(isVertical ? "portrait" : "landscape").catch(() => {});
+}
+
 export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -486,12 +497,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
             : requestPlayerFullscreen(fallbackTarget),
         )
         .then((enteredFullscreen) => {
-        if (!enteredFullscreen) return;
-        setIsFullscreen(true);
-        const orientation = window.screen?.orientation as LockableScreenOrientation | undefined;
-        if (typeof orientation?.lock === "function") {
-            void orientation.lock(isVerticalVideo ? "portrait" : "landscape").catch(() => {});
-        }
+          if (!enteredFullscreen) return;
+          setIsFullscreen(true);
+          lockPlayerOrientation(videoRef.current, isVerticalVideo);
         });
     }
     markControlsActivity();
@@ -887,8 +895,16 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
           <div
             className={
               isDetailPlayer
-                ? `relative w-full bg-black ${isFullscreen ? "h-screen w-screen" : "aspect-video"}`
-                : "relative aspect-video w-full bg-black"
+                ? `relative w-full bg-black ${
+                    isFullscreen
+                      ? "h-screen w-screen"
+                      : isVerticalVideo
+                        ? "aspect-[9/16]"
+                        : "aspect-video"
+                  }`
+                : `relative ${
+                    isVerticalVideo ? "aspect-[9/16]" : "aspect-video"
+                  } w-full bg-black`
             }
             onClick={isDetailPlayer ? handlePlayerSurfaceClick : undefined}
             style={isFullscreen ? { width: "100vw", height: "100vh" } : undefined}

@@ -201,7 +201,7 @@ function RootComponent() {
                                        <DownloadBanner />
                                       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
                                       <AuthGate>
-                                        <div className={cn("app-safe-content mx-auto min-h-screen w-full", wideProfileLayout ? "max-w-4xl" : "max-w-lg", hideNav ? "" : "pb-20")}>
+                                        <div className={cn("mx-auto min-h-screen w-full", wideProfileLayout ? "max-w-4xl" : "max-w-lg", hideNav ? "" : "pb-20")}>
                                           <Outlet />
                                         </div>
                                         {!hideNav && <BottomNav onOpenCreate={() => setCreateOpen(true)} />}
