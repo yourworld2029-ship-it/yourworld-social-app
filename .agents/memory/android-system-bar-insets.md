@@ -8,3 +8,9 @@ When the Android app targets SDK 35 or higher, Android 15+ enforces edge-to-edge
 **Why:** The app targets a modern SDK, where status bars can be visible and still overlay edge-to-edge content.
 
 **How to apply:** Check `targetSdk` before treating a top cutout as a CSS-only issue. Keep status-bar visibility/icon contrast explicit, then inset content once at the native WebView boundary rather than adding per-screen workarounds.
+
+Fresh Replit shells may not include the Android SDK, even when a previous APK build succeeded. The managed system-dependency installer may not expose `androidenv.androidPkgs.androidsdk`; a composed Nix SDK is a viable fallback, but Gradle's requested Build Tools versions must be included because the Nix SDK output is read-only.
+
+**Why:** Gradle otherwise attempts to install missing Build Tools into the immutable Nix SDK and fails before compiling.
+
+**How to apply:** Check SDK availability before building; if missing, obtain approval for the Android SDK license, compose the target platform and all AGP-requested Build Tools versions with Nix, then point `ANDROID_HOME` at the resulting SDK.
