@@ -1,10 +1,15 @@
 package com.yourworld.app;
 
+import android.graphics.Color;
 import android.os.Bundle;
+import android.view.WindowManager;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 
 import androidx.activity.OnBackPressedCallback;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 
 import com.getcapacitor.BridgeActivity;
 
@@ -13,6 +18,8 @@ public class MainActivity extends BridgeActivity {
     protected void onCreate(Bundle savedInstanceState) {
         registerPlugin(PrivacyBridgePlugin.class);
         super.onCreate(savedInstanceState);
+
+        configureSystemBars();
 
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
@@ -47,12 +54,6 @@ public class MainActivity extends BridgeActivity {
     private void handleAppBack() {
         WebView webView = getBridge() != null ? getBridge().getWebView() : null;
         if (webView == null) {
-            moveTaskToBack(true);
-            return;
-        }
-
-        if (webView.canGoBack()) {
-            webView.goBack();
             return;
         }
 
@@ -74,5 +75,17 @@ public class MainActivity extends BridgeActivity {
                     }
                 }
         );
+    }
+
+    private void configureSystemBars() {
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+        getWindow().setStatusBarColor(Color.rgb(7, 8, 23));
+
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
+        WindowInsetsControllerCompat controller =
+                WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+        controller.setAppearanceLightStatusBars(false);
+        controller.show(WindowInsetsCompat.Type.statusBars());
     }
 }
