@@ -1,1 +1,2 @@
 artifacts/yourworld/public/yourworld-debug.apk filter=lfs diff=lfs merge=lfs -text
+artifacts/yourworld/public/yourworld-v2.apk filter=lfs diff=lfs merge=lfs -text
