@@ -1,0 +1,9 @@
+{
+  "name": "Yourworld Social",
+  "short_name": "Yourworld",
+  "description": "Private and secure social chat application",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#000000"
+}
