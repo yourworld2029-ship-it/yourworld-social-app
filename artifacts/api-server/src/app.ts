@@ -28,11 +28,12 @@ app.use(
   }),
 );
 app.use(cors());
+// Serve the APK before compression so it is always delivered byte-for-byte.
+app.use(apkRouter);
 app.use(compression());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-app.use(apkRouter);
 app.use("/api", router);
 
 export default app;
