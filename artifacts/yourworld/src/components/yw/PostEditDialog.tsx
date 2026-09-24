@@ -333,7 +333,9 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
                   </span>
                 </>
               ) : null}
-              <label className="absolute bottom-3 right-3 inline-flex cursor-pointer items-center gap-1.5 rounded-full bg-black/75 px-3 py-2 text-xs font-semibold text-white backdrop-blur">
+            </div>
+            <div className="flex justify-end px-4 pt-3">
+              <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-border bg-background px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-accent">
                 <ImagePlus className="h-4 w-4" />
                 Replace cover
                 <input type="file" accept="image/*" className="sr-only" onChange={(event) => setThumbnailFile(event.target.files?.[0] ?? null)} />
