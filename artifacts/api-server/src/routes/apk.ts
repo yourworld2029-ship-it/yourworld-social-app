@@ -1,9 +1,13 @@
 import { Router, type IRouter } from "express";
 import { access } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const router: IRouter = Router();
-const apkPath = path.resolve(process.cwd(), "artifacts/yourworld/public/yourworld-debug.apk");
+const apkPath = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../yourworld/public/yourworld-debug.apk",
+);
 
 router.get("/yourworld-debug.apk", async (_req, res) => {
   try {

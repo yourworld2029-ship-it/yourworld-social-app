@@ -14,3 +14,9 @@ Android Gradle builds for this Capacitor project require Java 21. The workspace'
 **Why:** The project can have a complete Capacitor wrapper and Gradle dependencies while still lacking the SDK and a compatible JDK, so a build failure may be environment setup rather than app code.
 
 **How to apply:** Before `assembleDebug`, provision Android platform 36 plus build-tools and run Gradle with a JDK 21 `JAVA_HOME`.
+
+Express routes that serve the packaged APK should resolve its path from `import.meta.url`, not `process.cwd()`, because workflow and deployment working directories can differ.
+
+**Why:** A cwd-relative route returned 404 in the running API workflow even though the APK existed in the web artifact.
+
+**How to apply:** Use the compiled server module directory to resolve `../../yourworld/public/yourworld-debug.apk`, then verify both the API port and the root proxy.
