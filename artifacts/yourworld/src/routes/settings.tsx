@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  User, Megaphone, Lock, Bell, Palette, HelpCircle, Info, LogOut, ChevronRight, ArrowLeft, X, Wallet,
+  User, BarChart2, Lock, Bell, Palette, HelpCircle, Info, LogOut, ChevronRight, ArrowLeft, X, Wallet,
   Check, Monitor, Moon, Sparkles, Sun, Zap,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -238,16 +238,16 @@ function SettingsPage() {
           <ChevronRight className="text-muted-foreground" size={18} />
         </div>
 
-        {/* Create Channel - ROUTE FIXED TO MAIN CHANNEL SCREEN */}
+        {/* Creator analytics */}
         <div 
-          onClick={() => navigate({ to: "/channel/create" })}
+          onClick={() => navigate({ to: "/channel/analytics" })}
            className="flex cursor-pointer items-center justify-between rounded-xl p-3.5 hover:bg-muted/50"
         >
           <div className="flex items-center gap-4">
-            <Megaphone className="text-muted-foreground" size={20} />
+            <BarChart2 className="text-muted-foreground" size={20} />
             <div>
-              <div className="font-semibold text-sm">Create Channel</div>
-              <div className="text-[11px] text-muted-foreground">Videos, reels, posts & analytics</div>
+              <div className="font-semibold text-sm">Creator Analytics</div>
+              <div className="text-[11px] text-muted-foreground">Views, watch hours, followers & top content</div>
             </div>
           </div>
           <ChevronRight className="text-muted-foreground" size={18} />

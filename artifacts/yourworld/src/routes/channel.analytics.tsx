@@ -10,13 +10,13 @@ import { VideoPoster } from "@/components/yw/VideoPoster";
 export const Route = createFileRoute("/channel/analytics")({
   head: () => ({
     meta: [
-      { title: "Channel Analytics — YourWorld" },
+      { title: "Creator Analytics — YourWorld" },
       {
         name: "description",
-        content: "Views, watch time, subscriber growth and top performing content for your channel.",
+        content: "Views, watch time, follower growth and top performing content for your profile.",
       },
-      { property: "og:title", content: "Channel Analytics — YourWorld" },
-      { property: "og:description", content: "Understand how your channel is growing on YourWorld." },
+      { property: "og:title", content: "Creator Analytics — YourWorld" },
+      { property: "og:description", content: "Understand how your profile is growing on YourWorld." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],
@@ -50,20 +50,20 @@ function ChannelAnalytics() {
       </div>
 
       <div className="grid grid-cols-2 gap-3 px-4 pt-4">
-        <StatTile label="Total views" value={statValue(stats.views30d)} />
+        <StatTile label="Total Views" value={statValue(stats.views30d)} />
         <StatTile
-          label="Watch hours"
+          label="Watch Hours"
           value={statValue(stats.watchHours)}
           hint={watchTimeError ? "Watch time unavailable" : `Last ${periodDays} days`}
         />
-        <StatTile label="Subscribers" value={statValue(stats.subscribers)} />
-        <StatTile label="Published" value={statValue(stats.posts)} />
+        <StatTile label="Followers" value={statValue(stats.subscribers)} />
+        <StatTile label="Published posts" value={statValue(stats.posts)} />
       </div>
 
       <div className="px-4 pt-4">
         <section className="surface-card overflow-hidden rounded-3xl">
           <p className="px-4 pt-3.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Top performing
+            Top Performing content
           </p>
           <ul className="pt-1">
             {loading ? (

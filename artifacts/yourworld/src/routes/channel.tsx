@@ -1,5 +1,5 @@
 import { createFileRoute, Outlet, useNavigate, useLocation } from "@tanstack/react-router";
-import { ArrowLeft, Megaphone, Video, Film, FileText, Users, DollarSign, BarChart2 } from "lucide-react";
+import { ArrowLeft, Video, Film, FileText, Users, DollarSign, BarChart2 } from "lucide-react";
 import { historyBackOr } from "@/lib/navigation";
 
 export const Route = createFileRoute("/channel")({
@@ -11,7 +11,6 @@ function ChannelLayout() {
   const location = useLocation();
 
   const tabs = [
-    { label: "Create", path: "/channel/create", icon: Megaphone },
     { label: "Posts", path: "/channel/posts", icon: FileText },
     { label: "Videos", path: "/channel/videos", icon: Video },
     { label: "Reels", path: "/channel/reels", icon: Film },
