@@ -37,11 +37,6 @@ import { Route as AdminSportsVerificationRouteImport } from './routes/admin.spor
 import { Route as ChannelIndexRouteImport } from './routes/channel.index'
 import { Route as ChannelAnalyticsRouteImport } from './routes/channel.analytics'
 import { Route as ChannelCreateRouteImport } from './routes/channel.create'
-import { Route as ChannelMonetizationRouteImport } from './routes/channel.monetization'
-import { Route as ChannelPostsRouteImport } from './routes/channel.posts'
-import { Route as ChannelReelsRouteImport } from './routes/channel.reels'
-import { Route as ChannelSubscribersRouteImport } from './routes/channel.subscribers'
-import { Route as ChannelVideosRouteImport } from './routes/channel.videos'
 import { Route as DownloadsDownloadIdRouteImport } from './routes/downloads.$downloadId'
 import { Route as MomentIndexRouteImport } from './routes/moment.index'
 import { Route as MomentMomentIdRouteImport } from './routes/moment.$momentId'
@@ -202,31 +197,6 @@ const ChannelCreateRoute = ChannelCreateRouteImport.update({
   path: '/create',
   getParentRoute: () => ChannelRoute,
 } as any)
-const ChannelMonetizationRoute = ChannelMonetizationRouteImport.update({
-  id: '/monetization',
-  path: '/monetization',
-  getParentRoute: () => ChannelRoute,
-} as any)
-const ChannelPostsRoute = ChannelPostsRouteImport.update({
-  id: '/posts',
-  path: '/posts',
-  getParentRoute: () => ChannelRoute,
-} as any)
-const ChannelReelsRoute = ChannelReelsRouteImport.update({
-  id: '/reels',
-  path: '/reels',
-  getParentRoute: () => ChannelRoute,
-} as any)
-const ChannelSubscribersRoute = ChannelSubscribersRouteImport.update({
-  id: '/subscribers',
-  path: '/subscribers',
-  getParentRoute: () => ChannelRoute,
-} as any)
-const ChannelVideosRoute = ChannelVideosRouteImport.update({
-  id: '/videos',
-  path: '/videos',
-  getParentRoute: () => ChannelRoute,
-} as any)
 const DownloadsDownloadIdRoute = DownloadsDownloadIdRouteImport.update({
   id: '/downloads/$downloadId',
   path: '/downloads/$downloadId',
@@ -356,11 +326,6 @@ export interface FileRoutesByFullPath {
   '/admin/sports-verification': typeof AdminSportsVerificationRoute
   '/channel/analytics': typeof ChannelAnalyticsRoute
   '/channel/create': typeof ChannelCreateRoute
-  '/channel/monetization': typeof ChannelMonetizationRoute
-  '/channel/posts': typeof ChannelPostsRoute
-  '/channel/reels': typeof ChannelReelsRoute
-  '/channel/subscribers': typeof ChannelSubscribersRoute
-  '/channel/videos': typeof ChannelVideosRoute
   '/downloads/$downloadId': typeof DownloadsDownloadIdRoute
   '/moment/$momentId': typeof MomentMomentIdRoute
   '/moment/create': typeof MomentCreateRoute
@@ -408,11 +373,6 @@ export interface FileRoutesByTo {
   '/admin/sports-verification': typeof AdminSportsVerificationRoute
   '/channel/analytics': typeof ChannelAnalyticsRoute
   '/channel/create': typeof ChannelCreateRoute
-  '/channel/monetization': typeof ChannelMonetizationRoute
-  '/channel/posts': typeof ChannelPostsRoute
-  '/channel/reels': typeof ChannelReelsRoute
-  '/channel/subscribers': typeof ChannelSubscribersRoute
-  '/channel/videos': typeof ChannelVideosRoute
   '/downloads/$downloadId': typeof DownloadsDownloadIdRoute
   '/moment/$momentId': typeof MomentMomentIdRoute
   '/moment/create': typeof MomentCreateRoute
@@ -464,11 +424,6 @@ export interface FileRoutesById {
   '/admin/sports-verification': typeof AdminSportsVerificationRoute
   '/channel/analytics': typeof ChannelAnalyticsRoute
   '/channel/create': typeof ChannelCreateRoute
-  '/channel/monetization': typeof ChannelMonetizationRoute
-  '/channel/posts': typeof ChannelPostsRoute
-  '/channel/reels': typeof ChannelReelsRoute
-  '/channel/subscribers': typeof ChannelSubscribersRoute
-  '/channel/videos': typeof ChannelVideosRoute
   '/downloads/$downloadId': typeof DownloadsDownloadIdRoute
   '/moment/$momentId': typeof MomentMomentIdRoute
   '/moment/create': typeof MomentCreateRoute
@@ -520,11 +475,6 @@ export interface FileRouteTypes {
     | '/admin/sports-verification'
     | '/channel/analytics'
     | '/channel/create'
-    | '/channel/monetization'
-    | '/channel/posts'
-    | '/channel/reels'
-    | '/channel/subscribers'
-    | '/channel/videos'
     | '/downloads/$downloadId'
     | '/moment/$momentId'
     | '/moment/create'
@@ -572,11 +522,6 @@ export interface FileRouteTypes {
     | '/admin/sports-verification'
     | '/channel/analytics'
     | '/channel/create'
-    | '/channel/monetization'
-    | '/channel/posts'
-    | '/channel/reels'
-    | '/channel/subscribers'
-    | '/channel/videos'
     | '/downloads/$downloadId'
     | '/moment/$momentId'
     | '/moment/create'
@@ -627,11 +572,6 @@ export interface FileRouteTypes {
     | '/admin/sports-verification'
     | '/channel/analytics'
     | '/channel/create'
-    | '/channel/monetization'
-    | '/channel/posts'
-    | '/channel/reels'
-    | '/channel/subscribers'
-    | '/channel/videos'
     | '/downloads/$downloadId'
     | '/moment/$momentId'
     | '/moment/create'
@@ -888,41 +828,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChannelCreateRouteImport
       parentRoute: typeof ChannelRoute
     }
-    '/channel/monetization': {
-      id: '/channel/monetization'
-      path: '/monetization'
-      fullPath: '/channel/monetization'
-      preLoaderRoute: typeof ChannelMonetizationRouteImport
-      parentRoute: typeof ChannelRoute
-    }
-    '/channel/posts': {
-      id: '/channel/posts'
-      path: '/posts'
-      fullPath: '/channel/posts'
-      preLoaderRoute: typeof ChannelPostsRouteImport
-      parentRoute: typeof ChannelRoute
-    }
-    '/channel/reels': {
-      id: '/channel/reels'
-      path: '/reels'
-      fullPath: '/channel/reels'
-      preLoaderRoute: typeof ChannelReelsRouteImport
-      parentRoute: typeof ChannelRoute
-    }
-    '/channel/subscribers': {
-      id: '/channel/subscribers'
-      path: '/subscribers'
-      fullPath: '/channel/subscribers'
-      preLoaderRoute: typeof ChannelSubscribersRouteImport
-      parentRoute: typeof ChannelRoute
-    }
-    '/channel/videos': {
-      id: '/channel/videos'
-      path: '/videos'
-      fullPath: '/channel/videos'
-      preLoaderRoute: typeof ChannelVideosRouteImport
-      parentRoute: typeof ChannelRoute
-    }
     '/downloads/$downloadId': {
       id: '/downloads/$downloadId'
       path: '/downloads/$downloadId'
@@ -1094,22 +999,12 @@ const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
 interface ChannelRouteChildren {
   ChannelAnalyticsRoute: typeof ChannelAnalyticsRoute
   ChannelCreateRoute: typeof ChannelCreateRoute
-  ChannelMonetizationRoute: typeof ChannelMonetizationRoute
-  ChannelPostsRoute: typeof ChannelPostsRoute
-  ChannelReelsRoute: typeof ChannelReelsRoute
-  ChannelSubscribersRoute: typeof ChannelSubscribersRoute
-  ChannelVideosRoute: typeof ChannelVideosRoute
   ChannelIndexRoute: typeof ChannelIndexRoute
 }
 
 const ChannelRouteChildren: ChannelRouteChildren = {
   ChannelAnalyticsRoute: ChannelAnalyticsRoute,
   ChannelCreateRoute: ChannelCreateRoute,
-  ChannelMonetizationRoute: ChannelMonetizationRoute,
-  ChannelPostsRoute: ChannelPostsRoute,
-  ChannelReelsRoute: ChannelReelsRoute,
-  ChannelSubscribersRoute: ChannelSubscribersRoute,
-  ChannelVideosRoute: ChannelVideosRoute,
   ChannelIndexRoute: ChannelIndexRoute,
 }
 
