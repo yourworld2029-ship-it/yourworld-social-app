@@ -245,17 +245,15 @@ function ChatThreadPage() {
   const [localMessages, setLocalMessages] = useState<Message[]>([]);
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
-  const [captureObscured, setCaptureObscured] = useState(false);
   const [revealedProtectedIds, setRevealedProtectedIds] = useState<string[]>([]);
   const captureAlertSequenceRef = useRef(0);
   const lastScreenshotAlertAtRef = useRef(0);
   const lastIncomingScreenshotAtRef = useRef(0);
-  const captureObscureTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const protectedRevealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const captureChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const captureChannelReadyRef = useRef(false);
   const pendingCaptureAlertsRef = useRef<Array<{
-    event: "USER_SCREENSHOT_TAKEN" | "USER_SCREEN_RECORDING_ALERT";
+    event: "send_system_alert" | "USER_SCREENSHOT_TAKEN" | "USER_SCREEN_RECORDING_ALERT";
     payload: Record<string, unknown>;
   }>>([]);
 
@@ -601,7 +599,6 @@ function ChatThreadPage() {
     () => () => {
       cancelLongPress();
       if (protectedRevealTimerRef.current) clearTimeout(protectedRevealTimerRef.current);
-      if (captureObscureTimerRef.current) clearTimeout(captureObscureTimerRef.current);
     },
     [],
   );
@@ -653,7 +650,7 @@ function ChatThreadPage() {
       if (muted || (kind === "recording" ? !recordingAlert : !screenshotAlert)) return;
       if (kind === "screenshot") {
         const now = Date.now();
-        if (now - lastIncomingScreenshotAtRef.current < 4_000) return;
+        if (now - lastIncomingScreenshotAtRef.current < 3_000) return;
         lastIncomingScreenshotAtRef.current = now;
       }
       const actorName = String(payload.actorName ?? "Someone");
@@ -680,6 +677,10 @@ function ChatThreadPage() {
     if (!captureChannelName || !currentUserId) return;
     const channel = supabase
       .channel(captureChannelName)
+       .on("broadcast", { event: "send_system_alert" }, ({ payload }) => {
+         const value = payload as Record<string, unknown>;
+         handleIncomingCaptureAlert(value, value.kind === "recording" ? "recording" : "screenshot");
+       })
        .on("broadcast", { event: "USER_SCREENSHOT_TAKEN" }, ({ payload }) => {
         handleIncomingCaptureAlert(payload as Record<string, unknown>, "screenshot");
       })
@@ -714,14 +715,8 @@ function ChatThreadPage() {
       ) return;
       if (kind === "screenshot") {
         const now = Date.now();
-        if (now - lastScreenshotAlertAtRef.current < 4_000) return;
+        if (now - lastScreenshotAlertAtRef.current < 3_000) return;
         lastScreenshotAlertAtRef.current = now;
-        setCaptureObscured(true);
-        if (captureObscureTimerRef.current) clearTimeout(captureObscureTimerRef.current);
-        captureObscureTimerRef.current = setTimeout(() => {
-          setCaptureObscured(false);
-          captureObscureTimerRef.current = null;
-        }, 1_200);
       }
       const eventId = `${currentUserId}-${Date.now()}-${captureAlertSequenceRef.current++}`;
       const text =
@@ -742,7 +737,7 @@ function ChatThreadPage() {
       });
 
       const event = kind === "screenshot"
-        ? "USER_SCREENSHOT_TAKEN"
+        ? "send_system_alert"
         : "USER_SCREEN_RECORDING_ALERT";
       const payload = {
         chatId: conversationId,
@@ -771,6 +766,7 @@ function ChatThreadPage() {
 
   useCaptureDetect(captureAlertsEnabled, dispatchChatSecurityAlert, {
     screenshotEnabled: screenshotAlert,
+    protectedElementId: "chat-messages-container",
   });
 
   useEffect(() => {
@@ -1140,6 +1136,7 @@ function ChatThreadPage() {
       )}
 
       <div
+        id="chat-messages-container"
         ref={scrollRef}
         onScroll={onScrollMessages}
         className="relative min-h-0 flex-1 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] p-4 bg-zinc-950/50"
@@ -1148,12 +1145,6 @@ function ChatThreadPage() {
         <div
           className="relative min-h-full space-y-3.5"
         >
-         {captureObscured && (
-           <div
-             className="pointer-events-none absolute inset-0 z-30 bg-black/95"
-             aria-hidden="true"
-           />
-         )}
          <UserWatermark username={currentUsername} className="fixed text-white" />
         {messagesLoading && messages.length > 0 ? (
           <p className="flex items-center justify-center gap-2 py-1 text-[11px] text-zinc-500" aria-live="polite">
