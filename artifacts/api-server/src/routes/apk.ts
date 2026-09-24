@@ -4,35 +4,42 @@ import path from "node:path";
 
 const router: IRouter = Router();
 const APK_CONTENT_TYPE = "application/vnd.android.package-archive";
-const apkPath = path.resolve(
+const apkPublicDir = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  "../../yourworld/public/yourworld-debug.apk",
+  "../../yourworld/public",
 );
 
-router.get("/yourworld-debug.apk", (req, res, next) => {
-  res.download(
-    apkPath,
-    "yourworld-debug.apk",
-    {
-      headers: {
-        "Content-Type": APK_CONTENT_TYPE,
-        "Cache-Control": "no-transform",
+function registerApkDownload(filename: string) {
+  const filePath = path.join(apkPublicDir, filename);
+
+  router.get(`/${filename}`, (req, res, next) => {
+    res.download(
+      filePath,
+      filename,
+      {
+        headers: {
+          "Content-Type": APK_CONTENT_TYPE,
+          "Cache-Control": "no-transform",
+        },
       },
-    },
-    (error) => {
-      if (!error) return;
+      (error) => {
+        if (!error) return;
 
-      // A client closing a large download is not a server failure.
-      if (req.aborted || res.destroyed) return;
+        // A client closing a large download is not a server failure.
+        if (req.aborted || res.destroyed) return;
 
-      if ((error as NodeJS.ErrnoException).code === "ENOENT" && !res.headersSent) {
-        res.status(404).json({ error: "APK is not available" });
-        return;
-      }
+        if ((error as NodeJS.ErrnoException).code === "ENOENT" && !res.headersSent) {
+          res.status(404).json({ error: "APK is not available" });
+          return;
+        }
 
-      next(error);
-    },
-  );
-});
+        next(error);
+      },
+    );
+  });
+}
+
+registerApkDownload("yourworld-debug.apk");
+registerApkDownload("yourworld-v3.apk");
 
 export default router;
