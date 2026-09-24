@@ -12,6 +12,8 @@ tags:
     description: Health operations
   - name: media
     description: Media processing operations
+  - name: posts
+    description: Post operations
 paths:
   /healthz:
     get:
@@ -82,6 +84,70 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+  /posts/{postId}/pin:
+    patch:
+      operationId: setPostPin
+      tags: [posts]
+      summary: Set whether an owned post is pinned to its owner's profile grid
+      security:
+        - SupabaseBearer: []
+      parameters:
+        - name: postId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostPinInput"
+      responses:
+        "200":
+          description: Saved pin state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostPinResponse"
+        "400":
+          description: Invalid post ID or pin state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Post not found or not owned by the caller
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "409":
+          description: The caller has reached the three-post pin limit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "502":
+          description: Supabase could not complete the pin update
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: Pinning is unavailable because the posts.pinned column is missing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
 components:
   securitySchemes:
     SupabaseBearer:
@@ -124,6 +190,25 @@ components:
         - path
         - contentType
         - faststart
+    PostPinInput:
+      type: object
+      additionalProperties: false
+      properties:
+        pinned:
+          type: boolean
+      required:
+        - pinned
+    PostPinResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        postId:
+          type: string
+        pinned:
+          type: boolean
+      required:
+        - postId
+        - pinned
     ApiError:
       type: object
       properties:

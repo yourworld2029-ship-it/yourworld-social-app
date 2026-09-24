@@ -37,3 +37,24 @@ export const TranscodeVideoResponse = zod.object({
 })
 
 
+/**
+ * @summary Set whether an owned post is pinned to its owner's profile grid
+ */
+export const setPostPinPathPostIdMax = 128;
+
+
+
+export const SetPostPinParams = zod.object({
+  "postId": zod.coerce.string().min(1).max(setPostPinPathPostIdMax)
+})
+
+export const SetPostPinBody = zod.object({
+  "pinned": zod.boolean()
+})
+
+export const SetPostPinResponse = zod.object({
+  "postId": zod.string(),
+  "pinned": zod.boolean()
+})
+
+

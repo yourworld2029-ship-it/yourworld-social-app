@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { SetPostPinBody, SetPostPinResponse } from "@workspace/api-zod";
 import { supabase } from "@/integrations/supabase/client";
 import { STORAGE_BUCKETS, uploadWithProgress, type ProgressFn } from "@/lib/storage-upload";
 import { resolveMediaUrl, type DbPost } from "@/lib/social-data";
@@ -764,7 +765,6 @@ export async function updateMyPost(
     hide_like_count?: boolean;
     hide_share_count?: boolean;
     comments_off?: boolean;
-    pinned?: boolean;
     archived?: boolean;
     mentions?: string[];
     category?: string | null;
@@ -781,7 +781,6 @@ export async function updateMyPost(
     hide_like_count?: boolean;
     hide_share_count?: boolean;
     comments_off?: boolean;
-    pinned?: boolean;
     archived?: boolean;
     mentions?: string[];
     category?: string | null;
@@ -801,7 +800,6 @@ export async function updateMyPost(
   if (patch.hide_like_count !== undefined) next.hide_like_count = patch.hide_like_count;
   if (patch.hide_share_count !== undefined) next.hide_share_count = patch.hide_share_count;
   if (patch.comments_off !== undefined) next.comments_off = patch.comments_off;
-  if (patch.pinned !== undefined) next.pinned = patch.pinned;
   if (patch.archived !== undefined) next.archived = patch.archived;
   if (patch.mentions !== undefined) next.mentions = patch.mentions;
   if (patch.category !== undefined) next.category = patch.category;
@@ -822,14 +820,36 @@ export async function updateMyPost(
   }
 }
 
-export async function countPinnedPosts(userId: string) {
-  const { count, error } = await supabase
-    .from("posts")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", userId)
-    .eq("pinned", true);
-  if (error) throw new Error(error.message);
-  return count ?? 0;
+export async function setMyPostPinned(postId: string, pinned: boolean) {
+  const body = SetPostPinBody.parse({ pinned });
+  const {
+    data: { session },
+    error: sessionError,
+  } = await supabase.auth.getSession();
+  if (sessionError) throw new Error(sessionError.message);
+  if (!session?.access_token) throw new Error("Sign in to change this post's pin state.");
+
+  const response = await fetch(
+    `/api/posts/${encodeURIComponent(postId)}/pin`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === "object" && "error" in payload &&
+      typeof payload.error === "string"
+        ? payload.error
+        : "Could not update this post's pin state.";
+    throw new Error(message);
+  }
+  return SetPostPinResponse.parse(payload);
 }
 
 export async function uploadPostThumbnail(

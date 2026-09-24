@@ -34,7 +34,7 @@ import { EditProfileSheet, type ProfileEdit } from "@/components/yw/EditProfileS
 import {
   useMyProfile,
   updateMyPost,
-  countPinnedPosts,
+  setMyPostPinned,
   deleteMyPost,
   deleteSportsIntroduction,
   uploadSportsIntroduction,
@@ -250,25 +250,53 @@ function ProfilePage() {
     setEditing(true);
   };
 
-  const patchManaged = async (patch: Parameters<typeof updateMyPost>[1], msg: string) => {
+  const patchManaged = async (
+    patch: Parameters<typeof updateMyPost>[1] & { pinned?: boolean },
+    msg: string,
+  ) => {
     if (!manage) return;
     const prev = manage;
-    if (patch.pinned === true && !manage.pinned && userId) {
+    const { pinned, ...postPatch } = patch;
+
+    if (pinned !== undefined) {
+      setManage({ ...prev, pinned } as DbPost);
+      patchPost({ ...prev, pinned } as DbPost);
       try {
-        const pinnedCount = await countPinnedPosts(userId);
-        if (pinnedCount >= 3) {
-          toast.error("You can pin at most 3 posts to your profile grid");
-          return;
-        }
+        const saved = await setMyPostPinned(prev.id, pinned);
+        const updated = { ...prev, pinned: saved.pinned } as DbPost;
+        patchPost(updated);
+        setManage(null);
+        toast.success(
+          saved.pinned ? "Pinned to your main grid" : "Unpinned from your main grid",
+          {
+            duration: 2600,
+            style: {
+              backgroundColor: "#18181b",
+              border: "1px solid #3f3f46",
+              color: "#fafafa",
+            },
+          },
+        );
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Couldn't check pinned posts");
-        return;
+        setManage(prev);
+        patchPost(prev);
+        toast.error(
+          error instanceof Error ? error.message : "Couldn't update this post's pin state.",
+          {
+            style: {
+              backgroundColor: "#18181b",
+              border: "1px solid #3f3f46",
+              color: "#fafafa",
+            },
+          },
+        );
       }
+      return;
     }
-    setManage({ ...manage, ...patch } as DbPost);
-    patchPost({ ...prev, ...patch } as DbPost);
+    setManage({ ...prev, ...postPatch } as DbPost);
+    patchPost({ ...prev, ...postPatch } as DbPost);
     try {
-      await updateMyPost(prev.id, patch);
+      await updateMyPost(prev.id, postPatch);
       toast.success(msg);
       await reload();
     } catch (e) {

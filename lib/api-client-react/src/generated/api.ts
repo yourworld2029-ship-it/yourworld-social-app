@@ -22,6 +22,8 @@ import type {
 import type {
   ApiError,
   HealthStatus,
+  PostPinInput,
+  PostPinResponse,
   VideoTranscodeInput,
   VideoTranscodeResponse
 } from './api.schemas';
@@ -200,5 +202,77 @@ export const useTranscodeVideo = <TError = ErrorType<ApiError>,
         TContext
       > => {
       return useMutation(getTranscodeVideoMutationOptions(options));
+    }
+
+export const getSetPostPinUrl = (postId: string,) => {
+
+
+
+
+  return `/api/posts/${postId}/pin`
+}
+
+/**
+ * @summary Set whether an owned post is pinned to its owner's profile grid
+ */
+export const setPostPin = async (postId: string,
+    postPinInput: PostPinInput, options?: Parameters<typeof customFetch>[1]): Promise<PostPinResponse> => {
+
+  return customFetch<PostPinResponse>(getSetPostPinUrl(postId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(postPinInput)
+  }
+);}
+
+
+
+
+
+export const getSetPostPinMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setPostPin>>, TError,{postId: string;data: BodyType<PostPinInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof setPostPin>>, TError,{postId: string;data: BodyType<PostPinInput>}, TContext> => {
+
+const mutationKey = ['setPostPin'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setPostPin>>, {postId: string;data: BodyType<PostPinInput>}> = (props) => {
+          const {postId,data} = props ?? {};
+
+          return  setPostPin(postId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SetPostPinMutationResult = NonNullable<Awaited<ReturnType<typeof setPostPin>>>
+    export type SetPostPinMutationBody = BodyType<PostPinInput>
+    export type SetPostPinMutationError = ErrorType<ApiError>
+
+    /**
+ * @summary Set whether an owned post is pinned to its owner's profile grid
+ */
+export const useSetPostPin = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setPostPin>>, TError,{postId: string;data: BodyType<PostPinInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof setPostPin>>,
+        TError,
+        {postId: string;data: BodyType<PostPinInput>},
+        TContext
+      > => {
+      return useMutation(getSetPostPinMutationOptions(options));
     }
 

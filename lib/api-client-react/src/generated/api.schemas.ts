@@ -33,6 +33,15 @@ export interface VideoTranscodeResponse {
   faststart: boolean;
 }
 
+export interface PostPinInput {
+  pinned: boolean;
+}
+
+export interface PostPinResponse {
+  postId: string;
+  pinned: boolean;
+}
+
 export interface ApiError {
   error: string;
 }
