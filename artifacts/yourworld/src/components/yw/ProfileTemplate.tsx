@@ -159,7 +159,10 @@ export function ProfileTemplate({
   return (
     <main className="relative min-h-[100dvh] overflow-hidden bg-[radial-gradient(circle_at_15%_0%,rgba(214,93,177,0.11),transparent_32%),radial-gradient(circle_at_92%_18%,rgba(115,93,214,0.10),transparent_30%)] pb-8">
       <UserWatermark username={profile.username} />
-      <header className="header-lux sticky top-0 z-40 flex items-center justify-between gap-3 px-3.5 py-2.5 sm:px-6 sm:py-3">
+      <header
+        className="header-lux sticky top-0 z-40 flex items-center justify-between gap-3 px-3.5 pb-2.5 sm:px-6 sm:pb-3"
+        style={{ paddingTop: "max(env(safe-area-inset-top), 16px)" }}
+      >
         <div className="flex min-w-0 items-center gap-2">
           {onBack ? (
             <button

@@ -51,14 +51,19 @@ public class MainActivity extends BridgeActivity {
             return;
         }
 
+        if (webView.canGoBack()) {
+            webView.goBack();
+            return;
+        }
+
         webView.evaluateJavascript(
                 "(function() {"
                         + "var path = window.location.pathname.replace(/\\/$/, '') || '/';"
-                        + "if (path === '/') return 'exit';"
                         + "if (window.history.length > 1) {"
                         + "window.history.back();"
                         + "return 'back';"
                         + "}"
+                        + "if (path === '/') return 'exit';"
                         + "window.history.replaceState(window.history.state, '', '/');"
                         + "window.dispatchEvent(new PopStateEvent('popstate', {state: window.history.state}));"
                         + "return 'home';"
