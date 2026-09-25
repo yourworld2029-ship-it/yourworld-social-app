@@ -13,6 +13,7 @@ import {
 import { needsProtectionWarning, PLATFORM_PROTECTION_WARNING_TITLE, PLATFORM_PROTECTION_WARNING_BODY } from "@/lib/chat-compliance";
 import { UserWatermark } from "@/components/yw/UserWatermark";
 import { LazyImage } from "@/components/yw/LazyImage";
+import { HoldToRevealButton } from "@/components/yw/HoldToRevealButton";
 import { compressImageFile } from "@/lib/image-compress";
 import { useCaptureDetect } from "@/lib/capture-detect";
 import { useMyProfile } from "@/lib/profile-data";
@@ -1332,15 +1333,15 @@ function NativeChatThreadPage() {
             {!m.text && m.replyTo && <ReplyQuote reply={m.replyTo} className="mb-1 w-[75%] rounded-lg bg-zinc-800/90" />}
 
             {m.image && m.viewOnce && m.sender === "them" && !m.opened && !openedOnce.includes(m.id) ? (
-              <button
-                type="button"
+              <HoldToRevealButton
                 disabled={openingViewOnceId === m.id}
-                onClick={() => void openViewOnce(m)}
+                onReveal={() => void openViewOnce(m)}
+                ariaLabel="Press and hold to view this photo once"
                 className="max-w-[75%] flex items-center gap-2 rounded-2xl border border-emerald-600/60 bg-emerald-950/30 px-4 py-3 text-xs font-bold text-emerald-400"
               >
                 <span className="w-5 h-5 rounded-full border border-emerald-500 flex items-center justify-center">1</span>
-                {openingViewOnceId === m.id ? "Opening…" : "Tap to view once"}
-              </button>
+                {openingViewOnceId === m.id ? "Opening…" : "Hold to view once"}
+              </HoldToRevealButton>
             ) : m.image && !m.momentId && !(m.viewOnce && (m.opened || openedOnce.includes(m.id))) ? (
               <div className="max-w-[75%] rounded-2xl overflow-hidden border border-zinc-800 shadow-lg">
                 <LazyImage
@@ -1353,15 +1354,15 @@ function NativeChatThreadPage() {
             ) : null}
 
             {m.audio && m.viewOnce && m.sender === "them" && !m.opened && !openedOnce.includes(m.id) && (
-              <button
-                type="button"
+              <HoldToRevealButton
                 disabled={openingViewOnceId === m.id}
-                onClick={() => void openViewOnce(m)}
+                onReveal={() => void openViewOnce(m)}
+                ariaLabel="Press and hold to listen to this voice note once"
                 className="max-w-[75%] flex items-center gap-2 rounded-2xl border border-emerald-600/60 bg-emerald-950/30 px-4 py-3 text-xs font-bold text-emerald-400 disabled:opacity-60"
               >
                 <span className="w-5 h-5 rounded-full border border-emerald-500 flex items-center justify-center">1</span>
-                {openingViewOnceId === m.id ? "Preparing voice note…" : "Tap to listen once"}
-              </button>
+                {openingViewOnceId === m.id ? "Preparing voice note…" : "Hold to listen once"}
+              </HoldToRevealButton>
             )}
 
             {m.viewOnce && (m.opened || openedOnce.includes(m.id)) && (

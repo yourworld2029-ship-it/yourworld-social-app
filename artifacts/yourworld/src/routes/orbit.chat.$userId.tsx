@@ -53,6 +53,7 @@ import {
   type AutoDeleteSetting,
 } from "@/lib/auto-delete";
 import { useAndroidSecureFlag } from "@/lib/native-privacy";
+import { HoldToRevealButton } from "@/components/yw/HoldToRevealButton";
 
 // Relations added by migration 0015 are intentionally not in checked-in
 // generated Supabase types. Keep this narrow escape hatch at that boundary.
@@ -1959,14 +1960,18 @@ function OrbitViewOnce({
     return <p className="px-3.5 py-2 text-xs italic opacity-80">Media expired</p>;
   if (state === "sealed")
     return (
-      <button
-        type="button"
-        onClick={() => void open()}
+      <HoldToRevealButton
+        onReveal={() => void open()}
+        ariaLabel={
+          sentByMe
+            ? `Press and hold to confirm this ${kind} was sent as view-once media`
+            : `Press and hold to open this ${kind} once`
+        }
         className="flex h-40 w-full flex-col items-center justify-center gap-2 bg-foreground/10 text-xs font-semibold"
       >
         <EyeOff className="h-5 w-5" strokeWidth={1.7} />
-        Tap to open once · {kind}
-      </button>
+        {sentByMe ? `View-once media sent · ${kind}` : `Hold to open once · ${kind}`}
+      </HoldToRevealButton>
     );
   if (state === "loading") {
     return <p className="grid h-40 w-56 place-items-center text-xs opacity-70">Loading once…</p>;

@@ -1346,3 +1346,65 @@ html[data-theme] body {
   -webkit-backface-visibility: hidden;
   contain: paint;
 }
+
+.yw-sensitive-view,
+.yw-sensitive-view * {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  -webkit-touch-callout: none !important;
+}
+
+.yw-sensitive-view input,
+.yw-sensitive-view textarea,
+.yw-sensitive-view [contenteditable="true"],
+.yw-sensitive-view [role="textbox"] {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  -webkit-touch-callout: default !important;
+}
+
+.yw-sensitive-view img,
+.yw-sensitive-view video,
+.yw-sensitive-view canvas {
+  -webkit-user-drag: none;
+  user-drag: none;
+}
+
+html.yw-privacy-obscured::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  background: #000;
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  pointer-events: all;
+}
+
+html.yw-print-blocked body * {
+  visibility: hidden !important;
+}
+
+html.yw-print-blocked::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  background: #000 !important;
+  visibility: visible !important;
+}
+
+@media print {
+  html.yw-sensitive-route body * {
+    visibility: hidden !important;
+  }
+
+  html.yw-sensitive-route::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 2147483647;
+    background: #000 !important;
+    visibility: visible !important;
+  }
+}

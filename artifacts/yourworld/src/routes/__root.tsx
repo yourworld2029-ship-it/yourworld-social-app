@@ -29,6 +29,7 @@ import { SafeProvider } from "@/lib/safe-provider";
 import { AdaptiveMediaController } from "@/lib/adaptive-performance";
 import { VideoPlaybackProvider } from "@/lib/video-playback";
 import { ThemeProvider } from "@/lib/theme";
+import { BrowserPrivacyGuard } from "@/components/yw/BrowserPrivacyGuard";
 
 function NotFoundComponent() {
   return (
@@ -201,11 +202,13 @@ function RootComponent() {
                                        <DownloadBanner />
                                       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
                                       <AuthGate>
-                                        <div className={cn("mx-auto min-h-screen w-full", wideProfileLayout ? "max-w-4xl" : "max-w-lg", hideNav ? "" : "pb-20")}>
-                                          <Outlet />
-                                        </div>
-                                        {!hideNav && <BottomNav onOpenCreate={() => setCreateOpen(true)} />}
-                                        <CreateSheet isOpen={createOpen} onClose={() => setCreateOpen(false)} />
+                                        <BrowserPrivacyGuard pathname={pathname}>
+                                          <div className={cn("mx-auto min-h-screen w-full", wideProfileLayout ? "max-w-4xl" : "max-w-lg", hideNav ? "" : "pb-20")}>
+                                            <Outlet />
+                                          </div>
+                                          {!hideNav && <BottomNav onOpenCreate={() => setCreateOpen(true)} />}
+                                          <CreateSheet isOpen={createOpen} onClose={() => setCreateOpen(false)} />
+                                        </BrowserPrivacyGuard>
                                       </AuthGate>
                                     </VideoPlaybackProvider>
                                     <EarningsCreditWatcher />
