@@ -160,7 +160,7 @@ export function ProfileTemplate({
     <main className="relative min-h-[100dvh] overflow-hidden bg-[radial-gradient(circle_at_15%_0%,rgba(214,93,177,0.11),transparent_32%),radial-gradient(circle_at_92%_18%,rgba(115,93,214,0.10),transparent_30%)] pb-8">
       <UserWatermark username={profile.username} />
       <header
-        className="header-lux sticky top-0 z-40 flex items-center justify-between gap-3 px-3.5 pt-2 pb-4 sm:px-6"
+        className="header-lux sticky top-0 z-40 flex items-center justify-between gap-3 px-3.5 pt-[calc(env(safe-area-inset-top,0px)+1.5rem)] pb-4 sm:px-6"
       >
         <div className="flex min-w-0 items-center gap-2">
           {onBack ? (
@@ -175,7 +175,7 @@ export function ProfileTemplate({
             </button>
           ) : null}
           <div className="min-w-0">
-            <p className="text-[9px] font-semibold uppercase tracking-[0.3em] text-amber-200/70">YourWorld</p>
+            <p className="bg-gradient-to-r from-[#f1ddb0] via-[#fff8e7] to-[#d0a65a] bg-clip-text text-[9px] font-bold uppercase tracking-[0.34em] text-transparent drop-shadow-[0_0_12px_rgba(214,165,83,0.18)]">YOURWORLD</p>
             <h1 data-testid="text-profile-username" className="mt-0.5 truncate font-display text-[15px] font-bold tracking-tight">
               @{profile.username || "…"}
             </h1>
