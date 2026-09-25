@@ -9,7 +9,7 @@
 - [Persistent video player](persistent-video-player.md) — keep one root-owned video element mounted across route changes; detail pages provide a slot and mini-player mode is presentation-only.
 - [Quality-specific downloads](quality-downloads.md) — preserve original source downloads, process smaller tiers only when selected, and keep an original fallback for legacy rows.
 - [Audio-preserving compression](audio-preserving-compression.md) — only use a local re-encode when a source audio track is attached; otherwise upload the original.
-- [Auto-delete messages](auto-delete-messages.md) — use one shared conversation setting while snapshotting it onto each new message.
+- [Auto-delete messages](auto-delete-messages.md) — shared settings and row retention; validated non-View-Once Moment replies must not delete their source asset.
 - [Destructive list mutations](destructive-list-mutations.md) — after a confirmed delete, preserve the local removal instead of applying an uncoordinated stale refresh.
 - [Moment profile joins](moment-profile-joins.md) — load author profiles with Moments and retain RPC/non-joined fallbacks for avatar data.
 - [Chat retention and capture alerts](chat-retention-and-alerts.md) — server-enforce lifetime defaults; after-view is media-only and capture alerts are recipient-preference broadcasts.

@@ -431,7 +431,7 @@ const ORBIT_BUCKET = "orbit-media";
 /** Long-lived signed link so profile media renders without extra round trips. */
 const ORBIT_SIGN_SECONDS = 60 * 60 * 24 * 365 * 5;
 
-/** Blob URLs only exist in this browser tab; Data URLs are persistent fallbacks. */
+/** Blob URLs only exist in this browser tab; media payloads are never stored in message rows. */
 export const isLocalObjectUrl = (url: string) => url.startsWith("blob:");
 
 /**
@@ -470,6 +470,14 @@ export async function uploadOrbitMedia(file: File): Promise<string | null> {
         .createSignedUrl(path, ORBIT_SIGN_SECONDS);
       if (signError || !data?.signedUrl) {
         lastError = signError?.message ?? `Bucket "${bucket}" returned no signed URL.`;
+        const { error: cleanupError } = await supabase.storage.from(bucket).remove([path]);
+        if (cleanupError) {
+          console.error("[orbit] uploaded media could not be cleaned up after signing failed", {
+            bucket,
+            statusCode: cleanupError.statusCode,
+            message: cleanupError.message,
+          });
+        }
         console.error("[orbit] media signing rejected", {
           bucket,
           fileName: file.name,
@@ -493,25 +501,13 @@ export async function uploadOrbitMedia(file: File): Promise<string | null> {
     }
   }
 
-  try {
-    const dataUrl = await fileAsDataUrl(file);
-    console.warn("[orbit] storage unavailable; using a temporary Data URL fallback", {
-      fileName: file.name,
-      fileType: file.type,
-      attemptedBuckets: buckets,
-      lastError,
-    });
-    return dataUrl;
-  } catch (error) {
-    console.error("[orbit] Data URL fallback failed", {
-      fileName: file.name,
-      fileType: file.type,
-      attemptedBuckets: buckets,
-      lastStorageError: lastError,
-      error,
-    });
-    return null;
-  }
+  console.error("[orbit] media upload failed; refusing to store its bytes in a message row", {
+    fileName: file.name,
+    fileType: file.type,
+    attemptedBuckets: buckets,
+    lastError,
+  });
+  return null;
 }
 
 const ORBIT_BUCKETS = [ORBIT_BUCKET, "avatars", "media", "videos", "public"] as const;
@@ -534,22 +530,6 @@ async function orbitBucketCandidates() {
     console.warn("[orbit] storage bucket discovery threw; trying configured fallbacks", error);
   }
   return [...ORBIT_BUCKETS];
-}
-
-function fileAsDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string" && reader.result) {
-        resolve(reader.result);
-      } else {
-        reject(new Error("The browser returned an empty media preview."));
-      }
-    };
-    reader.onerror = () =>
-      reject(reader.error ?? new Error("The browser could not read this file."));
-    reader.readAsDataURL(file);
-  });
 }
 
 /** Client-side metadata check shared by the create and edit Orbit media pickers. */

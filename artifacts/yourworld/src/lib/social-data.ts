@@ -34,7 +34,10 @@ import {
   normalizeAutoDeleteSetting,
   type AutoDeleteSetting,
 } from "@/lib/auto-delete";
-import { purgeViewedSocialMedia } from "@/lib/chat-media.functions";
+import {
+  clearSocialConversationWithMedia,
+  purgeViewedSocialMedia,
+} from "@/lib/chat-media.functions";
 
 const liveSocialTable = (
   client: typeof supabase,
@@ -1426,13 +1429,24 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
 
   const purgeViewedMedia = useCallback(async (id: string) => {
     try {
-      await purgeViewedSocialMedia({ data: { messageId: id } });
+      const result = await purgeViewedSocialMedia({ data: { messageId: id } });
+      if (result.deleted) {
+        const retained = messagesRef.current.filter((message) => message.id !== id);
+        messagesRef.current = retained;
+        setMessages(retained);
+        cacheSet(`thread:${threadId}`, retained);
+        void deletionChannelRef.current?.send({
+          type: "broadcast",
+          event: "MESSAGE_DELETED",
+          payload: { conversationId, messageId: id },
+        });
+      }
       return { error: null as string | null };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not remove viewed chat media.";
       return { error: message };
     }
-  }, []);
+  }, [conversationId, threadId]);
 
   useEffect(() => {
     if (!me) return;
@@ -1584,13 +1598,15 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     if (!me || !conversationId) {
       return { error: "Chat is still syncing. Try again in a moment." };
     }
-    const { error: clearError } = await supabase.rpc(
-      "clear_social_conversation" as never,
-      { _conversation_id: conversationId } as never,
-    );
-    if (clearError) {
-      setError(clearError.message);
-      return { error: clearError.message };
+      try {
+        await clearSocialConversationWithMedia({ data: { conversationId } });
+      } catch (clearError) {
+        const message =
+          clearError instanceof Error
+            ? clearError.message
+            : "Could not clear this conversation.";
+        setError(message);
+        return { error: message };
     }
     clearGenerationRef.current += 1;
     afterViewTimersRef.current.forEach((timer) => clearTimeout(timer));

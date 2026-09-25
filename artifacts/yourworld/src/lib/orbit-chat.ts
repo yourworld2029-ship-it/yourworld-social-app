@@ -2,6 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { uploadOrbitMedia } from "@/lib/orbit-live";
 import {
+  clearOrbitConversationWithMedia,
+  purgeOrphanedOrbitUpload,
+  purgeViewedOrbitMedia,
+} from "@/lib/chat-media.functions";
+import {
   loadCachedThread,
   loadCachedThreadSync,
   saveCachedThread,
@@ -100,15 +105,6 @@ async function fetchOrbitRows({
 
 const isUuid = (v: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
-
-function removeOrbitMediaByUrl(url: string) {
-  try {
-    const path = new URL(url).pathname.split("/storage/v1/object/sign/orbit-media/")[1];
-    if (path) void supabase.storage.from("orbit-media").remove([decodeURIComponent(path)]);
-  } catch {
-    /* cleanup is best effort and must not change a message result */
-  }
-}
 
 export const isUnexpiredOrbitRow = (
   r: { expires_at?: string | null } & Partial<
@@ -398,28 +394,55 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
       const url = await uploadOrbitMedia(file);
       if (!url) return null;
       const id = await insert({ kind, url, viewOnce, autoDeleteSetting });
-      if (!id) removeOrbitMediaByUrl(url);
+      if (!id) {
+        void purgeOrphanedOrbitUpload({ data: { url } }).catch((error) =>
+          console.error("[orbit-chat] orphaned upload cleanup failed", error),
+        );
+      }
       return id;
     },
     [insert],
   );
 
-  /** Atomically burns received view-once media. The database enforces recipient ownership. */
+  /** Atomically claims received view-once media. The database enforces recipient ownership. */
   const consumeViewOnce = useCallback(async (id: string) => {
-    if (!isUuid(id)) return false;
+    if (!isUuid(id)) return null;
     const message = messagesRef.current.find((m) => m.id === id);
-    if (!message || message.me || !message.viewOnce) return false;
+    if (!message || message.me || !message.viewOnce) return null;
     const { data, error } = await supabase.rpc("consume_orbit_view_once" as never, { _msg_id: id } as never);
-    if (error) return false;
-    const retained = messagesRef.current.filter((m) => m.id !== id && !m.id.startsWith("temp-") && isRenderableOrbitMessage(m));
-    messagesRef.current = retained;
-    saveCachedThread(`orbit:${peerId}`, retained);
-    setMessages((prev) => prev.filter((m) => m.id !== id));
-    // Storage deletion is deliberately best-effort: a received signed URL may not
-    // grant delete permission, but the database row is already irreversibly burned.
-    const url = typeof data === "string" ? data : message.url;
-    if (url) removeOrbitMediaByUrl(url);
-    return true;
+    if (error || typeof data !== "string") return null;
+    const viewedAt = Date.now();
+    const expiresAt = Date.parse(afterViewExpiresAt(viewedAt));
+    const updated = messagesRef.current.map((candidate) =>
+      candidate.id === id
+        ? { ...candidate, isViewed: true, viewedAt, expiresAt }
+        : candidate,
+    );
+    messagesRef.current = updated;
+    setMessages(updated);
+    saveCachedThread(`orbit:${peerId}`, updated.filter((m) => !m.id.startsWith("temp-")));
+    return data;
+  }, [peerId]);
+
+  const purgeViewedMedia = useCallback(async (id: string) => {
+    if (!isUuid(id)) return false;
+    try {
+      const result = await purgeViewedOrbitMedia({ data: { messageId: id } });
+      if (!result.removed) return false;
+      const retained = messagesRef.current.filter((message) => message.id !== id);
+      messagesRef.current = retained;
+      setMessages(retained);
+      saveCachedThread(`orbit:${peerId}`, retained.filter((m) => !m.id.startsWith("temp-")));
+      void deletionChannelRef.current?.send({
+        type: "broadcast",
+        event: "MESSAGE_DELETED",
+        payload: { messageId: id },
+      });
+      return true;
+    } catch (error) {
+      console.error("[orbit-chat] viewed media purge failed", error);
+      return false;
+    }
   }, [peerId]);
 
   const markViewed = useCallback(async (ids: string[]) => {
@@ -461,6 +484,10 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
   }, []);
 
   const deleteAfterView = useCallback(async (id: string) => {
+    const current = messagesRef.current.find((message) => message.id === id);
+    if (current?.url) {
+      return purgeViewedMedia(id);
+    }
     const { data, error } = await supabase.rpc(
       "delete_orbit_message_after_view" as never,
       { _message_id: id } as never,
@@ -476,7 +503,7 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
       payload: { messageId: id },
     });
     return true;
-  }, [peerId]);
+  }, [peerId, purgeViewedMedia]);
 
   useEffect(() => {
     if (!enabled || !meId) return;
@@ -514,11 +541,16 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
     if (!me || !isUuid(peerId)) {
       return { error: "Chat is still syncing. Try again in a moment." };
     }
-    const { error: clearError } = await supabase.rpc(
-      "clear_orbit_conversation" as never,
-      { _peer_id: peerId } as never,
-    );
-    if (clearError) return { error: clearError.message };
+    try {
+      await clearOrbitConversationWithMedia({ data: { peerId } });
+    } catch (clearError) {
+      return {
+        error:
+          clearError instanceof Error
+            ? clearError.message
+            : "Could not clear this conversation.",
+      };
+    }
     clearGenerationRef.current += 1;
     messagesRef.current = [];
     setMessages([]);
@@ -576,5 +608,5 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
     };
   }, [enabled]);
 
-  return { messages, meId, sendText, sendMedia, insert, consumeViewOnce, markViewed, remove, clear, clearForEveryone, loadOlder, loading, loadingMore, hasMore };
+  return { messages, meId, sendText, sendMedia, insert, consumeViewOnce, purgeViewedMedia, markViewed, remove, clear, clearForEveryone, loadOlder, loading, loadingMore, hasMore };
 }

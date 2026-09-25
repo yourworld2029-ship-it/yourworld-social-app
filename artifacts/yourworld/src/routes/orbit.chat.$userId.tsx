@@ -1553,17 +1553,18 @@ function OrbitChatPage() {
                 >
                   {m.invite ? (
                     <InviteBubble invite={m.invite} />
+                  ) : m.viewOnce ? (
+                    <OrbitViewOnce
+                      kind={m.audio ? "audio" : m.video ? "video" : "photo"}
+                      seconds={5}
+                      sentByMe={m.me}
+                      onConsume={() => chat.consumeViewOnce(m.id)}
+                      onPurge={() => chat.purgeViewedMedia(m.id)}
+                    />
                   ) : m.audio ? (
                     <audio src={m.audio} controls className="h-9 w-56 max-w-full" />
                   ) : m.url ? (
-                    m.viewOnce ? (
-                      <OrbitViewOnce
-                        src={m.url}
-                        seconds={5}
-                        sentByMe={m.me}
-                        onConsumed={() => chat.consumeViewOnce(m.id)}
-                      />
-                    ) : (
+                    (
                       <button
                         type="button"
                         onClick={() => {
@@ -1885,44 +1886,110 @@ function InviteBubble({ invite }: { invite: InviteCard }) {
 }
 
 function OrbitViewOnce({
-  src,
+  kind,
   seconds,
   sentByMe,
-  onConsumed,
+  onConsume,
+  onPurge,
 }: {
-  src: string;
+  kind: "photo" | "video" | "audio";
   seconds: number;
   sentByMe: boolean;
-  onConsumed: () => Promise<boolean>;
+  onConsume: () => Promise<string | null>;
+  onPurge: () => Promise<boolean>;
 }) {
-  const [state, setState] = useState<"sealed" | "open" | "gone">("sealed");
+  const [state, setState] = useState<"sealed" | "loading" | "open" | "gone">("sealed");
+  const [localUrl, setLocalUrl] = useState<string | null>(null);
+
+  useEffect(
+    () => () => {
+      if (localUrl) URL.revokeObjectURL(localUrl);
+    },
+    [localUrl],
+  );
+
+  useEffect(() => {
+    if (state !== "open" || kind !== "photo") return;
+    const timer = window.setTimeout(() => {
+      setState("gone");
+      setLocalUrl(null);
+    }, seconds * 1000);
+    return () => window.clearTimeout(timer);
+  }, [kind, seconds, state]);
+
+  const finish = () => {
+    setState("gone");
+    setLocalUrl(null);
+  };
+
+  const open = async () => {
+    if (sentByMe) {
+      toast.info("View-once media sent");
+      return;
+    }
+    setState("loading");
+    try {
+      const remoteUrl = await onConsume();
+      if (!remoteUrl) throw new Error("This media has already been opened or is unavailable.");
+      const response = await fetch(remoteUrl, { cache: "no-store" });
+      if (!response.ok) throw new Error("The media could not be loaded.");
+      const blob = await response.blob();
+      const localObjectUrl = URL.createObjectURL(blob);
+      setLocalUrl(localObjectUrl);
+      const removed = await onPurge();
+      if (!removed) {
+        toast.error("Media opened, but server cleanup failed. It will be retried automatically.");
+      }
+      setState("open");
+    } catch (error) {
+      setState("gone");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "This media could not be opened.",
+      );
+    }
+  };
+
   if (state === "gone")
-    return <p className="px-3.5 py-2 text-xs italic opacity-80">Photo expired</p>;
+    return <p className="px-3.5 py-2 text-xs italic opacity-80">Media expired</p>;
   if (state === "sealed")
     return (
       <button
         type="button"
-        onClick={() => {
-          if (sentByMe) {
-            toast.info("View-once photo sent");
-            return;
-          }
-          setState("open");
-          window.setTimeout(() => {
-            void onConsumed().then((consumed) => {
-              if (consumed) setState("gone");
-              else {
-                setState("sealed");
-                toast.error("This photo could not be consumed. Please try again.");
-              }
-            });
-          }, seconds * 1000);
-        }}
+        onClick={() => void open()}
         className="flex h-40 w-full flex-col items-center justify-center gap-2 bg-foreground/10 text-xs font-semibold"
       >
         <EyeOff className="h-5 w-5" strokeWidth={1.7} />
-        Tap to view once · {seconds}s
+        Tap to open once · {kind}
       </button>
     );
-  return <img src={src} alt="View once photo" className="h-40 w-full object-cover" />;
+  if (state === "loading") {
+    return <p className="grid h-40 w-56 place-items-center text-xs opacity-70">Loading once…</p>;
+  }
+  if (!localUrl) return null;
+  if (kind === "audio") {
+    return (
+      <audio
+        src={localUrl}
+        controls
+        autoPlay
+        onEnded={finish}
+        className="h-9 w-56 max-w-full"
+      />
+    );
+  }
+  if (kind === "video") {
+    return (
+      <video
+        src={localUrl}
+        controls
+        autoPlay
+        playsInline
+        onEnded={finish}
+        className="h-40 w-full object-contain"
+      />
+    );
+  }
+  return <img src={localUrl} alt="View once photo" className="h-40 w-full object-cover" />;
 }
