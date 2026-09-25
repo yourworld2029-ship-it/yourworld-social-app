@@ -18,6 +18,7 @@ public class PrivacyBridgePlugin extends Plugin {
         }
 
         getActivity().runOnUiThread(() -> {
+            // Screenshot protection is app-wide; route cleanup must never disable it.
             getActivity().getWindow().setFlags(
                     WindowManager.LayoutParams.FLAG_SECURE,
                     WindowManager.LayoutParams.FLAG_SECURE
