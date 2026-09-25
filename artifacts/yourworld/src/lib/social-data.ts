@@ -34,6 +34,7 @@ import {
   normalizeAutoDeleteSetting,
   type AutoDeleteSetting,
 } from "@/lib/auto-delete";
+import { purgeViewedSocialMedia } from "@/lib/chat-media.functions";
 
 const liveSocialTable = (
   client: typeof supabase,
@@ -1423,6 +1424,16 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     return true;
   }, [me]);
 
+  const purgeViewedMedia = useCallback(async (id: string) => {
+    try {
+      await purgeViewedSocialMedia({ data: { messageId: id } });
+      return { error: null as string | null };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not remove viewed chat media.";
+      return { error: message };
+    }
+  }, []);
+
   useEffect(() => {
     if (!me) return;
     messages.forEach((message) => {
@@ -1440,21 +1451,30 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
         ? Date.parse(message.expires_at)
         : viewedAt + AFTER_VIEW_DELAY_MS;
       const delay = Math.max(0, expiresAt - Date.now());
-      const timer = setTimeout(() => {
+      const runCleanup = async () => {
         afterViewTimersRef.current.delete(message.id);
-        void deleteAfterView(message.id).then((deleted) => {
-          if (deleted) {
-            void deletionChannelRef.current?.send({
-              type: "broadcast",
-              event: "MESSAGE_DELETED",
-              payload: { conversationId, messageId: message.id },
-            });
+        if (message.media_url || message.voice_note_url) {
+          const cleanup = await purgeViewedMedia(message.id);
+          if (cleanup.error) {
+            setError(cleanup.error);
+            const retry = setTimeout(() => void runCleanup(), 15_000);
+            afterViewTimersRef.current.set(message.id, retry);
+            return;
           }
-        });
-      }, delay);
+        }
+        const deleted = await deleteAfterView(message.id);
+        if (deleted) {
+          void deletionChannelRef.current?.send({
+            type: "broadcast",
+            event: "MESSAGE_DELETED",
+            payload: { conversationId, messageId: message.id },
+          });
+        }
+      };
+      const timer = setTimeout(() => void runCleanup(), delay);
       afterViewTimersRef.current.set(message.id, timer);
     });
-  }, [messages, me, conversationId, deleteAfterView]);
+  }, [messages, me, conversationId, deleteAfterView, purgeViewedMedia]);
 
   useEffect(() => () => {
     afterViewTimersRef.current.forEach((timer) => clearTimeout(timer));
@@ -1504,11 +1524,9 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       normalizeAutoDeleteSetting(conversation.auto_delete_setting);
     const autoDeleteMode = payload.isSystemMessage
       ? "off"
-      : requestedMode === "after_view" && !expiringMedia
-        ? "off"
-        : payload.viewOnce || payload.expiringMedia
-          ? "after_view"
-          : requestedMode;
+      : payload.viewOnce || payload.expiringMedia
+        ? "after_view"
+        : requestedMode;
     const metadata = {
       ...(payload.metadata ?? {}),
       ...(expiringMedia ? { expiring_media: true } : {}),
@@ -1598,34 +1616,96 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     if (typeof window !== "undefined") {
       window.dispatchEvent(new Event("yw:chat-unread-changed"));
     }
-    const viewedAt = new Date().toISOString();
-    const { error: viewedError } = await supabase
+    const { data: viewedRows, error: viewedError } = await supabase
       .from("messages" as never)
-      .update({
-        is_viewed: true,
-        viewed_at: viewedAt,
-        expires_at: afterViewExpiresAt(Date.parse(viewedAt)),
-      } as never)
+      .update({ is_viewed: true } as never)
       .in("id", ids)
       .eq("receiver_id", me)
       .eq("auto_delete_mode", "after_view")
-      .eq("is_deleted", false);
+      .eq("is_deleted", false)
+      .select("id,viewed_at,expires_at" as never);
     if (viewedError) { setError(viewedError.message); return; }
+    const viewedById = new Map(
+      ((viewedRows ?? []) as unknown as { id: string; viewed_at: string | null; expires_at: string | null }[])
+        .map((row) => [row.id, row]),
+    );
+    const fallbackViewedAt = new Date().toISOString();
     setMessages((prev) => prev
       .map((m) => ids.includes(m.id) && m.receiver_id === me
         ? {
             ...m,
             is_read: true,
             is_viewed: m.auto_delete_mode === "after_view" ? true : m.is_viewed,
-            viewed_at: m.auto_delete_mode === "after_view" ? viewedAt : m.viewed_at,
+            viewed_at: m.auto_delete_mode === "after_view"
+              ? viewedById.get(m.id)?.viewed_at ?? fallbackViewedAt
+              : m.viewed_at,
             expires_at: m.auto_delete_mode === "after_view"
-              ? afterViewExpiresAt(Date.parse(viewedAt))
+              ? viewedById.get(m.id)?.expires_at ??
+                afterViewExpiresAt(Date.parse(viewedById.get(m.id)?.viewed_at ?? fallbackViewedAt))
               : m.expires_at,
           }
         : m)
       );
   }, [me]);
-  return useMemo(() => ({ messages, loading, loadingMore, hasMore, loadOlder, currentUserId: me, conversationId, send, remove, clearForEveryone, markRead, error, reload: load }), [messages, loading, loadingMore, hasMore, loadOlder, me, conversationId, send, remove, clearForEveryone, markRead, error, load]);
+
+  const consumeViewOnce = useCallback(async (id: string) => {
+    if (!me) return { error: "Sign in to open view-once media." };
+    const { data, error: consumeError } = await supabase.rpc(
+      "consume_social_view_once" as never,
+      { _message_id: id } as never,
+    );
+    if (consumeError) {
+      setError(consumeError.message);
+      return { error: consumeError.message };
+    }
+    if (data !== true) return { error: "This media has already been opened or is unavailable." };
+
+    const viewedAt = new Date().toISOString();
+    const expiresAt = afterViewExpiresAt(Date.parse(viewedAt));
+    setMessages((prev) => prev.map((message) =>
+      message.id === id && message.receiver_id === me
+        ? { ...message, is_read: true, is_viewed: true, viewed_at: viewedAt, expires_at: expiresAt }
+        : message,
+    ));
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("yw:chat-unread-changed"));
+    }
+    return { error: null };
+  }, [me]);
+
+  return useMemo(() => ({
+    messages,
+    loading,
+    loadingMore,
+    hasMore,
+    loadOlder,
+    currentUserId: me,
+    conversationId,
+    send,
+    remove,
+    clearForEveryone,
+    markRead,
+    consumeViewOnce,
+    purgeViewedMedia,
+    error,
+    reload: load,
+  }), [
+    messages,
+    loading,
+    loadingMore,
+    hasMore,
+    loadOlder,
+    me,
+    conversationId,
+    send,
+    remove,
+    clearForEveryone,
+    markRead,
+    consumeViewOnce,
+    purgeViewedMedia,
+    error,
+    load,
+  ]);
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

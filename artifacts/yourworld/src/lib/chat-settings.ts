@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { setUserBlock } from "@/lib/social-data";
 import {
   autoDeleteSeconds,
   normalizeAutoDeleteSetting,
@@ -273,6 +274,14 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
         }
       }
 
+      if (next.blocked !== undefined && next.blocked !== previous.blocked) {
+        const blockError = await setUserBlock(me, peerId, next.blocked);
+        if (blockError) {
+          setSettings(previous);
+          return { error: blockError };
+        }
+      }
+
       // Keep the legacy row current for the Orbit settings page and display name.
       const { error: legacyError } = await supabase
         .from("orbit_chat_settings")
@@ -290,7 +299,9 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
           blocked: merged.blocked,
         } as never, { onConflict: "user_id,peer_id" });
       if (legacyError) {
-        setSettings(previous);
+        if (!conversationId && (next.blocked === undefined || next.blocked === previous.blocked)) {
+          setSettings(previous);
+        }
         return { error: legacyError.message };
       }
       return { error: null };

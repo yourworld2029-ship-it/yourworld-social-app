@@ -16,7 +16,7 @@ import { LazyImage } from "@/components/yw/LazyImage";
 import { compressImageFile } from "@/lib/image-compress";
 import { useCaptureDetect } from "@/lib/capture-detect";
 import { useMyProfile } from "@/lib/profile-data";
-import { useThreadMessages, useThreadPeer, dmThreadId, reportSocialUser, setUserBlock } from "@/lib/social-data";
+import { useThreadMessages, useThreadPeer, dmThreadId, reportSocialUser } from "@/lib/social-data";
 import { supabase } from "@/integrations/supabase/client";
 import { useThreadPresence } from "@/lib/presence";
 import { useCall } from "@/lib/call-store";
@@ -184,7 +184,13 @@ function ChatThreadPage() {
   const dragId = useRef<string | null>(null);
   const imageBoxRef = useRef<HTMLDivElement>(null);
   const [openedOnce, setOpenedOnce] = useState<string[]>([]);
-  const [viewOnceOpen, setViewOnceOpen] = useState<{ id: string; url: string } | null>(null);
+  const [viewOnceOpen, setViewOnceOpen] = useState<{
+    id: string;
+    url: string;
+    kind: "image" | "audio";
+    revokeUrl: boolean;
+  } | null>(null);
+  const [openingViewOnceId, setOpeningViewOnceId] = useState<string | null>(null);
 
   const handleClosePreview = () => {
     if (selectedImage?.startsWith("blob:")) { URL.revokeObjectURL(selectedImage); }
@@ -227,11 +233,72 @@ function ChatThreadPage() {
     remove: removeFromDb,
     clearForEveryone,
     markRead,
+    consumeViewOnce,
+    purgeViewedMedia,
     loading: messagesLoading,
     loadingMore,
     hasMore,
     loadOlder,
   } = useThreadMessages(threadId, { staleTime: Infinity });
+  const openViewOnce = useCallback(async (message: Message) => {
+    if (
+      !message.viewOnce ||
+      message.sender !== "them" ||
+      message.opened ||
+      openedOnce.includes(message.id) ||
+      openingViewOnceId !== null ||
+      viewOnceOpen !== null
+    ) {
+      return;
+    }
+    const kind = message.audio ? "audio" : message.image ? "image" : null;
+    const source = message.audio ?? message.image;
+    if (!kind || !source) {
+      toast.error("This view-once media is unavailable.");
+      return;
+    }
+
+    setOpeningViewOnceId(message.id);
+    try {
+      const consumed = await consumeViewOnce(message.id);
+      if (consumed.error) {
+        toast.error(consumed.error);
+        return;
+      }
+      setOpenedOnce((current) =>
+        current.includes(message.id) ? current : [...current, message.id],
+      );
+
+      if (kind === "audio") {
+        try {
+          const response = await fetch(source);
+          if (!response.ok) throw new Error("Voice note download failed.");
+          const localUrl = URL.createObjectURL(await response.blob());
+          setViewOnceOpen({ id: message.id, url: localUrl, kind, revokeUrl: true });
+          const cleanup = await purgeViewedMedia(message.id);
+          if (cleanup.error) {
+            toast.error("The voice note opened, but secure media cleanup is retrying.");
+          }
+        } catch {
+          setViewOnceOpen({ id: message.id, url: source, kind, revokeUrl: false });
+          toast.error("The voice note could not be prepared locally; it will expire shortly.");
+        }
+      } else {
+        setViewOnceOpen({ id: message.id, url: source, kind, revokeUrl: false });
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Unable to open this view-once media.",
+      );
+    } finally {
+      setOpeningViewOnceId(null);
+    }
+  }, [consumeViewOnce, openedOnce, openingViewOnceId, purgeViewedMedia, viewOnceOpen]);
+
+  useEffect(() => {
+    if (!viewOnceOpen?.revokeUrl) return;
+    return () => URL.revokeObjectURL(viewOnceOpen.url);
+  }, [viewOnceOpen]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const keepScrollRef = useRef<number | null>(null);
@@ -286,7 +353,7 @@ function ChatThreadPage() {
            ? Date.parse(m.expires_at)
            : undefined,
        viewOnce: m.metadata?.view_once === true,
-      opened: false,
+      opened: m.is_viewed,
       momentId: m.moment_id ?? undefined,
       momentMediaUrl: m.moment_media_url ?? undefined,
       momentCreatedAt: m.moment_created_at ?? undefined,
@@ -849,7 +916,11 @@ function ChatThreadPage() {
             voice_note_url: uploaded.url,
             viewOnce: settings.viewOnce,
             expiringMedia: settings.viewOnce,
-            metadata: replyTo ? { reply_to: replyTo } : undefined,
+            metadata: {
+              ...(replyTo ? { reply_to: replyTo } : {}),
+              media_bucket: STORAGE_BUCKETS.voiceNotes,
+              media_path: path,
+            },
           });
           if (sent.error) toast.error(sent.error);
           else setReplyTo(null);
@@ -1043,13 +1114,11 @@ function ChatThreadPage() {
               <MenuItem danger icon={<UserX size={16} className="text-red-400" />} label={blocked ? "Unblock User" : "Block User"} state={blocked} onClick={() => {
                 void (async () => {
                   if (!currentUserId || !peer.peerId) return;
-                  const error = await setUserBlock(currentUserId, peer.peerId, !blocked);
-                  if (error) {
-                    toast.error(error);
-                    return;
-                  }
                   const nextBlocked = !blocked;
-                  const saved = await updateSetting({ blocked: nextBlocked }, nextBlocked ? "User blocked" : "User unblocked");
+                  const saved = await updateSetting(
+                    { blocked: nextBlocked },
+                    nextBlocked ? "User blocked" : "User unblocked",
+                  );
                   if (saved && !nextBlocked) await pushSystem(`${displayName} unblocked`);
                 })();
                 setShowOptionsMenu(false);
@@ -1063,7 +1132,7 @@ function ChatThreadPage() {
                     return;
                   }
                   setReported(true);
-                  await pushSystem(`${displayName} reported. Our team will review.`);
+                  toast.success("Report submitted. Our team will review it.");
                 })();
                 setShowOptionsMenu(false);
               }} />
@@ -1261,13 +1330,12 @@ function ChatThreadPage() {
             {m.image && m.viewOnce && m.sender === "them" && !m.opened && !openedOnce.includes(m.id) ? (
               <button
                 type="button"
-                onClick={() => {
-                  setViewOnceOpen({ id: m.id, url: m.image! });
-                }}
+                disabled={openingViewOnceId === m.id}
+                onClick={() => void openViewOnce(m)}
                 className="max-w-[75%] flex items-center gap-2 rounded-2xl border border-emerald-600/60 bg-emerald-950/30 px-4 py-3 text-xs font-bold text-emerald-400"
               >
                 <span className="w-5 h-5 rounded-full border border-emerald-500 flex items-center justify-center">1</span>
-                Tap to view once
+                {openingViewOnceId === m.id ? "Opening…" : "Tap to view once"}
               </button>
             ) : m.image && !m.momentId && !(m.viewOnce && (m.opened || openedOnce.includes(m.id))) ? (
               <div className="max-w-[75%] rounded-2xl overflow-hidden border border-zinc-800 shadow-lg">
@@ -1280,13 +1348,25 @@ function ChatThreadPage() {
               </div>
             ) : null}
 
-            {m.viewOnce && m.sender === "them" && (m.opened || openedOnce.includes(m.id)) && (
+            {m.audio && m.viewOnce && m.sender === "them" && !m.opened && !openedOnce.includes(m.id) && (
+              <button
+                type="button"
+                disabled={openingViewOnceId === m.id}
+                onClick={() => void openViewOnce(m)}
+                className="max-w-[75%] flex items-center gap-2 rounded-2xl border border-emerald-600/60 bg-emerald-950/30 px-4 py-3 text-xs font-bold text-emerald-400 disabled:opacity-60"
+              >
+                <span className="w-5 h-5 rounded-full border border-emerald-500 flex items-center justify-center">1</span>
+                {openingViewOnceId === m.id ? "Preparing voice note…" : "Tap to listen once"}
+              </button>
+            )}
+
+            {m.viewOnce && (m.opened || openedOnce.includes(m.id)) && (
               <div className="max-w-[75%] flex items-center gap-2 rounded-2xl border border-zinc-700 bg-zinc-800/70 px-4 py-3 text-xs font-semibold text-zinc-400">
-                <EyeOff size={15} /> Opened
+                <EyeOff size={15} /> {m.sender === "me" ? "Opened by recipient" : "Opened"}
               </div>
             )}
 
-            {m.audio && (
+            {m.audio && !(m.viewOnce && (m.sender === "them" || m.opened || openedOnce.includes(m.id))) && (
               <div className={`flex items-center gap-3 px-4 py-3 rounded-2xl min-w-[200px] ${
                 m.sender === "me" ? "bg-gradient-to-r from-purple-600 to-pink-600 text-white" : "bg-zinc-800 text-white border border-zinc-700"
               }`}>
@@ -1482,18 +1562,31 @@ function ChatThreadPage() {
       </button>
     </div>
     <div className="flex-1 flex items-center justify-center p-4">
-      <LazyImage
-        src={viewOnceOpen.url}
-        alt="View once"
-        loading="eager"
-        onLoad={() => {
-          const openedId = viewOnceOpen.id;
-          setOpenedOnce((prev) => (prev.includes(openedId) ? prev : [...prev, openedId]));
-          void markRead([openedId]);
-        }}
-        wrapperClassName="max-h-full max-w-full"
-        className="max-h-full max-w-full object-contain rounded-lg"
-      />
+      {viewOnceOpen.kind === "audio" ? (
+        <audio
+          src={viewOnceOpen.url}
+          controls
+          autoPlay
+          aria-label="View-once voice note"
+          className="w-full max-w-md"
+          onEnded={() => setViewOnceOpen(null)}
+        />
+      ) : (
+        <LazyImage
+          src={viewOnceOpen.url}
+          alt="View once"
+          loading="eager"
+          onLoad={() => {
+            void purgeViewedMedia(viewOnceOpen.id).then((cleanup) => {
+              if (cleanup.error) {
+                toast.error("Media opened, but secure cleanup is retrying.");
+              }
+            });
+          }}
+          wrapperClassName="max-h-full max-w-full"
+          className="max-h-full max-w-full object-contain rounded-lg"
+        />
+      )}
     </div>
   </div>
 )}
@@ -1737,9 +1830,10 @@ function ChatThreadPage() {
             const finalImage = await renderPhoto(selectedImage, filterCss, overlays);
             if (currentUserId) {
               const extension = finalImage.startsWith("data:image/png") ? "png" : "jpg";
+              const path = `${currentUserId}/${threadId}/image-${Date.now()}.${extension}`;
               const uploaded = await uploadSourceWithProgress(
                 STORAGE_BUCKETS.messages,
-                `${currentUserId}/${threadId}/image-${Date.now()}.${extension}`,
+                path,
                 finalImage,
                 extension === "png" ? "image/png" : "image/jpeg",
               );
@@ -1750,7 +1844,11 @@ function ChatThreadPage() {
               const sent = await sendToDb({
                 media_url: uploaded.url,
                 content: caption,
-                metadata: replyTo ? { reply_to: replyTo } : undefined,
+                metadata: {
+                  ...(replyTo ? { reply_to: replyTo } : {}),
+                  media_bucket: STORAGE_BUCKETS.messages,
+                  media_path: path,
+                },
                  viewOnce: settings.viewOnce,
                  expiringMedia: settings.viewOnce,
               });

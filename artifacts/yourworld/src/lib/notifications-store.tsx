@@ -136,6 +136,8 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
     requests,
     connections,
     chatSettings,
+    conversationPreferences,
+    userBlocks,
   ] =
     await Promise.all([
       postIds.length
@@ -158,7 +160,7 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
         : Promise.resolve({ data: [] }),
       supabase
         .from("messages" as never)
-        .select("id,sender_id,receiver_id,content,media_url,voice_note_url,created_at" as never)
+        .select("id,sender_id,receiver_id,conversation_id,content,media_url,voice_note_url,created_at" as never)
         .eq("receiver_id", me)
         .order("created_at", { ascending: false })
         .limit(40),
@@ -197,12 +199,32 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
         .from("orbit_chat_settings")
         .select("peer_id,muted")
         .eq("user_id", me),
+      supabase
+        .from("conversation_preferences" as never)
+        .select("conversation_id,is_muted" as never)
+        .eq("user_id" as never, me),
+      supabase
+        .from("user_blocks" as never)
+        .select("blocked_id" as never)
+        .eq("blocker_id" as never, me),
     ]);
 
   const mutedPeerIds = new Set(
     ((chatSettings.data ?? []) as { peer_id: string; muted: boolean }[])
       .filter((setting) => setting.muted)
       .map((setting) => setting.peer_id),
+  );
+  const mutedConversationIds = new Set(
+    ((conversationPreferences.data ?? []) as unknown as {
+      conversation_id: string;
+      is_muted: boolean;
+    }[])
+      .filter((setting) => setting.is_muted)
+      .map((setting) => setting.conversation_id),
+  );
+  const blockedPeerIds = new Set(
+    ((userBlocks.data ?? []) as unknown as { blocked_id: string }[])
+      .map((block) => block.blocked_id),
   );
   const rows = {
     likes: (likes.data ?? []) as { id: string; post_id: string; user_id: string; created_at: string }[],
@@ -217,11 +239,16 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       id: string;
       sender_id: string;
       receiver_id: string;
+      conversation_id: string | null;
       content: string;
       media_url: string | null;
       voice_note_url: string | null;
       created_at: string;
-    }[]).filter((message) => !mutedPeerIds.has(message.sender_id)),
+    }[]).filter((message) =>
+      !blockedPeerIds.has(message.sender_id) &&
+      !mutedPeerIds.has(message.sender_id) &&
+      !mutedConversationIds.has(message.conversation_id ?? ""),
+    ),
     momentNotifications: (momentNotifications.data ?? []) as unknown as {
       id: string;
       actor_id: string | null;
