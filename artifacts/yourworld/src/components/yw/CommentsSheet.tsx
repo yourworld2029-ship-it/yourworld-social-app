@@ -294,10 +294,10 @@ export function CommentsSheet({
                   onPointerDown={() => prefetchProfile(c.user.id)}
                   className="font-semibold text-foreground transition-opacity active:opacity-60"
                 >
-                  @{c.user.username}
+                  {c.user.name}
                 </Link>
               ) : (
-                <span className="font-semibold text-foreground">@{c.user.username}</span>
+                <span className="font-semibold text-foreground">{c.user.name}</span>
               )}{" "}
               · {c.time}
             </p>

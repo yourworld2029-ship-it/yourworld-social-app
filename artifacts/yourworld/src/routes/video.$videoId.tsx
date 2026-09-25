@@ -40,7 +40,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { VideoPoster } from "@/components/yw/VideoPoster";
-import { SportsIdentityMark } from "@/components/yw/SportsIdentityBadge";
 import { useAuth, useResumeAuthAction } from "@/lib/auth-store";
 import { useYw } from "@/lib/yw-store";
 import { formatDuration, formatViews } from "@/lib/video-data";
@@ -708,8 +707,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           <div className="min-w-0 flex-1 text-xs">
             <div className="mb-0.5 flex flex-wrap items-center gap-2">
               <span className="inline-flex items-center gap-1 font-semibold text-gray-300">
-                <span>@{username}</span>
-                <SportsIdentityMark userId={comment.userId} />
+                <span>{comment.displayName || username}</span>
               </span>
               <span className="text-[10px] text-gray-500">{safeTimeAgo(comment.createdAt)}</span>
             </div>
@@ -972,30 +970,30 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
             <div className="min-w-0">
                <p className="flex items-center gap-1 truncate text-sm font-semibold text-white">
                  <span className="truncate">{creatorName}</span>
-                 <SportsIdentityMark userId={creatorId} />
                </p>
               <p className="truncate text-xs text-gray-400">
-                 @{creatorUsername} · {subscriberCount.toLocaleString()} followers
+                  {subscriberCount.toLocaleString()} followers
               </p>
             </div>
           </div>
 
-          <Button
-            className="shrink-0 rounded-full bg-pink-600 px-3 text-xs text-white hover:bg-pink-700 disabled:opacity-50"
-            onClick={(event) => {
-              event.stopPropagation();
-              void handleSubscribe();
-            }}
-            disabled={creatorId === user?.id}
-            size="sm"
-          >
-            {subscribed ? (
-              <Check className="mr-1.5 h-3.5 w-3.5" />
-            ) : (
-              <UserPlus className="mr-1.5 h-3.5 w-3.5" />
-            )}
-            {subscribed ? "Following" : "Follow"}
-          </Button>
+           {!isCreator && (
+             <Button
+               className="shrink-0 rounded-full bg-pink-600 px-3 text-xs text-white hover:bg-pink-700"
+               onClick={(event) => {
+                 event.stopPropagation();
+                 void handleSubscribe();
+               }}
+               size="sm"
+             >
+               {subscribed ? (
+                 <Check className="mr-1.5 h-3.5 w-3.5" />
+               ) : (
+                 <UserPlus className="mr-1.5 h-3.5 w-3.5" />
+               )}
+               {subscribed ? "Following" : "Follow"}
+             </Button>
+           )}
         </div>
 
           <div className="grid w-full grid-cols-5 gap-1 border-b border-white/10 pb-3">
@@ -1094,8 +1092,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
                 </Avatar>
                 <p className="line-clamp-2 min-w-0 text-xs leading-relaxed text-gray-300">
                   <span className="mr-1 font-semibold text-gray-200">
-                     @{previewComment.username || "user"}
-                     <SportsIdentityMark userId={previewComment.userId} />
+                      {previewComment.displayName || previewComment.username || "user"}
                   </span>
                   {previewComment.body}
                 </p>
@@ -1220,7 +1217,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
                       </h3>
                        <p className="mt-1 flex items-center gap-1 line-clamp-2 text-xs text-gray-400">
                          <span className="truncate">{relatedCreator}</span>
-                         <SportsIdentityMark userId={related.user_id ?? null} />
                          <span>· {formatViews(Number(related.views_count || related.views || 0))}</span>
                       </p>
                     </div>
