@@ -22,7 +22,6 @@ import {
   type AuthActionType,
   type PendingAuthAction,
 } from "@/lib/auth-intents";
-import { isNativePlatform } from "@/lib/native-privacy";
 import {
   currentUserSessionIsActive,
   registerCurrentUserSession,
@@ -34,7 +33,6 @@ type AuthValue = {
   loading: boolean;
   signOut: (scope?: "global" | "local" | "others") => Promise<void>;
   requestAuthAction: (action: AuthActionInput) => void;
-  openWebChatDownload: () => void;
 };
 
 const AuthContext = createContext<AuthValue | null>(null);
@@ -48,21 +46,10 @@ function isGuestBrowsableRoute(pathname: string) {
   return pathname !== "/live/create" && /^\/live\/[^/]+\/?$/.test(pathname);
 }
 
-function isPrivateChatRoute(pathname: string) {
-  return (
-    pathname === "/chat" ||
-    pathname.startsWith("/chat/") ||
-    pathname === "/orbit/messages" ||
-    pathname === "/orbit/chat" ||
-    pathname.startsWith("/orbit/chat/")
-  );
-}
-
 export function isPublicRoute(pathname: string) {
   return (
     PUBLIC_ROUTES.some((p) => pathname === p || pathname.startsWith(`${p}/`)) ||
-    isGuestBrowsableRoute(pathname) ||
-    (!isNativePlatform() && isPrivateChatRoute(pathname))
+    isGuestBrowsableRoute(pathname)
   );
 }
 
@@ -70,7 +57,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [authPromptOpen, setAuthPromptOpen] = useState(false);
-  const [chatDownloadOpen, setChatDownloadOpen] = useState(false);
   const navigate = useNavigate();
   const currentHref = useRouterState({ select: (state) => state.location.href });
 
@@ -167,7 +153,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         savePendingAuthAction(action, currentHref);
         setAuthPromptOpen(true);
       },
-      openWebChatDownload: () => setChatDownloadOpen(true),
       signOut: async (scope = "global") => {
         const { error } = await supabase.auth.signOut({ scope });
         if (error && scope !== "local") {
@@ -197,14 +182,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       {children}
       <InteractionGateSheets
         authOpen={authPromptOpen}
-        chatDownloadOpen={chatDownloadOpen}
         onCloseAuth={() => {
           setAuthPromptOpen(false);
           clearPendingAuthAction();
           clearAuthReturnTo();
         }}
         onContinueAuth={continueToAuth}
-        onCloseChatDownload={() => setChatDownloadOpen(false)}
       />
     </AuthContext.Provider>
   );
@@ -235,7 +218,7 @@ export function useResumeAuthAction(
   }, [currentHref, loading, resume, targetId, type, user]);
 }
 
-/** Blocks private routes while allowing public browsing and platform-specific chat gates. */
+/** Blocks private routes while allowing public browsing. */
 export function AuthGate({ children }: { children: ReactNode }) {
   const { session, loading } = useAuth();
   const navigate = useNavigate();

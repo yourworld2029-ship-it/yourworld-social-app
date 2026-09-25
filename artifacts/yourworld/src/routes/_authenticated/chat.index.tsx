@@ -1,6 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect, useRef } from "react";
-import { ChatPlatformGate } from "@/components/yw/ChatPlatformGate";
 import { useAndroidSecureFlag } from "@/lib/native-privacy";
 import { Search, SquarePen, MessageSquare, X, Check, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -57,11 +56,7 @@ function formatChatListTime(iso: string) {
 }
 
 function ChatListPage() {
-  return (
-    <ChatPlatformGate>
-      <NativeChatListPage />
-    </ChatPlatformGate>
-  );
+  return <NativeChatListPage />;
 }
 
 function NativeChatListPage() {

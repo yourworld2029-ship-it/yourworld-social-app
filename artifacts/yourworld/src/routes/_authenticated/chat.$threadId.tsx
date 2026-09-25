@@ -29,7 +29,6 @@ import { toast } from "sonner";
 import { AUTO_DELETE_OPTIONS, autoDeleteLabel } from "@/lib/auto-delete";
 import { historyBackOr } from "@/lib/navigation";
 import { useAndroidSecureFlag } from "@/lib/native-privacy";
-import { ChatPlatformGate } from "@/components/yw/ChatPlatformGate";
 import {
   STORAGE_BUCKETS,
   uploadSourceWithProgress,
@@ -160,11 +159,7 @@ function MenuItem({
 }
 
 function ChatThreadPage() {
-  return (
-    <ChatPlatformGate>
-      <NativeChatThreadPage />
-    </ChatPlatformGate>
-  );
+  return <NativeChatThreadPage />;
 }
 
 function NativeChatThreadPage() {

@@ -11,10 +11,6 @@ export function isNativeAndroid() {
   return Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
 }
 
-export function isNativePlatform() {
-  return Capacitor.isNativePlatform();
-}
-
 function updateAndroidSecureFlag(enabled: boolean) {
   if (!isNativeAndroid()) return;
 

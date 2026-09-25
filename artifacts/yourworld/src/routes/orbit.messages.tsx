@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ChatPlatformGate } from "@/components/yw/ChatPlatformGate";
 import { toast } from "sonner";
 import {
   Check,
@@ -88,11 +87,7 @@ function Avatar({ p, size = 48 }: { p: OrbitProfile; size?: number }) {
 }
 
 function OrbitMessagesPage() {
-  return (
-    <ChatPlatformGate>
-      <NativeOrbitMessagesPage />
-    </ChatPlatformGate>
-  );
+  return <NativeOrbitMessagesPage />;
 }
 
 function NativeOrbitMessagesPage() {
