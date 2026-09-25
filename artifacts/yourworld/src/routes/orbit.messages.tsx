@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { ChatPlatformGate } from "@/components/yw/ChatPlatformGate";
 import { toast } from "sonner";
 import {
   Check,
@@ -24,6 +25,7 @@ import { useChatNames } from "@/lib/chat-names";
 import { useSecretChats } from "@/lib/secret-chats";
 import { useProfiles } from "@/lib/profiles-map";
 import { SportsIdentityMark } from "@/components/yw/SportsIdentityBadge";
+import { useAndroidSecureFlag } from "@/lib/native-privacy";
 
 export const Route = createFileRoute("/orbit/messages")({
   head: () => ({
@@ -86,6 +88,15 @@ function Avatar({ p, size = 48 }: { p: OrbitProfile; size?: number }) {
 }
 
 function OrbitMessagesPage() {
+  return (
+    <ChatPlatformGate>
+      <NativeOrbitMessagesPage />
+    </ChatPlatformGate>
+  );
+}
+
+function NativeOrbitMessagesPage() {
+  useAndroidSecureFlag(true);
   const orbit = useOrbit();
   const { profiles: orbitProfiles } = useOrbitProfiles();
   const { mutual, likesMe, likedByMe } = useOrbitMatches();

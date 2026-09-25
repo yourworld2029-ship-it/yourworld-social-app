@@ -11,6 +11,7 @@ import { YwAvatar } from "@/components/yw/Avatar";
 import { Button } from "@/components/ui/button";
 import { useFollowList, type FollowUser } from "@/lib/follow-data";
 import { useYw } from "@/lib/yw-store";
+import { useAuth } from "@/lib/auth-store";
 import { SportsIdentityMark } from "@/components/yw/SportsIdentityBadge";
 
 export function FollowListDialog({
@@ -73,6 +74,7 @@ function List({
 }) {
   const { users, loading, error } = useFollowList(userId, kind, open);
   const { following, toggleFollow } = useYw();
+  const { user: viewer, requestAuthAction } = useAuth();
   const navigate = useNavigate();
 
   if (loading)
@@ -127,6 +129,10 @@ function List({
             className="h-8 shrink-0 rounded-full px-4 text-xs"
             onClick={(event) => {
               event.stopPropagation();
+              if (!viewer) {
+                requestAuthAction({ type: "follow-user", targetId: u.id });
+                return;
+              }
               void toggleFollow(u.id);
             }}
           >

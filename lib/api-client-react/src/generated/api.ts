@@ -24,6 +24,7 @@ import type {
   HealthStatus,
   PostPinInput,
   PostPinResponse,
+  PublicLiveStream,
   VideoTranscodeInput,
   VideoTranscodeResponse
 } from './api.schemas';
@@ -126,13 +127,6 @@ export function useHealthCheck<TData = Awaited<ReturnType<typeof healthCheck>>, 
 
   return withQueryKey(query, queryOptions.queryKey);
 }
-
-
-
-
-
-
-
 export const getTranscodeVideoUrl = () => {
 
 
@@ -275,4 +269,152 @@ export const useSetPostPin = <TError = ErrorType<ApiError>,
       > => {
       return useMutation(getSetPostPinMutationOptions(options));
     }
+
+export const getListPublicLiveStreamsUrl = () => {
+
+
+
+
+  return `/api/live/streams`
+}
+
+/**
+ * @summary List currently active public live streams
+ */
+export const listPublicLiveStreams = async ( options?: Parameters<typeof customFetch>[1]): Promise<PublicLiveStream[]> => {
+
+  return customFetch<PublicLiveStream[]>(getListPublicLiveStreamsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListPublicLiveStreamsQueryKey = () => {
+    return [
+    `/api/live/streams`
+    ] as const;
+    }
+
+
+export const getListPublicLiveStreamsQueryOptions = <TData = Awaited<ReturnType<typeof listPublicLiveStreams>>, TError = ErrorType<ApiError>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPublicLiveStreams>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPublicLiveStreamsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPublicLiveStreams>>> = ({ signal }) => listPublicLiveStreams({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPublicLiveStreams>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListPublicLiveStreamsQueryResult = NonNullable<Awaited<ReturnType<typeof listPublicLiveStreams>>>
+export type ListPublicLiveStreamsQueryError = ErrorType<ApiError>
+
+
+/**
+ * @summary List currently active public live streams
+ */
+
+export function useListPublicLiveStreams<TData = Awaited<ReturnType<typeof listPublicLiveStreams>>, TError = ErrorType<ApiError>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPublicLiveStreams>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListPublicLiveStreamsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const getGetPublicLiveStreamUrl = (streamId: string,) => {
+
+
+
+
+  return `/api/live/streams/${streamId}`
+}
+
+/**
+ * @summary Get one active public live stream
+ */
+export const getPublicLiveStream = async (streamId: string, options?: Parameters<typeof customFetch>[1]): Promise<PublicLiveStream> => {
+
+  return customFetch<PublicLiveStream>(getGetPublicLiveStreamUrl(streamId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPublicLiveStreamQueryKey = (streamId: string,) => {
+    return [
+    `/api/live/streams/${streamId}`
+    ] as const;
+    }
+
+
+export const getGetPublicLiveStreamQueryOptions = <TData = Awaited<ReturnType<typeof getPublicLiveStream>>, TError = ErrorType<ApiError>>(streamId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPublicLiveStream>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPublicLiveStreamQueryKey(streamId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPublicLiveStream>>> = ({ signal }) => getPublicLiveStream(streamId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: streamId !== null && streamId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPublicLiveStream>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPublicLiveStreamQueryResult = NonNullable<Awaited<ReturnType<typeof getPublicLiveStream>>>
+export type GetPublicLiveStreamQueryError = ErrorType<ApiError>
+
+
+/**
+ * @summary Get one active public live stream
+ */
+
+export function useGetPublicLiveStream<TData = Awaited<ReturnType<typeof getPublicLiveStream>>, TError = ErrorType<ApiError>>(
+ streamId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPublicLiveStream>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPublicLiveStreamQueryOptions(streamId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 

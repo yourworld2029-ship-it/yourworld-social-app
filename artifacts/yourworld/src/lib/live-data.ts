@@ -1,4 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
+import {
+  GetPublicLiveStreamResponse,
+  ListPublicLiveStreamsResponse,
+} from "@workspace/api-zod";
 import { supabase } from "@/integrations/supabase/client";
 
 export type LiveStreamRecord = {
@@ -59,45 +63,111 @@ export async function getPublicLiveProfiles(userIds: string[]) {
 }
 
 export async function loadLiveStream(streamId: string) {
-  const { data, error } = await supabase
-    .from("live_streams")
-    .select(LIVE_STREAM_COLUMNS)
-    .eq("id", streamId)
-    .maybeSingle();
+  return loadLiveStreamForViewer(streamId, false);
+}
 
-  if (error) throw error;
-  if (!data) return null;
+async function readPublicLiveStreams() {
+  const response = await fetch("/api/live/streams", {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  const body: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message =
+      body && typeof body === "object" && "error" in body &&
+      typeof body.error === "string"
+        ? body.error
+        : "Live streams are temporarily unavailable.";
+    throw new Error(message);
+  }
+  const parsed = ListPublicLiveStreamsResponse.safeParse(body);
+  if (!parsed.success) {
+    throw new Error("The public live-stream response was invalid.");
+  }
+  return parsed.data as LiveStreamDatabaseRow[];
+}
 
-  const row = normalizeLiveStream(data as unknown as LiveStreamDatabaseRow);
-  const profiles = await getPublicLiveProfiles([row.broadcaster_id]);
-  const profile = profiles.get(row.broadcaster_id);
+async function readPublicLiveStream(streamId: string) {
+  const response = await fetch(
+    `/api/live/streams/${encodeURIComponent(streamId)}`,
+    {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    },
+  );
+  if (response.status === 404) return null;
+  const body: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message =
+      body && typeof body === "object" && "error" in body &&
+      typeof body.error === "string"
+        ? body.error
+        : "Live streams are temporarily unavailable.";
+    throw new Error(message);
+  }
+  const parsed = GetPublicLiveStreamResponse.safeParse(body);
+  if (!parsed.success) {
+    throw new Error("The public live-stream response was invalid.");
+  }
+  return parsed.data as LiveStreamDatabaseRow;
+}
 
+async function liveStreamWithProfile(row: LiveStreamDatabaseRow) {
+  const stream = normalizeLiveStream(row);
+  const profiles = await getPublicLiveProfiles([stream.broadcaster_id]);
+  const profile = profiles.get(stream.broadcaster_id);
   return {
-    ...row,
+    ...stream,
     username: profile?.username || "user",
     displayName: profile?.display_name || profile?.username || "YourWorld user",
     avatarUrl: profile?.avatar_url ?? null,
   } satisfies ActiveLiveStream;
 }
 
+export async function loadLiveStreamForViewer(
+  streamId: string,
+  isGuestViewer: boolean,
+) {
+  let data: LiveStreamDatabaseRow | null;
+  if (isGuestViewer) {
+    data = await readPublicLiveStream(streamId);
+  } else {
+    const { data: result, error } = await supabase
+      .from("live_streams")
+      .select(LIVE_STREAM_COLUMNS)
+      .eq("id", streamId)
+      .maybeSingle();
+    if (error) throw error;
+    data = result as unknown as LiveStreamDatabaseRow | null;
+  }
+  if (!data) return null;
+  return liveStreamWithProfile(data);
+}
+
 export async function loadActiveLiveStreams(): Promise<ActiveLiveStream[]> {
-  const { data, error } = await supabase
-    .from("live_streams")
-    .select(LIVE_STREAM_COLUMNS)
-    .eq("status", "live")
-    .order("started_at", { ascending: false })
-    .limit(100);
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  let streams: LiveStreamDatabaseRow[];
+  if (session) {
+    const { data, error } = await supabase
+      .from("live_streams")
+      .select(LIVE_STREAM_COLUMNS)
+      .eq("status", "live")
+      .order("started_at", { ascending: false })
+      .limit(100);
+    if (error) throw error;
+    streams = (data ?? []) as unknown as LiveStreamDatabaseRow[];
+  } else {
+    streams = await readPublicLiveStreams();
+  }
 
-  if (error) throw error;
-
-  const streams = ((data ?? []) as unknown as LiveStreamDatabaseRow[]).map(
-    normalizeLiveStream,
-  );
+  const normalizedStreams = streams.map(normalizeLiveStream);
   const profiles = await getPublicLiveProfiles(
-    streams.map((stream) => stream.broadcaster_id),
+    normalizedStreams.map((stream) => stream.broadcaster_id),
   );
 
-  return streams.map((stream) => {
+  return normalizedStreams.map((stream) => {
     const profile = profiles.get(stream.broadcaster_id);
     return {
       ...stream,
@@ -233,7 +303,14 @@ export async function endLiveStream(streamId: string) {
   };
 }
 
-export async function loadLiveStreamStatus(streamId: string) {
+export async function loadLiveStreamStatus(
+  streamId: string,
+  isGuestViewer = false,
+) {
+  if (isGuestViewer) {
+    const row = await readPublicLiveStream(streamId);
+    return row?.status ?? "ended";
+  }
   const { data, error } = await supabase
     .from("live_streams")
     .select("status")

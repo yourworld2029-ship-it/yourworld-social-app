@@ -21,6 +21,7 @@ import {
 import { YwAvatar } from "@/components/yw/Avatar";
 import { ShareSheet } from "@/components/yw/ShareSheet";
 import { CommentsSheet } from "@/components/yw/CommentsSheet";
+import { useAuth, useResumeAuthAction } from "@/lib/auth-store";
 import { formatCount, type Reel, type User } from "@/lib/yw-data";
 import { getLocalMedia, resolveMediaUrl, timeAgo, useSocialPosts } from "@/lib/social-data";
 import { useDoubleTapLike, useYw } from "@/lib/yw-store";
@@ -111,6 +112,7 @@ function ReelsPage() {
 function ReelsList() {
   const { reelId, userId, initialVideoId, focusComments, returnTo } = Route.useSearch();
   const navigate = useNavigate();
+  const { toggleFollow } = useYw();
   const scoped = Boolean(userId);
   const initialId = initialVideoId || reelId;
   const [active, setActive] = useState(0);
@@ -126,6 +128,12 @@ function ReelsList() {
     hasNextPage,
     isFetchingNextPage,
   } = useSocialPosts(scoped ? "creator-media" : "reel", userId);
+  useResumeAuthAction("reel-like", "*", (action) =>
+    toggleDbLike(action.targetId),
+  );
+  useResumeAuthAction("follow-user", "*", (action) => {
+    void toggleFollow(action.targetId);
+  });
   const viewedRef = useRef(new Set<string>());
   const recordView = useCallback(async (id: string) => {
     if (viewedRef.current.has(id) || !currentUserId) return false;
@@ -518,8 +526,12 @@ function ReelItem({
   onDeleted?: () => void;
 }) {
   const user = author;
+  const { user: viewer, requestAuthAction } = useAuth();
   const { following, toggleFollow } = useYw();
-  const { burst, onDoubleTap } = useDoubleTapLike(reel.id);
+  const gatedLikeRef = useRef<() => void>(() => {});
+  const { burst, onDoubleTap } = useDoubleTapLike(reel.id, () => {
+    if (!likedByMe) gatedLikeRef.current();
+  });
   const [expanded, setExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [muted, setMuted] = useState(false);
@@ -832,6 +844,10 @@ function ReelItem({
   };
 
   const handleLike = async () => {
+    if (!viewer) {
+      requestAuthAction({ type: "reel-like", targetId: reel.id });
+      return;
+    }
     if (!onDbLike || liking) return;
     setLiking(true);
     try {
@@ -846,6 +862,7 @@ function ReelItem({
       setLiking(false);
     }
   };
+  gatedLikeRef.current = () => void handleLike();
 
   const handleDelete = async () => {
     if (!canDelete || deleting) return;
@@ -875,7 +892,6 @@ function ReelItem({
       <div
         className="absolute inset-0 touch-pan-y select-none overflow-hidden"
         onClick={handleTap}
-        onDoubleClick={onDoubleTap}
         onContextMenu={(e) => e.preventDefault()}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -963,7 +979,13 @@ function ReelItem({
              </span>
           </Link>
           <button
-            onClick={() => toggleFollow(user.id)}
+            onClick={() => {
+              if (!viewer) {
+                requestAuthAction({ type: "follow-user", targetId: user.id });
+                return;
+              }
+              void toggleFollow(user.id);
+            }}
             className={cn(
               "rounded-full border px-3 py-1 text-xs font-semibold transition-colors",
               following[user.id]

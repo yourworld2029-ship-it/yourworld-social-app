@@ -10,6 +10,19 @@ import { useNavigate, useRouterState } from "@tanstack/react-router";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { InteractionGateSheets } from "@/components/yw/InteractionGateSheets";
+import {
+  clearAuthReturnTo,
+  clearPendingAuthAction,
+  consumePendingAuthAction,
+  getAuthReturnTo,
+  rememberAuthReturnTo,
+  savePendingAuthAction,
+  type AuthActionInput,
+  type AuthActionType,
+  type PendingAuthAction,
+} from "@/lib/auth-intents";
+import { isNativeAndroid } from "@/lib/native-privacy";
 import {
   currentUserSessionIsActive,
   registerCurrentUserSession,
@@ -20,6 +33,8 @@ type AuthValue = {
   user: User | null;
   loading: boolean;
   signOut: (scope?: "global" | "local" | "others") => Promise<void>;
+  requestAuthAction: (action: AuthActionInput) => void;
+  openWebChatDownload: () => void;
 };
 
 const AuthContext = createContext<AuthValue | null>(null);
@@ -27,14 +42,37 @@ const AuthContext = createContext<AuthValue | null>(null);
 /** Routes reachable without a session. */
 export const PUBLIC_ROUTES = ["/auth", "/reset-password", "/verify-2fa"];
 
+function isGuestBrowsableRoute(pathname: string) {
+  if (pathname === "/" || pathname === "/reels") return true;
+  if (/^\/(?:u|video)\/[^/]+\/?$/.test(pathname)) return true;
+  return pathname !== "/live/create" && /^\/live\/[^/]+\/?$/.test(pathname);
+}
+
+function isPrivateChatRoute(pathname: string) {
+  return (
+    pathname === "/chat" ||
+    pathname.startsWith("/chat/") ||
+    pathname === "/orbit/messages" ||
+    pathname === "/orbit/chat" ||
+    pathname.startsWith("/orbit/chat/")
+  );
+}
+
 export function isPublicRoute(pathname: string) {
-  return PUBLIC_ROUTES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+  return (
+    PUBLIC_ROUTES.some((p) => pathname === p || pathname.startsWith(`${p}/`)) ||
+    isGuestBrowsableRoute(pathname) ||
+    (!isNativeAndroid() && isPrivateChatRoute(pathname))
+  );
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [authPromptOpen, setAuthPromptOpen] = useState(false);
+  const [chatDownloadOpen, setChatDownloadOpen] = useState(false);
   const navigate = useNavigate();
+  const currentHref = useRouterState({ select: (state) => state.location.href });
 
   useEffect(() => {
     let alive = true;
@@ -124,6 +162,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       session,
       user: session?.user ?? null,
       loading,
+      requestAuthAction: (action) => {
+        if (session?.user) return;
+        savePendingAuthAction(action, currentHref);
+        setAuthPromptOpen(true);
+      },
+      openWebChatDownload: () => setChatDownloadOpen(true),
       signOut: async (scope = "global") => {
         const { error } = await supabase.auth.signOut({ scope });
         if (error && scope !== "local") {
@@ -136,10 +180,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       },
     }),
-    [session, loading],
+    [currentHref, session, loading],
   );
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  const continueToAuth = () => {
+    const redirect = getAuthReturnTo(currentHref);
+    setAuthPromptOpen(false);
+    void navigate({
+      to: "/auth",
+      search: { redirect },
+    } as never);
+  };
+
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+      <InteractionGateSheets
+        authOpen={authPromptOpen}
+        chatDownloadOpen={chatDownloadOpen}
+        onCloseAuth={() => {
+          setAuthPromptOpen(false);
+          clearPendingAuthAction();
+          clearAuthReturnTo();
+        }}
+        onContinueAuth={continueToAuth}
+        onCloseChatDownload={() => setChatDownloadOpen(false)}
+      />
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth() {
@@ -148,19 +216,48 @@ export function useAuth() {
   return ctx;
 }
 
-/** Blocks every non-public route until a session exists. */
+export function useResumeAuthAction(
+  type: AuthActionType,
+  targetId: string | null | undefined,
+  resume: (action: PendingAuthAction) => void | Promise<void>,
+) {
+  const { user, loading } = useAuth();
+  const currentHref = useRouterState({ select: (state) => state.location.href });
+
+  useEffect(() => {
+    if (loading || !user || !targetId) return;
+    const pending = consumePendingAuthAction(type, targetId, currentHref);
+    if (!pending) return;
+    void Promise.resolve(resume(pending)).catch((error: unknown) => {
+      console.error("[auth] Could not resume the requested action", error);
+      toast.error("That action couldn't be completed. Please try again.");
+    });
+  }, [currentHref, loading, resume, targetId, type, user]);
+}
+
+/** Blocks private routes while allowing public browsing and platform-specific chat gates. */
 export function AuthGate({ children }: { children: ReactNode }) {
   const { session, loading } = useAuth();
   const navigate = useNavigate();
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { pathname, href } = useRouterState({
+    select: (state) => ({
+      pathname: state.location.pathname,
+      href: state.location.href,
+    }),
+  });
   const publicRoute = isPublicRoute(pathname);
 
   useEffect(() => {
     if (loading) return;
     if (!publicRoute && !session) {
-      void navigate({ to: "/auth", replace: true });
+      rememberAuthReturnTo(href);
+      void navigate({
+        to: "/auth",
+        search: { redirect: href },
+        replace: true,
+      } as never);
     }
-  }, [loading, navigate, publicRoute, session]);
+  }, [href, loading, navigate, publicRoute, session]);
 
   if (loading && !publicRoute) return null;
   if (!publicRoute && !session) return null;

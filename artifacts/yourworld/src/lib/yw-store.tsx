@@ -235,7 +235,7 @@ export function useYw() {
   return ctx;
 }
 
-export function useDoubleTapLike(id: string) {
+export function useDoubleTapLike(id: string, onLike?: () => void) {
   const { liked, toggleLike } = useYw();
   const [burst, setBurst] = useState(false);
   const timerRef = useRef<number | null>(null);
@@ -248,10 +248,11 @@ export function useDoubleTapLike(id: string) {
   );
 
   const onDoubleTap = useCallback(() => {
-    if (!liked[id]) toggleLike(id);
+    if (onLike) onLike();
+    else if (!liked[id]) toggleLike(id);
     setBurst(true);
     if (timerRef.current !== null) window.clearTimeout(timerRef.current);
     timerRef.current = window.setTimeout(() => setBurst(false), 700);
-  }, [id, liked, toggleLike]);
+  }, [id, liked, onLike, toggleLike]);
   return { burst, onDoubleTap };
 }

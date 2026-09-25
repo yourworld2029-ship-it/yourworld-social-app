@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft, Camera, Radio, Users, X } from "lucide-react";
 import { LiveStreamHud } from "@/components/yw/LiveStreamHud";
-import { useAuth } from "@/lib/auth-store";
+import { useAuth, useResumeAuthAction } from "@/lib/auth-store";
+import { useAndroidSecureFlag } from "@/lib/native-privacy";
 import {
   endLiveStream,
-  loadLiveStream,
+  loadLiveStreamForViewer,
   loadLiveStreamStatus,
   type ActiveLiveStream,
 } from "@/lib/live-data";
@@ -27,17 +28,23 @@ export const Route = createFileRoute("/live/$streamId")({
 });
 
 function LiveRoomPage() {
+  useAndroidSecureFlag(true);
   const { streamId } = Route.useParams();
   const { user, loading: authLoading } = useAuth();
+  const [guestViewerId] = useState(
+    () =>
+      `guest-${globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`}`,
+  );
   const [room, setRoom] = useState<ActiveLiveStream | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (authLoading) return;
     let alive = true;
     setLoading(true);
     setLoadError(null);
-    void loadLiveStream(streamId)
+    void loadLiveStreamForViewer(streamId, !user)
       .then((next) => {
         if (!alive) return;
         if (!next) {
@@ -63,7 +70,7 @@ function LiveRoomPage() {
     return () => {
       alive = false;
     };
-  }, [streamId]);
+  }, [authLoading, streamId, user]);
 
   if (loading || authLoading) {
     return (
@@ -73,7 +80,7 @@ function LiveRoomPage() {
     );
   }
 
-  if (!room || !user) {
+  if (!room) {
     return (
       <UnavailableLiveRoom
         message={loadError ?? "This live broadcast is unavailable."}
@@ -81,7 +88,7 @@ function LiveRoomPage() {
     );
   }
 
-  const isBroadcaster = room.broadcaster_id === user.id;
+  const isBroadcaster = Boolean(user && room.broadcaster_id === user.id);
   if (room.status === "ended") {
     if (!isBroadcaster) {
       return <UnavailableLiveRoom message="This live broadcast has ended." />;
@@ -105,10 +112,11 @@ function LiveRoomPage() {
     <LiveRoomSession
       key={room.id}
       room={room}
-      userId={user.id}
-      userMetadata={(user.user_metadata ?? {}) as Record<string, unknown>}
-      email={user.email ?? ""}
+      userId={user?.id ?? guestViewerId}
+      userMetadata={(user?.user_metadata ?? {}) as Record<string, unknown>}
+      email={user?.email ?? ""}
       isBroadcaster={isBroadcaster}
+      isGuestViewer={!user}
     />
   );
 }
@@ -119,14 +127,17 @@ function LiveRoomSession({
   userMetadata,
   email,
   isBroadcaster,
+  isGuestViewer,
 }: {
   room: ActiveLiveStream;
   userId: string;
   userMetadata: Record<string, unknown>;
   email: string;
   isBroadcaster: boolean;
+  isGuestViewer: boolean;
 }) {
   const navigate = useNavigate();
+  const { user, requestAuthAction } = useAuth();
   const username =
     (typeof userMetadata.username === "string" && userMetadata.username) ||
     (typeof userMetadata.user_name === "string" && userMetadata.user_name) ||
@@ -152,6 +163,9 @@ function LiveRoomSession({
     peakViewerCount: number;
   } | null>(null);
   const [endError, setEndError] = useState<string | null>(null);
+  const [resumedLiveComment, setResumedLiveComment] = useState<string | null>(
+    null,
+  );
   const [durationSeconds, setDurationSeconds] = useState(() =>
     Math.max(
       0,
@@ -164,10 +178,47 @@ function LiveRoomSession({
     streamId: room.id,
     mode: isBroadcaster ? "broadcaster" : "viewer",
     userId,
+    isGuestViewer,
     username: isBroadcaster ? username : room.username,
     avatarUrl: isBroadcaster ? avatarUrl : room.avatarUrl,
     localStream,
   });
+  useResumeAuthAction("live-comment", room.id, (action) => {
+    const text = action.payload?.text ?? "";
+    if (!text.trim()) return;
+    liveRoom.setCommentText(text);
+    setResumedLiveComment(text);
+  });
+
+  useEffect(() => {
+    if (
+      !resumedLiveComment ||
+      liveRoom.commentText !== resumedLiveComment
+    ) {
+      return;
+    }
+    setResumedLiveComment(null);
+    void liveRoom.sendComment();
+  }, [
+    liveRoom.commentText,
+    liveRoom.sendComment,
+    resumedLiveComment,
+  ]);
+
+  const sendLiveComment = () => {
+    const text = liveRoom.commentText;
+    if (!user) {
+      if (text.trim()) {
+        requestAuthAction({
+          type: "live-comment",
+          targetId: room.id,
+          payload: { text },
+        });
+      }
+      return;
+    }
+    void liveRoom.sendComment();
+  };
   const roomReady = isBroadcaster
     ? liveRoom.connected
     : liveRoom.mediaConnected;
@@ -370,7 +421,7 @@ function LiveRoomSession({
         commentText={liveRoom.commentText}
         reactions={liveRoom.reactions}
         onCommentTextChange={liveRoom.setCommentText}
-        onSendComment={() => void liveRoom.sendComment()}
+        onSendComment={sendLiveComment}
         onFlipCamera={() =>
           void changeCamera(facingMode === "user" ? "environment" : "user")
         }

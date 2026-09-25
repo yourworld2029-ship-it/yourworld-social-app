@@ -77,6 +77,7 @@ export function useLiveRoom({
   streamId,
   mode,
   userId,
+  isGuestViewer = false,
   username,
   avatarUrl,
   localStream,
@@ -84,6 +85,7 @@ export function useLiveRoom({
   streamId: string;
   mode: RoomMode;
   userId: string;
+  isGuestViewer?: boolean;
   username: string;
   avatarUrl: string | null;
   localStream: MediaStream | null;
@@ -292,7 +294,7 @@ export function useLiveRoom({
     };
 
     const startWatchSession = async () => {
-      if (mode !== "viewer") return;
+      if (mode !== "viewer" || isGuestViewer) return;
       if (viewerSessionIdRef.current) {
         startWatchHeartbeat();
         return;
@@ -611,7 +613,7 @@ export function useLiveRoom({
         ) {
           return;
         }
-        void loadLiveStreamStatus(streamId).then((status) => {
+        void loadLiveStreamStatus(streamId, isGuestViewer).then((status) => {
           if (alive && status !== "live") {
             setIsEnded(true);
             closeRoom();
@@ -640,7 +642,7 @@ export function useLiveRoom({
             username,
             avatar_url: avatarUrl,
           } satisfies PresenceMeta);
-          void loadComments();
+          if (!isGuestViewer) void loadComments();
           syncPresence();
         } else if (
           status === "CHANNEL_ERROR" ||
@@ -655,7 +657,7 @@ export function useLiveRoom({
       });
 
     statusTimer = window.setInterval(() => {
-      void loadLiveStreamStatus(streamId)
+      void loadLiveStreamStatus(streamId, isGuestViewer)
         .then((status) => {
           if (alive && status !== "live") {
             setIsEnded(true);
@@ -683,6 +685,7 @@ export function useLiveRoom({
     closePeers,
     closeRoom,
     discardLocalStream,
+    isGuestViewer,
     mode,
     streamId,
     stopViewerWatch,
@@ -692,7 +695,7 @@ export function useLiveRoom({
 
   const sendComment = useCallback(async () => {
     const message = commentText.trim();
-    if (!message || !userId || isEnded) return;
+    if (!message || !userId || isEnded || isGuestViewer) return;
     const optimisticId = `pending-${createPeerId()}`;
     const optimisticComment: LiveCommentRow = {
       id: optimisticId,
@@ -733,7 +736,7 @@ export function useLiveRoom({
           : "Your comment could not be sent.",
       );
     }
-  }, [addCommentRows, commentText, isEnded, streamId, userId]);
+  }, [addCommentRows, commentText, isEnded, isGuestViewer, streamId, userId]);
 
   const sendReaction = useCallback(() => {
     if (isEnded) return;

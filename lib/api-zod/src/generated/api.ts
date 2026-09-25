@@ -58,3 +58,40 @@ export const SetPostPinResponse = zod.object({
 })
 
 
+/**
+ * @summary List currently active public live streams
+ */
+export const ListPublicLiveStreamsResponseItem = zod.object({
+  "id": zod.string(),
+  "broadcaster_id": zod.string(),
+  "title": zod.string(),
+  "status": zod.literal("live"),
+  "started_at": zod.string(),
+  "ended_at": zod.string().nullable(),
+  "peak_viewer_count": zod.number()
+})
+export const ListPublicLiveStreamsResponse = zod.array(ListPublicLiveStreamsResponseItem)
+
+
+/**
+ * @summary Get one active public live stream
+ */
+export const getPublicLiveStreamPathStreamIdMax = 128;
+
+
+
+export const GetPublicLiveStreamParams = zod.object({
+  "streamId": zod.coerce.string().min(1).max(getPublicLiveStreamPathStreamIdMax)
+})
+
+export const GetPublicLiveStreamResponse = zod.object({
+  "id": zod.string(),
+  "broadcaster_id": zod.string(),
+  "title": zod.string(),
+  "status": zod.literal("live"),
+  "started_at": zod.string(),
+  "ended_at": zod.string().nullable(),
+  "peak_viewer_count": zod.number()
+})
+
+

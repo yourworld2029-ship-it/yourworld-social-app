@@ -3,6 +3,7 @@
 - [Private media playback](private-media-playback.md) — preserve stored signed media URLs when anonymous clients cannot re-sign private Supabase objects.
 - [Supabase project identity](supabase-project-identity.md) — treat Replit Secrets as authoritative; management connections may target a different project.
 - [Supabase schema drift](supabase-schema-drift.md) — preserve live data by adapting app writes to reported missing columns instead of resetting or blindly migrating.
+- [Orval integer schemas](orval-integer-schemas.md) — OpenAPI integer currently emits invalid top-level `zod.int()`; use number for numeric counts.
 - [Reel editor performance](reel-editor-performance.md) — keep thumbnail generation source-keyed and off the trim-drag hot path; use worker encoding with a local fallback.
 - [Unique interaction counting](unique-interaction-counting.md) — use one database-enforced key per user/content/type and an atomic insert-before-increment RPC for views.
 - [Video playback and downloads](video-playback-downloads.md) — keep playback metadata-first and let the browser own byte ranges; use the service worker only for streamed background saves.

@@ -53,6 +53,7 @@ import {
   type AutoDeleteSetting,
 } from "@/lib/auto-delete";
 import { useAndroidSecureFlag } from "@/lib/native-privacy";
+import { ChatPlatformGate } from "@/components/yw/ChatPlatformGate";
 
 // Relations added by migration 0015 are intentionally not in checked-in
 // generated Supabase types. Keep this narrow escape hatch at that boundary.
@@ -199,6 +200,14 @@ function MenuItem({
 }
 
 function OrbitChatPage() {
+  return (
+    <ChatPlatformGate>
+      <NativeOrbitChatPage />
+    </ChatPlatformGate>
+  );
+}
+
+function NativeOrbitChatPage() {
   const { profile: myProfile } = useMyProfile();
   const currentUsername = myProfile.username || "user";
   const { userId } = Route.useParams();
@@ -706,7 +715,7 @@ function OrbitChatPage() {
     },
     { screenshotEnabled: screenshotAlert, protectedElementId: "chat-messages-container" },
   );
-  useAndroidSecureFlag(screenshotAlert || recordingAlert);
+  useAndroidSecureFlag(true);
 
   const startRecording = async () => {
     if (!accepted) {

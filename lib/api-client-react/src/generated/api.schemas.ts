@@ -42,6 +42,17 @@ export interface PostPinResponse {
   pinned: boolean;
 }
 
+export interface PublicLiveStream {
+  id: string;
+  broadcaster_id: string;
+  title: string;
+  status: 'live';
+  started_at: string;
+  /** @nullable */
+  ended_at: string | null;
+  peak_viewer_count: number;
+}
+
 export interface ApiError {
   error: string;
 }

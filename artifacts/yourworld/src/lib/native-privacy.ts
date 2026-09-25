@@ -7,8 +7,12 @@ interface PrivacyBridgePlugin {
 
 const privacyBridge = registerPlugin<PrivacyBridgePlugin>("PrivacyBridge");
 
+export function isNativeAndroid() {
+  return Capacitor.getPlatform() === "android";
+}
+
 function updateAndroidSecureFlag(enabled: boolean) {
-  if (Capacitor.getPlatform() !== "android") return;
+  if (!isNativeAndroid()) return;
 
   void privacyBridge.setSecureFlag({ enabled }).catch((error: unknown) => {
     console.error("[privacy-bridge] Could not update Android screenshot protection", error);

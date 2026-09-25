@@ -14,6 +14,8 @@ tags:
     description: Media processing operations
   - name: posts
     description: Post operations
+  - name: live
+    description: Public live-stream discovery
 paths:
   /healthz:
     get:
@@ -148,6 +150,64 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+  /live/streams:
+    get:
+      operationId: listPublicLiveStreams
+      tags: [live]
+      summary: List currently active public live streams
+      responses:
+        "200":
+          description: Active public live streams
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PublicLiveStream"
+        "502":
+          description: Live streams are temporarily unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /live/streams/{streamId}:
+    get:
+      operationId: getPublicLiveStream
+      tags: [live]
+      summary: Get one active public live stream
+      parameters:
+        - name: streamId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+      responses:
+        "200":
+          description: Active public live stream
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicLiveStream"
+        "400":
+          description: Invalid stream ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Live stream is not active
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "502":
+          description: Live streams are temporarily unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
 components:
   securitySchemes:
     SupabaseBearer:
@@ -209,6 +269,33 @@ components:
       required:
         - postId
         - pinned
+    PublicLiveStream:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        broadcaster_id:
+          type: string
+        title:
+          type: string
+        status:
+          type: string
+          const: live
+        started_at:
+          type: string
+        ended_at:
+          type: ["string", "null"]
+        peak_viewer_count:
+          type: number
+      required:
+        - id
+        - broadcaster_id
+        - title
+        - status
+        - started_at
+        - ended_at
+        - peak_viewer_count
     ApiError:
       type: object
       properties:

@@ -10,6 +10,7 @@ export * from './apiError';
 export * from './healthStatus';
 export * from './postPinInput';
 export * from './postPinResponse';
+export * from './publicLiveStream';
 export * from './videoTranscodeInput';
 export * from './videoTranscodeInputBucket';
 export * from './videoTranscodeResponse';

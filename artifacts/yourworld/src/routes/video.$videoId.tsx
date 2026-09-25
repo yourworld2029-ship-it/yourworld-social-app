@@ -41,7 +41,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { VideoPoster } from "@/components/yw/VideoPoster";
 import { SportsIdentityMark } from "@/components/yw/SportsIdentityBadge";
-import { useAuth } from "@/lib/auth-store";
+import { useAuth, useResumeAuthAction } from "@/lib/auth-store";
 import { useYw } from "@/lib/yw-store";
 import { formatDuration, formatViews } from "@/lib/video-data";
 import { resolveLongVideoUrl } from "@/lib/video-data";
@@ -253,7 +253,7 @@ function VideoWatchPage() {
 function VideoWatchContent({ videoId }: { videoId: string }) {
   const navigate = useNavigate();
   const { focusComments } = Route.useSearch();
-  const { user } = useAuth();
+  const { user, requestAuthAction } = useAuth();
   const { liked, following, toggleLike, toggleFollow } = useYw();
   const { activateVideo, closeVideo, setTimeUpdateHandler } = useVideoPlayback();
   const queryClient = useQueryClient();
@@ -478,6 +478,48 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   const relatedVideos = relatedPages?.pages.flatMap((page) => page.videos) ?? [];
   const relatedSentinelRef = useRef<HTMLDivElement>(null);
 
+  useResumeAuthAction("video-like", videoId, () => {
+    setDisliked(false);
+    setLikeCount((count) =>
+      Math.max(0, count + (liked[videoId] ? -1 : 1)),
+    );
+    void toggleLike(videoId);
+  });
+  useResumeAuthAction("follow-user", creatorId, () => {
+    void toggleFollow(creatorId);
+  });
+  useResumeAuthAction("video-comment", videoId, async (action) => {
+    const text = action.payload?.text ?? "";
+    if (!text.trim()) return;
+    setCommentsOpen(true);
+    const ok = await realComments.send(text);
+    if (!ok) {
+      setCommentText(text);
+      toast.error("Comment could not be posted");
+    }
+  });
+  useResumeAuthAction("video-reply", videoId, async (action) => {
+    const text = action.payload?.text ?? "";
+    const parentId = action.payload?.parentId;
+    if (!text.trim() || !parentId) return;
+    setCommentsOpen(true);
+    const ok = await realComments.sendReply(text, parentId);
+    if (!ok) {
+      setReplyingTo(parentId);
+      setReplyText(text);
+      toast.error("Reply could not be posted");
+    } else {
+      setReplyingTo(null);
+      setExpandedThreads((current) => new Set(current).add(parentId));
+    }
+  });
+  useResumeAuthAction("comment-like", videoId, async (action) => {
+    const commentId = action.payload?.parentId;
+    if (!commentId) return;
+    const ok = await realComments.toggleLike(commentId);
+    if (!ok) toast.error("Couldn't update comment like");
+  });
+
   useEffect(() => {
     const sentinel = relatedSentinelRef.current;
     if (!sentinel || !hasNextPage) return;
@@ -495,7 +537,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
 
   const handleSubscribe = async () => {
     if (!user?.id) {
-      toast.error("Sign in to follow");
+      requestAuthAction({ type: "follow-user", targetId: creatorId });
       return;
     }
     if (!creatorId || creatorId === user.id) {
@@ -591,8 +633,16 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   }, [handleVideoTimeUpdate, setTimeUpdateHandler]);
 
   const submitComment = () => {
-    if (!user || !commentText.trim()) return;
+    if (!commentText.trim()) return;
     const text = commentText;
+    if (!user) {
+      requestAuthAction({
+        type: "video-comment",
+        targetId: videoId,
+        payload: { text },
+      });
+      return;
+    }
     setCommentText("");
     void realComments.send(text).then((ok) => {
       if (!ok) {
@@ -605,9 +655,17 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   };
 
   const submitReply = () => {
-    if (!user || !replyingTo || !replyText.trim()) return;
+    if (!replyingTo || !replyText.trim()) return;
     const text = replyText;
     const parentId = replyingTo;
+    if (!user) {
+      requestAuthAction({
+        type: "video-reply",
+        targetId: videoId,
+        payload: { text, parentId },
+      });
+      return;
+    }
     setReplyText("");
     void realComments.sendReply(text, parentId).then((ok) => {
       if (!ok) {
@@ -622,7 +680,11 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
 
   const toggleCommentLike = (commentId: string) => {
     if (!user) {
-      toast.error("Sign in to like comments");
+      requestAuthAction({
+        type: "comment-like",
+        targetId: videoId,
+        payload: { parentId: commentId },
+      });
       return;
     }
     void realComments.toggleLike(commentId).then((ok) => {
@@ -701,7 +763,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
                 </button>
               )}
             </div>
-            {replyingTo === comment.id && user && (
+            {replyingTo === comment.id && (
               <div className="mt-2 flex gap-2">
                 <Input
                   autoFocus
@@ -743,7 +805,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
 
   const handleLike = () => {
     if (!user) {
-      toast.error("Sign in to like videos");
+      requestAuthAction({ type: "video-like", targetId: videoId });
       return;
     }
     const wasLiked = Boolean(liked[videoId]);
@@ -924,7 +986,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
               event.stopPropagation();
               void handleSubscribe();
             }}
-            disabled={!user || creatorId === user.id}
+            disabled={creatorId === user?.id}
             size="sm"
           >
             {subscribed ? (
@@ -1097,13 +1159,12 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
                     onKeyDown={(event) => {
                       if (event.key === "Enter" && commentText.trim()) submitComment();
                     }}
-                    disabled={!user}
-                    placeholder={user ? "Add a comment..." : "Sign in to comment"}
+                    placeholder={user ? "Add a comment..." : "Join to comment"}
                     className="h-10 rounded-full border-white/10 bg-white/5 text-xs text-white placeholder:text-gray-500"
                   />
                   <Button
                     type="button"
-                    disabled={!commentText.trim() || !user}
+                    disabled={!commentText.trim()}
                     onClick={submitComment}
                     size="sm"
                     className="h-10 rounded-full bg-pink-600 px-4 text-white hover:bg-pink-700"

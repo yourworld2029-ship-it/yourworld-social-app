@@ -5,20 +5,23 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { clearAuthReturnTo, getAuthReturnTo } from "@/lib/auth-intents";
 
 type VerifySearch = {
   email?: string;
+  redirect?: string;
 };
 
 export const Route = createFileRoute("/verify-2fa")({
   validateSearch: (search: Record<string, unknown>): VerifySearch => ({
     email: typeof search.email === "string" ? search.email : undefined,
+    redirect: typeof search.redirect === "string" ? search.redirect : undefined,
   }),
   component: VerifyTwoFactorPage,
 });
 
 function VerifyTwoFactorPage() {
-  const { email } = Route.useSearch();
+  const { email, redirect } = Route.useSearch();
   const navigate = useNavigate();
   const [otp, setOtp] = useState("");
   const [cooldown, setCooldown] = useState(0);
@@ -27,7 +30,7 @@ function VerifyTwoFactorPage() {
   useEffect(() => {
     if (!email) {
       toast.error("Your 2FA verification session is missing an email address");
-      void navigate({ to: "/auth", replace: true });
+      void navigate({ to: "/auth", search: { redirect }, replace: true });
     }
   }, [email, navigate]);
 
@@ -77,7 +80,9 @@ function VerifyTwoFactorPage() {
     }
 
     toast.success("Two-factor verification complete");
-    await navigate({ to: "/", replace: true });
+    const destination = getAuthReturnTo(redirect);
+    clearAuthReturnTo();
+    await navigate({ to: destination as never, replace: true });
   };
 
   return (
@@ -123,7 +128,9 @@ function VerifyTwoFactorPage() {
         <div className="mt-5 flex items-center justify-between gap-3">
           <button
             type="button"
-            onClick={() => void navigate({ to: "/auth", replace: true })}
+            onClick={() =>
+              void navigate({ to: "/auth", search: { redirect }, replace: true })
+            }
             className="flex items-center gap-1.5 text-xs font-medium text-slate-400 transition-colors hover:text-slate-200"
           >
             <Lock className="h-3.5 w-3.5" />

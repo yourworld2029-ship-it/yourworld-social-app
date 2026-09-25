@@ -107,7 +107,7 @@ function MomentViewRoute() {
   const deleteInFlightRef = useRef(false);
 
   const current = items[index] ?? selected ?? null;
-  useAndroidSecureFlag(Boolean(current?.screenshotAlert));
+  useAndroidSecureFlag(true);
 
   // sync index to the moment in the URL
   useEffect(() => {

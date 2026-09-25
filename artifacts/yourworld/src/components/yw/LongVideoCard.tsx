@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { formatCount } from "@/lib/yw-data";
 import { useYw } from "@/lib/yw-store";
+import { useAuth, useResumeAuthAction } from "@/lib/auth-store";
 import { cn } from "@/lib/utils";
 import { PostEditDialog } from "@/components/yw/PostEditDialog";
 import type { DbPost } from "@/lib/social-data";
@@ -70,6 +71,7 @@ export function LongVideoCard({
   onEdited,
 }: Props) {
   const { following, toggleFollow } = useYw();
+  const { user, requestAuthAction } = useAuth();
   const [hidden, setHidden] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -152,8 +154,8 @@ export function LongVideoCard({
     typeof window !== "undefined" ? `${window.location.origin}/?post=${video.id}` : undefined;
 
   const handleLike = async () => {
-    if (!currentUserId) {
-      toast.error("Sign in to like videos");
+    if (!user?.id && !currentUserId) {
+      requestAuthAction({ type: "post-like", targetId: video.id });
       return;
     }
     if (likingRef.current || liking) return;
@@ -168,6 +170,21 @@ export function LongVideoCard({
       setLiking(false);
     }
   };
+
+  const handleFollow = () => {
+    if (!user?.id && !currentUserId) {
+      requestAuthAction({ type: "follow-user", targetId: video.userId });
+      return;
+    }
+    void toggleFollow(video.userId);
+  };
+
+  useResumeAuthAction("post-like", video.id, () => {
+    void onLike(video.id);
+  });
+  useResumeAuthAction("follow-user", video.userId, () => {
+    void toggleFollow(video.userId);
+  });
 
   const copyLink = async () => {
     try {
@@ -289,7 +306,7 @@ export function LongVideoCard({
             {!isMine && (
               <button
                 type="button"
-                onClick={() => toggleFollow(video.userId)}
+                onClick={handleFollow}
                 className={cn(
                   "rounded-full px-3 py-1 text-[11px] font-semibold transition-all active:scale-95",
                   isFollowing ? "bg-zinc-800 text-white" : "bg-pink-500 text-white",

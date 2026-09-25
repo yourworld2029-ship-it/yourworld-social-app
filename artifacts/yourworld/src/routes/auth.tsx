@@ -8,8 +8,16 @@ import { Lock, Mail, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { trackEvent } from "@/lib/analytics";
 import { PasswordSecurityModal } from "@/components/yw/PasswordSecurityModal";
+import { clearAuthReturnTo, getAuthReturnTo } from "@/lib/auth-intents";
+
+type AuthSearch = {
+  redirect?: string;
+};
 
 export const Route = createFileRoute("/auth")({
+  validateSearch: (search: Record<string, unknown>): AuthSearch => ({
+    redirect: typeof search.redirect === "string" ? search.redirect : undefined,
+  }),
   component: AuthPage,
 });
 
@@ -41,6 +49,7 @@ function signupMetadata(identifier: string, isEmail: boolean) {
 }
 
 function AuthPage() {
+  const { redirect } = Route.useSearch();
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -49,15 +58,21 @@ function AuthPage() {
   const [passwordRecoveryOpen, setPasswordRecoveryOpen] = useState(false);
   const navigate = useNavigate();
 
+  const finishAuthentication = async () => {
+    const destination = getAuthReturnTo(redirect);
+    clearAuthReturnTo();
+    await navigate({ to: destination as never, replace: true });
+  };
+
   // Supabase persists password and OAuth sessions in the browser.
   useEffect(() => {
     let alive = true;
     void (async () => {
       const { data } = await supabase.auth.getSession();
-      if (alive && data.session) await navigate({ to: "/", replace: true });
+      if (alive && data.session) await finishAuthentication();
     })();
     return () => { alive = false; };
-  }, [navigate]);
+  }, [navigate, redirect]);
 
   // Social Logins
   const handleSocialLogin = async (provider: 'google' | 'apple') => {
@@ -65,7 +80,9 @@ function AuthPage() {
     setLoading(true);
     const configuredAppUrl = import.meta.env['VITE_APP_URL'];
     const appOrigin = configuredAppUrl || window.location.origin;
-    const redirectTo = new URL("/auth", appOrigin).toString();
+    const callbackUrl = new URL("/auth", appOrigin);
+    callbackUrl.searchParams.set("redirect", getAuthReturnTo(redirect));
+    const redirectTo = callbackUrl.toString();
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
       options: { redirectTo },
@@ -94,7 +111,13 @@ function AuthPage() {
       ? await supabase.auth.signUp({
           email: normalizedEmail,
           password,
-          options: { data: signupMetadata(normalizedEmail, true) },
+          options: {
+            data: signupMetadata(normalizedEmail, true),
+            emailRedirectTo: new URL(
+              `/auth?redirect=${encodeURIComponent(getAuthReturnTo(redirect))}`,
+              window.location.origin,
+            ).toString(),
+          },
         })
       : await supabase.auth.signInWithPassword({
           email: normalizedEmail,
@@ -150,7 +173,10 @@ function AuthPage() {
         toast.success("Enter the 6-digit code sent to your email");
         await navigate({
           to: "/verify-2fa",
-          search: { email: normalizedEmail },
+          search: {
+            email: normalizedEmail,
+            redirect: getAuthReturnTo(redirect),
+          },
           replace: true,
         });
         return;
@@ -166,7 +192,7 @@ function AuthPage() {
     }
     trackEvent("auth_completed", { method: "email", mode });
     toast.success("Welcome back.");
-    await navigate({ to: "/", replace: true });
+    await finishAuthentication();
   };
 
   return (
@@ -293,7 +319,7 @@ function AuthPage() {
         onOpenChange={setPasswordRecoveryOpen}
         initialEmail={email}
         initialFlow="forgot"
-        onSuccess={() => navigate({ to: "/", replace: true })}
+        onSuccess={() => finishAuthentication()}
       />
     </div>
   );

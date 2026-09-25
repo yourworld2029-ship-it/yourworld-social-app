@@ -14,6 +14,7 @@ import { usePostComments, timeAgo, resolveMediaUrl, MAX_PINNED_COMMENTS } from "
 import { useMyProfile } from "@/lib/profile-data";
 import { ChevronDown, ChevronUp, Heart, Pin, PinOff, Reply, SendHorizonal, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth, useResumeAuthAction } from "@/lib/auth-store";
 
 type DisplayComment = {
   id: string;
@@ -78,6 +79,7 @@ export function CommentsSheet({
 }) {
   const real = usePostComments(postId);
   const { profile, userId } = useMyProfile();
+  const { user, requestAuthAction } = useAuth();
   const [draft, setDraft] = useState("");
   const [replyDraft, setReplyDraft] = useState("");
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
@@ -154,6 +156,14 @@ export function CommentsSheet({
   const send = () => {
     if (!draft.trim()) return;
     const text = draft;
+    if (!user) {
+      requestAuthAction({
+        type: "post-comment",
+        targetId: postId,
+        payload: { text },
+      });
+      return;
+    }
     setDraft("");
     void real.send(text).then((ok) => {
       if (!ok) {
@@ -164,6 +174,40 @@ export function CommentsSheet({
   };
 
   const canModerate = real.isPostOwner;
+
+  useResumeAuthAction("post-comment", postId, async (action) => {
+    const text = action.payload?.text ?? "";
+    if (!text.trim()) return;
+    setOpen(true);
+    const ok = await real.send(text);
+    if (!ok) {
+      setDraft(text);
+      toast.error("Comment could not be posted");
+    }
+  });
+
+  useResumeAuthAction("post-reply", postId, async (action) => {
+    const text = action.payload?.text ?? "";
+    const parentId = action.payload?.parentId;
+    if (!text.trim() || !parentId) return;
+    setOpen(true);
+    const ok = await real.sendReply(text, parentId);
+    if (!ok) {
+      setReplyingTo(parentId);
+      setReplyDraft(text);
+      toast.error("Reply could not be posted");
+    } else {
+      setExpandedThreads((current) => new Set(current).add(parentId));
+    }
+  });
+
+  useResumeAuthAction("comment-like", postId, async (action) => {
+    const commentId = action.payload?.parentId;
+    if (!commentId) return;
+    setOpen(true);
+    const ok = await real.toggleLike(commentId);
+    if (!ok) toast.error("Couldn't update comment like");
+  });
 
   const togglePin = async (c: DisplayComment) => {
     if (!c.pinned && real.pinnedCount >= MAX_PINNED_COMMENTS) {
@@ -181,8 +225,12 @@ export function CommentsSheet({
   };
 
   const toggleCommentLike = (c: DisplayComment) => {
-    if (!real.me) {
-      toast.error("Sign in to like comments");
+    if (!user) {
+      requestAuthAction({
+        type: "comment-like",
+        targetId: postId,
+        payload: { parentId: c.id },
+      });
       return;
     }
     void real.toggleLike(c.id).then((ok) => {
@@ -194,6 +242,14 @@ export function CommentsSheet({
     if (!replyingTo || !replyDraft.trim()) return;
     const text = replyDraft;
     const parentId = replyingTo;
+    if (!user) {
+      requestAuthAction({
+        type: "post-reply",
+        targetId: postId,
+        payload: { text, parentId },
+      });
+      return;
+    }
     setReplyDraft("");
     void real.sendReply(text, parentId).then((ok) => {
       if (!ok) {

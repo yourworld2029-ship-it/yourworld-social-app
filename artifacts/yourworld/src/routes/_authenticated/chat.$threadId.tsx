@@ -29,6 +29,7 @@ import { toast } from "sonner";
 import { AUTO_DELETE_OPTIONS, autoDeleteLabel } from "@/lib/auto-delete";
 import { historyBackOr } from "@/lib/navigation";
 import { useAndroidSecureFlag } from "@/lib/native-privacy";
+import { ChatPlatformGate } from "@/components/yw/ChatPlatformGate";
 import {
   STORAGE_BUCKETS,
   uploadSourceWithProgress,
@@ -159,6 +160,14 @@ function MenuItem({
 }
 
 function ChatThreadPage() {
+  return (
+    <ChatPlatformGate>
+      <NativeChatThreadPage />
+    </ChatPlatformGate>
+  );
+}
+
+function NativeChatThreadPage() {
   const { profile: myProfile } = useMyProfile();
   const { moments } = useMoments();
   const currentUserName = myProfile.display_name || myProfile.username || "YourWorld user";
@@ -710,7 +719,7 @@ function ChatThreadPage() {
 
   const captureChannelName = conversationId ? `social-chat-capture-${conversationId}` : null;
   const captureAlertsEnabled = screenshotAlert || recordingAlert;
-  useAndroidSecureFlag(captureAlertsEnabled);
+  useAndroidSecureFlag(true);
 
   const handleIncomingCaptureAlert = useCallback(
     (payload: Record<string, unknown>, kind: "screenshot" | "recording") => {

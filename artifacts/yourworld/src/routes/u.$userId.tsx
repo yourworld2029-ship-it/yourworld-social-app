@@ -9,7 +9,8 @@ import { fetchOrbitProfileRow, rowToOrbitProfile } from "@/lib/orbit-live";
 import { missingColumn, normalizePostRow } from "@/lib/supabase-compat";
 import { historyBackOr } from "@/lib/navigation";
 import { useYw } from "@/lib/yw-store";
-import { useAuth } from "@/lib/auth-store";
+import { useAuth, useResumeAuthAction } from "@/lib/auth-store";
+import { isNativeAndroid } from "@/lib/native-privacy";
 import { getOrCreateSportsProfile } from "@/components/yw/SportsProfile";
 import { ProfileTemplate } from "@/components/yw/ProfileTemplate";
 
@@ -53,7 +54,11 @@ function PublicProfilePage() {
   const { userId: routeParam } = Route.useParams();
   const userId = normalizeProfileRouteParam(routeParam);
   const navigate = useNavigate();
-  const { user: authUser } = useAuth();
+  const {
+    user: authUser,
+    requestAuthAction,
+    openWebChatDownload,
+  } = useAuth();
   const [profile, setProfile] = useState<PublicProfile | null>(null);
   const [avatarSrc, setAvatarSrc] = useState<string | null>(null);
   const [posts, setPosts] = useState<DbPost[]>([]);
@@ -214,7 +219,14 @@ function PublicProfilePage() {
   const isVerifiedSports = Boolean(sportsProfile?.verified);
 
   const onFollow = async () => {
-    if (busy || isOwnProfile) return;
+    if (isOwnProfile) return;
+    if (!authUser) {
+      if (resolvedUserId) {
+        requestAuthAction({ type: "follow-user", targetId: resolvedUserId });
+      }
+      return;
+    }
+    if (busy) return;
     setBusy(true);
     try {
       if (!resolvedUserId) return;
@@ -231,12 +243,35 @@ function PublicProfilePage() {
   };
 
   const onMessage = () => {
-    if (!me || !resolvedUserId || isOwnProfile) return;
+    if (!resolvedUserId || isOwnProfile) return;
+    if (!isNativeAndroid()) {
+      openWebChatDownload();
+      return;
+    }
+    if (!authUser) {
+      requestAuthAction({
+        type: "profile-message",
+        targetId: resolvedUserId,
+      });
+      return;
+    }
     void navigate({
       to: "/chat/$threadId",
-      params: { threadId: dmThreadId(me, resolvedUserId) },
+      params: { threadId: dmThreadId(authUser.id, resolvedUserId) },
     });
   };
+
+  useResumeAuthAction("follow-user", resolvedUserId, () => onFollow());
+  useResumeAuthAction("follow-user", "*", (action) => {
+    void toggleFollow(action.targetId);
+  });
+  useResumeAuthAction("profile-message", resolvedUserId, () => {
+    if (!authUser || !resolvedUserId) return;
+    void navigate({
+      to: "/chat/$threadId",
+      params: { threadId: dmThreadId(authUser.id, resolvedUserId) },
+    });
+  });
 
   const onShare = async () => {
     const url = `${window.location.origin}/u/${encodeURIComponent(userId)}`;

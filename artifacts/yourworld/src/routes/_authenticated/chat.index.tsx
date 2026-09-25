@@ -1,5 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect, useRef } from "react";
+import { ChatPlatformGate } from "@/components/yw/ChatPlatformGate";
+import { useAndroidSecureFlag } from "@/lib/native-privacy";
 import { Search, SquarePen, MessageSquare, X, Check, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { resolveThreadPeer, dmThreadId } from "@/lib/social-data";
@@ -55,6 +57,15 @@ function formatChatListTime(iso: string) {
 }
 
 function ChatListPage() {
+  return (
+    <ChatPlatformGate>
+      <NativeChatListPage />
+    </ChatPlatformGate>
+  );
+}
+
+function NativeChatListPage() {
+  useAndroidSecureFlag(true);
   // Paint the cached list immediately, then refresh from the network.
   const [threads, setThreads] = useState<ChatThread[]>(
     () => cacheGet<ChatThread[]>("chat-threads") ?? [],
