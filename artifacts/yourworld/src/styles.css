@@ -264,6 +264,36 @@ html[data-theme] body {
     border-color: var(--color-border);
   }
 
+  button,
+  [role="button"],
+  input[type="button"],
+  input[type="submit"],
+  input[type="reset"] {
+    touch-action: manipulation;
+  }
+
+  .live-avatar-ring {
+    animation: yw-live-avatar-glow 1.65s ease-in-out infinite;
+  }
+
+  @keyframes yw-live-avatar-glow {
+    0%,
+    100% {
+      box-shadow: 0 0 0 1px rgb(244 63 94 / 75%), 0 0 8px 2px rgb(244 63 94 / 45%);
+    }
+
+    50% {
+      box-shadow: 0 0 0 2px rgb(236 72 153 / 95%), 0 0 18px 6px rgb(236 72 153 / 62%);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .live-avatar-ring {
+      animation: none;
+      box-shadow: 0 0 0 2px rgb(244 63 94 / 85%), 0 0 12px 3px rgb(244 63 94 / 52%);
+    }
+  }
+
   /*
    * The persistent player provides its own settings popup so browsers do not
    * render a second native overflow/settings button beside fullscreen.

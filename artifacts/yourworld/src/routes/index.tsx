@@ -247,7 +247,7 @@ function HomePage() {
             }}
             className={`relative w-16 h-16 rounded-full p-[2px] bg-gradient-to-tr ${
               myActiveLiveStream
-                ? "from-rose-400 via-red-500 to-rose-600"
+                ? "live-avatar-ring from-rose-300 via-red-500 to-fuchsia-500"
                 : "from-pink-500 to-purple-600"
             } flex items-center justify-center`}
             aria-label={myActiveLiveStream ? "Open your live broadcast" : "Open your moment"}
@@ -259,11 +259,6 @@ function HomePage() {
                 src={myAvatarUrl}
               />
             </div>
-            {myActiveLiveStream && (
-              <span className="absolute -top-1 left-1/2 -translate-x-1/2 rounded-full border-2 border-black bg-red-600 px-2 py-0.5 text-[8px] font-black tracking-[0.12em] text-white">
-                LIVE
-              </span>
-            )}
             {/* Always-on "add another moment" badge (Snapchat-style) */}
             <span
               role="button"
@@ -277,6 +272,11 @@ function HomePage() {
               <Plus className="h-3 w-3 text-white" strokeWidth={3} />
             </span>
           </button>
+          {myActiveLiveStream && (
+            <span className="live-avatar-badge -mt-1 rounded-full border border-rose-200/40 bg-gradient-to-r from-red-600 via-rose-600 to-pink-600 px-2 py-0.5 text-[8px] font-black tracking-[0.14em] text-white shadow-lg shadow-rose-500/40">
+              LIVE
+            </span>
+          )}
           <span className="text-xs text-neutral-300 font-medium truncate max-w-[68px]">
             Your moment
           </span>
@@ -297,7 +297,7 @@ function HomePage() {
               }}
               className={`relative w-16 h-16 rounded-full p-[2px] bg-gradient-to-tr ${
                 s.liveStreamId
-                  ? "from-rose-400 via-red-500 to-rose-600"
+                  ? "live-avatar-ring from-rose-300 via-red-500 to-fuchsia-500"
                   : "from-pink-500 via-purple-500 to-yellow-500"
               } flex items-center justify-center`}
               aria-label={
@@ -313,12 +313,12 @@ function HomePage() {
                   src={s.avatarUrl}
                 />
               </div>
-              {s.liveStreamId && (
-                <span className="absolute -top-1 left-1/2 -translate-x-1/2 rounded-full border-2 border-black bg-red-600 px-2 py-0.5 text-[8px] font-black tracking-[0.12em] text-white">
-                  LIVE
-                </span>
-              )}
             </button>
+            {s.liveStreamId && (
+              <span className="live-avatar-badge -mt-1 rounded-full border border-rose-200/40 bg-gradient-to-r from-red-600 via-rose-600 to-pink-600 px-2 py-0.5 text-[8px] font-black tracking-[0.14em] text-white shadow-lg shadow-rose-500/40">
+                LIVE
+              </span>
+            )}
             <span className="text-xs text-neutral-400 truncate max-w-[68px]">
               <span className="truncate">{s.displayName}</span>
               <SportsIdentityMark userId={s.userId} />

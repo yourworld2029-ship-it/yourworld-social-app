@@ -22,6 +22,7 @@ export type LiveStreamHudProps = {
   durationSeconds: number;
   viewerCount: number;
   isFrontCamera: boolean;
+  cameraBusy: boolean;
   comments: LiveStreamComment[];
   commentText: string;
   reactions: LiveStreamReaction[];
@@ -63,6 +64,7 @@ export function LiveStreamHud({
   durationSeconds,
   viewerCount,
   isFrontCamera,
+  cameraBusy,
   comments,
   commentText,
   reactions,
@@ -278,9 +280,14 @@ export function LiveStreamHud({
               data-testid="button-live-flip-camera"
               aria-label={isFrontCamera ? "Switch to rear camera" : "Switch to front camera"}
               title={isFrontCamera ? "Switch to rear camera" : "Switch to front camera"}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-black/50 text-white shadow-lg backdrop-blur-xl transition-transform hover:bg-black/70 active:scale-95"
+              disabled={cameraBusy}
+              aria-busy={cameraBusy}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-black/50 text-white shadow-lg backdrop-blur-xl transition-transform hover:bg-black/70 active:scale-95 disabled:opacity-60"
             >
-              <SwitchCamera className="h-[18px] w-[18px]" aria-hidden="true" />
+              <SwitchCamera
+                className={`h-[18px] w-[18px] ${cameraBusy ? "animate-spin" : ""}`}
+                aria-hidden="true"
+              />
             </button>
             <button
               type="button"

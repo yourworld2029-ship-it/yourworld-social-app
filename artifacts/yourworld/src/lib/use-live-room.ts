@@ -693,9 +693,25 @@ export function useLiveRoom({
   const sendComment = useCallback(async () => {
     const message = commentText.trim();
     if (!message || !userId || isEnded) return;
+    const optimisticId = `pending-${createPeerId()}`;
+    const optimisticComment: LiveCommentRow = {
+      id: optimisticId,
+      stream_id: streamId,
+      user_id: userId,
+      message,
+      created_at: new Date().toISOString(),
+    };
+    setComments((current) =>
+      [...current, optimisticComment]
+        .sort((a, b) => a.created_at.localeCompare(b.created_at))
+        .slice(-60),
+    );
     setCommentText("");
     try {
       const row = await createLiveComment(streamId, userId, message);
+      setComments((current) =>
+        current.filter((comment) => comment.id !== optimisticId),
+      );
       await addCommentRows([row]);
       const channel = channelRef.current;
       if (channel) {
@@ -707,7 +723,10 @@ export function useLiveRoom({
       }
     } catch (cause) {
       console.error("[live] Could not send comment", cause);
-      setCommentText(message);
+      setComments((current) =>
+        current.filter((comment) => comment.id !== optimisticId),
+      );
+      setCommentText((current) => current || message);
       setError(
         cause instanceof Error
           ? cause.message

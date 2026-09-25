@@ -631,20 +631,29 @@ export function useLongVideos() {
             }
           : video,
       );
-      const { error } = wasLiked
-        ? await liveLikesTable().delete().eq("post_id", id).eq("user_id", me)
-        : await liveLikesTable().upsert(
-            { post_id: id, user_id: me },
-            { onConflict: "post_id,user_id", ignoreDuplicates: true },
-          );
-      if (error) {
+      try {
+        const { error } = wasLiked
+          ? await liveLikesTable().delete().eq("post_id", id).eq("user_id", me)
+          : await liveLikesTable().upsert(
+              { post_id: id, user_id: me },
+              { onConflict: "post_id,user_id", ignoreDuplicates: true },
+            );
+        if (error) throw error;
+      } catch (error) {
         updateVideos((video) =>
           video.id === id
-            ? {
-                ...video,
-                likedByMe: wasLiked,
-                likeCount: Math.max(0, video.likeCount + (wasLiked ? 1 : -1)),
-              }
+            ? (() => {
+                const currentlyLiked = video.likedByMe;
+                return {
+                  ...video,
+                  likedByMe: wasLiked,
+                  likeCount: Math.max(
+                    0,
+                    video.likeCount +
+                      (currentlyLiked === wasLiked ? 0 : wasLiked ? 1 : -1),
+                  ),
+                };
+              })()
             : video,
         );
         throw error;

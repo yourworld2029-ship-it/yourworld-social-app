@@ -76,6 +76,7 @@ export function LongVideoCard({
   const [deleting, setDeleting] = useState(false);
   const [commentCount, setCommentCount] = useState(video.commentCount);
   const [liking, setLiking] = useState(false);
+  const likingRef = useRef(false);
   const [durationSeconds, setDurationSeconds] = useState<number | null>(
     () =>
       typeof video.durationSeconds === "number" &&
@@ -155,13 +156,15 @@ export function LongVideoCard({
       toast.error("Sign in to like videos");
       return;
     }
-    if (liking) return;
+    if (likingRef.current || liking) return;
+    likingRef.current = true;
     setLiking(true);
     try {
       await onLike(video.id);
     } catch {
       toast.error("Couldn't update like");
     } finally {
+      likingRef.current = false;
       setLiking(false);
     }
   };

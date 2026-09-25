@@ -365,6 +365,7 @@ function LiveRoomSession({
         durationSeconds={durationSeconds}
         viewerCount={liveRoom.viewerCount}
         isFrontCamera={facingMode === "user"}
+        cameraBusy={cameraBusy}
         comments={liveRoom.comments}
         commentText={liveRoom.commentText}
         reactions={liveRoom.reactions}

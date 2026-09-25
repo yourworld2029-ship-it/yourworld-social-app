@@ -40,6 +40,7 @@ function LiveCreatePage() {
   const [title, setTitle] = useState("");
   const [cameraBusy, setCameraBusy] = useState(false);
   const [startingLive, setStartingLive] = useState(false);
+  const startInFlightRef = useRef(false);
   const [cameraError, setCameraError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
 
@@ -144,7 +145,9 @@ function LiveCreatePage() {
       setActionMessage("Turn on your camera preview before continuing.");
       return;
     }
+    if (startInFlightRef.current) return;
 
+    startInFlightRef.current = true;
     setStartingLive(true);
     setActionMessage("");
     let result: Awaited<ReturnType<typeof startLiveStream>>;
@@ -153,11 +156,13 @@ function LiveCreatePage() {
     } catch (cause) {
       console.error("[live] Could not start the live room", cause);
       setActionMessage("Could not start the live room. Check your connection and try again.");
+      startInFlightRef.current = false;
       setStartingLive(false);
       return;
     }
     if (!result.streamId || result.error) {
       setActionMessage(result.error || "Could not start the live room.");
+      startInFlightRef.current = false;
       setStartingLive(false);
       return;
     }
@@ -178,6 +183,7 @@ function LiveCreatePage() {
         console.error("[live] Could not close the unopenable room", endCause);
       });
       setActionMessage("The live room started, but could not be opened.");
+      startInFlightRef.current = false;
       setStartingLive(false);
     }
   };

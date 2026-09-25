@@ -161,14 +161,16 @@ export function useActiveLiveStreams() {
 
   useEffect(() => {
     let alive = true;
+    let refreshSequence = 0;
     const refresh = async () => {
+      const sequence = ++refreshSequence;
       try {
         const next = await loadActiveLiveStreams();
-        if (!alive) return;
+        if (!alive || sequence !== refreshSequence) return;
         setStreams(next);
         setError(null);
       } catch (cause) {
-        if (!alive) return;
+        if (!alive || sequence !== refreshSequence) return;
         console.error("[live] Could not load active rooms", cause);
         setError(
           cause instanceof Error
