@@ -11,7 +11,6 @@ import { useAuth } from "@/lib/auth-store";
 import { useActiveLiveStreams } from "@/lib/live-data";
 import ywLogo from "@/assets/yw-logo.png";
 import { ProfileAvatar } from "@/components/yw/ProfileAvatar";
-import { SportsIdentityMark } from "@/components/yw/SportsIdentityBadge";
 
 export const Route = createFileRoute("/")({
   component: HomePage,
@@ -321,7 +320,6 @@ function HomePage() {
             )}
             <span className="text-xs text-neutral-400 truncate max-w-[68px]">
               <span className="truncate">{s.displayName}</span>
-              <SportsIdentityMark userId={s.userId} />
             </span>
           </div>
         ))}

@@ -362,7 +362,7 @@ export function LongVideoCard({
             <span className="grid h-6 w-6 place-items-center rounded-full bg-[#8b2fc9] text-[11px] font-bold text-white">
               {video.author.letter}
             </span>
-            <span className="font-semibold text-zinc-200">@{video.author.username}</span>
+            <span className="font-semibold text-zinc-200">{video.author.name}</span>
           </Link>
           <span>·</span>
           <span className="inline-flex items-center gap-1">
