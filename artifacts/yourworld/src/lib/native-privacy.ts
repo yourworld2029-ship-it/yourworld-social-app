@@ -8,7 +8,11 @@ interface PrivacyBridgePlugin {
 const privacyBridge = registerPlugin<PrivacyBridgePlugin>("PrivacyBridge");
 
 export function isNativeAndroid() {
-  return Capacitor.getPlatform() === "android";
+  return Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
+}
+
+export function isNativePlatform() {
+  return Capacitor.isNativePlatform();
 }
 
 function updateAndroidSecureFlag(enabled: boolean) {

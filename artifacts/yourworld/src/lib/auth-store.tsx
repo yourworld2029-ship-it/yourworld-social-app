@@ -22,7 +22,7 @@ import {
   type AuthActionType,
   type PendingAuthAction,
 } from "@/lib/auth-intents";
-import { isNativeAndroid } from "@/lib/native-privacy";
+import { isNativePlatform } from "@/lib/native-privacy";
 import {
   currentUserSessionIsActive,
   registerCurrentUserSession,
@@ -62,7 +62,7 @@ export function isPublicRoute(pathname: string) {
   return (
     PUBLIC_ROUTES.some((p) => pathname === p || pathname.startsWith(`${p}/`)) ||
     isGuestBrowsableRoute(pathname) ||
-    (!isNativeAndroid() && isPrivateChatRoute(pathname))
+    (!isNativePlatform() && isPrivateChatRoute(pathname))
   );
 }
 
