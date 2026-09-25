@@ -38,6 +38,7 @@ import { Route as ChannelIndexRouteImport } from './routes/channel.index'
 import { Route as ChannelAnalyticsRouteImport } from './routes/channel.analytics'
 import { Route as ChannelCreateRouteImport } from './routes/channel.create'
 import { Route as DownloadsDownloadIdRouteImport } from './routes/downloads.$downloadId'
+import { Route as LiveStreamIdRouteImport } from './routes/live.$streamId'
 import { Route as LiveCreateRouteImport } from './routes/live.create'
 import { Route as MomentIndexRouteImport } from './routes/moment.index'
 import { Route as MomentMomentIdRouteImport } from './routes/moment.$momentId'
@@ -203,6 +204,11 @@ const DownloadsDownloadIdRoute = DownloadsDownloadIdRouteImport.update({
   path: '/downloads/$downloadId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LiveStreamIdRoute = LiveStreamIdRouteImport.update({
+  id: '/live/$streamId',
+  path: '/live/$streamId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LiveCreateRoute = LiveCreateRouteImport.update({
   id: '/live/create',
   path: '/live/create',
@@ -333,6 +339,7 @@ export interface FileRoutesByFullPath {
   '/channel/analytics': typeof ChannelAnalyticsRoute
   '/channel/create': typeof ChannelCreateRoute
   '/downloads/$downloadId': typeof DownloadsDownloadIdRoute
+  '/live/$streamId': typeof LiveStreamIdRoute
   '/live/create': typeof LiveCreateRoute
   '/moment/$momentId': typeof MomentMomentIdRoute
   '/moment/create': typeof MomentCreateRoute
@@ -381,6 +388,7 @@ export interface FileRoutesByTo {
   '/channel/analytics': typeof ChannelAnalyticsRoute
   '/channel/create': typeof ChannelCreateRoute
   '/downloads/$downloadId': typeof DownloadsDownloadIdRoute
+  '/live/$streamId': typeof LiveStreamIdRoute
   '/live/create': typeof LiveCreateRoute
   '/moment/$momentId': typeof MomentMomentIdRoute
   '/moment/create': typeof MomentCreateRoute
@@ -433,6 +441,7 @@ export interface FileRoutesById {
   '/channel/analytics': typeof ChannelAnalyticsRoute
   '/channel/create': typeof ChannelCreateRoute
   '/downloads/$downloadId': typeof DownloadsDownloadIdRoute
+  '/live/$streamId': typeof LiveStreamIdRoute
   '/live/create': typeof LiveCreateRoute
   '/moment/$momentId': typeof MomentMomentIdRoute
   '/moment/create': typeof MomentCreateRoute
@@ -485,6 +494,7 @@ export interface FileRouteTypes {
     | '/channel/analytics'
     | '/channel/create'
     | '/downloads/$downloadId'
+    | '/live/$streamId'
     | '/live/create'
     | '/moment/$momentId'
     | '/moment/create'
@@ -533,6 +543,7 @@ export interface FileRouteTypes {
     | '/channel/analytics'
     | '/channel/create'
     | '/downloads/$downloadId'
+    | '/live/$streamId'
     | '/live/create'
     | '/moment/$momentId'
     | '/moment/create'
@@ -584,6 +595,7 @@ export interface FileRouteTypes {
     | '/channel/analytics'
     | '/channel/create'
     | '/downloads/$downloadId'
+    | '/live/$streamId'
     | '/live/create'
     | '/moment/$momentId'
     | '/moment/create'
@@ -632,6 +644,7 @@ export interface RootRouteChildren {
   Verify2faRoute: typeof Verify2faRoute
   WalletRoute: typeof WalletRoute
   DownloadsDownloadIdRoute: typeof DownloadsDownloadIdRoute
+  LiveStreamIdRoute: typeof LiveStreamIdRoute
   LiveCreateRoute: typeof LiveCreateRoute
   MomentMomentIdRoute: typeof MomentMomentIdRoute
   MomentCreateRoute: typeof MomentCreateRoute
@@ -846,6 +859,13 @@ declare module '@tanstack/react-router' {
       path: '/downloads/$downloadId'
       fullPath: '/downloads/$downloadId'
       preLoaderRoute: typeof DownloadsDownloadIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/live/$streamId': {
+      id: '/live/$streamId'
+      path: '/live/$streamId'
+      fullPath: '/live/$streamId'
+      preLoaderRoute: typeof LiveStreamIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/live/create': {
@@ -1090,6 +1110,7 @@ const rootRouteChildren: RootRouteChildren = {
   Verify2faRoute: Verify2faRoute,
   WalletRoute: WalletRoute,
   DownloadsDownloadIdRoute: DownloadsDownloadIdRoute,
+  LiveStreamIdRoute: LiveStreamIdRoute,
   LiveCreateRoute: LiveCreateRoute,
   MomentMomentIdRoute: MomentMomentIdRoute,
   MomentCreateRoute: MomentCreateRoute,

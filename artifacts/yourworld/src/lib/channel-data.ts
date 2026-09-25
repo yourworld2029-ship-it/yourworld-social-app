@@ -52,7 +52,13 @@ export async function loadChannelData(
   watchPeriodDays = 30,
 ): Promise<LoadedChannelData> {
   const periodStart = new Date(Date.now() - watchPeriodDays * 24 * 60 * 60 * 1000).toISOString();
-  const [postsResult, followsResult, countsResult, watchResult] = await Promise.all([
+  const [
+    postsResult,
+    followsResult,
+    countsResult,
+    watchResult,
+    liveWatchResult,
+  ] = await Promise.all([
     client
       .from("posts")
       // The live project has older and newer post shapes in use. Selecting the
@@ -67,11 +73,19 @@ export async function loadChannelData(
       _channel_id: uid,
       _period_start: periodStart,
     }),
+    client.rpc("get_channel_live_watch_hours", {
+      _channel_id: uid,
+      _period_start: periodStart,
+    }),
   ]);
   let { data: rows, error } = postsResult;
   const { data: followRows } = followsResult;
   const { data: countRows } = countsResult;
   const { data: watchHours, error: watchError } = watchResult;
+  const {
+    data: liveWatchHours,
+    error: liveWatchError,
+  } = liveWatchResult;
 
   if (missingColumn(error) === "kind") {
     const fallback = await client
@@ -177,10 +191,25 @@ export async function loadChannelData(
    const reels = items.filter((_, index) => postKind(postRows[index]) === "reel");
    const posts = items.filter((_, index) => postKind(postRows[index]) === "post");
   const subscribersCount = Number((countRows ?? [])[0]?.followers ?? subscribers.length);
-  const parsedWatchHours =
+  const parsedVideoWatchHours =
     typeof watchHours === "number"
       ? watchHours
-      : Number((watchHours as { watch_hours?: number } | null)?.watch_hours ?? 0);
+      : Number((watchHours as { watch_hours?: number } | null)?.watch_hours ?? watchHours ?? 0);
+  const parsedLiveWatchHours =
+    typeof liveWatchHours === "number"
+      ? liveWatchHours
+      : Number(
+          (liveWatchHours as { watch_hours?: number } | null)?.watch_hours ??
+            liveWatchHours ??
+            0,
+        );
+  const parsedWatchHours =
+    (Number.isFinite(parsedVideoWatchHours)
+      ? Math.max(0, parsedVideoWatchHours)
+      : 0) +
+    (Number.isFinite(parsedLiveWatchHours)
+      ? Math.max(0, parsedLiveWatchHours)
+      : 0);
 
   return {
     videos,
@@ -199,10 +228,10 @@ export async function loadChannelData(
           ),
         0,
       ),
-      watchHours: Number.isFinite(parsedWatchHours) ? Math.max(0, parsedWatchHours) : 0,
+       watchHours: parsedWatchHours,
       posts: postRows.length,
     },
-    watchTimeError: watchError?.message ?? null,
+    watchTimeError: watchError?.message ?? liveWatchError?.message ?? null,
   };
 }
 
@@ -235,7 +264,14 @@ export function useChannelData(watchPeriodDays = 30) {
       .on("postgres_changes", { event: "*", schema: "public", table: "follows" }, () => void load())
       .subscribe();
     const { data: auth } = supabase.auth.onAuthStateChange(() => void load());
+    const refreshInterval = window.setInterval(() => void load(), 30_000);
+    const onFocus = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    window.addEventListener("focus", onFocus);
     return () => {
+      window.clearInterval(refreshInterval);
+      window.removeEventListener("focus", onFocus);
       void supabase.removeChannel(channel);
       auth.subscription.unsubscribe();
     };

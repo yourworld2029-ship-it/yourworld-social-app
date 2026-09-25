@@ -9,6 +9,11 @@ import {
   SwitchCamera,
 } from "lucide-react";
 import { historyBackOr } from "@/lib/navigation";
+import { endLiveStream, startLiveStream } from "@/lib/live-data";
+import {
+  handOffLiveStream,
+  takeHandedOffLiveStream,
+} from "@/lib/live-stream-registry";
 
 type CameraFacingMode = "user" | "environment";
 
@@ -34,6 +39,7 @@ function LiveCreatePage() {
   const [facingMode, setFacingMode] = useState<CameraFacingMode>("user");
   const [title, setTitle] = useState("");
   const [cameraBusy, setCameraBusy] = useState(false);
+  const [startingLive, setStartingLive] = useState(false);
   const [cameraError, setCameraError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
 
@@ -46,7 +52,6 @@ function LiveCreatePage() {
 
     return () => {
       video.srcObject = null;
-      stream.getTracks().forEach((track) => track.stop());
     };
   }, [stream]);
 
@@ -126,9 +131,55 @@ function LiveCreatePage() {
       setActionMessage("Turn on your camera preview before continuing.");
       return;
     }
-    setActionMessage(
-      "Live broadcasting is not connected yet. Your camera preview is private; no broadcast has started.",
-    );
+    void startBroadcast();
+  };
+
+  const startBroadcast = async () => {
+    const activeStream = streamRef.current ?? stream;
+    if (!title.trim()) {
+      setActionMessage("Add a stream title before continuing.");
+      return;
+    }
+    if (!activeStream) {
+      setActionMessage("Turn on your camera preview before continuing.");
+      return;
+    }
+
+    setStartingLive(true);
+    setActionMessage("");
+    let result: Awaited<ReturnType<typeof startLiveStream>>;
+    try {
+      result = await startLiveStream(title);
+    } catch (cause) {
+      console.error("[live] Could not start the live room", cause);
+      setActionMessage("Could not start the live room. Check your connection and try again.");
+      setStartingLive(false);
+      return;
+    }
+    if (!result.streamId || result.error) {
+      setActionMessage(result.error || "Could not start the live room.");
+      setStartingLive(false);
+      return;
+    }
+
+    handOffLiveStream(activeStream);
+    streamRef.current = null;
+    setStream(null);
+    try {
+      await navigate({
+        to: "/live/$streamId",
+        params: { streamId: result.streamId },
+      });
+    } catch (cause) {
+      console.error("[live] Could not open the live room", cause);
+      const carriedStream = takeHandedOffLiveStream();
+      carriedStream?.getTracks().forEach((track) => track.stop());
+      await endLiveStream(result.streamId).catch((endCause) => {
+        console.error("[live] Could not close the unopenable room", endCause);
+      });
+      setActionMessage("The live room started, but could not be opened.");
+      setStartingLive(false);
+    }
   };
 
   return (
@@ -250,8 +301,8 @@ function LiveCreatePage() {
             <span className="block text-right text-xs text-white/45">{title.length}/100</span>
           </label>
 
-          <div className="rounded-xl border border-amber-300/15 bg-amber-300/[0.06] px-3.5 py-3 text-xs leading-relaxed text-amber-100/80">
-            Your camera and microphone stay in a private preview. A live-streaming service is not connected yet.
+          <div className="rounded-xl border border-cyan-300/15 bg-cyan-300/[0.06] px-3.5 py-3 text-xs leading-relaxed text-cyan-100/80">
+            Your live video is sent directly to viewers. YourWorld does not save a replay or store your camera and microphone stream.
           </div>
 
           {actionMessage && (
@@ -263,10 +314,11 @@ function LiveCreatePage() {
           <button
             type="button"
             onClick={handleGoLive}
+            disabled={startingLive || cameraBusy}
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-rose-500 to-fuchsia-600 px-4 py-3.5 text-sm font-bold text-white shadow-lg shadow-rose-950/30 transition hover:brightness-110 active:scale-[0.99]"
           >
             <Radio className="h-4 w-4" />
-            Go Live
+            {startingLive ? "Starting live…" : "Go Live"}
           </button>
         </section>
       </div>

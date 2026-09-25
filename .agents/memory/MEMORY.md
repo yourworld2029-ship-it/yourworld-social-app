@@ -37,3 +37,4 @@
 - [Moment expiry cleanup](moment-expiry-cleanup.md) — storage-aware expiry needs a privileged Edge Function plus a scheduled pg_cron/pg_net invocation; clients still filter strictly by expires_at.
 - [Session and email OTP security](session-and-email-2fa-security.md) — revoke Auth session state before deleting the app row; email OTP must gate the final sign-in session.
 - [Android system-bar insets](android-system-bar-insets.md) — SDK 35+ forces edge-to-edge on Android 15+, so keep bars visible and inset WebView content natively.
+- [Managed Realtime table ownership](realtime-system-table-ownership.md) — do not alter Supabase-managed Realtime tables or publication through the project migration connection.

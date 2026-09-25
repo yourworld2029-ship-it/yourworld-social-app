@@ -8,6 +8,7 @@ import { Search, Heart, Plus, MoreVertical, Play } from "lucide-react";
 import { useMoments } from "@/lib/moment-context";
 import { useAlertsCount } from "@/lib/alerts-count";
 import { useAuth } from "@/lib/auth-store";
+import { useActiveLiveStreams } from "@/lib/live-data";
 import ywLogo from "@/assets/yw-logo.png";
 import { ProfileAvatar } from "@/components/yw/ProfileAvatar";
 import { SportsIdentityMark } from "@/components/yw/SportsIdentityBadge";
@@ -54,6 +55,10 @@ function HomePage() {
   } = useLongVideos();
   const { moments } = useMoments();
   const { user } = useAuth();
+  const {
+    streams: liveStreams,
+    error: liveStreamsError,
+  } = useActiveLiveStreams();
   const { count: alertCount } = useAlertsCount();
   React.useEffect(() => setHydrated(true), []);
 
@@ -107,6 +112,7 @@ function HomePage() {
     hasUnseen: boolean;
     mine?: boolean;
     momentId?: string;
+    liveStreamId?: string;
   };
 
   const stories = React.useMemo<StoryRing[]>(() => {
@@ -125,11 +131,34 @@ function HomePage() {
           avatarUrl: m.author?.avatar ?? undefined,
           hasUnseen: true,
           momentId: m.id,
+          liveStreamId: liveStreams.find(
+            (stream) => stream.broadcaster_id === uid,
+          )?.id,
         });
       }
     }
+    for (const stream of liveStreams) {
+      if (
+        seen.has(stream.broadcaster_id) ||
+        stream.broadcaster_id === user?.id
+      ) {
+        continue;
+      }
+      seen.add(stream.broadcaster_id);
+      list.push({
+        userId: stream.broadcaster_id,
+        username: stream.username,
+        displayName: stream.displayName,
+        avatarUrl: stream.avatarUrl ?? undefined,
+        hasUnseen: true,
+        liveStreamId: stream.id,
+      });
+    }
     return list;
-  }, [moments]);
+  }, [liveStreams, moments, user?.id]);
+  const myActiveLiveStream = liveStreams.find(
+    (stream) => stream.broadcaster_id === user?.id,
+  );
 
   const feedGroups = React.useMemo<
     Array<
@@ -205,13 +234,23 @@ function HomePage() {
         <div className="flex flex-col items-center gap-1 shrink-0">
           <button
             onClick={() => {
-              if (myLatest) {
+              if (myActiveLiveStream) {
+                navigate({
+                  to: "/live/$streamId",
+                  params: { streamId: myActiveLiveStream.id },
+                });
+              } else if (myLatest) {
                 navigate({ to: "/moment/$momentId", params: { momentId: myLatest.id } });
               } else {
                 navigate({ to: "/moment/create" });
               }
             }}
-            className="relative w-16 h-16 rounded-full p-[2px] bg-gradient-to-tr from-pink-500 to-purple-600 flex items-center justify-center"
+            className={`relative w-16 h-16 rounded-full p-[2px] bg-gradient-to-tr ${
+              myActiveLiveStream
+                ? "from-rose-400 via-red-500 to-rose-600"
+                : "from-pink-500 to-purple-600"
+            } flex items-center justify-center`}
+            aria-label={myActiveLiveStream ? "Open your live broadcast" : "Open your moment"}
           >
             <div className="w-full h-full rounded-full bg-neutral-900 border-2 border-black overflow-hidden flex items-center justify-center">
               <MomentAvatar
@@ -220,6 +259,11 @@ function HomePage() {
                 src={myAvatarUrl}
               />
             </div>
+            {myActiveLiveStream && (
+              <span className="absolute -top-1 left-1/2 -translate-x-1/2 rounded-full border-2 border-black bg-red-600 px-2 py-0.5 text-[8px] font-black tracking-[0.12em] text-white">
+                LIVE
+              </span>
+            )}
             {/* Always-on "add another moment" badge (Snapchat-style) */}
             <span
               role="button"
@@ -242,11 +286,25 @@ function HomePage() {
           <div key={s.userId} className="flex flex-col items-center gap-1 shrink-0">
             <button
               onClick={() => {
-                if (s.momentId) {
+                if (s.liveStreamId) {
+                  navigate({
+                    to: "/live/$streamId",
+                    params: { streamId: s.liveStreamId },
+                  });
+                } else if (s.momentId) {
                   navigate({ to: "/moment/$momentId", params: { momentId: s.momentId } });
                 }
               }}
-              className="w-16 h-16 rounded-full p-[2px] bg-gradient-to-tr from-pink-500 via-purple-500 to-yellow-500 flex items-center justify-center"
+              className={`relative w-16 h-16 rounded-full p-[2px] bg-gradient-to-tr ${
+                s.liveStreamId
+                  ? "from-rose-400 via-red-500 to-rose-600"
+                  : "from-pink-500 via-purple-500 to-yellow-500"
+              } flex items-center justify-center`}
+              aria-label={
+                s.liveStreamId
+                  ? `Watch ${s.displayName} live`
+                  : `Open ${s.displayName}'s moment`
+              }
             >
               <div className="w-full h-full rounded-full bg-neutral-900 border-2 border-black overflow-hidden">
                 <MomentAvatar
@@ -255,6 +313,11 @@ function HomePage() {
                   src={s.avatarUrl}
                 />
               </div>
+              {s.liveStreamId && (
+                <span className="absolute -top-1 left-1/2 -translate-x-1/2 rounded-full border-2 border-black bg-red-600 px-2 py-0.5 text-[8px] font-black tracking-[0.12em] text-white">
+                  LIVE
+                </span>
+              )}
             </button>
             <span className="text-xs text-neutral-400 truncate max-w-[68px]">
               <span className="truncate">{s.displayName}</span>
@@ -263,6 +326,11 @@ function HomePage() {
           </div>
         ))}
       </div>
+      {liveStreamsError && (
+        <p className="border-b border-neutral-900/60 bg-black px-4 pb-2 text-center text-[11px] text-rose-300/80" role="status">
+          Live status is temporarily unavailable.
+        </p>
+      )}
 
       {/* Main Long Video Feed */}
       <main className="max-w-lg mx-auto px-2 sm:px-4 py-4 space-y-4">
