@@ -881,7 +881,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               : isDetailPlayer
                 ? isFullscreen
                   ? "fixed inset-0 z-50 h-screen w-screen max-w-none bg-black"
-                  : "absolute inset-x-0 top-0 z-50 mx-auto w-full max-w-lg bg-black"
+                    : "fixed inset-x-0 top-0 z-50 mx-auto w-full max-w-lg bg-black"
                 : isPlayerRoute
                   ? "pointer-events-none fixed left-[-9999px] top-[-9999px] z-[-1] h-px w-px opacity-0"
                   : "fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] right-3 z-[70] w-[min(68vw,280px)] overflow-hidden rounded-xl border border-white/15 bg-zinc-950 shadow-2xl"
