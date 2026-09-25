@@ -714,7 +714,6 @@ function NativeChatThreadPage() {
 
 
   const captureChannelName = conversationId ? `social-chat-capture-${conversationId}` : null;
-  const captureAlertsEnabled = screenshotAlert || recordingAlert;
   useAndroidSecureFlag(true);
 
   const handleIncomingCaptureAlert = useCallback(
@@ -838,8 +837,8 @@ function NativeChatThreadPage() {
     ],
   );
 
-  useCaptureDetect(captureAlertsEnabled, dispatchChatSecurityAlert, {
-    screenshotEnabled: screenshotAlert,
+  useCaptureDetect(true, dispatchChatSecurityAlert, {
+    screenshotEnabled: true,
     protectedElementId: "chat-messages-container",
   });
 

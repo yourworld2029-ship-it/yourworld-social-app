@@ -675,7 +675,7 @@ function NativeOrbitChatPage() {
   }, [accepted, captureChannelName, chat.meId, muted, recordingAlert, screenshotAlert]);
 
   useCaptureDetect(
-    Boolean(accepted && chat.meId && (screenshotAlert || recordingAlert)),
+    Boolean(accepted && chat.meId),
     (kind) => {
       if (
         !chat.meId ||
@@ -709,7 +709,7 @@ function NativeOrbitChatPage() {
         pendingCaptureAlertsRef.current.push({ event, payload });
       }
     },
-    { screenshotEnabled: screenshotAlert, protectedElementId: "chat-messages-container" },
+    { screenshotEnabled: true, protectedElementId: "chat-messages-container" },
   );
   useAndroidSecureFlag(true);
 

@@ -19,12 +19,12 @@ import com.getcapacitor.BridgeActivity;
 public class MainActivity extends BridgeActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        registerPlugin(PrivacyBridgePlugin.class);
-        super.onCreate(savedInstanceState);
         getWindow().setFlags(
                 WindowManager.LayoutParams.FLAG_SECURE,
                 WindowManager.LayoutParams.FLAG_SECURE
         );
+        registerPlugin(PrivacyBridgePlugin.class);
+        super.onCreate(savedInstanceState);
 
         configureSystemBars();
 

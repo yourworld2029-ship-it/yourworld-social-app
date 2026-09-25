@@ -1172,7 +1172,17 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
         []
       ).filter((row) => !isScreenshotAlertMessage(row)),
   );
-  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [messagesThreadId, setMessagesThreadId] = useState(threadId);
+  const messagesThreadIdRef = useRef(threadId);
+  const threadIdRef = useRef(threadId);
+  threadIdRef.current = threadId;
+  const [conversationState, setConversationState] = useState<{ threadId: string; id: string | null }>({
+    threadId,
+    id: null,
+  });
+  const conversationId = conversationState.threadId === threadId ? conversationState.id : null;
+  const conversationIdRef = useRef<string | null>(conversationId);
+  conversationIdRef.current = conversationId;
   const [me, setMe] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -1185,26 +1195,57 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
   const clearGenerationRef = useRef(0);
   const afterViewTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   useEffect(() => {
+    if (messagesThreadId !== threadId || threadIdRef.current !== threadId) return;
     messagesRef.current = messages;
     const retained = messages.filter((m) => !m.id.startsWith("tmp-")).slice(-40);
     cacheSet(`thread:${threadId}`, retained);
     saveCachedThread(`social:${threadId}`, retained);
-  }, [messages, threadId]);
+  }, [messages, messagesThreadId, threadId]);
 
   useEffect(() => {
     let cancelled = false;
+    const cachedRows = (
+      loadCachedThreadSync<DbMessage>(`social:${threadId}`) ??
+      cacheGet<DbMessage[]>(`thread:${threadId}`) ??
+      []
+    ).filter((row) => !isScreenshotAlertMessage(row));
+    messagesThreadIdRef.current = threadId;
+    setMessagesThreadId(threadId);
+    messagesRef.current = cachedRows;
+    setMessages(cachedRows);
+    setLoading(false);
+    setLoadingMore(false);
+    setHasMore(true);
+    setError(pair ? null : "Invalid chat address.");
+    conversationIdRef.current = null;
+    setConversationState({ threadId, id: null });
+
     void loadCachedThread<DbMessage>(`social:${threadId}`).then((rows) => {
-      if (cancelled || !rows?.length) return;
-      setMessages((current) => (current.length ? current : rows.filter((row) => isRenderablePublicMessage(row, meRef.current))));
+      if (
+        cancelled ||
+        threadIdRef.current !== threadId ||
+        messagesThreadIdRef.current !== threadId ||
+        !rows?.length
+      ) return;
+      const safeRows = rows.filter((row) => isRenderablePublicMessage(row, meRef.current));
+      setMessages((current) => {
+        if (
+          threadIdRef.current !== threadId ||
+          messagesThreadIdRef.current !== threadId ||
+          current.length
+        ) return current;
+        return safeRows;
+      });
     });
     return () => {
       cancelled = true;
     };
-  }, [threadId]);
+  }, [pair, threadId]);
 
   const belongs = useCallback((row: PublicMessageRow) => !!pair &&
     ((row.sender_id === pair[0] && row.receiver_id === pair[1]) || (row.sender_id === pair[1] && row.receiver_id === pair[0])), [pair]);
   const merge = useCallback((rows: PublicMessageRow[]) => setMessages((prev) => {
+    if (threadIdRef.current !== threadId || messagesThreadIdRef.current !== threadId) return prev;
     const next = new Map(prev.map((m) => [m.id, m]));
     rows
       .filter(belongs)
@@ -1212,14 +1253,26 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       .map(toDbMessage)
       .forEach((m) => next.set(m.id, m));
     return [...next.values()].sort((a, b) => a.created_at.localeCompare(b.created_at));
-  }), [belongs]);
-  const queryRows = useCallback(async (before?: string) => {
+  }), [belongs, threadId]);
+  const queryRows = useCallback(async (before?: string, conversationIdOverride?: string | null) => {
     if (!pair) return [] as PublicMessageRow[];
     try {
       const now = new Date().toISOString();
-      const fetchRows = async (withExpiryFilter: boolean, withDeletedFilter: boolean) => {
-        let query = supabase.from("messages" as never).select("*" as never)
-          .or(`and(sender_id.eq.${pair[0]},receiver_id.eq.${pair[1]}),and(sender_id.eq.${pair[1]},receiver_id.eq.${pair[0]})`);
+      const targetConversationId =
+        conversationIdOverride === undefined ? conversationIdRef.current : conversationIdOverride;
+      const fetchRows = async (
+        withExpiryFilter: boolean,
+        withDeletedFilter: boolean,
+        useConversationIndex: boolean,
+      ) => {
+        let query = supabase.from("messages" as never).select("*" as never);
+        if (targetConversationId && useConversationIndex) {
+          query = query.eq("conversation_id" as never, targetConversationId as never);
+        } else {
+          query = query.or(
+            `and(sender_id.eq.${pair[0]},receiver_id.eq.${pair[1]}),and(sender_id.eq.${pair[1]},receiver_id.eq.${pair[0]})`,
+          );
+        }
         if (withExpiryFilter) query = query.or(`expires_at.is.null,expires_at.gt.${now}`);
         if (withDeletedFilter) query = query.eq("is_deleted", false);
         query = query.order("created_at", { ascending: false }).limit(PAGE_SIZE);
@@ -1227,11 +1280,28 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
         return await query;
       };
 
-      let result = await fetchRows(true, true);
+      let result = await fetchRows(true, true, Boolean(targetConversationId));
       if (result.error && isMissingAutoDeleteColumn(result.error)) {
         // Older schemas can still serve messages safely; renderability checks
         // below continue to protect the client when these fields are absent.
-        result = await fetchRows(false, false);
+        result = await fetchRows(false, false, Boolean(targetConversationId));
+      }
+      if (
+        targetConversationId &&
+        result.error &&
+        /conversation_id|schema cache|does not exist/i.test(result.error.message)
+      ) {
+        result = await fetchRows(false, false, false);
+      }
+      if (targetConversationId && !result.error && !(result.data?.length)) {
+        // Older rows without a conversation link still remain reachable by the
+        // indexed sender/receiver pair query.
+        const fallback = await fetchRows(true, true, false);
+        if (fallback.error && isMissingAutoDeleteColumn(fallback.error)) {
+          result = await fetchRows(false, false, false);
+        } else if (!fallback.error && fallback.data?.length) {
+          result = fallback;
+        }
       }
       if (result.error) {
         console.error("[social-chat] message fetch failed", result.error);
@@ -1243,84 +1313,124 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       throw cause;
     }
   }, [pair]);
-  const load = useCallback(async () => {
-    if (!pair) { setLoading(false); return; }
+  const load = useCallback(async (conversationIdOverride?: string | null) => {
+    const requestThreadId = threadId;
+    if (!pair) {
+      if (threadIdRef.current === requestThreadId) setLoading(false);
+      return;
+    }
     const generation = clearGenerationRef.current;
     try {
-      const rows = await queryRows();
+      const rows = await queryRows(undefined, conversationIdOverride);
+      if (threadIdRef.current !== requestThreadId || messagesThreadIdRef.current !== requestThreadId) return;
       if (rows === null) return;
       if (generation !== clearGenerationRef.current) return;
       merge(rows);
       setHasMore(rows.length >= PAGE_SIZE);
       setError(null);
     } catch (cause) {
+      if (threadIdRef.current !== requestThreadId) return;
       console.error("[social-chat] message load failed", cause);
       setError(cause instanceof Error ? cause.message : "Couldn't load messages.");
     }
-    finally { setLoading(false); }
-  }, [pair, queryRows, merge]);
+    finally {
+      if (threadIdRef.current === requestThreadId) setLoading(false);
+    }
+  }, [pair, queryRows, merge, threadId]);
   const loadOlder = useCallback(async () => {
+    if (messagesThreadIdRef.current !== threadId || threadIdRef.current !== threadId) return;
     const oldest = messagesRef.current.filter((m) => !m.id.startsWith("tmp-")).sort((a, b) => a.created_at.localeCompare(b.created_at))[0]?.created_at;
     if (!oldest || loadingMore || !hasMore) return;
+    const requestThreadId = threadId;
     const generation = clearGenerationRef.current;
     setLoadingMore(true);
     try {
       const rows = await queryRows(oldest);
+      if (threadIdRef.current !== requestThreadId || messagesThreadIdRef.current !== requestThreadId) return;
       if (rows === null) return;
       if (generation !== clearGenerationRef.current) return;
       merge(rows);
       setHasMore(rows.length >= PAGE_SIZE);
       setError(null);
     } catch (cause) {
+      if (threadIdRef.current !== requestThreadId) return;
       console.error("[social-chat] older message load failed", cause);
       setError(cause instanceof Error ? cause.message : "Couldn't load older messages.");
     }
-    finally { setLoadingMore(false); }
-  }, [queryRows, merge, loadingMore, hasMore]);
+    finally {
+      if (threadIdRef.current === requestThreadId) setLoadingMore(false);
+    }
+  }, [queryRows, merge, loadingMore, hasMore, messagesThreadIdRef, threadId]);
+
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  const belongsRef = useRef(belongs);
+  belongsRef.current = belongs;
+  const mergeRef = useRef(merge);
+  mergeRef.current = merge;
+
   useEffect(() => {
     let alive = true;
-    let retry: ReturnType<typeof setTimeout> | null = null;
-    let channel: ReturnType<typeof supabase.channel> | null = null;
     const bootstrap = async () => {
       try {
         const { data } = await supabase.auth.getSession();
-        if (!alive) return;
+        if (!alive || threadIdRef.current !== threadId) return;
         const id = data.session?.user.id ?? null;
         meRef.current = id;
         setMe(id);
         if (id && pair) {
           const conversation = await ensureThreadConversation(threadId, pair);
-          if (!alive) return;
-          setConversationId(conversation?.id ?? null);
+          if (!alive || threadIdRef.current !== threadId) return;
+          const id = conversation?.id ?? null;
+          conversationIdRef.current = id;
+          setConversationState({ threadId, id });
+          void load(id);
         } else {
-          setConversationId(null);
+          conversationIdRef.current = null;
+          setConversationState({ threadId, id: null });
+          void load(null);
         }
-        void load();
       } catch (cause) {
         console.error("[social-chat] session/bootstrap failed", cause);
-        if (alive) setLoading(false);
+        if (alive && threadIdRef.current === threadId) setLoading(false);
       }
     };
     void bootstrap();
+    return () => {
+      alive = false;
+    };
+  }, [threadId, pair, load]);
+
+  useEffect(() => {
+    let alive = true;
+    let retry: ReturnType<typeof setTimeout> | null = null;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
     const subscribe = () => {
       if (!alive) return;
       channel = supabase
-        .channel(`messages-${threadId}-${Math.random().toString(36).slice(2)}`)
+        .channel(`social-messages-${threadId}`)
         .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, (payload) => {
           const row = (payload.new ?? payload.old) as PublicMessageRow;
-           if (!row?.id) return;
-           if (payload.eventType === "DELETE") {
-             setMessages((prev) => prev.filter((m) => m.id !== row.id));
-             return;
-           }
-           if (!belongs(row)) return;
-            if (!isRenderablePublicMessage(row, meRef.current)) setMessages((prev) => prev.filter((m) => m.id !== row.id));
-          else merge([row]);
-        })
-        .subscribe((status) => {
-          if (status === "SUBSCRIBED") {
+          if (!row?.id || threadIdRef.current !== threadId) return;
+          if (payload.eventType === "DELETE") {
+            setMessages((prev) => {
+              if (messagesThreadIdRef.current !== threadId) return prev;
+              return prev.filter((m) => m.id !== row.id);
+            });
             return;
           }
+          if (!belongsRef.current(row)) return;
+          if (!isRenderablePublicMessage(row, meRef.current)) {
+            setMessages((prev) => {
+              if (messagesThreadIdRef.current !== threadId) return prev;
+              return prev.filter((m) => m.id !== row.id);
+            });
+          } else {
+            mergeRef.current([row]);
+          }
+        })
+        .subscribe((status) => {
+          if (status === "SUBSCRIBED") return;
           if (!["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(status) || !alive || retry) return;
           retry = setTimeout(() => {
             retry = null;
@@ -1335,9 +1445,9 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     };
     subscribe();
     const resyncOnVisible = () => {
-      if (document.visibilityState === "visible") void load();
+      if (document.visibilityState === "visible") void loadRef.current();
     };
-    const resyncOnOnline = () => void load();
+    const resyncOnOnline = () => void loadRef.current();
     document.addEventListener("visibilitychange", resyncOnVisible);
     window.addEventListener("online", resyncOnOnline);
     return () => {
@@ -1350,7 +1460,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
         void supabase.removeChannel(channel);
       }
     };
-  }, [threadId, pair, load, belongs, merge]);
+  }, [threadId]);
   useEffect(() => {
     if (!conversationId) return;
     const channel = supabase
@@ -1495,6 +1605,18 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     afterViewTimersRef.current.clear();
   }, []);
 
+  const visibleMessages = useMemo(() => {
+    if (messagesThreadId === threadId) return messages;
+    return (
+      loadCachedThreadSync<DbMessage>(`social:${threadId}`) ??
+      cacheGet<DbMessage[]>(`thread:${threadId}`) ??
+      []
+    ).filter((row) => !isScreenshotAlertMessage(row));
+  }, [messages, messagesThreadId, threadId]);
+  const visibleLoading = messagesThreadId === threadId ? loading : false;
+  const visibleLoadingMore = messagesThreadId === threadId ? loadingMore : false;
+  const visibleHasMore = messagesThreadId === threadId ? hasMore : false;
+
   const send = useCallback(async (payload: {
     content?: string;
     media_url?: string | null;
@@ -1508,46 +1630,29 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
   }) => {
     if (!me || !pair || !pair.includes(me)) return { error: "You are not authorized for this chat." };
     if (!conversationId) return { error: "Chat is still syncing. Try again in a moment." };
+    const requestThreadId = threadId;
+    const isCurrentThread = () =>
+      threadIdRef.current === requestThreadId &&
+      messagesThreadIdRef.current === requestThreadId;
     const receiverId = pair.find((id) => id !== me)!;
-    const { data: blockRow, error: blockError } = await supabase
-      .from("user_blocks" as never)
-      .select("blocker_id" as never)
-      .or(`and(blocker_id.eq.${me},blocked_id.eq.${receiverId}),and(blocker_id.eq.${receiverId},blocked_id.eq.${me})` as never)
-      .limit(1)
-      .maybeSingle();
-    if (blockError) return { error: blockError.message };
-    if (blockRow) return { error: "This conversation is blocked." };
-    const conversationResult = await supabase
-      .from("conversations" as never)
-      .select("auto_delete_setting" as never)
-      .eq("id" as never, conversationId)
-      .maybeSingle();
-    if (conversationResult.error || !conversationResult.data) {
-      return { error: conversationResult.error?.message ?? "Could not read chat settings." };
-    }
-    const conversation = conversationResult.data as unknown as ConversationRow;
     const expiringMedia = Boolean(
       payload.expiringMedia ||
         payload.viewOnce ||
         payload.media_url ||
         payload.voice_note_url,
     );
-    const requestedMode =
-      payload.autoDeleteMode ??
-      payload.autoDeleteSetting ??
-      normalizeAutoDeleteSetting(conversation.auto_delete_setting);
-    const autoDeleteMode = payload.isSystemMessage
+    const initialMode = payload.isSystemMessage
       ? "off"
-      : payload.viewOnce || payload.expiringMedia
+      : expiringMedia
         ? "after_view"
-        : requestedMode;
+        : payload.autoDeleteMode ?? payload.autoDeleteSetting ?? "off";
     const metadata = {
       ...(payload.metadata ?? {}),
       ...(expiringMedia ? { expiring_media: true } : {}),
       ...(payload.viewOnce ? { view_once: true } : {}),
     };
-    const expiresAt = expiresAtForAutoDelete(autoDeleteMode);
-    const tempId = `tmp-${Date.now()}`;
+    const createdAt = new Date().toISOString();
+    const tempId = `tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const optimistic = toDbMessage({
       id: tempId,
       sender_id: me,
@@ -1557,36 +1662,112 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       voice_note_url: payload.voice_note_url ?? null,
       metadata,
       is_read: false,
-      created_at: new Date().toISOString(),
-      auto_delete_setting: autoDeleteMode,
-      auto_delete_mode: autoDeleteMode,
-      expires_at: expiresAt,
+      created_at: createdAt,
+      auto_delete_setting: initialMode,
+      auto_delete_mode: initialMode,
+      expires_at: expiresAtForAutoDelete(initialMode),
       is_deleted: false,
       is_viewed: false,
       viewed_at: null,
       is_system_message: payload.isSystemMessage === true,
       conversation_id: conversationId,
     });
-    setMessages((prev) => [...prev, optimistic]);
-    const { data, error: insertError } = await supabase.from("messages" as never).insert({
-      sender_id: me,
-      receiver_id: receiverId,
-      content: optimistic.content,
-      media_url: optimistic.media_url,
-      voice_note_url: optimistic.voice_note_url,
-       metadata,
-      conversation_id: conversationId,
-      is_system_message: payload.isSystemMessage === true,
-      auto_delete_setting: autoDeleteMode,
-      auto_delete_mode: autoDeleteMode,
-      expires_at: expiresAt,
-      is_deleted: false,
-    } as never).select("*").maybeSingle();
-    if (insertError) { setMessages((prev) => prev.filter((m) => m.id !== tempId)); setError(insertError.message); return { error: insertError.message }; }
-    if (data) merge([data as unknown as PublicMessageRow]);
-    setMessages((prev) => prev.filter((m) => m.id !== tempId));
-    flagChatMessage({ surface: "social", text: payload.content, threadId, messageId: (data as PublicMessageRow | null)?.id ?? null });
-    return { error: null };
+    if (isCurrentThread()) {
+      messagesRef.current = [...messagesRef.current, optimistic];
+      setMessages((prev) => isCurrentThread() ? [...prev, optimistic] : prev);
+    }
+    const rollbackOptimistic = () => {
+      if (!isCurrentThread()) return;
+      messagesRef.current = messagesRef.current.filter((message) => message.id !== tempId);
+      setMessages((prev) => isCurrentThread() ? prev.filter((message) => message.id !== tempId) : prev);
+    };
+
+    try {
+      const { data: blockRow, error: blockError } = await supabase
+        .from("user_blocks" as never)
+        .select("blocker_id" as never)
+        .or(`and(blocker_id.eq.${me},blocked_id.eq.${receiverId}),and(blocker_id.eq.${receiverId},blocked_id.eq.${me})` as never)
+        .limit(1)
+        .maybeSingle();
+      if (blockError) {
+        rollbackOptimistic();
+        return { error: blockError.message };
+      }
+      if (blockRow) {
+        rollbackOptimistic();
+        return { error: "This conversation is blocked." };
+      }
+
+      const conversationResult = await supabase
+        .from("conversations" as never)
+        .select("auto_delete_setting" as never)
+        .eq("id" as never, conversationId)
+        .maybeSingle();
+      if (conversationResult.error || !conversationResult.data) {
+        rollbackOptimistic();
+        return { error: conversationResult.error?.message ?? "Could not read chat settings." };
+      }
+
+      const conversation = conversationResult.data as unknown as ConversationRow;
+      const requestedMode =
+        payload.autoDeleteMode ??
+        payload.autoDeleteSetting ??
+        normalizeAutoDeleteSetting(conversation.auto_delete_setting);
+      const autoDeleteMode = payload.isSystemMessage
+        ? "off"
+        : expiringMedia
+          ? "after_view"
+          : requestedMode;
+      const expiresAt = expiresAtForAutoDelete(autoDeleteMode);
+      const readyOptimistic = {
+        ...optimistic,
+        auto_delete_setting: autoDeleteMode,
+        auto_delete_mode: autoDeleteMode,
+        expires_at: expiresAt,
+      };
+      if (isCurrentThread()) {
+        messagesRef.current = messagesRef.current.map((message) =>
+          message.id === tempId ? readyOptimistic : message,
+        );
+        setMessages((prev) => isCurrentThread()
+          ? prev.map((message) => message.id === tempId ? readyOptimistic : message)
+          : prev);
+      }
+
+      const { data, error: insertError } = await supabase.from("messages" as never).insert({
+        sender_id: me,
+        receiver_id: receiverId,
+        content: readyOptimistic.content,
+        media_url: readyOptimistic.media_url,
+        voice_note_url: readyOptimistic.voice_note_url,
+        metadata,
+        conversation_id: conversationId,
+        is_system_message: payload.isSystemMessage === true,
+        auto_delete_setting: autoDeleteMode,
+        auto_delete_mode: autoDeleteMode,
+        expires_at: expiresAt,
+        is_deleted: false,
+      } as never).select("*").maybeSingle();
+      if (insertError) {
+        rollbackOptimistic();
+        if (isCurrentThread()) setError(insertError.message);
+        return { error: insertError.message };
+      }
+      if (isCurrentThread() && data) merge([data as unknown as PublicMessageRow]);
+      rollbackOptimistic();
+      flagChatMessage({
+        surface: "social",
+        text: payload.content,
+        threadId: requestThreadId,
+        messageId: (data as PublicMessageRow | null)?.id ?? null,
+      });
+      return { error: null };
+    } catch (cause) {
+      rollbackOptimistic();
+      const message = cause instanceof Error ? cause.message : "Could not send this message.";
+      if (isCurrentThread()) setError(message);
+      return { error: message };
+    }
   }, [me, pair, threadId, conversationId, merge]);
   const remove = useCallback(async (ids: string[]) => {
     if (!me || !ids.length) return;
@@ -1690,10 +1871,10 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
   }, [me]);
 
   return useMemo(() => ({
-    messages,
-    loading,
-    loadingMore,
-    hasMore,
+    messages: visibleMessages,
+    loading: visibleLoading,
+    loadingMore: visibleLoadingMore,
+    hasMore: visibleHasMore,
     loadOlder,
     currentUserId: me,
     conversationId,
@@ -1706,10 +1887,10 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     error,
     reload: load,
   }), [
-    messages,
-    loading,
-    loadingMore,
-    hasMore,
+    visibleMessages,
+    visibleLoading,
+    visibleLoadingMore,
+    visibleHasMore,
     loadOlder,
     me,
     conversationId,
