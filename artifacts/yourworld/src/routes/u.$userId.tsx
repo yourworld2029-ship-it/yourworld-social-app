@@ -10,7 +10,6 @@ import { missingColumn, normalizePostRow } from "@/lib/supabase-compat";
 import { historyBackOr } from "@/lib/navigation";
 import { useYw } from "@/lib/yw-store";
 import { useAuth, useResumeAuthAction } from "@/lib/auth-store";
-import { isNativeAndroid } from "@/lib/native-privacy";
 import { getOrCreateSportsProfile } from "@/components/yw/SportsProfile";
 import { ProfileTemplate } from "@/components/yw/ProfileTemplate";
 
@@ -54,11 +53,7 @@ function PublicProfilePage() {
   const { userId: routeParam } = Route.useParams();
   const userId = normalizeProfileRouteParam(routeParam);
   const navigate = useNavigate();
-  const {
-    user: authUser,
-    requestAuthAction,
-    openWebChatDownload,
-  } = useAuth();
+  const { user: authUser, requestAuthAction } = useAuth();
   const [profile, setProfile] = useState<PublicProfile | null>(null);
   const [avatarSrc, setAvatarSrc] = useState<string | null>(null);
   const [posts, setPosts] = useState<DbPost[]>([]);
@@ -244,10 +239,6 @@ function PublicProfilePage() {
 
   const onMessage = () => {
     if (!resolvedUserId || isOwnProfile) return;
-    if (!isNativeAndroid()) {
-      openWebChatDownload();
-      return;
-    }
     if (!authUser) {
       requestAuthAction({
         type: "profile-message",

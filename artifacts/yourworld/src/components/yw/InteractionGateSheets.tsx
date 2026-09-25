@@ -1,12 +1,10 @@
-import { ArrowRight, Download, MessageCircle, Sparkles, X } from "lucide-react";
+import { ArrowRight, Sparkles, X } from "lucide-react";
 import type { ReactNode } from "react";
 
 type InteractionGateSheetsProps = {
   authOpen: boolean;
-  chatDownloadOpen: boolean;
   onCloseAuth: () => void;
   onContinueAuth: () => void;
-  onCloseChatDownload: () => void;
 };
 
 function Overlay({
@@ -88,96 +86,15 @@ function JoinYourWorldSheet({
   );
 }
 
-function DownloadCardContent() {
-  return (
-    <>
-      <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br from-pink-500/20 to-violet-500/20 text-pink-200 ring-1 ring-white/10">
-        <MessageCircle className="h-6 w-6" />
-      </div>
-      <p className="mt-5 text-xs font-semibold uppercase tracking-[0.18em] text-pink-300">
-        YOURWORLD for Android
-      </p>
-      <h2 className="mt-2 font-display text-2xl font-bold tracking-tight text-white">
-        Private chats are in the app
-      </h2>
-      <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-white/65">
-        Download YOURWORLD for Android to send private messages and view ephemeral media.
-      </p>
-      <a
-        href="/yourworld-v3.apk"
-        download="yourworld-v3.apk"
-        className="mt-6 inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-pink-500 to-violet-600 px-5 text-sm font-semibold text-white shadow-lg shadow-pink-500/20 transition hover:brightness-110 active:scale-[0.99]"
-      >
-        <Download className="h-4 w-4" />
-        Download Android app
-      </a>
-    </>
-  );
-}
-
-export function PrivateChatDownloadCard({
-  mode = "page",
-  onClose,
-}: {
-  mode?: "page" | "modal";
-  onClose?: () => void;
-}) {
-  const content = (
-    <div className="w-full max-w-md rounded-[28px] border border-white/10 bg-[#111018] px-6 py-7 text-center shadow-2xl sm:px-8">
-      {mode === "modal" && onClose ? (
-        <div className="mb-1 flex justify-end">
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close app download prompt"
-            className="grid h-9 w-9 place-items-center rounded-full text-white/60 transition hover:bg-white/10 hover:text-white"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-      ) : null}
-      <DownloadCardContent />
-      {mode === "modal" && onClose ? (
-        <button
-          type="button"
-          onClick={onClose}
-          className="mt-3 h-10 w-full rounded-full text-sm font-medium text-white/55 transition hover:text-white"
-        >
-          Not now
-        </button>
-      ) : null}
-    </div>
-  );
-
-  if (mode === "modal") {
-    return (
-      <Overlay onClose={onClose ?? (() => {})}>
-        {content}
-      </Overlay>
-    );
-  }
-
-  return (
-    <main className="flex min-h-[100dvh] items-center justify-center bg-[#09080d] px-4 py-10">
-      {content}
-    </main>
-  );
-}
-
 export function InteractionGateSheets({
   authOpen,
-  chatDownloadOpen,
   onCloseAuth,
   onContinueAuth,
-  onCloseChatDownload,
 }: InteractionGateSheetsProps) {
   return (
     <>
       {authOpen ? (
         <JoinYourWorldSheet onClose={onCloseAuth} onContinue={onContinueAuth} />
-      ) : null}
-      {chatDownloadOpen ? (
-        <PrivateChatDownloadCard mode="modal" onClose={onCloseChatDownload} />
       ) : null}
     </>
   );
