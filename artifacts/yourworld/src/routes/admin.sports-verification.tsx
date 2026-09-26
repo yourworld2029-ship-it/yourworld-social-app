@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import {
   ArrowLeft,
   BadgeCheck,
@@ -152,6 +152,26 @@ function AdminSportsVerification() {
             {loading ? "Refreshing…" : "Refresh"}
           </button>
         </div>
+
+        <nav
+          aria-label="Admin verification sections"
+          className="mb-5 flex flex-wrap gap-2"
+        >
+          <span
+            data-testid="tab-sports-verification"
+            aria-current="page"
+            className="rounded-xl border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-xs font-semibold text-amber-100"
+          >
+            Sports Verification
+          </span>
+          <Link
+            to="/admin/national-awards"
+            data-testid="tab-national-award-verification"
+            className="rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-zinc-400 hover:bg-white/[0.06] hover:text-white"
+          >
+            Award Verification Requests
+          </Link>
+        </nav>
 
         {error ? (
           <div className="mb-5 rounded-2xl border border-red-400/20 bg-red-400/10 p-4 text-sm text-red-200">

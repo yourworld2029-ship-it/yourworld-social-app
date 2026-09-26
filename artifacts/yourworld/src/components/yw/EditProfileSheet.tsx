@@ -9,6 +9,7 @@ import { YwAvatar } from "@/components/yw/Avatar";
 import { ProfilePhotoCropper } from "@/components/yw/ProfilePhotoCropper";
 import type { User } from "@/lib/yw-data";
 import { SportsProfileCard, type SportsProfileInfo } from "@/components/yw/SportsProfile";
+import { NationalAwardProfileSection } from "@/components/yw/NationalAwardProfileSection";
 import {
   NORMAL_PROFILE_MAIN_CATEGORIES,
   NORMAL_PROFILE_SUBCATEGORIES,
@@ -462,12 +463,20 @@ export function EditProfileSheet({
               </p>
             </Field>
 
-            {sportsProfile && onOpenSportsDetails ? (
-              <SportsProfileCard
-                profile={sportsProfile}
-                onClick={onOpenSportsDetails}
-              />
-            ) : null}
+            <div
+              className={`grid gap-3 ${
+                sportsProfile && onOpenSportsDetails ? "grid-cols-2" : "grid-cols-1"
+              }`}
+              data-testid="row-profile-verification-cards"
+            >
+              {sportsProfile && onOpenSportsDetails ? (
+                <SportsProfileCard
+                  profile={sportsProfile}
+                  onClick={onOpenSportsDetails}
+                />
+              ) : null}
+              <NationalAwardProfileSection userId={user.id} />
+            </div>
           </div>
 
           <div className="mt-6 grid grid-cols-2 gap-3 border-t border-border/60 pt-4">

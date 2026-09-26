@@ -858,6 +858,185 @@ export type Database = {
         }
         Relationships: []
       }
+      national_award_public_badges: {
+        Row: {
+          award_code: string
+          award_year: number
+          user_id: string
+          verified_at: string
+        }
+        Insert: {
+          award_code: string
+          award_year: number
+          user_id: string
+          verified_at?: string
+        }
+        Update: {
+          award_code?: string
+          award_year?: number
+          user_id?: string
+          verified_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "national_award_public_badges_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      national_award_verification_audit: {
+        Row: {
+          action: string
+          admin_user_id: string | null
+          applicant_user_id: string | null
+          created_at: string
+          id: string
+          reason: string | null
+        }
+        Insert: {
+          action: string
+          admin_user_id?: string | null
+          applicant_user_id?: string | null
+          created_at?: string
+          id?: string
+          reason?: string | null
+        }
+        Update: {
+          action?: string
+          admin_user_id?: string | null
+          applicant_user_id?: string | null
+          created_at?: string
+          id?: string
+          reason?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "national_award_verification_audit_admin_user_id_fkey"
+            columns: ["admin_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "national_award_verification_audit_applicant_user_id_fkey"
+            columns: ["applicant_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      national_award_verifications: {
+        Row: {
+          award_code: string
+          award_year: number
+          certificate_file_name: string
+          certificate_mime_type: string
+          certificate_path: string
+          certificate_size: number
+          country: string
+          created_at: string
+          date_of_birth: string
+          district: string
+          email: string
+          father_name: string
+          full_name: string
+          identity_details_confirmed: boolean
+          introduction_file_name: string
+          introduction_mime_type: string
+          introduction_path: string
+          introduction_size: number
+          phone_number: string
+          review_reason: string | null
+          review_status: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          state: string
+          submitted_at: string
+          updated_at: string
+          user_id: string
+          village_town: string
+        }
+        Insert: {
+          award_code: string
+          award_year: number
+          certificate_file_name: string
+          certificate_mime_type: string
+          certificate_path: string
+          certificate_size: number
+          country?: string
+          created_at?: string
+          date_of_birth: string
+          district: string
+          email: string
+          father_name: string
+          full_name: string
+          identity_details_confirmed?: boolean
+          introduction_file_name: string
+          introduction_mime_type: string
+          introduction_path: string
+          introduction_size: number
+          phone_number: string
+          review_reason?: string | null
+          review_status?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          state: string
+          submitted_at?: string
+          updated_at?: string
+          user_id: string
+          village_town: string
+        }
+        Update: {
+          award_code?: string
+          award_year?: number
+          certificate_file_name?: string
+          certificate_mime_type?: string
+          certificate_path?: string
+          certificate_size?: number
+          country?: string
+          created_at?: string
+          date_of_birth?: string
+          district?: string
+          email?: string
+          father_name?: string
+          full_name?: string
+          identity_details_confirmed?: boolean
+          introduction_file_name?: string
+          introduction_mime_type?: string
+          introduction_path?: string
+          introduction_size?: number
+          phone_number?: string
+          review_reason?: string | null
+          review_status?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          state?: string
+          submitted_at?: string
+          updated_at?: string
+          user_id?: string
+          village_town?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "national_award_verifications_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "national_award_verifications_reviewed_by_fkey"
+            columns: ["reviewed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       sports_verification_details: {
         Row: {
           address: string
@@ -1086,6 +1265,39 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      review_national_award_verification: {
+        Args: {
+          p_action: string
+          p_admin_user_id: string
+          p_reason?: string | null
+          p_user_id: string
+        }
+        Returns: string
+      }
+      submit_national_award_verification: {
+        Args: {
+          p_award_code: string
+          p_award_year: number
+          p_certificate_file_name: string
+          p_certificate_mime_type: string
+          p_certificate_path: string
+          p_certificate_size: number
+          p_date_of_birth: string
+          p_district: string
+          p_email: string
+          p_father_name: string
+          p_full_name: string
+          p_introduction_file_name: string
+          p_introduction_mime_type: string
+          p_introduction_path: string
+          p_introduction_size: number
+          p_phone_number: string
+          p_state: string
+          p_user_id: string
+          p_village_town: string
+        }
+        Returns: string
+      }
       burn_view_once: { Args: { _msg_id: string }; Returns: boolean }
       current_user_session_is_active: { Args: never; Returns: boolean }
       clear_orbit_conversation: {

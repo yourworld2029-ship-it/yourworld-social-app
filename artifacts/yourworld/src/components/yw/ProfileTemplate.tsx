@@ -1,8 +1,9 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   ArrowLeft,
   Link2,
+  Medal,
   MapPin,
   MoreVertical,
   Pin,
@@ -30,6 +31,11 @@ import {
 import { useVerifiedSportsIdentity } from "@/lib/sports-identity";
 import { DownloadedVideoList } from "@/components/yw/DownloadedVideoList";
 import type { DownloadedVideo } from "@/lib/yw-download";
+import { getPublicNationalAwardBadge } from "@/lib/national-award.data";
+import {
+  nationalAwardLabel,
+  type NationalAwardPublicBadge,
+} from "@/lib/national-award";
 
 export type ProfileTemplateProfile = {
   id: string;
@@ -135,6 +141,8 @@ export function ProfileTemplate({
   children,
 }: ProfileTemplateProps) {
   const [internalTab, setInternalTab] = useState<ProfileTab>("videos");
+  const [nationalAwardBadge, setNationalAwardBadge] =
+    useState<NationalAwardPublicBadge | null>(null);
   const src = mediaSrc;
   const activeTab: ProfileTab = isOwner
     ? selectedTab ?? "videos"
@@ -147,6 +155,33 @@ export function ProfileTemplate({
   );
   const verifiedSportsIdentity = useVerifiedSportsIdentity(profile.id);
   const sportsSubLabel = verifiedSportsIdentity ?? sportsProfile;
+
+  useEffect(() => {
+    let active = true;
+    const loadAwardBadge = () => {
+      void getPublicNationalAwardBadge(profile.id)
+        .then((badge) => {
+          if (active) setNationalAwardBadge(badge);
+        })
+        .catch((error: unknown) => {
+          if (active) setNationalAwardBadge(null);
+          console.error("Could not load public National Award badge.", error);
+        });
+    };
+    setNationalAwardBadge(null);
+    loadAwardBadge();
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") loadAwardBadge();
+    };
+    window.addEventListener("focus", loadAwardBadge);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      active = false;
+      window.removeEventListener("focus", loadAwardBadge);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [profile.id]);
   const primaryCategoryLine =
     normalCategories[0]
       ? formatNormalProfileCategoryForDisplay(normalCategories[0])
@@ -242,6 +277,22 @@ export function ProfileTemplate({
             <Stat label="Followers" value={counts.followers === null ? "—" : formatCount(counts.followers)} onClick={onFollowersClick} />
             <Stat label="Following" value={counts.following === null ? "—" : formatCount(counts.following)} onClick={onFollowingClick} />
           </dl>
+
+          {nationalAwardBadge ? (
+            <div className="col-span-2 flex justify-start">
+              <span
+                data-testid="badge-national-award-profile"
+                aria-label={nationalAwardLabel(nationalAwardBadge.awardCode)}
+                title={`Verified National Award, ${nationalAwardBadge.awardYear}`}
+                className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-amber-300/55 bg-gradient-to-r from-amber-300/15 via-yellow-200/10 to-amber-500/15 px-3 py-1.5 text-[10px] font-extrabold tracking-[0.07em] text-amber-100 shadow-[0_0_22px_rgba(234,179,8,0.12)]"
+              >
+                <Medal className="h-3.5 w-3.5 shrink-0 text-amber-300" />
+                <span className="truncate">
+                  {nationalAwardLabel(nationalAwardBadge.awardCode)}
+                </span>
+              </span>
+            </div>
+          ) : null}
 
           <div className="col-span-2 min-w-0">
             {userBio ? <Bio text={userBio} /> : null}

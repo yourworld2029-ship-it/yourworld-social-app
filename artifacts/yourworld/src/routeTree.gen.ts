@@ -33,6 +33,7 @@ import { Route as TermsRouteImport } from './routes/terms'
 import { Route as Verify2faRouteImport } from './routes/verify-2fa'
 import { Route as WalletRouteImport } from './routes/wallet'
 import { Route as AdminCopyrightReportsRouteImport } from './routes/admin.copyright-reports'
+import { Route as AdminNationalAwardsRouteImport } from './routes/admin.national-awards'
 import { Route as AdminSportsVerificationRouteImport } from './routes/admin.sports-verification'
 import { Route as ChannelIndexRouteImport } from './routes/channel.index'
 import { Route as ChannelAnalyticsRouteImport } from './routes/channel.analytics'
@@ -177,6 +178,11 @@ const WalletRoute = WalletRouteImport.update({
 const AdminCopyrightReportsRoute = AdminCopyrightReportsRouteImport.update({
   id: '/copyright-reports',
   path: '/copyright-reports',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminNationalAwardsRoute = AdminNationalAwardsRouteImport.update({
+  id: '/national-awards',
+  path: '/national-awards',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminSportsVerificationRoute = AdminSportsVerificationRouteImport.update({
@@ -335,6 +341,7 @@ export interface FileRoutesByFullPath {
   '/verify-2fa': typeof Verify2faRoute
   '/wallet': typeof WalletRoute
   '/admin/copyright-reports': typeof AdminCopyrightReportsRoute
+  '/admin/national-awards': typeof AdminNationalAwardsRoute
   '/admin/sports-verification': typeof AdminSportsVerificationRoute
   '/channel/analytics': typeof ChannelAnalyticsRoute
   '/channel/create': typeof ChannelCreateRoute
@@ -384,6 +391,7 @@ export interface FileRoutesByTo {
   '/verify-2fa': typeof Verify2faRoute
   '/wallet': typeof WalletRoute
   '/admin/copyright-reports': typeof AdminCopyrightReportsRoute
+  '/admin/national-awards': typeof AdminNationalAwardsRoute
   '/admin/sports-verification': typeof AdminSportsVerificationRoute
   '/channel/analytics': typeof ChannelAnalyticsRoute
   '/channel/create': typeof ChannelCreateRoute
@@ -437,6 +445,7 @@ export interface FileRoutesById {
   '/verify-2fa': typeof Verify2faRoute
   '/wallet': typeof WalletRoute
   '/admin/copyright-reports': typeof AdminCopyrightReportsRoute
+  '/admin/national-awards': typeof AdminNationalAwardsRoute
   '/admin/sports-verification': typeof AdminSportsVerificationRoute
   '/channel/analytics': typeof ChannelAnalyticsRoute
   '/channel/create': typeof ChannelCreateRoute
@@ -490,6 +499,7 @@ export interface FileRouteTypes {
     | '/verify-2fa'
     | '/wallet'
     | '/admin/copyright-reports'
+    | '/admin/national-awards'
     | '/admin/sports-verification'
     | '/channel/analytics'
     | '/channel/create'
@@ -539,6 +549,7 @@ export interface FileRouteTypes {
     | '/verify-2fa'
     | '/wallet'
     | '/admin/copyright-reports'
+    | '/admin/national-awards'
     | '/admin/sports-verification'
     | '/channel/analytics'
     | '/channel/create'
@@ -591,6 +602,7 @@ export interface FileRouteTypes {
     | '/verify-2fa'
     | '/wallet'
     | '/admin/copyright-reports'
+    | '/admin/national-awards'
     | '/admin/sports-verification'
     | '/channel/analytics'
     | '/channel/create'
@@ -826,6 +838,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminCopyrightReportsRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/national-awards': {
+      id: '/admin/national-awards'
+      path: '/national-awards'
+      fullPath: '/admin/national-awards'
+      preLoaderRoute: typeof AdminNationalAwardsRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/sports-verification': {
       id: '/admin/sports-verification'
       path: '/sports-verification'
@@ -1026,11 +1045,13 @@ const AuthenticatedRouteRouteWithChildren =
 
 interface AdminRouteChildren {
   AdminCopyrightReportsRoute: typeof AdminCopyrightReportsRoute
+  AdminNationalAwardsRoute: typeof AdminNationalAwardsRoute
   AdminSportsVerificationRoute: typeof AdminSportsVerificationRoute
 }
 
 const AdminRouteChildren: AdminRouteChildren = {
   AdminCopyrightReportsRoute: AdminCopyrightReportsRoute,
+  AdminNationalAwardsRoute: AdminNationalAwardsRoute,
   AdminSportsVerificationRoute: AdminSportsVerificationRoute,
 }
 
