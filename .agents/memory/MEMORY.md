@@ -8,6 +8,7 @@
 - [Unique interaction counting](unique-interaction-counting.md) — use one database-enforced key per user/content/type and an atomic insert-before-increment RPC for views.
 - [Video playback and downloads](video-playback-downloads.md) — keep playback metadata-first and let the browser own byte ranges; use the service worker only for streamed background saves.
 - [Persistent video player](persistent-video-player.md) — keep one root-owned video element mounted across route changes; detail pages provide a slot and mini-player mode is presentation-only.
+- [Watermarked Reel downloads](watermarked-reel-downloads.md) — keep creator branding in a separate client-rendered export; never fall back to unwatermarked bytes.
 - [Quality-specific downloads](quality-downloads.md) — preserve original source downloads, process smaller tiers only when selected, and keep an original fallback for legacy rows.
 - [Audio-preserving compression](audio-preserving-compression.md) — only use a local re-encode when a source audio track is attached; otherwise upload the original.
 - [Auto-delete messages](auto-delete-messages.md) — shared settings and row retention; validated non-View-Once Moment replies must not delete their source asset.

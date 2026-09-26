@@ -4,6 +4,7 @@ import { historyBackOr } from "@/lib/navigation";
 import {
   ArrowLeft,
   CheckCircle2,
+  Download,
   Loader2,
   Pause,
   Play,
@@ -13,6 +14,7 @@ import {
 import { toast } from "sonner";
 import { publishDirectReel } from "@/lib/social-data";
 import { useUploads } from "@/lib/upload-progress";
+import { Switch } from "@/components/ui/switch";
 
 const MIN_REEL_SECONDS = 5;
 const MAX_REEL_SECONDS = 90;
@@ -48,6 +50,7 @@ function DirectReelUploadPage() {
   const [title, setTitle] = useState("");
   const [caption, setCaption] = useState("");
   const [hashtags, setHashtags] = useState("");
+  const [allowDownload, setAllowDownload] = useState(true);
   const [progress, setProgress] = useState(0);
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -154,6 +157,7 @@ function DirectReelUploadPage() {
           title,
           caption,
           hashtags: parsedHashtags,
+          allowDownload,
           durationSeconds: duration,
           originalWidth: dimensions.width || null,
           originalHeight: dimensions.height || null,
@@ -310,6 +314,23 @@ function DirectReelUploadPage() {
               className="w-full rounded-2xl border border-zinc-800 bg-zinc-900/90 p-3.5 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
             />
           </label>
+
+          <div className="flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+            <div className="flex min-w-0 items-start gap-3">
+              <Download className="mt-0.5 h-4 w-4 shrink-0 text-pink-300" />
+              <div>
+                <p className="text-sm font-semibold">Allow downloads for this Reel</p>
+                <p className="mt-1 text-xs text-white/60">
+                  Viewers can download it from the More menu
+                </p>
+              </div>
+            </div>
+            <Switch
+              checked={allowDownload}
+              onCheckedChange={setAllowDownload}
+              aria-label="Allow downloads for this Reel"
+            />
+          </div>
 
           {error && <p className="text-sm text-red-300">{error}</p>}
 

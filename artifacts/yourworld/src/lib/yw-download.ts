@@ -562,6 +562,234 @@ export async function downloadVideoInBackground(
   return task;
 }
 
+/**
+ * Renders a Reel through a canvas so its download carries the creator
+ * watermark. This stays separate from the shared original-byte video path.
+ */
+export async function downloadWatermarkedReelInBackground(
+  src: string,
+  fileNameBase: string,
+  creatorUsername: string,
+  onProgress?: (percent: number) => void,
+  metadata?: DownloadedVideoMetadata,
+) {
+  const watermark = reelWatermarkText(creatorUsername);
+  const key = `${src}|watermarked-reel|${fileNameBase}|${watermark}`;
+  const existing = activeVideoDownloads.get(key);
+  if (existing) return existing;
+
+  const task = (async () => {
+    const title = metadata?.title || fileNameBase;
+    updateDownloadTask(key, title, 0);
+    try {
+      const blob = await renderWatermarkedVideo(src, watermark, (percent) => {
+        updateDownloadTask(key, title, percent);
+        onProgress?.(percent);
+      });
+      if (!blob.size) throw new Error("Watermarked video export produced an empty file");
+      if (metadata) await saveDownloadedVideo(metadata, blob);
+      const extension = extensionForMime(blob.type || "video/webm", "webm");
+      triggerBlobDownload(
+        blob,
+        `${sanitizeDownloadName(fileNameBase, "yourworld-reel")}.${extension}`,
+      );
+      updateDownloadTask(key, title, 100);
+      window.setTimeout(() => removeDownloadTask(key), 400);
+    } catch (error) {
+      removeDownloadTask(key);
+      throw error;
+    } finally {
+      activeVideoDownloads.delete(key);
+    }
+  })();
+
+  activeVideoDownloads.set(key, task);
+  return task;
+}
+
+export function reelWatermarkText(creatorUsername: string) {
+  return `YourWorld • @${creatorUsername.trim().replace(/^@+/, "") || "user"}`;
+}
+
+async function renderWatermarkedVideo(
+  src: string,
+  watermark: string,
+  onProgress?: (percent: number) => void,
+) {
+  if (typeof MediaRecorder === "undefined") {
+    throw new Error("This browser cannot create a watermarked video download");
+  }
+  if (typeof HTMLCanvasElement.prototype.captureStream !== "function") {
+    throw new Error("This browser cannot render a watermarked video download");
+  }
+  const Ctx = audioContextConstructor();
+  if (!Ctx) throw new Error("This browser cannot preserve Reel audio during export");
+
+  const video = await loadVideoForExport(src);
+  if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+    await new Promise<void>((resolve, reject) => {
+      const timeout = window.setTimeout(() => {
+        cleanup();
+        reject(new Error("The Reel did not load a video frame for watermarking"));
+      }, 15_000);
+      const cleanup = () => {
+        window.clearTimeout(timeout);
+        video.removeEventListener("loadeddata", onLoaded);
+        video.removeEventListener("error", onError);
+      };
+      const onLoaded = () => {
+        cleanup();
+        resolve();
+      };
+      const onError = () => {
+        cleanup();
+        reject(new Error("The Reel could not be decoded for watermarking"));
+      };
+      video.addEventListener("loadeddata", onLoaded, { once: true });
+      video.addEventListener("error", onError, { once: true });
+    });
+  }
+  const audioContext = new Ctx();
+  const canvas = document.createElement("canvas");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  if (!canvas.width || !canvas.height) {
+    await audioContext.close().catch(() => {});
+    throw new Error("The Reel dimensions are unavailable");
+  }
+
+  const context = canvas.getContext("2d");
+  if (!context) {
+    await audioContext.close().catch(() => {});
+    throw new Error("Canvas is unavailable for the watermarked download");
+  }
+
+  const fontSize = Math.max(14, Math.round(canvas.height * 0.016));
+  const padding = Math.max(10, Math.round(fontSize * 0.8));
+  const drawFrame = () => {
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    context.save();
+    context.globalAlpha = 0.72;
+    context.font = `600 ${fontSize}px system-ui, sans-serif`;
+    context.textAlign = "left";
+    context.textBaseline = "bottom";
+    context.fillStyle = "#ffffff";
+    context.shadowColor = "rgba(0,0,0,0.75)";
+    context.shadowBlur = Math.max(3, Math.round(fontSize * 0.24));
+    context.shadowOffsetY = Math.max(1, Math.round(fontSize * 0.08));
+    context.fillText(watermark, padding, canvas.height - padding, canvas.width - padding * 2);
+    context.restore();
+  };
+
+  let stream: MediaStream | null = null;
+  let animationFrame = 0;
+  let audioSource: MediaElementAudioSourceNode | null = null;
+  let recorder: MediaRecorder | null = null;
+  let rejectRecording: ((reason?: unknown) => void) | null = null;
+
+  try {
+    drawFrame();
+    // Fail before encoding rather than returning a blank or unwatermarked file
+    // when a signed media URL does not permit canvas export.
+    context.getImageData(0, 0, 1, 1);
+
+    const audioDestination = audioContext.createMediaStreamDestination();
+    audioSource = audioContext.createMediaElementSource(video);
+    audioSource.connect(audioDestination);
+    await audioContext.resume();
+
+    stream = canvas.captureStream(30);
+    for (const track of audioDestination.stream.getAudioTracks()) {
+      stream.addTrack(track);
+    }
+    const mime = recorderMime(false);
+    recorder = new MediaRecorder(
+      stream,
+      mime
+        ? {
+            mimeType: mime,
+            videoBitsPerSecond: Math.min(
+              18_000_000,
+              Math.max(2_500_000, Math.round(canvas.width * canvas.height * 1.2)),
+            ),
+          }
+        : undefined,
+    );
+
+    const recorded = new Promise<Blob>((resolve, reject) => {
+      rejectRecording = reject;
+      const chunks: BlobPart[] = [];
+      recorder!.ondataavailable = (event) => {
+        if (event.data.size) chunks.push(event.data);
+      };
+      recorder!.onerror = () => reject(new Error("Watermarked video export failed"));
+      recorder!.onstop = () => {
+        const blob = new Blob(chunks, {
+          type: recorder!.mimeType || mime || "video/webm",
+        });
+        if (blob.size) resolve(blob);
+        else reject(new Error("Watermarked video export produced an empty file"));
+      };
+    });
+
+    const updateProgress = () => {
+      if (video.duration > 0 && Number.isFinite(video.duration)) {
+        onProgress?.(Math.min(99, Math.round((video.currentTime / video.duration) * 100)));
+      }
+    };
+    const drawNextFrame = () => {
+      if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) drawFrame();
+      updateProgress();
+      if (!video.ended && !video.paused) {
+        animationFrame = window.requestAnimationFrame(drawNextFrame);
+      }
+    };
+    const stopOnEnd = () => {
+      if (recorder?.state !== "inactive") recorder?.stop();
+    };
+    const failOnMediaError = () => {
+      rejectRecording?.(new Error("The Reel could not be rendered for download"));
+      if (recorder?.state !== "inactive") recorder?.stop();
+    };
+    video.addEventListener("timeupdate", updateProgress);
+    video.addEventListener("ended", stopOnEnd, { once: true });
+    video.addEventListener("error", failOnMediaError, { once: true });
+
+    recorder.start(250);
+    try {
+      await video.play();
+    } catch {
+      if (recorder.state !== "inactive") recorder.stop();
+      await recorded.catch(() => {});
+      throw new Error("This browser blocked playback needed to watermark the Reel");
+    }
+    drawNextFrame();
+    const result = await recorded;
+    onProgress?.(100);
+    video.removeEventListener("timeupdate", updateProgress);
+    video.removeEventListener("ended", stopOnEnd);
+    video.removeEventListener("error", failOnMediaError);
+    return result;
+  } catch (error) {
+    if (recorder && recorder.state !== "inactive") recorder.stop();
+    if (error instanceof DOMException && error.name === "SecurityError") {
+      throw new Error("This Reel cannot be watermarked because its video source blocks canvas export");
+    }
+    if (error instanceof DOMException && error.name === "NotSupportedError") {
+      throw new Error("This browser does not support the video format needed for a watermarked download");
+    }
+    throw error;
+  } finally {
+    if (animationFrame) window.cancelAnimationFrame(animationFrame);
+    stream?.getTracks().forEach((track) => track.stop());
+    audioSource?.disconnect();
+    video.pause();
+    video.removeAttribute("src");
+    video.load();
+    await audioContext.close().catch(() => {});
+  }
+}
+
 function recorderMime(audioOnly: boolean) {
   const candidates = audioOnly
     ? ["audio/mpeg", "audio/webm;codecs=opus", "audio/webm", "audio/mp4"]
@@ -675,7 +903,12 @@ export async function downloadAudioOnly(
   );
 }
 
-export async function downloadWithWatermark(src: string, username: string, fileName: string) {
+export async function downloadWithWatermark(
+  src: string,
+  username: string,
+  fileName: string,
+  brandingLabel?: string,
+) {
   const img = new Image();
   img.crossOrigin = "anonymous";
   img.src = src;
@@ -699,17 +932,20 @@ export async function downloadWithWatermark(src: string, username: string, fileN
   ctx.shadowColor = "rgba(0,0,0,0.6)";
   ctx.shadowBlur = unit * 0.5;
 
-  // YW mark
-  ctx.font = `700 ${unit}px Sora, system-ui, sans-serif`;
   ctx.textBaseline = "alphabetic";
   ctx.fillStyle = "#ffffff";
-  ctx.fillText("YW", x, y);
-  const markWidth = ctx.measureText("YW").width;
+  if (brandingLabel) {
+    ctx.font = `600 ${unit * 0.62}px Manrope, system-ui, sans-serif`;
+    ctx.fillText(brandingLabel, x, y, Math.max(1, canvas.width - pad * 2));
+  } else {
+    ctx.font = `700 ${unit}px Sora, system-ui, sans-serif`;
+    ctx.fillText("YW", x, y);
+    const markWidth = ctx.measureText("YW").width;
 
-  // creator handle
-  ctx.globalAlpha = 0.45;
-  ctx.font = `600 ${unit * 0.62}px Manrope, system-ui, sans-serif`;
-  ctx.fillText(`@${username}`, x + markWidth + unit * 0.4, y);
+    ctx.globalAlpha = 0.45;
+    ctx.font = `600 ${unit * 0.62}px Manrope, system-ui, sans-serif`;
+    ctx.fillText(`@${username}`, x + markWidth + unit * 0.4, y);
+  }
   ctx.restore();
 
   const blob: Blob | null = await new Promise((resolve) =>

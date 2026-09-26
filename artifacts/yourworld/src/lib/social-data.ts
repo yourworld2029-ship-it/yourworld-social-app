@@ -897,6 +897,7 @@ export async function publishDirectReel(opts: {
   title: string;
   caption?: string;
   hashtags?: string[];
+  allowDownload?: boolean;
   durationSeconds: number;
   originalWidth?: number | null;
   originalHeight?: number | null;
@@ -964,7 +965,7 @@ export async function publishDirectReel(opts: {
       caption: opts.caption?.trim() ?? "",
       hashtags: opts.hashtags ?? [],
       audio: null,
-      allow_download: true,
+      allow_download: opts.allowDownload ?? true,
       audience: "everyone",
       tagged_user_ids: [],
       viewer_user_ids: [],

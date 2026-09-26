@@ -704,6 +704,7 @@ export type Database = {
       }
       posts: {
         Row: {
+          allow_download: boolean
           caption: string | null
           comments_count: number | null
           created_at: string | null
@@ -723,6 +724,7 @@ export type Database = {
           views_count: number | null
         }
         Insert: {
+          allow_download?: boolean
           caption?: string | null
           comments_count?: number | null
           created_at?: string | null
@@ -742,6 +744,7 @@ export type Database = {
           views_count?: number | null
         }
         Update: {
+          allow_download?: boolean
           caption?: string | null
           comments_count?: number | null
           created_at?: string | null

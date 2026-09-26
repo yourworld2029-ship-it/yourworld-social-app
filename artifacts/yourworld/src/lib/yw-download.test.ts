@@ -1,8 +1,14 @@
 import assert from "node:assert/strict";
 import { mock, test } from "node:test";
-import { fetchVideoBlob } from "./yw-download";
+import { fetchVideoBlob, reelWatermarkText } from "./yw-download";
 
 const sourceBytes = Uint8Array.from({ length: 100 }, (_, index) => index);
+
+test("Reel watermark text uses the creator handle exactly once", () => {
+  assert.equal(reelWatermarkText("creator"), "YourWorld • @creator");
+  assert.equal(reelWatermarkText("@creator"), "YourWorld • @creator");
+  assert.equal(reelWatermarkText(""), "YourWorld • @user");
+});
 
 test("video download combines four validated byte ranges in order", async () => {
   const requestedRanges: string[] = [];

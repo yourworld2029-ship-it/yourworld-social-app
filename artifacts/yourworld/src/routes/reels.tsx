@@ -7,7 +7,6 @@ import {
   Download,
   Music2,
   Volume2,
-  Lock,
   MoreVertical,
   EyeOff,
   UserX,
@@ -30,9 +29,10 @@ import { formatCount, type Reel, type User } from "@/lib/yw-data";
 import { getLocalMedia, resolveMediaUrl, timeAgo, useSocialPosts } from "@/lib/social-data";
 import { useDoubleTapLike, useYw } from "@/lib/yw-store";
 import {
-  downloadVideoInBackground,
+  downloadWatermarkedReelInBackground,
   downloadAudioOnly,
   downloadWithWatermark,
+  reelWatermarkText,
   sanitizeDownloadName,
 } from "@/lib/yw-download";
 import { cn } from "@/lib/utils";
@@ -836,9 +836,12 @@ function ReelItem({
       return;
     }
     const source = mediaUrl ?? reel.poster;
-    const toastId = !isVideo || choice === "mp3"
-      ? toast.loading(isVideo ? "Preparing MP3 audio… 0%" : "Preparing image download…")
-      : undefined;
+    const creatorUsername = author?.username?.trim().replace(/^@+/, "") || "user";
+    const toastId = toast.loading(
+      isVideo
+        ? choice === "mp3" ? "Preparing MP3 audio…" : "Preparing watermarked Reel…"
+        : "Preparing image download…",
+    );
     try {
       if (isVideo) {
         const playableUrl = getLocalMedia(source) ?? await resolveMediaUrl(source);
@@ -851,7 +854,7 @@ function ReelItem({
           mediaId: reel.id,
           title: reel.caption || "Untitled Moment",
           creatorName: author?.name ?? "YourWorld athlete",
-          creatorUsername: author?.username ?? "user",
+          creatorUsername,
           creatorId: author?.id ?? null,
           views: reel.views,
           createdAt: reel.createdAt,
@@ -864,15 +867,15 @@ function ReelItem({
           await downloadAudioOnly(playableUrl, baseName, (percent) => {
             reportProgress?.(percent);
             toast.loading(`Preparing MP3 audio... ${percent}%`, { id: toastId });
-          },
-          );
+          });
         } else {
-          await downloadVideoInBackground(
+          await downloadWatermarkedReelInBackground(
             playableUrl,
-            `${baseName}.mp4`,
+            baseName,
+            creatorUsername,
             (percent) => {
               reportProgress?.(percent);
-              toast.loading(`Downloading ${choice} video... ${percent}%`, { id: toastId });
+              toast.loading(`Watermarking Reel… ${percent}%`, { id: toastId });
             },
             downloadMetadata,
           );
@@ -880,19 +883,28 @@ function ReelItem({
         trackEvent("reel_downloaded", {
           surface: "reels_feed",
           media_type: "video",
-          download_type: choice === "mp3" ? "audio" : choice || "original",
+          download_type: choice === "mp3" ? "audio" : "watermarked_video",
+          download_quality: choice || "original",
         });
-        if (choice === "mp3") {
-          toast.success("Saved to your device", { id: toastId });
-        }
+        toast.success(
+          choice === "mp3"
+            ? "Saved to your device"
+            : "Saved Reel with YourWorld watermark",
+          { id: toastId },
+        );
       } else {
-        await downloadWithWatermark(reel.poster, user.username, `yw-reel-${reel.id}.jpg`);
+        await downloadWithWatermark(
+          reel.poster,
+          creatorUsername,
+          `yw-reel-${reel.id}.jpg`,
+          reelWatermarkText(creatorUsername),
+        );
         trackEvent("reel_downloaded", {
           surface: "reels_feed",
           media_type: "image",
           download_type: "watermarked_image",
         });
-        toast.success("Downloaded in original quality with YW watermark", { id: toastId });
+        toast.success("Saved Reel with YourWorld watermark", { id: toastId });
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Download failed";
@@ -1075,7 +1087,7 @@ function ReelItem({
         >
           <Heart
             strokeWidth={1.8}
-            className={cn("h-[18px] w-[18px]", isLiked && "fill-primary text-primary")}
+            className={cn("h-[18px] w-[18px] text-white", isLiked && "fill-white")}
           />
         </Action>
 
@@ -1088,19 +1100,6 @@ function ReelItem({
             <MessageCircle strokeWidth={1.8} className="h-[18px] w-[18px]" />
           </Action>
         </CommentsSheet>
-
-        {reel.allowDownload ? (
-          <Action onClick={handleDownload} label="Download">
-            <Download strokeWidth={1.8} className="h-[18px] w-[18px]" />
-          </Action>
-        ) : (
-          <Action
-            onClick={() => toast("The creator turned downloads off for this reel")}
-            label="Off"
-          >
-            <Lock strokeWidth={1.8} className="h-[17px] w-[17px] text-muted-foreground" />
-          </Action>
-        )}
 
         <ShareSheet
           title={reel.caption}
@@ -1131,6 +1130,24 @@ function ReelItem({
             role="menu"
             className="absolute bottom-16 right-3 z-50 w-56 overflow-hidden rounded-2xl border border-border/60 bg-background/85 shadow-2xl backdrop-blur-xl animate-rise"
           >
+            {reel.allowDownload ? (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false);
+                  if (mediaType?.startsWith("video") && mediaUrl) {
+                    setDownloadOpen(true);
+                  } else {
+                    void handleDownload();
+                  }
+                }}
+                className="flex w-full items-center gap-3 border-b border-border/50 px-4 py-3 text-left text-[13px] font-medium transition-colors hover:bg-foreground/10"
+              >
+                <Download strokeWidth={1.6} className="h-[17px] w-[17px] text-muted-foreground" />
+                Download Reel
+              </button>
+            ) : null}
             {[
               { icon: EyeOff, label: "Not Interested" },
               { icon: UserX, label: "Don't Recommend Creator" },
@@ -1272,10 +1289,8 @@ function Action({
       )}
     >
       <span
-        className={cn(
-          "grid h-9 w-9 place-items-center rounded-full border border-foreground/15 bg-background/25 shadow-[0_6px_20px_rgba(0,0,0,0.35)] backdrop-blur-md transition-colors group-hover:bg-background/40",
-          active && "border-primary/40 bg-primary/15",
-        )}
+        className="grid h-9 w-9 place-items-center text-white"
+        style={{ filter: "drop-shadow(0px 2px 4px rgba(0, 0, 0, 0.6))" }}
       >
         {children}
       </span>
