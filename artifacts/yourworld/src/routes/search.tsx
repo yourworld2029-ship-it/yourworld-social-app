@@ -25,6 +25,11 @@ import { formatDuration, formatViews } from "@/lib/video-data";
 import { useYw } from "@/lib/yw-store";
 import { supabase } from "@/integrations/supabase/client";
 import {
+  announcePostDeletedFromRealtime,
+  isPostDeleted,
+  subscribeToPostDeleted,
+} from "@/lib/post-deletion";
+import {
   loadSearchData,
   searchPublicProfiles,
   type SearchUser,
@@ -72,8 +77,8 @@ function SearchPage() {
         const next = await loadSearchData();
         if (!active) return;
         setUsers(next.users);
-        setReels(next.reels);
-        setVideos(next.videos);
+        setReels(next.reels.filter((post) => !isPostDeleted(post.id)));
+        setVideos(next.videos.filter((post) => !isPostDeleted(post.id)));
         setHashtags(next.hashtags);
         setLoadError(null);
       } catch (error) {
@@ -87,7 +92,10 @@ function SearchPage() {
     const channel = supabase
       .channel("search-live-data")
       .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => void load())
-      .on("postgres_changes", { event: "*", schema: "public", table: "posts" }, () => void load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "posts" }, (payload) => {
+        announcePostDeletedFromRealtime(payload);
+        void load();
+      })
       .on("postgres_changes", { event: "*", schema: "public", table: "follows" }, () => void load())
       .subscribe();
     return () => {
@@ -95,6 +103,15 @@ function SearchPage() {
       void supabase.removeChannel(channel);
     };
   }, []);
+
+  useEffect(
+    () =>
+      subscribeToPostDeleted((postId) => {
+        setReels((current) => current.filter((post) => post.id !== postId));
+        setVideos((current) => current.filter((post) => post.id !== postId));
+      }),
+    [],
+  );
 
   const q = query.trim().toLowerCase().replace(/^[#@]/, "");
   const hasQuery = q.length > 0;

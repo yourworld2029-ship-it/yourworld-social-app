@@ -2,6 +2,12 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useInfiniteQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
+  announcePostDeletedFromRealtime,
+  isPostDeleted,
+  removeDeletedPostFromQueryCaches,
+  subscribeToPostDeleted,
+} from "@/lib/post-deletion";
+import {
   getLocalMedia,
   rememberLocalMedia,
   resolveMediaUrl,
@@ -475,6 +481,7 @@ async function loadLongVideoPage(
   const now = Date.now();
   const visible = posts
     .map(normalizePostRow)
+    .filter((p) => !isPostDeleted(p.id))
     .filter(
       (p) =>
         !p.scheduled_at ||
@@ -544,7 +551,11 @@ async function loadLongVideoPage(
     } satisfies LongVideo;
   });
 
-  return { videos, currentUserId: uid, hasMore: posts.length >= pageSize };
+  return {
+    videos: videos.filter((video) => !isPostDeleted(video.id)),
+    currentUserId: uid,
+    hasMore: posts.length >= pageSize,
+  };
 }
 
 export function useLongVideos() {
@@ -553,7 +564,13 @@ export function useLongVideos() {
   const feedQuery = useInfiniteQuery({
     queryKey,
     initialPageParam: 0,
-    queryFn: ({ pageParam }) => loadLongVideoPage(pageParam, VIDEO_PAGE_SIZE),
+    queryFn: async ({ pageParam }) => {
+      const page = await loadLongVideoPage(pageParam, VIDEO_PAGE_SIZE);
+      return {
+        ...page,
+        videos: page.videos.filter((video) => !isPostDeleted(video.id)),
+      };
+    },
     getNextPageParam: (lastPage, _allPages, lastPageParam) =>
       lastPage.hasMore ? lastPageParam + 1 : undefined,
   });
@@ -580,6 +597,9 @@ export function useLongVideos() {
   );
 
   useEffect(() => {
+    const unsubscribeFromDeletes = subscribeToPostDeleted((postId) => {
+      removeDeletedPostFromQueryCaches(queryClient, postId);
+    });
     let timer: number | undefined;
     const queue = () => {
       window.clearTimeout(timer);
@@ -587,11 +607,15 @@ export function useLongVideos() {
         void queryClient.invalidateQueries({ queryKey });
       }, 500);
     };
+    const onPostsChange = (payload: unknown) => {
+      announcePostDeletedFromRealtime(payload);
+      queue();
+    };
     let channel: ReturnType<typeof supabase.channel> | null = null;
     const boot = window.setTimeout(() => {
       channel = supabase
         .channel("long-videos")
-        .on("postgres_changes", { event: "*", schema: "public", table: "posts" }, queue)
+        .on("postgres_changes", { event: "*", schema: "public", table: "posts" }, onPostsChange)
         .on("postgres_changes", { event: "*", schema: "public", table: "likes" }, queue)
        .on("postgres_changes", { event: "*", schema: "public", table: "comments" }, queue)
         .subscribe();
@@ -599,6 +623,7 @@ export function useLongVideos() {
     return () => {
       window.clearTimeout(boot);
       window.clearTimeout(timer);
+      unsubscribeFromDeletes();
       if (channel) void supabase.removeChannel(channel);
     };
   }, [queryClient, queryKey]);

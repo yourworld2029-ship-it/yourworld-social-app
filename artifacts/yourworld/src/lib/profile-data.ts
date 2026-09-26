@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SetPostPinBody, SetPostPinResponse } from "@workspace/api-zod";
 import { supabase } from "@/integrations/supabase/client";
+import { normalizeSupabaseProjectUrl } from "@/integrations/supabase/url";
 import { STORAGE_BUCKETS, uploadWithProgress, type ProgressFn } from "@/lib/storage-upload";
 import { resolveMediaUrl, type DbPost } from "@/lib/social-data";
+import { announcePostDeleted, isPostDeleted } from "@/lib/post-deletion";
 import { normalizePostRow, writeCompat } from "@/lib/supabase-compat";
 import {
   isSportsIdentityCategory,
@@ -627,7 +629,11 @@ export function useMyProfile() {
             .limit(12);
           if (generation !== loadGeneration.current) return;
 
-          setPosts((myPosts ?? []).map(normalizePostRow) as DbPost[]);
+          setPosts(
+            (myPosts ?? [])
+              .map(normalizePostRow)
+              .filter((post) => !isPostDeleted(post.id)) as DbPost[],
+          );
         } finally {
           if (generation === loadGeneration.current) setMediaLoading(false);
         }
@@ -878,6 +884,74 @@ export async function uploadPostThumbnail(
 }
 
 
+function storageObjectFromReference(
+  reference: string | null | undefined,
+  defaultBucket: string,
+  ownerId: string,
+): { bucket: string; path: string } | null {
+  if (!reference || /^(blob:|data:)/i.test(reference)) return null;
+
+  let bucket = defaultBucket;
+  let path = reference;
+  if (/^https?:\/\//i.test(reference)) {
+    let url: URL;
+    try {
+      url = new URL(reference);
+    } catch {
+      throw new Error("Couldn't identify this media file in storage");
+    }
+
+    let storageOrigin: string;
+    try {
+      storageOrigin = new URL(
+        normalizeSupabaseProjectUrl(
+          (import.meta.env?.["VITE_SUPABASE_URL"] as string | undefined) ?? "",
+        ),
+      ).origin;
+    } catch {
+      throw new Error("Supabase Storage is not configured correctly");
+    }
+    if (url.origin !== storageOrigin) return null;
+
+    const markers = ["/storage/v1/object/", "/storage/v1/render/image/"];
+    const marker = markers.find((candidate) => url.pathname.includes(candidate));
+    const markerIndex = marker ? url.pathname.indexOf(marker) : -1;
+    if (!marker || markerIndex < 0) return null;
+    const segments = url.pathname.slice(markerIndex + marker.length).split("/");
+    if (["sign", "public", "authenticated"].includes(segments[0] ?? "")) {
+      segments.shift();
+    }
+    const urlBucket = decodeURIComponent(segments.shift() ?? "");
+    if (urlBucket) bucket = urlBucket;
+    path = segments.join("/");
+  }
+
+  try {
+    path = decodeURIComponent(path.replace(/^\/+/, ""));
+  } catch {
+    throw new Error("Couldn't decode this media file path");
+  }
+
+  const allowedBuckets = new Set<string>([
+    STORAGE_BUCKETS.reels,
+    STORAGE_BUCKETS.videos,
+  ]);
+  const firstPathSegment = path.split("/")[0];
+  if (allowedBuckets.has(firstPathSegment)) {
+    bucket = firstPathSegment;
+    path = path.slice(firstPathSegment.length + 1);
+  }
+  if (!allowedBuckets.has(bucket)) return null;
+  if (
+    !path.startsWith(`${ownerId}/`) ||
+    path.split("/").some((segment) => segment === "." || segment === "..")
+  ) {
+    throw new Error("This media file isn't in your storage folder");
+  }
+
+  return { bucket, path };
+}
+
 /** Permanently delete a post/reel you own, plus its stored media files. */
 export async function deleteMyPost(post: {
   id: string;
@@ -891,6 +965,50 @@ export async function deleteMyPost(post: {
   const sessionUserId = userData.user?.id;
   if (!sessionUserId || sessionUserId !== post.user_id) {
     throw new Error("You can only delete your own media");
+  }
+
+  const { data: storedPost, error: lookupError } = await supabase
+    .from("posts")
+    .select("*")
+    .eq("id", post.id)
+    .eq("user_id", sessionUserId)
+    .maybeSingle();
+  if (lookupError) throw new Error(lookupError.message);
+  if (!storedPost) {
+    throw new Error("This media is no longer available or you do not own it");
+  }
+
+  const extendedPost = storedPost as typeof storedPost & {
+    video_url?: string | null;
+    cover_image?: string | null;
+    cover_image_url?: string | null;
+  };
+  const mediaBucket =
+    storedPost.kind === "reel" ? STORAGE_BUCKETS.reels : STORAGE_BUCKETS.videos;
+  const references: Array<{ reference: string | null | undefined; bucket: string }> = [
+    { reference: storedPost.media_url, bucket: mediaBucket },
+    { reference: extendedPost.video_url, bucket: mediaBucket },
+    { reference: storedPost.thumbnail_url, bucket: STORAGE_BUCKETS.videos },
+    { reference: extendedPost.cover_image, bucket: STORAGE_BUCKETS.videos },
+    { reference: extendedPost.cover_image_url, bucket: STORAGE_BUCKETS.videos },
+  ];
+  const objectsByBucket = new Map<string, Set<string>>();
+  for (const { reference, bucket } of references) {
+    const object = storageObjectFromReference(reference, bucket, sessionUserId);
+    if (!object) continue;
+    const paths = objectsByBucket.get(object.bucket) ?? new Set<string>();
+    paths.add(object.path);
+    objectsByBucket.set(object.bucket, paths);
+  }
+
+  for (const [bucket, paths] of objectsByBucket) {
+    const { error: storageError } = await supabase.storage
+      .from(bucket)
+      .remove([...paths]);
+    if (storageError) {
+      console.error(`Failed to remove media from ${bucket}`, storageError);
+      throw new Error(`Couldn't remove the media file from ${bucket}: ${storageError.message}`);
+    }
   }
 
   const { data: deletedRows, error } = await supabase
@@ -907,29 +1025,7 @@ export async function deleteMyPost(post: {
     throw new Error("This media is no longer available or you do not own it");
   }
 
-  const mediaBucket =
-    post.kind === "reel" ? STORAGE_BUCKETS.reels : STORAGE_BUCKETS.videos;
-  const references: Array<{ reference: string | null | undefined; bucket: string }> = [
-    { reference: post.media_url, bucket: mediaBucket },
-    { reference: post.thumbnail_url, bucket: STORAGE_BUCKETS.videos },
-  ];
-  const removed = new Set<string>();
-  for (const { reference, bucket } of references) {
-    if (!reference || /^(blob:|data:)/.test(reference)) continue;
-    const path = /^https?:/.test(reference)
-      ? reference.match(new RegExp(`/storage/v1/object/(?:sign|public)/${bucket}/([^?]+)`))?.[1]
-      : reference.replace(/^\/+/, "");
-    if (!path) continue;
-    const key = `${bucket}:${path}`;
-    if (removed.has(key)) continue;
-    removed.add(key);
-    const { error: storageError } = await supabase.storage
-      .from(bucket)
-      .remove([decodeURIComponent(path)]);
-    if (storageError) {
-      console.error(`Failed to remove media from ${bucket}`, storageError);
-    }
-  }
+  announcePostDeleted(post.id);
 }
 
 /** Resolves a stored media reference to something an <img> can render. */

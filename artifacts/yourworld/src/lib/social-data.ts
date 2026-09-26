@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  announcePostDeletedFromRealtime,
+  isPostDeleted,
+  removeDeletedPostFromQueryCaches,
+  subscribeToPostDeleted,
+} from "@/lib/post-deletion";
 import { cacheGet, cacheSet } from "@/lib/local-cache";
 import {
   loadCachedThread,
@@ -250,8 +256,12 @@ export async function loadSocialPosts(
     return { posts: [], currentUserId: uid, hasMore: false };
   }
 
-  const ids = posts.map((p) => p.id);
-  const authorIds = [...new Set(posts.map((p) => p.user_id))];
+  const visiblePosts = posts.filter((post) => !isPostDeleted(post.id));
+  if (!visiblePosts.length) {
+    return { posts: [], currentUserId: uid, hasMore: posts.length >= pageSize };
+  }
+  const ids = visiblePosts.map((p) => p.id);
+  const authorIds = [...new Set(visiblePosts.map((p) => p.user_id))];
 
   const [profilesResult, likesResult, commentsResult] = await Promise.all([
     client.rpc("get_public_profiles", { ids: authorIds }),
@@ -269,7 +279,7 @@ export async function loadSocialPosts(
 
   const likeRows = (likes ?? []) as Array<{ post_id: string; user_id: string }>;
   const commentRows = (comments ?? []) as Array<{ post_id: string }>;
-  const next: SocialPost[] = posts.map((p) => ({
+  const next: SocialPost[] = visiblePosts.map((p) => ({
     ...(normalizePostRow(p) as DbPost),
     views: Number(
       p.views ??
@@ -284,7 +294,7 @@ export async function loadSocialPosts(
   }));
 
   return {
-    posts: next,
+    posts: next.filter((post) => !isPostDeleted(post.id)),
     currentUserId: uid,
     hasMore: posts.length >= pageSize,
   };
@@ -432,8 +442,19 @@ export function useSocialPosts(
   const feedQuery = useInfiniteQuery({
     queryKey,
     initialPageParam: 0,
-    queryFn: ({ pageParam }) =>
-      loadSocialPosts(kind, supabase, userId, pageParam, SOCIAL_PAGE_SIZE),
+    queryFn: async ({ pageParam }) => {
+      const page = await loadSocialPosts(
+        kind,
+        supabase,
+        userId,
+        pageParam,
+        SOCIAL_PAGE_SIZE,
+      );
+      return {
+        ...page,
+        posts: page.posts.filter((post) => !isPostDeleted(post.id)),
+      };
+    },
     getNextPageParam: (lastPage, _allPages, lastPageParam) =>
       lastPage.hasMore ? lastPageParam + 1 : undefined,
   });
@@ -468,6 +489,10 @@ export function useSocialPosts(
 
   useEffect(() => {
     removedRef.current.clear();
+    const unsubscribeFromDeletes = subscribeToPostDeleted((postId) => {
+      removedRef.current.add(postId);
+      removeDeletedPostFromQueryCaches(queryClient, postId);
+    });
     // Coalesce realtime bursts so a flood of likes never triggers a refetch storm.
     let timer: number | undefined;
     const queue = () => {
@@ -478,12 +503,16 @@ export function useSocialPosts(
         }
       }, 500);
     };
+    const onPostsChange = (payload: unknown) => {
+      announcePostDeletedFromRealtime(payload);
+      queue();
+    };
     let channel: ReturnType<typeof supabase.channel> | null = null;
     // Subscribe after first paint so the socket handshake doesn't delay render.
     const boot = window.setTimeout(() => {
       channel = supabase
         .channel(`social-${kind}-${userId ?? "all"}`)
-        .on("postgres_changes", { event: "*", schema: "public", table: "posts" }, queue)
+        .on("postgres_changes", { event: "*", schema: "public", table: "posts" }, onPostsChange)
         .on("postgres_changes", { event: "*", schema: "public", table: "likes" }, queue)
         .on("postgres_changes", { event: "*", schema: "public", table: "comments" }, queue)
         .subscribe();
@@ -491,6 +520,7 @@ export function useSocialPosts(
     return () => {
       window.clearTimeout(boot);
       window.clearTimeout(timer);
+      unsubscribeFromDeletes();
       if (channel) void supabase.removeChannel(channel);
     };
   }, [kind, queryClient, queryKey, userId]);

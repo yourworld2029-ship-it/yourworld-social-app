@@ -1,4 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import type React from "react";
 import { useEffect, useState } from "react";
 import {
@@ -8,6 +9,8 @@ import {
   MessageCircleOff,
   Send,
   Pencil,
+  Download,
+  Share2,
   Pin,
   PinOff,
   Trash2,
@@ -54,6 +57,7 @@ import {
   type SportsProfileDraft,
 } from "@/components/yw/SportsProfile";
 import { resolveMediaUrl, type DbPost } from "@/lib/social-data";
+import { removeDeletedPostFromQueryCaches } from "@/lib/post-deletion";
 import { STORAGE_BUCKETS } from "@/lib/storage-upload";
 import { useFollowCounts } from "@/lib/follow-data";
 import { ProfileTemplate } from "@/components/yw/ProfileTemplate";
@@ -66,8 +70,19 @@ import {
   getDownloadedVideoUrl,
   removeDownloadedVideo,
   toDownloadedVideo,
+  downloadAudioOnly,
+  downloadVideoInBackground,
+  downloadWatermarkedReelInBackground,
+  sanitizeDownloadName,
   type DownloadedVideo,
+  type DownloadedVideoMetadata,
 } from "@/lib/yw-download";
+import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadSheet";
+import {
+  isVideoQualityTier,
+  qualityTierFromDimensions,
+  type VideoQualityTier,
+} from "@/lib/video-quality";
 import { getAllOfflineVideos } from "@/lib/offlineVideosDB";
 import { useVideoPlayback } from "@/lib/video-playback";
 import { PostEditDialog } from "@/components/yw/PostEditDialog";
@@ -114,6 +129,7 @@ export const Route = createFileRoute("/profile")({
 });
 
 function ProfilePage() {
+  const queryClient = useQueryClient();
   const {
     profile,
     avatarSrc,
@@ -135,11 +151,29 @@ function ProfilePage() {
   const { activateVideo } = useVideoPlayback();
   const [downloads, setDownloads] = useState<DownloadedVideo[]>([]);
   const [downloadsLoading, setDownloadsLoading] = useState(true);
+  const [downloadTarget, setDownloadTarget] = useState<DbPost | null>(null);
+  const [downloadOpen, setDownloadOpen] = useState(false);
+  const [downloadSourceUrl, setDownloadSourceUrl] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const counts = useFollowCounts(userId);
   const [listOpen, setListOpen] = useState(false);
   const [listTab, setListTab] = useState<"followers" | "following">("followers");
   const [manage, setManage] = useState<DbPost | null>(null);
+  const downloadQualityPost = downloadTarget as
+    | (DbPost & {
+        source_quality_tier?: string | null;
+        original_width?: number | null;
+        original_height?: number | null;
+      })
+    | null;
+  const downloadSourceQualityTier = downloadQualityPost
+    ? isVideoQualityTier(downloadQualityPost.source_quality_tier)
+      ? downloadQualityPost.source_quality_tier
+      : qualityTierFromDimensions(
+          downloadQualityPost.original_width,
+          downloadQualityPost.original_height,
+        )
+    : null;
   const [editing, setEditing] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<DbPost | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -313,6 +347,7 @@ function ProfilePage() {
     setDeleting(true);
     try {
       await deleteMyPost(deleteTarget);
+      removeDeletedPostFromQueryCaches(queryClient, deleteTarget.id);
       removePost(deleteTarget.id);
       setDeleteTarget(null);
       setManage(null);
@@ -321,6 +356,122 @@ function ProfilePage() {
       toast.error(error instanceof Error ? error.message : "Couldn't delete this post");
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const openManagedDownload = async () => {
+    if (!manage || !userId) return;
+    const post = manage;
+    setManage(null);
+    setDownloadTarget(post);
+    setDownloadSourceUrl(null);
+    try {
+      const mediaBucket =
+        post.kind === "reel" ? STORAGE_BUCKETS.reels : STORAGE_BUCKETS.videos;
+      const mediaUrl = await resolveMediaUrl(post.media_url, mediaBucket);
+      if (!mediaUrl) throw new Error("This media file is unavailable");
+      setDownloadSourceUrl(mediaUrl);
+      setDownloadOpen(true);
+    } catch (error) {
+      setDownloadTarget(null);
+      toast.error(error instanceof Error ? error.message : "Couldn't prepare this download");
+    }
+  };
+
+  const downloadManagedMedia = async (
+    choice: DownloadChoice,
+    reportProgress?: (percent: number) => void,
+  ) => {
+    if (!downloadTarget || !userId) return;
+    const post = downloadTarget;
+    try {
+      const mediaBucket =
+        post.kind === "reel" ? STORAGE_BUCKETS.reels : STORAGE_BUCKETS.videos;
+      const mediaUrl =
+        downloadSourceUrl ?? (await resolveMediaUrl(post.media_url, mediaBucket));
+      if (!mediaUrl) throw new Error("This media file is unavailable");
+
+      const creatorName = profile.display_name || "YourWorld creator";
+      const creatorUsername = profile.username || "creator";
+      const title = post.title || post.caption || "YourWorld media";
+      const thumbnailUrl = post.thumbnail_url
+        ? await resolveMediaUrl(post.thumbnail_url, STORAGE_BUCKETS.videos)
+        : null;
+      const quality: DownloadedVideoMetadata["quality"] =
+        choice === "original" || choice === "mp3"
+          ? "original"
+          : (choice as VideoQualityTier);
+      const metadata = {
+        ownerId: userId,
+        mediaId: post.id,
+        title,
+        creatorName,
+        creatorUsername,
+        views: Number(
+          (post as DbPost & { views_count?: number | null; views?: number | null })
+            .views ?? (post as DbPost & { views_count?: number | null }).views_count ?? 0,
+        ),
+        createdAt: post.created_at ?? null,
+        durationSeconds: post.duration_seconds ?? null,
+        thumbnailUrl,
+        posterUrl: thumbnailUrl,
+        quality,
+      };
+      const baseName = sanitizeDownloadName(
+        title,
+        `yourworld-${post.kind === "reel" ? "reel" : "video"}-${post.id}`,
+      );
+
+      if (choice === "mp3") {
+        await downloadAudioOnly(mediaUrl, baseName, reportProgress);
+      } else if (post.kind === "reel") {
+        await downloadWatermarkedReelInBackground(
+          mediaUrl,
+          baseName,
+          creatorUsername,
+          reportProgress,
+          metadata,
+        );
+      } else {
+        await downloadVideoInBackground(
+          mediaUrl,
+          `${baseName}.mp4`,
+          reportProgress,
+          metadata,
+        );
+      }
+      toast.success(
+        post.kind === "reel" && choice !== "mp3"
+          ? "Saved Reel with YourWorld watermark"
+          : "Download saved",
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't download this media");
+      throw error;
+    }
+  };
+
+  const shareManagedMedia = async () => {
+    if (!manage) return;
+    const post = manage;
+    setManage(null);
+    const url = `${window.location.origin}/?post=${encodeURIComponent(post.id)}`;
+    const title = post.title || post.caption || "YourWorld media";
+
+    if (navigator.share) {
+      try {
+        await navigator.share({ title, text: title, url });
+        return;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+      }
+    }
+
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("Link copied to clipboard");
+    } catch {
+      toast.error("Couldn't share this media");
     }
   };
 
@@ -726,6 +877,17 @@ function ProfilePage() {
                 onClick={() => startEdit(manage)}
               />
               <OptionRow
+                icon={<Download className="h-5 w-5" />}
+                label="Download"
+                sub="Save a copy of your media."
+                onClick={() => void openManagedDownload()}
+              />
+              <OptionRow
+                icon={<Share2 className="h-5 w-5" />}
+                label="Share"
+                onClick={() => void shareManagedMedia()}
+              />
+              <OptionRow
                 icon={<Link2 className="h-5 w-5" />}
                 label="Copy link"
                 onClick={async () => {
@@ -750,6 +912,16 @@ function ProfilePage() {
           ) : null}
         </SheetContent>
       </Sheet>
+
+      <DownloadSheet
+        open={downloadOpen && !!downloadTarget}
+        onOpenChange={setDownloadOpen}
+        title={downloadTarget?.title || downloadTarget?.caption || "YourWorld media"}
+        durationSeconds={downloadTarget?.duration_seconds ?? null}
+        sourceQualityTier={downloadSourceQualityTier}
+        sourceMediaUrl={downloadSourceUrl}
+        onDownload={downloadManagedMedia}
+      />
 
       <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && !deleting && setDeleteTarget(null)}>
         <DialogContent className="max-w-sm">
