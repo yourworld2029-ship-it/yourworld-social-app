@@ -9,13 +9,17 @@ const apkPublicDir = path.resolve(
   "../../yourworld/public",
 );
 
-function registerApkDownload(filename: string) {
+function registerApkDownload(
+  filename: string,
+  routePath = `/${filename}`,
+  downloadName = filename,
+) {
   const filePath = path.join(apkPublicDir, filename);
 
-  router.get(`/${filename}`, (req, res, next) => {
+  router.get(routePath, (req, res, next) => {
     res.download(
       filePath,
-      filename,
+      downloadName,
       {
         headers: {
           "Content-Type": APK_CONTENT_TYPE,
@@ -41,5 +45,6 @@ function registerApkDownload(filename: string) {
 
 registerApkDownload("yourworld-debug.apk");
 registerApkDownload("yourworld-v3.apk");
+registerApkDownload("yourworld-debug.apk", "/download-apk", "yourworld.apk");
 
 export default router;

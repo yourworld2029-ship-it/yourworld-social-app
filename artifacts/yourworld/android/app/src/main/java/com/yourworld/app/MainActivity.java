@@ -39,11 +39,8 @@ public class MainActivity extends BridgeActivity {
         configureSystemBars();
         if (webView != null) {
             applyWebViewInsets(webView);
-            webView.getSettings().setCacheMode(WebSettings.LOAD_NO_CACHE);
-            // BridgeActivity may have started the initial remote load already.
-            // Restart it after applying the no-cache policy so it uses fresh HTML.
-            webView.stopLoading();
-            webView.reload();
+            webView.getSettings().setCacheMode(WebSettings.LOAD_DEFAULT);
+            webView.getSettings().setDomStorageEnabled(true);
         }
     }
 
