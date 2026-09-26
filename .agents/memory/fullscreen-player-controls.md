@@ -9,11 +9,11 @@ Player lock state, gesture handling, and gesture HUDs should be explicitly gated
 
 **How to apply:** Keep each conditional control wrapper self-contained, render only the unlock affordance while locked, and place brightness/volume HUDs in a fullscreen-only pointer-events-none overlay above the control layer.
 
-Fullscreen state should follow the actual fullscreen element, not viewport dimensions; orientation locking is optional and must always be undone on every exit path.
+Fullscreen state should follow the actual fullscreen element, not viewport dimensions. On Android, await Capacitor's native orientation lock after fullscreen entry; landscape videos must lock to landscape. Always unlock on every exit path.
 
-**Why:** Rotation can be delayed or unavailable, but the player still needs the exit icon, viewport layout, and controls to update as soon as fullscreen succeeds.
+**Why:** Expanding the HTML container alone does not rotate the Android device; native orientation control is required for landscape video playback.
 
-**How to apply:** Use standard and webkit fullscreen APIs with a video fallback, call `screen.orientation.lock("landscape")` best-effort after entry, and call `unlock()` on exit or external fullscreen changes.
+**How to apply:** Keep standard and webkit fullscreen APIs, await `ScreenOrientation.lock({ orientation: "landscape" })` after entering fullscreen for landscape media, and call `ScreenOrientation.unlock()` on button exit, external fullscreen changes, and route teardown. Browser-only fallbacks may use `screen.orientation`.
 
 On every fullscreen exit path, restore the saved page scroll after unlocking orientation, without pausing the persistent video.
 

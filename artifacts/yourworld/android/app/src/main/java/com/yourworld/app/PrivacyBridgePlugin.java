@@ -18,10 +18,11 @@ public class PrivacyBridgePlugin extends Plugin {
         }
 
         getActivity().runOnUiThread(() -> {
-            getActivity().getWindow().setFlags(
-                    WindowManager.LayoutParams.FLAG_SECURE,
-                    WindowManager.LayoutParams.FLAG_SECURE
-            );
+            if (enabled) {
+                getActivity().getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+            } else {
+                getActivity().getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE);
+            }
             call.resolve();
         });
     }

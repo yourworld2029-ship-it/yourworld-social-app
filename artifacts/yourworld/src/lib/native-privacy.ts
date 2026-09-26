@@ -11,31 +11,31 @@ export function isNativeAndroid() {
   return Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
 }
 
-function updateAndroidSecureFlag(enabled: boolean) {
+function updateAndroidChatSecureFlag(enabled: boolean) {
   if (!isNativeAndroid()) return;
 
   void privacyBridge.setSecureFlag({ enabled }).catch((error: unknown) => {
-    console.error("[privacy-bridge] Could not update Android screenshot protection", error);
+    console.error("[privacy-bridge] Could not update Android chat capture protection", error);
   });
 }
 
-export function useAndroidSecureFlag(enabled: boolean) {
+export function useAndroidChatSecureFlag() {
   useEffect(() => {
-    const reapplyProtection = () => updateAndroidSecureFlag(enabled);
-    const reapplyWhenVisible = () => {
-      if (document.visibilityState === "visible") reapplyProtection();
+    const enableChatProtection = () => updateAndroidChatSecureFlag(true);
+    const enableWhenVisible = () => {
+      if (document.visibilityState === "visible") enableChatProtection();
     };
 
-    reapplyProtection();
-    window.addEventListener("focus", reapplyProtection);
-    window.addEventListener("yw-app-resume", reapplyProtection);
-    document.addEventListener("visibilitychange", reapplyWhenVisible);
+    enableChatProtection();
+    window.addEventListener("focus", enableChatProtection);
+    window.addEventListener("yw-app-resume", enableChatProtection);
+    document.addEventListener("visibilitychange", enableWhenVisible);
 
     return () => {
-      window.removeEventListener("focus", reapplyProtection);
-      window.removeEventListener("yw-app-resume", reapplyProtection);
-      document.removeEventListener("visibilitychange", reapplyWhenVisible);
-      updateAndroidSecureFlag(false);
+      window.removeEventListener("focus", enableChatProtection);
+      window.removeEventListener("yw-app-resume", enableChatProtection);
+      document.removeEventListener("visibilitychange", enableWhenVisible);
+      updateAndroidChatSecureFlag(false);
     };
-  }, [enabled]);
+  }, []);
 }

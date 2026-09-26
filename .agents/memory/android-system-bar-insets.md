@@ -7,7 +7,9 @@ When the Android app targets SDK 35 or higher, Android 15+ enforces edge-to-edge
 
 **Why:** The app targets a modern SDK, where status bars can be visible and still overlay edge-to-edge content.
 
-**How to apply:** Check `targetSdk` before treating a top cutout as a CSS-only issue. Keep status-bar visibility/icon contrast explicit, then inset content once at the native WebView boundary rather than adding per-screen workarounds.
+**How to apply:** Check `targetSdk` before treating a top cutout as a CSS-only issue. Keep status-bar visibility/icon contrast explicit and preserve native WebView insets. YourWorld additionally requires a 40px minimum top padding and 70px minimum height on global, chat, and video headers.
+
+**Why:** Native WebView insets keep the page clear of system bars, while the additional header padding keeps back arrows, avatars, and labels comfortably below status icons.
 
 Fresh Replit shells may not include the Android SDK, even when a previous APK build succeeded. The managed system-dependency installer may not expose `androidenv.androidPkgs.androidsdk`; a composed Nix SDK is a viable fallback, but Gradle's requested Build Tools versions must be included because the Nix SDK output is read-only.
 

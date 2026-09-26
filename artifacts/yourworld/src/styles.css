@@ -1354,3 +1354,13 @@ html[data-theme] body {
   -webkit-user-select: none;
   -webkit-user-drag: none;
 }
+
+header,
+.top-header,
+.chat-header,
+.video-header {
+  padding-top: max(env(safe-area-inset-top), 40px) !important;
+  min-height: 70px !important;
+  display: flex;
+  align-items: center;
+}

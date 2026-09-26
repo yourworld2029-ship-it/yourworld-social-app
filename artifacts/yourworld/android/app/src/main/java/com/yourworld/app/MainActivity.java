@@ -21,10 +21,6 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(PrivacyBridgePlugin.class);
         super.onCreate(savedInstanceState);
 
-        getWindow().setFlags(
-                WindowManager.LayoutParams.FLAG_SECURE,
-                WindowManager.LayoutParams.FLAG_SECURE
-        );
         configureSystemBars();
 
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
@@ -45,10 +41,6 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onResume() {
         super.onResume();
-        getWindow().setFlags(
-                WindowManager.LayoutParams.FLAG_SECURE,
-                WindowManager.LayoutParams.FLAG_SECURE
-        );
         configureSystemBars();
 
         WebView webView = getBridge() != null ? getBridge().getWebView() : null;

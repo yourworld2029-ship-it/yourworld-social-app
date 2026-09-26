@@ -556,7 +556,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
             ? enteredFullscreen
             : requestPlayerFullscreen(fallbackTarget),
         )
-        .then((enteredFullscreen) => {
+        .then(async (enteredFullscreen) => {
           if (requestId !== fullscreenRequestIdRef.current) {
             const fullscreenElement = getPlayerFullscreenElement();
             if (fullscreenElement === primaryTarget || fullscreenElement === fallbackTarget) {
@@ -575,7 +575,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
           }
           setIsFullscreen(true);
           const videoOrientation = getPlayerOrientation(videoRef.current);
-          if (videoOrientation) void lockPlayerOrientation(videoOrientation);
+          if (videoOrientation) await lockPlayerOrientation(videoOrientation);
         })
         .catch(() => {
           if (requestId === fullscreenRequestIdRef.current) {
@@ -1149,7 +1149,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                   event.stopPropagation();
                   toggleScreenLock();
                 }}
-                className={`absolute right-3 top-[calc(env(safe-area-inset-top,24px)_+_0.75rem)] z-[60] rounded-full bg-black/45 p-1.5 text-white/80 shadow-lg backdrop-blur-sm transition-opacity duration-300 hover:bg-black/70 hover:text-white ${
+                className={`absolute right-3 top-[max(env(safe-area-inset-top,0px),40px)] z-[60] rounded-full bg-black/45 p-1.5 text-white/80 shadow-lg backdrop-blur-sm transition-opacity duration-300 hover:bg-black/70 hover:text-white ${
                   lockedUnlockVisible ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
                 }`}
                 aria-label="Unlock player controls"
@@ -1171,7 +1171,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                       : void navigate({ to: "/" })
                 }
                 className={`absolute left-3 ${
-                  isFullscreen ? "top-[calc(env(safe-area-inset-top,24px)_+_0.75rem)]" : "top-3"
+                  isFullscreen ? "top-[max(env(safe-area-inset-top,0px),40px)]" : "top-3"
                 } z-50 rounded-full bg-black/60 p-2 text-white transition-opacity duration-200 hover:bg-black/80 ${
                   controlsVisible ? "opacity-100" : "pointer-events-none opacity-0"
                 }`}
@@ -1187,7 +1187,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               <button
                 type="button"
                 onClick={toggleScreenLock}
-                className={`absolute right-14 top-[calc(env(safe-area-inset-top,24px)_+_0.75rem)] z-50 rounded-full bg-black/60 p-2 text-white transition-opacity duration-200 hover:bg-black/80 ${
+                className={`absolute right-14 top-[max(env(safe-area-inset-top,0px),40px)] z-50 rounded-full bg-black/60 p-2 text-white transition-opacity duration-200 hover:bg-black/80 ${
                   controlsVisible ? "opacity-100" : "pointer-events-none opacity-0"
                 }`}
                 aria-label="Lock player controls"

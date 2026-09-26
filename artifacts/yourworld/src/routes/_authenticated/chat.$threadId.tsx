@@ -29,7 +29,7 @@ import { PinDialog } from "@/components/yw/PinDialog";
 import { toast } from "sonner";
 import { AUTO_DELETE_OPTIONS, autoDeleteLabel } from "@/lib/auto-delete";
 import { historyBackOr } from "@/lib/navigation";
-import { useAndroidSecureFlag } from "@/lib/native-privacy";
+import { useAndroidChatSecureFlag } from "@/lib/native-privacy";
 import {
   STORAGE_BUCKETS,
   uploadSourceWithProgress,
@@ -714,7 +714,7 @@ function NativeChatThreadPage() {
 
 
   const captureChannelName = conversationId ? `social-chat-capture-${conversationId}` : null;
-  useAndroidSecureFlag(secretLock);
+  useAndroidChatSecureFlag();
 
   const handleIncomingCaptureAlert = useCallback(
     (payload: Record<string, unknown>, kind: "screenshot" | "recording") => {
@@ -995,7 +995,7 @@ function NativeChatThreadPage() {
 
       {/* TOP HEADER */}
       <div
-        className="sticky top-0 z-50 flex min-w-0 shrink-0 items-center gap-2 border-b border-zinc-800/80 bg-zinc-950 px-3 pb-3 pt-[calc(env(safe-area-inset-top,24px)_+_0.75rem)]"
+        className="chat-header sticky top-0 z-50 flex min-w-0 shrink-0 items-center gap-2 border-b border-zinc-800/80 bg-zinc-950 px-3 pb-3 pt-[calc(env(safe-area-inset-top,24px)_+_0.75rem)]"
       >
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <button

@@ -51,7 +51,7 @@ import {
   normalizeAutoDeleteSetting,
   type AutoDeleteSetting,
 } from "@/lib/auto-delete";
-import { useAndroidSecureFlag } from "@/lib/native-privacy";
+import { useAndroidChatSecureFlag } from "@/lib/native-privacy";
 import { HoldToRevealButton } from "@/components/yw/HoldToRevealButton";
 import {
   ProtectedCanvasImage,
@@ -722,7 +722,7 @@ function NativeOrbitChatPage() {
           : undefined,
     },
   );
-  useAndroidSecureFlag(secretLock && !captureProtectionClearing);
+  useAndroidChatSecureFlag();
 
   const startRecording = async () => {
     if (!accepted) {
