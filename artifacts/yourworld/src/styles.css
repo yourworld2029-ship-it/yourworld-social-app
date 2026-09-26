@@ -1347,6 +1347,11 @@ html[data-theme] body {
   contain: paint;
 }
 
+body,
+#root {
+  padding-top: env(safe-area-inset-top, 36px) !important;
+}
+
 .yw-protected-canvas {
   display: block;
   pointer-events: none;
@@ -1357,9 +1362,10 @@ html[data-theme] body {
 
 header,
 .top-header,
+nav.top-nav,
 .chat-header,
 .video-header {
-  padding-top: max(env(safe-area-inset-top), 40px) !important;
+  padding-top: max(env(safe-area-inset-top), 36px) !important;
   min-height: 70px !important;
   display: flex;
   align-items: center;

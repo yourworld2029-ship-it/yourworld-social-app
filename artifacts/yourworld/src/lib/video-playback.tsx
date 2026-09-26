@@ -11,7 +11,7 @@ import {
   type TouchEvent as ReactTouchEvent,
 } from "react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { ScreenOrientation as CapacitorScreenOrientation } from "@capacitor/screen-orientation";
+import { ScreenOrientation } from "@capacitor/screen-orientation";
 import {
   ArrowLeft,
   Check,
@@ -196,17 +196,6 @@ function exitPlayerFullscreen() {
   return Promise.resolve(exitResult).catch(() => {});
 }
 
-function unlockPlayerOrientation() {
-  return enqueueOrientationChange(async () => {
-    try {
-      await CapacitorScreenOrientation.unlock();
-    } catch {
-      const orientation = window.screen?.orientation as LockableScreenOrientation | undefined;
-      orientation?.unlock?.();
-    }
-  });
-}
-
 let orientationChangeQueue: Promise<void> = Promise.resolve();
 
 function enqueueOrientationChange(change: () => Promise<void>) {
@@ -215,20 +204,15 @@ function enqueueOrientationChange(change: () => Promise<void>) {
   return nextChange;
 }
 
-function getPlayerOrientation(video: HTMLVideoElement | null): "portrait" | "landscape" | null {
-  if (!video || video.videoWidth <= 0 || video.videoHeight <= 0) return null;
-  return video.videoWidth > video.videoHeight ? "landscape" : "portrait";
-}
-
-function lockPlayerOrientation(videoOrientation: "portrait" | "landscape") {
+function lockPlayerOrientation(requestedOrientation: "portrait" | "landscape") {
   return enqueueOrientationChange(async () => {
     try {
-      await CapacitorScreenOrientation.lock({ orientation: videoOrientation });
+      await ScreenOrientation.lock({ orientation: requestedOrientation });
     } catch {
-      const orientation = window.screen?.orientation as LockableScreenOrientation | undefined;
-      if (typeof orientation?.lock !== "function") return;
+      const screenOrientation = window.screen?.orientation as LockableScreenOrientation | undefined;
+      if (typeof screenOrientation?.lock !== "function") return;
       try {
-        await orientation.lock(videoOrientation);
+        await screenOrientation.lock(requestedOrientation);
       } catch {
         // Orientation locks are unavailable in some browsers and display modes.
       }
@@ -351,7 +335,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
 
   const finishFullscreenExit = useCallback(async () => {
     fullscreenRequestIdRef.current += 1;
-    await unlockPlayerOrientation();
+    await lockPlayerOrientation("portrait");
     setIsFullscreen(false);
     setScreenLocked(false);
     setLockedUnlockVisible(false);
@@ -574,8 +558,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
             return;
           }
           setIsFullscreen(true);
-          const videoOrientation = getPlayerOrientation(videoRef.current);
-          if (videoOrientation) await lockPlayerOrientation(videoOrientation);
+          await lockPlayerOrientation("landscape");
         })
         .catch(() => {
           if (requestId === fullscreenRequestIdRef.current) {
@@ -713,7 +696,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
         fullscreenElement === videoRef.current ||
         fullscreenScrollYRef.current !== null;
       if (playerIsFullscreen) void exitPlayerFullscreen();
-      void unlockPlayerOrientation().finally(restoreFullscreenScroll);
+      void lockPlayerOrientation("portrait").finally(restoreFullscreenScroll);
     },
     [clearLockedUnlockTimer, restoreFullscreenScroll],
   );
@@ -929,8 +912,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     setIsMuted(video.muted);
     const fullscreenElement = getPlayerFullscreenElement();
     if (fullscreenElement === containerRef.current || fullscreenElement === videoRef.current) {
-      const videoOrientation = getPlayerOrientation(video);
-      if (videoOrientation) void lockPlayerOrientation(videoOrientation);
+      void lockPlayerOrientation("landscape");
     }
   }, []);
 
