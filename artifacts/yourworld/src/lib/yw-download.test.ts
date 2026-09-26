@@ -47,6 +47,7 @@ test("video download combines four validated byte ranges in order", async () => 
   }
 });
 
+
 test("video download falls back to a full response when Range is ignored", async () => {
   let requestCount = 0;
   const fakeFetch = async (
@@ -78,6 +79,43 @@ test("video download falls back to a full response when Range is ignored", async
       new Uint8Array(await blob.arrayBuffer()),
       sourceBytes,
     );
+  } finally {
+    mock.restoreAll();
+  }
+});
+
+test("Supabase Storage video downloads request attachment without dropping the signature", async () => {
+  const requestedUrls: URL[] = [];
+  const fakeFetch = async (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ): Promise<Response> => {
+    requestedUrls.push(new URL(String(input)));
+    if (new Headers(init?.headers).has("Range")) {
+      return new Response(sourceBytes, { status: 200 });
+    }
+    return new Response(sourceBytes, {
+      status: 200,
+      headers: {
+        "Content-Type": "video/mp4",
+        "Content-Length": String(sourceBytes.length),
+      },
+    });
+  };
+  mock.method(globalThis, "fetch", fakeFetch);
+
+  try {
+    const blob = await fetchVideoBlob(
+      "https://project.supabase.co/storage/v1/object/sign/videos/u1/clip.mp4?token=signed-token",
+      undefined,
+      "my-clip.mp4",
+    );
+    assert.equal(blob.size, sourceBytes.length);
+    assert.equal(requestedUrls.length, 2);
+    for (const url of requestedUrls) {
+      assert.equal(url.searchParams.get("token"), "signed-token");
+      assert.equal(url.searchParams.get("download"), "my-clip.mp4");
+    }
   } finally {
     mock.restoreAll();
   }

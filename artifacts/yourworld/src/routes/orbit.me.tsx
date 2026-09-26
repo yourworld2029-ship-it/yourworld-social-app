@@ -206,7 +206,14 @@ function OrbitMyProfile() {
                 className="relative aspect-[3/4] overflow-hidden rounded-2xl bg-secondary"
               >
                 {m.kind === "video" ? (
-                  <video src={m.url} muted playsInline controls className="h-full w-full object-cover" />
+                  <video
+                    src={m.url}
+                    muted
+                    playsInline
+                    preload="metadata"
+                    controls
+                    className="h-full w-full object-cover"
+                  />
                 ) : (
                   <img src={m.url} alt="" className="h-full w-full object-cover" />
                 )}

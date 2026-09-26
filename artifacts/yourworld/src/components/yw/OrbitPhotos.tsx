@@ -149,6 +149,7 @@ export function OrbitPhotos({
                   src={p.url}
                   muted
                   playsInline
+                  preload="metadata"
                   loop
                   controls={false}
                   className="h-full w-full object-cover"

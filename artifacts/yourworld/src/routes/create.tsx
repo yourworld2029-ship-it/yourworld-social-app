@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { publishDirectReel } from "@/lib/social-data";
+import { useUploads } from "@/lib/upload-progress";
 
 const MIN_REEL_SECONDS = 5;
 const MAX_REEL_SECONDS = 90;
@@ -35,6 +36,7 @@ export const Route = createFileRoute("/create")({
 
 function DirectReelUploadPage() {
   const navigate = useNavigate();
+  const { startUpload } = useUploads();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -116,7 +118,7 @@ function DirectReelUploadPage() {
     setCurrentTime(event.currentTarget.currentTime);
   };
 
-  const publish = async () => {
+  const publish = () => {
     if (!file || duration == null) {
       setError("Choose a video and wait for its duration to load.");
       return;
@@ -142,25 +144,29 @@ function DirectReelUploadPage() {
       .map((tag) => tag.replace(/^#/, "").trim())
       .filter(Boolean);
 
-    const result = await publishDirectReel({
-      file,
-      title,
-      caption,
-      hashtags: parsedHashtags,
-      durationSeconds: duration,
-      originalWidth: dimensions.width || null,
-      originalHeight: dimensions.height || null,
-      onProgress: setProgress,
+    // Keep the File and all publish metadata captured by this runner. The
+    // global task survives route unmount while the SPA remains open.
+    void startUpload(
+      { kind: "reel", label: title.trim() || "New reel", viewTo: "/reels" },
+      (onProgress) =>
+        publishDirectReel({
+          file,
+          title,
+          caption,
+          hashtags: parsedHashtags,
+          durationSeconds: duration,
+          originalWidth: dimensions.width || null,
+          originalHeight: dimensions.height || null,
+          onProgress,
+        }),
+    ).then(({ error: uploadError }) => {
+      if (uploadError) {
+        toast.error(uploadError);
+        return;
+      }
+      toast.success("Reel published");
     });
 
-    setPublishing(false);
-    if (result.error) {
-      setError(result.error);
-      toast.error(result.error);
-      return;
-    }
-
-    toast.success("Reel published");
     navigate({
       to: "/reels",
       search: {

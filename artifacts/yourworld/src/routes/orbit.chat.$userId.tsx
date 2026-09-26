@@ -1801,6 +1801,7 @@ function NativeOrbitChatPage() {
                 controls
                 autoPlay
                 playsInline
+                preload="metadata"
                 className="max-h-full max-w-full object-contain"
               />
             ) : (

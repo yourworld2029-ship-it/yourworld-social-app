@@ -5,8 +5,8 @@ import { getAdaptivePerformanceSnapshot, waitForNetwork } from "@/lib/adaptive-p
 
 export type ProgressFn = (percent: number, detail?: string) => void;
 
-/** Supabase recommends 6 MiB TUS chunks for reliable resumable uploads. */
-export const TUS_CHUNK_SIZE_BYTES = 6 * 1024 * 1024;
+/** Keep resumable TUS PATCH requests at the requested 5 MiB size. */
+export const TUS_CHUNK_SIZE_BYTES = 5 * 1024 * 1024;
 export const RESUMABLE_UPLOAD_THRESHOLD_BYTES = 25 * 1024 * 1024;
 
 export const STORAGE_BUCKETS = {
@@ -64,7 +64,7 @@ function readableUploadError(error: unknown) {
 /**
  * Uploads a Blob through Supabase Storage's resumable TUS endpoint.
  *
- * tus-js-client sends the file in 6 MiB PATCH requests, persists its upload
+ * tus-js-client sends the file in 5 MiB PATCH requests, persists its upload
  * fingerprint for resume support, and retries interrupted chunks. The
  * `uploadDataDuringCreation` option lets Supabase receive the first chunk with
  * the creation request instead of sending the whole file as one payload.

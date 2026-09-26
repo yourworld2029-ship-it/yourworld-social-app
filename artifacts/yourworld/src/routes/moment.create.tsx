@@ -2379,18 +2379,18 @@ function MomentCreatePage() {
       ])
     );
 
-    // Publish each part into the live moments feed, oldest part first.
-    let publishError: string | null = null;
-    for (const part of newMoments) {
-      const result = await startUpload(
-        {
-          kind: "moment",
-          label: part.caption ?? "New moment",
-          thumbnail: null,
-          viewTo: "/moment",
-        },
-        (onProgress) =>
-          addMoment({
+    // Publish each part into the live moments feed, oldest part first. Keep
+    // this as one global task so navigating away does not orphan the sequence.
+    void startUpload(
+      {
+        kind: "moment",
+        label: newMoments[0]?.caption ?? "New moment",
+        thumbnail: null,
+        viewTo: "/moment",
+      },
+      async (onProgress) => {
+        for (const [index, part] of newMoments.entries()) {
+          const result = await addMoment({
         kind: isVideo
           ? "video"
           : "photo",
@@ -2445,35 +2445,34 @@ function MomentCreatePage() {
           allowDownloads,
         screenshotAlert,
             poll: null,
-            onUploadProgress: onProgress,
-          }),
-      );
-      if (result?.error) {
-        publishError = result.error;
-        break;
-      }
-    }
+            onUploadProgress: (percent: number) => {
+              const overall = ((index + Math.max(0, Math.min(100, percent) / 100)) / newMoments.length) * 100;
+              onProgress(overall);
+            },
+          });
+          if (result?.error) return { error: result.error };
+        }
 
-    if (publishError) {
-      toast.error(publishError);
-      return;
-    }
-
-    if (saveToGallery && publishMediaUrl) {
-      try {
-        await downloadMedia(
-          publishMediaUrl,
-          `yourworld-moment-${Date.now()}.${isVideo ? "mp4" : "jpg"}`,
-        );
-        toast.success("Saved to gallery!");
-      } catch (error) {
-        toast.error(
-          error instanceof Error
-            ? `Moment posted, but ${error.message.toLowerCase()}`
-            : "Moment posted, but it could not be saved to your gallery.",
-        );
+        if (saveToGallery && publishMediaUrl) {
+          try {
+            await downloadMedia(
+              publishMediaUrl,
+              `yourworld-moment-${Date.now()}.${isVideo ? "mp4" : "jpg"}`,
+            );
+            toast.success("Saved to gallery!");
+          } catch (error) {
+            toast.error(
+              error instanceof Error
+                ? `Moment posted, but ${error.message.toLowerCase()}`
+                : "Moment posted, but it could not be saved to your gallery.",
+            );
+          }
+        }
+        return { error: null };
       }
-    }
+    ).then(({ error: publishError }) => {
+      if (publishError) toast.error(publishError);
+    });
 
     navigate({
       to: "/moment",
@@ -2902,6 +2901,7 @@ function MomentCreatePage() {
                     autoPlay
                     loop
                     playsInline
+                    preload="metadata"
                     muted={videoMuted}
                     className="h-full w-full object-contain"
                     style={getMediaRenderTransform()}
@@ -3924,6 +3924,7 @@ function MomentCreatePage() {
                     autoPlay
                     loop
                     playsInline
+                    preload="metadata"
                     controls
                     muted={videoMuted}
                   />
@@ -4030,6 +4031,7 @@ function MomentCreatePage() {
                 src={mediaUrl}
                 muted
                 playsInline
+                preload="metadata"
                 className="w-full h-full object-cover"
               />
             ) : (

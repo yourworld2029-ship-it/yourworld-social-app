@@ -30,7 +30,24 @@ app.use(
 app.use(cors());
 // Serve the APK before compression so it is always delivered byte-for-byte.
 app.use(apkRouter);
-app.use(compression());
+app.use(
+  compression({
+    filter(req, res) {
+      const cacheControl = String(res.getHeader("Cache-Control") ?? "");
+      const contentType = String(res.getHeader("Content-Type") ?? "").toLowerCase();
+      // Byte ranges and media marked no-transform must remain byte-for-byte
+      // compatible with Content-Range and Content-Length.
+      if (
+        req.headers.range ||
+        /(?:^|,)\s*no-transform(?:\s*(?:,|$))/i.test(cacheControl) ||
+        contentType.startsWith("video/")
+      ) {
+        return false;
+      }
+      return compression.filter(req, res);
+    },
+  }),
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

@@ -316,6 +316,24 @@ export function sanitizeDownloadName(value: string, fallback: string) {
   return clean || fallback;
 }
 
+function attachmentMediaUrl(src: string, fileName: string) {
+  try {
+    const url = new URL(src);
+    if (!/\/storage\/v1\/object\/(?:sign|public|authenticated)\//i.test(url.pathname)) {
+      return src;
+    }
+    // Supabase Storage's download query sets Content-Disposition: attachment
+    // at the CDN while preserving direct streaming and Range behavior.
+    url.searchParams.set(
+      "download",
+      sanitizeDownloadName(fileName, "yourworld-media"),
+    );
+    return url.toString();
+  } catch {
+    return src;
+  }
+}
+
 function triggerBlobDownload(blob: Blob, fileName: string) {
   const url = URL.createObjectURL(blob);
   try {
@@ -487,14 +505,16 @@ async function fetchWithFourRanges(
 export async function fetchVideoBlob(
   src: string,
   onProgress?: (percent: number) => void,
+  fileName?: string,
 ) {
+  const downloadSrc = fileName ? attachmentMediaUrl(src, fileName) : src;
   try {
-    return await fetchWithFourRanges(src, onProgress);
+    return await fetchWithFourRanges(downloadSrc, onProgress);
   } catch {
     // Range support is optional. The regular streamed request is the
     // compatibility path for CDNs, local files, and signed URLs that reject
     // a second request or do not expose Content-Range.
-    const response = await fetch(src);
+    const response = await fetch(downloadSrc);
     if (!response.ok) throw new Error(`Video download failed (${response.status})`);
     return readResponseWithProgress(response, onProgress);
   }
@@ -522,7 +542,7 @@ export async function downloadVideoInBackground(
       const blob = await fetchVideoBlob(src, (percent) => {
         updateDownloadTask(key, title, percent);
         onProgress?.(percent);
-      });
+      }, fileName);
       if (metadata) await saveDownloadedVideo(metadata, blob);
       triggerBlobDownload(blob, fileName);
       updateDownloadTask(key, title, 100);
@@ -708,7 +728,7 @@ export async function downloadWithWatermark(src: string, username: string, fileN
 }
 /** Generic saver for any media (video/audio/photo) — keeps original bytes. */
 export async function downloadMedia(src: string, fileName: string) {
-  const response = await fetch(src, { cache: "force-cache" });
+  const response = await fetch(attachmentMediaUrl(src, fileName), { cache: "force-cache" });
   if (!response.ok) throw new Error(`Media download failed (${response.status})`);
   const blob = await response.blob();
   const url = URL.createObjectURL(blob);

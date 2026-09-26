@@ -3,6 +3,9 @@ const MAX_CONCURRENT_PREFETCHES = 2;
 const MAX_QUEUED_PREFETCHES = 16;
 const MAX_SEEN_PREFETCHES = 64;
 const MAX_POSTER_CACHE_ENTRIES = 24;
+const VIDEO_PREFIX_CACHE = "yourworld-video-prefixes-v1";
+const PREFIX_TTL_MS = 10 * 60 * 1000;
+const MAX_PREFIX_ENTRIES = 4;
 
 type PrefetchJob = {
   key: string;
@@ -22,6 +25,92 @@ function mediaCacheKey(url: string) {
     return `${parsed.origin}${parsed.pathname}`;
   } catch {
     return url.split("#", 1)[0] ?? url;
+  }
+}
+
+function urlWithoutFragment(url: string) {
+  try {
+    const parsed = new URL(url);
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return url.split("#", 1)[0] ?? url;
+  }
+}
+
+async function prefixCacheKey(url: string) {
+  if (!globalThis.crypto?.subtle) return null;
+  const bytes = new TextEncoder().encode(urlWithoutFragment(url));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const hash = Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+  return new URL(`/__yourworld-video-prefix/${hash}`, window.location.origin).toString();
+}
+
+async function cachePrefix(
+  url: string,
+  body: Blob,
+  contentType: string,
+  total: number,
+) {
+  if (typeof caches === "undefined") return;
+  const key = await prefixCacheKey(url);
+  if (!key) return;
+  const cache = await caches.open(VIDEO_PREFIX_CACHE);
+  const now = Date.now();
+  const entries = await cache.keys();
+  await Promise.all(
+    entries.map(async (entry) => {
+      const response = await cache.match(entry);
+      const expires = Number(response?.headers.get("X-YW-Prefix-Expires") ?? 0);
+      if (!response || !Number.isFinite(expires) || expires <= now) {
+        await cache.delete(entry);
+      }
+    }),
+  );
+  const freshEntries = await cache.keys();
+  if (freshEntries.length >= MAX_PREFIX_ENTRIES && !(await cache.match(key))) {
+    const oldest = await Promise.all(
+      freshEntries.map(async (entry) => {
+        const response = await cache.match(entry);
+        return {
+          entry,
+          created: Number(response?.headers.get("X-YW-Prefix-Created") ?? 0),
+        };
+      }),
+    );
+    oldest.sort((a, b) => a.created - b.created);
+    await cache.delete(oldest[0]?.entry ?? freshEntries[0]);
+  }
+  await cache.put(
+    key,
+    new Response(body, {
+      status: 200,
+      headers: {
+        "Content-Type": contentType || "video/mp4",
+        "Cache-Control": "private, no-transform",
+        "X-YW-Prefix-Created": String(now),
+        "X-YW-Prefix-Expires": String(now + PREFIX_TTL_MS),
+        "X-YW-Prefix-Total": String(total),
+      },
+    }),
+  );
+  const allEntries = await cache.keys();
+  if (allEntries.length > MAX_PREFIX_ENTRIES) {
+    const oldest = await Promise.all(
+      allEntries.map(async (entry) => {
+        const response = await cache.match(entry);
+        return {
+          entry,
+          created: Number(response?.headers.get("X-YW-Prefix-Created") ?? 0),
+        };
+      }),
+    );
+    oldest.sort((a, b) => a.created - b.created);
+    for (const entry of oldest.slice(0, allEntries.length - MAX_PREFIX_ENTRIES)) {
+      await cache.delete(entry.entry);
+    }
   }
 }
 
@@ -51,25 +140,64 @@ async function fetchPrefetch({ url, controller }: PrefetchJob) {
       return;
     }
     const range = response.headers.get("content-range");
-    const match = range?.match(/^bytes\s+0-(\d+)\//i);
-    if (!match || Number(match[1]) >= PREFETCH_BYTES) {
+    const match = range?.match(/^bytes\s+0-(\d+)\/(\d+)$/i);
+    const rangeEnd = Number(match?.[1]);
+    const rangeTotal = Number(match?.[2]);
+    if (
+      response.status !== 206 ||
+      !match ||
+      !Number.isSafeInteger(rangeEnd) ||
+      !Number.isSafeInteger(rangeTotal) ||
+      rangeEnd < 0 ||
+      rangeEnd >= PREFETCH_BYTES ||
+      rangeTotal <= rangeEnd
+    ) {
       controller.abort();
       return;
     }
-    // Read only the bounded response. No partial response is put in
-    // CacheStorage; the browser's normal HTTP cache remains in charge.
+    const expectedBytes = rangeEnd + 1;
+    const declaredLength = response.headers.get("content-length");
+    if (
+      declaredLength !== null &&
+      (!Number.isSafeInteger(Number(declaredLength)) ||
+        Number(declaredLength) !== expectedBytes)
+    ) {
+      controller.abort();
+      return;
+    }
+    // Read only the bounded response. Store a synthetic 200, never the 206
+    // itself, so the worker can safely reconstruct later range responses.
     const reader = response.body?.getReader();
     if (!reader) return;
+    const chunks: ArrayBuffer[] = [];
     let total = 0;
     try {
       while (total < PREFETCH_BYTES) {
         const next = await reader.read();
         if (next.done) break;
-        total += next.value.byteLength;
+        const remaining = PREFETCH_BYTES - total;
+        const value = next.value.byteLength > remaining
+          ? next.value.subarray(0, remaining)
+          : next.value;
+        chunks.push(
+          value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength),
+        );
+        total += value.byteLength;
         if (total >= PREFETCH_BYTES) await reader.cancel();
       }
     } finally {
       reader.releaseLock();
+    }
+    if (total !== expectedBytes) {
+      return;
+    }
+    if (total > 0) {
+      await cachePrefix(
+        url,
+        new Blob(chunks, { type: response.headers.get("content-type") || "video/mp4" }),
+        response.headers.get("content-type") || "video/mp4",
+        rangeTotal,
+      );
     }
   } catch {
     // Prefetch is opportunistic; the video element remains the source of truth.

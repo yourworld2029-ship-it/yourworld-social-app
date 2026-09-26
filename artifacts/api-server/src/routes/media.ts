@@ -201,8 +201,8 @@ async function uploadProcessedVideo(
 ) {
   const cacheControl =
     bucket === "moments"
-      ? "max-age=0, no-store"
-      : "max-age=604800, stale-while-revalidate=86400";
+      ? "max-age=0, no-store, no-transform"
+      : "max-age=604800, stale-while-revalidate=86400, no-transform";
   const body = createReadStreamWithBuffer(filePath);
   const options = {
     method: "POST",

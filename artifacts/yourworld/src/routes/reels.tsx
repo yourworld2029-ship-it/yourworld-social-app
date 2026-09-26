@@ -44,6 +44,7 @@ import {
   type VideoQualityTier,
 } from "@/lib/video-quality";
 import { trackEvent } from "@/lib/analytics";
+import { prefetchVideo } from "@/lib/video-prefetch";
 import { deleteMyPost } from "@/lib/profile-data";
 import {
   AlertDialog,
@@ -198,6 +199,11 @@ function ReelsList() {
   }));
 
   const items = live;
+  const reelMediaKey = items
+    .map(({ reel, mediaUrl, mediaType, mediaBucket }) =>
+      `${reel.id}:${mediaUrl}:${mediaType}:${mediaBucket}`,
+    )
+    .join("|");
 
   useEffect(() => {
     if (!initialId || loading) return;
@@ -236,6 +242,30 @@ function ReelsList() {
     scroller.addEventListener("scroll", onScroll, { passive: true });
     return () => scroller.removeEventListener("scroll", onScroll);
   }, [hasNextPage, isFetchingNextPage, loadMore]);
+
+  // Warm only the next two playable reels. Resolve storage references first so
+  // private media keeps its signed URL; prefetchVideo then performs a bounded
+  // 206-only prefix request and will never fetch a whole object on 200.
+  useEffect(() => {
+    let cancelled = false;
+    const upcoming = items
+      .slice(active + 1)
+      .filter(({ mediaUrl, mediaType }) => {
+        return Boolean(mediaUrl) && mediaType?.toLowerCase().startsWith("video");
+      })
+      .slice(0, 2);
+
+    void Promise.all(
+      upcoming.map(async ({ mediaUrl, mediaBucket }) => {
+        const resolved = await resolveMediaUrl(mediaUrl, mediaBucket);
+        if (!cancelled && resolved) prefetchVideo(resolved);
+      }),
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [active, reelMediaKey]);
 
   if (loading) {
     return (

@@ -128,7 +128,13 @@ function PostCreatePage() {
           <div className="space-y-2">
             <div className="relative aspect-square w-full overflow-hidden rounded-2xl bg-black">
               {mediaType === "video" ? (
-                <video src={fileUrl} controls playsInline className="h-full w-full object-cover" />
+                <video
+                  src={fileUrl}
+                  controls
+                  playsInline
+                  preload="metadata"
+                  className="h-full w-full object-cover"
+                />
               ) : (
                 <img src={fileUrl} alt="Post preview" className="h-full w-full object-cover" />
               )}

@@ -992,6 +992,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               loop={loopVideo}
               muted={isMuted}
               playsInline
+              preload="metadata"
               onLoadedMetadata={handleLoadedMetadata}
               onTimeUpdate={handleTimeUpdate}
               onVolumeChange={handleVolumeChange}
