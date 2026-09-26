@@ -19,7 +19,7 @@ This Replit shell may start without an Android SDK, and its system-package index
 
 **Why:** SDK package installation through the Replit package index failed because the Android SDK package was not indexed, and the default shell Java remained at 17 after Java 21 was installed.
 
-**How to apply:** If `sdkmanager` is absent, use Google's official command-line-tools archive and install the project's compile SDK/build-tools with `sdkmanager` after license consent. Verify the SDK paths before running Gradle.
+**How to apply:** If `sdkmanager` is absent, use Google's official command-line-tools archive and install the project's compile SDK/build-tools with `android sdk install` after license consent. The current `sdkmanager` entry point is deprecated; verify SDK paths before running Gradle.
 
 In September 2026, Google's generic `commandlinetools-linux-latest.zip` URL returned 404, while the repository metadata still advertised the current archive.
 
@@ -32,3 +32,9 @@ Express routes that serve the packaged APK should resolve its path from `import.
 **Why:** A cwd-relative route returned 404 in the running API workflow even though the APK existed in the web artifact.
 
 **How to apply:** Use the compiled server module directory to resolve `../../yourworld/public/yourworld-debug.apk`, then verify both the API port and the root proxy.
+
+Capacitor sync copies public APK downloads into the native app's WebView assets unless Android asset packaging excludes them.
+
+**Why:** Bundling the downloadable APKs inside the app duplicates large binaries and can ship stale installers inside the fresh build.
+
+**How to apply:** Keep APK files in the web artifact's public directory for server downloads, but exclude `*.apk` from Android asset packaging.
