@@ -33,11 +33,11 @@ SDK installations staged under `/tmp` may disappear between agent runs even when
 
 **How to apply:** Before a later Android build, verify the configured SDK root and required platform/build-tools directories still exist; re-provision them if needed.
 
-The current Android CLI deprecates `sdkmanager`; its `--licenses` wrapper warns and exits without recording acceptance. Installing a missing required package with `android sdk install` records the compatible license marker. Python `zipfile` extraction can also drop executable bits from command-line tools.
+The Android CLI deprecates `sdkmanager`; its `--licenses` wrapper can warn and exit without recording acceptance. The supported `android sdk install` path records the license marker. Google also distributes Android CLI as a standalone binary at `https://dl.google.com/android/cli/latest/linux_x86_64/android`, so SDK provisioning does not require the legacy command-line-tools ZIP.
 
-**Why:** Google's SDK tooling moved package management to `android sdk`, so a successful legacy `sdkmanager --licenses` exit can still leave Gradle blocked. Extracted tools also fail with permission errors if executable modes are lost.
+**Why:** Google's SDK tooling moved package management to `android sdk`, and command-line-tools archive URLs may be stale. Package installation is the reliable way to record the required SDK license.
 
-**How to apply:** Use `android --no-metrics --sdk="$SDK_ROOT" sdk install <package>/<version>` for a required missing package, then confirm a license file exists under `$SDK_ROOT/licenses`. After extracting Google's command-line-tools ZIP, restore executable bits under `cmdline-tools/latest/bin`.
+**How to apply:** Download the official Android CLI to `$HOME/.local/bin/android` and mark it executable. Use `android --no-metrics --sdk="$SDK_ROOT" sdk list/install ...`, set `JAVA_HOME` explicitly to JDK 21, and confirm required packages plus license files under `$SDK_ROOT/licenses`. Avoid `yes | ...` under `set -o pipefail`: `yes` can get SIGPIPE after a successful install and make the shell report exit 141.
 
 In September 2026, Google's generic `commandlinetools-linux-latest.zip` URL returned 404, while the repository metadata still advertised the current archive.
 
