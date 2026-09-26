@@ -28,15 +28,3 @@ packages = ["jdk17", "jdk21", "ffmpeg"]
 [userenv.shared]
 REPLIT_APP_URL = "https://your-world-social-app--yourworld2029.replit.app"
 SUPABASE_URL = "https://pnpfybcdxynfooylxqou.supabase.co"
-
-[[ports]]
-localPort = 8080
-externalPort = 8080
-
-[[ports]]
-localPort = 8081
-externalPort = 80
-
-[[ports]]
-localPort = 25605
-externalPort = 3000
