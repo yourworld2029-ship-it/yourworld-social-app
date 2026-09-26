@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   Link2,
   MapPin,
+  MoreVertical,
   Pin,
   Play,
   Settings,
@@ -437,7 +438,7 @@ function MediaGrid({
             </span>
           ) : null}
           {it.post?.duration_seconds != null ? (
-            <span className="absolute right-1.5 top-1.5 rounded bg-black/65 px-1.5 py-0.5 text-[10px] font-medium text-white">
+            <span className={`absolute right-1.5 ${onManage ? "top-10" : "top-1.5"} rounded bg-black/65 px-1.5 py-0.5 text-[10px] font-medium text-white`}>
               {formatDuration(it.post.duration_seconds)}
             </span>
           ) : null}
@@ -457,6 +458,21 @@ function MediaGrid({
                 className="absolute inset-0 z-10"
               />
             </>
+          ) : null}
+          {it.post && onManage && (
+            it.post.kind === "reel" ||
+            it.post.kind === "video" ||
+            it.type?.startsWith("video")
+          ) ? (
+            <button
+              type="button"
+              aria-label={`More options for ${it.post.kind === "reel" ? "reel" : "video"}`}
+              data-testid={`button-manage-media-${it.post.id}`}
+              onClick={() => onManage(it.post!)}
+              className="absolute right-1.5 top-1.5 z-20 grid h-9 w-9 place-items-center rounded-full bg-black/70 text-white shadow-md backdrop-blur-sm transition-colors hover:bg-black/90 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            >
+              <MoreVertical className="h-[18px] w-[18px]" aria-hidden="true" />
+            </button>
           ) : null}
         </li>
       ))}
