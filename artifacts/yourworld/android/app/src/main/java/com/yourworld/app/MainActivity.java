@@ -32,7 +32,6 @@ public class MainActivity extends BridgeActivity {
         });
 
         WebView webView = getBridge() != null ? getBridge().getWebView() : null;
-        configureSystemBars();
         if (webView != null) {
             applyWebViewInsets(webView);
             webView.getSettings().setCacheMode(WebSettings.LOAD_DEFAULT);
@@ -47,6 +46,7 @@ public class MainActivity extends BridgeActivity {
 
         WebView webView = getBridge() != null ? getBridge().getWebView() : null;
         if (webView != null) {
+            ViewCompat.requestApplyInsets(webView);
             webView.evaluateJavascript(
                     "window.dispatchEvent(new Event('yw-app-resume'));",
                     null
@@ -83,7 +83,8 @@ public class MainActivity extends BridgeActivity {
     private void configureSystemBars() {
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
-        WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
+        boolean edgeToEdge = Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM;
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), !edgeToEdge);
         WindowInsetsControllerCompat controller = new WindowInsetsControllerCompat(
                 getWindow(),
                 getWindow().getDecorView()

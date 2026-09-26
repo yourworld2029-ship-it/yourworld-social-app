@@ -11,6 +11,7 @@ import {
   type TouchEvent as ReactTouchEvent,
 } from "react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
+import { ScreenOrientation as CapacitorScreenOrientation } from "@capacitor/screen-orientation";
 import {
   ArrowLeft,
   Check,
@@ -196,24 +197,43 @@ function exitPlayerFullscreen() {
 }
 
 function unlockPlayerOrientation() {
-  const orientation = window.screen?.orientation as LockableScreenOrientation | undefined;
-  orientation?.unlock?.();
+  return enqueueOrientationChange(async () => {
+    try {
+      await CapacitorScreenOrientation.unlock();
+    } catch {
+      const orientation = window.screen?.orientation as LockableScreenOrientation | undefined;
+      orientation?.unlock?.();
+    }
+  });
 }
 
-function getPlayerOrientation(
-  video: HTMLVideoElement | null,
-  fallbackIsVertical: boolean,
-): "portrait" | "landscape" {
-  if (video && video.videoWidth > 0 && video.videoHeight > 0) {
-    return video.videoWidth >= video.videoHeight ? "landscape" : "portrait";
-  }
-  return fallbackIsVertical ? "portrait" : "landscape";
+let orientationChangeQueue: Promise<void> = Promise.resolve();
+
+function enqueueOrientationChange(change: () => Promise<void>) {
+  const nextChange = orientationChangeQueue.then(change, change);
+  orientationChangeQueue = nextChange.catch(() => {});
+  return nextChange;
+}
+
+function getPlayerOrientation(video: HTMLVideoElement | null): "portrait" | "landscape" | null {
+  if (!video || video.videoWidth <= 0 || video.videoHeight <= 0) return null;
+  return video.videoWidth > video.videoHeight ? "landscape" : "portrait";
 }
 
 function lockPlayerOrientation(videoOrientation: "portrait" | "landscape") {
-  const orientation = window.screen?.orientation as LockableScreenOrientation | undefined;
-  if (typeof orientation?.lock !== "function") return;
-  void orientation.lock(videoOrientation).catch(() => {});
+  return enqueueOrientationChange(async () => {
+    try {
+      await CapacitorScreenOrientation.lock({ orientation: videoOrientation });
+    } catch {
+      const orientation = window.screen?.orientation as LockableScreenOrientation | undefined;
+      if (typeof orientation?.lock !== "function") return;
+      try {
+        await orientation.lock(videoOrientation);
+      } catch {
+        // Orientation locks are unavailable in some browsers and display modes.
+      }
+    }
+  });
 }
 
 export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
@@ -252,6 +272,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const controlsHideTimerRef = useRef<number | null>(null);
   const lockedUnlockTimerRef = useRef<number | null>(null);
   const fullscreenScrollYRef = useRef<number | null>(null);
+  const fullscreenRequestIdRef = useRef(0);
 
   const detailVideoId = getDetailVideoId(location.pathname);
   const downloadDetailPath = getDownloadDetailPath(location.pathname);
@@ -327,6 +348,34 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       lockedUnlockTimerRef.current = null;
     }
   }, []);
+
+  const finishFullscreenExit = useCallback(async () => {
+    fullscreenRequestIdRef.current += 1;
+    await unlockPlayerOrientation();
+    setIsFullscreen(false);
+    setScreenLocked(false);
+    setLockedUnlockVisible(false);
+    clearLockedUnlockTimer();
+    setZoom(1);
+    setDisplayMode("fit");
+    setBrightness(1);
+    setGestureFeedback(null);
+    setSettingsMenu("closed");
+    restoreFullscreenScroll();
+  }, [clearLockedUnlockTimer, restoreFullscreenScroll]);
+
+  const teardownFullscreen = useCallback(
+    async (exitCurrentFullscreen: boolean) => {
+      const fullscreenElement = getPlayerFullscreenElement();
+      const isPlayerFullscreen =
+        fullscreenElement === containerRef.current || fullscreenElement === videoRef.current;
+      if (exitCurrentFullscreen && isPlayerFullscreen) {
+        await exitPlayerFullscreen();
+      }
+      await finishFullscreenExit();
+    },
+    [finishFullscreenExit],
+  );
 
   const revealLockedUnlock = useCallback(() => {
     setLockedUnlockVisible(true);
@@ -491,21 +540,14 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const toggleFullscreen = useCallback(() => {
     const fullscreenElement = getPlayerFullscreenElement();
     if (fullscreenElement) {
-      void exitPlayerFullscreen().finally(() => {
-        unlockPlayerOrientation();
-        setIsFullscreen(false);
-        setScreenLocked(false);
-        setZoom(1);
-        setDisplayMode("fit");
-        setBrightness(1);
-        restoreFullscreenScroll();
-      });
+      void exitPlayerFullscreen().then(() => teardownFullscreen(false));
     } else {
       const container = containerRef.current;
       const video = videoRef.current;
       const primaryTarget = container ?? video;
       if (!primaryTarget) return;
-      const videoOrientation = getPlayerOrientation(video, isVerticalVideo);
+      const requestId = fullscreenRequestIdRef.current + 1;
+      fullscreenRequestIdRef.current = requestId;
       fullscreenScrollYRef.current = window.scrollY;
       const fallbackTarget = container && video ? video : null;
       void requestPlayerFullscreen(primaryTarget)
@@ -515,16 +557,34 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
             : requestPlayerFullscreen(fallbackTarget),
         )
         .then((enteredFullscreen) => {
+          if (requestId !== fullscreenRequestIdRef.current) {
+            const fullscreenElement = getPlayerFullscreenElement();
+            if (fullscreenElement === primaryTarget || fullscreenElement === fallbackTarget) {
+              void exitPlayerFullscreen();
+            }
+            return;
+          }
           if (!enteredFullscreen) {
             fullscreenScrollYRef.current = null;
             return;
           }
+          const fullscreenElement = getPlayerFullscreenElement();
+          if (fullscreenElement !== primaryTarget && fullscreenElement !== fallbackTarget) {
+            fullscreenScrollYRef.current = null;
+            return;
+          }
           setIsFullscreen(true);
-          lockPlayerOrientation(videoOrientation);
+          const videoOrientation = getPlayerOrientation(videoRef.current);
+          if (videoOrientation) void lockPlayerOrientation(videoOrientation);
+        })
+        .catch(() => {
+          if (requestId === fullscreenRequestIdRef.current) {
+            fullscreenScrollYRef.current = null;
+          }
         });
     }
     markControlsActivity();
-  }, [isVerticalVideo, markControlsActivity, restoreFullscreenScroll]);
+  }, [markControlsActivity, teardownFullscreen]);
 
   const clearControlsHideTimer = useCallback(() => {
     if (controlsHideTimerRef.current !== null) {
@@ -632,13 +692,13 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (isDetailPlayer || !isFullscreen) return;
-    void exitPlayerFullscreen().finally(() => {
-      unlockPlayerOrientation();
-      setIsFullscreen(false);
-      restoreFullscreenScroll();
-    });
-  }, [isDetailPlayer, isFullscreen, restoreFullscreenScroll]);
+    if (isDetailPlayer) return;
+    const fullscreenElement = getPlayerFullscreenElement();
+    const playerIsFullscreen =
+      fullscreenElement === containerRef.current || fullscreenElement === videoRef.current;
+    if (!playerIsFullscreen && !isFullscreen && fullscreenScrollYRef.current === null) return;
+    void teardownFullscreen(true);
+  }, [isDetailPlayer, isFullscreen, teardownFullscreen]);
 
   useEffect(
     () => () => {
@@ -646,8 +706,16 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
         window.clearTimeout(feedbackTimerRef.current);
       }
       clearLockedUnlockTimer();
+      fullscreenRequestIdRef.current += 1;
+      const fullscreenElement = getPlayerFullscreenElement();
+      const playerIsFullscreen =
+        fullscreenElement === containerRef.current ||
+        fullscreenElement === videoRef.current ||
+        fullscreenScrollYRef.current !== null;
+      if (playerIsFullscreen) void exitPlayerFullscreen();
+      void unlockPlayerOrientation().finally(restoreFullscreenScroll);
     },
-    [clearLockedUnlockTimer],
+    [clearLockedUnlockTimer, restoreFullscreenScroll],
   );
 
   useEffect(() => {
@@ -655,28 +723,26 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       const fullscreenElement = getPlayerFullscreenElement();
       const fullscreenTarget =
         fullscreenElement === containerRef.current || fullscreenElement === videoRef.current;
-      const fullscreenActive = Boolean(fullscreenTarget);
-      setIsFullscreen(fullscreenActive);
-      if (!fullscreenActive) {
-        unlockPlayerOrientation();
-        restoreFullscreenScroll();
-        setScreenLocked(false);
-        setLockedUnlockVisible(false);
-        clearLockedUnlockTimer();
-        setZoom(1);
-        setDisplayMode("fit");
-        setBrightness(1);
-        setGestureFeedback(null);
+      if (fullscreenTarget) {
+        setIsFullscreen(true);
+        return;
+      }
+      if (isFullscreen || fullscreenScrollYRef.current !== null) {
+        void finishFullscreenExit();
+      } else {
+        setIsFullscreen(false);
       }
     };
     document.addEventListener("fullscreenchange", syncFullscreenState);
+    document.addEventListener("webkitfullscreenchange", syncFullscreenState);
     window.addEventListener("resize", syncFullscreenState);
     syncFullscreenState();
     return () => {
       document.removeEventListener("fullscreenchange", syncFullscreenState);
+      document.removeEventListener("webkitfullscreenchange", syncFullscreenState);
       window.removeEventListener("resize", syncFullscreenState);
     };
-  }, [clearLockedUnlockTimer, restoreFullscreenScroll]);
+  }, [finishFullscreenExit, isFullscreen]);
 
   const showGestureFeedback = useCallback(
     (kind: GestureFeedback["kind"], value: number, label: string) => {
@@ -861,6 +927,11 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     if (Number.isFinite(video.duration)) setDuration(video.duration);
     setCurrentTime(Number.isFinite(video.currentTime) ? video.currentTime : 0);
     setIsMuted(video.muted);
+    const fullscreenElement = getPlayerFullscreenElement();
+    if (fullscreenElement === containerRef.current || fullscreenElement === videoRef.current) {
+      const videoOrientation = getPlayerOrientation(video);
+      if (videoOrientation) void lockPlayerOrientation(videoOrientation);
+    }
   }, []);
 
   const handleVolumeChange = useCallback((event: React.SyntheticEvent<HTMLVideoElement>) => {
@@ -945,12 +1016,12 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               onPlay={handleVideoPlay}
               onPause={handleVideoPause}
               className={`video-player-native-controls h-full w-full ${
-                !isFullscreen && displayMode === "fill" ? "object-cover" : "object-contain"
+                isFullscreen || displayMode === "fill" ? "object-cover" : "object-contain"
               }`}
               style={{
                 transform: `scale(${zoom})`,
                 transformOrigin: "center center",
-                objectFit: isFullscreen || displayMode !== "fill" ? "contain" : "cover",
+                objectFit: isFullscreen || displayMode === "fill" ? "cover" : "contain",
                 filter: `brightness(${brightness})`,
                 transition: gestureFeedback?.kind === "zoom" ? "none" : "transform 160ms ease-out",
               }}
@@ -1078,7 +1149,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                   event.stopPropagation();
                   toggleScreenLock();
                 }}
-                className={`absolute right-3 top-3 z-[60] rounded-full bg-black/45 p-1.5 text-white/80 shadow-lg backdrop-blur-sm transition-opacity duration-300 hover:bg-black/70 hover:text-white ${
+                className={`absolute right-3 top-[calc(env(safe-area-inset-top,24px)_+_0.75rem)] z-[60] rounded-full bg-black/45 p-1.5 text-white/80 shadow-lg backdrop-blur-sm transition-opacity duration-300 hover:bg-black/70 hover:text-white ${
                   lockedUnlockVisible ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
                 }`}
                 aria-label="Unlock player controls"
@@ -1099,7 +1170,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                       ? window.history.back()
                       : void navigate({ to: "/" })
                 }
-                className={`absolute left-3 top-3 z-50 rounded-full bg-black/60 p-2 text-white transition-opacity duration-200 hover:bg-black/80 ${
+                className={`absolute left-3 ${
+                  isFullscreen ? "top-[calc(env(safe-area-inset-top,24px)_+_0.75rem)]" : "top-3"
+                } z-50 rounded-full bg-black/60 p-2 text-white transition-opacity duration-200 hover:bg-black/80 ${
                   controlsVisible ? "opacity-100" : "pointer-events-none opacity-0"
                 }`}
                 aria-label="Go back"
@@ -1114,7 +1187,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               <button
                 type="button"
                 onClick={toggleScreenLock}
-                className={`absolute right-14 top-3 z-50 rounded-full bg-black/60 p-2 text-white transition-opacity duration-200 hover:bg-black/80 ${
+                className={`absolute right-14 top-[calc(env(safe-area-inset-top,24px)_+_0.75rem)] z-50 rounded-full bg-black/60 p-2 text-white transition-opacity duration-200 hover:bg-black/80 ${
                   controlsVisible ? "opacity-100" : "pointer-events-none opacity-0"
                 }`}
                 aria-label="Lock player controls"
@@ -1156,7 +1229,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                     event.stopPropagation();
                     setSettingsMenu((current) => (current === "closed" ? "root" : "closed"));
                   }}
-                  className={`absolute right-3 top-3 z-[70] rounded-full bg-black/60 p-2 text-white transition-opacity duration-200 hover:bg-black/90 ${
+                  className={`absolute right-3 ${
+                    isFullscreen ? "top-[calc(env(safe-area-inset-top,24px)_+_0.75rem)]" : "top-3"
+                  } z-[70] rounded-full bg-black/60 p-2 text-white transition-opacity duration-200 hover:bg-black/90 ${
                     controlsVisible ? "opacity-100" : "pointer-events-none opacity-0"
                   }`}
                   aria-label="Player settings"

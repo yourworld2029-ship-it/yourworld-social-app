@@ -995,19 +995,19 @@ function NativeChatThreadPage() {
 
       {/* TOP HEADER */}
       <div
-        className="sticky top-0 z-50 flex shrink-0 items-center justify-between border-b border-zinc-800/80 bg-zinc-950 px-4 pb-3 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)]"
+        className="sticky top-0 z-50 flex min-w-0 shrink-0 items-center gap-2 border-b border-zinc-800/80 bg-zinc-950 px-3 pb-3 pt-[calc(env(safe-area-inset-top,24px)_+_0.75rem)]"
       >
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           <button
             onClick={() => historyBackOr(() => void navigate({ to: "/chat" }))}
             aria-label="Back to Chat"
-            className="p-1 text-zinc-300 hover:text-white"
+            className="grid h-9 w-8 shrink-0 place-items-center rounded-full text-zinc-300 hover:text-white"
           >
             <ArrowLeft size={22} />
           </button>
           
           <div
-            className="relative cursor-pointer"
+            className="relative h-10 w-10 shrink-0 cursor-pointer"
             onPointerDown={openPeerProfile.preload}
             onClick={openPeerProfile.go}
           >
@@ -1021,17 +1021,17 @@ function NativeChatThreadPage() {
             />
           </div>
 
-          <div className="flex flex-col">
+          <div className="flex min-w-0 flex-1 flex-col">
             <span
-              className="font-bold text-sm leading-tight text-white flex items-center gap-1 cursor-pointer"
+              className="flex min-w-0 items-center gap-1 text-sm font-bold leading-tight text-white cursor-pointer"
               onPointerDown={openPeerProfile.preload}
               onClick={openPeerProfile.go}
             >
-              {displayName}
-              {secretLock && <Lock size={12} className="text-purple-400" />}
-              {muted && <BellOff size={12} className="text-zinc-500" />}
+              <span className="min-w-0 truncate">{displayName}</span>
+              {secretLock && <Lock size={12} className="shrink-0 text-purple-400" />}
+              {muted && <BellOff size={12} className="shrink-0 text-zinc-500" />}
             </span>
-            <span className="text-[11px] font-medium">
+            <span className="whitespace-nowrap text-[11px] font-medium">
               {blocked ? (
                 <span className="text-red-400">Blocked</span>
               ) : peerTyping ? (
@@ -1045,7 +1045,7 @@ function NativeChatThreadPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-4 text-zinc-300">
+        <div className="flex shrink-0 items-center gap-1 text-zinc-300">
           <button
             onClick={() =>
               void startCall({
@@ -1056,7 +1056,7 @@ function NativeChatThreadPage() {
               })
             }
             aria-label="Voice call"
-            className="hover:text-white"
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-full hover:bg-white/10 hover:text-white"
           >
             <Phone size={20} />
           </button>
@@ -1070,18 +1070,24 @@ function NativeChatThreadPage() {
               })
             }
             aria-label="Video call"
-            className="hover:text-white"
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-full hover:bg-white/10 hover:text-white"
           >
             <Video size={20} />
           </button>
-          <button onClick={() => setShowOptionsMenu(!showOptionsMenu)} className="hover:text-white"><MoreVertical size={20} /></button>
+          <button
+            onClick={() => setShowOptionsMenu(!showOptionsMenu)}
+            aria-label="Chat options"
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-full hover:bg-white/10 hover:text-white"
+          >
+            <MoreVertical size={20} />
+          </button>
         </div>
 
         {/* 3-DOTS OPTIONS DROPDOWN WITH ALL 9 EXACT OPTIONS */}
         {showOptionsMenu && (
           <>
             <div className="fixed inset-0 z-[75]" onClick={() => setShowOptionsMenu(false)} />
-            <div className="absolute right-4 top-14 w-64 bg-zinc-900/95 border border-zinc-800 rounded-2xl shadow-2xl p-2 z-[80] backdrop-blur-md animate-in fade-in zoom-in-95 duration-150">
+            <div className="absolute right-3 top-full z-[80] mt-2 max-h-[calc(100dvh_-_env(safe-area-inset-top,24px)_-_1rem)] w-64 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-2xl border border-zinc-800 bg-zinc-900/95 p-2 shadow-2xl backdrop-blur-md animate-in fade-in zoom-in-95 duration-150">
               <MenuItem icon={<Pencil size={16} className="text-zinc-400" />} label="Change Display Name" onClick={() => {
                 setNameDraft(displayName);
                 setNameDialogOpen(true);
