@@ -11,7 +11,6 @@ import {
   type Overlay,
 } from "@/components/yw/chat/photo-editor";
 import { needsProtectionWarning, PLATFORM_PROTECTION_WARNING_TITLE, PLATFORM_PROTECTION_WARNING_BODY } from "@/lib/chat-compliance";
-import { UserWatermark } from "@/components/yw/UserWatermark";
 import { LazyImage } from "@/components/yw/LazyImage";
 import { HoldToRevealButton } from "@/components/yw/HoldToRevealButton";
 import { ProtectedCanvasImage, ProtectedCanvasText } from "@/components/yw/ProtectedCanvasContent";
@@ -715,7 +714,7 @@ function NativeChatThreadPage() {
 
 
   const captureChannelName = conversationId ? `social-chat-capture-${conversationId}` : null;
-  useAndroidSecureFlag(true);
+  useAndroidSecureFlag(secretLock);
 
   const handleIncomingCaptureAlert = useCallback(
     (payload: Record<string, unknown>, kind: "screenshot" | "recording") => {
@@ -840,7 +839,7 @@ function NativeChatThreadPage() {
 
   useCaptureDetect(true, dispatchChatSecurityAlert, {
     screenshotEnabled: true,
-    protectedElementId: "chat-messages-container",
+    protectedElementId: secretLock ? "chat-messages-container" : undefined,
   });
 
   useEffect(() => {
@@ -1221,7 +1220,6 @@ function NativeChatThreadPage() {
         <div
           className="relative min-h-full space-y-3.5"
         >
-         <UserWatermark username={currentUsername} className="fixed text-white" />
         {messagesLoading && messages.length > 0 ? (
           <p className="flex items-center justify-center gap-2 py-1 text-[11px] text-zinc-500" aria-live="polite">
             <span className="h-3 w-3 animate-spin rounded-full border border-zinc-600 border-t-zinc-300" />

@@ -18,7 +18,6 @@ import {
   type SportsProfileInfo,
 } from "@/components/yw/SportsProfile";
 import { SportsIdentityBadge } from "@/components/yw/SportsIdentityBadge";
-import { UserWatermark } from "@/components/yw/UserWatermark";
 import { VideoPoster } from "@/components/yw/VideoPoster";
 import { ProfilePhotoViewer } from "@/components/yw/ProfilePhotoViewer";
 import type { DbPost } from "@/lib/social-data";
@@ -158,7 +157,6 @@ export function ProfileTemplate({
 
   return (
     <main className="relative min-h-[100dvh] overflow-hidden bg-[radial-gradient(circle_at_15%_0%,rgba(214,93,177,0.11),transparent_32%),radial-gradient(circle_at_92%_18%,rgba(115,93,214,0.10),transparent_30%)] pb-8">
-      <UserWatermark username={profile.username} />
       <header
         className="header-lux sticky top-0 z-40 flex items-center justify-between gap-3 px-3.5 pt-[calc(env(safe-area-inset-top,0px)+1.5rem)] pb-4 sm:px-6"
       >

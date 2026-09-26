@@ -15,11 +15,13 @@ Android Gradle builds for this Capacitor project require Java 21. The workspace'
 
 **How to apply:** Before `assembleDebug`, provision Android platform 36 plus build-tools and run Gradle with a JDK 21 `JAVA_HOME`.
 
-This Replit shell may start without an Android SDK, and its system-package index may not expose the Nix Android SDK package even when Nixpkgs contains it. Request explicit user consent before accepting the Android SDK license, then install Google's command-line tools and the required SDK packages under `$HOME/Android/Sdk`; export `ANDROID_HOME`, `ANDROID_SDK_ROOT`, and the JDK 21 `JAVA_HOME` for Gradle.
+This Replit shell may leave `ANDROID_HOME` unset even when Nix store packages already contain the Android platform, build tools, and platform tools. The system-package index may not expose the Nix Android SDK package.
 
-**Why:** SDK package installation through the Replit package index failed because the Android SDK package was not indexed, and the default shell Java remained at 17 after Java 21 was installed.
+**Why:** Gradle needs one coherent SDK directory and Java 21; the default shell may expose neither even when the SDK components are present.
 
-**How to apply:** If `sdkmanager` is absent, use Google's official command-line-tools archive and install the project's compile SDK/build-tools with `android sdk install` after license consent. The current `sdkmanager` entry point is deprecated; verify SDK paths before running Gradle.
+**How to apply:** Before downloading tools, check for the required platform, build-tools, and platform-tools packages in the Nix store. If present, assemble a temporary SDK root with symlinks to their standard subdirectories and run Gradle with `ANDROID_HOME`, `ANDROID_SDK_ROOT`, and a JDK 21 `JAVA_HOME`. If components are absent, install Google's official command-line tools and SDK packages; get explicit user consent before accepting SDK licenses.
+
+The `sdkmanager` executable in the current Android command-line tools is the package manager; verify SDK paths before running Gradle.
 
 In September 2026, Google's generic `commandlinetools-linux-latest.zip` URL returned 404, while the repository metadata still advertised the current archive.
 

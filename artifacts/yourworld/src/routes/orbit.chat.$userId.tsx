@@ -38,7 +38,6 @@ import { useCall } from "@/lib/call-store";
 import { InvitesDrawer } from "@/components/yw/InvitesDrawer";
 import { PlacePickerSheet } from "@/components/yw/PlacePickerSheet";
 import { buildInvite, inviteById, type InviteCard, type InviteKind } from "@/lib/orbit-invites";
-import { UserWatermark } from "@/components/yw/UserWatermark";
 import { useCaptureDetect } from "@/lib/capture-detect";
 import { supabase } from "@/integrations/supabase/client";
 import { useMyProfile } from "@/lib/profile-data";
@@ -249,6 +248,7 @@ function NativeOrbitChatPage() {
   // Chat options (mirrors the Social chat 3-dot menu)
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [secretLock, setSecretLock] = useState(false);
+  const [captureProtectionClearing, setCaptureProtectionClearing] = useState(false);
   const [viewOnceMode, setViewOnceMode] = useState(false);
   const [autoDelete, setAutoDelete] = useState<AutoDeleteSetting>("off");
   const autoDeleteChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
@@ -714,9 +714,15 @@ function NativeOrbitChatPage() {
         pendingCaptureAlertsRef.current.push({ event, payload });
       }
     },
-    { screenshotEnabled: true, protectedElementId: "chat-messages-container" },
+    {
+      screenshotEnabled: true,
+      protectedElementId:
+        secretLock && !captureProtectionClearing
+          ? "chat-messages-container"
+          : undefined,
+    },
   );
-  useAndroidSecureFlag(true);
+  useAndroidSecureFlag(secretLock && !captureProtectionClearing);
 
   const startRecording = async () => {
     if (!accepted) {
@@ -921,8 +927,10 @@ function NativeOrbitChatPage() {
           setPinError("Incorrect PIN");
           return;
         }
+        setCaptureProtectionClearing(true);
         await saveSecretChatLock(userId, false, null, null);
         setSecretLock(false);
+        setCaptureProtectionClearing(false);
         setSecretPinSalt(null);
         setSecretPinHash(null);
         setChatUnlocked(true);
@@ -937,6 +945,7 @@ function NativeOrbitChatPage() {
       const salt = randomPinSalt();
       const hash = await hashPin(salt, pin);
       await saveSecretChatLock(userId, true, salt, hash);
+      setCaptureProtectionClearing(false);
       setSecretPinSalt(salt);
       setSecretPinHash(hash);
       setSecretLock(true);
@@ -944,6 +953,7 @@ function NativeOrbitChatPage() {
       setPinMode(null);
       toast.success("Secret Lock enabled");
     } catch (err) {
+      setCaptureProtectionClearing(false);
       console.error("[secret-lock] save failed", err);
       setPinError("Couldn't save. Check your connection and try again.");
     }
@@ -1443,7 +1453,6 @@ function NativeOrbitChatPage() {
         }}
         className="relative min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-4"
       >
-        <UserWatermark username={currentUsername} className="fixed" />
         {chat.loadingMore ? (
           <p className="py-1 text-center text-[11px] text-muted-foreground">
             Loading older messages…

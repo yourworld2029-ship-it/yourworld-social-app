@@ -24,7 +24,6 @@ import { downloadMomentMedia, downloadOriginalMomentMedia } from "@/lib/yw-downl
 import { toast } from "sonner";
 import { SportsIdentityMark } from "@/components/yw/SportsIdentityBadge";
 import { historyBackOr } from "@/lib/navigation";
-import { useAndroidSecureFlag } from "@/lib/native-privacy";
 import {
   ProtectedCanvasImage,
   ProtectedCanvasText,
@@ -112,7 +111,6 @@ function MomentViewRoute() {
   const deleteInFlightRef = useRef(false);
 
   const current = items[index] ?? selected ?? null;
-  useAndroidSecureFlag(true);
 
   // sync index to the moment in the URL
   useEffect(() => {

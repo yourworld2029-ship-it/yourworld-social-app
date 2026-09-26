@@ -22,6 +22,10 @@ let downloadTaskSnapshot: DownloadTask[] = [];
 
 export type DownloadQuality = VideoQualityTier | "original";
 
+const LEGACY_DOWNLOAD_DB_NAME = "yourworld-downloads-v1";
+const LEGACY_DOWNLOAD_STORE_NAME = "videos";
+const LEGACY_DOWNLOAD_CACHE_NAME = "yourworld-video-downloads-v1";
+
 export type DownloadTask = {
   id: string;
   title: string;
@@ -79,6 +83,13 @@ export type DownloadedVideo = DownloadedVideoMetadata & {
   cacheKey?: string;
 };
 
+type LegacyCachedDownload = Partial<DownloadedVideoMetadata> & {
+  id?: string;
+  cacheKey?: string;
+  fileName?: string;
+  downloadedAt?: string;
+};
+
 export function toDownloadedVideo(record: OfflineVideo): DownloadedVideo {
   return {
     id: String(record.id),
@@ -98,6 +109,152 @@ export function toDownloadedVideo(record: OfflineVideo): DownloadedVideo {
     videoBlob: record.videoBlob,
     downloadedAt: record.downloadedAt,
   };
+}
+
+function readLegacyDownloadRecords() {
+  if (typeof indexedDB === "undefined") return Promise.resolve([] as LegacyCachedDownload[]);
+
+  return new Promise<LegacyCachedDownload[]>((resolve) => {
+    let finished = false;
+    const finish = (records: LegacyCachedDownload[] = []) => {
+      if (finished) return;
+      finished = true;
+      resolve(records);
+    };
+
+    void (async () => {
+      try {
+        const databaseFactory = indexedDB as IDBFactory & {
+          databases?: () => Promise<Array<{ name?: string }>>;
+        };
+        const databases = await databaseFactory.databases?.();
+        if (
+          databases &&
+          !databases.some((database) => database.name === LEGACY_DOWNLOAD_DB_NAME)
+        ) {
+          finish();
+          return;
+        }
+      } catch {
+        // Fall through to a read-only open attempt on browsers without a usable databases() API.
+      }
+
+      const request = indexedDB.open(LEGACY_DOWNLOAD_DB_NAME);
+      request.onupgradeneeded = () => {
+        // Abort rather than create an empty legacy database when none exists.
+        request.transaction?.abort();
+      };
+      request.onsuccess = () => {
+        const database = request.result;
+        if (finished) {
+          database.close();
+          return;
+        }
+        if (!database.objectStoreNames.contains(LEGACY_DOWNLOAD_STORE_NAME)) {
+          database.close();
+          finish();
+          return;
+        }
+
+        try {
+          const transaction = database.transaction(
+            LEGACY_DOWNLOAD_STORE_NAME,
+            "readonly",
+          );
+          const recordsRequest = transaction
+            .objectStore(LEGACY_DOWNLOAD_STORE_NAME)
+            .getAll();
+          recordsRequest.onsuccess = () => {
+            database.close();
+            finish(
+              Array.isArray(recordsRequest.result)
+                ? (recordsRequest.result as LegacyCachedDownload[])
+                : [],
+            );
+          };
+          recordsRequest.onerror = () => {
+            database.close();
+            finish();
+          };
+          transaction.onabort = transaction.onerror = () => {
+            database.close();
+            finish();
+          };
+        } catch {
+          database.close();
+          finish();
+        }
+      };
+      request.onerror = () => finish();
+      request.onblocked = () => finish();
+    })();
+  });
+}
+
+/**
+ * Copy owner-matched downloads from the former metadata database + CacheStorage
+ * into the current IndexedDB store. The legacy records and cache entries are
+ * deliberately retained so this compatibility path never destroys old media.
+ */
+export async function migrateLegacyDownloadedVideos(ownerId: string) {
+  if (!ownerId || typeof caches === "undefined") return;
+
+  try {
+    const records = await readLegacyDownloadRecords();
+    if (!records.length) return;
+
+    const cacheNames = await caches.keys();
+    if (!cacheNames.includes(LEGACY_DOWNLOAD_CACHE_NAME)) return;
+    const legacyCache = await caches.open(LEGACY_DOWNLOAD_CACHE_NAME);
+
+    for (const record of records) {
+      if (
+        record.ownerId !== ownerId ||
+        typeof record.id !== "string" ||
+        typeof record.mediaId !== "string" ||
+        typeof record.cacheKey !== "string" ||
+        typeof record.quality !== "string"
+      ) {
+        continue;
+      }
+
+      try {
+        if (await getOfflineVideoById(record.id)) continue;
+
+        const response = await legacyCache.match(record.cacheKey);
+        if (!response) continue;
+        const videoBlob = await response.blob();
+        if (!videoBlob.size) continue;
+
+        const thumbnailUrl = record.thumbnailUrl ?? record.posterUrl ?? "";
+        const creatorName = record.creatorName ?? record.creatorUsername ?? "Unknown creator";
+        const offlineVideo: OfflineVideo = {
+          id: record.id,
+          ownerId: record.ownerId,
+          mediaId: record.mediaId,
+          title: record.title || "Downloaded video",
+          author: creatorName,
+          thumbnailUrl,
+          quality: record.quality as DownloadQuality,
+          sizeBytes: videoBlob.size,
+          videoBlob,
+          downloadedAt: record.downloadedAt || new Date().toISOString(),
+          creatorName,
+          creatorUsername: record.creatorUsername ?? "",
+          creatorId: record.creatorId,
+          views: record.views,
+          createdAt: record.createdAt,
+          durationSeconds: record.durationSeconds,
+          posterUrl: record.posterUrl ?? thumbnailUrl,
+        };
+        await saveOfflineVideo(offlineVideo);
+      } catch (error) {
+        console.warn("[downloads] Could not restore a legacy offline video", error);
+      }
+    }
+  } catch (error) {
+    console.warn("[downloads] Could not inspect legacy offline videos", error);
+  }
 }
 
 export async function listDownloadedVideos(ownerId: string) {

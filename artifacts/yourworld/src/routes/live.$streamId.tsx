@@ -3,7 +3,6 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft, Camera, Radio, Users, X } from "lucide-react";
 import { LiveStreamHud } from "@/components/yw/LiveStreamHud";
 import { useAuth, useResumeAuthAction } from "@/lib/auth-store";
-import { useAndroidSecureFlag } from "@/lib/native-privacy";
 import {
   endLiveStream,
   loadLiveStreamForViewer,
@@ -28,7 +27,6 @@ export const Route = createFileRoute("/live/$streamId")({
 });
 
 function LiveRoomPage() {
-  useAndroidSecureFlag(true);
   const { streamId } = Route.useParams();
   const { user, loading: authLoading } = useAuth();
   const [guestViewerId] = useState(

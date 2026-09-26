@@ -24,7 +24,6 @@ import { useChatNames } from "@/lib/chat-names";
 import { useSecretChats } from "@/lib/secret-chats";
 import { useProfiles } from "@/lib/profiles-map";
 import { SportsIdentityMark } from "@/components/yw/SportsIdentityBadge";
-import { useAndroidSecureFlag } from "@/lib/native-privacy";
 import { ProtectedCanvasText } from "@/components/yw/ProtectedCanvasContent";
 
 export const Route = createFileRoute("/orbit/messages")({
@@ -92,7 +91,6 @@ function OrbitMessagesPage() {
 }
 
 function NativeOrbitMessagesPage() {
-  useAndroidSecureFlag(true);
   const orbit = useOrbit();
   const { profiles: orbitProfiles } = useOrbitProfiles();
   const { mutual, likesMe, likedByMe } = useOrbitMatches();

@@ -62,6 +62,7 @@ import {
   submitSportsVerification,
 } from "@/lib/sports-verification.functions";
 import {
+  migrateLegacyDownloadedVideos,
   getDownloadedVideoUrl,
   removeDownloadedVideo,
   toDownloadedVideo,
@@ -165,7 +166,8 @@ function ProfilePage() {
       return;
     }
     setDownloadsLoading(true);
-    void getAllOfflineVideos()
+    void migrateLegacyDownloadedVideos(userId)
+      .then(() => getAllOfflineVideos())
       .then((records) => {
         if (!cancelled) {
           setDownloads(
