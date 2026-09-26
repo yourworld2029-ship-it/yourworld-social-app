@@ -88,7 +88,7 @@ public class MainActivity extends BridgeActivity {
                 getWindow().getDecorView()
         );
         controller.setAppearanceLightStatusBars(false);
-        getWindow().setStatusBarColor(Color.TRANSPARENT);
+        getWindow().setStatusBarColor(Color.BLACK);
         getWindow().getDecorView().setBackgroundColor(Color.BLACK);
         controller.show(WindowInsetsCompat.Type.statusBars());
     }

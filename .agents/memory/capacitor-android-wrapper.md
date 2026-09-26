@@ -21,6 +21,12 @@ This Replit shell may leave `ANDROID_HOME` unset even when Nix store packages al
 
 **How to apply:** Before downloading tools, check for the required platform, build-tools, and platform-tools packages in the Nix store. If present, assemble a temporary SDK root with symlinks to their standard subdirectories and run Gradle with `ANDROID_HOME`, `ANDROID_SDK_ROOT`, and a JDK 21 `JAVA_HOME`. If components are absent, install Google's official command-line tools and SDK packages; get explicit user consent before accepting SDK licenses.
 
+With this Android Gradle setup, `assembleDebug` requested Build Tools 35.0.0 even though the project compiles and targets SDK 36. When composing an SDK root from Nix packages, the `platform-tools` package directory must be linked directly at `$ANDROID_HOME/platform-tools`; placing that link inside a pre-created directory makes package discovery treat it as nested.
+
+**Why:** Gradle may require a build-tools version different from the compile SDK, and SDK package discovery validates each package's expected root path.
+
+**How to apply:** Check the exact package versions requested by Gradle, include them all in the temporary SDK root, and make package-directory links directly at their SDK-relative paths.
+
 SDK installations staged under `/tmp` may disappear between agent runs even when previously built APK files remain.
 
 **Why:** Temporary SDK state is not durable across runtime resets, so an old APK does not indicate that Gradle's SDK dependencies are still present.

@@ -2,15 +2,13 @@ import React, { useEffect, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  User, BarChart2, Lock, Bell, Palette, HelpCircle, Info, LogOut, ChevronRight, ArrowLeft, X, Wallet,
-  Check, Monitor, Moon, Sparkles, Sun, Zap,
+  User, BarChart2, Lock, Bell, HelpCircle, Info, LogOut, ChevronRight, ArrowLeft, X, Wallet,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-store";
 import { historyBackOr } from "@/lib/navigation";
 import { supabase } from "@/integrations/supabase/client";
 import { resolveMediaUrl, setUserBlock } from "@/lib/social-data";
-import { THEME_OPTIONS, useTheme, type ThemeChoice } from "@/lib/theme";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({
@@ -19,12 +17,12 @@ export const Route = createFileRoute("/settings")({
       {
         name: "description",
         content:
-          "Manage your YourWorld account, privacy, notifications, appearance and support preferences in one place.",
+          "Manage your YourWorld account, privacy, notifications and support preferences in one place.",
       },
       { property: "og:title", content: "Settings — YourWorld" },
       {
         property: "og:description",
-        content: "Account, privacy, notifications, appearance and support settings for YourWorld.",
+        content: "Account, privacy, notifications and support settings for YourWorld.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -33,7 +31,7 @@ export const Route = createFileRoute("/settings")({
   component: SettingsPage,
 });
 
-type PanelId = "privacy" | "notifications" | "appearance" | "help" | "about";
+type PanelId = "privacy" | "notifications" | "help" | "about";
 
 type BlockedAccount = {
   id: string;
@@ -63,9 +61,6 @@ function SettingsPage() {
   const [blockedAccountsLoading, setBlockedAccountsLoading] = useState(false);
   const [blockedAccountsError, setBlockedAccountsError] = useState(false);
   const [unblockingId, setUnblockingId] = useState<string | null>(null);
-  const [themeOpen, setThemeOpen] = useState(false);
-  const { theme, setTheme } = useTheme();
-  const selectedTheme = THEME_OPTIONS.find((option) => option.id === theme) ?? THEME_OPTIONS[1];
 
   useEffect(() => {
     if (!blockedAccountsOpen || !user) return;
@@ -196,8 +191,6 @@ function SettingsPage() {
     messages: true,
     channel: true,
     system: true,
-    reduceMotion: false,
-    compact: false,
   });
   const flip = (k: string) => setToggles((t) => ({ ...t, [k]: !t[k] }));
 
@@ -212,7 +205,7 @@ function SettingsPage() {
     <div className="min-h-screen bg-background p-4 font-sans text-foreground select-none">
       
       {/* Header */}
-      <div className="flex items-center gap-3 mb-6 mt-2">
+      <header className="settings-header mb-6 mt-2 flex items-center gap-3">
         <button
           onClick={() => historyBackOr(() => void navigate({ to: "/profile" }))}
           className="p-1 text-muted-foreground hover:text-foreground"
@@ -220,7 +213,7 @@ function SettingsPage() {
           <ArrowLeft size={22} />
         </button>
         <h1 className="text-xl font-bold text-foreground">Settings</h1>
-      </div>
+      </header>
 
       <div className="space-y-1 rounded-2xl border border-border bg-card p-2">
         
@@ -300,20 +293,6 @@ function SettingsPage() {
               <div className="font-semibold text-sm">Notifications</div>
               <div className="text-[11px] text-muted-foreground">Likes, channel & system alerts</div>
             </div>
-          </div>
-          <ChevronRight className="text-muted-foreground" size={18} />
-        </div>
-
-        {/* Appearance */}
-        <div
-          role="button"
-          tabIndex={0}
-          onClick={() => setPanel("appearance")}
-           className="flex cursor-pointer items-center justify-between rounded-xl p-3.5 hover:bg-muted/50"
-        >
-          <div className="flex items-center gap-4">
-            <Palette className="text-muted-foreground" size={20} />
-            <span className="font-semibold text-sm">Appearance</span>
           </div>
           <ChevronRight className="text-muted-foreground" size={18} />
         </div>
@@ -452,26 +431,6 @@ function SettingsPage() {
         </Panel>
       )}
 
-      {panel === "appearance" && (
-        <Panel title="Appearance" onClose={() => setPanel(null)}>
-          <Row
-            label="Theme"
-            hint={`${selectedTheme.label}${theme === "auto" ? " · follows system" : ""}`}
-            onClick={() => setThemeOpen(true)}
-          />
-          <Toggle label="Reduce motion" hint="Minimise animations and transitions" on={toggles.reduceMotion} onClick={() => flip("reduceMotion")} />
-          <Toggle label="Compact layout" hint="Tighter spacing in feed and lists" on={toggles.compact} onClick={() => flip("compact")} />
-        </Panel>
-      )}
-
-      {themeOpen && (
-        <ColorThemeSheet
-          selectedTheme={theme}
-          onSelect={setTheme}
-          onClose={() => setThemeOpen(false)}
-        />
-      )}
-
       {panel === "help" && (
         <Panel title="Help & Support" onClose={() => setPanel(null)}>
           <Row
@@ -598,119 +557,6 @@ function SettingsPage() {
         </Panel>
       )}
     </div>
-  );
-}
-
-function ColorThemeSheet({
-  selectedTheme,
-  onSelect,
-  onClose,
-}: {
-  selectedTheme: ThemeChoice;
-  onSelect: (theme: ThemeChoice) => void;
-  onClose: () => void;
-}) {
-  return (
-    <Panel title="Color Theme" onClose={onClose}>
-      <div className="mb-3 rounded-2xl border border-border bg-muted/30 p-3">
-        <div className="flex items-start gap-3">
-          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary/15 text-primary">
-            <Palette size={18} />
-          </div>
-          <div>
-            <p className="text-sm font-semibold">Make YourWorld yours</p>
-            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-              Themes apply instantly across cards, sheets, navigation and form controls.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid gap-2.5" role="radiogroup" aria-label="Color theme">
-        {THEME_OPTIONS.map((option) => {
-          const active = selectedTheme === option.id;
-          return (
-            <button
-              key={option.id}
-              type="button"
-              role="radio"
-              aria-checked={active}
-              onClick={() => onSelect(option.id)}
-              className={`group flex w-full items-center gap-3 rounded-2xl border p-2.5 text-left transition-all ${
-                active
-                  ? "border-primary/70 bg-primary/8 shadow-[0_0_0_1px_color-mix(in_oklab,var(--primary)_20%,transparent),0_12px_28px_-20px_var(--primary)]"
-                  : "border-border/70 bg-background/45 hover:border-foreground/20 hover:bg-muted/50"
-              }`}
-            >
-              <ThemePreview option={option} />
-              <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-2">
-                  <span className="truncate text-sm font-semibold">{option.label}</span>
-                  <span className="rounded-full bg-primary/12 px-1.5 py-0.5 text-[9px] font-bold tracking-[0.12em] text-primary">
-                    {option.badge}
-                  </span>
-                </span>
-                <span className="mt-1 block text-[11px] leading-snug text-muted-foreground">
-                  {option.description}
-                </span>
-              </span>
-              <span
-                className={`grid h-6 w-6 shrink-0 place-items-center rounded-full border transition-colors ${
-                  active ? "border-primary bg-primary text-primary-foreground" : "border-border text-transparent"
-                }`}
-                aria-hidden="true"
-              >
-                <Check size={14} strokeWidth={3} />
-              </span>
-            </button>
-          );
-        })}
-      </div>
-    </Panel>
-  );
-}
-
-function ThemePreview({
-  option,
-}: {
-  option: (typeof THEME_OPTIONS)[number];
-}) {
-  const PreviewIcon =
-    option.id === "auto"
-      ? Monitor
-      : option.id === "daylight"
-        ? Sun
-        : option.id === "neon"
-          ? Zap
-          : option.id === "midnight"
-            ? Moon
-            : Sparkles;
-
-  return (
-    <span
-      className="relative grid h-[58px] w-[74px] shrink-0 place-items-center overflow-hidden rounded-xl border border-white/10 shadow-inner"
-      style={{ backgroundColor: option.preview.background }}
-      aria-hidden="true"
-    >
-      <span
-        className="absolute inset-x-2 bottom-2 top-3 rounded-lg border border-white/10 p-1.5"
-        style={{ backgroundColor: option.preview.surface }}
-      >
-        <span className="block h-1.5 w-9 rounded-full" style={{ backgroundColor: option.preview.accent }} />
-        <span className="mt-1.5 block h-1 w-12 rounded-full bg-white/20" />
-        <span className="mt-1 block h-1 w-8 rounded-full bg-white/10" />
-      </span>
-      <span
-        className="relative z-10 grid h-7 w-7 place-items-center rounded-full border border-white/25 shadow-lg"
-        style={{ backgroundColor: option.preview.accent, color: option.preview.background }}
-      >
-        <PreviewIcon size={14} strokeWidth={2.5} />
-      </span>
-      <span
-        className="absolute bottom-1 right-1 h-1.5 w-1.5 rounded-full"
-        style={{ backgroundColor: option.preview.secondary }}
-      />
-    </span>
   );
 }
 

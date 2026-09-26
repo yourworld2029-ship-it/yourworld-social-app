@@ -30,7 +30,6 @@ import { EarningsCreditWatcher } from "@/lib/earnings-credit";
 import { SafeProvider } from "@/lib/safe-provider";
 import { AdaptiveMediaController } from "@/lib/adaptive-performance";
 import { VideoPlaybackProvider } from "@/lib/video-playback";
-import { ThemeProvider } from "@/lib/theme";
 
 function NotFoundComponent() {
   return (
@@ -102,7 +101,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         name: "description",
         content: "YourWorld (YW) is a social app for moments, feeds and full-screen reels.",
       },
-      { name: "theme-color", content: "#0e0e14" },
+      { name: "theme-color", content: "#000000" },
       { name: "apple-mobile-web-app-capable", content: "yes" },
       { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
       { property: "og:title", content: "YourWorld — Share your world" },
@@ -137,7 +136,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootShell({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className="dark" data-theme="midnight">
       <head>
         <HeadContent />
       </head>
@@ -166,6 +165,7 @@ function RootComponent() {
       try {
         await StatusBar.setOverlaysWebView({ overlay: true });
         await StatusBar.setStyle({ style: Style.Light });
+        await StatusBar.setBackgroundColor({ color: "#000000" });
         await StatusBar.show();
       } catch (error) {
         console.error("[nativeStatusBar] configuration failed", error);
@@ -197,7 +197,7 @@ function RootComponent() {
 
   if (!isAndroidApp) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#0e0e14] px-6 text-center text-white">
+      <div className="flex min-h-screen items-center justify-center bg-black px-6 text-center text-white">
         <div className="max-w-sm">
           <h1 className="text-xl font-semibold">YourWorld Android app</h1>
           <p className="mt-2 text-sm text-white/70">
@@ -209,8 +209,7 @@ function RootComponent() {
   }
 
   return (
-    <ThemeProvider>
-      <QueryClientProvider client={queryClient}>
+    <QueryClientProvider client={queryClient}>
         <AdaptiveMediaController />
         <AuthProvider>
         <SafeProvider name="YwStore">
@@ -255,7 +254,6 @@ function RootComponent() {
           </YwStoreProvider>
         </SafeProvider>
         </AuthProvider>
-      </QueryClientProvider>
-    </ThemeProvider>
+    </QueryClientProvider>
   );
 }

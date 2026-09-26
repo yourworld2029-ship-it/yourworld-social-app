@@ -4,7 +4,6 @@ import {
   ArrowLeft,
   Link2,
   MapPin,
-  MoreHorizontal,
   Pin,
   Play,
   Settings,
@@ -156,9 +155,9 @@ export function ProfileTemplate({
   const userBio = getUserEnteredProfileBio(profile.bio);
 
   return (
-    <main className="relative min-h-[100dvh] overflow-hidden bg-[radial-gradient(circle_at_15%_0%,rgba(214,93,177,0.11),transparent_32%),radial-gradient(circle_at_92%_18%,rgba(115,93,214,0.10),transparent_30%)] pb-8">
+    <main className="relative min-h-[100dvh] overflow-hidden bg-black pb-8">
       <header
-        className="header-lux sticky top-0 z-40 flex items-center justify-between gap-3 px-3.5 pt-[calc(env(safe-area-inset-top,0px)+1.5rem)] pb-4 sm:px-6"
+        className="profile-header header-lux sticky top-0 z-40 flex items-center justify-between gap-3 px-3.5 pt-[calc(env(safe-area-inset-top,0px)+1.5rem)] pb-4 sm:px-6"
       >
         <div className="flex min-w-0 items-center gap-2">
           {onBack ? (
@@ -298,15 +297,15 @@ export function ProfileTemplate({
         }}
         className="mx-auto w-full max-w-3xl pt-4"
       >
-        <TabsList className={`mx-3 grid w-auto rounded-xl border border-white/10 bg-black/20 p-1 backdrop-blur-xl sm:mx-4 ${isOwner ? "grid-cols-3" : "grid-cols-2"}`}>
-          <TabsTrigger value="videos" className="rounded-lg py-2 text-[11px] data-[state=active]:bg-white/[0.09] data-[state=active]:text-white" aria-label="Videos">
+        <TabsList className="mx-0 flex h-auto w-full justify-center gap-8 rounded-none border-0 border-b border-white/10 bg-transparent px-3 py-0 sm:gap-10">
+          <TabsTrigger value="videos" className="min-w-20 rounded-none border-b-2 border-transparent bg-transparent px-1 py-3 text-xs font-semibold text-white/60 shadow-none data-[state=active]:border-white data-[state=active]:bg-transparent data-[state=active]:text-white data-[state=active]:shadow-none" aria-label="Videos">
             Videos
           </TabsTrigger>
-          <TabsTrigger value="reels" className="rounded-lg py-2 text-[11px] data-[state=active]:bg-white/[0.09] data-[state=active]:text-white" aria-label="Reels">
+          <TabsTrigger value="reels" className="min-w-20 rounded-none border-b-2 border-transparent bg-transparent px-1 py-3 text-xs font-semibold text-white/60 shadow-none data-[state=active]:border-white data-[state=active]:bg-transparent data-[state=active]:text-white data-[state=active]:shadow-none" aria-label="Reels">
              Reels
           </TabsTrigger>
           {isOwner ? (
-            <TabsTrigger value="downloads" className="rounded-lg py-2 text-[11px] data-[state=active]:bg-white/[0.09] data-[state=active]:text-white" aria-label="Downloads">
+            <TabsTrigger value="downloads" className="min-w-20 rounded-none border-b-2 border-transparent bg-transparent px-1 py-3 text-xs font-semibold text-white/60 shadow-none data-[state=active]:border-white data-[state=active]:bg-transparent data-[state=active]:text-white data-[state=active]:shadow-none" aria-label="Downloads">
               Downloads
             </TabsTrigger>
           ) : null}
@@ -444,12 +443,19 @@ function MediaGrid({
           ) : null}
           {it.post && onOpen && (it.post.kind === "reel" || it.post.kind === "video" || it.type?.startsWith("video")) ? (
             <>
-              <button type="button" aria-label={`Open ${it.post.kind === "reel" ? "reel" : "post"}`} data-testid={`button-open-media-${it.post.id}`} onClick={() => onOpen(it.post!)} className="absolute inset-0 z-10" />
-              {onManage ? (
-                <button type="button" aria-label="Manage post" data-testid={`button-manage-media-${it.post.id}`} onClick={(event) => { event.stopPropagation(); onManage(it.post!); }} className="absolute right-1.5 top-1.5 z-20 grid h-7 w-7 items-center justify-center rounded-full bg-background/75 backdrop-blur transition-transform active:scale-90">
-                  <MoreHorizontal className="h-4 w-4" strokeWidth={2} />
-                </button>
-              ) : null}
+              <button
+                type="button"
+                aria-label={`Open ${it.post.kind === "reel" ? "reel" : "post"}`}
+                data-testid={`button-open-media-${it.post.id}`}
+                onClick={() => onOpen(it.post!)}
+                onContextMenu={onManage ? (event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onManage(it.post!);
+                } : undefined}
+                title={onManage ? "Right-click or long-press to manage" : undefined}
+                className="absolute inset-0 z-10"
+              />
             </>
           ) : null}
         </li>
