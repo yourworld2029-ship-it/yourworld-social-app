@@ -21,6 +21,12 @@ This Replit shell may leave `ANDROID_HOME` unset even when Nix store packages al
 
 **How to apply:** Before downloading tools, check for the required platform, build-tools, and platform-tools packages in the Nix store. If present, assemble a temporary SDK root with symlinks to their standard subdirectories and run Gradle with `ANDROID_HOME`, `ANDROID_SDK_ROOT`, and a JDK 21 `JAVA_HOME`. If components are absent, install Google's official command-line tools and SDK packages; get explicit user consent before accepting SDK licenses.
 
+SDK installations staged under `/tmp` may disappear between agent runs even when previously built APK files remain.
+
+**Why:** Temporary SDK state is not durable across runtime resets, so an old APK does not indicate that Gradle's SDK dependencies are still present.
+
+**How to apply:** Before a later Android build, verify the configured SDK root and required platform/build-tools directories still exist; re-provision them if needed.
+
 The current Android CLI deprecates `sdkmanager`; its `--licenses` wrapper warns and exits without recording acceptance. Installing a missing required package with `android sdk install` records the compatible license marker. Python `zipfile` extraction can also drop executable bits from command-line tools.
 
 **Why:** Google's SDK tooling moved package management to `android sdk`, so a successful legacy `sdkmanager --licenses` exit can still leave Gradle blocked. Extracted tools also fail with permission errors if executable modes are lost.
