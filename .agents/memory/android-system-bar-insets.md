@@ -16,3 +16,9 @@ Fresh Replit shells may not include the Android SDK, even when a previous APK bu
 **Why:** Gradle otherwise attempts to install missing Build Tools into the immutable Nix SDK and fails before compiling.
 
 **How to apply:** Check SDK availability before building; if missing, obtain approval for the Android SDK license, compose the target platform and all AGP-requested Build Tools versions with Nix, then point `ANDROID_HOME` at the resulting SDK.
+
+Fresh shells may still default to a JDK older than the Android project requires, even after the SDK is configured. Run Gradle with JDK 21 by setting `JAVA_HOME` and placing its `bin` directory first in `PATH`.
+
+**Why:** Gradle compilation fails with `invalid source release: 21` when it starts under JDK 17.
+
+**How to apply:** Check `java -version` immediately before `assembleDebug`; if needed, select JDK 21 for that invocation.
