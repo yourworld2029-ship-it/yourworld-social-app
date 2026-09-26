@@ -7,6 +7,12 @@ const config: CapacitorConfig = {
   server: {
     url: 'https://your-world-social-app--yourworld2029.replit.app',
     cleartext: true
+  },
+  plugins: {
+    StatusBar: {
+      overlaysWebView: true,
+      style: 'LIGHT'
+    }
   }
 };
 

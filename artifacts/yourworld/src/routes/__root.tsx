@@ -9,6 +9,8 @@ import {
 } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
+import { Capacitor } from "@capacitor/core";
+import { StatusBar, Style } from "@capacitor/status-bar";
 import { cn } from "@/lib/utils";
 
 import appCss from "../styles.css?url";
@@ -124,8 +126,6 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         rel: "stylesheet",
         href: "https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Manrope:wght@400;500;600;700&display=swap",
       },
-      { rel: "manifest", href: "/manifest.json" },
-      { rel: "apple-touch-icon", href: "/icon-512.png" },
       { rel: "icon", href: "/favicon.png", type: "image/png" },
     ],
   }),
@@ -153,8 +153,25 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const { pathname } = useLocation();
   const [createOpen, setCreateOpen] = useState(false);
+  const [isAndroidApp, setIsAndroidApp] = useState(false);
   const hideNav = pathname.startsWith("/orbit") || pathname.startsWith("/auth") || pathname.startsWith("/verify-2fa") || pathname.startsWith("/create") || pathname.startsWith("/moment/create") || pathname.startsWith("/channel/create");
   const wideProfileLayout = pathname === "/profile";
+
+  useEffect(() => {
+    const isAndroid = Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
+    setIsAndroidApp(isAndroid);
+    if (!isAndroid) return;
+
+    void (async () => {
+      try {
+        await StatusBar.setOverlaysWebView({ overlay: true });
+        await StatusBar.setStyle({ style: Style.Light });
+        await StatusBar.show();
+      } catch (error) {
+        console.error("[nativeStatusBar] configuration failed", error);
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     setCreateOpen(false);
@@ -177,6 +194,19 @@ function RootComponent() {
       window.removeEventListener("unhandledrejection", onRejection);
     };
   }, []);
+
+  if (!isAndroidApp) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#0e0e14] px-6 text-center text-white">
+        <div className="max-w-sm">
+          <h1 className="text-xl font-semibold">YourWorld Android app</h1>
+          <p className="mt-2 text-sm text-white/70">
+            YourWorld is available only in the installed Android app.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <ThemeProvider>

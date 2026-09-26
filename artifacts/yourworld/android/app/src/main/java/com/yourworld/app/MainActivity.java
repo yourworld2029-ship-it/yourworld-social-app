@@ -1,7 +1,6 @@
 package com.yourworld.app;
 
 import android.graphics.Color;
-import android.os.Build;
 import android.os.Bundle;
 import android.view.WindowManager;
 import android.webkit.WebSettings;
@@ -22,6 +21,10 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(PrivacyBridgePlugin.class);
         super.onCreate(savedInstanceState);
 
+        getWindow().setFlags(
+                WindowManager.LayoutParams.FLAG_SECURE,
+                WindowManager.LayoutParams.FLAG_SECURE
+        );
         configureSystemBars();
 
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
@@ -42,6 +45,10 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onResume() {
         super.onResume();
+        getWindow().setFlags(
+                WindowManager.LayoutParams.FLAG_SECURE,
+                WindowManager.LayoutParams.FLAG_SECURE
+        );
         configureSystemBars();
 
         WebView webView = getBridge() != null ? getBridge().getWebView() : null;
@@ -83,23 +90,18 @@ public class MainActivity extends BridgeActivity {
     private void configureSystemBars() {
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
-        boolean edgeToEdge = Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM;
-        WindowCompat.setDecorFitsSystemWindows(getWindow(), !edgeToEdge);
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         WindowInsetsControllerCompat controller = new WindowInsetsControllerCompat(
                 getWindow(),
                 getWindow().getDecorView()
         );
         controller.setAppearanceLightStatusBars(false);
-        getWindow().setStatusBarColor(Color.BLACK);
+        getWindow().setStatusBarColor(Color.TRANSPARENT);
         getWindow().getDecorView().setBackgroundColor(Color.BLACK);
         controller.show(WindowInsetsCompat.Type.statusBars());
     }
 
     private void applyWebViewInsets(WebView webView) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) {
-            return;
-        }
-
         final int initialLeft = webView.getPaddingLeft();
         final int initialTop = webView.getPaddingTop();
         final int initialRight = webView.getPaddingRight();
@@ -110,6 +112,7 @@ public class MainActivity extends BridgeActivity {
                     WindowInsetsCompat.Type.statusBars()
                             | WindowInsetsCompat.Type.displayCutout()
             );
+            // This native padding is the explicit status-bar/cutout spacer while the bar overlays the WebView.
             view.setPadding(
                     initialLeft + safeInsets.left,
                     initialTop + safeInsets.top,
