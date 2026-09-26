@@ -558,7 +558,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
             return;
           }
           setIsFullscreen(true);
-          await lockPlayerOrientation("landscape");
+          await lockPlayerOrientation(
+            video && video.videoHeight > video.videoWidth ? "portrait" : "landscape",
+          );
         })
         .catch(() => {
           if (requestId === fullscreenRequestIdRef.current) {
@@ -912,7 +914,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     setIsMuted(video.muted);
     const fullscreenElement = getPlayerFullscreenElement();
     if (fullscreenElement === containerRef.current || fullscreenElement === videoRef.current) {
-      void lockPlayerOrientation("landscape");
+      void lockPlayerOrientation(isVertical ? "portrait" : "landscape");
     }
   }, []);
 
