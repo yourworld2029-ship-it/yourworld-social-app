@@ -3,6 +3,9 @@ import { test } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
+  COACH_INSTITUTION_OPTIONS,
+  COACH_QUALIFICATION_OPTIONS,
+  COACH_QUALIFICATION_YEARS,
   getSportsProfile,
   getUserEnteredProfileBio,
   serializeSportsProfileBio,
@@ -27,8 +30,6 @@ const profile = {
   coachQualification: "Not recorded",
   qualificationYear: "Not recorded",
   institution: "Not recorded",
-  coachingExperience: "Not recorded",
-  teamDetails: "Not recorded",
 };
 
 test("Sports Identity card opens details without the removed summary row", () => {
@@ -62,6 +63,85 @@ test("profile bio display keeps only user-entered lines", () => {
   assert.equal(
     getUserEnteredProfileBio("Sports Introduction: player/intro.mp4\nRepresentation: National"),
     "",
+  );
+});
+
+test("Coach dropdown catalogs match the approved qualifications, sessions, and institutes", () => {
+  assert.deepEqual(COACH_QUALIFICATION_OPTIONS, ["NSNIS", "NIS"]);
+  assert.deepEqual(COACH_INSTITUTION_OPTIONS, [
+    "NSNIS Patiala (Punjab)",
+    "LNIPE Gwalior (Madhya Pradesh)",
+    "SAI NSSC Bengaluru (Karnataka)",
+    "SAI NSEC Kolkata (West Bengal)",
+    "SAI LNCPE Thiruvananthapuram (Kerala)",
+    "Other Recognized Government Institute",
+  ]);
+  assert.equal(COACH_QUALIFICATION_YEARS.length, 26);
+  assert.equal(COACH_QUALIFICATION_YEARS[0], "2000 to 2001");
+  assert.equal(COACH_QUALIFICATION_YEARS.at(-1), "2025 to 2026");
+  assert.deepEqual(
+    COACH_QUALIFICATION_YEARS,
+    Array.from({ length: 26 }, (_, index) => `${2000 + index} to ${2001 + index}`),
+  );
+});
+
+test("Coach details omit the removed experience and team-detail cards", () => {
+  const coachProfile = getSportsProfile({
+    is_verified: false,
+    category: "Coach · Handball",
+    bio: [
+      "Coaching Qualification: NIS",
+      "Qualification / Session Years: 2024 to 2025",
+      "Institution / Where completed: NSNIS Patiala (Punjab)",
+    ].join("\n"),
+    location: "",
+  })!;
+  const html = renderToStaticMarkup(
+    createElement(SportsDetailsPanel, {
+      profile: coachProfile,
+      isOwner: true,
+      onSave: () => undefined,
+    }),
+  );
+
+  assert.match(html, /Coaching Qualification/);
+  assert.match(html, /Qualification \/ Session Years/);
+  assert.match(html, /Institution \/ Where Completed/);
+  assert.doesNotMatch(html, /Coaching Experience/);
+  assert.doesNotMatch(html, /Tournament \/ Team details/);
+});
+
+test("Coach serialization removes the retired cards and stores session-year labels", () => {
+  const draft: SportsProfileDraft = {
+    username: "coach",
+    role: "Coach",
+    sport: "Handball",
+    eventPosition: "",
+    representation: "",
+    tournaments: [],
+    medals: [],
+    achievements: "",
+    coachName: "",
+    coachQualification: "NSNIS",
+    qualificationYear: "2024 to 2025",
+    institution: "NSNIS Patiala (Punjab)",
+  };
+  const bio = serializeSportsProfileBio(
+    "Coaching Experience: legacy text\nTournament / Team details: legacy text",
+    draft,
+  );
+
+  assert.match(bio, /Coaching Qualification: NSNIS/);
+  assert.match(bio, /Qualification \/ Session Years: 2024 to 2025/);
+  assert.doesNotMatch(bio, /Coaching Experience|Tournament \/ Team details/);
+  assert.equal(
+    getSportsProfile({
+      is_verified: false,
+      category: "Coach · Handball",
+      bio,
+      location: "",
+    })?.qualificationYear,
+    "2024 to 2025",
   );
 });
 
@@ -217,8 +297,6 @@ test("Sports Introduction metadata persists without embedding a Reel marker", ()
     coachQualification: "",
     qualificationYear: "",
     institution: "",
-    coachingExperience: "",
-    teamDetails: "",
     sportsIntroductionPath: "player/sports-introduction/intro.mp4",
   });
   const parsed = getSportsProfile({
@@ -264,8 +342,6 @@ test("structured tournament entries persist independently for Players and Coache
     coachQualification: "",
     qualificationYear: "",
     institution: "",
-    coachingExperience: "",
-    teamDetails: "",
   };
   const playerBio = serializeSportsProfileBio("", playerDraft);
   const playerProfile = getSportsProfile({

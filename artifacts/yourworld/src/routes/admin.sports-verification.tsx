@@ -272,11 +272,6 @@ function ApplicationCard({
           {sportsProfile?.institution !== "Not recorded" ? (
             <p className="mt-1">Institution: {sportsProfile?.institution}</p>
           ) : null}
-          {sportsProfile?.coachingExperience !== "Not recorded" ? (
-            <p className="mt-1 whitespace-pre-wrap">
-              Experience: {sportsProfile?.coachingExperience}
-            </p>
-          ) : null}
         </ReviewSection>
         <ReviewSection title="Achievements">
           <ReviewList items={sportsProfile?.achievements ?? []} empty="No achievements submitted." />

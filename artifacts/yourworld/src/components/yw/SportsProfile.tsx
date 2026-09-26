@@ -28,6 +28,13 @@ import type {
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
 export const SPORTS_CATALOGUE = [
@@ -69,6 +76,24 @@ export const SPORTS_CATALOGUE = [
   "Weightlifting",
   "Wrestling",
 ] as const;
+
+export const COACH_QUALIFICATION_OPTIONS = ["NSNIS", "NIS"] as const;
+export const COACH_QUALIFICATION_YEARS = Array.from(
+  { length: 26 },
+  (_, index) => `${2000 + index} to ${2001 + index}`,
+);
+export const COACH_INSTITUTION_OPTIONS = [
+  "NSNIS Patiala (Punjab)",
+  "LNIPE Gwalior (Madhya Pradesh)",
+  "SAI NSSC Bengaluru (Karnataka)",
+  "SAI NSEC Kolkata (West Bengal)",
+  "SAI LNCPE Thiruvananthapuram (Kerala)",
+  "Other Recognized Government Institute",
+] as const;
+
+function optionValue(value: string, options: readonly string[]) {
+  return options.includes(value) ? value : undefined;
+}
 
 const RECOGNIZED_COMPETITIONS = [
   "Olympic Games",
@@ -150,8 +175,6 @@ export type SportsProfileDraft = {
   coachQualification: string;
   qualificationYear: string;
   institution: string;
-  coachingExperience: string;
-  teamDetails: string;
   sportsIntroductionPath?: string;
 };
 
@@ -168,8 +191,6 @@ type SportsEditorField =
   | "coachQualification"
   | "qualificationYear"
   | "institution"
-  | "coachingExperience"
-  | "teamDetails"
   | "verification";
 
 export type SportsProfileInfo = {
@@ -193,8 +214,6 @@ export type SportsProfileInfo = {
   coachQualification: string;
   qualificationYear: string;
   institution: string;
-  coachingExperience: string;
-  teamDetails: string;
 };
 
 type SportsProfileSource = {
@@ -287,6 +306,8 @@ export function getSportsProfile(profile: SportsProfileSource): SportsProfileInf
       ]) || "Not recorded",
     qualificationYear:
       extractLabeledValue(profile.bio, [
+        "qualification / session years",
+        "qualification / session year",
         "qualification / ns nis year",
         "qualification year",
         "ns nis year",
@@ -295,10 +316,6 @@ export function getSportsProfile(profile: SportsProfileSource): SportsProfileInf
     institution:
       extractLabeledValue(profile.bio, ["institution", "where completed", "completed at"]) ||
       "Not recorded",
-    coachingExperience:
-      extractLabeledValue(profile.bio, ["coaching experience", "experience"]) || "Not recorded",
-    teamDetails:
-      extractLabeledValue(profile.bio, ["tournament / team details", "team details"]) || "Not recorded",
   };
 }
 
@@ -325,8 +342,6 @@ export function getOrCreateSportsProfile(profile: SportsProfileSource): SportsPr
       coachQualification: "Not recorded",
       qualificationYear: "Not recorded",
       institution: "Not recorded",
-      coachingExperience: "Not recorded",
-      teamDetails: "Not recorded",
     }
   );
 }
@@ -361,9 +376,6 @@ export function toSportsProfileDraft(profile: SportsProfileInfo): SportsProfileD
       profile.coachQualification === "Not recorded" ? "" : profile.coachQualification,
     qualificationYear: profile.qualificationYear === "Not recorded" ? "" : profile.qualificationYear,
     institution: profile.institution === "Not recorded" ? "" : profile.institution,
-    coachingExperience:
-      profile.coachingExperience === "Not recorded" ? "" : profile.coachingExperience,
-    teamDetails: profile.teamDetails === "Not recorded" ? "" : profile.teamDetails,
     sportsIntroductionPath: profile.sportsIntroductionPath ?? "",
   };
 }
@@ -382,19 +394,15 @@ export function serializeSportsProfileBio(currentBio: string, draft: SportsProfi
             ? `Coaching Qualification: ${draft.coachQualification.trim()}`
             : "",
           draft.qualificationYear.trim()
-            ? `Qualification / NS NIS Year: ${draft.qualificationYear.trim()}`
+            ? `Qualification / Session Years: ${draft.qualificationYear.trim()}`
             : "",
-          draft.institution.trim() ? `Institution / Where completed: ${draft.institution.trim()}` : "",
-          draft.coachingExperience.trim()
-            ? `Coaching Experience: ${draft.coachingExperience.trim()}`
-            : "",
+          draft.institution.trim() ? `Institution / Where Completed: ${draft.institution.trim()}` : "",
           draft.sportsIntroductionPath?.trim()
             ? `Sports Introduction: ${draft.sportsIntroductionPath.trim()}`
             : "",
           ...draft.tournaments
             .filter((item) => item.name.trim())
             .map(serializeTournament),
-          draft.teamDetails.trim() ? `Tournament / Team details: ${draft.teamDetails.trim()}` : "",
         ].filter(Boolean)
       : [
           draft.sport.trim() ? `Sport: ${draft.sport.trim()}` : "",
@@ -660,7 +668,7 @@ function formatMedal(item: SportsMedal) {
 }
 
 function isSportsFieldLine(line: string) {
-  return /^(sport|sports|discipline|game|event(?:\s*\/\s*position)?|position|specialty|representation|represents|status|country|team|tournament|medal|achievement|award|sports\s+introduction(?:\s+video)?|coach(?:\s*\/\s*qualification|\s+qualification)?|coach\s+name|coaching\s+qualification|qualification(?:\s*\/\s*ns\s*nis\s*year|\s+year)?|qualifications|license|licence|certification|certified|institution(?:\s*\/\s*where\s+completed)?|where\s+completed|completed\s+at|coaching\s+experience|experience|tournament\s*\/\s*team\s+details|team\s+details|sports\s*id|sportsid)\s*:/i.test(
+  return /^(sport|sports|discipline|game|event(?:\s*\/\s*position)?|position|specialty|representation|represents|status|country|team|tournament|medal|achievement|award|sports\s+introduction(?:\s+video)?|coach(?:\s*\/\s*qualification|\s+qualification)?|coach\s+name|coaching\s+qualification|qualification(?:\s*\/\s*(?:ns\s*nis\s*year|session\s+years?)|\s+year)?|qualifications|license|licence|certification|certified|institution(?:\s*\/\s*where\s+completed)?|where\s+completed|completed\s+at|coaching\s+experience|experience|tournament\s*\/\s*team\s+details|team\s+details|sports\s*id|sportsid)\s*:/i.test(
     line,
   );
 }
@@ -1034,7 +1042,7 @@ export function SportsDetailsPanel({
           if (!open) onDismissDuplicateSubmissionWarning?.();
         }}
       >
-        <DialogContent className="border-red-200/20 bg-[#151116] text-white sm:max-w-md">
+        <DialogContent className="border-red-200/20 bg-[#121212] text-white sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="text-red-100">Duplicate submission blocked</DialogTitle>
           </DialogHeader>
@@ -1571,10 +1579,8 @@ export function VerifiedSportsProfilePromo({ onOpenDetails }: { onOpenDetails: (
     "Coach Name",
     "Sport",
     "Coaching Qualification",
-    "NS NIS / Qualification Year",
+    "Qualification / Session Years",
     "Institution",
-    "Coaching Experience",
-    "Tournament / Team Details",
     "Private Qualification Documents",
   ];
   const verificationSteps = [
@@ -1977,28 +1983,16 @@ function CoachProfileSection({
           onEdit={() => onEdit("coachQualification")}
         />
         <CoachProfileValue
-          label="Qualification / NS NIS Year"
+          label="Qualification / Session Years"
           value={profile.qualificationYear}
           editable={editable}
           onEdit={() => onEdit("qualificationYear")}
         />
         <CoachProfileValue
-          label="Institution / Where completed"
+          label="Institution / Where Completed"
           value={profile.institution}
           editable={editable}
           onEdit={() => onEdit("institution")}
-        />
-        <CoachProfileValue
-          label="Coaching Experience"
-          value={profile.coachingExperience}
-          editable={editable}
-          onEdit={() => onEdit("coachingExperience")}
-        />
-        <CoachProfileValue
-          label="Tournament / Team details"
-          value={profile.teamDetails}
-          editable={editable}
-          onEdit={() => onEdit("teamDetails")}
         />
       </div>
     </SportsDetailsSection>
@@ -2073,19 +2067,24 @@ function TournamentEntryEditor({
         }
       >
         {isNational ? (
-          <select
-            data-testid={`select-national-competition-${index + 1}`}
+          <EditorSelect
+            testId={`select-national-competition-${index + 1}`}
             value={item.name}
-            onChange={(event) => onChange(index, { name: event.target.value, medal: undefined })}
-            className={editorSelectClass}
+            placeholder="Select national competition"
+            onValueChange={(value) =>
+              onChange(index, {
+                name: value === "__clear__" ? "" : value,
+                medal: undefined,
+              })
+            }
           >
-            <option value="">Select national competition</option>
+            <SelectItem value="__clear__">Clear competition</SelectItem>
             {NATIONAL_COMPETITIONS.map((competition) => (
-              <option key={competition} value={competition}>
+              <SelectItem key={competition} value={competition}>
                 {competition}
-              </option>
+              </SelectItem>
             ))}
-          </select>
+          </EditorSelect>
         ) : (
           <Input
             list={competitionListId}
@@ -2101,19 +2100,21 @@ function TournamentEntryEditor({
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
         <label className="space-y-1.5">
           <span className="text-xs font-medium text-zinc-400">Start Year</span>
-          <select
-            data-testid={`select-tournament-start-year-${index + 1}`}
+          <EditorSelect
+            testId={`select-tournament-start-year-${index + 1}`}
             value={item.startYear ?? ""}
-            onChange={(event) => onChange(index, { startYear: event.target.value })}
-            className={editorSelectClass}
+            placeholder="Select year"
+            onValueChange={(value) =>
+              onChange(index, { startYear: value === "__clear__" ? "" : value })
+            }
           >
-            <option value="">Select year</option>
+            <SelectItem value="__clear__">Clear year</SelectItem>
             {TOURNAMENT_YEARS.map((year) => (
-              <option key={year} value={year}>
+              <SelectItem key={year} value={year}>
                 {year}
-              </option>
+              </SelectItem>
             ))}
-          </select>
+          </EditorSelect>
         </label>
         <label className="space-y-1.5">
           <span className="text-xs font-medium text-zinc-400">Start Date</span>
@@ -2127,19 +2128,21 @@ function TournamentEntryEditor({
         </label>
         <label className="space-y-1.5">
           <span className="text-xs font-medium text-zinc-400">End Year</span>
-          <select
-            data-testid={`select-tournament-end-year-${index + 1}`}
+          <EditorSelect
+            testId={`select-tournament-end-year-${index + 1}`}
             value={item.endYear ?? ""}
-            onChange={(event) => onChange(index, { endYear: event.target.value })}
-            className={editorSelectClass}
+            placeholder="Select year"
+            onValueChange={(value) =>
+              onChange(index, { endYear: value === "__clear__" ? "" : value })
+            }
           >
-            <option value="">Select year</option>
+            <SelectItem value="__clear__">Clear year</SelectItem>
             {TOURNAMENT_YEARS.map((year) => (
-              <option key={year} value={year}>
+              <SelectItem key={year} value={year}>
                 {year}
-              </option>
+              </SelectItem>
             ))}
-          </select>
+          </EditorSelect>
         </label>
         <label className="space-y-1.5">
           <span className="text-xs font-medium text-zinc-400">End Date</span>
@@ -2170,39 +2173,41 @@ function TournamentEntryEditor({
         />
         {isNational ? (
           showNationalMedal ? (
-            <select
-              data-testid={`select-national-medal-${index + 1}`}
+            <EditorSelect
+              testId={`select-national-medal-${index + 1}`}
               value={item.medal === "No Medal" ? "" : item.medal ?? ""}
-              onChange={(event) =>
+              placeholder="Select medal (optional)"
+              onValueChange={(value) =>
                 onChange(index, {
-                  medal: event.target.value ? (event.target.value as TournamentMedal) : undefined,
+                  medal:
+                    value && value !== "__clear__" ? (value as TournamentMedal) : undefined,
                 })
               }
-              className={editorSelectClass}
             >
-              <option value="">Select medal (optional)</option>
-              <option value="Gold">Gold</option>
-              <option value="Silver">Silver</option>
-              <option value="Bronze">Bronze</option>
-            </select>
+              <SelectItem value="__clear__">Clear medal</SelectItem>
+              <SelectItem value="Gold">Gold</SelectItem>
+              <SelectItem value="Silver">Silver</SelectItem>
+              <SelectItem value="Bronze">Bronze</SelectItem>
+            </EditorSelect>
           ) : null
         ) : (
-          <select
-            data-testid={`select-tournament-medal-${index + 1}`}
+          <EditorSelect
+            testId={`select-tournament-medal-${index + 1}`}
             value={item.medal ?? ""}
-            onChange={(event) =>
+            placeholder="Medal (optional)"
+            onValueChange={(value) =>
               onChange(index, {
-                medal: event.target.value ? (event.target.value as TournamentMedal) : undefined,
+                medal:
+                  value && value !== "__clear__" ? (value as TournamentMedal) : undefined,
               })
             }
-            className={editorSelectClass}
           >
-            <option value="">Medal (optional)</option>
-            <option value="Gold">Gold</option>
-            <option value="Silver">Silver</option>
-            <option value="Bronze">Bronze</option>
-            <option value="No Medal">No Medal</option>
-          </select>
+            <SelectItem value="__clear__">Clear medal</SelectItem>
+            <SelectItem value="Gold">Gold</SelectItem>
+            <SelectItem value="Silver">Silver</SelectItem>
+            <SelectItem value="Bronze">Bronze</SelectItem>
+            <SelectItem value="No Medal">No Medal</SelectItem>
+          </EditorSelect>
         )}
         {role === "Coach" ? (
           <>
@@ -2275,18 +2280,14 @@ function SportsDetailsEditor({
                   : field === "coachQualification"
                     ? "Edit coaching qualification"
                     : field === "qualificationYear"
-                      ? "Edit qualification year"
+                        ? "Edit qualification / session years"
                       : field === "institution"
                         ? "Edit institution"
-                        : field === "coachingExperience"
-                          ? "Edit coaching experience"
-                          : field === "teamDetails"
-                            ? "Edit tournament / team details"
-                            : "Verification status";
+                        : "Verification status";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[88svh] max-w-lg overflow-y-auto rounded-3xl border-amber-200/20 bg-[#0b0c12] text-white">
+      <DialogContent className="max-h-[88svh] max-w-lg overflow-y-auto rounded-3xl border-amber-200/20 bg-[#121212] text-white">
         <DialogHeader>
           <DialogTitle className="text-left text-xl text-white">{title}</DialogTitle>
         </DialogHeader>
@@ -2310,19 +2311,20 @@ function SportsDetailsEditor({
 
         {field === "role" ? (
           <EditorField label="Role" hint="Choose one sports profile role.">
-            <select
+            <EditorSelect
+              testId="select-sports-role"
               value={draft.role}
-              onChange={(event) =>
+              placeholder="Choose role"
+              onValueChange={(value) =>
                 setDraft((current) => ({
                   ...current,
-                  role: event.target.value as SportsProfileDraft["role"],
+                  role: value as SportsProfileDraft["role"],
                 }))
               }
-              className={editorSelectClass}
             >
-              <option value="Player">Player</option>
-              <option value="Coach">Coach</option>
-            </select>
+              <SelectItem value="Player">Player</SelectItem>
+              <SelectItem value="Coach">Coach</SelectItem>
+            </EditorSelect>
           </EditorField>
         ) : null}
 
@@ -2339,23 +2341,28 @@ function SportsDetailsEditor({
 
         {field === "sport" ? (
           <EditorField label="Sport" hint="Choose from the sports catalogue or enter another sport.">
-            <select
-              value={SPORTS_CATALOGUE.includes(draft.sport as (typeof SPORTS_CATALOGUE)[number]) ? draft.sport : "Other"}
-              onChange={(event) =>
+            <EditorSelect
+              testId="select-sports-sport"
+              value={
+                SPORTS_CATALOGUE.includes(draft.sport as (typeof SPORTS_CATALOGUE)[number])
+                  ? draft.sport
+                  : "Other"
+              }
+              placeholder="Choose sport"
+              onValueChange={(value) =>
                 setDraft((current) => ({
                   ...current,
-                  sport: event.target.value === "Other" ? "" : event.target.value,
+                  sport: value === "Other" ? "" : value,
                 }))
               }
-              className={editorSelectClass}
             >
               {SPORTS_CATALOGUE.map((sport) => (
-                <option key={sport} value={sport}>
+                <SelectItem key={sport} value={sport}>
                   {sport}
-                </option>
+                </SelectItem>
               ))}
-              <option value="Other">Other sport</option>
-            </select>
+              <SelectItem value="Other">Other sport</SelectItem>
+            </EditorSelect>
             {!SPORTS_CATALOGUE.includes(draft.sport as (typeof SPORTS_CATALOGUE)[number]) ? (
               <Input
                 value={draft.sport}
@@ -2382,20 +2389,20 @@ function SportsDetailsEditor({
 
         {field === "representation" ? (
           <EditorField label="Representation">
-            <select
+            <EditorSelect
+              testId="select-sports-representation"
               value={draft.representation}
-              onChange={(event) =>
+              placeholder="Not recorded"
+              onValueChange={(value) =>
                 setDraft((current) => ({
                   ...current,
-                  representation: event.target.value as SportsProfileDraft["representation"],
+                  representation: value as SportsProfileDraft["representation"],
                 }))
               }
-              className={editorSelectClass}
             >
-              <option value="">Not recorded</option>
-              <option value="National">National</option>
-              <option value="International">International</option>
-            </select>
+              <SelectItem value="National">National</SelectItem>
+              <SelectItem value="International">International</SelectItem>
+            </EditorSelect>
           </EditorField>
         ) : null}
 
@@ -2481,24 +2488,24 @@ function SportsDetailsEditor({
                   </button>
                 </div>
                 <div className="grid gap-2 sm:grid-cols-3">
-                  <select
+                  <EditorSelect
                     value={item.type}
-                    onChange={(event) =>
+                    placeholder="Choose medal"
+                    onValueChange={(value) =>
                       setDraft((current) => ({
                         ...current,
                         medals: current.medals.map((entry, entryIndex) =>
                           entryIndex === index
-                            ? { ...entry, type: event.target.value as SportsMedal["type"] }
+                            ? { ...entry, type: value as SportsMedal["type"] }
                             : entry,
                         ),
                       }))
                     }
-                    className={editorSelectClass}
                   >
-                    <option value="Gold">Gold</option>
-                    <option value="Silver">Silver</option>
-                    <option value="Bronze">Bronze</option>
-                  </select>
+                    <SelectItem value="Gold">Gold</SelectItem>
+                    <SelectItem value="Silver">Silver</SelectItem>
+                    <SelectItem value="Bronze">Bronze</SelectItem>
+                  </EditorSelect>
                   {(["tournament", "year"] as const).map((key) => (
                     <Input
                       key={key}
@@ -2546,64 +2553,58 @@ function SportsDetailsEditor({
 
         {field === "coachQualification" ? (
           <EditorField label="Coaching Qualification">
-            <Input
-              value={draft.coachQualification}
-              onChange={(event) =>
-                setDraft((current) => ({ ...current, coachQualification: event.target.value }))
+            <EditorSelect
+              testId="select-coach-qualification"
+              value={optionValue(draft.coachQualification, COACH_QUALIFICATION_OPTIONS) ?? ""}
+              placeholder="Select qualification"
+              onValueChange={(value) =>
+                setDraft((current) => ({ ...current, coachQualification: value }))
               }
-              className={editorInputClass}
-              placeholder="Level 2 coaching licence"
-            />
+            >
+              {COACH_QUALIFICATION_OPTIONS.map((qualification) => (
+                <SelectItem key={qualification} value={qualification}>
+                  {qualification}
+                </SelectItem>
+              ))}
+            </EditorSelect>
           </EditorField>
         ) : null}
 
         {field === "qualificationYear" ? (
-          <EditorField label="Qualification / NS NIS Year">
-            <Input
-              value={draft.qualificationYear}
-              onChange={(event) =>
-                setDraft((current) => ({ ...current, qualificationYear: event.target.value }))
+          <EditorField label="Qualification / Session Years">
+            <EditorSelect
+              testId="select-coach-session-years"
+              value={optionValue(draft.qualificationYear, COACH_QUALIFICATION_YEARS) ?? ""}
+              placeholder="Select session"
+              onValueChange={(value) =>
+                setDraft((current) => ({ ...current, qualificationYear: value }))
               }
-              className={editorInputClass}
-              placeholder="2024"
-            />
+            >
+              {COACH_QUALIFICATION_YEARS.map((session) => (
+                <SelectItem key={session} value={session}>
+                  {session}
+                </SelectItem>
+              ))}
+            </EditorSelect>
           </EditorField>
         ) : null}
 
         {field === "institution" ? (
-          <EditorField label="Institution / Where completed">
-            <Input
-              value={draft.institution}
-              onChange={(event) => setDraft((current) => ({ ...current, institution: event.target.value }))}
-              className={editorInputClass}
-              placeholder="Institution name"
-            />
-          </EditorField>
-        ) : null}
-
-        {field === "coachingExperience" ? (
-          <EditorField label="Coaching Experience">
-            <Textarea
-              value={draft.coachingExperience}
-              onChange={(event) =>
-                setDraft((current) => ({ ...current, coachingExperience: event.target.value }))
+          <EditorField label="Institution / Where Completed">
+            <EditorSelect
+              testId="select-coach-institution"
+              value={optionValue(draft.institution, COACH_INSTITUTION_OPTIONS) ?? ""}
+              placeholder="Select institution"
+              onValueChange={(value) =>
+                setDraft((current) => ({ ...current, institution: value }))
               }
-              rows={5}
-              className={`${editorInputClass} min-h-28`}
-              placeholder="Years, teams, and coaching experience"
-            />
-          </EditorField>
-        ) : null}
-
-        {field === "teamDetails" ? (
-          <EditorField label="Tournament / Team details">
-            <Textarea
-              value={draft.teamDetails}
-              onChange={(event) => setDraft((current) => ({ ...current, teamDetails: event.target.value }))}
-              rows={5}
-              className={`${editorInputClass} min-h-28`}
-              placeholder="Teams coached, tournaments, and results"
-            />
+            >
+              {COACH_INSTITUTION_OPTIONS.map((institution) => (
+                <SelectItem key={institution} value={institution}>
+                  {institution}
+                </SelectItem>
+              ))}
+            </EditorSelect>
           </EditorField>
         ) : null}
 
@@ -2652,8 +2653,33 @@ function SportsDetailsEditor({
 const editorInputClass =
   "h-11 rounded-xl border-white/10 bg-white/[0.06] text-white placeholder:text-zinc-500 focus-visible:ring-amber-200/40";
 const editorSelectClass =
-  "h-11 w-full rounded-xl border border-white/10 bg-[#171820] px-3 text-sm text-white outline-none focus:border-amber-200/50";
+  "h-11 w-full rounded-xl border border-white/10 bg-[#000000] px-3 text-sm text-white outline-none focus:border-amber-200/50 data-[placeholder]:text-zinc-500";
+const editorSelectContentClass =
+  "border-amber-200/20 bg-[#121212] text-white shadow-2xl [&_[data-highlighted]]:bg-amber-200/10 [&_[data-highlighted]]:text-amber-100";
 const editorCardClass = "rounded-2xl border border-white/10 bg-white/[0.035] p-3";
+
+function EditorSelect({
+  value,
+  placeholder,
+  onValueChange,
+  children,
+  testId,
+}: {
+  value: string;
+  placeholder: string;
+  onValueChange: (value: string) => void;
+  children: React.ReactNode;
+  testId?: string;
+}) {
+  return (
+    <Select value={value || ""} onValueChange={onValueChange}>
+      <SelectTrigger data-testid={testId} className={editorSelectClass}>
+        <SelectValue placeholder={placeholder} />
+      </SelectTrigger>
+      <SelectContent className={editorSelectContentClass}>{children}</SelectContent>
+    </Select>
+  );
+}
 
 function EditorField({
   label,
