@@ -163,7 +163,7 @@ function RootComponent() {
 
     void (async () => {
       try {
-        await StatusBar.setOverlaysWebView({ overlay: true });
+        await StatusBar.setOverlaysWebView({ overlay: false });
         await StatusBar.setStyle({ style: Style.Light });
         await StatusBar.setBackgroundColor({ color: "#000000" });
         await StatusBar.show();
