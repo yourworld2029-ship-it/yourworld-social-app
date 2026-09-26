@@ -19,6 +19,10 @@ import {
   Play,
 } from "lucide-react";
 import { YwAvatar } from "@/components/yw/Avatar";
+import {
+  ProtectedCanvasImage,
+  ProtectedCanvasVideoMirror,
+} from "@/components/yw/ProtectedCanvasContent";
 import { ShareSheet } from "@/components/yw/ShareSheet";
 import { CommentsSheet } from "@/components/yw/CommentsSheet";
 import { useAuth, useResumeAuthAction } from "@/lib/auth-store";
@@ -448,38 +452,42 @@ function ReelMedia({
       );
     }
     return (
-      <img
-        ref={(el) => {
-          mediaRef.current = el;
-        }}
+      <ProtectedCanvasImage
         src={mediaFailed && posterSrc ? posterSrc : src}
         alt={alt}
-        decoding="async"
-        loading={active ? "eager" : "lazy"}
         onError={handleError}
+        onCanvasReady={(canvas) => {
+          mediaRef.current = canvas;
+        }}
         className={className}
       />
     );
   }
 
   return (
-    <video
-      ref={(el) => {
-        videoRef.current = el;
-        mediaRef.current = el;
-      }}
-      src={posterSrc ? src : firstFrameUrl(src)}
-      poster={posterSrc ?? undefined}
-      playsInline
-      muted={muted || !active}
-      preload="metadata"
-      {...({ loading: active ? "eager" : "lazy" } as const)}
-      onError={handleError}
-      onLoadedMetadata={onLoadedMetadata}
-      onTimeUpdate={onTimeUpdate}
-      onEnded={onEnded}
-      className={className}
-    />
+    <div className="relative h-full w-full">
+      <video
+        ref={(el) => {
+          videoRef.current = el;
+          mediaRef.current = el;
+        }}
+        src={posterSrc ? src : firstFrameUrl(src)}
+        poster={posterSrc ?? undefined}
+        playsInline
+        muted={muted || !active}
+        preload="metadata"
+        {...({ loading: active ? "eager" : "lazy" } as const)}
+        onError={handleError}
+        onLoadedMetadata={onLoadedMetadata}
+        onTimeUpdate={onTimeUpdate}
+        onEnded={onEnded}
+        className={`${className} opacity-0`}
+      />
+      <ProtectedCanvasVideoMirror
+        videoRef={videoRef}
+        className={`absolute inset-0 ${className}`}
+      />
+    </div>
   );
 }
 
@@ -654,7 +662,14 @@ function ReelItem({
     const el = mediaRef.current;
     if (!el) return;
     const { scale, x, y } = transform.current;
-    el.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`;
+    const transformStyle = `translate3d(${x}px, ${y}px, 0) scale(${scale})`;
+    el.style.transform = transformStyle;
+    if (el instanceof HTMLVideoElement) {
+      const mirror = el.parentElement?.querySelector<HTMLCanvasElement>(
+        "canvas.yw-protected-canvas",
+      );
+      if (mirror) mirror.style.transform = transformStyle;
+    }
   };
 
   // ---- press & hold to pause --------------------------------------------
@@ -692,6 +707,12 @@ function ReelItem({
       };
       const el = mediaRef.current;
       if (el) el.style.transition = "none";
+      if (el instanceof HTMLVideoElement) {
+        const mirror = el.parentElement?.querySelector<HTMLCanvasElement>(
+          "canvas.yw-protected-canvas",
+        );
+        if (mirror) mirror.style.transition = "none";
+      }
     }
   };
 
@@ -720,6 +741,14 @@ function ReelItem({
       transform.current = { scale: 1, x: 0, y: 0 };
       const el = mediaRef.current;
       if (el) el.style.transition = "transform 260ms cubic-bezier(.22,1,.36,1)";
+      if (el instanceof HTMLVideoElement) {
+        const mirror = el.parentElement?.querySelector<HTMLCanvasElement>(
+          "canvas.yw-protected-canvas",
+        );
+        if (mirror) {
+          mirror.style.transition = "transform 260ms cubic-bezier(.22,1,.36,1)";
+        }
+      }
       applyTransform();
     }
   };

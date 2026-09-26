@@ -1,4 +1,6 @@
 import { useEffect, useRef, type ReactNode } from "react";
+import { useState } from "react";
+import { useAuth } from "@/lib/auth-store";
 
 type BrowserPrivacyGuardProps = {
   pathname: string;
@@ -27,12 +29,38 @@ function isSensitivePath(pathname: string) {
   );
 }
 
+function isWatermarkedPath(pathname: string) {
+  const path = pathname.replace(/\/+$/, "") || "/";
+  return (
+    path === "/chat" ||
+    path.startsWith("/chat/") ||
+    path === "/orbit/chat" ||
+    path.startsWith("/orbit/chat/") ||
+    path === "/orbit/messages" ||
+    path.startsWith("/orbit/messages/") ||
+    path === "/moment" ||
+    path.startsWith("/moment/") ||
+    path === "/reels" ||
+    path.startsWith("/reels/")
+  );
+}
+
 export function BrowserPrivacyGuard({
   pathname,
   children,
 }: BrowserPrivacyGuardProps) {
   const surfaceRef = useRef<HTMLDivElement>(null);
+  const { user } = useAuth();
+  const [sessionTimestamp, setSessionTimestamp] = useState("");
   const active = isSensitivePath(pathname);
+  const showWatermark = isWatermarkedPath(pathname);
+  const username =
+    typeof user?.user_metadata?.username === "string"
+      ? user.user_metadata.username
+      : null;
+  const watermarkText = user
+    ? `${username ? `@${username}` : user.id} · ${user.id.slice(0, 8)} · ${sessionTimestamp}`
+    : `Guest · ${sessionTimestamp}`;
 
   useEffect(() => {
     const surface = surfaceRef.current;
@@ -40,6 +68,7 @@ export function BrowserPrivacyGuard({
 
     const documentRoot = document.documentElement;
     let shortcutResetTimer: number | null = null;
+    if (!sessionTimestamp) setSessionTimestamp(new Date().toLocaleString());
     const conceal = () => documentRoot.classList.add("yw-privacy-obscured");
     const revealWhenForegrounded = () => {
       if (document.visibilityState === "visible" && document.hasFocus()) {
@@ -58,6 +87,7 @@ export function BrowserPrivacyGuard({
       if (document.visibilityState === "hidden") conceal();
       else revealWhenForegrounded();
     };
+    const onWindowEnter = () => revealWhenForegrounded();
     const onKeyDown = (event: KeyboardEvent) => {
       const key = event.key.toLowerCase();
       const printShortcut = (event.ctrlKey || event.metaKey) && key === "p";
@@ -69,17 +99,14 @@ export function BrowserPrivacyGuard({
 
       if (!printShortcut && !screenshotShortcut) return;
       event.preventDefault();
-
-      if (screenshotShortcut) {
-        conceal();
-        if (shortcutResetTimer !== null) {
-          window.clearTimeout(shortcutResetTimer);
-        }
-        shortcutResetTimer = window.setTimeout(() => {
-          shortcutResetTimer = null;
-          revealWhenForegrounded();
-        }, 1800);
+      conceal();
+      if (shortcutResetTimer !== null) {
+        window.clearTimeout(shortcutResetTimer);
       }
+      shortcutResetTimer = window.setTimeout(() => {
+        shortcutResetTimer = null;
+        revealWhenForegrounded();
+      }, 1800);
     };
     const blockBrowserAction = (event: Event) => event.preventDefault();
     const onBeforePrint = () => {
@@ -89,10 +116,35 @@ export function BrowserPrivacyGuard({
       documentRoot.classList.remove("yw-print-blocked");
       revealWhenForegrounded();
     };
+    const mediaDevices = navigator.mediaDevices;
+    const originalDisplayCaptureDescriptor = mediaDevices
+      ? Object.getOwnPropertyDescriptor(mediaDevices, "getDisplayMedia")
+      : undefined;
+    const blockedDisplayCapture = () => {
+      throw new DOMException(
+        "Screen sharing is disabled while protected content is open.",
+        "NotAllowedError",
+      );
+    };
+    let displayCaptureBlocked = false;
+    if (mediaDevices && typeof mediaDevices.getDisplayMedia === "function") {
+      try {
+        Object.defineProperty(mediaDevices, "getDisplayMedia", {
+          configurable: true,
+          writable: true,
+          value: blockedDisplayCapture,
+        });
+        displayCaptureBlocked = mediaDevices.getDisplayMedia === blockedDisplayCapture;
+      } catch {
+        displayCaptureBlocked = false;
+      }
+    }
 
     documentRoot.classList.add("yw-sensitive-route");
     if (document.visibilityState === "hidden") conceal();
     window.addEventListener("blur", conceal);
+    window.addEventListener("mouseleave", conceal);
+    window.addEventListener("mouseenter", onWindowEnter);
     window.addEventListener("focus", onWindowFocus);
     window.addEventListener("yw-app-resume", onAppResume);
     window.addEventListener("keydown", onKeyDown, true);
@@ -105,6 +157,8 @@ export function BrowserPrivacyGuard({
     return () => {
       if (shortcutResetTimer !== null) window.clearTimeout(shortcutResetTimer);
       window.removeEventListener("blur", conceal);
+      window.removeEventListener("mouseleave", conceal);
+      window.removeEventListener("mouseenter", onWindowEnter);
       window.removeEventListener("focus", onWindowFocus);
       window.removeEventListener("yw-app-resume", onAppResume);
       window.removeEventListener("keydown", onKeyDown, true);
@@ -118,8 +172,22 @@ export function BrowserPrivacyGuard({
         "yw-privacy-obscured",
         "yw-print-blocked",
       );
+      if (
+        displayCaptureBlocked &&
+        mediaDevices?.getDisplayMedia === blockedDisplayCapture
+      ) {
+        if (originalDisplayCaptureDescriptor) {
+          Object.defineProperty(
+            mediaDevices,
+            "getDisplayMedia",
+            originalDisplayCaptureDescriptor,
+          );
+        } else {
+          Reflect.deleteProperty(mediaDevices, "getDisplayMedia");
+        }
+      }
     };
-  }, [active]);
+  }, [active, sessionTimestamp]);
 
   return (
     <div
@@ -127,6 +195,13 @@ export function BrowserPrivacyGuard({
       className={active ? "yw-sensitive-view" : undefined}
     >
       {children}
+      {showWatermark && sessionTimestamp && (
+        <div className="yw-forensic-watermark" aria-hidden="true">
+          {Array.from({ length: 24 }, (_, index) => (
+            <span key={index}>{watermarkText}</span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

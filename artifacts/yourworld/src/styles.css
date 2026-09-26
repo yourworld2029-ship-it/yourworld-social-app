@@ -1370,14 +1370,46 @@ html[data-theme] body {
   user-drag: none;
 }
 
+.yw-protected-canvas {
+  display: block;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
+}
+
+.yw-forensic-watermark {
+  position: fixed;
+  inset: -18vh -14vw;
+  z-index: 2147483646;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-rows: 145px;
+  align-items: center;
+  justify-items: center;
+  transform: rotate(-19deg) scale(1.08);
+  color: rgb(255 255 255 / 12%);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 45%);
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 html.yw-privacy-obscured::after {
-  content: "";
+  content: "Protected Screen";
   position: fixed;
   inset: 0;
   z-index: 2147483647;
-  background: #000;
-  backdrop-filter: blur(22px);
-  -webkit-backdrop-filter: blur(22px);
+  display: grid;
+  place-items: center;
+  background: #000000;
+  color: rgb(255 255 255 / 85%);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
   pointer-events: all;
 }
 
@@ -1386,11 +1418,17 @@ html.yw-print-blocked body * {
 }
 
 html.yw-print-blocked::after {
-  content: "";
+  content: "Protected Screen";
   position: fixed;
   inset: 0;
   z-index: 2147483647;
-  background: #000 !important;
+  display: grid;
+  place-items: center;
+  background: #000000 !important;
+  color: rgb(255 255 255 / 85%);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
   visibility: visible !important;
 }
 
@@ -1400,11 +1438,17 @@ html.yw-print-blocked::after {
   }
 
   html.yw-sensitive-route::after {
-    content: "";
+    content: "Protected Screen";
     position: fixed;
     inset: 0;
     z-index: 2147483647;
-    background: #000 !important;
+    display: grid;
+    place-items: center;
+    background: #000000 !important;
+    color: rgb(255 255 255 / 85%);
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
     visibility: visible !important;
   }
 }

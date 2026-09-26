@@ -14,6 +14,7 @@ import { needsProtectionWarning, PLATFORM_PROTECTION_WARNING_TITLE, PLATFORM_PRO
 import { UserWatermark } from "@/components/yw/UserWatermark";
 import { LazyImage } from "@/components/yw/LazyImage";
 import { HoldToRevealButton } from "@/components/yw/HoldToRevealButton";
+import { ProtectedCanvasImage, ProtectedCanvasText } from "@/components/yw/ProtectedCanvasContent";
 import { compressImageFile } from "@/lib/image-compress";
 import { useCaptureDetect } from "@/lib/capture-detect";
 import { useMyProfile } from "@/lib/profile-data";
@@ -126,7 +127,7 @@ function ReplyQuote({
         {reply.author || "Reply"}
       </span>
       <span className="mt-0.5 block truncate text-xs text-white/90">
-        {replyPreviewLabel(reply)}
+        <ProtectedCanvasText text={replyPreviewLabel(reply)} maxLines={1} />
       </span>
     </div>
   );
@@ -1325,7 +1326,7 @@ function NativeChatThreadPage() {
                     <span className="text-lg leading-none text-white/60 transition-transform group-hover:translate-x-0.5">›</span>
                   </button>
                 ) : null}
-                {m.text}
+                <ProtectedCanvasText text={m.text} />
               </div>
             )}
 
@@ -1576,10 +1577,10 @@ function NativeChatThreadPage() {
           onEnded={() => setViewOnceOpen(null)}
         />
       ) : (
-        <LazyImage
+        <ProtectedCanvasImage
           src={viewOnceOpen.url}
           alt="View once"
-          loading="eager"
+          className="max-h-full max-w-full object-contain rounded-lg"
           onLoad={() => {
             void purgeViewedMedia(viewOnceOpen.id).then((cleanup) => {
               if (cleanup.error) {
@@ -1587,8 +1588,6 @@ function NativeChatThreadPage() {
               }
             });
           }}
-          wrapperClassName="max-h-full max-w-full"
-          className="max-h-full max-w-full object-contain rounded-lg"
         />
       )}
     </div>

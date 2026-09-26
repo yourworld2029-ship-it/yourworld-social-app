@@ -25,6 +25,7 @@ import { useSecretChats } from "@/lib/secret-chats";
 import { useProfiles } from "@/lib/profiles-map";
 import { SportsIdentityMark } from "@/components/yw/SportsIdentityBadge";
 import { useAndroidSecureFlag } from "@/lib/native-privacy";
+import { ProtectedCanvasText } from "@/components/yw/ProtectedCanvasContent";
 
 export const Route = createFileRoute("/orbit/messages")({
   head: () => ({
@@ -407,9 +408,14 @@ function NativeOrbitMessagesPage() {
                         )}
                       </span>
                       <span className="block truncate text-xs text-muted-foreground">
-                        {prev
-                          ? `${prev.mine ? "You: " : ""}${prev.text}`
-                          : "Connected on Orbit · say hello"}
+                        <ProtectedCanvasText
+                          text={
+                            prev
+                              ? `${prev.mine ? "You: " : ""}${prev.text}`
+                              : "Connected on Orbit · say hello"
+                          }
+                          maxLines={1}
+                        />
                       </span>
                     </span>
                     {mutual.includes(p.id) && (

@@ -9,6 +9,7 @@ import { deleteDirectThreads, hiddenThreadIds } from "@/lib/chat-delete";
 import { useChatNames } from "@/lib/chat-names";
 import { useSecretChats } from "@/lib/secret-chats";
 import { ProfileAvatar } from "@/components/yw/ProfileAvatar";
+import { ProtectedCanvasText } from "@/components/yw/ProtectedCanvasContent";
 
 export const Route = createFileRoute("/_authenticated/chat/")({
   component: ChatListPage,
@@ -391,7 +392,9 @@ function NativeChatListPage() {
                   </div>
                   <div>
                     <h4 className="font-semibold text-sm">{nameFor(chat.peerId, chat.name)}</h4>
-                    <p className="text-xs text-gray-400 line-clamp-1">{chat.lastMessage}</p>
+                    <p className="text-xs text-gray-400 line-clamp-1">
+                      <ProtectedCanvasText text={chat.lastMessage} maxLines={1} />
+                    </p>
                   </div>
                 </div>
 

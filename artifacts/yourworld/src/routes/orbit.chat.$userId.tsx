@@ -54,6 +54,11 @@ import {
 } from "@/lib/auto-delete";
 import { useAndroidSecureFlag } from "@/lib/native-privacy";
 import { HoldToRevealButton } from "@/components/yw/HoldToRevealButton";
+import {
+  ProtectedCanvasImage,
+  ProtectedCanvasText,
+  ProtectedCanvasVideo,
+} from "@/components/yw/ProtectedCanvasContent";
 
 // Relations added by migration 0015 are intentionally not in checked-in
 // generated Supabase types. Keep this narrow escape hatch at that boundary.
@@ -1603,7 +1608,7 @@ function NativeOrbitChatPage() {
                       </button>
                     )
                   ) : (
-                    m.text
+                    m.text ? <ProtectedCanvasText text={m.text} /> : null
                   )}
                 </div>
               </div>
@@ -1989,16 +1994,13 @@ function OrbitViewOnce({
     );
   }
   if (kind === "video") {
-    return (
-      <video
-        src={localUrl}
-        controls
-        autoPlay
-        playsInline
-        onEnded={finish}
-        className="h-40 w-full object-contain"
-      />
-    );
+    return <ProtectedCanvasVideo src={localUrl} onEnded={finish} />;
   }
-  return <img src={localUrl} alt="View once photo" className="h-40 w-full object-cover" />;
+  return (
+    <ProtectedCanvasImage
+      src={localUrl}
+      alt="View once photo"
+      className="h-40 w-full object-cover"
+    />
+  );
 }

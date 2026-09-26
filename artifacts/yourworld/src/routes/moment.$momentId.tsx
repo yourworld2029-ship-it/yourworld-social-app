@@ -25,6 +25,11 @@ import { toast } from "sonner";
 import { SportsIdentityMark } from "@/components/yw/SportsIdentityBadge";
 import { historyBackOr } from "@/lib/navigation";
 import { useAndroidSecureFlag } from "@/lib/native-privacy";
+import {
+  ProtectedCanvasImage,
+  ProtectedCanvasText,
+  ProtectedCanvasVideoMirror,
+} from "@/components/yw/ProtectedCanvasContent";
 
 /** photo / text segment length (ms) */
 const PHOTO_DURATION = 5000;
@@ -376,38 +381,53 @@ function MomentViewRoute() {
         {/* MEDIA */}
         <div className="pointer-events-none flex h-full w-full items-center justify-center">
           {current.kind === "video" && current.media ? (
-            <video
-              ref={videoRef}
-              key={current.id}
-              src={current.media}
-              autoPlay
-              playsInline
-              muted={muted}
-              preload="metadata"
-              style={{ filter }}
-              className="h-full w-full object-cover"
-              onTimeUpdate={(e) => {
-                const v = e.currentTarget;
-                if (!v.duration || Number.isNaN(v.duration)) return;
-                 setProgress(Math.min(100, Math.max(0, (v.currentTime / v.duration) * 100)));
-                 const boundaryKey = String(current.id);
-                 if (v.currentTime >= v.duration - 0.05 && boundaryHandledRef.current !== boundaryKey) {
+            <div key={current.id} className="relative h-full w-full">
+              <video
+                ref={videoRef}
+                src={current.media}
+                autoPlay
+                playsInline
+                muted={muted}
+                preload="metadata"
+                style={{ filter }}
+                className="h-full w-full object-cover opacity-0"
+                onTimeUpdate={(e) => {
+                  const v = e.currentTarget;
+                  if (!v.duration || Number.isNaN(v.duration)) return;
+                  setProgress(Math.min(100, Math.max(0, (v.currentTime / v.duration) * 100)));
+                  const boundaryKey = String(current.id);
+                  if (v.currentTime >= v.duration - 0.05 && boundaryHandledRef.current !== boundaryKey) {
+                    boundaryHandledRef.current = boundaryKey;
+                    goNext();
+                  }
+                }}
+                onEnded={() => {
+                  const boundaryKey = String(current.id);
+                  if (boundaryHandledRef.current === boundaryKey) return;
                   boundaryHandledRef.current = boundaryKey;
                   goNext();
-                }
-              }}
-              onEnded={() => {
-                 const boundaryKey = String(current.id);
-                if (boundaryHandledRef.current === boundaryKey) return;
-                boundaryHandledRef.current = boundaryKey;
-                goNext();
-              }}
-            />
+                }}
+              />
+              <ProtectedCanvasVideoMirror
+                key={current.id}
+                videoRef={videoRef}
+                className="absolute inset-0 h-full w-full object-cover"
+                style={{ filter }}
+              />
+            </div>
           ) : current.kind === "photo" && current.media ? (
-            <img key={current.id} src={current.media} alt="" style={{ filter }} className="h-full w-full object-cover" />
+            <ProtectedCanvasImage
+              key={current.id}
+              src={current.media}
+              alt=""
+              style={{ filter }}
+              className="h-full w-full object-cover"
+            />
           ) : (
             <div className="grid h-full w-full place-items-center p-8" style={{ background: current.textBg || "#111" }}>
-              <p className="text-center text-2xl font-bold text-white">{displayMomentText}</p>
+              <p className="text-center text-2xl font-bold text-white">
+                <ProtectedCanvasText text={displayMomentText} />
+              </p>
             </div>
           )}
         </div>
@@ -415,7 +435,11 @@ function MomentViewRoute() {
         {/* CREATOR OVERLAYS: drawing, stickers, caption, location */}
         <div className="pointer-events-none absolute inset-0 z-[10001]">
           {current.drawing ? (
-            <img src={current.drawing} alt="" className="absolute inset-0 h-full w-full object-cover" />
+            <ProtectedCanvasImage
+              src={current.drawing}
+              alt=""
+              className="absolute inset-0 h-full w-full object-cover"
+            />
           ) : null}
           {current.stickers?.map((s) => (
             <div
