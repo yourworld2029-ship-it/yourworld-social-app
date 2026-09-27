@@ -1,0 +1,25 @@
+ADD 3 HIGH-RETENTION FEATURES: SMART SHARE LINK WITH APK DOWNLOAD, AUTO-PLAY NEXT EPISODE, AND CONTINUE WATCHING ROW
+
+STRICT CONSTRAINTS:
+- Do NOT touch or modify: Profile layouts, Side-by-side Verification Cards (Sports & National Awards), Creator Studio, Offline Downloads screen/logic, Terms & Conditions, Monetization logic, or Video Upload flow.
+- Keep the existing OLED dark theme consistent across all new additions.
+
+1. SMART SHARE LINK & WEB PREVIEW WITH DIRECT APK DOWNLOAD:
+- Update the Share button logic on Videos, Reels, and Series to generate a universal web preview URL (e.g. `/v/:id` or `/watch/:id`).
+- When opened on a device WITHOUT the app:
+  * Open a clean, responsive mobile browser web player that plays the video/reel directly.
+  * Show a persistent top sticky banner: "Watch in HD on YourWorld App" with a prominent "Download APK" button (linking directly to the latest hosted APK file URL).
+  * If the user taps Like, Comment, or Follow on the web page, show a prompt: "Download YourWorld App to interact with creators" with the direct APK download trigger.
+- When opened on a device WITH the app installed:
+  * Deep-link directly into the app's Full Video Player or Reel viewer at that specific video.
+
+2. AUTO-PLAY NEXT EPISODE (FOR MULTI-PART SERIES):
+- In the Full Video Player, when watching a video that has a `series_title` and `episode_number`:
+  * When the current episode has 5 seconds remaining before ending, display a sleek auto-play countdown overlay: "Up Next: [Next Episode Title/Number] in 5s" with a "Play Now" button and a "Cancel" button.
+  * If not cancelled, automatically load and smoothly play the next consecutive episode in the series.
+
+3. "CONTINUE WATCHING" ROW:
+- Track playback progress (timestamp/duration) locally or in user session whenever a user watches at least 10 seconds of a long video or series part.
+- Display a sleek horizontal tray labeled "Continue Watching" at the top of the Video tab / Home feed if items exist.
+- Each card shows video thumbnail, title, series badge (if applicable), a subtle bottom progress bar showing where they left off, and single-tap instant resume from that exact second.
+-
