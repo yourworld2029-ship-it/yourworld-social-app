@@ -1,12 +1,13 @@
 import React from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import { LongVideoCard } from "@/components/yw/LongVideoCard";
 import {
   FeedVideoAutoplayProvider,
   FeedVideoPreview,
 } from "@/components/yw/FeedVideoAutoplay";
 import { FeedVideoTray } from "@/components/yw/FeedVideoTray";
-import { useLongVideos, type LongVideo } from "@/lib/video-data";
+import { loadLongVideosByIds, useLongVideos, type LongVideo } from "@/lib/video-data";
 import { setVideoQueue } from "@/lib/video-queue";
 import { Search, Heart, Plus } from "lucide-react";
 import { useMoments } from "@/lib/moment-context";
@@ -16,6 +17,10 @@ import { useActiveLiveStreams } from "@/lib/live-data";
 import ywLogo from "@/assets/yw-logo.png";
 import { ProfileAvatar } from "@/components/yw/ProfileAvatar";
 import { useVideoPlayback } from "@/lib/video-playback";
+import {
+  getUnfinishedVideoResumes,
+  useVideoResumeEntries,
+} from "@/lib/video-resume";
 
 type FeedItem =
   | { kind: "standard"; key: string; video: LongVideo }
@@ -50,6 +55,7 @@ function MomentAvatar({
 function HomePage() {
   const navigate = useNavigate();
   const { activeVideo } = useVideoPlayback();
+  const resumeEntries = useVideoResumeEntries();
   const [hydrated, setHydrated] = React.useState(false);
   const {
     videos,
@@ -62,6 +68,32 @@ function HomePage() {
     hasNextPage,
     isFetchingNextPage,
   } = useLongVideos();
+  const resumeCandidates = React.useMemo(
+    () => getUnfinishedVideoResumes(resumeEntries),
+    [resumeEntries],
+  );
+  const latestResumeEntry = resumeCandidates[0] ?? null;
+  const resumeVideoInFeed = latestResumeEntry
+    ? videos.find((video) => video.id === latestResumeEntry.id) ?? null
+    : null;
+  const resumeVideoQuery = useQuery({
+    queryKey: ["long-video-resume-post", resumeCandidates.map((entry) => entry.id)],
+    enabled: resumeCandidates.length > 0 && !resumeVideoInFeed,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const resumeVideos = await loadLongVideosByIds(
+        resumeCandidates.map((entry) => entry.id),
+      );
+      for (const entry of resumeCandidates) {
+        const video = resumeVideos.find((candidate) => candidate.id === entry.id);
+        if (video) return video;
+      }
+      return null;
+    },
+  });
+  const resumeVideo = resumeVideoInFeed ?? resumeVideoQuery.data ?? null;
+  const resumeEntry =
+    resumeCandidates.find((entry) => entry.id === resumeVideo?.id) ?? null;
   const { moments } = useMoments();
   const { user } = useAuth();
   const {
@@ -173,7 +205,7 @@ function HomePage() {
     const regular: LongVideo[] = [];
     const vertical: LongVideo[] = [];
 
-    for (const video of videos) {
+    for (const video of videos.filter((item) => item.id !== resumeVideo?.id)) {
       const title = video.title.toLowerCase();
       const hasPortraitDimensions =
         typeof video.originalWidth === "number" &&
@@ -191,8 +223,9 @@ function HomePage() {
       (isVertical ? vertical : regular).push(video);
     }
 
+    if (resumeVideo) regular.unshift(resumeVideo);
     return { regularVideos: regular, verticalVideos: vertical };
-  }, [videos]);
+  }, [resumeVideo, videos]);
   const feedItems = React.useMemo<FeedItem[]>(() => {
     const items: FeedItem[] = [];
 
@@ -347,7 +380,7 @@ function HomePage() {
           <main className="max-w-lg mx-auto px-2 sm:px-4 py-4 space-y-4">
             {!hydrated || loading ? (
               <div className="text-center py-12 text-neutral-500 text-sm">Loading feed...</div>
-            ) : videos.length === 0 ? (
+            ) : videos.length === 0 && !resumeVideo ? (
               <div className="text-center py-12 text-neutral-500 text-sm">
                 No videos yet. Be the first to share!
               </div>
@@ -386,6 +419,11 @@ function HomePage() {
                     key={item.key}
                     video={item.video}
                     currentUserId={currentUserId}
+                    initialResumeTime={
+                      item.video.id === resumeEntry?.id
+                        ? resumeEntry.currentTime
+                        : undefined
+                    }
                     onView={countView}
                     onLike={toggleLike}
                     onDeleted={() => reload()}

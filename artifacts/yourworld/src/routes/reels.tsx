@@ -24,7 +24,6 @@ import {
   ProtectedCanvasVideoMirror,
 } from "@/components/yw/ProtectedCanvasContent";
 import { ShareSheet } from "@/components/yw/ShareSheet";
-import { ContinueWatchingRow } from "@/components/yw/ContinueWatchingRow";
 import { CommentsSheet } from "@/components/yw/CommentsSheet";
 import { useAuth, useResumeAuthAction } from "@/lib/auth-store";
 import { formatCount, type Reel, type User } from "@/lib/yw-data";
@@ -54,9 +53,7 @@ import { buildWatchShareUrl } from "@/lib/watch-links";
 import {
   getVideoResumeEntry,
   removeVideoResumeEntry,
-  requestVideoResume,
   saveVideoResumeEntry,
-  useVideoResumeEntries,
 } from "@/lib/video-resume";
 import {
   AlertDialog,
@@ -114,31 +111,14 @@ export const Route = createFileRoute("/reels")({
 });
 
 function ReelsPage() {
-  const navigate = useNavigate();
-  const resumeEntries = useVideoResumeEntries();
-
   return (
-    <>
-      {resumeEntries.length > 0 ? (
-        <div className="border-b border-white/10 bg-black px-4 py-3">
-          <ContinueWatchingRow
-            entries={resumeEntries}
-            onResume={(entry) => {
-              requestVideoResume(entry.id, entry.currentTime ?? 0);
-              void navigate({ to: "/video/$videoId", params: { videoId: entry.id } });
-            }}
-            onDismiss={(entry) => removeVideoResumeEntry(entry.id)}
-          />
-        </div>
-      ) : null}
-      <main
-        id="yw-reels-scroller"
-        className={`no-scrollbar ${resumeEntries.length > 0 ? "h-[calc(100dvh-20rem)]" : "h-[calc(100dvh-4.75rem)]"} snap-y snap-mandatory overflow-y-scroll overscroll-y-contain bg-background [-webkit-overflow-scrolling:touch] [scroll-snap-stop:always] [scroll-behavior:smooth]`}
-        aria-label="Reels"
-      >
-        <ReelsList />
-      </main>
-    </>
+    <main
+      id="yw-reels-scroller"
+      className="no-scrollbar h-[calc(100dvh-4.75rem)] snap-y snap-mandatory overflow-y-scroll overscroll-y-contain bg-background [-webkit-overflow-scrolling:touch] [scroll-snap-stop:always] [scroll-behavior:smooth]"
+      aria-label="Reels"
+    >
+      <ReelsList />
+    </main>
   );
 }
 

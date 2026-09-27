@@ -31,6 +31,7 @@ import { cn } from "@/lib/utils";
 import { PostEditDialog } from "@/components/yw/PostEditDialog";
 import type { DbPost } from "@/lib/social-data";
 import { buildWatchShareUrl } from "@/lib/watch-links";
+import { requestVideoResume } from "@/lib/video-resume";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -47,6 +48,7 @@ type Props = {
   onView: (id: string) => void | Promise<unknown>;
   onLike: (id: string) => void | Promise<unknown>;
   currentUserId?: string | null;
+  initialResumeTime?: number | null;
   onDeleted?: (id: string) => void;
   onEdited?: (post: DbPost) => void;
 };
@@ -71,6 +73,7 @@ export function LongVideoCard({
   video,
   onLike,
   currentUserId = null,
+  initialResumeTime,
   onDeleted,
   onEdited,
 }: Props) {
@@ -200,6 +203,18 @@ export function LongVideoCard({
 
   if (hidden) return null;
 
+  const openVideo = () => {
+    stopCandidate(previewId);
+    if (
+      typeof initialResumeTime === "number" &&
+      Number.isFinite(initialResumeTime) &&
+      initialResumeTime > 0
+    ) {
+      requestVideoResume(video.id, initialResumeTime);
+    }
+    window.location.href = `/video/${video.id}`;
+  };
+
   return (
     <>
     <article
@@ -212,8 +227,7 @@ export function LongVideoCard({
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
-          stopCandidate(previewId);
-          window.location.href = `/video/${video.id}`;
+          openVideo();
         }}
         className="group relative z-20 block w-full cursor-pointer touch-manipulation select-none border-0 bg-black p-0 text-left"
       >
@@ -259,8 +273,7 @@ export function LongVideoCard({
             onClick={(event) => {
               event.preventDefault();
               event.stopPropagation();
-              stopCandidate(previewId);
-              window.location.href = `/video/${video.id}`;
+              openVideo();
             }}
             className="cursor-pointer select-none text-left text-sm font-bold leading-snug text-white"
           >

@@ -481,6 +481,7 @@ function applyVideoPage<T extends { limit: (count: number) => T }>(
 async function loadLongVideoPage(
   offset = 0,
   pageSize = VIDEO_PAGE_SIZE,
+  onlyIds?: string[],
 ): Promise<LongVideoPage> {
   const { data: sessionData } = await supabase.auth.getSession();
   const uid = sessionData.session?.user.id ?? null;
@@ -492,23 +493,19 @@ async function loadLongVideoPage(
   // the ordered source until the visible page is full so those rows don't hide
   // later published long videos.
   while (videos.length < pageSize) {
-    let { data: posts, error } = await applyVideoPage(
-      supabase
-        .from("posts")
-        .select("*")
-        .eq("kind", "video")
-        .order("created_at", { ascending: false }),
-      nextOffset,
-      pageSize,
-    );
+    const currentPageQuery = supabase.from("posts").select("*");
+    const sourceQuery = onlyIds
+      ? currentPageQuery.in("id", onlyIds)
+      : currentPageQuery.eq("kind", "video").order("created_at", { ascending: false });
+    let { data: posts, error } = await applyVideoPage(sourceQuery, nextOffset, pageSize);
     let scannedRowCount = posts?.length ?? 0;
 
     if (missingColumn(error) === "kind") {
-      const legacy = await applyVideoPage(
-        supabase.from("posts").select("*").order("created_at", { ascending: false }),
-        nextOffset,
-        pageSize,
-      );
+      const legacyQuery = supabase.from("posts").select("*");
+      const legacySourceQuery = onlyIds
+        ? legacyQuery.in("id", onlyIds)
+        : legacyQuery.order("created_at", { ascending: false });
+      const legacy = await applyVideoPage(legacySourceQuery, nextOffset, pageSize);
       const legacyRows = legacy.data ?? [];
       scannedRowCount = legacyRows.length;
       posts = legacyRows.filter((row) => postKind(row) === "video");
@@ -524,6 +521,7 @@ async function loadLongVideoPage(
     hasMore = scannedRowCount >= pageSize;
     const visible = pagePosts
       .filter((post) => !isPostDeleted(post.id))
+      .filter((post) => !onlyIds || postKind(post) === "video")
       .filter((post) =>
         isPublishedLongVideoRow(post as unknown as Record<string, unknown>),
       );
@@ -601,6 +599,16 @@ async function loadLongVideoPage(
     hasMore,
     nextOffset: hasMore ? nextOffset : null,
   };
+}
+
+export async function loadLongVideosByIds(ids: readonly string[]): Promise<LongVideo[]> {
+  const uniqueIds = [...new Set(ids.filter(Boolean))];
+  if (uniqueIds.length === 0) return [];
+  const page = await loadLongVideoPage(0, uniqueIds.length, uniqueIds);
+  const priority = new Map(uniqueIds.map((id, index) => [id, index]));
+  return page.videos.sort(
+    (left, right) => (priority.get(left.id) ?? Infinity) - (priority.get(right.id) ?? Infinity),
+  );
 }
 
 export function useLongVideos() {

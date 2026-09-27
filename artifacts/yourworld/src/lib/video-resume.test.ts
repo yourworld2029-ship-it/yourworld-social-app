@@ -2,10 +2,51 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   consumeVideoResumeRequest,
+  getLatestUnfinishedVideoResume,
+  getUnfinishedVideoResumes,
   getVideoResumeEntries,
   requestVideoResume,
   saveVideoResumeEntry,
 } from "./video-resume";
+
+test("latest unfinished resume skips completed videos", () => {
+  const olderUnfinished = {
+    id: "older",
+    title: "Older",
+    thumbnailUrl: "",
+    currentTime: 40,
+    duration: 120,
+    progress: 1 / 3,
+    seriesTitle: null,
+    episodeNumber: null,
+    watchedSeconds: 40,
+    updatedAt: 100,
+  };
+  const latestUnfinished = {
+    ...olderUnfinished,
+    id: "latest",
+    currentTime: 75,
+    progress: 0.625,
+    updatedAt: 300,
+  };
+  const completed = {
+    ...olderUnfinished,
+    id: "completed",
+    currentTime: 116,
+    progress: 116 / 120,
+    updatedAt: 400,
+  };
+
+  assert.equal(
+    getLatestUnfinishedVideoResume([olderUnfinished, completed, latestUnfinished])?.id,
+    "latest",
+  );
+  assert.equal(getLatestUnfinishedVideoResume([completed]), null);
+  assert.deepEqual(
+    getUnfinishedVideoResumes([olderUnfinished, completed, latestUnfinished]).map((entry) => entry.id),
+    ["latest", "older"],
+  );
+});
 
 test("resume entries stay local and discard signed thumbnail URLs", () => {
   const originalWindow = globalThis.window;

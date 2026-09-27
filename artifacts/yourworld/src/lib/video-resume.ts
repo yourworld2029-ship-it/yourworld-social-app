@@ -96,6 +96,28 @@ export function getVideoResumeEntries() {
   return readStoredEntries();
 }
 
+export function getUnfinishedVideoResumes(
+  entries: readonly VideoResumeEntry[],
+) {
+  return [...entries]
+    .sort((left, right) => right.updatedAt - left.updatedAt)
+    .filter((entry) => {
+      if (entry.currentTime <= 0) return false;
+      if (entry.duration <= 0) return true;
+
+      const isComplete =
+        entry.currentTime / entry.duration >= 0.95 ||
+        (entry.duration > 30 && entry.duration - entry.currentTime <= 15);
+      return !isComplete;
+    });
+}
+
+export function getLatestUnfinishedVideoResume(
+  entries: readonly VideoResumeEntry[],
+) {
+  return getUnfinishedVideoResumes(entries)[0] ?? null;
+}
+
 export function getVideoResumeEntry(id: string) {
   return readStoredEntries().find((entry) => entry.id === id) ?? null;
 }
