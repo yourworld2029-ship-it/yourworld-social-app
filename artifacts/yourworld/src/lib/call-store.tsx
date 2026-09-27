@@ -40,6 +40,7 @@ import {
   type CallVideoEffect,
   type CallVideoEffectPipeline,
 } from "@/lib/call-effects";
+import { requestCallMediaPermissions } from "@/lib/native-privacy";
 
 /**
  * The deployed calls/user_blocks schema is newer than generated Supabase types.
@@ -1334,9 +1335,15 @@ export function CallProvider({ children }: { children: ReactNode }) {
       }
 
       try {
+        const permissionsGranted = await requestCallMediaPermissions(mode);
+        if (!permissionsGranted) throw new Error("Required call permissions were not granted.");
         await getMedia(mode);
       } catch {
-        toast.error("Camera / microphone permission denied");
+        toast.error(
+          mode === "video"
+            ? "Camera and microphone access is needed to start a video call."
+            : "Microphone access is needed to start an audio call.",
+        );
         teardown();
         return;
       }
@@ -1464,11 +1471,17 @@ export function CallProvider({ children }: { children: ReactNode }) {
       window.clearTimeout(ringTimer.current);
       ringTimer.current = null;
     }
-    setPhase("connecting");
     try {
+      const permissionsGranted = await requestCallMediaPermissions(call.mode);
+      if (!permissionsGranted) throw new Error("Required call permissions were not granted.");
+      setPhase("connecting");
       await getMedia(call.mode);
     } catch {
-      toast.error("Camera / microphone permission denied");
+      toast.error(
+        call.mode === "video"
+          ? "Camera and microphone access is needed to accept a video call."
+          : "Microphone access is needed to accept an audio call.",
+      );
       signal({ type: "END_CALL", reason: "rejected" });
       void callDb.from("calls").update({ status: "declined", ended_at: new Date().toISOString() }).eq("id", call.callId);
       teardown();

@@ -3,12 +3,23 @@ import { useEffect } from "react";
 
 interface PrivacyBridgePlugin {
   setSecureFlag(options: { enabled: boolean }): Promise<void>;
+  requestCallMediaPermissions(options: {
+    mode: "audio" | "video";
+  }): Promise<{ granted: boolean }>;
 }
 
 const privacyBridge = registerPlugin<PrivacyBridgePlugin>("PrivacyBridge");
 
 export function isNativeAndroid() {
   return Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
+}
+
+export async function requestCallMediaPermissions(
+  mode: "audio" | "video",
+): Promise<boolean> {
+  if (!isNativeAndroid()) return true;
+  const result = await privacyBridge.requestCallMediaPermissions({ mode });
+  return result.granted === true;
 }
 
 function updateAndroidChatSecureFlag(enabled: boolean) {
