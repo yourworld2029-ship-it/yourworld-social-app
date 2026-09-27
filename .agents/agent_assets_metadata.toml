@@ -1,0 +1,16 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "o8ip3yPx2yy1TcAUWqbZT"
+uri = "file://artifacts/yourworld/public/yourworld-v3.apk"
+type = "unspecified"
+title = "YourWorld Android APK — testing build"
+description = "Fresh 5.2 MB release-variant APK. APK signature and ZIP integrity verified; signed with the same Android debug certificate as the existing test APK for sideload testing."
+logical_id = "2c17a9e8-38b4-4902-92f4-ac2caa1d0cfc"
+content_hash = "sha256:83a0aea48351b71b3a47ac043343540c80ee529d24bc1cec3c0235effe66124a"
+size = 5390322
+mtime_ms = 1790498261261
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/2c17a9e8-38b4-4902-92f4-ac2caa1d0cfc/37d50aac-a59f-477c-b602-2cd7b3a2750d"
+storage_version_token = "1790498470181967"
+content_type = "application/octet-stream"
