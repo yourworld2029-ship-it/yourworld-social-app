@@ -4,19 +4,17 @@ import type { LongVideo } from "@/lib/video-data";
 
 type FeedVideoTrayProps = {
   videos: LongVideo[];
-  instanceKey: string;
-  renderPreview: (video: LongVideo, candidateId: string) => ReactNode;
-  onOpenVideo: (video: LongVideo, candidateId: string) => void;
+  renderPreview: (video: LongVideo) => ReactNode;
+  onOpenVideo: (video: LongVideo) => void;
 };
 
 /**
  * A compact, snap-scrolling rail for quickly browsing portrait videos in the
- * home feed. Playback stays with the parent; this component only owns the
- * browse and mute controls.
+ * home feed. Each card keeps its own muted inline preview; taps open the
+ * existing video player route.
  */
 export function FeedVideoTray({
   videos,
-  instanceKey,
   renderPreview,
   onOpenVideo,
 }: FeedVideoTrayProps) {
@@ -57,7 +55,6 @@ export function FeedVideoTray({
         data-testid="feed-video-scroll"
       >
         {videos.map((video) => {
-          const candidateId = `${instanceKey}:${video.id}`;
           const title = video.title || "Untitled video";
 
           return (
@@ -71,14 +68,9 @@ export function FeedVideoTray({
                 aria-label={`Open ${title}`}
                 className="group relative block aspect-[9/16] w-full overflow-hidden text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fuchsia-300"
                 data-testid={`button-open-video-${video.id}`}
-                onClick={() => onOpenVideo(video, candidateId)}
+                onClick={() => onOpenVideo(video)}
               >
-                <div
-                  className="absolute inset-0 bg-[#15151c]"
-                  data-testid={`feed-video-preview-${video.id}`}
-                >
-                  {renderPreview(video, candidateId)}
-                </div>
+                {renderPreview(video)}
 
                 <span
                   aria-hidden="true"

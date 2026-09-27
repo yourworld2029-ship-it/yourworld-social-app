@@ -4,9 +4,9 @@ import { useQuery } from "@tanstack/react-query";
 import { LongVideoCard } from "@/components/yw/LongVideoCard";
 import {
   FeedVideoAutoplayProvider,
-  FeedVideoPreview,
 } from "@/components/yw/FeedVideoAutoplay";
 import { FeedVideoTray } from "@/components/yw/FeedVideoTray";
+import { FeedVideoShelfPreview } from "@/components/yw/FeedVideoShelfPreview";
 import { loadLongVideosByIds, useLongVideos, type LongVideo } from "@/lib/video-data";
 import { setVideoQueue } from "@/lib/video-queue";
 import { Search, Heart, Plus } from "lucide-react";
@@ -376,7 +376,7 @@ function HomePage() {
 
       {/* Main Long Video Feed */}
       <FeedVideoAutoplayProvider disabled={Boolean(activeVideo)}>
-        {(autoplay) => (
+        {() => (
           <main className="max-w-lg mx-auto px-2 sm:px-4 py-4 space-y-4">
             {!hydrated || loading ? (
               <div className="text-center py-12 text-neutral-500 text-sm">Loading feed...</div>
@@ -391,20 +391,13 @@ function HomePage() {
                     <FeedVideoTray
                       key={item.key}
                       videos={verticalVideos}
-                      instanceKey={item.instanceKey}
-                      renderPreview={(video, candidateId) => (
-                        <FeedVideoPreview
+                      renderPreview={(video) => (
+                        <FeedVideoShelfPreview
                           video={video}
-                          candidateId={candidateId}
-                          fullVisibility
-                          forceMuted
-                          loop
-                          hidePosterPlayIcon
                           className="pointer-events-none"
                         />
                       )}
-                      onOpenVideo={(video, candidateId) => {
-                        autoplay.stopCandidate(candidateId);
+                      onOpenVideo={(video) => {
                         void navigate({
                           to: "/video/$videoId",
                           params: { videoId: video.id },
