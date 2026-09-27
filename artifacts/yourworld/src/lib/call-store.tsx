@@ -256,8 +256,14 @@ const CallCtx = createContext<Ctx>({
 });
 export const useCall = () => useContext(CallCtx);
 
-/** Builds a looping ring tone as a WAV data URL playable by an HTML5 <audio> element. */
-function buildRingToneUrl(freqs: number[], onSec: number, cycleSec: number): string {
+/** Builds a looping set of notes as a WAV data URL for the call audio pipeline. */
+type RingToneNote = {
+  start: number;
+  duration: number;
+  frequencies: number[];
+};
+
+function buildRingToneUrl(notes: RingToneNote[], cycleSec: number): string {
   const rate = 22050;
   const total = Math.floor(rate * cycleSec);
   const bytes = 44 + total * 2;
@@ -274,12 +280,17 @@ function buildRingToneUrl(freqs: number[], onSec: number, cycleSec: number): str
   for (let i = 0; i < total; i++) {
     const t = i / rate;
     let v = 0;
-    if (t < onSec) {
-      for (const f of freqs) v += Math.sin(2 * Math.PI * f * t);
-      v /= freqs.length;
-      // short fades to avoid clicks
-      const fade = Math.min(1, t / 0.02, (onSec - t) / 0.02);
-      v *= Math.max(0, fade) * 0.35;
+    const note = notes.find((item) => t >= item.start && t < item.start + item.duration);
+    if (note) {
+      const noteTime = t - note.start;
+      for (let index = 0; index < note.frequencies.length; index++) {
+        const frequency = note.frequencies[index];
+        const harmonicGain = index === 0 ? 0.78 : index === 1 ? 0.18 : 0.04;
+        v += Math.sin(2 * Math.PI * frequency * noteTime) * harmonicGain;
+      }
+      v /= Math.max(1, note.frequencies.length);
+      const fade = Math.min(1, noteTime / 0.012, (note.duration - noteTime) / 0.04);
+      v *= Math.max(0, fade) * 0.72;
     }
     view.setInt16(44 + i * 2, Math.max(-1, Math.min(1, v)) * 32767, true);
   }
@@ -292,6 +303,26 @@ function buildRingToneUrl(freqs: number[], onSec: number, cycleSec: number): str
 let incomingUrl: string | null = null;
 let ringbackUrl: string | null = null;
 const activeRingtones = new Set<HTMLAudioElement>();
+const INCOMING_MELODY = [784, 988, 1175, 988, 880, 988, 784, 880];
+const INCOMING_RESPONSE = [659, 784, 988, 784, 698, 784, 659, 587];
+
+function buildIncomingRingtoneUrl() {
+  const noteDuration = 0.23;
+  const noteStep = 0.29;
+  const notes: RingToneNote[] = [
+    ...INCOMING_MELODY.map((frequency, index) => ({
+      start: index * noteStep,
+      duration: noteDuration,
+      frequencies: [frequency, frequency * 2],
+    })),
+    ...INCOMING_RESPONSE.map((frequency, index) => ({
+      start: 2.85 + index * noteStep,
+      duration: noteDuration,
+      frequencies: [frequency, frequency * 2],
+    })),
+  ];
+  return buildRingToneUrl(notes, 6.4);
+}
 
 function stopAllRingtones() {
   for (const audio of activeRingtones) {
@@ -305,16 +336,19 @@ function stopAllRingtones() {
   }
 }
 
-/** HTML5 <audio> ringtone: incoming ring, or ringback while our outgoing call connects. */
+/** HTML5 <audio> alert: a melodic incoming ringtone or a standard line ringback. */
 function useRingtone(kind: "incoming" | "ringback" | null) {
   useEffect(() => {
     if (!kind || typeof window === "undefined") return;
     let audio: HTMLAudioElement | null = null;
     try {
       if (kind === "incoming") {
-        incomingUrl ??= buildRingToneUrl([440, 480], 1.2, 3);
+        incomingUrl ??= buildIncomingRingtoneUrl();
       } else {
-        ringbackUrl ??= buildRingToneUrl([440, 480], 1, 4);
+        ringbackUrl ??= buildRingToneUrl(
+          [{ start: 0, duration: 2, frequencies: [440, 480] }],
+          6,
+        );
       }
       audio = new Audio(kind === "incoming" ? incomingUrl! : ringbackUrl!);
       activeRingtones.add(audio);
@@ -349,6 +383,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const isGuest = !authId;
   const [call, setCall] = useState<CallState | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
+  const [remoteVideoReady, setRemoteVideoReady] = useState(false);
   const [callPermissionMode, setCallPermissionMode] = useState<CallMode | null>(null);
   const [retryingCallPermission, setRetryingCallPermission] = useState(false);
   const [micOn, setMicOn] = useState(true);
@@ -651,6 +686,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
     setPhase("idle");
     setCall(null);
+    setRemoteVideoReady(false);
     setMicOn(true);
     setCamOn(true);
     setSpeakerOn(false);
@@ -929,6 +965,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         if (!s) s = new MediaStream();
         if (!e.streams[0] && !s.getTracks().includes(e.track)) s.addTrack(e.track);
         remoteStream.current = s;
+        if (e.track.kind === "video") setRemoteVideoReady(false);
         // Explicitly attach the received remote stream to the main full-screen
         // <video> element immediately, then retry on the next frame in case the
         // ref wasn't bound yet (e.g. track arrives before the element mounts).
@@ -1386,6 +1423,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       }
 
       try {
+        setRemoteVideoReady(false);
         await getMedia(mode);
       } catch (error) {
         if (isCallMediaPermissionError(error)) {
@@ -1517,6 +1555,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   const accept = useCallback(async () => {
     if (!call || !authId) return;
+    setRemoteVideoReady(false);
     const { data: blocks } = await callDb
       .from("user_blocks")
       .select("blocker_id,blocked_id")
@@ -1910,6 +1949,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
     localTileDrag.current = null;
   };
 
+  const localPreviewFullScreen = !remoteVideoReady || swapped;
+
   return (
     <CallCtx.Provider value={value}>
       {children}
@@ -2017,6 +2058,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 poster=""
                 muted={false}
                 onLoadedMetadata={playRemoteMedia}
+                onLoadedData={() => setRemoteVideoReady(true)}
+                onPlaying={() => setRemoteVideoReady(true)}
                 onClick={
                   swapped
                     ? (e) => { e.stopPropagation(); setSwapped(false); pokeControls(); }
@@ -2024,8 +2067,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 }
                 className={
                   swapped
-                    ? "absolute right-4 top-28 z-20 h-40 w-28 cursor-pointer rounded-2xl border border-white/20 object-cover shadow-2xl transition-all active:scale-95"
-                    : "call-remote-video absolute inset-0 z-0 h-full w-full bg-black object-cover"
+                    ? "absolute right-4 top-28 z-20 h-40 w-28 cursor-pointer rounded-2xl border border-white/20 object-cover shadow-2xl transition-all duration-500 active:scale-95"
+                    : "call-remote-video absolute inset-0 z-0 h-full w-full bg-black object-cover transition-opacity duration-500"
                 }
                 style={
                   swapped
@@ -2035,29 +2078,35 @@ export function CallProvider({ children }: { children: ReactNode }) {
                         height: "100%",
                         objectFit: "cover",
                         transform: "translateZ(0)",
+                        opacity: remoteVideoReady ? 1 : 0,
+                        pointerEvents: remoteVideoReady ? "auto" : "none",
                       }
                 }
               />
               <div
-                role="button"
-                tabIndex={0}
+                role={remoteVideoReady ? "button" : undefined}
+                tabIndex={remoteVideoReady ? 0 : undefined}
                 aria-label={
                   swapped
                     ? "Tap to return to the camera preview"
-                    : "Drag to move the camera preview, or tap to swap cameras"
+                    : remoteVideoReady
+                      ? "Drag to move the camera preview, or tap to swap cameras"
+                      : "Live camera preview"
                 }
-                title="Drag to move · tap to swap cameras"
-                onPointerDown={beginLocalTileDrag}
-                onPointerMove={moveLocalTile}
-                onPointerUp={endLocalTileDrag}
-                onPointerCancel={cancelLocalTileDrag}
+                title={remoteVideoReady ? "Drag to move · tap to swap cameras" : undefined}
+                onPointerDown={remoteVideoReady && !swapped ? beginLocalTileDrag : undefined}
+                onPointerMove={remoteVideoReady && !swapped ? moveLocalTile : undefined}
+                onPointerUp={remoteVideoReady && !swapped ? endLocalTileDrag : undefined}
+                onPointerCancel={remoteVideoReady && !swapped ? cancelLocalTileDrag : undefined}
                 onClick={(event) => {
+                  if (!remoteVideoReady) return;
                   event.stopPropagation();
                   if (suppressLocalTileClick.current) return;
                   pokeControls();
                   setSwapped((current) => !current);
                 }}
                 onKeyDown={(event) => {
+                  if (!remoteVideoReady) return;
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
                     pokeControls();
@@ -2065,12 +2114,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
                   }
                 }}
                 className={
-                  swapped
-                    ? "absolute inset-0 z-0 h-full w-full cursor-pointer bg-black"
-                    : "absolute right-4 top-28 z-20 h-40 w-28 touch-none cursor-grab overflow-hidden rounded-2xl border-2 border-white/75 bg-zinc-900 shadow-[0_14px_40px_rgba(0,0,0,0.6)] active:cursor-grabbing"
+                  localPreviewFullScreen
+                    ? `absolute inset-0 z-10 h-full w-full overflow-hidden bg-black transition-all duration-500 ${
+                        swapped ? "cursor-pointer" : ""
+                      }`
+                    : "absolute right-4 top-28 z-20 h-40 w-28 touch-none cursor-grab overflow-hidden rounded-2xl border-2 border-white/75 bg-zinc-900 shadow-[0_14px_40px_rgba(0,0,0,0.6)] transition-all duration-500 active:cursor-grabbing"
                 }
                 style={
-                  swapped
+                  localPreviewFullScreen
                     ? undefined
                     : { transform: `translate3d(${localTileOffset.x}px, ${localTileOffset.y}px, 0)` }
                 }
@@ -2080,39 +2131,16 @@ export function CallProvider({ children }: { children: ReactNode }) {
                   autoPlay
                   playsInline
                   muted
-                  className="h-full w-full bg-black object-cover"
-                  style={{ transform: facingMode === "user" ? "scaleX(-1)" : "none" }}
+                  className="h-full w-full bg-black object-cover transition-transform duration-500"
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "cover",
+                    transform: facingMode === "user" ? "scaleX(-1)" : "none",
+                  }}
                 />
               </div>
               <div className="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-b from-black/55 via-transparent to-black/75" />
-              <div className={`pointer-events-none absolute left-1/2 top-[max(5.25rem,calc(env(safe-area-inset-top,0px)+4.5rem))] z-20 flex -translate-x-1/2 flex-col items-center gap-2 text-center transition-all duration-300 ${
-                controlsVisible ? "translate-y-0 opacity-100" : "-translate-y-3 opacity-0"
-              }`}>
-                  <div className="relative grid h-20 w-20 place-items-center">
-                    <span
-                      className={`absolute inset-0 rounded-full border border-white/30 bg-white/5 ${
-                        phase === "outgoing" ? "animate-pulse" : ""
-                      }`}
-                    />
-                    <div className="relative h-16 w-16 overflow-hidden rounded-full border border-white/60 bg-zinc-900/80 shadow-[0_0_36px_rgba(129,140,248,0.45)]">
-                      {call.avatarUrl ?? peerAvatar ? (
-                        <img
-                          src={call.avatarUrl ?? peerAvatar ?? undefined}
-                          alt=""
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <span className="grid h-full w-full place-items-center bg-gradient-to-br from-indigo-500 to-fuchsia-600 text-xl font-bold text-white">
-                          {call.peerName?.trim().split(/\s+/).slice(0, 2).map((part) => part.charAt(0)).join("").toUpperCase() || "?"}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="max-w-[80vw] rounded-2xl border border-white/10 bg-black/45 px-4 py-2 backdrop-blur-xl">
-                    <p className="break-words text-center text-sm font-semibold text-white">{call.peerName}</p>
-                    <p className="mt-0.5 text-xs text-white/70">{phase === "active" ? "Video call" : statusText}</p>
-                  </div>
-              </div>
             </>
           )}
 
