@@ -455,15 +455,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
     const initialRoute: CallAudioRoute = activeCallMode === "audio" ? "earpiece" : "speaker";
     setSpeakerOn(initialRoute === "speaker");
-    void startCallAudioRouting(initialRoute, [remoteAudio.current, remoteVideo.current])
-      .catch((error: unknown) => {
-        setSpeakerOn(false);
-        toast.error(
-          `Call audio routing is unavailable: ${
-            error instanceof Error ? error.message : "the output device could not be selected"
-          }`,
-        );
-      });
+    void startCallAudioRouting(initialRoute, [remoteAudio.current, remoteVideo.current]);
   }, [activeCallId, activeCallMode, phase]);
   useEffect(() => {
     const peer = pcRef.current;
@@ -554,16 +546,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     const next = !speakerOn;
     const route: CallAudioRoute = next ? "speaker" : "earpiece";
     setSpeakerOn(next);
-    void setCallAudioRouting(route, [remoteAudio.current, remoteVideo.current]).catch(
-      (error: unknown) => {
-        setSpeakerOn(!next);
-        toast.error(
-          `Could not switch to ${route}: ${
-            error instanceof Error ? error.message : "audio output is unavailable"
-          }`,
-        );
-      },
-    );
+    void setCallAudioRouting(route, [remoteAudio.current, remoteVideo.current]);
   }, [speakerOn]);
 
   /* ---------- identity ---------- */
@@ -664,9 +647,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     pendingIce.current = [];
     receiveSignalRef.current = null;
     routedCallId.current = null;
-    void stopCallAudioRouting().catch((error: unknown) => {
-      console.debug("[call] audio route restore failed", error);
-    });
+    void stopCallAudioRouting();
 
     setPhase("idle");
     setCall(null);
@@ -1972,9 +1953,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
         <div
           className={`${
             phase === "incoming"
-              ? "pointer-events-none fixed inset-x-0 top-0 z-[100] flex justify-center px-3 pt-[max(0.75rem,calc(env(safe-area-inset-top,0px)+0.75rem))] text-white"
+              ? "pointer-events-none fixed inset-x-0 top-0 z-[100] flex justify-center text-white"
               : "fixed inset-0 z-[100] overflow-hidden bg-zinc-950 text-white"
           }`}
+          style={
+            phase === "incoming"
+              ? { top: "env(safe-area-inset-top, 0px)", margin: "12px 16px" }
+              : undefined
+          }
           onClick={phase === "incoming" ? undefined : () => {
             playRemoteMedia();
             pokeControls();
@@ -2027,6 +2013,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 ref={remoteVideo}
                 autoPlay
                 playsInline
+                controls={false}
+                poster=""
                 muted={false}
                 onLoadedMetadata={playRemoteMedia}
                 onClick={
@@ -2037,9 +2025,18 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 className={
                   swapped
                     ? "absolute right-4 top-28 z-20 h-40 w-28 cursor-pointer rounded-2xl border border-white/20 object-cover shadow-2xl transition-all active:scale-95"
-                  : "absolute inset-0 z-0 h-full w-full bg-black object-cover"
+                    : "call-remote-video absolute inset-0 z-0 h-full w-full bg-black object-cover"
                 }
-                 style={{ transform: "translateZ(0)" }}
+                style={
+                  swapped
+                    ? undefined
+                    : {
+                        width: "100%",
+                        height: "100%",
+                        objectFit: "cover",
+                        transform: "translateZ(0)",
+                      }
+                }
               />
               <div
                 role="button"
@@ -2195,7 +2192,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
             </div>
           )}
 
-          <div className={`fixed inset-x-0 bottom-[max(1rem,env(safe-area-inset-bottom,0px))] z-50 flex justify-center px-2 transition-all duration-300 ${
+          <div className={`active-call-dock fixed inset-x-0 bottom-0 z-50 flex justify-center px-2 transition-all duration-300 ${
             controlsVisible ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-5 opacity-0"
           }`}>
             {phase !== "incoming" && (

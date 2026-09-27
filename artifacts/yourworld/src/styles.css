@@ -1216,6 +1216,15 @@ html[data-theme="midnight"] {
   padding-bottom: max(env(safe-area-inset-bottom, 0px), 24px) !important;
 }
 
+.active-call-dock {
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 28px) !important;
+}
+
+.call-remote-video {
+  background-image: none !important;
+  object-fit: cover !important;
+}
+
 @keyframes yw-pop {
   0% {
     transform: scale(1);
