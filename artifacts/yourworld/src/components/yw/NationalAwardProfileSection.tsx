@@ -15,11 +15,27 @@ import {
   type NationalAwardVerificationDetails,
 } from "@/lib/national-award";
 import { uploadNationalAwardEvidence } from "@/lib/national-award.data";
+import { getSportsVerificationCountry } from "@/lib/profile-data";
+import { isIndiaSportsCountry } from "@/lib/sports-country";
 
-export function NationalAwardProfileSection({ userId }: { userId: string }) {
+export function NationalAwardProfileSection({
+  userId,
+  sportsVerificationCountry,
+}: {
+  userId: string;
+  sportsVerificationCountry?: string | null;
+}) {
   const [details, setDetails] = useState<NationalAwardVerificationDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [sportsCountryIsIndia, setSportsCountryIsIndia] = useState<boolean | null>(() => {
+    const country = sportsVerificationCountry?.trim();
+    return country ? isIndiaSportsCountry(country) : null;
+  });
+  const providedCountry = sportsVerificationCountry?.trim();
+  const canShowNationalAward = providedCountry
+    ? isIndiaSportsCountry(providedCountry)
+    : sportsCountryIsIndia === true;
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
@@ -29,6 +45,39 @@ export function NationalAwardProfileSection({ userId }: { userId: string }) {
 
   useEffect(() => {
     let active = true;
+    const providedCountry = sportsVerificationCountry?.trim();
+    const country = providedCountry
+      ? Promise.resolve(providedCountry)
+      : getSportsVerificationCountry(userId);
+    void country
+      .then((value) => {
+        if (!active) return;
+        const isIndia = isIndiaSportsCountry(value);
+        setSportsCountryIsIndia(isIndia);
+        if (!isIndia) setOpen(false);
+      })
+      .catch(() => {
+        if (!active) return;
+        setSportsCountryIsIndia(false);
+        setOpen(false);
+        toast.error("Could not confirm country for National Award eligibility.");
+      });
+    return () => {
+      active = false;
+    };
+  }, [sportsVerificationCountry, userId]);
+
+  useEffect(() => {
+    let active = true;
+    if (!canShowNationalAward) {
+      setDetails(null);
+      setLoading(false);
+      setLoadError(null);
+      return () => {
+        active = false;
+      };
+    }
+
     setDetails(null);
     setLoading(true);
     setLoadError(null);
@@ -51,7 +100,7 @@ export function NationalAwardProfileSection({ userId }: { userId: string }) {
     return () => {
       active = false;
     };
-  }, [userId]);
+  }, [canShowNationalAward, userId]);
 
   const handleUpload = useCallback(
     async (kind: NationalAwardEvidenceKind, file: File) => {
@@ -155,16 +204,18 @@ export function NationalAwardProfileSection({ userId }: { userId: string }) {
 
   return (
     <>
-      <NationalAwardProfileCard
-        status={details?.status ?? "not_submitted"}
-        onClick={() => {
-          if (loadError) {
-            toast.error(loadError);
-            return;
-          }
-          setOpen(true);
-        }}
-      />
+      {canShowNationalAward ? (
+        <NationalAwardProfileCard
+          status={details?.status ?? "not_submitted"}
+          onClick={() => {
+            if (loadError) {
+              toast.error(loadError);
+              return;
+            }
+            setOpen(true);
+          }}
+        />
+      ) : null}
       <NationalAwardVerificationDialog
         open={open}
         onOpenChange={setOpen}

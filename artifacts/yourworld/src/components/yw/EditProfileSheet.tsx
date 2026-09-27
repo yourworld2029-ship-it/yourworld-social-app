@@ -42,6 +42,7 @@ export function EditProfileSheet({
   value,
   onSave,
   sportsProfile,
+  sportsVerificationCountry,
   onOpenSportsDetails,
 }: {
   open: boolean;
@@ -50,6 +51,7 @@ export function EditProfileSheet({
   value: ProfileEdit;
   onSave: (v: ProfileEdit) => void | Promise<void>;
   sportsProfile?: SportsProfileInfo | null;
+  sportsVerificationCountry?: string | null;
   onOpenSportsDetails?: () => void;
 }) {
   const [draft, setDraft] = useState<ProfileEdit>(value);
@@ -475,7 +477,10 @@ export function EditProfileSheet({
                   onClick={onOpenSportsDetails}
                 />
               ) : null}
-              <NationalAwardProfileSection userId={user.id} />
+              <NationalAwardProfileSection
+                userId={user.id}
+                sportsVerificationCountry={sportsVerificationCountry}
+              />
             </div>
           </div>
 

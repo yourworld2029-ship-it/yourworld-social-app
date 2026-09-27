@@ -1017,6 +1017,7 @@ function ProfilePage() {
         value={editValue}
         onSave={save}
         sportsProfile={sportsProfile}
+        sportsVerificationCountry={sportsVerificationDetails?.country}
         onOpenSportsDetails={() => {
           setEditOpen(false);
           setSportsDetailsOpen(true);

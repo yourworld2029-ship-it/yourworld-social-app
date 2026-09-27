@@ -240,6 +240,17 @@ export async function getSportsVerificationDetails(ownerId: string): Promise<Spo
   };
 }
 
+export async function getSportsVerificationCountry(ownerId: string): Promise<string> {
+  await requireDocumentOwner(ownerId);
+  const { data, error } = await supabase
+    .from("sports_verification_details")
+    .select("country")
+    .eq("user_id", ownerId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data?.country || "India";
+}
+
 export async function saveSportsVerificationDetails(
   ownerId: string,
   details: SportsVerificationDetails,

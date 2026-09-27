@@ -13,6 +13,7 @@ import {
   SportsProfileCard,
   type SportsProfileDraft,
 } from "@/components/yw/SportsProfile";
+import { NationalAwardProfileSection } from "@/components/yw/NationalAwardProfileSection";
 import {
   isIndiaSportsCountry,
   NON_INDIA_INTERNATIONAL_COMPETITIONS,
@@ -55,6 +56,19 @@ test("sports verification country rules cover India and international applicants
     ],
   );
   assert.ok(NON_INDIA_INTERNATIONAL_COMPETITIONS.every(({ label }) => /\p{Extended_Pictographic}/u.test(label)));
+});
+
+test("National Award card is available only for India applicants", () => {
+  const renderAwardCard = (country: string) =>
+    renderToStaticMarkup(
+      createElement(NationalAwardProfileSection, {
+        userId: "owner",
+        sportsVerificationCountry: country,
+      }),
+    );
+
+  assert.match(renderAwardCard("India"), /National Award Profile/);
+  assert.doesNotMatch(renderAwardCard("Kenya"), /National Award Profile/);
 });
 
 test("Sports Identity card opens details without the removed summary row", () => {
