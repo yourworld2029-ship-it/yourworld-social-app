@@ -13,7 +13,22 @@ import {
   saveOfflineVideo,
   type OfflineVideo,
 } from "@/lib/offlineVideosDB";
+import {
+  createNativeTransferId,
+  getNativeDownloadUri,
+  getNativeTransferSnapshot,
+  nativeTransfer,
+  supportsNativeTransfers,
+  type NativeTransferSnapshot,
+} from "@/lib/native-transfer";
+import {
+  attachmentMediaUrl,
+  fetchVideoBlob,
+  sanitizeDownloadName,
+} from "@/lib/video-download-transport";
 import { toast } from "sonner";
+
+export { fetchVideoBlob, sanitizeDownloadName } from "@/lib/video-download-transport";
 
 const activeVideoDownloads = new Map<string, Promise<void>>();
 const downloadTaskListeners = new Set<() => void>();
@@ -30,6 +45,9 @@ export type DownloadTask = {
   id: string;
   title: string;
   percent: number;
+  bytesTransferred?: number;
+  totalBytes?: number;
+  bytesPerSecond?: number;
 };
 
 export function subscribeDownloadTasks(listener: () => void) {
@@ -46,11 +64,20 @@ function publishDownloadTasks() {
   downloadTaskListeners.forEach((listener) => listener());
 }
 
-function updateDownloadTask(id: string, title: string, percent: number) {
+function updateDownloadTask(
+  id: string,
+  title: string,
+  percent: number,
+  details?: Pick<DownloadTask, "bytesTransferred" | "totalBytes" | "bytesPerSecond">,
+) {
+  const previous = downloadTasks.get(id);
   downloadTasks.set(id, {
     id,
     title,
     percent: Math.max(0, Math.min(100, Math.round(percent))),
+    bytesTransferred: details?.bytesTransferred ?? previous?.bytesTransferred,
+    totalBytes: details?.totalBytes ?? previous?.totalBytes,
+    bytesPerSecond: details?.bytesPerSecond ?? previous?.bytesPerSecond,
   });
   publishDownloadTasks();
 }
@@ -78,7 +105,9 @@ export type DownloadedVideoMetadata = {
 export type DownloadedVideo = DownloadedVideoMetadata & {
   id: string;
   sizeBytes: number;
-  videoBlob: Blob;
+  videoBlob?: Blob;
+  /** Relative to Android's app-private Directory.Data-equivalent files directory. */
+  nativePath?: string;
   downloadedAt: string;
   cacheKey?: string;
 };
@@ -107,6 +136,7 @@ export function toDownloadedVideo(record: OfflineVideo): DownloadedVideo {
     quality: record.quality as DownloadQuality,
     sizeBytes: record.sizeBytes,
     videoBlob: record.videoBlob,
+    nativePath: record.nativePath,
     downloadedAt: record.downloadedAt,
   };
 }
@@ -258,6 +288,7 @@ export async function migrateLegacyDownloadedVideos(ownerId: string) {
 }
 
 export async function listDownloadedVideos(ownerId: string) {
+  await syncNativeDownloadedVideos();
   const records = await getAllOfflineVideos();
   return records
     .filter((record) => record.ownerId === ownerId)
@@ -265,19 +296,121 @@ export async function listDownloadedVideos(ownerId: string) {
 }
 
 export async function getDownloadedVideo(id: string, ownerId?: string) {
+  await syncNativeDownloadedVideos();
   const result = await getOfflineVideoById(id);
   if (!result || (ownerId && result.ownerId !== ownerId)) return null;
   return toDownloadedVideo(result);
 }
 
 export async function removeDownloadedVideo(record: DownloadedVideo) {
+  if (record.nativePath && supportsNativeTransfers()) {
+    await nativeTransfer.deleteDownload({ relativePath: record.nativePath });
+  }
   await deleteOfflineVideo(record.id);
 }
 
 export async function getDownloadedVideoUrl(record: DownloadedVideo) {
   const storedVideo = await getOfflineVideoById(record.id);
   if (!storedVideo) return null;
+  if (storedVideo.nativePath && supportsNativeTransfers()) {
+    return getNativeDownloadUri(storedVideo.nativePath);
+  }
+  if (!storedVideo.videoBlob) return null;
   return URL.createObjectURL(storedVideo.videoBlob);
+}
+
+function nativeMetadata(
+  value: Record<string, unknown> | undefined,
+): DownloadedVideoMetadata | null {
+  if (
+    !value ||
+    typeof value.ownerId !== "string" ||
+    typeof value.mediaId !== "string" ||
+    typeof value.title !== "string" ||
+    typeof value.creatorName !== "string" ||
+    typeof value.creatorUsername !== "string" ||
+    typeof value.quality !== "string"
+  ) {
+    return null;
+  }
+  return {
+    ownerId: value.ownerId,
+    mediaId: value.mediaId,
+    title: value.title,
+    creatorName: value.creatorName,
+    creatorUsername: value.creatorUsername,
+    creatorId: typeof value.creatorId === "string" ? value.creatorId : null,
+    views: typeof value.views === "number" ? value.views : null,
+    createdAt: typeof value.createdAt === "string" ? value.createdAt : null,
+    durationSeconds:
+      typeof value.durationSeconds === "number" ? value.durationSeconds : null,
+    thumbnailUrl:
+      typeof value.thumbnailUrl === "string" ? value.thumbnailUrl : null,
+    posterUrl: typeof value.posterUrl === "string" ? value.posterUrl : null,
+    quality: value.quality as DownloadQuality,
+  };
+}
+
+async function persistNativeDownloadedVideo(
+  metadata: DownloadedVideoMetadata,
+  nativePath: string,
+  sizeBytes: number,
+) {
+  const id = `${metadata.ownerId}:${metadata.mediaId}:${metadata.quality}`;
+  const existing = await getOfflineVideoById(id);
+  const thumbnailUrl = metadata.thumbnailUrl ?? metadata.posterUrl ?? "";
+  await saveOfflineVideo({
+    ...(existing ?? {}),
+    id,
+    title: metadata.title,
+    author: metadata.creatorName,
+    thumbnailUrl,
+    quality: metadata.quality,
+    sizeBytes,
+    videoBlob: existing?.videoBlob,
+    nativePath,
+    downloadedAt: existing?.downloadedAt ?? new Date().toISOString(),
+    ownerId: metadata.ownerId,
+    mediaId: metadata.mediaId,
+    creatorName: metadata.creatorName,
+    creatorUsername: metadata.creatorUsername,
+    creatorId: metadata.creatorId,
+    views: metadata.views,
+    createdAt: metadata.createdAt,
+    durationSeconds: metadata.durationSeconds,
+    posterUrl: metadata.posterUrl ?? thumbnailUrl,
+  });
+}
+
+async function syncNativeDownloadedVideos() {
+  if (!supportsNativeTransfers()) return;
+  let snapshots: NativeTransferSnapshot[];
+  try {
+    snapshots = await nativeTransfer.getTransfers();
+  } catch (error) {
+    console.warn("Could not restore completed native downloads", error);
+    return;
+  }
+  for (const snapshot of snapshots) {
+    if (
+      snapshot.kind !== "download" ||
+      snapshot.status !== "complete" ||
+      !snapshot.relativePath
+    ) {
+      continue;
+    }
+    const metadata = nativeMetadata(snapshot.metadata);
+    if (!metadata) continue;
+    try {
+      await persistNativeDownloadedVideo(
+        metadata,
+        snapshot.relativePath,
+        snapshot.totalBytes || snapshot.bytesTransferred,
+      );
+    } catch (error) {
+      console.warn("Could not restore a native Profile download", error);
+    }
+  }
 }
 
 export async function saveDownloadedVideo(
@@ -307,30 +440,97 @@ export async function saveDownloadedVideo(
   });
 }
 
-export function sanitizeDownloadName(value: string, fallback: string) {
-  const clean = value
-    .replace(/[^\p{L}\p{N}\s._-]/gu, "")
-    .trim()
-    .replace(/\s+/g, "-")
-    .slice(0, 90);
-  return clean || fallback;
-}
+async function waitForNativeDownload(
+  options: {
+    id: string;
+    src: string;
+    fileName: string;
+    title: string;
+    metadata: DownloadedVideoMetadata;
+    taskId: string;
+    onProgress?: (percent: number) => void;
+  },
+) {
+  const { id, src, fileName, title, metadata, taskId, onProgress } = options;
+  let listener: Awaited<ReturnType<typeof nativeTransfer.addListener>> | null = null;
+  let pollTimer: number | null = null;
 
-function attachmentMediaUrl(src: string, fileName: string) {
   try {
-    const url = new URL(src);
-    if (!/\/storage\/v1\/object\/(?:sign|public|authenticated)\//i.test(url.pathname)) {
-      return src;
-    }
-    // Supabase Storage's download query sets Content-Disposition: attachment
-    // at the CDN while preserving direct streaming and Range behavior.
-    url.searchParams.set(
-      "download",
-      sanitizeDownloadName(fileName, "yourworld-media"),
-    );
-    return url.toString();
-  } catch {
-    return src;
+    return await new Promise<NativeTransferSnapshot>((resolve, reject) => {
+      let settled = false;
+      const finish = (snapshot: NativeTransferSnapshot, error?: Error) => {
+        if (settled) return;
+        settled = true;
+        if (pollTimer !== null) {
+          window.clearInterval(pollTimer);
+          pollTimer = null;
+        }
+        if (error) reject(error);
+        else resolve(snapshot);
+      };
+      const consume = (snapshot: NativeTransferSnapshot) => {
+        if (snapshot.id !== id || snapshot.kind !== "download") return;
+        const percent = snapshot.status === "complete"
+          ? 100
+          : snapshot.totalBytes > 0
+            ? Math.min(99, (snapshot.bytesTransferred / snapshot.totalBytes) * 100)
+            : 0;
+        updateDownloadTask(taskId, title, percent, {
+          bytesTransferred: snapshot.bytesTransferred,
+          totalBytes: snapshot.totalBytes || undefined,
+          bytesPerSecond: snapshot.bytesPerSecond,
+        });
+        onProgress?.(percent);
+        if (snapshot.status === "complete") {
+          finish(snapshot);
+        } else if (snapshot.status === "error") {
+          finish(
+            snapshot,
+            new Error(snapshot.error || "The background download failed."),
+          );
+        }
+      };
+
+      void (async () => {
+        try {
+          listener = await nativeTransfer.addListener(
+            "transferProgress",
+            consume,
+          );
+          await nativeTransfer.enqueueDownload({
+            id,
+            url: src,
+            fileName,
+            title,
+            metadata: { ...metadata },
+          });
+          const snapshot = await getNativeTransferSnapshot(id);
+          if (snapshot) consume(snapshot);
+          if (settled) return;
+          pollTimer = window.setInterval(() => {
+            void getNativeTransferSnapshot(id)
+              .then((next) => {
+                if (next) consume(next);
+              })
+              .catch((error) => {
+                console.warn("Could not refresh native download progress", error);
+              });
+          }, 1_000);
+        } catch (error) {
+          finish(
+            { id, kind: "download", status: "error", bytesTransferred: 0, totalBytes: 0, bytesPerSecond: 0 },
+            error instanceof Error
+              ? error
+              : new Error("Could not start the background download."),
+          );
+        }
+      })();
+    });
+  } finally {
+    if (pollTimer !== null) window.clearInterval(pollTimer);
+    const activeListener =
+      listener as Awaited<ReturnType<typeof nativeTransfer.addListener>> | null;
+    await activeListener?.remove().catch(() => {});
   }
 }
 
@@ -351,173 +551,64 @@ function triggerBlobDownload(blob: Blob, fileName: string) {
   }
 }
 
-async function readResponseWithProgress(
-  response: Response,
-  onProgress?: (percent: number) => void,
-) {
-  const total =
-    Number(response.headers.get("content-length")) ||
-    Number(response.headers.get("content-range")?.match(/\/(\d+)$/)?.[1]) ||
-    0;
-  if (!response.body) {
-    const blob = await response.blob();
-    onProgress?.(100);
-    return blob;
-  }
-
-  const reader = response.body.getReader();
-  const chunks: ArrayBuffer[] = [];
-  let loaded = 0;
-  onProgress?.(0);
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (!value) continue;
-    chunks.push(
-      value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength) as ArrayBuffer,
-    );
-    loaded += value.byteLength;
-    if (total > 0) onProgress?.(Math.min(99, Math.round((loaded / total) * 100)));
-  }
-  onProgress?.(100);
-  return new Blob(chunks, { type: response.headers.get("content-type") || "video/mp4" });
-}
-
-type ByteRange = {
-  start: number;
-  end: number;
-};
-
-function parseContentRange(value: string | null) {
-  const match = value?.match(/^bytes\s+(\d+)-(\d+)\/(\d+)$/i);
-  if (!match) return null;
-  const start = Number(match[1]);
-  const end = Number(match[2]);
-  const total = Number(match[3]);
-  if (![start, end, total].every(Number.isSafeInteger) || end < start || total <= end) {
-    return null;
-  }
-  return { start, end, total };
-}
-
-function splitByteRanges(total: number): ByteRange[] {
-  const count = Math.min(4, total);
-  return Array.from({ length: count }, (_, index) => ({
-    start: Math.floor((index * total) / count),
-    end: Math.floor(((index + 1) * total) / count) - 1,
-  }));
-}
-
-async function readRangeResponse(
-  response: Response,
-  range: ByteRange,
-  total: number,
-  onBytes?: (bytes: number) => void,
-) {
-  const contentRange = parseContentRange(response.headers.get("content-range"));
-  const expectedLength = range.end - range.start + 1;
-  const contentLengthHeader = response.headers.get("content-length");
-  const declaredLength = contentLengthHeader === null ? null : Number(contentLengthHeader);
-  if (
-    response.status !== 206 ||
-    !contentRange ||
-    contentRange.start !== range.start ||
-    contentRange.end !== range.end ||
-    contentRange.total !== total ||
-    (declaredLength !== null &&
-      (!Number.isFinite(declaredLength) || declaredLength !== expectedLength))
-  ) {
-    throw new Error("Range response was invalid");
-  }
-
-  if (!response.body) {
-    const blob = await response.blob();
-    if (blob.size !== expectedLength) throw new Error("Range response length was invalid");
-    onBytes?.(blob.size);
-    return blob;
-  }
-
-  const reader = response.body.getReader();
-  const chunks: ArrayBuffer[] = [];
-  let loaded = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (!value) continue;
-    loaded += value.byteLength;
-    if (loaded > expectedLength) throw new Error("Range response exceeded its requested length");
-    chunks.push(
-      value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength) as ArrayBuffer,
-    );
-    onBytes?.(value.byteLength);
-  }
-  if (loaded !== expectedLength) throw new Error("Range response was truncated");
-  return new Blob(chunks, { type: response.headers.get("content-type") || "video/mp4" });
-}
-
-async function fetchWithFourRanges(
+function fetchVideoBlobInWorker(
   src: string,
+  fileName: string,
   onProgress?: (percent: number) => void,
+  onTransferProgress?: (bytesTransferred: number, totalBytes: number) => void,
 ) {
-  // A one-byte probe works with signed URLs and avoids relying on HEAD/CORS
-  // metadata, which is often unavailable on object-storage URLs.
-  const probe = await fetch(src, {
-    headers: { Range: "bytes=0-0" },
-    cache: "no-store",
-  });
-  const probeRange = parseContentRange(probe.headers.get("content-range"));
-  if (probe.body) await probe.body.cancel().catch(() => {});
-  if (probe.status !== 206 || !probeRange || probeRange.start !== 0 || probeRange.end !== 0) {
-    throw new Error("Range requests are unsupported");
+  if (typeof Worker === "undefined") {
+    return fetchVideoBlob(src, onProgress, fileName, onTransferProgress);
   }
 
-  const total = probeRange.total;
-  const ranges = splitByteRanges(total);
-  let loaded = 0;
-  onProgress?.(0);
-  const controller = new AbortController();
-  let parts: Blob[];
+  let worker: Worker;
   try {
-    parts = await Promise.all(
-      ranges.map(async (range) => {
-        const response = await fetch(src, {
-          headers: { Range: `bytes=${range.start}-${range.end}` },
-          cache: "no-store",
-          signal: controller.signal,
-        });
-        return readRangeResponse(response, range, total, (bytes) => {
-          loaded += bytes;
-          onProgress?.(Math.min(99, Math.round((loaded / total) * 100)));
-        });
-      }),
-    );
-  } catch (error) {
-    controller.abort();
-    throw error;
-  }
-  const blob = new Blob(parts, { type: parts[0]?.type || "video/mp4" });
-  if (blob.size !== total) throw new Error("Combined range response length was invalid");
-  onProgress?.(100);
-  return blob;
-}
-
-/** Fetches a video with four validated ranges, falling back to one full request. */
-export async function fetchVideoBlob(
-  src: string,
-  onProgress?: (percent: number) => void,
-  fileName?: string,
-) {
-  const downloadSrc = fileName ? attachmentMediaUrl(src, fileName) : src;
-  try {
-    return await fetchWithFourRanges(downloadSrc, onProgress);
+    worker = new Worker(new URL("./video-download.worker.ts", import.meta.url), {
+      type: "module",
+    });
   } catch {
-    // Range support is optional. The regular streamed request is the
-    // compatibility path for CDNs, local files, and signed URLs that reject
-    // a second request or do not expose Content-Range.
-    const response = await fetch(downloadSrc);
-    if (!response.ok) throw new Error(`Video download failed (${response.status})`);
-    return readResponseWithProgress(response, onProgress);
+    return fetchVideoBlob(src, onProgress, fileName, onTransferProgress);
   }
+
+  return new Promise<Blob>((resolve, reject) => {
+    let settled = false;
+    const finish = (error: Error | null, blob?: Blob) => {
+      if (settled) return;
+      settled = true;
+      worker.terminate();
+      if (error) reject(error);
+      else if (blob) resolve(blob);
+      else reject(new Error("The video download worker returned no file."));
+    };
+
+    worker.onmessage = (event: MessageEvent) => {
+      const message = event.data as
+        | { type: "progress"; percent: number }
+        | { type: "bytes"; bytesTransferred: number; totalBytes: number }
+        | { type: "complete"; blob: Blob }
+        | { type: "error"; message: string };
+      if (message.type === "progress") {
+        onProgress?.(message.percent);
+      } else if (message.type === "bytes") {
+        onTransferProgress?.(message.bytesTransferred, message.totalBytes);
+      } else if (message.type === "complete") {
+        finish(null, message.blob);
+      } else if (message.type === "error") {
+        finish(new Error(message.message || "The video download failed."));
+      }
+    };
+    worker.onerror = (event) => {
+      finish(new Error(event.message || "The video download worker failed."));
+    };
+
+    try {
+      worker.postMessage({ type: "start", src, fileName });
+    } catch {
+      worker.terminate();
+      void fetchVideoBlob(src, onProgress, fileName, onTransferProgress)
+        .then(resolve, reject);
+    }
+  });
 }
 
 /**
@@ -539,10 +630,71 @@ export async function downloadVideoInBackground(
     const title = metadata?.title || fileName.replace(/\.mp4$/i, "");
     updateDownloadTask(key, title, 0);
     try {
-      const blob = await fetchVideoBlob(src, (percent) => {
-        updateDownloadTask(key, title, percent);
-        onProgress?.(percent);
-      }, fileName);
+      if (metadata && supportsNativeTransfers()) {
+        const nativeId = createNativeTransferId("download");
+        const snapshot = await waitForNativeDownload({
+          id: nativeId,
+          src,
+          fileName: sanitizeDownloadName(fileName, "yourworld-media"),
+          title,
+          metadata,
+          taskId: key,
+          onProgress,
+        });
+        if (!snapshot.relativePath) {
+          throw new Error("The background download finished without a saved file.");
+        }
+        await persistNativeDownloadedVideo(
+          metadata,
+          snapshot.relativePath,
+          snapshot.totalBytes || snapshot.bytesTransferred,
+        );
+        updateDownloadTask(key, title, 100, {
+          bytesTransferred: snapshot.totalBytes || snapshot.bytesTransferred,
+          totalBytes: snapshot.totalBytes || snapshot.bytesTransferred,
+          bytesPerSecond: snapshot.bytesPerSecond,
+        });
+        toast.success("Download complete! Ready offline in Profile > Downloads", {
+          duration: 3_000,
+        });
+        window.setTimeout(() => removeDownloadTask(key), 400);
+        return;
+      }
+
+      const startedAt = performance.now();
+      let sampledAt = startedAt;
+      let sampledBytes = 0;
+      let bytesPerSecond = 0;
+      let lastPublishedAt = 0;
+      const reportBytes = (bytesTransferred: number, totalBytes: number) => {
+        const now = performance.now();
+        const elapsed = now - sampledAt;
+        if (elapsed >= 350) {
+          bytesPerSecond = Math.max(0, ((bytesTransferred - sampledBytes) * 1000) / elapsed);
+          sampledAt = now;
+          sampledBytes = bytesTransferred;
+        }
+        const percent = totalBytes > 0
+          ? Math.min(99, (bytesTransferred / totalBytes) * 100)
+          : downloadTasks.get(key)?.percent ?? 0;
+        if (now - lastPublishedAt >= 250 || percent >= 99) {
+          lastPublishedAt = now;
+          updateDownloadTask(key, title, percent, {
+            bytesTransferred,
+            totalBytes: totalBytes || undefined,
+            bytesPerSecond,
+          });
+        }
+      };
+      const blob = await fetchVideoBlobInWorker(
+        src,
+        fileName,
+        (percent) => {
+          updateDownloadTask(key, title, percent);
+          onProgress?.(percent);
+        },
+        reportBytes,
+      );
       if (metadata) await saveDownloadedVideo(metadata, blob);
       triggerBlobDownload(blob, fileName);
       updateDownloadTask(key, title, 100);

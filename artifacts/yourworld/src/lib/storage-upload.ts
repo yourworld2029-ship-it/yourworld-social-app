@@ -2,6 +2,13 @@ import { Upload } from "tus-js-client";
 import { supabase } from "@/integrations/supabase/client";
 import { normalizeSupabaseProjectUrl } from "@/integrations/supabase/url";
 import { getAdaptivePerformanceSnapshot, waitForNetwork } from "@/lib/adaptive-performance";
+import {
+  createNativeTransferId,
+  getNativeTransferSnapshot,
+  nativeTransfer,
+  supportsNativeTransfers,
+  type NativeTransferSnapshot,
+} from "@/lib/native-transfer";
 
 export type ProgressFn = (percent: number, detail?: string) => void;
 
@@ -70,7 +77,7 @@ function readableUploadError(error: unknown) {
  * `uploadDataDuringCreation` option lets Supabase receive the first chunk with
  * the creation request instead of sending the whole file as one payload.
  */
-function uploadTus(
+function uploadTusInWindow(
   bucket: string,
   path: string,
   blob: Blob,
@@ -152,6 +159,276 @@ function uploadTus(
   });
 }
 
+function uploadTus(
+  bucket: string,
+  path: string,
+  blob: Blob,
+  contentType: string,
+  token: string,
+  supabaseKey: string,
+  onProgress?: ProgressFn,
+  cacheControl = "3600",
+): Promise<{ error: string | null }> {
+  if (typeof Worker === "undefined") {
+    return uploadTusInWindow(
+      bucket,
+      path,
+      blob,
+      contentType,
+      token,
+      supabaseKey,
+      onProgress,
+      cacheControl,
+    );
+  }
+
+  let worker: Worker;
+  try {
+    worker = new Worker(new URL("./storage-upload.worker.ts", import.meta.url), {
+      type: "module",
+    });
+  } catch {
+    return uploadTusInWindow(
+      bucket,
+      path,
+      blob,
+      contentType,
+      token,
+      supabaseKey,
+      onProgress,
+      cacheControl,
+    );
+  }
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let waitingForNetwork = false;
+    const finish = (error: string | null) => {
+      if (settled) return;
+      settled = true;
+      worker.terminate();
+      resolve({ error });
+    };
+
+    worker.onmessage = (event: MessageEvent) => {
+      const message = event.data as
+        | { type: "progress"; bytesSent: number; bytesTotal: number }
+        | { type: "success" }
+        | { type: "offline" }
+        | { type: "error"; message: string };
+      if (message.type === "progress") {
+        const percent = message.bytesTotal
+          ? Math.min(99, Math.floor((message.bytesSent / message.bytesTotal) * 100))
+          : 0;
+        const totalChunks = Math.max(
+          1,
+          Math.ceil(message.bytesTotal / TUS_CHUNK_SIZE_BYTES),
+        );
+        const completedChunks = Math.min(
+          totalChunks,
+          Math.ceil(message.bytesSent / TUS_CHUNK_SIZE_BYTES),
+        );
+        onProgress?.(
+          percent,
+          message.bytesTotal > RESUMABLE_UPLOAD_THRESHOLD_BYTES
+            ? `Chunk ${completedChunks}/${totalChunks}`
+            : undefined,
+        );
+        return;
+      }
+      if (message.type === "success") {
+        onProgress?.(100);
+        finish(null);
+        return;
+      }
+      if (message.type === "offline") {
+        if (waitingForNetwork) return;
+        waitingForNetwork = true;
+        void waitForNetwork().then((recovered) => {
+          waitingForNetwork = false;
+          if (recovered && !settled) worker.postMessage({ type: "resume" });
+          else finish("The upload stopped because the network connection was lost.");
+        });
+        return;
+      }
+      if (message.type === "error") {
+        finish(message.message || "The resumable upload failed.");
+      }
+    };
+
+    worker.onerror = (event) => {
+      console.error(`TUS upload worker failed for ${bucket}/${path}`, event.message);
+      finish(event.message || "The resumable upload worker failed.");
+    };
+
+    const networkQuality = getAdaptivePerformanceSnapshot().networkQuality;
+    const retryDelays =
+      networkQuality === "weak"
+        ? [2_000, 4_000, 8_000, 16_000, 30_000]
+        : [1_000, 2_000, 4_000, 8_000, 16_000, 30_000];
+    try {
+      worker.postMessage({
+        type: "start",
+        endpoint: resumableUploadEndpoint(),
+        bucket,
+        path,
+        blob,
+        contentType,
+        token,
+        supabaseKey,
+        cacheControl,
+        chunkSize: TUS_CHUNK_SIZE_BYTES,
+        retryDelays,
+      });
+    } catch {
+      worker.terminate();
+      void uploadTusInWindow(
+        bucket,
+        path,
+        blob,
+        contentType,
+        token,
+        supabaseKey,
+        onProgress,
+        cacheControl,
+      ).then(({ error }) => resolve({ error }));
+    }
+  });
+}
+
+function bytesToBase64(bytes: Uint8Array) {
+  let binary = "";
+  const blockSize = 32 * 1024;
+  for (let offset = 0; offset < bytes.length; offset += blockSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + blockSize));
+  }
+  return btoa(binary);
+}
+
+async function uploadTusNative(
+  bucket: string,
+  path: string,
+  blob: Blob,
+  contentType: string,
+  token: string,
+  supabaseKey: string,
+  onProgress?: ProgressFn,
+  cacheControl = "3600",
+): Promise<{ error: string | null }> {
+  const id = createNativeTransferId("upload");
+  const stagedChunkBytes = 2 * 1024 * 1024;
+  let listener: Awaited<ReturnType<typeof nativeTransfer.addListener>> | null = null;
+  let pollTimer: number | null = null;
+
+  try {
+    await nativeTransfer.beginUpload({ id, fileName: `${id}.bin` });
+    onProgress?.(0, "Preparing background upload");
+    for (let offset = 0; offset < blob.size; offset += stagedChunkBytes) {
+      const chunk = new Uint8Array(
+        await blob.slice(offset, offset + stagedChunkBytes).arrayBuffer(),
+      );
+      await nativeTransfer.appendUploadChunk({
+        id,
+        base64: bytesToBase64(chunk),
+      });
+      onProgress?.(
+        Math.min(5, Math.floor(((offset + chunk.length) / blob.size) * 5)),
+        "Preparing background upload",
+      );
+    }
+
+    const result = await new Promise<{ error: string | null }>((resolve) => {
+      let settled = false;
+      const finish = (error: string | null) => {
+        if (settled) return;
+        settled = true;
+        if (pollTimer !== null) {
+          window.clearInterval(pollTimer);
+          pollTimer = null;
+        }
+        resolve({ error });
+      };
+      const handleSnapshot = (snapshot: NativeTransferSnapshot) => {
+        if (snapshot.id !== id || snapshot.kind !== "upload") return;
+        const percent = snapshot.totalBytes > 0
+          ? Math.min(99, Math.floor((snapshot.bytesTransferred / snapshot.totalBytes) * 95) + 5)
+          : 5;
+        const totalChunks = Math.max(
+          1,
+          Math.ceil((snapshot.totalBytes || blob.size) / TUS_CHUNK_SIZE_BYTES),
+        );
+        const completedChunks = Math.min(
+          totalChunks,
+          Math.ceil(snapshot.bytesTransferred / TUS_CHUNK_SIZE_BYTES),
+        );
+        onProgress?.(
+          snapshot.status === "complete" ? 100 : percent,
+          snapshot.status === "running"
+            ? `Chunk ${completedChunks}/${totalChunks}`
+            : snapshot.status === "queued"
+              ? "Waiting to upload"
+              : undefined,
+        );
+        if (snapshot.status === "complete") finish(null);
+        else if (snapshot.status === "error") {
+          finish(snapshot.error || "The background upload failed.");
+        }
+      };
+
+      void (async () => {
+        try {
+          listener = await nativeTransfer.addListener(
+            "transferProgress",
+            handleSnapshot,
+          );
+          await nativeTransfer.enqueueUpload({
+            id,
+            endpoint: resumableUploadEndpoint(),
+            token,
+            apiKey: supabaseKey,
+            bucket,
+            path,
+            contentType,
+            cacheControl,
+            totalBytes: blob.size,
+          });
+          const snapshot = await getNativeTransferSnapshot(id);
+          if (snapshot) handleSnapshot(snapshot);
+          if (settled) return;
+          pollTimer = window.setInterval(() => {
+            void getNativeTransferSnapshot(id)
+              .then((next) => {
+                if (next) handleSnapshot(next);
+              })
+              .catch((error) => {
+                console.warn("Could not refresh native upload progress", error);
+              });
+          }, 1_000);
+        } catch (error) {
+          finish(
+            error instanceof Error
+              ? error.message
+              : "Could not start the background upload.",
+          );
+        }
+      })();
+    });
+
+    if (result.error) await nativeTransfer.discardUpload({ id }).catch(() => {});
+    return result;
+  } catch (error) {
+    await nativeTransfer.discardUpload({ id }).catch(() => {});
+    return {
+      error: error instanceof Error ? error.message : "Could not stage the background upload.",
+    };
+  } finally {
+    if (pollTimer !== null) window.clearInterval(pollTimer);
+    const activeListener =
+      listener as Awaited<ReturnType<typeof nativeTransfer.addListener>> | null;
+    await activeListener?.remove().catch(() => {});
+  }
+}
+
 /**
  * Uploads a Blob with real byte-level progress and returns a durable signed
  * URL for the just-uploaded object.
@@ -185,18 +462,30 @@ export async function uploadWithProgress(
 
   let upload: { error: string | null };
   try {
-    upload = await uploadTus(
-      bucket,
-      path,
-      blob,
-      contentType,
-      token,
-      storageConfig().key,
-      (percent, detail) => {
-        onProgress?.(needsFastStart ? Math.min(percent, 97) : percent, detail);
-      },
-      cacheControl,
-    );
+    const reportProgress: ProgressFn = (percent, detail) => {
+      onProgress?.(needsFastStart ? Math.min(percent, 97) : percent, detail);
+    };
+    upload = supportsNativeTransfers()
+      ? await uploadTusNative(
+          bucket,
+          path,
+          blob,
+          contentType,
+          token,
+          storageConfig().key,
+          reportProgress,
+          cacheControl,
+        )
+      : await uploadTus(
+          bucket,
+          path,
+          blob,
+          contentType,
+          token,
+          storageConfig().key,
+          reportProgress,
+          cacheControl,
+        );
   } catch (error) {
     console.error(`Storage upload failed for ${bucket}/${path}`, error);
     return { url: null, storagePath: null, error: readableUploadError(error) };
