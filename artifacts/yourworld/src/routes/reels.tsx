@@ -52,8 +52,10 @@ import { supabase } from "@/integrations/supabase/client";
 import { isLongVideoRow } from "@/lib/long-video-utils";
 import { buildWatchShareUrl } from "@/lib/watch-links";
 import {
+  getVideoResumeEntry,
   removeVideoResumeEntry,
   requestVideoResume,
+  saveVideoResumeEntry,
   useVideoResumeEntries,
 } from "@/lib/video-resume";
 import {
@@ -657,22 +659,93 @@ function ReelItem({
   const playedSeconds = useRef(0);
   const lastPlaybackTime = useRef<number | null>(null);
   const viewRecorded = useRef(false);
+  const lastResumeSavedAt = useRef(0);
+  const resumeRemoved = useRef(false);
+  const resumeApplied = useRef(false);
 
   useEffect(() => {
     playedSeconds.current = 0;
     lastPlaybackTime.current = null;
     viewRecorded.current = false;
+    lastResumeSavedAt.current = 0;
+    resumeRemoved.current = false;
+    resumeApplied.current = false;
   }, [reel.id]);
 
   useEffect(() => () => {
     if (seekRaf.current !== null) cancelAnimationFrame(seekRaf.current);
   }, []);
 
+  const persistResumeAt = useCallback(
+    (video: HTMLVideoElement, force = false) => {
+      const currentTime = Number.isFinite(video.currentTime) ? Math.max(0, video.currentTime) : 0;
+      const duration = Number.isFinite(video.duration) ? Math.max(0, video.duration) : 0;
+      const now = Date.now();
+
+      if (duration > 0 && currentTime / duration >= 0.95) {
+        if (!resumeRemoved.current) {
+          removeVideoResumeEntry(reel.id);
+          resumeRemoved.current = true;
+        }
+        lastResumeSavedAt.current = now;
+        return;
+      }
+      if (currentTime <= 0) return;
+      if (!force && now - lastResumeSavedAt.current < 1000) return;
+
+      saveVideoResumeEntry({
+        id: reel.id,
+        title: reel.caption || "Untitled video",
+        thumbnailUrl: thumbnailUrl || reel.thumbnailUrl || "",
+        currentTime,
+        duration,
+        progress: duration > 0 ? currentTime / duration : 0,
+        seriesTitle: null,
+        episodeNumber: null,
+        watchedSeconds: playedSeconds.current,
+        updatedAt: now,
+      });
+      lastResumeSavedAt.current = now;
+      resumeRemoved.current = false;
+    },
+    [reel.caption, reel.id, reel.thumbnailUrl, thumbnailUrl],
+  );
+
+  useEffect(() => {
+    if (!active) return;
+    const video = mediaRef.current instanceof HTMLVideoElement ? mediaRef.current : null;
+    const flushResume = () => {
+      if (video) persistResumeAt(video, true);
+    };
+    const flushWhenHidden = () => {
+      if (document.visibilityState === "hidden") flushResume();
+    };
+    video?.addEventListener("pause", flushResume);
+    document.addEventListener("visibilitychange", flushWhenHidden);
+    window.addEventListener("pagehide", flushResume);
+    return () => {
+      video?.removeEventListener("pause", flushResume);
+      document.removeEventListener("visibilitychange", flushWhenHidden);
+      window.removeEventListener("pagehide", flushResume);
+      flushResume();
+    };
+  }, [active, persistResumeAt]);
+
   const handleLoadedMetadata = useCallback((event: React.SyntheticEvent<HTMLVideoElement>) => {
     const video = event.currentTarget;
-    setCurrentTime(Number.isFinite(video.currentTime) ? video.currentTime : 0);
-    setDuration(Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0);
-  }, []);
+    let currentTime = Number.isFinite(video.currentTime) ? video.currentTime : 0;
+    const nextDuration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
+    if (!resumeApplied.current) {
+      resumeApplied.current = true;
+      const savedTime = getVideoResumeEntry(reel.id)?.currentTime;
+      if (typeof savedTime === "number" && savedTime > 0 && nextDuration > 0) {
+        currentTime = Math.min(savedTime, Math.max(0, nextDuration - 0.1));
+        video.currentTime = currentTime;
+      }
+    }
+    setCurrentTime(currentTime);
+    setDuration(nextDuration);
+  }, [reel.id]);
 
   const handleTimeUpdate = useCallback((event: React.SyntheticEvent<HTMLVideoElement>) => {
     const video = event.currentTarget;
@@ -682,6 +755,7 @@ function ReelItem({
       setDuration(video.duration);
       setProgress(Math.min(100, Math.max(0, (nextTime / video.duration) * 100)));
     }
+    if (active) persistResumeAt(video);
     const previous = lastPlaybackTime.current;
     lastPlaybackTime.current = nextTime;
     const delta = previous === null ? 0 : nextTime - previous;
@@ -696,10 +770,13 @@ function ReelItem({
         });
       }
     }
-  }, [active, onView]);
+  }, [active, onView, persistResumeAt]);
 
   const handleEnded = useCallback((event: React.SyntheticEvent<HTMLVideoElement>) => {
     const video = event.currentTarget;
+    removeVideoResumeEntry(reel.id);
+    resumeRemoved.current = true;
+    lastResumeSavedAt.current = Date.now();
     setCurrentTime(0);
     setProgress(0);
     if (!active) return;
@@ -711,7 +788,7 @@ function ReelItem({
       .catch(() => {
         // The next normal tap can retry playback without changing audio state.
       });
-  }, [active, muted]);
+  }, [active, muted, reel.id]);
 
   const seekFromEvent = useCallback((clientX: number) => {
     const el = barRef.current;

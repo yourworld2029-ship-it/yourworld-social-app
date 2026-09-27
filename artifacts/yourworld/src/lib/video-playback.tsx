@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
   type TouchEvent as ReactTouchEvent,
 } from "react";
@@ -85,6 +86,22 @@ type TouchGesture = {
   initialBrightness: number;
   initialDistance: number | null;
   initialZoom: number;
+};
+
+type FloatingPosition = {
+  left: number;
+  top: number;
+};
+
+type FloatingDrag = FloatingPosition & {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  startLeft: number;
+  startTop: number;
+  width: number;
+  height: number;
+  moved: boolean;
 };
 
 type TouchPointList = {
@@ -246,6 +263,8 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const [displayMode, setDisplayMode] = useState<"fit" | "fill">("fit");
   const [brightness, setBrightness] = useState(1);
   const [pictureInPicture, setPictureInPicture] = useState(false);
+  const [floatingPosition, setFloatingPosition] = useState<FloatingPosition | null>(null);
+  const [floatingDragging, setFloatingDragging] = useState(false);
   const [settingsMenu, setSettingsMenu] = useState<"closed" | "root" | "speed" | "quality">("closed");
   const [playbackRate, setPlaybackRate] = useState(1);
   const [loopVideo, setLoopVideo] = useState(false);
@@ -268,6 +287,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const lockedUnlockTimerRef = useRef<number | null>(null);
   const fullscreenScrollYRef = useRef<number | null>(null);
   const fullscreenRequestIdRef = useRef(0);
+  const floatingPositionRef = useRef<FloatingPosition | null>(null);
+  const floatingDragRef = useRef<FloatingDrag | null>(null);
+  const suppressFloatingClickRef = useRef(false);
 
   const detailVideoId = getDetailVideoId(location.pathname);
   const downloadDetailPath = getDownloadDetailPath(location.pathname);
@@ -276,6 +298,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       (detailVideoId === activeVideo.id || activeVideo.detailRoute === downloadDetailPath),
   );
   const isPlayerRoute = Boolean(detailVideoId || downloadDetailPath);
+  const showDetailChrome = isDetailPlayer && !pictureInPicture;
 
   const activateVideo = useCallback((video: PersistentVideo) => {
     const source = activeSourceRef.current;
@@ -332,6 +355,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     setActiveVideo(null);
     setIsVerticalVideo(false);
     setPictureInPicture(false);
+    setFloatingPosition(null);
+    setFloatingDragging(false);
+    floatingDragRef.current = null;
     setSettingsMenu("closed");
     setIsPlaying(false);
     setControlsVisible(true);
@@ -513,16 +539,88 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   }, [activeVideo, hlsLevels, markControlsActivity]);
 
   const togglePictureInPicture = useCallback(() => {
-    const video = videoRef.current;
-    if (!video) return;
-    if (document.pictureInPictureElement === video) {
-      void document.exitPictureInPicture?.();
-    } else if (typeof video.requestPictureInPicture === "function") {
-      void video.requestPictureInPicture().catch(() => {});
-    }
+    if (!videoRef.current) return;
+    setPictureInPicture(true);
+    setFloatingPosition(null);
+    if (isFullscreen) void teardownFullscreen(true);
     setSettingsMenu("closed");
     markControlsActivity();
-  }, [markControlsActivity]);
+  }, [isFullscreen, markControlsActivity, teardownFullscreen]);
+
+  const startFloatingDrag = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!pictureInPicture || (event.pointerType === "mouse" && event.button !== 0)) return;
+    if (event.target instanceof Element && event.target.closest("button")) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    event.preventDefault();
+    event.stopPropagation();
+    floatingDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startLeft: rect.left,
+      startTop: rect.top,
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height,
+      moved: false,
+    };
+    setFloatingPosition({ left: rect.left, top: rect.top });
+    setFloatingDragging(true);
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture is unavailable in a few embedded browser surfaces.
+    }
+  }, [pictureInPicture]);
+
+  const moveFloatingPlayer = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = floatingDragRef.current;
+    if (!pictureInPicture || !drag || drag.pointerId !== event.pointerId) return;
+    const deltaX = event.clientX - drag.startX;
+    const deltaY = event.clientY - drag.startY;
+    if (!drag.moved && Math.hypot(deltaX, deltaY) < 4) return;
+    drag.moved = true;
+    event.preventDefault();
+    const edge = 10;
+    const maxLeft = Math.max(edge, window.innerWidth - drag.width - edge);
+    const maxTop = Math.max(edge, window.innerHeight - drag.height - edge);
+    const position = {
+      left: clamp(drag.startLeft + deltaX, edge, maxLeft),
+      top: clamp(drag.startTop + deltaY, edge, maxTop),
+    };
+    drag.left = position.left;
+    drag.top = position.top;
+    setFloatingPosition(position);
+  }, [pictureInPicture]);
+
+  const finishFloatingDrag = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = floatingDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    floatingDragRef.current = null;
+    if (drag.moved) {
+      const edge = 10;
+      const maxLeft = Math.max(edge, window.innerWidth - drag.width - edge);
+      const maxTop = Math.max(edge, window.innerHeight - drag.height - edge);
+      const left = drag.left + drag.width / 2 < window.innerWidth / 2 ? edge : maxLeft;
+      setFloatingPosition({
+        left,
+        top: clamp(drag.top, edge, maxTop),
+      });
+      suppressFloatingClickRef.current = true;
+      window.setTimeout(() => {
+        suppressFloatingClickRef.current = false;
+      }, 0);
+    }
+    setFloatingDragging(false);
+    try {
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    } catch {
+      // The pointer may already have been released by the browser.
+    }
+  }, []);
 
   const setRate = useCallback((rate: number) => {
     setPlaybackRate(rate);
@@ -681,22 +779,6 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   }));
 
   useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    const syncPictureInPicture = () => {
-      setPictureInPicture(document.pictureInPictureElement === video);
-    };
-    video.addEventListener("enterpictureinpicture", syncPictureInPicture);
-    video.addEventListener("leavepictureinpicture", syncPictureInPicture);
-    syncPictureInPicture();
-    return () => {
-      video.removeEventListener("enterpictureinpicture", syncPictureInPicture);
-      video.removeEventListener("leavepictureinpicture", syncPictureInPicture);
-    };
-  }, [activeVideo]);
-
-  useEffect(() => {
     const attemptNativePictureInPicture = () => {
       const video = videoRef.current;
       if (
@@ -725,6 +807,26 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     if (!playerIsFullscreen && !isFullscreen && fullscreenScrollYRef.current === null) return;
     void teardownFullscreen(true);
   }, [isDetailPlayer, isFullscreen, teardownFullscreen]);
+
+  useEffect(() => {
+    floatingPositionRef.current = floatingPosition;
+  }, [floatingPosition]);
+
+  useEffect(() => {
+    if (!pictureInPicture) return;
+    const keepFloatingPlayerInBounds = () => {
+      const current = floatingPositionRef.current;
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!current || !rect) return;
+      const edge = 10;
+      setFloatingPosition({
+        left: clamp(current.left, edge, Math.max(edge, window.innerWidth - rect.width - edge)),
+        top: clamp(current.top, edge, Math.max(edge, window.innerHeight - rect.height - edge)),
+      });
+    };
+    window.addEventListener("resize", keepFloatingPlayerInBounds);
+    return () => window.removeEventListener("resize", keepFloatingPlayerInBounds);
+  }, [pictureInPicture]);
 
   useEffect(
     () => () => {
@@ -980,6 +1082,10 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
 
   const openDetail = useCallback(() => {
     if (!activeVideo) return;
+    setPictureInPicture(false);
+    setFloatingPosition(null);
+    setFloatingDragging(false);
+    floatingDragRef.current = null;
     if (activeVideo.detailRoute?.startsWith("/downloads/")) {
       void navigate({
         to: "/downloads/$downloadId",
@@ -989,6 +1095,14 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     }
     void navigate({ to: "/video/$videoId", params: { videoId: activeVideo.id } });
   }, [activeVideo, navigate]);
+
+  const openFromFloatingPlayer = useCallback(() => {
+    if (suppressFloatingClickRef.current) {
+      suppressFloatingClickRef.current = false;
+      return;
+    }
+    openDetail();
+  }, [openDetail]);
 
   const contextValue = useMemo<VideoPlaybackContextValue>(
     () => ({
@@ -1024,7 +1138,15 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
           ref={containerRef}
           className={
             pictureInPicture
-              ? "pointer-events-none fixed left-[-9999px] top-[-9999px] z-[-1] h-px w-px opacity-0"
+              ? `fixed z-[100] ${
+                  isVerticalVideo ? "w-[min(54vw,15rem)]" : "w-[min(76vw,20rem)]"
+                } max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-2xl border border-white/15 bg-black shadow-2xl ${
+                  floatingPosition ? "" : "bottom-[calc(4.75rem+env(safe-area-inset-bottom))] right-3"
+                } ${
+                  floatingDragging
+                    ? "cursor-grabbing transition-none"
+                    : "cursor-grab transition-[left,top] duration-200 ease-out"
+                }`
               : isDetailPlayer
                 ? isFullscreen
                   ? "fixed inset-0 z-50 h-screen w-screen max-w-none bg-black"
@@ -1033,15 +1155,35 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                   ? "pointer-events-none fixed left-[-9999px] top-[-9999px] z-[-1] h-px w-px opacity-0"
                   : "fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] right-3 z-[70] w-[min(68vw,280px)] overflow-hidden rounded-xl border border-white/15 bg-zinc-950 shadow-2xl"
           }
-          onDoubleClick={isDetailPlayer ? handleDoubleTap : undefined}
-          onTouchStart={isDetailPlayer ? handleTouchStart : undefined}
-          onTouchMove={isDetailPlayer ? handleTouchMove : undefined}
-          onTouchEnd={isDetailPlayer ? handleTouchEnd : undefined}
-          style={isDetailPlayer ? { touchAction: isFullscreen ? "none" : "auto" } : undefined}
+          onPointerDown={pictureInPicture ? startFloatingDrag : undefined}
+          onPointerMove={pictureInPicture ? moveFloatingPlayer : undefined}
+          onPointerUp={pictureInPicture ? finishFloatingDrag : undefined}
+          onPointerCancel={pictureInPicture ? finishFloatingDrag : undefined}
+          onDoubleClick={showDetailChrome ? handleDoubleTap : undefined}
+          onTouchStart={showDetailChrome ? handleTouchStart : undefined}
+          onTouchMove={showDetailChrome ? handleTouchMove : undefined}
+          onTouchEnd={showDetailChrome ? handleTouchEnd : undefined}
+          style={
+            pictureInPicture
+              ? {
+                  touchAction: "none",
+                  ...(floatingPosition
+                    ? {
+                        left: floatingPosition.left,
+                        top: floatingPosition.top,
+                        right: "auto",
+                        bottom: "auto",
+                      }
+                    : {}),
+                }
+              : showDetailChrome
+                ? { touchAction: isFullscreen ? "none" : "auto" }
+                : undefined
+          }
         >
           <div
             className={
-              isDetailPlayer
+              showDetailChrome
                 ? `relative w-full bg-black ${
                     isFullscreen
                       ? "h-screen w-screen"
@@ -1053,8 +1195,14 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                     isVerticalVideo ? "aspect-[9/16]" : "aspect-video"
                   } w-full bg-black`
             }
-            onClick={isDetailPlayer ? handlePlayerSurfaceClick : undefined}
-            style={isFullscreen ? { width: "100vw", height: "100vh" } : undefined}
+            onClick={
+              pictureInPicture
+                ? openFromFloatingPlayer
+                : showDetailChrome
+                  ? handlePlayerSurfaceClick
+                  : undefined
+            }
+            style={showDetailChrome && isFullscreen ? { width: "100vw", height: "100vh" } : undefined}
           >
             <video
               ref={videoRef}
@@ -1073,18 +1221,59 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               onPlay={handleVideoPlay}
               onPause={handleVideoPause}
               className={`video-player-native-controls h-full w-full ${
-                isFullscreen || displayMode === "fill" ? "object-cover" : "object-contain"
+                (showDetailChrome && isFullscreen) || displayMode === "fill"
+                  ? "object-cover"
+                  : "object-contain"
               }`}
               style={{
                 transform: `scale(${zoom})`,
                 transformOrigin: "center center",
-                objectFit: isFullscreen || displayMode === "fill" ? "cover" : "contain",
+                objectFit:
+                  (showDetailChrome && isFullscreen) || displayMode === "fill"
+                    ? "cover"
+                    : "contain",
                 filter: `brightness(${brightness})`,
                 transition: gestureFeedback?.kind === "zoom" ? "none" : "transform 160ms ease-out",
               }}
             />
 
-            {isDetailPlayer && !screenLocked ? (
+            {pictureInPicture ? (
+              <>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    togglePlayPause();
+                  }}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  className="absolute left-1/2 top-1/2 z-[80] grid h-12 w-12 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-black/65 text-white shadow-xl backdrop-blur-md transition hover:bg-black/85"
+                  aria-label={isPlaying ? "Pause video" : "Play video"}
+                >
+                  {isPlaying ? (
+                    <Pause className="h-6 w-6 fill-current" />
+                  ) : (
+                    <Play className="ml-0.5 h-6 w-6 fill-current" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    closeVideo();
+                  }}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  className="absolute right-2 top-2 z-[80] grid h-8 w-8 place-items-center rounded-full bg-black/75 text-white shadow-lg backdrop-blur-sm transition hover:bg-black"
+                  aria-label="Close picture-in-picture"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[70] bg-gradient-to-t from-black/85 to-transparent px-2.5 pb-2 pt-8 text-[11px] font-semibold text-white">
+                  <span className="block truncate">{activeVideo.title || "Now playing"}</span>
+                </div>
+              </>
+            ) : null}
+
+            {showDetailChrome && !screenLocked ? (
               <button
                 type="button"
                 onClick={(event) => {
@@ -1100,7 +1289,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               </button>
             ) : null}
 
-            {isDetailPlayer && !screenLocked ? (
+            {showDetailChrome && !screenLocked ? (
               <div
                 className={`pointer-events-none absolute inset-x-0 bottom-0 z-40 transition-opacity duration-200 ${
                   controlsVisible ? "opacity-100" : "opacity-0"
@@ -1148,7 +1337,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               </div>
             ) : null}
 
-            {isDetailPlayer && isFullscreen && !screenLocked ? (
+            {showDetailChrome && isFullscreen && !screenLocked ? (
               <div className="pointer-events-none absolute inset-0 z-50">
                 {gestureFeedback?.kind === "seek" ? (
                   <div
@@ -1199,7 +1388,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               </div>
             ) : null}
 
-            {isDetailPlayer && isFullscreen && screenLocked ? (
+            {showDetailChrome && isFullscreen && screenLocked ? (
               <button
                 type="button"
                 onClick={(event) => {
@@ -1217,7 +1406,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               </button>
             ) : null}
 
-            {isDetailPlayer && !screenLocked ? (
+            {showDetailChrome && !screenLocked ? (
               <button
                 type="button"
                 onClick={() =>
@@ -1240,7 +1429,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               </button>
             ) : null}
 
-            {isDetailPlayer && isFullscreen && !screenLocked ? (
+            {showDetailChrome && isFullscreen && !screenLocked ? (
               <button
                 type="button"
                 onClick={toggleScreenLock}
@@ -1278,7 +1467,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               </>
             ) : null}
 
-            {isDetailPlayer && !screenLocked ? (
+            {showDetailChrome && !screenLocked ? (
               <>
                 <button
                   type="button"

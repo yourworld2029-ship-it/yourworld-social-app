@@ -33,9 +33,9 @@ test("resume entries stay local and discard signed thumbnail URLs", () => {
       id: "8d07ab4e-98d9-4c71-bba7-772313481aea",
       title: "Episode 2",
       thumbnailUrl: "https://cdn.example/thumb.jpg?token=temporary",
-      currentTime: 42,
+      currentTime: 42.375,
       duration: 120,
-      progress: 0.35,
+      progress: 0.353125,
       seriesTitle: "Series",
       episodeNumber: 2,
       watchedSeconds: 10,
@@ -43,11 +43,11 @@ test("resume entries stay local and discard signed thumbnail URLs", () => {
     });
 
     const [entry] = getVideoResumeEntries();
-    assert.equal(entry?.currentTime, 42);
+    assert.equal(entry?.currentTime, 42.375);
     assert.equal(entry?.thumbnailUrl, "");
 
     requestVideoResume(entry!.id, entry!.currentTime);
-    assert.equal(consumeVideoResumeRequest(entry!.id), 42);
+    assert.equal(consumeVideoResumeRequest(entry!.id), 42.375);
     assert.equal(consumeVideoResumeRequest(entry!.id), null);
   } finally {
     if (originalWindow === undefined) {

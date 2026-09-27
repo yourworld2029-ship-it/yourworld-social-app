@@ -68,6 +68,7 @@ import {
 import { buildWatchShareUrl } from "@/lib/watch-links";
 import {
   consumeVideoResumeRequest,
+  getVideoResumeEntry,
   removeVideoResumeEntry,
   saveVideoResumeEntry,
 } from "@/lib/video-resume";
@@ -273,6 +274,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   const { user, requestAuthAction } = useAuth();
   const { liked, following, toggleLike, toggleFollow } = useYw();
   const {
+    activeVideo,
     activateVideo,
     closeVideo,
     setTimeUpdateHandler,
@@ -662,7 +664,8 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
       const duration = Number.isFinite(rawDuration) ? Math.max(0, rawDuration) : 0;
       const isComplete =
         duration > 0 &&
-        (currentTime / duration >= 0.95 || duration - currentTime <= 15);
+        (currentTime / duration >= 0.95 ||
+          (duration > 30 && duration - currentTime <= 15));
 
       if (isComplete) {
         if (!resumeRemovedRef.current) {
@@ -671,10 +674,10 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
         }
         return;
       }
-      if (playedSecondsRef.current < 10) return;
+      if (currentTime <= 0) return;
 
       const now = Date.now();
-      if (!force && now - lastResumeSavedAtRef.current < 3000) return;
+      if (!force && now - lastResumeSavedAtRef.current < 1000) return;
       const parsedEpisodeNumber = Number(video?.episode_number);
       saveVideoResumeEntry({
         id: videoId,
@@ -758,21 +761,39 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
       if (checkingAccess || isLocked) closeVideo();
       return;
     }
+    const requestedResumeTime = consumeVideoResumeRequest(video.id);
+    const savedTime = requestedResumeTime ?? (
+      activeVideo?.id === video.id
+        ? undefined
+        : getVideoResumeEntry(video.id)?.currentTime
+    );
     activateVideo({
       id: video.id,
       url: playableMediaUrl,
       title: video.title || video.caption || "Untitled Video",
       thumbnailUrl: video.thumbnail_url,
       qualityUrls: video.qualityUrls ?? video.quality_urls ?? undefined,
-      initialTime: consumeVideoResumeRequest(video.id) ?? undefined,
+      initialTime: savedTime,
     });
-  }, [activateVideo, checkingAccess, closeVideo, isLocked, playableMediaUrl, video]);
+  }, [activeVideo?.id, activateVideo, checkingAccess, closeVideo, isLocked, playableMediaUrl, video]);
 
   useEffect(() => {
     const player = videoRef.current;
     setTimeUpdateHandler(handleVideoTimeUpdate);
-    return () => {
+    const flushResume = () => {
       if (player) persistResumeAt(player.currentTime, player.duration, true);
+    };
+    const flushWhenHidden = () => {
+      if (document.visibilityState === "hidden") flushResume();
+    };
+    player?.addEventListener("pause", flushResume);
+    document.addEventListener("visibilitychange", flushWhenHidden);
+    window.addEventListener("pagehide", flushResume);
+    return () => {
+      player?.removeEventListener("pause", flushResume);
+      document.removeEventListener("visibilitychange", flushWhenHidden);
+      window.removeEventListener("pagehide", flushResume);
+      flushResume();
       setTimeUpdateHandler(null);
     };
   }, [handleVideoTimeUpdate, persistResumeAt, setTimeUpdateHandler, videoRef]);
