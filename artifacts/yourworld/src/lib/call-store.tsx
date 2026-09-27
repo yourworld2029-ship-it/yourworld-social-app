@@ -6,9 +6,10 @@ import {
   useMemo,
   useRef,
   useState,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { Bell, Mic, MicOff, PhoneOff, Phone, Video, VideoOff, SwitchCamera, Zap, ZapOff, Volume2, VolumeX, X, LockKeyhole, Sparkles, RefreshCw } from "lucide-react";
+import { Bell, Mic, MicOff, PhoneOff, Phone, Video, VideoOff, SwitchCamera, Zap, ZapOff, Volume2, X, LockKeyhole, Sparkles, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import {
@@ -32,6 +33,12 @@ import {
   tuneCallVideoSender,
 } from "@/lib/webrtc-media";
 import { CallPermissionDialog } from "@/components/yw/CallPermissionDialog";
+import {
+  setCallAudioRouting,
+  startCallAudioRouting,
+  stopCallAudioRouting,
+  type CallAudioRoute,
+} from "@/lib/call-audio-routing";
 import {
   getAdaptivePerformanceSnapshot,
   useAdaptivePerformance,
@@ -353,7 +360,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const [peerAvatar, setPeerAvatar] = useState<string | null>(null);
   /** Auto-hiding call controls: visible on activity, hidden after 3s. */
   const [controlsVisible, setControlsVisible] = useState(true);
-  const [speakerOn, setSpeakerOn] = useState(true);
+  const [speakerOn, setSpeakerOn] = useState(false);
+  const [localTileOffset, setLocalTileOffset] = useState({ x: 0, y: 0 });
   const [networkState, setNetworkState] = useState<"stable" | "reconnecting">("stable");
   const [videoEffect, setVideoEffect] = useState<CallVideoEffect>("none");
   const hideTimer = useRef<number | null>(null);
@@ -372,10 +380,21 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const receiveSignalRef = useRef<((payload: Record<string, unknown>) => Promise<void>) | null>(null);
   const signalQueueRef = useRef(Promise.resolve());
   const localVideo = useRef<HTMLVideoElement | null>(null);
+  const localTileDrag = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    offsetX: number;
+    offsetY: number;
+    x: number;
+    y: number;
+    moved: boolean;
+  } | null>(null);
+  const suppressLocalTileClick = useRef(false);
   const remoteVideo = useRef<HTMLVideoElement | null>(null);
   const remoteAudio = useRef<HTMLAudioElement | null>(null);
   const remoteStream = useRef<MediaStream | null>(null);
-  const remoteAudioMuted = useRef(false);
+  const routedCallId = useRef<string | null>(null);
   const cameraSourceTrack = useRef<MediaStreamTrack | null>(null);
   const videoEffectPipeline = useRef<CallVideoEffectPipeline | null>(null);
   const reconnectTimer = useRef<number | null>(null);
@@ -425,6 +444,27 @@ export function CallProvider({ children }: { children: ReactNode }) {
   }, [me]);
 
   const activeCallId = call?.callId;
+  const activeCallMode = call?.mode;
+  useEffect(() => {
+    if (!activeCallId || !activeCallMode || phase === "idle") {
+      routedCallId.current = null;
+      return;
+    }
+    if (phase === "incoming" || routedCallId.current === activeCallId) return;
+    routedCallId.current = activeCallId;
+
+    const initialRoute: CallAudioRoute = activeCallMode === "audio" ? "earpiece" : "speaker";
+    setSpeakerOn(initialRoute === "speaker");
+    void startCallAudioRouting(initialRoute, [remoteAudio.current, remoteVideo.current])
+      .catch((error: unknown) => {
+        setSpeakerOn(false);
+        toast.error(
+          `Call audio routing is unavailable: ${
+            error instanceof Error ? error.message : "the output device could not be selected"
+          }`,
+        );
+      });
+  }, [activeCallId, activeCallMode, phase]);
   useEffect(() => {
     const peer = pcRef.current;
     if (!peer || !activeCallId || phase === "idle") return;
@@ -504,14 +544,20 @@ export function CallProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const toggleSpeaker = useCallback(() => {
-    setSpeakerOn((on) => {
-      const next = !on;
-      remoteAudioMuted.current = !next;
-      if (remoteAudio.current) remoteAudio.current.muted = !next;
-      if (remoteVideo.current) remoteVideo.current.muted = !next;
-      return next;
-    });
-  }, []);
+    const next = !speakerOn;
+    const route: CallAudioRoute = next ? "speaker" : "earpiece";
+    setSpeakerOn(next);
+    void setCallAudioRouting(route, [remoteAudio.current, remoteVideo.current]).catch(
+      (error: unknown) => {
+        setSpeakerOn(!next);
+        toast.error(
+          `Could not switch to ${route}: ${
+            error instanceof Error ? error.message : "audio output is unavailable"
+          }`,
+        );
+      },
+    );
+  }, [speakerOn]);
 
   /* ---------- identity ---------- */
   useEffect(() => {
@@ -610,18 +656,24 @@ export function CallProvider({ children }: { children: ReactNode }) {
     connectedAt.current = null;
     pendingIce.current = [];
     receiveSignalRef.current = null;
+    routedCallId.current = null;
+    void stopCallAudioRouting().catch((error: unknown) => {
+      console.debug("[call] audio route restore failed", error);
+    });
 
     setPhase("idle");
     setCall(null);
     setMicOn(true);
     setCamOn(true);
-    setSpeakerOn(true);
+    setSpeakerOn(false);
     setNetworkState("stable");
     setVideoEffect("none");
-    remoteAudioMuted.current = false;
     setFacingMode("user");
     setFlashOn(false);
     setSwapped(false);
+    setLocalTileOffset({ x: 0, y: 0 });
+    localTileDrag.current = null;
+    suppressLocalTileClick.current = false;
     setControlsVisible(true);
     setElapsedSeconds(0);
   }, []);
@@ -717,7 +769,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
     const elements = [remoteVideo.current, remoteAudio.current];
     for (const element of elements) {
       if (!element?.srcObject) continue;
-      element.muted = remoteAudioMuted.current;
       void element.play().catch((error) => {
         // Browsers can require a second user gesture for unmuted remote audio.
         // Media readiness and the call-surface click both retry this path.
@@ -1810,6 +1861,67 @@ export function CallProvider({ children }: { children: ReactNode }) {
     else if (result.permission === "denied") toast.message("Notifications remain disabled");
   };
 
+  const beginLocalTileDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (swapped || (event.pointerType === "mouse" && event.button !== 0)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    localTileDrag.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      offsetX: localTileOffset.x,
+      offsetY: localTileOffset.y,
+      x: localTileOffset.x,
+      y: localTileOffset.y,
+      moved: false,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const moveLocalTile = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = localTileDrag.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const deltaX = event.clientX - drag.startX;
+    const deltaY = event.clientY - drag.startY;
+    if (Math.abs(deltaX) > 5 || Math.abs(deltaY) > 5) drag.moved = true;
+    if (!drag.moved) return;
+
+    const minX = -Math.max(0, window.innerWidth - 128);
+    const maxY = Math.max(-96, window.innerHeight - 400);
+    const x = Math.max(minX, Math.min(0, drag.offsetX + deltaX));
+    const y = Math.max(-96, Math.min(maxY, drag.offsetY + deltaY));
+    drag.x = x;
+    drag.y = y;
+    event.currentTarget.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+  };
+
+  const endLocalTileDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = localTileDrag.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.stopPropagation();
+    localTileDrag.current = null;
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      // The browser may already have released capture after a gesture cancel.
+    }
+    if (drag.moved) {
+      setLocalTileOffset({ x: drag.x, y: drag.y });
+      suppressLocalTileClick.current = true;
+      window.setTimeout(() => {
+        suppressLocalTileClick.current = false;
+      }, 0);
+    }
+  };
+
+  const cancelLocalTileDrag = () => {
+    const drag = localTileDrag.current;
+    if (drag?.moved) setLocalTileOffset({ x: drag.x, y: drag.y });
+    localTileDrag.current = null;
+  };
+
   return (
     <CallCtx.Provider value={value}>
       {children}
@@ -1853,7 +1965,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         <div
           className={`${
             phase === "incoming"
-              ? "fixed inset-x-3 top-[max(0.75rem,env(safe-area-inset-top,0px))] z-[100] mx-auto flex max-w-md flex-col overflow-hidden rounded-3xl border border-white/15 bg-zinc-950/95 p-3 text-white shadow-2xl shadow-black/40 backdrop-blur-xl"
+              ? "fixed inset-0 z-[100] flex min-h-[100dvh] items-center justify-center overflow-hidden bg-zinc-950 px-5 py-[max(1rem,env(safe-area-inset-top,0px))] pb-[max(1rem,env(safe-area-inset-bottom,0px))] text-white"
               : "fixed inset-0 z-[100] flex flex-col justify-between overflow-hidden bg-zinc-950 p-6 text-white"
           }`}
           onClick={phase === "incoming" ? undefined : () => {
@@ -1872,34 +1984,35 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 />
               )}
               <div className="absolute inset-0 bg-black/35 backdrop-blur-3xl" />
-              <div className="absolute left-1/2 top-[40%] flex h-64 w-64 -translate-x-1/2 -translate-y-1/2 items-center justify-center">
-                <span
-                  className={`absolute inset-0 rounded-full bg-indigo-400/10 ${
-                    phase === "outgoing" ? "animate-pulse" : ""
-                  }`}
-                />
-                <span
-                  className={`absolute inset-5 rounded-full bg-fuchsia-400/10 ${
-                    phase === "outgoing" ? "animate-pulse" : ""
-                  }`}
-                  style={{ animationDelay: "0.7s" }}
-                />
-                <span className="absolute inset-10 rounded-full border border-white/20 bg-white/5 backdrop-blur-xl" />
-                {call.avatarUrl ?? peerAvatar ? (
-                  <img
-                    src={call.avatarUrl ?? peerAvatar ?? undefined}
-                    alt={call.peerName}
-                    className="relative h-36 w-36 rounded-full border border-white/25 object-cover shadow-[0_0_70px_rgba(129,140,248,0.5)]"
-                  />
-                ) : (
-                  <div className="relative grid h-36 w-36 place-items-center rounded-full border border-white/25 bg-white/10 text-5xl font-bold shadow-[0_0_70px_rgba(129,140,248,0.5)] backdrop-blur-xl">
-                    {call.peerName?.trim().split(/\s+/).slice(0, 2).map((part) => part.charAt(0)).join("").toUpperCase() || "?"}
-                  </div>
-                )}
+              <div className="absolute left-1/2 top-[42%] z-10 flex w-[min(84vw,21rem)] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-5 text-center">
+                <div className="relative grid h-52 w-52 place-items-center">
+                  <span className="absolute inset-0 rounded-full border border-indigo-300/25 bg-indigo-400/5 motion-safe:animate-pulse" />
+                  <span className="absolute inset-4 rounded-full border border-fuchsia-300/25 bg-fuchsia-400/5 motion-safe:animate-pulse" />
+                  <span className="absolute inset-8 rounded-full border border-white/20 bg-white/5 backdrop-blur-xl" />
+                  {call.avatarUrl ?? peerAvatar ? (
+                    <img
+                      src={call.avatarUrl ?? peerAvatar ?? undefined}
+                      alt={call.peerName}
+                      className="relative h-36 w-36 rounded-full border border-white/35 object-cover shadow-[0_0_54px_rgba(129,140,248,0.38)]"
+                    />
+                  ) : (
+                    <div className="relative grid h-36 w-36 place-items-center rounded-full border border-white/25 bg-white/10 text-5xl font-bold shadow-[0_0_54px_rgba(129,140,248,0.38)] backdrop-blur-xl">
+                      {call.peerName?.trim().split(/\s+/).slice(0, 2).map((part) => part.charAt(0)).join("").toUpperCase() || "?"}
+                    </div>
+                  )}
+                </div>
+                <div className="max-w-full rounded-2xl border border-white/10 bg-black/35 px-5 py-3 backdrop-blur-xl">
+                  <p className="break-words text-center text-xl font-semibold tracking-tight text-white">
+                    {call.peerName}
+                  </p>
+                  <p className="mt-1 text-xs font-medium text-white/65">
+                    {phase === "active" ? "Connected" : statusText}
+                  </p>
+                </div>
               </div>
             </div>
           )}
-          {call.mode === "video" && (
+          {call.mode === "video" && phase !== "incoming" && (
             <>
               <video
                 ref={remoteVideo}
@@ -1915,37 +2028,61 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 className={
                   swapped
                     ? "absolute right-4 top-28 z-20 h-40 w-28 cursor-pointer rounded-2xl border border-white/20 object-cover shadow-2xl transition-all active:scale-95"
-                    : "absolute inset-0 z-0 h-full w-full object-cover"
+                  : "absolute inset-0 z-0 h-full w-full bg-black object-cover"
                 }
                  style={{ transform: "translateZ(0)" }}
               />
-              <video
-                ref={localVideo}
-                autoPlay
-                playsInline
-                muted
-                onClick={
+              <div
+                role="button"
+                tabIndex={0}
+                aria-label={
                   swapped
-                    ? undefined
-                    : (e) => { e.stopPropagation(); setSwapped(true); }
+                    ? "Tap to return to the camera preview"
+                    : "Drag to move the camera preview, or tap to swap cameras"
                 }
+                title="Drag to move · tap to swap cameras"
+                onPointerDown={beginLocalTileDrag}
+                onPointerMove={moveLocalTile}
+                onPointerUp={endLocalTileDrag}
+                onPointerCancel={cancelLocalTileDrag}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (suppressLocalTileClick.current) return;
+                  setSwapped((current) => !current);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setSwapped((current) => !current);
+                  }
+                }}
                 className={
                   swapped
-                    ? "absolute inset-0 z-0 h-full w-full object-cover"
-                    : "absolute right-4 top-28 z-20 h-40 w-28 cursor-pointer rounded-2xl border border-white/20 object-cover shadow-2xl transition-all active:scale-95"
+                    ? "absolute inset-0 z-0 h-full w-full cursor-pointer bg-black"
+                    : "absolute right-4 top-28 z-20 h-40 w-28 touch-none cursor-grab overflow-hidden rounded-2xl border-2 border-white/75 bg-zinc-900 shadow-[0_14px_40px_rgba(0,0,0,0.6)] active:cursor-grabbing"
                 }
+                style={
+                  swapped
+                    ? undefined
+                    : { transform: `translate3d(${localTileOffset.x}px, ${localTileOffset.y}px, 0)` }
+                }
+              >
+                <video
+                  ref={localVideo}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="h-full w-full bg-black object-cover"
                   style={{ transform: facingMode === "user" ? "scaleX(-1)" : "none" }}
-              />
-              {phase !== "incoming" && (
-                <div className="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-b from-black/55 via-transparent to-black/75" />
-              )}
-              {phase !== "incoming" && (
-                <div
-                  className={`absolute right-3 top-3 z-[9999] flex items-center gap-2 rounded-full border border-white/15 bg-black/40 p-1.5 shadow-lg backdrop-blur-xl transition-all duration-300 ${
-                    controlsVisible ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-3 opacity-0"
-                  }`}
-                  onClick={(e) => e.stopPropagation()}
-                >
+                />
+              </div>
+              <div className="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-b from-black/55 via-transparent to-black/75" />
+              <div
+                className={`absolute right-3 top-3 z-[9999] flex items-center gap-2 rounded-full border border-white/15 bg-black/40 p-1.5 shadow-lg backdrop-blur-xl transition-all duration-300 ${
+                  controlsVisible ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-3 opacity-0"
+                }`}
+                onClick={(e) => e.stopPropagation()}
+              >
                   <button
                     onClick={() => void toggleFlash()}
                     className="grid h-9 w-9 place-items-center rounded-full text-white/90 transition-colors hover:bg-white/10 active:scale-90"
@@ -1953,17 +2090,15 @@ export function CallProvider({ children }: { children: ReactNode }) {
                   >
                     {flashOn ? <Zap size={17} className="text-yellow-400" /> : <ZapOff size={17} />}
                   </button>
-                </div>
-              )}
-              {phase !== "incoming" && (
-                <div className="pointer-events-none absolute left-1/2 top-[28%] z-20 flex -translate-x-1/2 flex-col items-center gap-3 text-center">
-                  <div className="relative grid h-28 w-28 place-items-center">
+              </div>
+              <div className="pointer-events-none absolute left-1/2 top-[max(5.25rem,calc(env(safe-area-inset-top,0px)+4.5rem))] z-20 flex -translate-x-1/2 flex-col items-center gap-2 text-center">
+                  <div className="relative grid h-20 w-20 place-items-center">
                     <span
                       className={`absolute inset-0 rounded-full border border-white/30 bg-white/5 ${
                         phase === "outgoing" ? "animate-pulse" : ""
                       }`}
                     />
-                    <div className="relative h-24 w-24 overflow-hidden rounded-full border border-white/60 bg-zinc-900/80 shadow-[0_0_36px_rgba(129,140,248,0.45)]">
+                    <div className="relative h-16 w-16 overflow-hidden rounded-full border border-white/60 bg-zinc-900/80 shadow-[0_0_36px_rgba(129,140,248,0.45)]">
                       {call.avatarUrl ?? peerAvatar ? (
                         <img
                           src={call.avatarUrl ?? peerAvatar ?? undefined}
@@ -1971,18 +2106,17 @@ export function CallProvider({ children }: { children: ReactNode }) {
                           className="h-full w-full object-cover"
                         />
                       ) : (
-                        <span className="grid h-full w-full place-items-center bg-gradient-to-br from-indigo-500 to-fuchsia-600 text-3xl font-bold text-white">
+                        <span className="grid h-full w-full place-items-center bg-gradient-to-br from-indigo-500 to-fuchsia-600 text-xl font-bold text-white">
                           {call.peerName?.trim().split(/\s+/).slice(0, 2).map((part) => part.charAt(0)).join("").toUpperCase() || "?"}
                         </span>
                       )}
                     </div>
                   </div>
-                  <div className="rounded-2xl border border-white/10 bg-black/45 px-4 py-2 backdrop-blur-xl">
-                    <p className="max-w-64 truncate text-base font-semibold text-white">{call.peerName}</p>
+                  <div className="max-w-[80vw] rounded-2xl border border-white/10 bg-black/45 px-4 py-2 backdrop-blur-xl">
+                    <p className="break-words text-center text-sm font-semibold text-white">{call.peerName}</p>
                     <p className="mt-0.5 text-xs text-white/70">{phase === "active" ? "Video call" : statusText}</p>
                   </div>
-                </div>
-              )}
+              </div>
             </>
           )}
 
@@ -2011,9 +2145,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
             </div>
           )}
 
-          {phase === "incoming" ? (
+          {phase === "incoming" && (
             <>
-              <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-[inherit] bg-[radial-gradient(circle_at_15%_20%,rgba(168,85,247,0.28),transparent_48%),radial-gradient(circle_at_85%_80%,rgba(6,182,212,0.16),transparent_52%)]">
+              <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden bg-[radial-gradient(circle_at_15%_20%,rgba(168,85,247,0.28),transparent_48%),radial-gradient(circle_at_85%_80%,rgba(6,182,212,0.16),transparent_52%)]">
                 {caller?.avatar_url ? (
                   <img
                     src={caller.avatar_url}
@@ -2022,79 +2156,66 @@ export function CallProvider({ children }: { children: ReactNode }) {
                     className="h-full w-full scale-125 object-cover opacity-15 blur-3xl"
                   />
                 ) : null}
-                <div className="absolute inset-0 bg-black/35" />
+                <div className="absolute inset-0 bg-black/45" />
               </div>
 
-              <div className="relative z-10 flex items-center gap-3 px-2 py-2">
-                <div className="relative grid h-20 w-20 shrink-0 place-items-center">
-                  <span className="absolute h-16 w-16 animate-pulse rounded-full border border-fuchsia-400/50 bg-fuchsia-500/10 opacity-60 shadow-[0_0_28px_rgba(217,70,239,0.45)]" />
-                  <span
-                    className="absolute h-20 w-20 animate-pulse rounded-full border border-cyan-300/35 bg-cyan-400/5 opacity-50 shadow-[0_0_34px_rgba(34,211,238,0.25)]"
-                    style={{ animationDelay: "0.7s" }}
-                  />
-                  <div className="relative grid h-16 w-16 place-items-center overflow-hidden rounded-full border border-white/60 bg-white/10 shadow-[0_0_25px_rgba(168,85,247,0.35)]">
-                    {caller?.avatar_url ? (
-                      <img
-                        src={caller.avatar_url}
-                        alt={caller.name}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center bg-gradient-to-tr from-fuchsia-600 via-purple-600 to-cyan-500 text-2xl font-black text-white">
-                        {(caller?.name || "U").trim().split(/\s+/).slice(0, 2).map((part) => part.charAt(0)).join("").toUpperCase()}
-                      </div>
-                    )}
+              <div className="absolute inset-0 z-10 flex items-center justify-center px-5 py-[max(1rem,env(safe-area-inset-top,0px))] pb-[max(1rem,env(safe-area-inset-bottom,0px))]">
+                <div className="pointer-events-auto flex w-full max-w-sm flex-col items-center rounded-[2rem] border border-white/15 bg-zinc-950/65 px-7 py-8 text-center shadow-[0_24px_80px_rgba(0,0,0,0.62)] backdrop-blur-2xl">
+                  <div className="relative grid h-28 w-28 place-items-center">
+                    <span className="absolute inset-0 rounded-full border border-fuchsia-300/40 bg-fuchsia-400/5 shadow-[0_0_34px_rgba(217,70,239,0.18)] motion-safe:animate-pulse" />
+                    <span className="absolute inset-2 rounded-full border border-cyan-200/30 motion-safe:animate-pulse" />
+                    <div className="relative h-24 w-24 overflow-hidden rounded-full border border-white/65 bg-white/10 shadow-[0_0_34px_rgba(168,85,247,0.34)]">
+                      {caller?.avatar_url ? (
+                        <img
+                          src={caller.avatar_url}
+                          alt={caller.name}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="grid h-full w-full place-items-center bg-gradient-to-tr from-fuchsia-600 via-purple-600 to-cyan-500 text-3xl font-black text-white">
+                          {(caller?.name || "U").trim().split(/\s+/).slice(0, 2).map((part) => part.charAt(0)).join("").toUpperCase()}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-                <div className="min-w-0 flex-1">
-                  <h2 className="truncate text-base font-bold tracking-tight text-white drop-shadow-md">
+
+                  <h2 className="mt-5 max-w-full break-words text-center text-xl font-bold tracking-tight text-white">
                     {call.peerName}
                   </h2>
-                  <div className="mt-1 flex items-center gap-1.5 text-xs font-medium text-white/70">
+                  <div className="mt-2 flex items-center gap-2 text-sm font-medium text-white/70">
                     {call.mode === "video" ? (
-                      <Video className="h-3.5 w-3.5 text-cyan-300" />
+                      <Video className="h-4 w-4 text-cyan-300" />
                     ) : (
-                      <Phone className="h-3.5 w-3.5 text-violet-300" />
+                      <Phone className="h-4 w-4 text-violet-300" />
                     )}
                     <span>{call.mode === "video" ? "Incoming video call" : "Incoming audio call"}</span>
+                  </div>
+
+                  <div className="mt-8 flex w-full items-center gap-4">
+                    <button
+                      onClick={() => void hangup()}
+                      className="flex min-h-14 flex-1 items-center justify-center gap-2 rounded-2xl border border-red-300/25 bg-red-500/15 px-4 py-3 text-sm font-semibold text-red-100 transition-colors hover:bg-red-500/25 active:scale-[0.98]"
+                      aria-label="Decline call"
+                    >
+                      <PhoneOff size={18} />
+                      <span>Decline</span>
+                    </button>
+                    <button
+                      onClick={() => void accept()}
+                      className="flex min-h-14 flex-1 items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-bold text-white shadow-[0_0_28px_rgba(16,185,129,0.35)] transition-colors hover:bg-emerald-400 active:scale-[0.98]"
+                      aria-label="Accept call"
+                    >
+                      <Phone size={18} />
+                      <span>Accept</span>
+                    </button>
                   </div>
                 </div>
               </div>
             </>
-          ) : (
-            <div
-              className={`relative z-10 mt-12 flex flex-col gap-1 px-2 transition-opacity duration-300 ${
-                controlsVisible ? "opacity-100" : "pointer-events-none opacity-0"
-              }`}
-            >
-              <h2 className="text-lg font-bold drop-shadow-lg">{call.peerName}</h2>
-              <span className="text-xs font-bold text-emerald-400 drop-shadow-lg">
-                {phase === "active" ? "HD connection" : statusText}
-              </span>
-            </div>
           )}
 
           <div className="relative z-10 mb-[max(1.5rem,env(safe-area-inset-bottom,0px))] flex items-center justify-center gap-6">
-            {phase === "incoming" ? (
-              <div className="flex w-full items-center justify-end gap-2 px-1 pb-1">
-                <button
-                  onClick={() => void hangup()}
-                  className="flex items-center gap-1.5 rounded-full border border-red-400/30 bg-red-500/15 px-3 py-2 text-xs font-semibold text-red-100 transition-transform active:scale-95"
-                  aria-label="Decline call"
-                >
-                  <PhoneOff size={15} />
-                  <span>Decline</span>
-                </button>
-                <button
-                  onClick={() => void accept()}
-                  className="flex items-center gap-1.5 rounded-full bg-emerald-500 px-3.5 py-2 text-xs font-bold text-white shadow-[0_0_22px_rgba(16,185,129,0.45)] transition-transform hover:bg-emerald-600 active:scale-95"
-                  aria-label="Accept call"
-                >
-                  <Phone size={15} />
-                  <span>Accept</span>
-                </button>
-              </div>
-            ) : (
+            {phase !== "incoming" && (
                 <div
                  className={`flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-2.5 shadow-2xl backdrop-blur-2xl transition-all duration-300 ${
                   controlsVisible ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-4 opacity-0"
@@ -2125,11 +2246,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 )}
                 <button
                   onClick={toggleSpeaker}
-                  className="flex flex-col items-center gap-1 rounded-xl bg-white/10 px-2 py-1 text-white transition-all hover:bg-white/20 active:scale-90"
-                  aria-label="Toggle speaker"
+                  className={`flex flex-col items-center gap-1 rounded-xl px-2 py-1 transition-all active:scale-90 ${
+                    speakerOn ? "bg-emerald-500/20 text-emerald-100" : "bg-white/10 text-white hover:bg-white/20"
+                  }`}
+                  aria-label={speakerOn ? "Switch to earpiece" : "Switch to speaker"}
+                  title={speakerOn ? "Switch to earpiece" : "Switch to speaker"}
                 >
-                  {speakerOn ? <Volume2 size={19} /> : <VolumeX size={19} />}
-                  <span className="text-[9px] font-semibold">Speaker</span>
+                  {speakerOn ? <Volume2 size={19} /> : <Phone size={19} />}
+                  <span className="text-[9px] font-semibold">{speakerOn ? "Speaker" : "Earpiece"}</span>
                 </button>
                 {call.mode === "video" && (
                   <button
