@@ -36,6 +36,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  countryNameForSportsCountry,
+  isIndiaSportsCountry,
+  NON_INDIA_INTERNATIONAL_COMPETITIONS,
+  SPORTS_COUNTRY_OPTIONS,
+} from "@/lib/sports-country";
 
 export const SPORTS_CATALOGUE = [
   "Archery",
@@ -389,6 +395,7 @@ export function serializeSportsProfileBio(currentBio: string, draft: SportsProfi
     draft.role === "Coach"
       ? [
           draft.sport.trim() ? `Sport: ${draft.sport.trim()}` : "",
+          draft.representation ? `Representation: ${draft.representation}` : "",
           draft.coachName.trim() ? `Coach Name: ${draft.coachName.trim()}` : "",
           draft.coachQualification.trim()
             ? `Coaching Qualification: ${draft.coachQualification.trim()}`
@@ -805,7 +812,11 @@ export function SportsDetailsPanel({
   );
   const editable = isOwner && Boolean(onSave);
   const isCoach = profile.role === "Coach";
-  const isInternational = profile.status === "International";
+  const isInternational =
+    profile.status === "International" || !isIndiaSportsCountry(verificationDraft.country);
+  const displayedStatus = isInternational ? "International" : profile.status;
+  const displayedSportsProfile =
+    displayedStatus === profile.status ? profile : { ...profile, status: displayedStatus };
   const reviewStatus = verificationDetails?.reviewStatus ?? "not_submitted";
   const verificationLocked =
     profile.verified ||
@@ -827,7 +838,11 @@ export function SportsDetailsPanel({
     }
     setSaving(true);
     try {
-      await onSave(draft);
+      await onSave(
+        isIndiaSportsCountry(verificationDraft.country)
+          ? draft
+          : { ...draft, representation: "International" },
+      );
       setEditorField(null);
     } finally {
       setSaving(false);
@@ -853,7 +868,7 @@ export function SportsDetailsPanel({
           <SportsDetailStat
             icon={<Globe2 />}
             label="Status"
-            value={profile.status}
+            value={displayedStatus}
             onClick={editable ? () => openEditor("representation") : undefined}
           />
         ) : null}
@@ -868,11 +883,19 @@ export function SportsDetailsPanel({
       {isCoach ? (
         <>
           <CoachProfileSection profile={profile} editable={editable} onEdit={openEditor} />
-          <SportsTournamentSection profile={profile} editable={editable} onEdit={openEditor} />
+          <SportsTournamentSection
+            profile={displayedSportsProfile}
+            editable={editable}
+            onEdit={openEditor}
+          />
         </>
       ) : (
         <>
-          <SportsTournamentSection profile={profile} editable={editable} onEdit={openEditor} />
+          <SportsTournamentSection
+            profile={displayedSportsProfile}
+            editable={editable}
+            onEdit={openEditor}
+          />
 
         </>
       )}
@@ -1034,6 +1057,7 @@ export function SportsDetailsPanel({
           onOpenChange={(open) => !open && setEditorField(null)}
           onSave={saveDraft}
           onOpenVerificationReview={onOpenVerificationReview}
+          applicantCountry={verificationDraft.country}
         />
       ) : null}
       <Dialog
@@ -1363,14 +1387,32 @@ function SportsVerificationDetailsSection({
               </label>
               <label className="space-y-1.5 text-xs text-zinc-400">
                 Country
-                <Input
-                  value={details.country}
-                  onChange={(event) => setField("country", event.target.value)}
-                  placeholder="Country"
-                  maxLength={120}
+                <Select
+                  value={
+                    countryNameForSportsCountry(details.country) ??
+                    (details.country.trim() || "India")
+                  }
+                  onValueChange={(value) => setField("country", value)}
                   disabled={locked}
-                  className="border-white/10 bg-white/[0.04] text-sm text-white"
-                />
+                >
+                  <SelectTrigger
+                    data-testid="select-sports-verification-country"
+                    className="border-white/10 bg-white/[0.04] text-sm text-white"
+                  >
+                    <SelectValue placeholder="Select country" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-72 border-amber-200/20 bg-[#121212] text-white">
+                    {details.country.trim() &&
+                    !countryNameForSportsCountry(details.country) ? (
+                      <SelectItem value={details.country}>{details.country}</SelectItem>
+                    ) : null}
+                    {SPORTS_COUNTRY_OPTIONS.map((country) => (
+                      <SelectItem key={country.code} value={country.name}>
+                        {country.flag} {country.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </label>
             </div>
             <label className="flex cursor-pointer items-start gap-3 pt-1 text-xs leading-5 text-zinc-300">
@@ -1469,7 +1511,8 @@ function verificationDraftOr(details: SportsVerificationDetails) {
     villageTown: details.villageTown.trim(),
     district: details.district.trim(),
     state: details.state.trim(),
-    country: details.country.trim() || "India",
+    country:
+      countryNameForSportsCountry(details.country) ?? (details.country.trim() || "India"),
   };
 }
 
@@ -2024,6 +2067,7 @@ function TournamentEntryEditor({
   index,
   role,
   representation,
+  applicantCountry,
   onChange,
   onRemove,
 }: {
@@ -2031,10 +2075,12 @@ function TournamentEntryEditor({
   index: number;
   role: SportsProfileDraft["role"];
   representation: SportsProfileDraft["representation"];
+  applicantCountry: string;
   onChange: (index: number, changes: Partial<SportsTournament>) => void;
   onRemove: () => void;
 }) {
   const isNational = representation === "National";
+  const isNonIndia = !isIndiaSportsCountry(applicantCountry);
   const competitionListId =
     representation === "International"
       ? "international-sports-competitions"
@@ -2082,6 +2128,27 @@ function TournamentEntryEditor({
             {NATIONAL_COMPETITIONS.map((competition) => (
               <SelectItem key={competition} value={competition}>
                 {competition}
+              </SelectItem>
+            ))}
+          </EditorSelect>
+        ) : isNonIndia ? (
+          <EditorSelect
+            testId={`select-international-competition-${index + 1}`}
+            value={
+              NON_INDIA_INTERNATIONAL_COMPETITIONS.some(
+                (competition) => competition.value === item.name,
+              )
+                ? item.name
+                : ""
+            }
+            placeholder="Select international competition"
+            onValueChange={(value) =>
+              onChange(index, { name: value, medal: undefined })
+            }
+          >
+            {NON_INDIA_INTERNATIONAL_COMPETITIONS.map((competition) => (
+              <SelectItem key={competition.value} value={competition.value}>
+                {competition.label}
               </SelectItem>
             ))}
           </EditorSelect>
@@ -2241,6 +2308,7 @@ function SportsDetailsEditor({
   onOpenChange,
   onSave,
   onOpenVerificationReview,
+  applicantCountry,
 }: {
   open: boolean;
   field: SportsEditorField | null;
@@ -2250,7 +2318,10 @@ function SportsDetailsEditor({
   onOpenChange: (open: boolean) => void;
   onSave: () => void;
   onOpenVerificationReview?: () => void;
+  applicantCountry: string;
 }) {
+  const internationalOnly = !isIndiaSportsCountry(applicantCountry);
+  const tournamentRepresentation = internationalOnly ? "International" : draft.representation;
   const updateTournament = (index: number, changes: Partial<SportsTournament>) => {
     setDraft((current) => ({
       ...current,
@@ -2388,21 +2459,37 @@ function SportsDetailsEditor({
         ) : null}
 
         {field === "representation" ? (
-          <EditorField label="Representation">
-            <EditorSelect
-              testId="select-sports-representation"
-              value={draft.representation}
-              placeholder="Not recorded"
-              onValueChange={(value) =>
-                setDraft((current) => ({
-                  ...current,
-                  representation: value as SportsProfileDraft["representation"],
-                }))
-              }
-            >
-              <SelectItem value="National">National</SelectItem>
-              <SelectItem value="International">International</SelectItem>
-            </EditorSelect>
+          <EditorField
+            label="Representation"
+            hint={
+              internationalOnly
+                ? "International representation is required for applicants outside India."
+                : undefined
+            }
+          >
+            {internationalOnly ? (
+              <div
+                data-testid="sports-international-only"
+                className={editorSelectClass}
+              >
+                International
+              </div>
+            ) : (
+              <EditorSelect
+                testId="select-sports-representation"
+                value={draft.representation}
+                placeholder="Not recorded"
+                onValueChange={(value) =>
+                  setDraft((current) => ({
+                    ...current,
+                    representation: value as SportsProfileDraft["representation"],
+                  }))
+                }
+              >
+                <SelectItem value="National">National</SelectItem>
+                <SelectItem value="International">International</SelectItem>
+              </EditorSelect>
+            )}
           </EditorField>
         ) : null}
 
@@ -2424,7 +2511,8 @@ function SportsDetailsEditor({
                 item={item}
                 index={index}
                 role={draft.role}
-                representation={draft.representation}
+                representation={tournamentRepresentation}
+                applicantCountry={applicantCountry}
                 onChange={updateTournament}
                 onRemove={() =>
                   setDraft((current) => ({

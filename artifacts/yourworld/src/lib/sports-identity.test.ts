@@ -74,6 +74,27 @@ test("missing country values fall back to India's flag", () => {
   assert.equal(countryFlagForSportsIdentity("IN"), "🇮🇳");
 });
 
+test("international identity flags resolve from public represented-country text or country code", () => {
+  const representedCountry = deriveVerifiedSportsIdentity({
+    category: "Player · Athletics",
+    bio: "Representation: International\nRepresents: Kenya",
+    location: "",
+    is_verified: true,
+  });
+  const publicCountryCode = deriveVerifiedSportsIdentity({
+    category: "Player · Athletics",
+    bio: "Representation: International\nRepresents: Kenya",
+    location: "",
+    country: "Japan",
+    country_code: "NZ",
+    is_verified: true,
+  });
+
+  assert.equal(representedCountry?.countryFlag, "🇰🇪");
+  assert.equal(publicCountryCode?.country, "Japan");
+  assert.equal(publicCountryCode?.countryFlag, "🇳🇿");
+});
+
 test("international profile badge renders the premium gold identity", () => {
   const identity = deriveVerifiedSportsIdentity(profile("Player", "International"), false);
   const html = renderToStaticMarkup(

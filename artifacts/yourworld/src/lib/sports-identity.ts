@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { getSportsProfile } from "@/components/yw/SportsProfile";
+import { countryFlagForSportsCountry } from "@/lib/sports-country";
 
 type SportsProfileSource = Parameters<typeof getSportsProfile>[0];
 type PublicCountryProfile = {
@@ -21,67 +22,11 @@ export type VerifiedSportsIdentity = {
 const DEFAULT_COUNTRY = "India";
 const DEFAULT_COUNTRY_FLAG = "🇮🇳";
 
-const COUNTRY_CODES: Record<string, string> = {
-  afghanistan: "AF",
-  australia: "AU",
-  bangladesh: "BD",
-  brazil: "BR",
-  canada: "CA",
-  china: "CN",
-  egypt: "EG",
-  france: "FR",
-  germany: "DE",
-  india: "IN",
-  indonesia: "ID",
-  ireland: "IE",
-  italy: "IT",
-  japan: "JP",
-  kenya: "KE",
-  malaysia: "MY",
-  mexico: "MX",
-  nepal: "NP",
-  netherlands: "NL",
-  newzealand: "NZ",
-  nigeria: "NG",
-  pakistan: "PK",
-  philippines: "PH",
-  portugal: "PT",
-  russia: "RU",
-  singapore: "SG",
-  southafrica: "ZA",
-  "south korea": "KR",
-  spain: "ES",
-  srilanka: "LK",
-  thailand: "TH",
-  turkey: "TR",
-  uae: "AE",
-  uk: "GB",
-  "united arab emirates": "AE",
-  "united kingdom": "GB",
-  "united states": "US",
-  usa: "US",
-  vietnam: "VN",
-  zimbabwe: "ZW",
-};
-
-function countryCode(value: string) {
-  const normalized = value.trim().toLowerCase().replace(/[^a-z\s]/g, "").replace(/\s+/g, " ");
-  if (normalized.length === 2) return normalized.toUpperCase();
-  return COUNTRY_CODES[normalized.replace(/\s/g, "")] ?? COUNTRY_CODES[normalized] ?? null;
-}
-
-function flagFromCode(code: string | null) {
-  if (!code || !/^[A-Z]{2}$/.test(code)) return null;
-  return [...code]
-    .map((letter) => String.fromCodePoint(127397 + letter.charCodeAt(0)))
-    .join("");
-}
-
 export function countryFlagForSportsIdentity(country: string | null | undefined) {
   const normalized = country?.trim() ?? "";
   const isMissing =
     !normalized || /^(?:not specified|not recorded|unknown(?: representation)?)$/i.test(normalized);
-  return flagFromCode(countryCode(isMissing ? DEFAULT_COUNTRY : normalized));
+  return countryFlagForSportsCountry(isMissing ? DEFAULT_COUNTRY : normalized);
 }
 
 export function deriveVerifiedSportsIdentity(

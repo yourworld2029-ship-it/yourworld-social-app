@@ -13,6 +13,11 @@ import {
   SportsProfileCard,
   type SportsProfileDraft,
 } from "@/components/yw/SportsProfile";
+import {
+  isIndiaSportsCountry,
+  NON_INDIA_INTERNATIONAL_COMPETITIONS,
+  SPORTS_COUNTRY_OPTIONS,
+} from "@/lib/sports-country";
 
 const profile = {
   badge: "PLAYER PROFILE",
@@ -31,6 +36,26 @@ const profile = {
   qualificationYear: "Not recorded",
   institution: "Not recorded",
 };
+
+test("sports verification country rules cover India and international applicants", () => {
+  assert.equal(isIndiaSportsCountry("India"), true);
+  assert.equal(isIndiaSportsCountry("IN"), true);
+  assert.equal(isIndiaSportsCountry("New Zealand"), false);
+  assert.ok(SPORTS_COUNTRY_OPTIONS.length >= 240);
+  assert.ok(SPORTS_COUNTRY_OPTIONS.some((country) => country.name === "India"));
+  assert.deepEqual(
+    NON_INDIA_INTERNATIONAL_COMPETITIONS.map(({ value }) => value),
+    [
+      "Olympic Games",
+      "Paralympic Games",
+      "Official World Championship / World Cup",
+      "Asian Games",
+      "Asian Championship",
+      "Commonwealth Games (CWG)",
+    ],
+  );
+  assert.ok(NON_INDIA_INTERNATIONAL_COMPETITIONS.every(({ label }) => /\p{Extended_Pictographic}/u.test(label)));
+});
 
 test("Sports Identity card opens details without the removed summary row", () => {
   let opened = false;
@@ -233,10 +258,10 @@ test("National verification shows the certificate but hides international eviden
   assert.doesNotMatch(html, /One Tournament Photo/);
 });
 
-test("International verification shows passport and visa fields", () => {
+test("foreign applicants see International status and passport/visa evidence fields", () => {
   const html = renderToStaticMarkup(
     createElement(SportsDetailsPanel, {
-      profile: { ...profile, status: "International" as const },
+      profile,
       isOwner: true,
       verificationDetails: {
         fullName: "",
@@ -249,7 +274,7 @@ test("International verification shows passport and visa fields", () => {
         villageTown: "",
         district: "",
         state: "",
-        country: "India",
+        country: "Kenya",
         mobileNumber: "",
         email: "",
         sportsCertificate: null,
@@ -261,6 +286,8 @@ test("International verification shows passport and visa fields", () => {
   );
 
   assert.match(html, /Sports Certificate/);
+  assert.match(html, /select-sports-verification-country/);
+  assert.match(html, /Status<\/div><p[^>]*>International<\/p>/);
   assert.match(html, /Passport First Page/);
   assert.match(html, /Passport Visa \/ Stamp Page/);
   assert.ok(html.indexOf("Passport Visa / Stamp Page") < html.indexOf(">Sports Introduction<"));
