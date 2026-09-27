@@ -1291,7 +1291,7 @@ header,
 nav.top-nav,
 .chat-header,
 .video-header {
-  padding-top: max(env(safe-area-inset-top), 36px) !important;
+  padding-top: max(env(safe-area-inset-top, 0px), 36px) !important;
   min-height: 70px !important;
   display: flex;
   align-items: center;
@@ -1300,5 +1300,5 @@ nav.top-nav,
 .profile-header,
 .feed-header,
 .settings-header {
-  padding-top: max(env(safe-area-inset-top, 0px), 24px) !important;
+  padding-top: max(env(safe-area-inset-top, 0px), 28px) !important;
 }
