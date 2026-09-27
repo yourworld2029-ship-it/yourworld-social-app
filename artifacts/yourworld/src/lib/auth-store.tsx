@@ -42,6 +42,7 @@ export const PUBLIC_ROUTES = ["/auth", "/reset-password", "/verify-2fa"];
 
 function isGuestBrowsableRoute(pathname: string) {
   if (pathname === "/" || pathname === "/reels") return true;
+  if (/^\/watch\/[^/]+\/?$/.test(pathname)) return true;
   if (/^\/(?:u|video)\/[^/]+\/?$/.test(pathname)) return true;
   return pathname !== "/live/create" && /^\/live\/[^/]+\/?$/.test(pathname);
 }

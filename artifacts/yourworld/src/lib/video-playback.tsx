@@ -114,14 +114,21 @@ export type PersistentVideo = {
   detailRoute?: string;
   backTo?: string;
   qualityUrls?: QualityUrls;
+  initialTime?: number;
 };
 
 type VideoPlaybackContextValue = {
   activeVideo: PersistentVideo | null;
   isDetailPlayer: boolean;
+  currentTime: number;
+  duration: number;
+  isPlaying: boolean;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   activateVideo: (video: PersistentVideo) => void;
-  setTimeUpdateHandler: (handler: ((currentTime: number) => void) | null) => void;
+  setTimeUpdateHandler: (
+    handler: ((currentTime: number, duration: number, wasSeeking: boolean) => void) | null,
+  ) => void;
+  setEndedHandler: (handler: (() => void) | null) => void;
   closeVideo: () => void;
 };
 
@@ -249,7 +256,11 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const activeSourceRef = useRef<{ id: string; url: string } | null>(null);
   const hlsRef = useRef<Hls | null>(null);
-  const timeUpdateHandlerRef = useRef<((currentTime: number) => void) | null>(null);
+  const timeUpdateHandlerRef = useRef<
+    ((currentTime: number, duration: number, wasSeeking: boolean) => void) | null
+  >(null);
+  const endedHandlerRef = useRef<(() => void) | null>(null);
+  const seekActivityRef = useRef(false);
   const touchGestureRef = useRef<TouchGesture | null>(null);
   const lastTapRef = useRef<{ time: number; x: number } | null>(null);
   const feedbackTimerRef = useRef<number | null>(null);
@@ -267,6 +278,23 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const isPlayerRoute = Boolean(detailVideoId || downloadDetailPath);
 
   const activateVideo = useCallback((video: PersistentVideo) => {
+    const source = activeSourceRef.current;
+    const player = videoRef.current;
+    if (
+      source?.id === video.id &&
+      source.url === video.url &&
+      typeof video.initialTime === "number" &&
+      Number.isFinite(video.initialTime) &&
+      player
+    ) {
+      const requestedTime = Math.max(0, video.initialTime);
+      const safeTime = Number.isFinite(player.duration) && player.duration > 0
+        ? Math.min(requestedTime, Math.max(0, player.duration - 0.1))
+        : requestedTime;
+      player.currentTime = safeTime;
+      setCurrentTime(safeTime);
+    }
+
     setActiveVideo((current) => {
       if (
         current?.id === video.id &&
@@ -281,11 +309,15 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setTimeUpdateHandler = useCallback(
-    (handler: ((currentTime: number) => void) | null) => {
+    (handler: ((currentTime: number, duration: number, wasSeeking: boolean) => void) | null) => {
       timeUpdateHandlerRef.current = handler;
     },
     [],
   );
+
+  const setEndedHandler = useCallback((handler: (() => void) | null) => {
+    endedHandlerRef.current = handler;
+  }, []);
 
   const closeVideo = useCallback(() => {
     const video = videoRef.current;
@@ -379,10 +411,15 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
 
     const isSameVideo = source?.id === activeVideo.id;
     const previousTime = isSameVideo && Number.isFinite(video.currentTime) ? video.currentTime : 0;
+    const requestedStartTime = isSameVideo ? previousTime : activeVideo.initialTime ?? 0;
     const shouldPlay = !isSameVideo || !video.paused;
     const restorePlayback = () => {
-      if (previousTime > 0 && Number.isFinite(video.duration)) {
-        video.currentTime = Math.min(previousTime, video.duration);
+      if (requestedStartTime > 0 && Number.isFinite(requestedStartTime)) {
+        const safeTime = Number.isFinite(video.duration) && video.duration > 0
+          ? Math.min(requestedStartTime, Math.max(0, video.duration - 0.1))
+          : requestedStartTime;
+        video.currentTime = safeTime;
+        setCurrentTime(safeTime);
       } else if (!isSameVideo) {
         video.currentTime = 0;
       }
@@ -609,6 +646,10 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const handleVideoPause = useCallback(() => {
     setIsPlaying(false);
     setControlsVisible(true);
+  }, []);
+
+  const handleVideoEnded = useCallback(() => {
+    endedHandlerRef.current?.();
   }, []);
 
   useEffect(() => {
@@ -900,9 +941,23 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
 
   const handleTimeUpdate = useCallback((event: React.SyntheticEvent<HTMLVideoElement>) => {
     const video = event.currentTarget;
+    const wasSeeking = video.seeking || seekActivityRef.current;
+    seekActivityRef.current = false;
     setCurrentTime(video.currentTime);
     if (Number.isFinite(video.duration)) setDuration(video.duration);
-    timeUpdateHandlerRef.current?.(video.currentTime);
+    timeUpdateHandlerRef.current?.(
+      video.currentTime,
+      Number.isFinite(video.duration) ? video.duration : 0,
+      wasSeeking,
+    );
+  }, []);
+
+  const handleVideoSeeking = useCallback(() => {
+    seekActivityRef.current = true;
+  }, []);
+
+  const handleVideoSeeked = useCallback(() => {
+    seekActivityRef.current = true;
   }, []);
 
   const handleLoadedMetadata = useCallback((event: React.SyntheticEvent<HTMLVideoElement>) => {
@@ -939,12 +994,26 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     () => ({
       activeVideo,
       isDetailPlayer,
+      currentTime,
+      duration,
+      isPlaying,
       videoRef,
       activateVideo,
       setTimeUpdateHandler,
+      setEndedHandler,
       closeVideo,
     }),
-    [activeVideo, activateVideo, closeVideo, isDetailPlayer, setTimeUpdateHandler],
+    [
+      activeVideo,
+      activateVideo,
+      closeVideo,
+      currentTime,
+      duration,
+      isDetailPlayer,
+      isPlaying,
+      setEndedHandler,
+      setTimeUpdateHandler,
+    ],
   );
 
   return (
@@ -997,6 +1066,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               preload="metadata"
               onLoadedMetadata={handleLoadedMetadata}
               onTimeUpdate={handleTimeUpdate}
+              onSeeking={handleVideoSeeking}
+              onSeeked={handleVideoSeeked}
+              onEnded={handleVideoEnded}
               onVolumeChange={handleVolumeChange}
               onPlay={handleVideoPlay}
               onPause={handleVideoPause}

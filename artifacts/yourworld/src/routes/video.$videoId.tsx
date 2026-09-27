@@ -64,6 +64,12 @@ import {
   VideoPlaybackSlot,
   type QualityUrls,
 } from "@/lib/video-playback";
+import { buildWatchShareUrl } from "@/lib/watch-links";
+import {
+  consumeVideoResumeRequest,
+  removeVideoResumeEntry,
+  saveVideoResumeEntry,
+} from "@/lib/video-resume";
 
 type VideoUser = {
   id?: string;
@@ -265,7 +271,16 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   const { focusComments } = Route.useSearch();
   const { user, requestAuthAction } = useAuth();
   const { liked, following, toggleLike, toggleFollow } = useYw();
-  const { activateVideo, closeVideo, setTimeUpdateHandler } = useVideoPlayback();
+  const {
+    activateVideo,
+    closeVideo,
+    setTimeUpdateHandler,
+    setEndedHandler,
+    currentTime: playerCurrentTime,
+    duration: playerDuration,
+    isPlaying,
+    videoRef,
+  } = useVideoPlayback();
   const queryClient = useQueryClient();
   const commentsRef = useRef<HTMLDivElement>(null);
   const [commentText, setCommentText] = useState("");
@@ -276,6 +291,8 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   const [resolvedMediaUrl, setResolvedMediaUrl] = useState<string>("");
   const playedSecondsRef = useRef(0);
   const lastVideoTimeRef = useRef<number | null>(null);
+  const lastResumeSavedAtRef = useRef(0);
+  const resumeRemovedRef = useRef(false);
 
   const {
     data: video,
@@ -518,6 +535,43 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   const nextSeriesEpisodes = sortSeriesEpisodes(seriesCandidates).filter((episode) =>
     isNextSeriesEpisode(video?.episode_number, episode.episode_number),
   );
+  const nextEpisode = nextSeriesEpisodes[0];
+  const nextEpisodeId = nextEpisode?.id;
+  const [nextEpisodeCancelled, setNextEpisodeCancelled] = useState(false);
+  const nextEpisodeCancelledRef = useRef(false);
+
+  useEffect(() => {
+    nextEpisodeCancelledRef.current = false;
+    setNextEpisodeCancelled(false);
+  }, [videoId]);
+
+  const playNextEpisode = useCallback(() => {
+    if (!nextEpisodeId) return;
+    void navigate({
+      to: "/video/$videoId",
+      params: { videoId: nextEpisodeId },
+    });
+  }, [navigate, nextEpisodeId]);
+
+  const handleEpisodeEnded = useCallback(() => {
+    if (!nextEpisodeCancelledRef.current) playNextEpisode();
+  }, [playNextEpisode]);
+
+  useEffect(() => {
+    setEndedHandler(nextEpisodeId ? handleEpisodeEnded : null);
+    return () => setEndedHandler(null);
+  }, [handleEpisodeEnded, nextEpisodeId, setEndedHandler]);
+
+  const countdownSeconds = playerDuration > 0
+    ? Math.max(0, Math.ceil(playerDuration - playerCurrentTime))
+    : 0;
+  const showNextEpisodeCountdown = Boolean(
+    nextEpisode &&
+    !nextEpisodeCancelled &&
+    isPlaying &&
+    countdownSeconds > 0 &&
+    countdownSeconds <= 5,
+  );
 
   useResumeAuthAction("video-like", videoId, () => {
     setDisliked(false);
@@ -597,21 +651,65 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     viewRecordedRef.current = false;
     playedSecondsRef.current = 0;
     lastVideoTimeRef.current = null;
+    lastResumeSavedAtRef.current = 0;
+    resumeRemovedRef.current = false;
   }, [videoId]);
 
+  const persistResumeAt = useCallback(
+    (rawCurrentTime: number, rawDuration: number, force = false) => {
+      const currentTime = Number.isFinite(rawCurrentTime) ? Math.max(0, rawCurrentTime) : 0;
+      const duration = Number.isFinite(rawDuration) ? Math.max(0, rawDuration) : 0;
+      const isComplete =
+        duration > 0 &&
+        (currentTime / duration >= 0.95 || duration - currentTime <= 15);
+
+      if (isComplete) {
+        if (!resumeRemovedRef.current) {
+          removeVideoResumeEntry(videoId);
+          resumeRemovedRef.current = true;
+        }
+        return;
+      }
+      if (playedSecondsRef.current < 10) return;
+
+      const now = Date.now();
+      if (!force && now - lastResumeSavedAtRef.current < 3000) return;
+      const parsedEpisodeNumber = Number(video?.episode_number);
+      saveVideoResumeEntry({
+        id: videoId,
+        title: video?.title || video?.caption || "Untitled video",
+        thumbnailUrl: video?.thumbnail_url || "",
+        currentTime,
+        duration,
+        progress: duration > 0 ? currentTime / duration : 0,
+        seriesTitle: video?.series_title?.trim() || null,
+        episodeNumber: Number.isFinite(parsedEpisodeNumber) ? parsedEpisodeNumber : null,
+        watchedSeconds: playedSecondsRef.current,
+        updatedAt: now,
+      });
+      lastResumeSavedAtRef.current = now;
+      resumeRemovedRef.current = false;
+    },
+    [video, videoId],
+  );
+
   const handleVideoTimeUpdate = useCallback(
-    (rawCurrentTime: number) => {
+    (rawCurrentTime: number, rawDuration: number, wasSeeking: boolean) => {
       const currentTime = Number.isFinite(rawCurrentTime) ? rawCurrentTime : 0;
       const previousTime = lastVideoTimeRef.current;
       lastVideoTimeRef.current = currentTime;
       const delta = previousTime === null ? 0 : currentTime - previousTime;
+
+      if (!wasSeeking && delta > 0 && delta <= 2) playedSecondsRef.current += delta;
+      persistResumeAt(currentTime, rawDuration);
+
       if (
+        wasSeeking ||
         viewRecordedRef.current ||
         !user?.id ||
         delta <= 0 ||
         delta > 2
       ) return;
-      playedSecondsRef.current += delta;
       if (playedSecondsRef.current < 3) return;
       viewRecordedRef.current = true;
       void registerUniqueView(videoId, "video")
@@ -631,7 +729,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           console.error("Unable to register video view", cause);
         });
     },
-    [queryClient, user?.id, videoId],
+    [persistResumeAt, queryClient, user?.id, videoId],
   );
 
   useEffect(() => {
@@ -665,13 +763,18 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
       title: video.title || video.caption || "Untitled Video",
       thumbnailUrl: video.thumbnail_url,
       qualityUrls: video.qualityUrls ?? video.quality_urls ?? undefined,
+      initialTime: consumeVideoResumeRequest(video.id) ?? undefined,
     });
   }, [activateVideo, checkingAccess, closeVideo, isLocked, playableMediaUrl, video]);
 
   useEffect(() => {
+    const player = videoRef.current;
     setTimeUpdateHandler(handleVideoTimeUpdate);
-    return () => setTimeUpdateHandler(null);
-  }, [handleVideoTimeUpdate, setTimeUpdateHandler]);
+    return () => {
+      if (player) persistResumeAt(player.currentTime, player.duration, true);
+      setTimeUpdateHandler(null);
+    };
+  }, [handleVideoTimeUpdate, persistResumeAt, setTimeUpdateHandler, videoRef]);
 
   const submitComment = () => {
     if (!commentText.trim()) return;
@@ -828,14 +931,15 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   };
 
   const handleShare = async () => {
+    const shareUrl = buildWatchShareUrl(videoId, "video");
     try {
       if (navigator.share) {
         await navigator.share({
           title: video?.title || "Watch Video",
-          url: window.location.href,
+          url: shareUrl,
         });
       } else {
-        await navigator.clipboard.writeText(window.location.href);
+        await navigator.clipboard.writeText(shareUrl);
         toast.success("Link copied to clipboard");
       }
     } catch {
@@ -974,6 +1078,44 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
       ) : (
         <VideoPlaybackSlot />
       )}
+
+      {showNextEpisodeCountdown ? (
+        <section
+          className="fixed inset-x-4 bottom-28 z-[100] mx-auto flex max-w-lg items-center justify-between gap-3 rounded-2xl border border-white/10 bg-[#101116]/95 p-4 text-white shadow-2xl backdrop-blur-xl"
+          aria-live="polite"
+          data-testid="panel-next-episode-countdown"
+        >
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-wide text-fuchsia-200">
+              Next episode in {countdownSeconds}
+            </p>
+            <p className="mt-1 truncate text-sm font-semibold text-white">
+              {nextEpisode?.title || nextEpisode?.caption || "Next episode"}
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={playNextEpisode}
+              className="rounded-full bg-fuchsia-300 px-4 py-2 text-xs font-bold text-black hover:bg-fuchsia-200"
+              data-testid="button-play-next-episode"
+            >
+              Play Now
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                nextEpisodeCancelledRef.current = true;
+                setNextEpisodeCancelled(true);
+              }}
+              className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold text-zinc-200 hover:bg-white/10"
+              data-testid="button-cancel-next-episode"
+            >
+              Cancel
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-3 px-3 py-3 sm:gap-4 sm:px-4 sm:py-4">
         {seriesTitle && (

@@ -57,6 +57,7 @@ import {
   type SportsProfileDraft,
 } from "@/components/yw/SportsProfile";
 import { resolveMediaUrl, type DbPost } from "@/lib/social-data";
+import { buildWatchShareUrl } from "@/lib/watch-links";
 import { removeDeletedPostFromQueryCaches } from "@/lib/post-deletion";
 import { STORAGE_BUCKETS } from "@/lib/storage-upload";
 import { useFollowCounts } from "@/lib/follow-data";
@@ -455,7 +456,11 @@ function ProfilePage() {
     if (!manage) return;
     const post = manage;
     setManage(null);
-    const url = `${window.location.origin}/?post=${encodeURIComponent(post.id)}`;
+    const watchKind =
+      post.kind === "reel" ? "reel" : post.kind === "video" ? "video" : null;
+    const url = watchKind
+      ? buildWatchShareUrl(post.id, watchKind)
+      : `${window.location.origin}/?post=${encodeURIComponent(post.id)}`;
     const title = post.title || post.caption || "YourWorld media";
 
     if (navigator.share) {

@@ -57,6 +57,7 @@ import { Route as TermsMonetizationRouteImport } from './routes/terms.monetizati
 import { Route as UUserIdRouteImport } from './routes/u.$userId'
 import { Route as VideoVideoIdRouteImport } from './routes/video.$videoId'
 import { Route as VideoUploadRouteImport } from './routes/video.upload'
+import { Route as WatchContentIdRouteImport } from './routes/watch.$contentId'
 import { Route as AuthenticatedChatIndexRouteImport } from './routes/_authenticated/chat.index'
 import { Route as AuthenticatedChatThreadIdRouteImport } from './routes/_authenticated/chat.$threadId'
 import { Route as OrbitChatUserIdRouteImport } from './routes/orbit.chat.$userId'
@@ -300,6 +301,11 @@ const VideoUploadRoute = VideoUploadRouteImport.update({
   path: '/video/upload',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WatchContentIdRoute = WatchContentIdRouteImport.update({
+  id: '/watch/$contentId',
+  path: '/watch/$contentId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedChatIndexRoute = AuthenticatedChatIndexRouteImport.update({
   id: '/chat/',
   path: '/chat/',
@@ -362,6 +368,7 @@ export interface FileRoutesByFullPath {
   '/u/$userId': typeof UUserIdRoute
   '/video/$videoId': typeof VideoVideoIdRoute
   '/video/upload': typeof VideoUploadRoute
+  '/watch/$contentId': typeof WatchContentIdRoute
   '/channel/': typeof ChannelIndexRoute
   '/moment/': typeof MomentIndexRoute
   '/orbit/': typeof OrbitIndexRoute
@@ -412,6 +419,7 @@ export interface FileRoutesByTo {
   '/u/$userId': typeof UUserIdRoute
   '/video/$videoId': typeof VideoVideoIdRoute
   '/video/upload': typeof VideoUploadRoute
+  '/watch/$contentId': typeof WatchContentIdRoute
   '/channel': typeof ChannelIndexRoute
   '/moment': typeof MomentIndexRoute
   '/orbit': typeof OrbitIndexRoute
@@ -466,6 +474,7 @@ export interface FileRoutesById {
   '/u/$userId': typeof UUserIdRoute
   '/video/$videoId': typeof VideoVideoIdRoute
   '/video/upload': typeof VideoUploadRoute
+  '/watch/$contentId': typeof WatchContentIdRoute
   '/channel/': typeof ChannelIndexRoute
   '/moment/': typeof MomentIndexRoute
   '/orbit/': typeof OrbitIndexRoute
@@ -520,6 +529,7 @@ export interface FileRouteTypes {
     | '/u/$userId'
     | '/video/$videoId'
     | '/video/upload'
+    | '/watch/$contentId'
     | '/channel/'
     | '/moment/'
     | '/orbit/'
@@ -570,6 +580,7 @@ export interface FileRouteTypes {
     | '/u/$userId'
     | '/video/$videoId'
     | '/video/upload'
+    | '/watch/$contentId'
     | '/channel'
     | '/moment'
     | '/orbit'
@@ -623,6 +634,7 @@ export interface FileRouteTypes {
     | '/u/$userId'
     | '/video/$videoId'
     | '/video/upload'
+    | '/watch/$contentId'
     | '/channel/'
     | '/moment/'
     | '/orbit/'
@@ -665,6 +677,7 @@ export interface RootRouteChildren {
   UUserIdRoute: typeof UUserIdRoute
   VideoVideoIdRoute: typeof VideoVideoIdRoute
   VideoUploadRoute: typeof VideoUploadRoute
+  WatchContentIdRoute: typeof WatchContentIdRoute
   MomentIndexRoute: typeof MomentIndexRoute
 }
 
@@ -1006,6 +1019,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof VideoUploadRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/watch/$contentId': {
+      id: '/watch/$contentId'
+      path: '/watch/$contentId'
+      fullPath: '/watch/$contentId'
+      preLoaderRoute: typeof WatchContentIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/chat/': {
       id: '/_authenticated/chat/'
       path: '/chat'
@@ -1140,6 +1160,7 @@ const rootRouteChildren: RootRouteChildren = {
   UUserIdRoute: UUserIdRoute,
   VideoVideoIdRoute: VideoVideoIdRoute,
   VideoUploadRoute: VideoUploadRoute,
+  WatchContentIdRoute: WatchContentIdRoute,
   MomentIndexRoute: MomentIndexRoute,
 }
 export const routeTree = rootRouteImport

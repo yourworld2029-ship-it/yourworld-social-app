@@ -27,6 +27,7 @@ import { useAuth, useResumeAuthAction } from "@/lib/auth-store";
 import { cn } from "@/lib/utils";
 import { PostEditDialog } from "@/components/yw/PostEditDialog";
 import type { DbPost } from "@/lib/social-data";
+import { buildWatchShareUrl } from "@/lib/watch-links";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -151,7 +152,7 @@ export function LongVideoCard({
   const isMine = currentUserId === video.userId;
   const isFollowing = !!following[video.userId];
   const shareUrl =
-    typeof window !== "undefined" ? `${window.location.origin}/?post=${video.id}` : undefined;
+    typeof window !== "undefined" ? buildWatchShareUrl(video.id, "video") : undefined;
 
   const handleLike = async () => {
     if (!user?.id && !currentUserId) {

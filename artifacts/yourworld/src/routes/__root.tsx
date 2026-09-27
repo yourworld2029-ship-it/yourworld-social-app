@@ -6,12 +6,15 @@ import {
   useLocation,
   HeadContent,
   Scripts,
+  useNavigate,
 } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Capacitor } from "@capacitor/core";
+import { App } from "@capacitor/app";
 import { StatusBar, Style } from "@capacitor/status-bar";
 import { cn } from "@/lib/utils";
+import { parseWatchShareUrl } from "@/lib/watch-links";
 
 import appCss from "../styles.css?url";
 import { BottomNav } from "@/components/yw/BottomNav";
@@ -151,9 +154,11 @@ function RootShell({ children }: { children: ReactNode }) {
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const { pathname } = useLocation();
+  const navigate = useNavigate();
   const [createOpen, setCreateOpen] = useState(false);
   const [isAndroidApp, setIsAndroidApp] = useState(false);
-  const hideNav = pathname.startsWith("/orbit") || pathname.startsWith("/auth") || pathname.startsWith("/verify-2fa") || pathname.startsWith("/create") || pathname.startsWith("/moment/create") || pathname.startsWith("/channel/create");
+  const isWatchPreview = pathname.startsWith("/watch/");
+  const hideNav = isWatchPreview || pathname.startsWith("/orbit") || pathname.startsWith("/auth") || pathname.startsWith("/verify-2fa") || pathname.startsWith("/create") || pathname.startsWith("/moment/create") || pathname.startsWith("/channel/create");
   const wideProfileLayout = pathname === "/profile";
 
   useEffect(() => {
@@ -172,6 +177,53 @@ function RootComponent() {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "android") return;
+
+    let disposed = false;
+    let removeListener: (() => Promise<void>) | undefined;
+    const openWatchLink = (url: string) => {
+      const destination = parseWatchShareUrl(url);
+      if (!destination) return;
+
+      if (destination.kind === "reel") {
+        void navigate({
+          to: "/reels",
+          search: {
+            reelId: undefined,
+            userId: undefined,
+            initialVideoId: destination.id,
+            focusComments: undefined,
+            returnTo: undefined,
+          },
+        });
+      } else {
+        void navigate({
+          to: "/video/$videoId",
+          params: { videoId: destination.id },
+        });
+      }
+    };
+
+    void (async () => {
+      const listener = await App.addListener("appUrlOpen", ({ url }) => openWatchLink(url));
+      if (disposed) {
+        await listener.remove();
+        return;
+      }
+      removeListener = () => listener.remove();
+      const launch = await App.getLaunchUrl();
+      if (!disposed && launch?.url) openWatchLink(launch.url);
+    })().catch((error) => {
+      console.error("[appLinks] unable to register incoming link handler", error);
+    });
+
+    return () => {
+      disposed = true;
+      void removeListener?.();
+    };
+  }, [navigate]);
 
   useEffect(() => {
     setCreateOpen(false);
@@ -195,7 +247,7 @@ function RootComponent() {
     };
   }, []);
 
-  if (!isAndroidApp) {
+  if (!isAndroidApp && !isWatchPreview) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-black px-6 text-center text-white">
         <div className="max-w-sm">
@@ -227,10 +279,10 @@ function RootComponent() {
                                 <SafeProvider name="Upload">
                                   <UploadProvider>
                                     <VideoPlaybackProvider>
-                                       <DownloadBanner />
+                                       {!isWatchPreview && <DownloadBanner />}
                                       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
                                       <AuthGate>
-                                        <div className={cn("mx-auto min-h-screen w-full", wideProfileLayout ? "max-w-4xl" : "max-w-lg", hideNav ? "" : "pb-20")}>
+                                        <div className={cn("mx-auto min-h-screen w-full", isWatchPreview ? "max-w-5xl" : wideProfileLayout ? "max-w-4xl" : "max-w-lg", hideNav ? "" : "pb-20")}>
                                           <Outlet />
                                         </div>
                                         {!hideNav && <BottomNav onOpenCreate={() => setCreateOpen(true)} />}

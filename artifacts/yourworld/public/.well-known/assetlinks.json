@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.yourworld.app",
+      "sha256_cert_fingerprints": [
+        "CE:58:7D:97:58:E8:90:83:9B:05:3C:34:19:77:93:FC:E3:CB:18:92:FD:B5:61:99:CA:82:2C:FA:1E:3C:E1:CD"
+      ]
+    }
+  }
+]
