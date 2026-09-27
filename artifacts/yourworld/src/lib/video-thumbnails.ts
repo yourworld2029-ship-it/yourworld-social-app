@@ -54,11 +54,12 @@ export async function uploadVideoThumbnail(
   source: Blob | string,
   uid: string,
   onProgress?: ProgressFn,
+  bucket: string = STORAGE_BUCKETS.videos,
 ): Promise<{ url: string | null; error: string | null }> {
   try {
     const blob = await encodeThumbnail(await toBlob(source));
     const result = await uploadWithProgress(
-      STORAGE_BUCKETS.videos,
+      bucket,
       thumbnailPath(uid),
       blob,
       "image/webp",
@@ -74,13 +75,14 @@ export async function uploadVideoThumbnail(
   }
 }
 
-/** Captures the high-quality 1.0s frame and uploads it as a durable thumbnail. */
+/** Captures a frame after the opening second and uploads it as a durable thumbnail. */
 export async function generateAndUploadVideoThumbnail(
   videoFile: Blob,
   uid: string,
   onProgress?: ProgressFn,
+  bucket: string = STORAGE_BUCKETS.videos,
 ): Promise<{ url: string | null; error: string | null }> {
-  const thumbnail = await generateVideoThumbnail(videoFile, 1.0);
+  const thumbnail = await generateVideoThumbnail(videoFile, 1.75);
   if (!thumbnail) return { url: null, error: null };
-  return uploadVideoThumbnail(thumbnail, uid, onProgress);
+  return uploadVideoThumbnail(thumbnail, uid, onProgress, bucket);
 }

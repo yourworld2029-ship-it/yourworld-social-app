@@ -892,8 +892,13 @@ export async function publishReel(opts: {
   let thumbnailUrl: string | null = null;
   if (opts.thumbnail || sourceBlob) {
     const thumbnail = opts.thumbnail
-      ? await uploadVideoThumbnail(opts.thumbnail, uid)
-      : await generateAndUploadVideoThumbnail(sourceBlob as Blob, uid);
+      ? await uploadVideoThumbnail(opts.thumbnail, uid, undefined, STORAGE_BUCKETS.thumbnails)
+      : await generateAndUploadVideoThumbnail(
+          sourceBlob as Blob,
+          uid,
+          undefined,
+          STORAGE_BUCKETS.thumbnails,
+        );
     if (thumbnail.error) console.warn("Rendered reel thumbnail upload failed", thumbnail.error);
     thumbnailUrl = thumbnail.url;
   }
@@ -969,11 +974,17 @@ export async function publishDirectReel(opts: {
   let thumbnailUrl: string | null = null;
   try {
     const thumbnailUpload = opts.thumbnail
-      ? await uploadVideoThumbnail(opts.thumbnail, uid, (percent, detail) =>
-          opts.onProgress?.(88 + Math.round(percent * 0.1), detail),
+      ? await uploadVideoThumbnail(
+          opts.thumbnail,
+          uid,
+          (percent, detail) => opts.onProgress?.(88 + Math.round(percent * 0.1), detail),
+          STORAGE_BUCKETS.thumbnails,
         )
-      : await generateAndUploadVideoThumbnail(opts.file, uid, (percent, detail) =>
-          opts.onProgress?.(88 + Math.round(percent * 0.1), detail),
+      : await generateAndUploadVideoThumbnail(
+          opts.file,
+          uid,
+          (percent, detail) => opts.onProgress?.(88 + Math.round(percent * 0.1), detail),
+          STORAGE_BUCKETS.thumbnails,
         );
     if (thumbnailUpload.error || !thumbnailUpload.url) {
       console.warn("Direct reel thumbnail upload failed", thumbnailUpload.error);

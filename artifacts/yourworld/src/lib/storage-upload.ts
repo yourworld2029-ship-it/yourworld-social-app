@@ -21,6 +21,7 @@ export const STORAGE_BUCKETS = {
   avatars: "avatars",
   uploads: "uploads",
   documents: "documents",
+  thumbnails: "thumbnails",
 } as const;
 
 /** Uploaded video and poster objects use unique paths, so they can be cached immutably. */
