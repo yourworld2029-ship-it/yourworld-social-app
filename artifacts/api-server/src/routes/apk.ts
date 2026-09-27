@@ -45,6 +45,6 @@ function registerApkDownload(
 
 registerApkDownload("yourworld-debug.apk");
 registerApkDownload("yourworld-v3.apk");
-registerApkDownload("yourworld-debug.apk", "/download-apk", "yourworld.apk");
+registerApkDownload("yourworld-debug.apk", "/download-apk", "YourWorld.apk");
 
 export default router;

@@ -256,7 +256,7 @@ function RootComponent() {
             YourWorld is available only in the installed Android app.
           </p>
           <a
-            href="/downloads/YourWorld.apk"
+            href="/download-apk"
             download="YourWorld.apk"
             className="mt-6 inline-flex w-full items-center justify-center rounded-2xl border border-purple-300/30 bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-500 px-5 py-3.5 text-sm font-semibold text-white shadow-[0_0_28px_rgba(168,85,247,0.55)] transition hover:brightness-110 hover:shadow-[0_0_34px_rgba(168,85,247,0.72)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
           >
