@@ -11,6 +11,7 @@ type Props = {
   className?: string;
   loading?: "lazy" | "eager";
   bucket?: "reels" | "videos";
+  posterOnly?: boolean;
 };
 
 function firstFrameUrl(url: string) {
@@ -29,6 +30,7 @@ export function VideoPoster({
   className,
   loading = "lazy",
   bucket = "videos",
+  posterOnly = false,
 }: Props) {
   const [resolvedThumbnail, setResolvedThumbnail] = useState<string | null>(thumbnailUrl ?? null);
   const [resolvedMedia, setResolvedMedia] = useState(mediaUrl);
@@ -42,6 +44,13 @@ export function VideoPoster({
   }, [thumbnailUrl]);
 
   useEffect(() => {
+    if (posterOnly) {
+      setResolvedMedia("");
+      setMediaReady(false);
+      setMediaFailed(false);
+      return;
+    }
+
     let alive = true;
     setResolvedMedia(mediaUrl);
     setMediaReady(false);
@@ -63,7 +72,7 @@ export function VideoPoster({
     return () => {
       alive = false;
     };
-  }, [bucket, mediaUrl]);
+  }, [bucket, mediaUrl, posterOnly]);
 
   useEffect(() => {
     if (!thumbnailUrl) {
@@ -84,14 +93,14 @@ export function VideoPoster({
   }, [bucket, thumbnailUrl]);
 
   useEffect(() => {
-    if (!resolvedMedia) return;
+    if (!resolvedMedia || posterOnly) return;
     const cachedPoster = getVideoPoster(resolvedMedia);
     if (cachedPoster && !thumbnailUrl) setResolvedThumbnail(cachedPoster);
-  }, [resolvedMedia, thumbnailUrl]);
+  }, [posterOnly, resolvedMedia, thumbnailUrl]);
 
   useEffect(() => {
     const card = cardRef.current;
-    if (!card || !resolvedMedia || typeof IntersectionObserver === "undefined") return;
+    if (posterOnly || !card || !resolvedMedia || typeof IntersectionObserver === "undefined") return;
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting && entry.intersectionRatio >= 0.5)) {
@@ -102,9 +111,9 @@ export function VideoPoster({
     );
     observer.observe(card);
     return () => observer.disconnect();
-  }, [resolvedMedia]);
+  }, [posterOnly, resolvedMedia]);
 
-  const source = resolvedMedia ? firstFrameUrl(resolvedMedia) : "";
+  const source = !posterOnly && resolvedMedia ? firstFrameUrl(resolvedMedia) : "";
   const showFallback = !resolvedThumbnail && (!source || mediaFailed || !mediaReady);
 
   return (

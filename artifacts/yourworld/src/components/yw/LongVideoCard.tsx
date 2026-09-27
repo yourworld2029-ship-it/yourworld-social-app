@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import {
   Play, Eye, Heart, Clock, MessageCircle, Send,
   MoreHorizontal, Link2, Trash2, EyeOff, Pencil,
@@ -7,14 +7,17 @@ import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import {
   formatViews,
-  resolveLongVideoUrl,
   timeAgo,
   type LongVideo,
 } from "@/lib/video-data";
 import { deleteMyPost } from "@/lib/profile-data";
 import { CommentsSheet } from "@/components/yw/CommentsSheet";
 import { ShareSheet } from "@/components/yw/ShareSheet";
-import { VideoPoster } from "@/components/yw/VideoPoster";
+import {
+  FeedVideoMuteButton,
+  FeedVideoPreview,
+  useFeedVideoAutoplay,
+} from "@/components/yw/FeedVideoAutoplay";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -71,6 +74,9 @@ export function LongVideoCard({
   onDeleted,
   onEdited,
 }: Props) {
+  const previewId = `feed:${video.id}:${useId()}`;
+  const { activeCandidateId, stopCandidate } = useFeedVideoAutoplay();
+  const previewIsActive = activeCandidateId === previewId;
   const { following, toggleFollow } = useYw();
   const { user, requestAuthAction } = useAuth();
   const [hidden, setHidden] = useState(false);
@@ -88,26 +94,6 @@ export function LongVideoCard({
         ? video.durationSeconds
         : null,
   );
-  const cardRef = useRef<HTMLElement | null>(null);
-  const [mediaNearViewport, setMediaNearViewport] = useState(false);
-
-  useEffect(() => {
-    const card = cardRef.current;
-    if (!card || typeof IntersectionObserver === "undefined") {
-      setMediaNearViewport(true);
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry?.isIntersecting) setMediaNearViewport(true);
-      },
-      { rootMargin: "320px 0px" },
-    );
-    observer.observe(card);
-    return () => observer.disconnect();
-  }, []);
-
   useEffect(() => {
     const storedDuration =
       typeof video.durationSeconds === "number" &&
@@ -116,38 +102,7 @@ export function LongVideoCard({
         ? video.durationSeconds
         : null;
     setDurationSeconds(storedDuration);
-    if (storedDuration !== null || !video.mediaUrl || !mediaNearViewport) return;
-
-    let active = true;
-    const probe = document.createElement("video");
-    probe.preload = "metadata";
-
-    const cleanup = () => {
-      active = false;
-      probe.onloadedmetadata = null;
-      probe.onerror = null;
-      probe.removeAttribute("src");
-      probe.load();
-    };
-
-    probe.onloadedmetadata = () => {
-      if (active && Number.isFinite(probe.duration) && probe.duration > 0) {
-        setDurationSeconds(probe.duration);
-      }
-      cleanup();
-    };
-    probe.onerror = cleanup;
-
-    void resolveLongVideoUrl(video.mediaUrl)
-      .then((url) => {
-        if (!active || !url) return;
-        probe.src = url;
-        probe.load();
-      })
-      .catch(cleanup);
-
-    return cleanup;
-  }, [mediaNearViewport, video.durationSeconds, video.mediaUrl]);
+  }, [video.durationSeconds]);
 
   const isMine = currentUserId === video.userId;
   const isFollowing = !!following[video.userId];
@@ -248,15 +203,16 @@ export function LongVideoCard({
   return (
     <>
     <article
-      ref={cardRef}
       className="space-y-3 overflow-hidden border-y border-zinc-800/80 bg-[#141418] shadow-2xl"
     >
+      <div className="relative">
       <button
         type="button"
         aria-label={`Open ${video.title}`}
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
+          stopCandidate(previewId);
           window.location.href = `/video/${video.id}`;
         }}
         className="group relative z-20 block w-full cursor-pointer touch-manipulation select-none border-0 bg-black p-0 text-left"
@@ -269,19 +225,19 @@ export function LongVideoCard({
               : "aspect-[16/9]",
           )}
         >
-          <VideoPoster
-            thumbnailUrl={video.thumbnailUrl}
-            mediaUrl={video.mediaUrl}
-            alt={video.title}
-            loading="lazy"
-            bucket="videos"
+          <FeedVideoPreview
+            video={video}
+            candidateId={previewId}
+            onDurationChange={(duration) => setDurationSeconds(duration)}
             className="pointer-events-none select-none"
           />
+          {!previewIsActive ? (
           <span className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
             <span className="grid h-14 w-14 items-center justify-center rounded-full bg-white/90 text-black shadow-lg">
               <Play size={22} className="ml-0.5 fill-black" />
             </span>
           </span>
+          ) : null}
           {formattedDuration && (
             <span className="pointer-events-none absolute bottom-2 right-2 rounded-md bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold">
               {formattedDuration}
@@ -289,6 +245,12 @@ export function LongVideoCard({
           )}
         </div>
       </button>
+      <FeedVideoMuteButton
+        candidateId={previewId}
+        title={video.title}
+        className="right-3 top-auto bottom-11"
+      />
+      </div>
 
       <div className="space-y-2 px-3 pb-3">
         <div className="flex items-start justify-between gap-2">
@@ -297,6 +259,7 @@ export function LongVideoCard({
             onClick={(event) => {
               event.preventDefault();
               event.stopPropagation();
+              stopCandidate(previewId);
               window.location.href = `/video/${video.id}`;
             }}
             className="cursor-pointer select-none text-left text-sm font-bold leading-snug text-white"

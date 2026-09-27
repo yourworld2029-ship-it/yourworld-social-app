@@ -1,7 +1,13 @@
 import React from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { LongVideoCard } from "@/components/yw/LongVideoCard";
-import { VideoPoster } from "@/components/yw/VideoPoster";
+import {
+  FeedVideoAutoplayProvider,
+  FeedVideoMuteButton,
+  FeedVideoPreview,
+  useFeedVideoAutoplay,
+} from "@/components/yw/FeedVideoAutoplay";
+import { FeedVideoTray } from "@/components/yw/FeedVideoTray";
 import { useLongVideos, type LongVideo } from "@/lib/video-data";
 import { setVideoQueue } from "@/lib/video-queue";
 import { Search, Heart, Plus, MoreVertical, Play } from "lucide-react";
@@ -17,6 +23,15 @@ import {
   requestVideoResume,
   useVideoResumeEntries,
 } from "@/lib/video-resume";
+import { useVideoPlayback } from "@/lib/video-playback";
+
+type FeedGroup =
+  | { kind: "standard"; video: LongVideo }
+  | { kind: "vertical"; verticalPostsGroup: LongVideo[] };
+
+type FeedItem =
+  | { kind: "group"; key: string; group: FeedGroup }
+  | { kind: "tray"; key: string; instanceKey: string };
 
 export const Route = createFileRoute("/")({
   component: HomePage,
@@ -44,8 +59,58 @@ function MomentAvatar({
   return <ProfileAvatar user={{ full_name: fullName, username, avatar_url: src }} />;
 }
 
+function FeedPortraitVideoCard({ video }: { video: LongVideo }) {
+  const previewId = `portrait:${video.id}:${React.useId()}`;
+  const { activeCandidateId, stopCandidate } = useFeedVideoAutoplay();
+  const previewIsActive = activeCandidateId === previewId;
+
+  return (
+    <div className="relative aspect-[9/16] w-full overflow-hidden rounded-2xl bg-zinc-900">
+      <button
+        type="button"
+        aria-label={`Open ${video.title || "Shorts"}`}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          stopCandidate(previewId);
+          window.location.href = `/video/${video.id}`;
+        }}
+        className="group absolute inset-0 z-20 block h-full w-full cursor-pointer touch-manipulation select-none overflow-hidden border-0 bg-zinc-900 p-0 text-left"
+      >
+        <FeedVideoPreview
+          video={video}
+          candidateId={previewId}
+          className="pointer-events-none select-none"
+        />
+        {!previewIsActive ? (
+          <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/15">
+            <span className="grid h-12 w-12 place-items-center rounded-full bg-black/70 text-white shadow-lg">
+              <Play className="h-6 w-6 translate-x-0.5 fill-white text-white" />
+            </span>
+          </span>
+        ) : null}
+        <span className="pointer-events-none absolute left-2 top-2 rounded-full bg-black/40 p-1 text-white/90 backdrop-blur-sm">
+          <MoreVertical className="h-3.5 w-3.5" />
+        </span>
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/40 to-transparent p-2.5">
+          <p className="line-clamp-2 text-xs font-semibold leading-tight text-white">
+            {video.title || "Shorts"}
+          </p>
+          <span className="mt-1 text-[10px] text-zinc-300">{video.views || 0} views</span>
+        </div>
+      </button>
+      <FeedVideoMuteButton
+        candidateId={previewId}
+        title={video.title}
+        className="right-2 top-auto bottom-11"
+      />
+    </div>
+  );
+}
+
 function HomePage() {
   const navigate = useNavigate();
+  const { activeVideo } = useVideoPlayback();
   const resumeEntries = useVideoResumeEntries();
   const [hydrated, setHydrated] = React.useState(false);
   const {
@@ -166,16 +231,8 @@ function HomePage() {
     (stream) => stream.broadcaster_id === user?.id,
   );
 
-  const feedGroups = React.useMemo<
-    Array<
-      | { kind: "standard"; video: LongVideo }
-      | { kind: "vertical"; verticalPostsGroup: LongVideo[] }
-    >
-  >(() => {
-    const groups: Array<
-      | { kind: "standard"; video: LongVideo }
-      | { kind: "vertical"; verticalPostsGroup: LongVideo[] }
-    > = [];
+  const feedGroups = React.useMemo<FeedGroup[]>(() => {
+    const groups: FeedGroup[] = [];
 
     for (const video of videos) {
       const title = video.title.toLowerCase();
@@ -209,6 +266,35 @@ function HomePage() {
 
     return groups;
   }, [videos]);
+  const verticalVideos = React.useMemo(
+    () =>
+      feedGroups.flatMap((group) =>
+        group.kind === "vertical" ? group.verticalPostsGroup : [],
+      ),
+    [feedGroups],
+  );
+  const feedItems = React.useMemo<FeedItem[]>(() => {
+    const items: FeedItem[] = [];
+    let postCount = 0;
+    let nextTrayAt = 5;
+
+    feedGroups.forEach((group, groupIndex) => {
+      const groupKey =
+        group.kind === "standard"
+          ? `post-${group.video.id}`
+          : `vertical-${group.verticalPostsGroup[0]?.id ?? groupIndex}`;
+      items.push({ kind: "group", key: groupKey, group });
+      postCount += group.kind === "standard" ? 1 : group.verticalPostsGroup.length;
+
+      if (verticalVideos.length >= 2 && postCount >= nextTrayAt) {
+        const trayKey = `feed-video-tray-${postCount}-${groupIndex}`;
+        items.push({ kind: "tray", key: trayKey, instanceKey: trayKey });
+        while (nextTrayAt <= postCount) nextTrayAt += 5;
+      }
+    });
+
+    return items;
+  }, [feedGroups, verticalVideos.length]);
 
   return (
     <div className="min-h-screen bg-black text-white pb-24">
@@ -351,84 +437,72 @@ function HomePage() {
       )}
 
       {/* Main Long Video Feed */}
-      <main className="max-w-lg mx-auto px-2 sm:px-4 py-4 space-y-4">
-        {!hydrated || loading ? (
-          <div className="text-center py-12 text-neutral-500 text-sm">Loading feed...</div>
-        ) : videos.length === 0 ? (
-          <div className="text-center py-12 text-neutral-500 text-sm">No videos yet. Be the first to share!</div>
-        ) : (
-          feedGroups.map((group) =>
-            group.kind === "vertical" ? (
-              <div
-                key={group.verticalPostsGroup[0]?.id}
-                className="grid grid-cols-2 gap-2.5 px-3 py-2 w-full"
-              >
-                {group.verticalPostsGroup.map((video) => {
-                  const post = video as LongVideo & {
-                    media_url?: string | null;
-                    thumbnail_url?: string | null;
-                    poster_url?: string | null;
-                    views_count?: number | null;
-                  };
-                  return (
-                    <button
-                      type="button"
-                      key={post.id}
-                      aria-label={`Open ${post.title || "Shorts"}`}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        window.location.href = `/video/${post.id}`;
-                      }}
-                      className="group relative z-20 block aspect-[9/16] w-full cursor-pointer touch-manipulation select-none overflow-hidden rounded-2xl border-0 bg-zinc-900 p-0 text-left"
-                    >
-                      <VideoPoster
-                        mediaUrl={post.media_url || post.mediaUrl}
-                        thumbnailUrl={
-                          post.thumbnail_url || post.poster_url || post.thumbnailUrl || undefined
-                        }
-                        alt={post.title || "Shorts"}
-                        loading="lazy"
-                        bucket="videos"
-                        className="pointer-events-none select-none"
-                      />
-                      <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/15">
-                        <span className="grid h-12 w-12 place-items-center rounded-full bg-black/70 text-white shadow-lg">
-                          <Play className="h-6 w-6 translate-x-0.5 fill-white text-white" />
-                        </span>
-                      </span>
-                      <div className="pointer-events-none absolute top-2 right-2 p-1 rounded-full bg-black/40 backdrop-blur-sm text-white/90">
-                        <MoreVertical className="w-3.5 h-3.5" />
-                      </div>
-                      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-2.5 flex flex-col justify-end">
-                        <p className="text-xs font-semibold text-white line-clamp-2 leading-tight">
-                          {post.title || "Shorts"}
-                        </p>
-                        <span className="text-[10px] text-zinc-300 mt-1">
-                          {post.views_count || post.views || 0} views
-                        </span>
-                      </div>
-                    </button>
-                  );
-                })}
+      <FeedVideoAutoplayProvider disabled={Boolean(activeVideo)}>
+        {(autoplay) => (
+          <main className="max-w-lg mx-auto px-2 sm:px-4 py-4 space-y-4">
+            {!hydrated || loading ? (
+              <div className="text-center py-12 text-neutral-500 text-sm">Loading feed...</div>
+            ) : videos.length === 0 ? (
+              <div className="text-center py-12 text-neutral-500 text-sm">
+                No videos yet. Be the first to share!
               </div>
             ) : (
-              <LongVideoCard
-                key={group.video.id}
-                video={group.video}
-                currentUserId={currentUserId}
-                onView={countView}
-                onLike={toggleLike}
-                onDeleted={() => reload()}
-              />
-            ),
-          )
-        )}
-        {isFetchingNextPage ? (
-          <p className="py-3 text-center text-xs text-neutral-500">Loading more videos…</p>
-        ) : null}
+              feedItems.map((item) => {
+                if (item.kind === "tray") {
+                  return (
+                    <FeedVideoTray
+                      key={item.key}
+                      videos={verticalVideos.slice(0, 8)}
+                      instanceKey={item.instanceKey}
+                      activeVideoId={autoplay.activeCandidateId}
+                      muted={autoplay.muted}
+                      renderPreview={(video, candidateId) => (
+                        <FeedVideoPreview
+                          video={video}
+                          candidateId={candidateId}
+                          fullVisibility
+                          className="pointer-events-none"
+                        />
+                      )}
+                      onToggleMute={autoplay.toggleMute}
+                      onOpenVideo={(video, candidateId) => {
+                        autoplay.stopCandidate(candidateId);
+                        window.location.href = `/video/${video.id}`;
+                      }}
+                    />
+                  );
+                }
 
-      </main>
+                const group = item.group;
+                return group.kind === "vertical" ? (
+                  <div
+                    key={item.key}
+                    className="grid w-full grid-cols-2 gap-2.5 px-3 py-2"
+                  >
+                    {group.verticalPostsGroup.map((video) => (
+                      <FeedPortraitVideoCard key={video.id} video={video} />
+                    ))}
+                  </div>
+                ) : (
+                  <LongVideoCard
+                    key={group.video.id}
+                    video={group.video}
+                    currentUserId={currentUserId}
+                    onView={countView}
+                    onLike={toggleLike}
+                    onDeleted={() => reload()}
+                  />
+                );
+              })
+            )}
+            {isFetchingNextPage ? (
+              <p className="py-3 text-center text-xs text-neutral-500">
+                Loading more videos…
+              </p>
+            ) : null}
+          </main>
+        )}
+      </FeedVideoAutoplayProvider>
     </div>
   );
 }
