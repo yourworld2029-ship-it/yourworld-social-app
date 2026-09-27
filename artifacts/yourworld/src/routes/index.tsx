@@ -3,9 +3,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { LongVideoCard } from "@/components/yw/LongVideoCard";
 import {
   FeedVideoAutoplayProvider,
-  FeedVideoMuteButton,
   FeedVideoPreview,
-  useFeedVideoAutoplay,
 } from "@/components/yw/FeedVideoAutoplay";
 import { FeedVideoTray } from "@/components/yw/FeedVideoTray";
 import { useLongVideos, type LongVideo } from "@/lib/video-data";
@@ -178,8 +176,9 @@ function HomePage() {
     (stream) => stream.broadcaster_id === user?.id,
   );
 
-  const feedGroups = React.useMemo<FeedGroup[]>(() => {
-    const groups: FeedGroup[] = [];
+  const { regularVideos, verticalVideos } = React.useMemo(() => {
+    const regular: LongVideo[] = [];
+    const vertical: LongVideo[] = [];
 
     for (const video of videos) {
       const title = video.title.toLowerCase();
@@ -196,52 +195,31 @@ function HomePage() {
         video.orientation === "portrait" ||
         title.includes("#shorts") ||
         title.includes("#reel");
-      const previous = groups[groups.length - 1];
-
-      if (
-        isVertical &&
-        previous?.kind === "vertical" &&
-        previous.verticalPostsGroup.length < 2
-      ) {
-        previous.verticalPostsGroup.push(video);
-      } else if (isVertical) {
-        groups.push({ kind: "vertical", verticalPostsGroup: [video] });
-      } else {
-        groups.push({ kind: "standard", video });
-      }
+      (isVertical ? vertical : regular).push(video);
     }
 
-    return groups;
+    return { regularVideos: regular, verticalVideos: vertical };
   }, [videos]);
-  const verticalVideos = React.useMemo(
-    () =>
-      feedGroups.flatMap((group) =>
-        group.kind === "vertical" ? group.verticalPostsGroup : [],
-      ),
-    [feedGroups],
-  );
   const feedItems = React.useMemo<FeedItem[]>(() => {
     const items: FeedItem[] = [];
-    let postCount = 0;
-    let nextTrayAt = 5;
 
-    feedGroups.forEach((group, groupIndex) => {
-      const groupKey =
-        group.kind === "standard"
-          ? `post-${group.video.id}`
-          : `vertical-${group.verticalPostsGroup[0]?.id ?? groupIndex}`;
-      items.push({ kind: "group", key: groupKey, group });
-      postCount += group.kind === "standard" ? 1 : group.verticalPostsGroup.length;
+    regularVideos.forEach((video, index) => {
+      items.push({ kind: "standard", key: `post-${video.id}`, video });
 
-      if (verticalVideos.length >= 2 && postCount >= nextTrayAt) {
-        const trayKey = `feed-video-tray-${postCount}-${groupIndex}`;
+      const regularVideoCount = index + 1;
+      if (verticalVideos.length >= 2 && regularVideoCount % 5 === 0) {
+        const trayKey = `feed-video-tray-${regularVideoCount}`;
         items.push({ kind: "tray", key: trayKey, instanceKey: trayKey });
-        while (nextTrayAt <= postCount) nextTrayAt += 5;
       }
     });
 
+    if (verticalVideos.length >= 2 && regularVideos.length < 5) {
+      const trayKey = `feed-video-tray-${regularVideos.length}`;
+      items.push({ kind: "tray", key: trayKey, instanceKey: trayKey });
+    }
+
     return items;
-  }, [feedGroups, verticalVideos.length]);
+  }, [regularVideos, verticalVideos.length]);
 
   return (
     <div className="min-h-screen bg-black text-white pb-24">
@@ -399,7 +377,7 @@ function HomePage() {
                   return (
                     <FeedVideoTray
                       key={item.key}
-                      videos={verticalVideos.slice(0, 8)}
+                      videos={verticalVideos}
                       instanceKey={item.instanceKey}
                       activeVideoId={autoplay.activeCandidateId}
                       muted={autoplay.muted}
@@ -414,26 +392,19 @@ function HomePage() {
                       onToggleMute={autoplay.toggleMute}
                       onOpenVideo={(video, candidateId) => {
                         autoplay.stopCandidate(candidateId);
-                        window.location.href = `/video/${video.id}`;
+                        void navigate({
+                          to: "/video/$videoId",
+                          params: { videoId: video.id },
+                        });
                       }}
                     />
                   );
                 }
 
-                const group = item.group;
-                return group.kind === "vertical" ? (
-                  <div
-                    key={item.key}
-                    className="grid w-full grid-cols-2 gap-2.5 px-3 py-2"
-                  >
-                    {group.verticalPostsGroup.map((video) => (
-                      <FeedPortraitVideoCard key={video.id} video={video} />
-                    ))}
-                  </div>
-                ) : (
+                return (
                   <LongVideoCard
-                    key={group.video.id}
-                    video={group.video}
+                    key={item.key}
+                    video={item.video}
                     currentUserId={currentUserId}
                     onView={countView}
                     onLike={toggleLike}

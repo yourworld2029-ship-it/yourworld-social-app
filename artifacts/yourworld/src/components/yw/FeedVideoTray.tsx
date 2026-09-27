@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import { Volume2, VolumeX } from "lucide-react";
-import type { LongVideo } from "@/lib/video-data";
+import { Eye, MoreVertical, Play, Volume2, VolumeX } from "lucide-react";
+import { formatViews, type LongVideo } from "@/lib/video-data";
 
 type FeedVideoTrayProps = {
   videos: LongVideo[];
@@ -31,22 +31,22 @@ export function FeedVideoTray({
   return (
     <section
       aria-label="Video tray"
-      className="border-y border-white/[0.07] bg-[#050507] py-3.5"
+      className="border-y border-white/[0.07] bg-[#050507] py-3"
       data-testid="feed-video-tray"
     >
-      <div className="mb-2.5 flex items-end justify-between gap-3 px-4">
+      <div className="mb-2 flex items-end justify-between gap-3 px-3">
         <div className="min-w-0">
           <p
             className="text-[10px] font-semibold uppercase tracking-[0.2em] text-fuchsia-300/80"
             data-testid="text-feed-video-tray-label"
           >
-            Quick picks
+            Short videos
           </p>
           <h2
             className="mt-0.5 truncate text-sm font-semibold tracking-[-0.01em] text-zinc-100"
             data-testid="text-feed-video-tray-title"
           >
-            Keep watching
+            Reels
           </h2>
         </div>
         <span
@@ -59,7 +59,7 @@ export function FeedVideoTray({
 
       <div
         aria-label="Swipe through videos"
-        className="flex snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain px-4 pb-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+        className="flex snap-x snap-mandatory gap-2 overflow-x-auto overscroll-x-contain scroll-smooth px-3 pb-1 touch-pan-x [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
         data-testid="feed-video-scroll"
       >
         {videos.map((video) => {
@@ -70,7 +70,7 @@ export function FeedVideoTray({
           return (
             <article
               key={video.id}
-              className={`relative w-[min(68vw,15.5rem)] shrink-0 snap-start overflow-hidden rounded-[1.35rem] bg-[#111116] transition-transform duration-200 ${
+              className={`relative w-[min(28vw,140px)] shrink-0 snap-start overflow-hidden rounded-xl bg-[#111116] transition-transform duration-200 ${
                 isActive
                   ? "ring-2 ring-fuchsia-400/80 ring-offset-2 ring-offset-[#050507]"
                   : "ring-1 ring-white/[0.08]"
@@ -92,12 +92,26 @@ export function FeedVideoTray({
                   {renderPreview(video, candidateId)}
                 </div>
 
+                {!isActive && (
+                  <span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute left-1/2 top-1/2 grid h-8 w-8 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-white/20 bg-black/55 text-white shadow-lg backdrop-blur-sm"
+                  >
+                    <Play className="ml-0.5 h-3.5 w-3.5 fill-current" />
+                  </span>
+                )}
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute right-2 top-2 rounded-full bg-black/45 p-1 text-white/90 backdrop-blur-sm"
+                >
+                  <MoreVertical className="h-3.5 w-3.5" />
+                </span>
                 <span
                   aria-hidden="true"
                   className="pointer-events-none absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-t from-black/90 via-black/35 to-transparent"
                 />
                 <span
-                  className="pointer-events-none absolute inset-x-3 bottom-3.5"
+                  className="pointer-events-none absolute inset-x-3 bottom-3 pr-9"
                   data-testid={`feed-video-caption-${video.id}`}
                 >
                   <span
@@ -107,10 +121,11 @@ export function FeedVideoTray({
                     {title}
                   </span>
                   <span
-                    className="mt-1 block truncate text-[11px] font-medium text-zinc-300"
-                    data-testid={`text-feed-video-author-${video.id}`}
+                    className="mt-1 inline-flex items-center gap-1 text-[10px] font-medium text-zinc-300"
+                    data-testid={`text-feed-video-views-${video.id}`}
                   >
-                    {video.author.name}
+                    <Eye aria-hidden="true" className="h-3 w-3" />
+                    {formatViews(video.views)} views
                   </span>
                 </span>
 
