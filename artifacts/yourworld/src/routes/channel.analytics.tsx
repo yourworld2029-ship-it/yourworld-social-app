@@ -27,16 +27,21 @@ export const Route = createFileRoute("/channel/analytics")({
 });
 
 function ChannelAnalytics() {
-  const [periodDays, setPeriodDays] = useState(30);
+  const [periodDays, setPeriodDays] = useState<number | "lifetime">(30);
   const { stats, videos, reels, loading, watchTimeError } = useChannelData(periodDays);
   const top = [...videos, ...reels].sort((a, b) => b.views - a.views).slice(0, 4);
-  const statValue = (value: number) => (loading ? "…" : formatCount(value));
+  const statValue = (value: number) =>
+    loading && value !== 0 ? "…" : formatCount(value);
   const cards = [
     { label: "Total Views", value: statValue(stats.views30d), icon: <Eye size={16} />, accent: "text-fuchsia-200" },
     {
       label: "Watch Hours",
       value: statValue(stats.watchHours),
-      hint: watchTimeError ? "Watch time unavailable" : `Last ${periodDays} days`,
+      hint: watchTimeError
+        ? "Watch time unavailable"
+        : periodDays === "lifetime"
+          ? "Lifetime"
+          : `Last ${periodDays} days`,
       icon: <Clock3 size={16} />,
       accent: "text-cyan-200",
     },
@@ -59,19 +64,20 @@ function ChannelAnalytics() {
 
         <div className="mx-auto max-w-2xl">
           <div className="flex gap-2 overflow-x-auto px-4 pt-5 no-scrollbar">
-            {[7, 30, 90].map((days) => (
+            {([7, 30, 90, "lifetime"] as const).map((period) => (
               <button
-                key={days}
+                key={period}
                 type="button"
-                aria-pressed={periodDays === days}
-                onClick={() => setPeriodDays(days)}
+                data-testid={`analytics-period-${period}`}
+                aria-pressed={periodDays === period}
+                onClick={() => setPeriodDays(period)}
                 className={`shrink-0 rounded-full px-4 py-2 text-xs font-semibold transition-all ${
-                  periodDays === days
+                  periodDays === period
                     ? "bg-gradient-to-r from-fuchsia-500 to-violet-500 text-white shadow-[0_8px_24px_-10px_rgba(217,70,239,0.85)]"
                     : "border border-white/10 bg-white/[0.045] text-slate-300 backdrop-blur-xl hover:bg-white/[0.09]"
                 }`}
               >
-                Last {days} days
+                {period === "lifetime" ? "Lifetime" : `Last ${period} days`}
               </button>
             ))}
           </div>
@@ -89,29 +95,42 @@ function ChannelAnalytics() {
                   Top Performing
                 </p>
                 <span className="rounded-full border border-white/[0.08] bg-white/[0.045] px-2.5 py-1 text-[10px] font-medium text-slate-400">
-                  {loading ? "…" : `${top.length} items`}
+                  {top.length === 0 ? "0 items" : loading ? "…" : `${top.length} items`}
                 </span>
               </div>
-              <ul>
+              <div
+                aria-hidden="true"
+                className="grid grid-cols-[minmax(0,1fr)_5rem] items-center gap-3 border-t border-white/[0.06] px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500"
+              >
+                <span>Video</span>
+                <span className="text-right">Views</span>
+              </div>
+              <ul data-testid="creator-analytics-top-list">
                 {loading ? (
                   <li className="px-4 py-8 text-center text-sm text-slate-400">Loading content…</li>
                 ) : top.map((item) => (
                   <li
                     key={item.id}
-                    className="flex items-center gap-3 border-t border-white/[0.06] px-4 py-3"
+                    data-testid={`creator-analytics-item-${item.id}`}
+                    className="grid grid-cols-[minmax(0,1fr)_5rem] items-center gap-3 border-t border-white/[0.06] px-4 py-3"
                   >
-                    <VideoPoster
-                      mediaUrl={item.mediaUrl}
-                      thumbnailUrl={item.thumb}
-                      alt={item.title}
-                      className="h-12 w-[4.25rem] rounded-xl"
-                    />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium text-white">{item.title}</span>
-                      <span className="block pt-0.5 text-[11px] text-slate-400">{item.publishedAt}</span>
+                    <span className="flex min-w-0 items-center gap-3">
+                      <VideoPoster
+                        mediaUrl={item.mediaUrl}
+                        thumbnailUrl={item.thumb}
+                        alt={item.title}
+                        className="h-12 w-[4.25rem] shrink-0 rounded-xl"
+                      />
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium text-white">{item.title}</span>
+                        <span className="block pt-0.5 text-[11px] text-slate-400">{item.publishedAt}</span>
+                      </span>
                     </span>
-                    <span className="shrink-0 rounded-full border border-white/[0.07] bg-white/[0.04] px-2.5 py-1 text-xs font-semibold text-slate-100">
-                      {formatCount(item.views)}
+                    <span
+                      data-testid="creator-analytics-item-views"
+                      className="text-right text-xs font-semibold tabular-nums text-slate-100"
+                    >
+                      {loading && item.views !== 0 ? "…" : formatCount(item.views)}
                     </span>
                   </li>
                 ))}

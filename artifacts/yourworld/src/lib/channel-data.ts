@@ -49,9 +49,12 @@ function hueOf(id: string) {
 export async function loadChannelData(
   uid: string,
   client: typeof supabase = supabase,
-  watchPeriodDays = 30,
+  watchPeriodDays: number | "lifetime" = 30,
 ): Promise<LoadedChannelData> {
-  const periodStart = new Date(Date.now() - watchPeriodDays * 24 * 60 * 60 * 1000).toISOString();
+  const periodStart =
+    watchPeriodDays === "lifetime"
+      ? new Date(0).toISOString()
+      : new Date(Date.now() - watchPeriodDays * 24 * 60 * 60 * 1000).toISOString();
   const [
     postsResult,
     followsResult,
@@ -235,7 +238,7 @@ export async function loadChannelData(
   };
 }
 
-export function useChannelData(watchPeriodDays = 30) {
+export function useChannelData(watchPeriodDays: number | "lifetime" = 30) {
   const [data, setData] = useState<ChannelLiveData>(emptyData);
   const requestIdRef = useRef(0);
 

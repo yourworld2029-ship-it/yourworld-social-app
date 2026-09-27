@@ -216,6 +216,32 @@ test("channel uses the live watch-hours aggregate for the requested period", asy
   assert.equal((watchCall?.args[0] as { _channel_id: string })._channel_id, creatorId);
 });
 
+test("channel lifetime filter requests both watch-hour aggregates from the start of the epoch", async () => {
+  const creatorId = "99999999-9999-4999-8999-999999999999";
+  const { client, calls } = fakeClient({
+    from: {
+      posts: [{ data: [] }],
+    },
+    rpc: {
+      list_follows: [{ data: [] }],
+      get_follow_counts: [{ data: [{ followers: 0 }] }],
+      get_channel_watch_hours: [{ data: 0 }],
+      get_channel_live_watch_hours: [{ data: 0 }],
+    },
+  });
+
+  await loadChannelData(creatorId, client, "lifetime");
+
+  const watchCall = calls.find((call) => call.name === "get_channel_watch_hours");
+  const liveWatchCall = calls.find((call) => call.name === "get_channel_live_watch_hours");
+  for (const call of [watchCall, liveWatchCall]) {
+    assert.equal(
+      (call?.args[0] as { _period_start: string })._period_start,
+      new Date(0).toISOString(),
+    );
+  }
+});
+
 test("watch recording sends no client-asserted duration or direct table insert", async () => {
   const postId = "99999999-9999-4999-8999-999999999999";
   const sessionId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
