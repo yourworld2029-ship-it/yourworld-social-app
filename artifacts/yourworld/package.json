@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build && node scripts/prepare-capacitor-web.mjs",
+    "build:android-apk": "node scripts/build-android-apk.mjs",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "serve": "node --enable-source-maps server/index.mjs",

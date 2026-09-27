@@ -6,6 +6,25 @@ import {
 export type CallMediaMode = "audio" | "video";
 export type CallFacingMode = "user" | "environment";
 
+const PERMISSION_DENIED_ERROR_NAMES = new Set([
+  "NotAllowedError",
+  "PermissionDeniedError",
+  "SecurityError",
+]);
+
+export class CallMediaPermissionError extends Error {
+  constructor() {
+    super("Microphone or camera permission was denied.");
+    this.name = "CallMediaPermissionError";
+  }
+}
+
+export function isCallMediaPermissionError(error: unknown): boolean {
+  if (error instanceof CallMediaPermissionError) return true;
+  if (!error || typeof error !== "object" || !("name" in error)) return false;
+  return PERMISSION_DENIED_ERROR_NAMES.has(String(error.name));
+}
+
 const configuredIceServers = (() => {
   try {
     const value = import.meta.env.VITE_CALL_ICE_SERVERS_JSON as string | undefined;
@@ -57,20 +76,6 @@ export function callVideoConstraints(
   };
 }
 
-function fallbackVideoConstraints(
-  facingMode: CallFacingMode,
-  width: number,
-  height: number,
-  frameRate: number,
-): MediaTrackConstraints {
-  return {
-    width: { ideal: width, max: width },
-    height: { ideal: height, max: height },
-    frameRate: { ideal: frameRate, max: frameRate },
-    facingMode,
-  };
-}
-
 async function getFirstAvailableMedia(
   attempts: MediaStreamConstraints[],
 ): Promise<MediaStream> {
@@ -79,6 +84,9 @@ async function getFirstAvailableMedia(
     try {
       return await navigator.mediaDevices.getUserMedia(constraints);
     } catch (error) {
+      if (isCallMediaPermissionError(error)) {
+        throw new CallMediaPermissionError();
+      }
       lastError = error;
     }
   }
@@ -93,37 +101,41 @@ export async function getCallMedia(
   mode: CallMediaMode,
   facingMode: CallFacingMode = "user",
 ): Promise<MediaStream> {
-  const profile = callVideoProfile();
-  const attempts: MediaStreamConstraints[] =
-    mode === "video"
-      ? [
-          { audio: CALL_AUDIO_CONSTRAINTS, video: callVideoConstraints(facingMode) },
-          {
-            audio: CALL_AUDIO_CONSTRAINTS,
-            video: fallbackVideoConstraints(facingMode, profile.width, profile.height, profile.frameRate),
-          },
-          {
-            audio: {
-              echoCancellation: true,
-              noiseSuppression: true,
-              autoGainControl: true,
-            },
-            video: fallbackVideoConstraints(facingMode, profile.width, profile.height, profile.frameRate),
-          },
-        ]
-      : [
-          { audio: CALL_AUDIO_CONSTRAINTS, video: false },
-          {
-            audio: {
-              echoCancellation: true,
-              noiseSuppression: true,
-              autoGainControl: true,
-            },
-            video: false,
-          },
-        ];
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error("This device does not support call media.");
+  }
 
-  return getFirstAvailableMedia(attempts);
+  const profile = callVideoProfile();
+  try {
+    // Let the WebView own the runtime permission request. On Android this is
+    // forwarded through Capacitor's BridgeWebChromeClient to the system prompt.
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: mode === "video",
+    });
+
+    const audioTrack = stream.getAudioTracks()[0];
+    if (audioTrack) {
+      await audioTrack.applyConstraints(CALL_AUDIO_CONSTRAINTS).catch(() => undefined);
+    }
+
+    const videoTrack = stream.getVideoTracks()[0];
+    if (videoTrack && mode === "video") {
+      await videoTrack.applyConstraints({
+        ...callVideoConstraints(facingMode),
+        width: { ideal: profile.width },
+        height: { ideal: profile.height },
+        frameRate: { ideal: profile.frameRate },
+      }).catch(() => undefined);
+    }
+
+    return stream;
+  } catch (error) {
+    if (isCallMediaPermissionError(error)) {
+      throw new CallMediaPermissionError();
+    }
+    throw error;
+  }
 }
 
 /**

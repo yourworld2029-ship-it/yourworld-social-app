@@ -138,7 +138,6 @@ function HelpCenterPage() {
               </p>
               <a
                 href="/download-apk"
-                download="yourworld.apk"
                 className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-black transition-colors hover:bg-emerald-400 active:bg-emerald-600 sm:w-auto"
               >
                 <Download className="h-4 w-4" />

@@ -27,9 +27,11 @@ import {
   CALL_ICE_SERVERS,
   getCallMedia,
   getCallVideo,
+  isCallMediaPermissionError,
   prioritizeCallAudioSender,
   tuneCallVideoSender,
 } from "@/lib/webrtc-media";
+import { CallPermissionDialog } from "@/components/yw/CallPermissionDialog";
 import {
   getAdaptivePerformanceSnapshot,
   useAdaptivePerformance,
@@ -40,7 +42,6 @@ import {
   type CallVideoEffect,
   type CallVideoEffectPipeline,
 } from "@/lib/call-effects";
-import { requestCallMediaPermissions } from "@/lib/native-privacy";
 
 /**
  * The deployed calls/user_blocks schema is newer than generated Supabase types.
@@ -235,6 +236,10 @@ type Ctx = {
   clearCallHistory: (peerId: string) => void;
 };
 
+type CallPermissionRetry =
+  | { kind: "outgoing"; options: Parameters<Ctx["startCall"]>[0] }
+  | { kind: "incoming"; callId: string };
+
 const CallCtx = createContext<Ctx>({
   startCall: async () => {},
   myCallId: null,
@@ -336,6 +341,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const isGuest = !authId;
   const [call, setCall] = useState<CallState | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
+  const [callPermissionMode, setCallPermissionMode] = useState<CallMode | null>(null);
+  const [retryingCallPermission, setRetryingCallPermission] = useState(false);
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
   const [facingMode, setFacingMode] = useState<"user" | "environment">("user");
@@ -351,6 +358,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const hideTimer = useRef<number | null>(null);
   // Cancels a call that is never answered so neither side rings forever.
   const ringTimer = useRef<number | null>(null);
+  const pendingCallPermissionRetry = useRef<CallPermissionRetry | null>(null);
 
 
 
@@ -547,6 +555,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   /* ---------- teardown ---------- */
   const teardown = useCallback((options?: { keepSignal?: boolean }) => {
+    pendingCallPermissionRetry.current = null;
+    setCallPermissionMode(null);
+    setRetryingCallPermission(false);
     stopAllRingtones();
     if (reconnectTimer.current) {
       window.clearTimeout(reconnectTimer.current);
@@ -1335,14 +1346,20 @@ export function CallProvider({ children }: { children: ReactNode }) {
       }
 
       try {
-        const permissionsGranted = await requestCallMediaPermissions(mode);
-        if (!permissionsGranted) throw new Error("Required call permissions were not granted.");
         await getMedia(mode);
-      } catch {
+      } catch (error) {
+        if (isCallMediaPermissionError(error)) {
+          pendingCallPermissionRetry.current = {
+            kind: "outgoing",
+            options: { threadId, peerId, peerName, mode },
+          };
+          setCallPermissionMode(mode);
+          return;
+        }
         toast.error(
           mode === "video"
-            ? "Camera and microphone access is needed to start a video call."
-            : "Microphone access is needed to start an audio call.",
+            ? `Call could not start: ${error instanceof Error ? error.message : "camera or microphone unavailable"}`
+            : `Call could not start: ${error instanceof Error ? error.message : "microphone unavailable"}`,
         );
         teardown();
         return;
@@ -1472,15 +1489,16 @@ export function CallProvider({ children }: { children: ReactNode }) {
       ringTimer.current = null;
     }
     try {
-      const permissionsGranted = await requestCallMediaPermissions(call.mode);
-      if (!permissionsGranted) throw new Error("Required call permissions were not granted.");
-      setPhase("connecting");
       await getMedia(call.mode);
-    } catch {
+      setPhase("connecting");
+    } catch (error) {
+      if (isCallMediaPermissionError(error)) {
+        pendingCallPermissionRetry.current = { kind: "incoming", callId: call.callId };
+        setCallPermissionMode(call.mode);
+        return;
+      }
       toast.error(
-        call.mode === "video"
-          ? "Camera and microphone access is needed to accept a video call."
-          : "Microphone access is needed to accept an audio call.",
+        `Call could not start: ${error instanceof Error ? error.message : "required media is unavailable"}`,
       );
       signal({ type: "END_CALL", reason: "rejected" });
       void callDb.from("calls").update({ status: "declined", ended_at: new Date().toISOString() }).eq("id", call.callId);
@@ -1528,6 +1546,30 @@ export function CallProvider({ children }: { children: ReactNode }) {
       teardown();
     }
   }, [call, authId, getMedia, createPeer, openSignalChannel, signal, teardown]);
+
+  const retryCallMediaPermission = useCallback(async () => {
+    const pending = pendingCallPermissionRetry.current;
+    if (!pending || retryingCallPermission) return;
+
+    pendingCallPermissionRetry.current = null;
+    setCallPermissionMode(null);
+    setRetryingCallPermission(true);
+    try {
+      if (pending.kind === "outgoing") {
+        await startCall(pending.options);
+      } else if (callRef.current?.callId === pending.callId) {
+        await accept();
+      }
+    } finally {
+      setRetryingCallPermission(false);
+    }
+  }, [accept, retryingCallPermission, startCall]);
+
+  const dismissCallPermissionDialog = useCallback((open: boolean) => {
+    if (open || retryingCallPermission) return;
+    pendingCallPermissionRetry.current = null;
+    setCallPermissionMode(null);
+  }, [retryingCallPermission]);
 
 
   const hangup = useCallback(async () => {
@@ -1762,6 +1804,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
   return (
     <CallCtx.Provider value={value}>
       {children}
+      <CallPermissionDialog
+        open={callPermissionMode !== null}
+        mode={callPermissionMode}
+        busy={retryingCallPermission}
+        onOpenChange={dismissCallPermissionDialog}
+        onRetry={() => void retryCallMediaPermission()}
+      />
       {showNotificationBanner && (
         <div className="fixed inset-x-4 bottom-5 z-[200] mx-auto flex max-w-md items-center gap-3 rounded-2xl border border-white/10 bg-zinc-950/95 p-4 text-white shadow-2xl backdrop-blur-2xl">
           <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary/20 text-primary">
