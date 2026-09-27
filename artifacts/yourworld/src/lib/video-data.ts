@@ -77,7 +77,12 @@ export type LongVideo = {
   hashtags: string[];
   createdAt: string;
   scheduledAt: string | null;
-  author: { name: string; username: string; letter: string };
+  author: {
+    name: string;
+    username: string;
+    letter: string;
+    avatarUrl?: string | null;
+  };
   likeCount: number;
   commentCount: number;
   likedByMe: boolean;
@@ -577,7 +582,16 @@ async function loadLongVideoPage(
           hashtags: post.hashtags ?? [],
           createdAt: post.created_at,
           scheduledAt: post.scheduled_at,
-          author: { name, username, letter: (name || "Y").charAt(0).toUpperCase() },
+          author: {
+            name,
+            username,
+            letter: (name || "Y").charAt(0).toUpperCase(),
+            avatarUrl:
+              profile?.avatar_url ??
+              profile?.profile_pic ??
+              profile?.profile_image ??
+              null,
+          },
           likeCount: (likes ?? []).filter((like) => like.post_id === post.id).length,
           commentCount: (comments ?? []).filter((comment) => comment.post_id === post.id).length,
           likedByMe: !!uid && (likes ?? []).some((like) => like.post_id === post.id && like.user_id === uid),

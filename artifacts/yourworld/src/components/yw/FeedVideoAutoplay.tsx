@@ -27,6 +27,7 @@ type FeedCandidate = {
   video: HTMLVideoElement;
   url: string;
   minimumRatio: number;
+  forceMuted?: boolean;
   order: number;
   ratio: number;
   resolvedUrl?: string;
@@ -146,13 +147,17 @@ export function FeedVideoAutoplayProvider({
       }
 
       activeCandidateRef.current = candidate;
-      candidate.video.muted = mutedRef.current;
+      candidate.video.muted = candidate.forceMuted ? true : mutedRef.current;
       candidate.video.playsInline = true;
       candidate.video.preload = "metadata";
       const playCandidate = () => {
         if (activeCandidateRef.current !== candidate) return;
         void candidate.video.play().catch(() => {
-          if (activeCandidateRef.current !== candidate || mutedRef.current) return;
+          if (
+            activeCandidateRef.current !== candidate ||
+            candidate.forceMuted ||
+            mutedRef.current
+          ) return;
           candidate.video.muted = true;
           mutedRef.current = true;
           setMuted(true);
@@ -256,7 +261,9 @@ export function FeedVideoAutoplayProvider({
     setMuted(nextMuted);
     saveMuteState(nextMuted);
     if (activeCandidateRef.current) {
-      activeCandidateRef.current.video.muted = nextMuted;
+      activeCandidateRef.current.video.muted = activeCandidateRef.current.forceMuted
+        ? true
+        : nextMuted;
     }
   }, []);
 
@@ -337,12 +344,18 @@ export function FeedVideoPreview({
   video,
   candidateId,
   fullVisibility = false,
+  forceMuted = false,
+  loop = false,
+  hidePosterPlayIcon = false,
   className,
   onDurationChange,
 }: {
   video: LongVideo;
   candidateId: string;
   fullVisibility?: boolean;
+  forceMuted?: boolean;
+  loop?: boolean;
+  hidePosterPlayIcon?: boolean;
   className?: string;
   onDurationChange?: (duration: number) => void;
 }) {
@@ -364,11 +377,13 @@ export function FeedVideoPreview({
       video: player,
       url: video.mediaUrl,
       minimumRatio: fullVisibility ? TRAY_VISIBILITY_RATIO : NORMAL_VISIBILITY_RATIO,
+      forceMuted,
     });
   }, [
     candidateId,
     canAutoplay,
     fullVisibility,
+    forceMuted,
     registerCandidate,
     video.mediaUrl,
     video.id,
@@ -392,6 +407,7 @@ export function FeedVideoPreview({
         loading="lazy"
         bucket="videos"
         posterOnly
+        showPlayFallback={!hidePosterPlayIcon}
         className="pointer-events-none select-none"
       />
       <video
@@ -400,7 +416,8 @@ export function FeedVideoPreview({
         crossOrigin="anonymous"
         playsInline
         muted
-        preload="none"
+        loop={loop}
+        preload="metadata"
         onLoadedMetadata={(event) => {
           const duration = event.currentTarget.duration;
           if (Number.isFinite(duration) && duration > 0) onDurationChange?.(duration);

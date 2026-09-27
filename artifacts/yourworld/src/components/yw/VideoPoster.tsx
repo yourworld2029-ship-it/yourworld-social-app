@@ -12,6 +12,7 @@ type Props = {
   loading?: "lazy" | "eager";
   bucket?: "reels" | "videos";
   posterOnly?: boolean;
+  showPlayFallback?: boolean;
 };
 
 function firstFrameUrl(url: string) {
@@ -31,6 +32,7 @@ export function VideoPoster({
   loading = "lazy",
   bucket = "videos",
   posterOnly = false,
+  showPlayFallback = true,
 }: Props) {
   const [resolvedThumbnail, setResolvedThumbnail] = useState<string | null>(thumbnailUrl ?? null);
   const [resolvedMedia, setResolvedMedia] = useState(mediaUrl);
@@ -152,9 +154,11 @@ export function VideoPoster({
       ) : null}
       {showFallback ? (
         <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-zinc-800 via-zinc-900 to-zinc-950">
-          <span className="grid h-11 w-11 place-items-center rounded-full border border-white/20 bg-black/45 text-white/90 shadow-lg">
-            <Play className="ml-0.5 h-5 w-5 fill-current" aria-hidden="true" />
-          </span>
+          {showPlayFallback ? (
+            <span className="grid h-11 w-11 place-items-center rounded-full border border-white/20 bg-black/45 text-white/90 shadow-lg">
+              <Play className="ml-0.5 h-5 w-5 fill-current" aria-hidden="true" />
+            </span>
+          ) : null}
         </div>
       ) : null}
     </div>

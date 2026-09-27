@@ -29,9 +29,10 @@ import { useYw } from "@/lib/yw-store";
 import { useAuth, useResumeAuthAction } from "@/lib/auth-store";
 import { cn } from "@/lib/utils";
 import { PostEditDialog } from "@/components/yw/PostEditDialog";
-import type { DbPost } from "@/lib/social-data";
+import { resolveMediaUrl, type DbPost } from "@/lib/social-data";
 import { buildWatchShareUrl } from "@/lib/watch-links";
 import { requestVideoResume } from "@/lib/video-resume";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -66,6 +67,45 @@ function formatBadgeDuration(seconds: number | null) {
   return hours > 0
     ? `${hours}:${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`
     : `${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`;
+}
+
+function CreatorAvatar({
+  avatarUrl,
+  name,
+  letter,
+}: {
+  avatarUrl?: string | null;
+  name: string;
+  letter: string;
+}) {
+  const [src, setSrc] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    setSrc(null);
+    if (!avatarUrl) return () => { alive = false; };
+
+    void resolveMediaUrl(avatarUrl, "avatars")
+      .then((url) => {
+        if (alive) setSrc(url || avatarUrl);
+      })
+      .catch(() => {
+        if (alive) setSrc(null);
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [avatarUrl]);
+
+  return (
+    <Avatar className="h-9 w-9 shrink-0 ring-1 ring-white/10">
+      <AvatarImage src={src ?? undefined} alt="" />
+      <AvatarFallback className="bg-[#8b2fc9] text-[11px] font-bold text-white">
+        {letter || name.charAt(0).toUpperCase()}
+      </AvatarFallback>
+    </Avatar>
+  );
 }
 
 /** Feed card for long-form videos — supports 16:9 and 9:16 playback. */
@@ -218,7 +258,7 @@ export function LongVideoCard({
   return (
     <>
     <article
-      className="space-y-3 overflow-hidden border-y border-zinc-800/80 bg-[#141418] shadow-2xl"
+      className="overflow-hidden border-y border-zinc-800/80 bg-[#141418] shadow-2xl"
     >
       <div className="relative">
       <button
@@ -266,8 +306,22 @@ export function LongVideoCard({
       />
       </div>
 
-      <div className="space-y-2 px-3 pb-3">
-        <div className="flex items-start justify-between gap-2">
+      <div className="flex items-start gap-2.5 px-3 py-2.5">
+        <Link
+          to="/u/$userId"
+          params={{ userId: video.userId }}
+          onClick={(event) => event.stopPropagation()}
+          aria-label={`Open ${video.author.name}'s profile`}
+          className="mt-0.5 shrink-0 transition-opacity active:opacity-70"
+        >
+          <CreatorAvatar
+            avatarUrl={video.author.avatarUrl}
+            name={video.author.name}
+            letter={video.author.letter}
+          />
+        </Link>
+
+        <div className="min-w-0 flex-1">
           <button
             type="button"
             onClick={(event) => {
@@ -275,80 +329,81 @@ export function LongVideoCard({
               event.stopPropagation();
               openVideo();
             }}
-            className="cursor-pointer select-none text-left text-sm font-bold leading-snug text-white"
+            className="line-clamp-2 cursor-pointer select-none text-left text-[14px] font-bold leading-snug text-white"
           >
             {video.title}
           </button>
-          <div className="flex shrink-0 items-center gap-1.5">
-            {!isMine && (
-              <button
-                type="button"
-                onClick={handleFollow}
-                className={cn(
-                  "rounded-full px-3 py-1 text-[11px] font-semibold transition-all active:scale-95",
-                  isFollowing ? "bg-zinc-800 text-white" : "bg-pink-500 text-white",
-                )}
-              >
-                {isFollowing ? "Following" : "Follow"}
-              </button>
-            )}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  aria-label="More options"
-                  onClick={(event) => event.stopPropagation()}
-                  className="p-1 text-zinc-400 hover:text-white"
-                >
-                  <MoreHorizontal size={18} />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-52">
-                <DropdownMenuItem onClick={copyLink}>
-                  <Link2 className="mr-2 h-4 w-4" /> Copy link
-                </DropdownMenuItem>
-                {!isMine && (
-                  <DropdownMenuItem onClick={() => setHidden(true)}>
-                    <EyeOff className="mr-2 h-4 w-4" /> Not interested
-                  </DropdownMenuItem>
-                )}
-                {isMine && (
-                  <DropdownMenuItem onClick={() => setEditOpen(true)}>
-                    <Pencil className="mr-2 h-4 w-4" /> Edit video
-                  </DropdownMenuItem>
-                )}
-                {isMine && (
-                  <DropdownMenuItem
-                    onClick={() => setDeleteOpen(true)}
-                    className="text-destructive focus:text-destructive"
-                  >
-                    <Trash2 className="mr-2 h-4 w-4" /> Delete video
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+          <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-zinc-400">
+            <Link
+              to="/u/$userId"
+              params={{ userId: video.userId }}
+              onClick={(event) => event.stopPropagation()}
+              className="font-semibold text-zinc-200 transition-opacity active:opacity-70"
+            >
+              {video.author.name}
+            </Link>
+            <span aria-hidden="true">·</span>
+            <span className="inline-flex items-center gap-1">
+              <Eye size={12} /> {formatViews(video.views)}
+            </span>
+            <span aria-hidden="true">·</span>
+            <span>{timeAgo(video.createdAt)}</span>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 text-[11px] text-zinc-400">
-          <Link
-            to="/u/$userId"
-            params={{ userId: video.userId }}
-            onClick={(event) => event.stopPropagation()}
-            className="flex items-center gap-2 transition-opacity active:opacity-70"
-          >
-            <span className="grid h-6 w-6 place-items-center rounded-full bg-[#8b2fc9] text-[11px] font-bold text-white">
-              {video.author.letter}
-            </span>
-            <span className="font-semibold text-zinc-200">{video.author.name}</span>
-          </Link>
-          <span>·</span>
-          <span className="inline-flex items-center gap-1">
-            <Eye size={12} /> {formatViews(video.views)}
-          </span>
-          <span>·</span>
-          <span>{timeAgo(video.createdAt)}</span>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {!isMine && (
+            <button
+              type="button"
+              onClick={handleFollow}
+              className={cn(
+                "rounded-full px-3 py-1 text-[11px] font-semibold transition-all active:scale-95",
+                isFollowing
+                  ? "bg-pink-500/15 text-pink-200 ring-1 ring-inset ring-pink-400/30"
+                  : "bg-pink-500 text-white",
+              )}
+            >
+              {isFollowing ? "Following" : "Follow"}
+            </button>
+          )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                aria-label="More options"
+                onClick={(event) => event.stopPropagation()}
+                className="p-1 text-zinc-400 hover:text-white"
+              >
+                <MoreHorizontal size={18} />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuItem onClick={copyLink}>
+                <Link2 className="mr-2 h-4 w-4" /> Copy link
+              </DropdownMenuItem>
+              {!isMine && (
+                <DropdownMenuItem onClick={() => setHidden(true)}>
+                  <EyeOff className="mr-2 h-4 w-4" /> Not interested
+                </DropdownMenuItem>
+              )}
+              {isMine && (
+                <DropdownMenuItem onClick={() => setEditOpen(true)}>
+                  <Pencil className="mr-2 h-4 w-4" /> Edit video
+                </DropdownMenuItem>
+              )}
+              {isMine && (
+                <DropdownMenuItem
+                  onClick={() => setDeleteOpen(true)}
+                  className="text-destructive focus:text-destructive"
+                >
+                  <Trash2 className="mr-2 h-4 w-4" /> Delete video
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
+      </div>
 
+      <div className="space-y-2 px-3 pb-3">
         {upcoming && (
           <p className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-1 text-[11px] font-semibold text-amber-400">
             <Clock size={12} /> Scheduled for{" "}

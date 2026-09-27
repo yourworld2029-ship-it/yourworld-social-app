@@ -392,17 +392,17 @@ function HomePage() {
                       key={item.key}
                       videos={verticalVideos}
                       instanceKey={item.instanceKey}
-                      activeVideoId={autoplay.activeCandidateId}
-                      muted={autoplay.muted}
                       renderPreview={(video, candidateId) => (
                         <FeedVideoPreview
                           video={video}
                           candidateId={candidateId}
                           fullVisibility
+                          forceMuted
+                          loop
+                          hidePosterPlayIcon
                           className="pointer-events-none"
                         />
                       )}
-                      onToggleMute={autoplay.toggleMute}
                       onOpenVideo={(video, candidateId) => {
                         autoplay.stopCandidate(candidateId);
                         void navigate({
