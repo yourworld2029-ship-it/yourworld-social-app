@@ -543,6 +543,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const showCallControls = useCallback(() => {
+    setControlsVisible(true);
+    if (hideTimer.current) window.clearTimeout(hideTimer.current);
+    if (!call || phase === "idle" || phase === "incoming") return;
+    hideTimer.current = window.setTimeout(() => setControlsVisible(false), 3000);
+  }, [call, phase]);
+
   const toggleSpeaker = useCallback(() => {
     const next = !speakerOn;
     const route: CallAudioRoute = next ? "speaker" : "earpiece";
@@ -1965,8 +1972,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
         <div
           className={`${
             phase === "incoming"
-              ? "fixed inset-0 z-[100] flex min-h-[100dvh] items-center justify-center overflow-hidden bg-zinc-950 px-5 py-[max(1rem,env(safe-area-inset-top,0px))] pb-[max(1rem,env(safe-area-inset-bottom,0px))] text-white"
-              : "fixed inset-0 z-[100] flex flex-col justify-between overflow-hidden bg-zinc-950 p-6 text-white"
+              ? "pointer-events-none fixed inset-x-0 top-0 z-[100] flex justify-center px-3 pt-[max(0.75rem,calc(env(safe-area-inset-top,0px)+0.75rem))] text-white"
+              : "fixed inset-0 z-[100] overflow-hidden bg-zinc-950 text-white"
           }`}
           onClick={phase === "incoming" ? undefined : () => {
             playRemoteMedia();
@@ -1984,7 +1991,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 />
               )}
               <div className="absolute inset-0 bg-black/35 backdrop-blur-3xl" />
-              <div className="absolute left-1/2 top-[42%] z-10 flex w-[min(84vw,21rem)] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-5 text-center">
+              <div className={`absolute left-1/2 top-[42%] z-10 flex w-[min(84vw,21rem)] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-5 text-center transition-opacity duration-300 ${
+                controlsVisible ? "opacity-100" : "pointer-events-none opacity-0"
+              }`}>
                 <div className="relative grid h-52 w-52 place-items-center">
                   <span className="absolute inset-0 rounded-full border border-indigo-300/25 bg-indigo-400/5 motion-safe:animate-pulse" />
                   <span className="absolute inset-4 rounded-full border border-fuchsia-300/25 bg-fuchsia-400/5 motion-safe:animate-pulse" />
@@ -2022,7 +2031,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 onLoadedMetadata={playRemoteMedia}
                 onClick={
                   swapped
-                    ? (e) => { e.stopPropagation(); setSwapped(false); }
+                    ? (e) => { e.stopPropagation(); setSwapped(false); pokeControls(); }
                     : undefined
                 }
                 className={
@@ -2048,11 +2057,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 onClick={(event) => {
                   event.stopPropagation();
                   if (suppressLocalTileClick.current) return;
+                  pokeControls();
                   setSwapped((current) => !current);
                 }}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
+                    pokeControls();
                     setSwapped((current) => !current);
                   }
                 }}
@@ -2077,21 +2088,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 />
               </div>
               <div className="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-b from-black/55 via-transparent to-black/75" />
-              <div
-                className={`absolute right-3 top-3 z-[9999] flex items-center gap-2 rounded-full border border-white/15 bg-black/40 p-1.5 shadow-lg backdrop-blur-xl transition-all duration-300 ${
-                  controlsVisible ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-3 opacity-0"
-                }`}
-                onClick={(e) => e.stopPropagation()}
-              >
-                  <button
-                    onClick={() => void toggleFlash()}
-                    className="grid h-9 w-9 place-items-center rounded-full text-white/90 transition-colors hover:bg-white/10 active:scale-90"
-                    aria-label="Toggle flashlight"
-                  >
-                    {flashOn ? <Zap size={17} className="text-yellow-400" /> : <ZapOff size={17} />}
-                  </button>
-              </div>
-              <div className="pointer-events-none absolute left-1/2 top-[max(5.25rem,calc(env(safe-area-inset-top,0px)+4.5rem))] z-20 flex -translate-x-1/2 flex-col items-center gap-2 text-center">
+              <div className={`pointer-events-none absolute left-1/2 top-[max(5.25rem,calc(env(safe-area-inset-top,0px)+4.5rem))] z-20 flex -translate-x-1/2 flex-col items-center gap-2 text-center transition-all duration-300 ${
+                controlsVisible ? "translate-y-0 opacity-100" : "-translate-y-3 opacity-0"
+              }`}>
                   <div className="relative grid h-20 w-20 place-items-center">
                     <span
                       className={`absolute inset-0 rounded-full border border-white/30 bg-white/5 ${
@@ -2130,7 +2129,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
           />
 
           {phase !== "incoming" && (
-            <div className="absolute left-1/2 top-[max(1.25rem,env(safe-area-inset-top,0px))] z-30 flex -translate-x-1/2 items-center gap-2 rounded-full border border-white/15 bg-black/30 px-4 py-2 text-sm font-semibold tracking-[0.12em] text-white/90 shadow-xl backdrop-blur-2xl">
+            <div className={`absolute left-1/2 top-[max(1.25rem,calc(env(safe-area-inset-top,0px)+0.5rem))] z-30 flex -translate-x-1/2 items-center gap-2 rounded-full border border-white/15 bg-black/30 px-4 py-2 text-sm font-semibold tracking-[0.12em] text-white/90 shadow-xl backdrop-blur-2xl transition-all duration-300 ${
+              controlsVisible ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-3 opacity-0"
+            }`}>
               <span>{phase === "active" ? callClock : statusText}</span>
               <span className="flex items-center gap-1 text-[10px] tracking-normal text-emerald-300" title="WebRTC media is protected by DTLS-SRTP. Application-level E2EE keying is not active in this web build.">
                 <LockKeyhole className="h-3 w-3" />
@@ -2146,85 +2147,68 @@ export function CallProvider({ children }: { children: ReactNode }) {
           )}
 
           {phase === "incoming" && (
-            <>
-              <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden bg-[radial-gradient(circle_at_15%_20%,rgba(168,85,247,0.28),transparent_48%),radial-gradient(circle_at_85%_80%,rgba(6,182,212,0.16),transparent_52%)]">
+            <div
+              role="status"
+              aria-live="assertive"
+              className="pointer-events-auto flex w-full max-w-lg items-center gap-2.5 rounded-2xl border border-white/15 bg-zinc-950/95 px-3 py-3 shadow-[0_18px_50px_rgba(0,0,0,0.58)] backdrop-blur-2xl"
+            >
+              <div className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-full border border-white/20 bg-white/10">
                 {caller?.avatar_url ? (
                   <img
                     src={caller.avatar_url}
                     alt=""
                     aria-hidden
-                    className="h-full w-full scale-125 object-cover opacity-15 blur-3xl"
+                    className="h-full w-full object-cover"
                   />
-                ) : null}
-                <div className="absolute inset-0 bg-black/45" />
+                ) : (
+                  <span className="text-sm font-bold text-white">
+                    {(caller?.name || "U").trim().split(/\s+/).slice(0, 2).map((part) => part.charAt(0)).join("").toUpperCase()}
+                  </span>
+                )}
               </div>
-
-              <div className="absolute inset-0 z-10 flex items-center justify-center px-5 py-[max(1rem,env(safe-area-inset-top,0px))] pb-[max(1rem,env(safe-area-inset-bottom,0px))]">
-                <div className="pointer-events-auto flex w-full max-w-sm flex-col items-center rounded-[2rem] border border-white/15 bg-zinc-950/65 px-7 py-8 text-center shadow-[0_24px_80px_rgba(0,0,0,0.62)] backdrop-blur-2xl">
-                  <div className="relative grid h-28 w-28 place-items-center">
-                    <span className="absolute inset-0 rounded-full border border-fuchsia-300/40 bg-fuchsia-400/5 shadow-[0_0_34px_rgba(217,70,239,0.18)] motion-safe:animate-pulse" />
-                    <span className="absolute inset-2 rounded-full border border-cyan-200/30 motion-safe:animate-pulse" />
-                    <div className="relative h-24 w-24 overflow-hidden rounded-full border border-white/65 bg-white/10 shadow-[0_0_34px_rgba(168,85,247,0.34)]">
-                      {caller?.avatar_url ? (
-                        <img
-                          src={caller.avatar_url}
-                          alt={caller.name}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <div className="grid h-full w-full place-items-center bg-gradient-to-tr from-fuchsia-600 via-purple-600 to-cyan-500 text-3xl font-black text-white">
-                          {(caller?.name || "U").trim().split(/\s+/).slice(0, 2).map((part) => part.charAt(0)).join("").toUpperCase()}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <h2 className="mt-5 max-w-full break-words text-center text-xl font-bold tracking-tight text-white">
-                    {call.peerName}
-                  </h2>
-                  <div className="mt-2 flex items-center gap-2 text-sm font-medium text-white/70">
-                    {call.mode === "video" ? (
-                      <Video className="h-4 w-4 text-cyan-300" />
-                    ) : (
-                      <Phone className="h-4 w-4 text-violet-300" />
-                    )}
-                    <span>{call.mode === "video" ? "Incoming video call" : "Incoming audio call"}</span>
-                  </div>
-
-                  <div className="mt-8 flex w-full items-center gap-4">
-                    <button
-                      onClick={() => void hangup()}
-                      className="flex min-h-14 flex-1 items-center justify-center gap-2 rounded-2xl border border-red-300/25 bg-red-500/15 px-4 py-3 text-sm font-semibold text-red-100 transition-colors hover:bg-red-500/25 active:scale-[0.98]"
-                      aria-label="Decline call"
-                    >
-                      <PhoneOff size={18} />
-                      <span>Decline</span>
-                    </button>
-                    <button
-                      onClick={() => void accept()}
-                      className="flex min-h-14 flex-1 items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-bold text-white shadow-[0_0_28px_rgba(16,185,129,0.35)] transition-colors hover:bg-emerald-400 active:scale-[0.98]"
-                      aria-label="Accept call"
-                    >
-                      <Phone size={18} />
-                      <span>Accept</span>
-                    </button>
-                  </div>
-                </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-white">{call.peerName}</p>
+                <p className="mt-0.5 truncate text-[11px] font-medium text-white/65">
+                  Incoming {call.mode === "video" ? "video" : "audio"} call
+                </p>
               </div>
-            </>
+              <div className="flex shrink-0 items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => void hangup()}
+                  className="flex min-h-10 items-center justify-center gap-1 rounded-full bg-red-600 px-2.5 text-[11px] font-semibold text-white transition-colors hover:bg-red-500 active:scale-[0.97]"
+                  aria-label="Decline call"
+                >
+                  <PhoneOff size={14} />
+                  <span>Decline</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void accept()}
+                  className="flex min-h-10 items-center justify-center gap-1 rounded-full bg-emerald-500 px-2.5 text-[11px] font-bold text-white transition-colors hover:bg-emerald-400 active:scale-[0.97]"
+                  aria-label="Accept call"
+                >
+                  <Phone size={14} />
+                  <span>Accept</span>
+                </button>
+              </div>
+            </div>
           )}
 
-          <div className="relative z-10 mb-[max(1.5rem,env(safe-area-inset-bottom,0px))] flex items-center justify-center gap-6">
+          <div className={`fixed inset-x-0 bottom-[max(1rem,env(safe-area-inset-bottom,0px))] z-50 flex justify-center px-2 transition-all duration-300 ${
+            controlsVisible ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-5 opacity-0"
+          }`}>
             {phase !== "incoming" && (
-                <div
-                 className={`flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-2.5 shadow-2xl backdrop-blur-2xl transition-all duration-300 ${
-                  controlsVisible ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-4 opacity-0"
-                }`}
-                onClick={(e) => e.stopPropagation()}
+              <div
+                className="flex max-w-[calc(100vw-1rem)] flex-wrap items-center justify-center gap-1 rounded-[1.75rem] border border-white/15 bg-zinc-950/75 px-2 py-2 shadow-2xl backdrop-blur-2xl"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  showCallControls();
+                }}
               >
                 <button
                   onClick={toggleMic}
-                  className={`flex flex-col items-center gap-1 rounded-xl px-2 py-1 transition-all active:scale-90 ${
+                  className={`flex w-11 shrink-0 flex-col items-center gap-1 rounded-xl px-1 py-1 transition-all active:scale-90 ${
                     micOn ? "bg-white/10 text-white hover:bg-white/20" : "bg-red-600 text-white"
                   }`}
                   aria-label="Toggle microphone"
@@ -2235,7 +2219,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 {call.mode === "video" && (
                   <button
                     onClick={toggleCam}
-                    className={`flex flex-col items-center gap-1 rounded-xl px-2 py-1 transition-all active:scale-90 ${
+                    className={`flex w-11 shrink-0 flex-col items-center gap-1 rounded-xl px-1 py-1 transition-all active:scale-90 ${
                       camOn ? "bg-white/10 text-white hover:bg-white/20" : "bg-red-600 text-white"
                     }`}
                     aria-label="Toggle camera"
@@ -2246,7 +2230,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 )}
                 <button
                   onClick={toggleSpeaker}
-                  className={`flex flex-col items-center gap-1 rounded-xl px-2 py-1 transition-all active:scale-90 ${
+                  className={`flex w-11 shrink-0 flex-col items-center gap-1 rounded-xl px-1 py-1 transition-all active:scale-90 ${
                     speakerOn ? "bg-emerald-500/20 text-emerald-100" : "bg-white/10 text-white hover:bg-white/20"
                   }`}
                   aria-label={speakerOn ? "Switch to earpiece" : "Switch to speaker"}
@@ -2258,7 +2242,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 {call.mode === "video" && (
                   <button
                     onClick={() => void flipCamera()}
-                    className="flex flex-col items-center gap-1 rounded-xl bg-white/10 px-2 py-1 text-white transition-all hover:bg-white/20 active:scale-90"
+                    className="flex w-11 shrink-0 flex-col items-center gap-1 rounded-xl bg-white/10 px-1 py-1 text-white transition-all hover:bg-white/20 active:scale-90"
                     aria-label="Flip camera"
                   >
                     <SwitchCamera size={19} />
@@ -2272,7 +2256,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
                       const next = CALL_VIDEO_EFFECTS[(index + 1) % CALL_VIDEO_EFFECTS.length].value;
                       void applyVideoEffect(next);
                     }}
-                    className={`flex flex-col items-center gap-1 rounded-xl px-2 py-1 transition-all active:scale-90 ${
+                    className={`flex w-11 shrink-0 flex-col items-center gap-1 rounded-xl px-1 py-1 transition-all active:scale-90 ${
                       videoEffect !== "none" ? "bg-fuchsia-500 text-white" : "bg-white/10 text-white hover:bg-white/20"
                     }`}
                     aria-label={`Video effect: ${CALL_VIDEO_EFFECTS.find((item) => item.value === videoEffect)?.label ?? "None"}`}
@@ -2282,9 +2266,19 @@ export function CallProvider({ children }: { children: ReactNode }) {
                     <span className="text-[9px] font-semibold">Effect</span>
                   </button>
                 )}
+                {call.mode === "video" && (
+                  <button
+                    onClick={() => void toggleFlash()}
+                    className="flex w-11 shrink-0 flex-col items-center gap-1 rounded-xl bg-white/10 px-1 py-1 text-white transition-all hover:bg-white/20 active:scale-90"
+                    aria-label="Toggle flashlight"
+                  >
+                    {flashOn ? <Zap size={17} className="text-yellow-400" /> : <ZapOff size={17} />}
+                    <span className="text-[9px] font-semibold">Flash</span>
+                  </button>
+                )}
                 <button
                   onClick={() => void hangup()}
-                  className="flex h-14 w-14 flex-col items-center justify-center gap-0.5 rounded-full bg-red-600 text-white shadow-[0_8px_24px_-6px_rgba(220,38,38,0.8)] transition-transform active:scale-90"
+                  className="flex h-12 w-12 shrink-0 flex-col items-center justify-center gap-0.5 rounded-full bg-red-600 text-white shadow-[0_8px_24px_-6px_rgba(220,38,38,0.8)] transition-transform active:scale-90"
                   aria-label="End call"
                 >
                   <PhoneOff size={20} />
