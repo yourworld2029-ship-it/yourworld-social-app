@@ -17,7 +17,13 @@ import { ProtectedCanvasImage, ProtectedCanvasText } from "@/components/yw/Prote
 import { compressImageFile } from "@/lib/image-compress";
 import { useCaptureDetect } from "@/lib/capture-detect";
 import { useMyProfile } from "@/lib/profile-data";
-import { useThreadMessages, useThreadPeer, dmThreadId, reportSocialUser } from "@/lib/social-data";
+import {
+  useThreadMessages,
+  useThreadPeer,
+  dmThreadId,
+  reportSocialUser,
+  resolveMediaUrl,
+} from "@/lib/social-data";
 import { supabase } from "@/integrations/supabase/client";
 import { useThreadPresence } from "@/lib/presence";
 import { useCall } from "@/lib/call-store";
@@ -46,6 +52,7 @@ type Message = {
   image?: string;
   audio?: string;
   mediaKind?: "image" | "video" | "audio";
+  sharedMedia?: SharedMediaPreview;
   sender: "me" | "them";
   system?: boolean;
   captureEventId?: string;
@@ -69,6 +76,130 @@ type ReplyPreview = {
   text?: string;
   mediaKind?: "image" | "video" | "audio";
 };
+
+type SharedMediaPreview = {
+  id: string;
+  kind: "video" | "reel";
+  title: string;
+  thumbnailUrl: string | null;
+  thumbnailBucket: "reels" | "videos" | "thumbnails";
+};
+
+function sharedMediaFromMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): SharedMediaPreview | undefined {
+  const raw = metadata?.shared_media;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const value = raw as Record<string, unknown>;
+  if (
+    typeof value.id !== "string" ||
+    !/^[a-zA-Z0-9-]+$/.test(value.id) ||
+    (value.kind !== "video" && value.kind !== "reel")
+  ) {
+    return undefined;
+  }
+
+  const thumbnailUrl =
+    typeof value.thumbnail_url === "string" &&
+    !/^(?:javascript|data|vbscript):/i.test(value.thumbnail_url.trim())
+      ? value.thumbnail_url
+      : null;
+  const thumbnailBucket =
+    value.thumbnail_bucket === "reels" ||
+    value.thumbnail_bucket === "videos" ||
+    value.thumbnail_bucket === "thumbnails"
+      ? value.thumbnail_bucket
+      : value.kind === "reel"
+        ? "reels"
+        : "videos";
+
+  return {
+    id: value.id,
+    kind: value.kind,
+    title:
+      typeof value.title === "string" && value.title.trim()
+        ? value.title.trim()
+        : value.kind === "reel"
+          ? "YourWorld Reel"
+          : "YourWorld video",
+    thumbnailUrl,
+    thumbnailBucket,
+  };
+}
+
+function SharedMediaMessageCard({
+  media,
+  onOpen,
+}: {
+  media: SharedMediaPreview;
+  onOpen: (media: SharedMediaPreview) => void;
+}) {
+  const [poster, setPoster] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    if (!media.thumbnailUrl) {
+      setPoster(null);
+      return () => {
+        alive = false;
+      };
+    }
+    void resolveMediaUrl(media.thumbnailUrl, media.thumbnailBucket)
+      .then((url) => {
+        if (alive) setPoster(url || null);
+      })
+      .catch(() => {
+        if (alive) setPoster(media.thumbnailUrl);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [media.thumbnailBucket, media.thumbnailUrl]);
+
+  return (
+    <button
+      type="button"
+      data-testid="shared-media-card"
+      aria-label={`Play ${media.kind === "reel" ? "Reel" : "video"}: ${media.title}`}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => {
+        event.stopPropagation();
+        onOpen(media);
+      }}
+      className="group mt-2.5 block w-full max-w-[280px] overflow-hidden rounded-2xl border border-white/10 bg-[#090a0e] text-left shadow-lg transition-transform active:scale-[0.99]"
+    >
+      <span className="relative block aspect-video w-full overflow-hidden bg-zinc-950">
+        {poster ? (
+          <img
+            src={poster}
+            alt=""
+            aria-hidden="true"
+            onError={() => setPoster(null)}
+            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+          />
+        ) : (
+          <span className="absolute inset-0 grid place-items-center bg-gradient-to-br from-violet-950/70 via-zinc-950 to-fuchsia-950/40">
+            <Play className="h-8 w-8 fill-white/20 text-white/75" />
+          </span>
+        )}
+        <span className="absolute inset-0 bg-gradient-to-t from-black/65 via-transparent to-black/10" />
+        <span className="absolute inset-0 grid place-items-center">
+          <span className="grid h-10 w-10 place-items-center rounded-full border border-white/35 bg-white/15 text-white shadow-xl backdrop-blur-md transition-transform group-hover:scale-105">
+            <Play className="ml-0.5 h-4 w-4 fill-current" />
+          </span>
+        </span>
+      </span>
+      <span className="block p-3">
+        <span className="block text-[9px] font-bold uppercase tracking-[0.16em] text-fuchsia-200/75">
+          {media.kind === "reel" ? "Reel" : "Video"} · Tap to play
+        </span>
+        <span className="mt-1 block truncate text-xs font-semibold text-white/95">
+          {media.title}
+        </span>
+      </span>
+    </button>
+  );
+}
 
 const CALL_LOG_PATTERN = /^(Missed (Audio|Video) Call|(Audio|Video) Call ended • \d{2}:\d{2})$/;
 
@@ -344,6 +475,7 @@ function NativeChatThreadPage() {
       image: m.media_url ?? undefined,
       audio: m.voice_note_url ?? undefined,
       mediaKind: mediaKindFromMetadata(m.metadata, m.media_url, m.voice_note_url),
+      sharedMedia: sharedMediaFromMetadata(m.metadata),
       sender: m.sender_id === currentUserId ? "me" : "them",
        system: m.is_system_message || CALL_LOG_PATTERN.test(m.content),
        captureEventId:
@@ -1331,6 +1463,21 @@ function NativeChatThreadPage() {
                   </button>
                 ) : null}
                 <ProtectedCanvasText text={m.text} />
+                {m.sharedMedia ? (
+                  <SharedMediaMessageCard
+                    media={m.sharedMedia}
+                    onOpen={(shared) => {
+                      if (shared.kind === "reel") {
+                        void navigate({ to: "/reels", search: { reelId: shared.id } });
+                      } else {
+                        void navigate({
+                          to: "/video/$videoId",
+                          params: { videoId: shared.id },
+                        });
+                      }
+                    }}
+                  />
+                ) : null}
               </div>
             )}
 

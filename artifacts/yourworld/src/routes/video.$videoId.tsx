@@ -53,6 +53,7 @@ import {
   sortSeriesEpisodes,
 } from "@/lib/long-video-utils";
 import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadSheet";
+import { ShareSheet } from "@/components/yw/ShareSheet";
 import {
   downloadAudioOnly,
   downloadVideoInBackground,
@@ -930,23 +931,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     );
   };
 
-  const handleShare = async () => {
-    const shareUrl = buildWatchShareUrl(videoId, "video");
-    try {
-      if (navigator.share) {
-        await navigator.share({
-          title: video?.title || "Watch Video",
-          url: shareUrl,
-        });
-      } else {
-        await navigator.clipboard.writeText(shareUrl);
-        toast.success("Link copied to clipboard");
-      }
-    } catch {
-      // Share cancellation and clipboard failures should not crash the route.
-    }
-  };
-
   const handleLike = () => {
     if (!user) {
       requestAuthAction({ type: "video-like", targetId: videoId });
@@ -1263,15 +1247,25 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
               <ThumbsDown className="h-3.5 w-3.5 shrink-0" fill={disliked ? "currentColor" : "none"} />
               <span>Dislike</span>
             </button>
-            <button
-              type="button"
-              onClick={() => void handleShare()}
-              aria-label="Share video"
-              className="inline-flex h-9 w-full min-w-0 items-center justify-center gap-0.5 rounded-full border border-white/10 bg-white/10 px-1 text-[9px] font-semibold tracking-tight text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20 sm:text-[10px]"
+            <ShareSheet
+              title={video.title || video.caption || "YourWorld video"}
+              url={buildWatchShareUrl(videoId, "video")}
+              media={video.media_url ?? video.video_url ?? video.url ?? undefined}
+              mediaKind="video"
+              contentId={videoId}
+              contentKind="video"
+              thumbnailUrl={video.thumbnail_url ?? null}
+              thumbnailBucket="videos"
             >
-              <Share2 className="h-3.5 w-3.5 shrink-0" />
-              <span>Share</span>
-            </button>
+              <button
+                type="button"
+                aria-label="Share video"
+                className="inline-flex h-9 w-full min-w-0 items-center justify-center gap-0.5 rounded-full border border-white/10 bg-white/10 px-1 text-[9px] font-semibold tracking-tight text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20 sm:text-[10px]"
+              >
+                <Share2 className="h-3.5 w-3.5 shrink-0" />
+                <span>Share</span>
+              </button>
+            </ShareSheet>
             <button
               type="button"
               onClick={() => setDownloadOpen(true)}

@@ -427,7 +427,16 @@ export function LongVideoCard({
               </button>
             </CommentsSheet>
 
-            <ShareSheet title={video.title} url={shareUrl} media={video.mediaUrl} mediaKind="video">
+            <ShareSheet
+              title={video.title}
+              url={shareUrl}
+              media={video.mediaUrl}
+              mediaKind="video"
+              contentId={video.id}
+              contentKind="video"
+              thumbnailUrl={video.thumbnailUrl}
+              thumbnailBucket="videos"
+            >
               <button aria-label="Share" className="text-zinc-300 transition-transform active:scale-75">
                 <Send size={18} />
               </button>

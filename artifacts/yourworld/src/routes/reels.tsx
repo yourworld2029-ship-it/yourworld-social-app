@@ -1168,6 +1168,10 @@ function ReelItem({
           url={mediaType === "video" ? buildWatchShareUrl(reel.id, "reel") : undefined}
           media={mediaUrl ?? reel.poster}
           mediaKind={mediaType === "video" ? "video" : "photo"}
+          contentId={mediaType === "video" ? reel.id : undefined}
+          contentKind={mediaType === "video" ? "reel" : undefined}
+          thumbnailUrl={reel.thumbnailUrl}
+          thumbnailBucket="thumbnails"
         >
           <Action label={hideShareCount ? "Shares hidden" : formatCount(reel.shares)}>
             <Send strokeWidth={1.8} className="h-[18px] w-[18px]" />
