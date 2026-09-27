@@ -15,12 +15,6 @@ import { useAuth } from "@/lib/auth-store";
 import { useActiveLiveStreams } from "@/lib/live-data";
 import ywLogo from "@/assets/yw-logo.png";
 import { ProfileAvatar } from "@/components/yw/ProfileAvatar";
-import { ContinueWatchingRow } from "@/components/yw/ContinueWatchingRow";
-import {
-  removeVideoResumeEntry,
-  requestVideoResume,
-  useVideoResumeEntries,
-} from "@/lib/video-resume";
 import { useVideoPlayback } from "@/lib/video-playback";
 
 type FeedItem =
@@ -56,7 +50,6 @@ function MomentAvatar({
 function HomePage() {
   const navigate = useNavigate();
   const { activeVideo } = useVideoPlayback();
-  const resumeEntries = useVideoResumeEntries();
   const [hydrated, setHydrated] = React.useState(false);
   const {
     videos,
@@ -245,19 +238,6 @@ function HomePage() {
           </Link>
         </div>
       </header>
-
-      {resumeEntries.length > 0 ? (
-        <div className="border-b border-neutral-900/70 bg-black px-4 py-3">
-          <ContinueWatchingRow
-            entries={resumeEntries}
-            onResume={(entry) => {
-              requestVideoResume(entry.id, entry.currentTime ?? 0);
-              void navigate({ to: "/video/$videoId", params: { videoId: entry.id } });
-            }}
-            onDismiss={(entry) => removeVideoResumeEntry(entry.id)}
-          />
-        </div>
-      ) : null}
 
       {/* Stories / Moments Tray */}
       <div className="flex items-center gap-3 px-4 py-3 overflow-x-auto no-scrollbar border-b border-neutral-900/60 bg-black">
