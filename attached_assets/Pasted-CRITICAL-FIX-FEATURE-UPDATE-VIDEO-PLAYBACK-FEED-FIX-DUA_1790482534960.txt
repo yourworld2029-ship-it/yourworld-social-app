@@ -1,0 +1,28 @@
+CRITICAL FIX & FEATURE UPDATE: VIDEO PLAYBACK/FEED FIX + DUAL UPLOAD CARDS + UNIVERSAL MULTI-PART SERIES SUPPORT
+
+STRICT CONSTRAINTS:
+- Do NOT touch, alter, or break any existing code in Profile, Edit Profile, Side-by-Side Verification Cards (Sports Profile & National Award Profile), Terms & Conditions, or General App Settings.
+- Only update the Video Upload sheet, feed fetch query, and Video Player routing.
+
+1. CRITICAL PLAYBACK & FEED FETCH FIX:
+- Issue: Long videos uploaded via "Upload Video" appear in Profile count/thumbnails but do NOT show in the Home/Video feeds, and clicking them causes an error ("This reel is no longer available") because they incorrectly route to the short-form Reel viewer.
+- Fix:
+  a) Ensure Home Feed and Video Feed queries properly fetch and display all published long-form videos (status = 'published').
+  b) Route ALL long-form videos directly to the dedicated Full Video Player screen (with controls, timeline scrubber, play/pause, quality toggle, and comments). Long videos must NEVER route to the Reels viewer.
+
+2. DUAL UPLOAD SELECTOR (SIDE-BY-SIDE CARDS):
+- In the "Upload Video" sheet, replace the single top upload box with two equal 50/50 side-by-side cards:
+  * Left Card: "Horizontal (16:9)" (Landscape movies, tutorials, wide web-series)
+  * Right Card: "Vertical (9:16)" (Vertical web-series, long portrait dramas, long-form videos)
+- Both cards belong strictly to the Long Video system (90 seconds to multiple hours) and have zero connection with the short Reels feed.
+
+3. UNIVERSAL WEB-SERIES / MULTI-PART SUPPORT (FOR BOTH HORIZONTAL & VERTICAL):
+- Add an optional toggle switch below Category/Tags:
+  * Toggle: "Is this part of a Series / Multi-Part Video?"
+- When enabled (applicable to BOTH Horizontal and Vertical videos), show two input fields:
+  * "Series / Show Title" (e.g., 'Khakee Season 1' or 'Delhi Crime Vertical')
+  * "Part / Episode Number" (e.g., 'Episode 1', 'Part 2')
+- Save series_title and episode_number with the video metadata.
+- In the Full Video Player, if a video has a series_title, display a clean horizontal tray/list below the player: "Next Episodes / Parts" so viewers can watch consecutive episodes seamlessly.
+
+Ensure clean OLED dark theme consistency across all new UI elements and verify that video playback works immediately after publishing.
