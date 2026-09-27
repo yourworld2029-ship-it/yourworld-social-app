@@ -1,0 +1,34 @@
+ULTRA-PERFORMANCE FEED AUTO-PLAY & VERTICAL VIDEO TRAY (ZERO-LAG ENGINE):
+
+OBJECTIVE:
+Deliver instant, 60fps buttery-smooth video playback faster than YouTube/Instagram without memory leaks or frame drops.
+
+STRICT CONSTRAINTS:
+- Do NOT alter existing full-screen video player routing, database schemas, calling, or profile logic.
+- Keep the dark OLED theme intact.
+
+ENGINEERING REQUIREMENTS:
+
+1. HARDWARE-ACCELERATED INSTANT AUTO-PLAY:
+- Implement a single shared IntersectionObserver (rootMargin: '0px', threshold: 0.5):
+  * When a video is 50%+ in viewport, trigger immediate muted playback with zero delay.
+  * When it falls below 50%, pause instantly and reset preload buffering to free device RAM.
+  * Strictly ensure ONLY 1 video decodes/plays at any millisecond.
+  * Apply CSS optimizations to video elements:
+    `transform: translateZ(0); will-change: transform; backface-visibility: hidden;`
+  * Add video attributes: `playsinline`, `webkit-playsinline`, `preload="metadata"`, `disablePictureInPicture="true"` (for feed previews).
+
+2. SMART BUFFERING & MEMORY RECYCLING:
+- Preload the first 2 seconds (buffer range) of the next incoming video in feed queue so it plays with 0ms delay upon scrolling.
+- Automatically pause and unload off-screen video streams (`video.src = ""` or detach buffer) to prevent Android GPU/RAM choking.
+
+3. HORIZONTAL VERTICAL VIDEO TRAY:
+- Insert after every 4th or 5th regular feed post:
+  * Container: `display: flex; overflow-x: auto; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch;`.
+  * Cards: Vertical 9:16 aspect ratio with rounded corners.
+  * Tray preview: Autoplay only the fully visible card within the tray on horizontal swipe.
+  * Tapping any card opens the exact existing video player view with current resume/playback behavior untouched.
+
+4. SOUND CONTROLS:
+- Single bottom-right floating mute/unmute icon on active feed video:
+  * Global sound toggle (unmuting one feed video maintains unmuted state across feed scrolls).
