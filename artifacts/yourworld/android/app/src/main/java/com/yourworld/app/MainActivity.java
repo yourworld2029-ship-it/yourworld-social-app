@@ -103,9 +103,10 @@ public class MainActivity extends BridgeActivity {
         ViewCompat.setOnApplyWindowInsetsListener(webView, (view, windowInsets) -> {
             Insets safeInsets = windowInsets.getInsets(
                     WindowInsetsCompat.Type.statusBars()
+                            | WindowInsetsCompat.Type.navigationBars()
                             | WindowInsetsCompat.Type.displayCutout()
             );
-            // This native padding is the explicit status-bar/cutout spacer while the bar overlays the WebView.
+            // Keep WebView content clear of native status, navigation, and display-cutout areas.
             view.setPadding(
                     initialLeft + safeInsets.left,
                     initialTop + safeInsets.top,
