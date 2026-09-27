@@ -139,6 +139,7 @@ function WalletPage() {
   const [kycStatus, setKycStatus] = useState<KycStatus>("pending");
   const [eligible, setEligible] = useState(false);
   const [stats, setStats] = useState({ followers: 0, watchHours: 0, videoViews: 0 });
+  const [nationalAwardApproved, setNationalAwardApproved] = useState(false);
   const [payouts, setPayouts] = useState<PayoutRequestRow[]>([]);
   const [saving, setSaving] = useState(false);
   const [processing, setProcessing] = useState(false);
@@ -147,6 +148,7 @@ function WalletPage() {
 
   useEffect(() => {
     const uid = user?.id;
+    setNationalAwardApproved(false);
     if (!uid) return;
     let alive = true;
     (async () => {
@@ -158,6 +160,7 @@ function WalletPage() {
         { count: followerCount },
         { data: myPosts },
         { data: watchHours },
+        { data: nationalAwardVerification, error: nationalAwardError },
       ] = await Promise.all([
           supabase
             .from("creator_earnings")
@@ -184,8 +187,19 @@ function WalletPage() {
             _channel_id: uid,
             _period_start: new Date(0).toISOString(),
           }),
+          supabase
+            .from("national_award_verifications")
+            .select("review_status")
+            .eq("user_id", uid)
+            .maybeSingle(),
         ]);
       if (!alive) return;
+      if (nationalAwardError) {
+        console.error("Could not load National Award status for monetization eligibility", nationalAwardError);
+      }
+      setNationalAwardApproved(
+        !nationalAwardError && nationalAwardVerification?.review_status === "approved",
+      );
       const next: GrossBySource = { ads: 0, course: 0, vip: 0 };
       for (const row of earnings ?? []) {
         const key = row.source as keyof GrossBySource;
@@ -290,7 +304,14 @@ function WalletPage() {
   }, [user?.id]);
 
   const b = computeBreakdown(gross);
-  const requirements = trackerRequirements(sportsIdentity);
+  const sportsRequirements = trackerRequirements(sportsIdentity);
+  const requirements = nationalAwardApproved
+    ? INTERNATIONAL_TRACKER_REQUIREMENTS
+    : sportsRequirements;
+  const benefitTags = [
+    sportsRequirements.badgeTag,
+    nationalAwardApproved ? "National Awardee Benefit" : null,
+  ].filter((tag): tag is string => Boolean(tag));
   const canApply =
     stats.followers >= requirements.followers &&
     (stats.watchHours >= requirements.watchHours || stats.videoViews >= requirements.videoViews);
@@ -428,9 +449,11 @@ function WalletPage() {
               <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
                 Monetization Eligibility Tracker
               </p>
-              {requirements.badgeTag ? (
-                <p className="pt-1 text-[11px] font-semibold text-indigo-300">{requirements.badgeTag}</p>
-              ) : null}
+              {benefitTags.map((tag) => (
+                <p key={tag} className="pt-1 text-[11px] font-semibold text-indigo-300">
+                  {tag}
+                </p>
+              ))}
               <p className="pt-2 text-sm text-zinc-300">
                 Reach {requirements.followers.toLocaleString("en-IN")} followers and either{" "}
                 {requirements.watchHours.toLocaleString("en-IN")} watch hours or{" "}
