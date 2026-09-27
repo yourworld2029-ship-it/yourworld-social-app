@@ -682,14 +682,18 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
 }
 
-function isScreenshotAlertMessage(
+function isCaptureAlertMessage(
   row: Pick<PublicMessageRow, "content" | "metadata" | "is_system_message">,
 ) {
   const metadata = asRecord(row.metadata);
   return (
     row.is_system_message === true &&
     (metadata?.capture_kind === "screenshot" ||
-      /^📸 .*took a screenshot$/.test(row.content?.trim() ?? ""))
+      metadata?.capture_kind === "recording" ||
+      /^📸 .*took a screenshot$/.test(row.content?.trim() ?? "") ||
+      /^📸 .*attempted to take a screenshot$/.test(row.content?.trim() ?? "") ||
+      /^📹 .*started screen recording$/.test(row.content?.trim() ?? "") ||
+      /^📹 .*attempted to take a screen recording$/.test(row.content?.trim() ?? ""))
   );
 }
 
@@ -773,7 +777,7 @@ const isRenderablePublicMessage = (
 ) =>
   (!row.expires_at || new Date(row.expires_at).getTime() > now) &&
   row.is_deleted !== true &&
-  !isScreenshotAlertMessage(row);
+  !isCaptureAlertMessage(row);
 
 function isMissingAutoDeleteColumn(error: unknown): boolean {
   const text =
@@ -1256,7 +1260,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
         loadCachedThreadSync<DbMessage>(`social:${threadId}`) ??
         cacheGet<DbMessage[]>(`thread:${threadId}`) ??
         []
-      ).filter((row) => !isScreenshotAlertMessage(row)),
+      ).filter((row) => !isCaptureAlertMessage(row)),
   );
   const [messagesThreadId, setMessagesThreadId] = useState(threadId);
   const messagesThreadIdRef = useRef(threadId);
@@ -1294,7 +1298,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       loadCachedThreadSync<DbMessage>(`social:${threadId}`) ??
       cacheGet<DbMessage[]>(`thread:${threadId}`) ??
       []
-    ).filter((row) => !isScreenshotAlertMessage(row));
+    ).filter((row) => !isCaptureAlertMessage(row));
     messagesThreadIdRef.current = threadId;
     setMessagesThreadId(threadId);
     messagesRef.current = cachedRows;
@@ -1702,7 +1706,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       loadCachedThreadSync<DbMessage>(`social:${threadId}`) ??
       cacheGet<DbMessage[]>(`thread:${threadId}`) ??
       []
-    ).filter((row) => !isScreenshotAlertMessage(row));
+    ).filter((row) => !isCaptureAlertMessage(row));
   }, [messages, messagesThreadId, threadId]);
   const visibleLoading = messagesThreadId === threadId ? loading : false;
   const visibleLoadingMore = messagesThreadId === threadId ? loadingMore : false;

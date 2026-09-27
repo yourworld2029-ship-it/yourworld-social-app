@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { isNativeAndroid, listenForAndroidCaptureEvents } from "./native-privacy";
 
 export type CaptureKind = "screenshot" | "recording";
 
@@ -6,13 +7,17 @@ export type CaptureKind = "screenshot" | "recording";
  * Screenshot / screen-recording detection.
  *
  * Web browsers do not expose a reliable OS screenshot signal. Chat surfaces
- * use blur/visibility as a best-effort fallback; native wrappers can dispatch
- * `yw:native-capture` for an explicit capture notification.
+ * use blur/visibility as a best-effort fallback; Android can report recording
+ * visibility on API 35+ while other native wrappers may dispatch the custom event.
  */
 export function useCaptureDetect(
   enabled: boolean,
   onCapture: (kind: CaptureKind) => void,
-  options?: { screenshotEnabled?: boolean; protectedElementId?: string },
+  options?: {
+    screenshotEnabled?: boolean;
+    recordingEnabled?: boolean;
+    protectedElementId?: string;
+  },
 ) {
   const cb = useRef(onCapture);
   cb.current = onCapture;
@@ -20,66 +25,58 @@ export function useCaptureDetect(
   useEffect(() => {
     if (!enabled || typeof window === "undefined") return;
     const screenshotEnabled = options?.screenshotEnabled ?? enabled;
+    const recordingEnabled = options?.recordingEnabled ?? enabled;
+    if (!screenshotEnabled && !recordingEnabled) return;
     const protectedElementId = options?.protectedElementId ?? "chat-messages-container";
     let lastScreenshotAt = 0;
     const protectedElement = document.getElementById(protectedElementId);
-    let shield: HTMLDivElement | null = null;
-    let shieldTracking = false;
-
-    const positionShield = () => {
-      if (!protectedElement || !shield) return;
-      const rect = protectedElement.getBoundingClientRect();
-      shield.style.display = rect.width > 0 && rect.height > 0 ? "block" : "none";
-      shield.style.left = `${rect.left}px`;
-      shield.style.top = `${rect.top}px`;
-      shield.style.width = `${rect.width}px`;
-      shield.style.height = `${rect.height}px`;
-    };
+    let originalFilter = "";
+    let blurApplied = false;
     const clearProtection = () => {
-      if (shieldTracking) {
-        window.removeEventListener("scroll", positionShield, true);
-        window.removeEventListener("resize", positionShield);
-        shieldTracking = false;
+      if (protectedElement && blurApplied) {
+        if (protectedElement.style.filter === "blur(35px)") {
+          protectedElement.style.filter = originalFilter;
+        }
+        blurApplied = false;
       }
-      shield?.remove();
-      shield = null;
     };
 
     const applyProtection = () => {
-      if (!screenshotEnabled || !protectedElement || !document.body) return false;
-      if (!shield) {
-        shield = document.createElement("div");
-        shield.setAttribute("aria-hidden", "true");
-        shield.dataset.ywCaptureShield = "true";
-        shield.style.cssText =
-          "position:fixed;z-index:2147483647;background:#000;pointer-events:none;";
-        document.body.appendChild(shield);
-      }
-      // Place an opaque shield synchronously, before any alert/network work.
-      positionShield();
-      if (!shieldTracking) {
-        window.addEventListener("scroll", positionShield, true);
-        window.addEventListener("resize", positionShield);
-        shieldTracking = true;
+      if (!screenshotEnabled || !protectedElement) return false;
+      if (!blurApplied) {
+        originalFilter = protectedElement.style.filter;
+        protectedElement.style.filter = "blur(35px)";
+        blurApplied = true;
       }
       return true;
     };
 
     const handleCapture = (kind: CaptureKind) => {
-      if (screenshotEnabled) applyProtection();
       if (kind === "screenshot") {
         if (!screenshotEnabled) return;
         const now = Date.now();
         if (now - lastScreenshotAt < 3_000) return;
         lastScreenshotAt = now;
+      } else if (!recordingEnabled) {
+        return;
       }
       cb.current(kind);
     };
 
+    const hasEditableFocus = () => {
+      const active = document.activeElement;
+      return (
+        active instanceof HTMLElement &&
+        (active.isContentEditable ||
+          active.matches("input, textarea, select, [contenteditable='true']"))
+      );
+    };
+
     const detectWebScreenshot = () => {
-      if (!applyProtection()) return;
+      if (!screenshotEnabled || isNativeAndroid() || hasEditableFocus()) return;
       const now = Date.now();
       if (now - lastScreenshotAt < 3_000) return;
+      if (!applyProtection()) return;
       lastScreenshotAt = now;
       cb.current("screenshot");
     };
@@ -104,19 +101,29 @@ export function useCaptureDetect(
     };
 
     window.addEventListener("yw:native-capture", onNativeCapture);
-    if (screenshotEnabled) {
+    const stopNativeMonitoring = recordingEnabled
+      ? listenForAndroidCaptureEvents(handleCapture)
+      : undefined;
+    const webScreenshotFallbackEnabled = screenshotEnabled && !isNativeAndroid();
+    if (webScreenshotFallbackEnabled) {
       window.addEventListener("blur", onWindowBlur);
       window.addEventListener("focus", onWindowFocus);
       document.addEventListener("visibilitychange", onVisibilityChange);
     }
     return () => {
       window.removeEventListener("yw:native-capture", onNativeCapture);
-      if (screenshotEnabled) {
+      stopNativeMonitoring?.();
+      if (webScreenshotFallbackEnabled) {
         window.removeEventListener("blur", onWindowBlur);
         window.removeEventListener("focus", onWindowFocus);
         document.removeEventListener("visibilitychange", onVisibilityChange);
         clearProtection();
       }
     };
-  }, [enabled, options?.protectedElementId, options?.screenshotEnabled]);
+  }, [
+    enabled,
+    options?.protectedElementId,
+    options?.recordingEnabled,
+    options?.screenshotEnabled,
+  ]);
 }

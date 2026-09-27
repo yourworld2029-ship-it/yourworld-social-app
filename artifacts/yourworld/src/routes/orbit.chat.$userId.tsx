@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { historyBackOr } from "@/lib/navigation";
 import {
@@ -607,7 +607,7 @@ function NativeOrbitChatPage() {
     return () => clearTimeout(t);
   }, [userId]);
 
-  const pushSystem = (text: string, captureEventId?: string) => {
+  const pushSystem = useCallback((text: string, captureEventId?: string) => {
     seq.current += 1;
     setNotes((n) => [
       ...n,
@@ -620,34 +620,40 @@ function NativeOrbitChatPage() {
         captureEventId,
       },
     ]);
-  };
+  }, []);
 
   const captureChannelName = `orbit-chat-capture-${[chat.meId, userId].sort().join("-")}`;
-  const handleIncomingCaptureAlert = (
-    payload: Record<string, unknown>,
-    kind: "screenshot" | "recording",
-  ) => {
-    const senderId = String(payload.senderId ?? "");
-    if (senderId === chat.meId) return;
-    if (muted || (kind === "recording" ? !recordingAlert : !screenshotAlert)) return;
-    if (kind === "screenshot") {
-      const now = Date.now();
-      if (now - lastIncomingScreenshotAtRef.current < 3_000) return;
-      lastIncomingScreenshotAtRef.current = now;
-    }
-    const actorName = String(payload.actorName ?? "Someone");
-    const text =
-      kind === "screenshot"
-        ? `📸 ${actorName} took a screenshot`
-        : `📹 ${actorName} started screen recording`;
-    pushSystem(text, String(payload.eventId ?? `${kind}-${Date.now()}`));
-  };
+  const captureAlertsEnabled = Boolean(
+    accepted &&
+      settingsReady &&
+      chat.meId &&
+      (screenshotAlert || recordingAlert),
+  );
+  const handleIncomingCaptureAlert = useCallback(
+    (payload: Record<string, unknown>, kind: "screenshot" | "recording") => {
+      const senderId = String(payload.senderId ?? "");
+      if (senderId === chat.meId) return;
+      if (muted || (kind === "recording" ? !recordingAlert : !screenshotAlert)) return;
+      if (kind === "screenshot") {
+        const now = Date.now();
+        if (now - lastIncomingScreenshotAtRef.current < 3_000) return;
+        lastIncomingScreenshotAtRef.current = now;
+      }
+      const actorName = String(payload.actorName ?? "Someone");
+      const text =
+        kind === "screenshot"
+          ? `📸 ${actorName} attempted to take a screenshot`
+          : `📹 ${actorName} attempted to take a screen recording`;
+      pushSystem(text, String(payload.eventId ?? `${kind}-${Date.now()}`));
+    },
+    [chat.meId, muted, pushSystem, recordingAlert, screenshotAlert],
+  );
 
   useEffect(() => {
     captureChannelReadyRef.current = false;
     captureChannelRef.current = null;
     pendingCaptureAlertsRef.current = [];
-    if (!accepted || !chat.meId) return;
+    if (!captureAlertsEnabled) return;
     const channel = supabase
       .channel(captureChannelName)
       .on("broadcast", { event: "send_system_alert" }, ({ payload }) => {
@@ -677,10 +683,16 @@ function NativeOrbitChatPage() {
       void channel.unsubscribe();
       void supabase.removeChannel(channel);
     };
-  }, [accepted, captureChannelName, chat.meId, muted, recordingAlert, screenshotAlert]);
+  }, [
+    accepted,
+    captureAlertsEnabled,
+    captureChannelName,
+    chat.meId,
+    handleIncomingCaptureAlert,
+  ]);
 
   useCaptureDetect(
-    Boolean(accepted && chat.meId),
+    Boolean(accepted && settingsReady && chat.meId),
     (kind) => {
       if (
         !chat.meId ||
@@ -715,14 +727,15 @@ function NativeOrbitChatPage() {
       }
     },
     {
-      screenshotEnabled: true,
+      screenshotEnabled: screenshotAlert,
+      recordingEnabled: recordingAlert,
       protectedElementId:
         secretLock && !captureProtectionClearing
           ? "chat-messages-container"
           : undefined,
     },
   );
-  useAndroidChatSecureFlag();
+  useAndroidChatSecureFlag(captureAlertsEnabled);
 
   const startRecording = async () => {
     if (!accepted) {
@@ -795,6 +808,14 @@ function NativeOrbitChatPage() {
   };
 
   const localIds = useMemo(() => new Set(msgs.map((m) => m.id)), [msgs]);
+
+  useEffect(
+    () => () => {
+      if (longPressRef.current) clearTimeout(longPressRef.current);
+      if (protectedRevealTimerRef.current) clearTimeout(protectedRevealTimerRef.current);
+    },
+    [],
+  );
 
   if (!p) {
     return (
@@ -875,13 +896,6 @@ function NativeOrbitChatPage() {
     protectedRevealTimerRef.current = null;
     setRevealedProtectedIds((previous) => previous.filter((value) => value !== id));
   };
-  useEffect(
-    () => () => {
-      if (longPressRef.current) clearTimeout(longPressRef.current);
-      if (protectedRevealTimerRef.current) clearTimeout(protectedRevealTimerRef.current);
-    },
-    [],
-  );
   const toggleSelect = (id: string) =>
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   const deleteIds = (ids: string[]) => {

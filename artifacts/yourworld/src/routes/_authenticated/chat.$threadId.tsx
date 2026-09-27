@@ -877,7 +877,9 @@ function NativeChatThreadPage() {
 
 
   const captureChannelName = conversationId ? `social-chat-capture-${conversationId}` : null;
-  useAndroidChatSecureFlag();
+  const captureAlertsEnabled = settingsReady && Boolean(conversationId && currentUserId) &&
+    (screenshotAlert || recordingAlert);
+  useAndroidChatSecureFlag(captureAlertsEnabled);
 
   const handleIncomingCaptureAlert = useCallback(
     (payload: Record<string, unknown>, kind: "screenshot" | "recording") => {
@@ -892,8 +894,8 @@ function NativeChatThreadPage() {
       const actorName = String(payload.actorName ?? "Someone");
       const text =
         kind === "screenshot"
-          ? `📸 ${actorName} took a screenshot`
-          : `📹 ${actorName} started screen recording`;
+          ? `📸 ${actorName} attempted to take a screenshot`
+          : `📹 ${actorName} attempted to take a screen recording`;
       appendSecurityNotice(text, String(payload.eventId ?? `${kind}-${Date.now()}`));
     },
     [
@@ -910,7 +912,7 @@ function NativeChatThreadPage() {
     captureChannelReadyRef.current = false;
     captureChannelRef.current = null;
     pendingCaptureAlertsRef.current = [];
-    if (!captureChannelName || !currentUserId) return;
+    if (!captureChannelName || !currentUserId || (!screenshotAlert && !recordingAlert)) return;
     const channel = supabase
       .channel(captureChannelName)
        .on("broadcast", { event: "send_system_alert" }, ({ payload }) => {
@@ -939,7 +941,7 @@ function NativeChatThreadPage() {
       void channel.unsubscribe();
       void supabase.removeChannel(channel);
     };
-  }, [captureChannelName, currentUserId, handleIncomingCaptureAlert]);
+  }, [captureChannelName, currentUserId, handleIncomingCaptureAlert, recordingAlert, screenshotAlert]);
 
   const dispatchChatSecurityAlert = useCallback(
     (kind: "screenshot" | "recording") => {
@@ -957,8 +959,8 @@ function NativeChatThreadPage() {
       const eventId = `${currentUserId}-${Date.now()}-${captureAlertSequenceRef.current++}`;
       const text =
         kind === "screenshot"
-          ? `📸 ${currentUsername} took a screenshot`
-          : `📹 ${currentUsername} started screen recording`;
+          ? `📸 ${currentUsername} attempted to take a screenshot`
+          : `📹 ${currentUsername} attempted to take a screen recording`;
       appendSecurityNotice(text, eventId);
       void sendToDb({
         content: text,
@@ -1000,8 +1002,9 @@ function NativeChatThreadPage() {
     ],
   );
 
-  useCaptureDetect(true, dispatchChatSecurityAlert, {
-    screenshotEnabled: true,
+  useCaptureDetect(Boolean(settingsReady && conversationId && currentUserId), dispatchChatSecurityAlert, {
+    screenshotEnabled: screenshotAlert,
+    recordingEnabled: recordingAlert,
     protectedElementId: secretLock ? "chat-messages-container" : undefined,
   });
 

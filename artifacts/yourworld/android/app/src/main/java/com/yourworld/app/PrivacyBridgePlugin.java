@@ -1,7 +1,11 @@
 package com.yourworld.app;
 
 import android.Manifest;
+import android.os.Build;
 import android.view.WindowManager;
+
+import java.util.concurrent.Executor;
+import java.util.function.Consumer;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PermissionState;
@@ -20,6 +24,15 @@ import com.getcapacitor.annotation.PermissionCallback;
     }
 )
 public class PrivacyBridgePlugin extends Plugin {
+    private boolean captureMonitoringEnabled = false;
+    private final Consumer<Integer> screenRecordingCallback = state -> {
+        if (state == WindowManager.SCREEN_RECORDING_STATE_VISIBLE) {
+            JSObject event = new JSObject();
+            event.put("kind", "recording");
+            notifyListeners("capture", event);
+        }
+    };
+
     @PluginMethod
     public void requestCallMediaPermissions(PluginCall call) {
         String mode = call.getString("mode");
@@ -62,5 +75,55 @@ public class PrivacyBridgePlugin extends Plugin {
             }
             call.resolve();
         });
+    }
+
+    @PluginMethod
+    public void setCaptureMonitoring(PluginCall call) {
+        Boolean enabled = call.getBoolean("enabled");
+        if (enabled == null) {
+            call.reject("The enabled option must be a boolean.");
+            return;
+        }
+
+        getActivity().runOnUiThread(() -> {
+            if (Build.VERSION.SDK_INT < 35) {
+                call.resolve();
+                return;
+            }
+
+            WindowManager windowManager = getActivity().getWindowManager();
+            if (windowManager == null) {
+                call.reject("Screen recording monitoring is unavailable.");
+                return;
+            }
+
+            if (enabled && !captureMonitoringEnabled) {
+                Executor mainExecutor = command -> getActivity().runOnUiThread(command);
+                int initialState = windowManager.addScreenRecordingCallback(
+                    mainExecutor,
+                    screenRecordingCallback
+                );
+                captureMonitoringEnabled = true;
+                if (initialState == WindowManager.SCREEN_RECORDING_STATE_VISIBLE) {
+                    screenRecordingCallback.accept(initialState);
+                }
+            } else if (!enabled && captureMonitoringEnabled) {
+                windowManager.removeScreenRecordingCallback(screenRecordingCallback);
+                captureMonitoringEnabled = false;
+            }
+            call.resolve();
+        });
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        if (captureMonitoringEnabled && Build.VERSION.SDK_INT >= 35) {
+            WindowManager windowManager = getActivity().getWindowManager();
+            if (windowManager != null) {
+                windowManager.removeScreenRecordingCallback(screenRecordingCallback);
+            }
+            captureMonitoringEnabled = false;
+        }
+        super.handleOnDestroy();
     }
 }

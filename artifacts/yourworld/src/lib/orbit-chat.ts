@@ -117,6 +117,12 @@ export const isUnexpiredOrbitRow = (
   return !r.expires_at || new Date(r.expires_at).getTime() > timestamp;
 };
 
+const isCaptureAlertMessage = (message: Pick<OrbitMessage, "kind" | "text">) =>
+  message.kind === "system" &&
+  /(?:took a screenshot|attempted to take a screenshot|started screen recording|attempted to take a screen recording)/i.test(
+    message.text ?? "",
+  );
+
 export const isRenderableOrbitMessage = (
   m: Pick<OrbitMessage, "expiresAt"> &
     Partial<
@@ -128,7 +134,7 @@ export const isRenderableOrbitMessage = (
   now = Date.now(),
 ) =>
   (!m.expiresAt || m.expiresAt > now) &&
-  !(m.kind === "system" && (m.text ?? "").includes("took a screenshot"));
+  !isCaptureAlertMessage(m as Pick<OrbitMessage, "kind" | "text">);
 
 const toMsg = (r: Row, me: string): OrbitMessage => ({
   id: r.id,
@@ -150,7 +156,7 @@ export function useOrbitChat(peerId: string, enabled: boolean, clearedBefore?: s
     () =>
       (loadCachedThreadSync<OrbitMessage>(`orbit:${peerId}`) ?? []).filter(
         (message) =>
-          !(message.kind === "system" && (message.text ?? "").includes("took a screenshot")),
+          !isCaptureAlertMessage(message),
       ),
   );
   const [meId, setMeId] = useState<string | null>(null);
