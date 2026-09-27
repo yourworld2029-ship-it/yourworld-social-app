@@ -108,32 +108,38 @@ function ChannelAnalytics() {
               <ul data-testid="creator-analytics-top-list">
                 {loading ? (
                   <li className="px-4 py-8 text-center text-sm text-slate-400">Loading content…</li>
-                ) : top.map((item) => (
-                  <li
-                    key={item.id}
-                    data-testid={`creator-analytics-item-${item.id}`}
-                    className="grid grid-cols-[minmax(0,1fr)_5rem] items-center gap-3 border-t border-white/[0.06] px-4 py-3"
-                  >
-                    <span className="flex min-w-0 items-center gap-3">
-                      <VideoPoster
-                        mediaUrl={item.mediaUrl}
-                        thumbnailUrl={item.thumb}
-                        alt={item.title}
-                        className="h-12 w-[4.25rem] shrink-0 rounded-xl"
-                      />
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-medium text-white">{item.title}</span>
-                        <span className="block pt-0.5 text-[11px] text-slate-400">{item.publishedAt}</span>
-                      </span>
-                    </span>
-                    <span
-                      data-testid="creator-analytics-item-views"
-                      className="text-right text-xs font-semibold tabular-nums text-slate-100"
+                ) : (
+                  top.map((item) => (
+                    <li
+                      key={item.id}
+                      data-testid={`creator-analytics-item-${item.id}`}
+                      className="grid grid-cols-[minmax(0,1fr)_5rem] items-center gap-3 border-t border-white/[0.06] px-4 py-3"
                     >
-                      {loading && item.views !== 0 ? "…" : formatCount(item.views)}
-                    </span>
-                  </li>
-                ))}
+                      <span className="flex min-w-0 items-center gap-3">
+                        <VideoPoster
+                          mediaUrl={item.mediaUrl}
+                          thumbnailUrl={item.thumb}
+                          alt={item.title}
+                          className="h-12 w-[4.25rem] shrink-0 rounded-xl"
+                        />
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-medium text-white">
+                            {item.title}
+                          </span>
+                          <span className="block pt-0.5 text-[11px] text-slate-400">
+                            {item.publishedAt}
+                          </span>
+                        </span>
+                      </span>
+                      <span
+                        data-testid="creator-analytics-item-views"
+                        className="text-right text-xs font-semibold tabular-nums text-slate-100"
+                      >
+                        {loading && item.views !== 0 ? "…" : formatCount(item.views)}
+                      </span>
+                    </li>
+                  ))
+                )}
                 {!loading && top.length === 0 && (
                   <li className="border-t border-white/[0.06] px-4 py-8 text-center text-sm text-slate-400">
                     No published content yet.
