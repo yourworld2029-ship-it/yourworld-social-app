@@ -5,7 +5,7 @@ import {
   normalizeProfileSearchTerm,
   searchPublicProfiles,
 } from "@/lib/search-data";
-import { loadChannelData } from "@/lib/channel-data";
+import { loadChannelData, loadVideoPurchaseEarnings } from "@/lib/channel-data";
 import { recordVideoWatchHeartbeat, startVideoWatchSession } from "@/lib/video-data";
 import { createPostComment, deletePostComment, loadSocialPosts } from "@/lib/social-data";
 import { supabase } from "@/integrations/supabase/client";
@@ -65,7 +65,7 @@ const profile = (id: string, username: string, displayName = username) => ({
   category: "Creator",
 });
 
-const post = (id: string, userId: string, kind: "post" | "reel" = "post") => ({
+const post = (id: string, userId: string, kind: "post" | "reel" | "video" = "post") => ({
   id,
   user_id: userId,
   kind,
@@ -150,45 +150,64 @@ test("channel stays empty when the creator has no live rows", async () => {
   const result = await loadChannelData(creatorId, client);
 
   assert.deepEqual(result.videos, []);
-  assert.deepEqual(result.reels, []);
-  assert.deepEqual(result.posts, []);
-  assert.deepEqual(result.subscribers, []);
-  assert.deepEqual(result.stats, { subscribers: 0, views30d: 0, watchHours: 0, posts: 0 });
+  assert.deepEqual(result.stats, {
+    subscribers: 0,
+    videoViews: 0,
+    watchHours: 0,
+    publishedVideos: 0,
+  });
 });
 
-test("channel maps live videos, posts, likes, and subscribers", async () => {
+test("creator analytics includes only long videos and sorts the top videos by views", async () => {
   const creatorId = "33333333-3333-4333-8333-333333333333";
-  const followerId = "44444444-4444-4444-8444-444444444444";
   const { client } = fakeClient({
     from: {
       posts: [
         {
           data: [
-            post("video-1", creatorId, "post"),
-            { ...post("reel-1", creatorId, "reel"), kind: "reel" },
+            {
+              ...post("video-low", creatorId, "video"),
+              title: "Lower-view video",
+              media_type: "video",
+              views_count: 40,
+              duration_seconds: 150,
+            },
+            {
+              ...post("reel-high", creatorId, "reel"),
+              title: "Popular reel",
+              views_count: 9000,
+              duration_seconds: 200,
+            },
+            {
+              ...post("post-titled", creatorId, "post"),
+              title: "A titled post",
+              views_count: 7000,
+              duration_seconds: 200,
+            },
+            {
+              ...post("video-high", creatorId, "video"),
+              title: "Higher-view video",
+              media_type: "video",
+              views_count: 700,
+              duration_seconds: 200,
+            },
           ],
         },
       ],
-      post_likes: [{ data: [{ post_id: "video-1" }, { post_id: "video-1" }] }],
     },
     rpc: {
-      list_follows: [{ data: [{ id: followerId }] }],
       get_follow_counts: [{ data: [{ followers: 12 }] }],
-      get_public_profiles: [{ data: [profile(followerId, "subscriber")] }],
     },
   });
 
   const result = await loadChannelData(creatorId, client);
 
-  assert.equal(result.posts[0]?.id, "video-1");
-  assert.equal(result.posts[0]?.likes, 2);
-  assert.equal(result.reels[0]?.id, "reel-1");
-  assert.equal(result.subscribers[0]?.handle, "subscriber");
+  assert.deepEqual(result.videos.map((video) => video.id), ["video-high", "video-low"]);
   assert.deepEqual(result.stats, {
     subscribers: 12,
-    views30d: 0,
+    videoViews: 740,
     watchHours: 0,
-    posts: 2,
+    publishedVideos: 2,
   });
 });
 
@@ -216,7 +235,7 @@ test("channel uses the live watch-hours aggregate for the requested period", asy
   assert.equal((watchCall?.args[0] as { _channel_id: string })._channel_id, creatorId);
 });
 
-test("channel lifetime filter requests both watch-hour aggregates from the start of the epoch", async () => {
+test("channel lifetime filter uses only the video watch-hours aggregate", async () => {
   const creatorId = "99999999-9999-4999-8999-999999999999";
   const { client, calls } = fakeClient({
     from: {
@@ -226,20 +245,47 @@ test("channel lifetime filter requests both watch-hour aggregates from the start
       list_follows: [{ data: [] }],
       get_follow_counts: [{ data: [{ followers: 0 }] }],
       get_channel_watch_hours: [{ data: 0 }],
-      get_channel_live_watch_hours: [{ data: 0 }],
     },
   });
 
   await loadChannelData(creatorId, client, "lifetime");
 
   const watchCall = calls.find((call) => call.name === "get_channel_watch_hours");
-  const liveWatchCall = calls.find((call) => call.name === "get_channel_live_watch_hours");
-  for (const call of [watchCall, liveWatchCall]) {
-    assert.equal(
-      (call?.args[0] as { _period_start: string })._period_start,
-      new Date(0).toISOString(),
-    );
-  }
+  assert.equal(
+    (watchCall?.args[0] as { _period_start: string })._period_start,
+    new Date(0).toISOString(),
+  );
+  assert.equal(calls.some((call) => call.name === "get_channel_live_watch_hours"), false);
+});
+
+test("video earnings only sum paid creator shares for the selected owner and video", async () => {
+  const creatorId = "abababab-abab-4bab-8bab-abababababab";
+  const videoId = "cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd";
+  const { client, calls } = fakeClient({
+    session: { user: { id: creatorId } },
+    from: {
+      video_purchases: [{
+        data: [
+          { creator_share: "31.50", status: "paid" },
+          { creator_share: "10.00", status: "refunded" },
+          { creator_share: 8.25, status: "paid" },
+        ],
+      }],
+    },
+  });
+
+  assert.equal(await loadVideoPurchaseEarnings(videoId, client), 39.75);
+  assert.deepEqual(
+    calls
+      .filter((call) => call.type === "query" && call.name.startsWith("video_purchases."))
+      .map((call) => call.args),
+    [
+      ["creator_share,status"],
+      ["creator_id", creatorId],
+      ["video_id", videoId],
+      ["status", "paid"],
+    ],
+  );
 });
 
 test("watch recording sends no client-asserted duration or direct table insert", async () => {

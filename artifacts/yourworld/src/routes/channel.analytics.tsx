@@ -1,13 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Clock3, Eye, FileText, UsersRound } from "lucide-react";
 import type { ReactNode } from "react";
 import { ChannelHeader } from "@/components/yw/ChannelHeader";
 import {
   formatCount,
+  loadVideoPurchaseEarnings,
   useChannelData,
+  type ChannelItem,
 } from "@/lib/channel-data";
 import { VideoPoster } from "@/components/yw/VideoPoster";
+import { CreatorVideoAnalyticsSheet } from "@/components/yw/CreatorVideoAnalyticsSheet";
 
 export const Route = createFileRoute("/channel/analytics")({
   head: () => ({
@@ -28,29 +31,54 @@ export const Route = createFileRoute("/channel/analytics")({
 
 function ChannelAnalytics() {
   const [periodDays, setPeriodDays] = useState<number | "lifetime">(30);
-  const { stats, videos, reels, loading, watchTimeError } = useChannelData(periodDays);
-  const top = [...videos, ...reels].sort((a, b) => b.views - a.views).slice(0, 4);
+  const { stats, videos, loading } = useChannelData(periodDays);
+  const top = [...videos].sort((a, b) => b.views - a.views).slice(0, 4);
+  const [selectedVideo, setSelectedVideo] = useState<ChannelItem | null>(null);
+  const [earnings, setEarnings] = useState<{
+    videoId: string;
+    status: "loading" | "loaded" | "error";
+    amount?: number;
+  } | null>(null);
+  const earningsRequestRef = useRef(0);
+  const openVideo = (video: ChannelItem) => {
+    const requestId = ++earningsRequestRef.current;
+    setSelectedVideo(video);
+    setEarnings({ videoId: video.id, status: "loading" });
+    void loadVideoPurchaseEarnings(video.id)
+      .then((amount) => {
+        if (requestId === earningsRequestRef.current) {
+          setEarnings({ videoId: video.id, status: "loaded", amount });
+        }
+      })
+      .catch(() => {
+        if (requestId === earningsRequestRef.current) {
+          setEarnings({ videoId: video.id, status: "error" });
+        }
+      });
+  };
+  const closeVideo = () => {
+    earningsRequestRef.current += 1;
+    setSelectedVideo(null);
+    setEarnings(null);
+  };
   const statValue = (value: number) =>
     loading && value !== 0 ? "…" : formatCount(value);
   const cards = [
-    { label: "Total Views", value: statValue(stats.views30d), icon: <Eye size={16} />, accent: "text-fuchsia-200" },
+    { label: "Video Views", value: statValue(stats.videoViews), icon: <Eye size={16} />, accent: "text-fuchsia-200" },
     {
       label: "Watch Hours",
-      value: statValue(stats.watchHours),
-      hint: watchTimeError
-        ? "Watch time unavailable"
-        : periodDays === "lifetime"
-          ? "Lifetime"
-          : `Last ${periodDays} days`,
+      value: loading ? "…" : `${stats.watchHours.toFixed(1)} hrs`,
+      hint: periodDays === "lifetime" ? "Lifetime" : `Last ${periodDays} days`,
       icon: <Clock3 size={16} />,
       accent: "text-cyan-200",
     },
     { label: "Followers", value: statValue(stats.subscribers), icon: <UsersRound size={16} />, accent: "text-violet-200" },
-    { label: "Published posts", value: statValue(stats.posts), icon: <FileText size={16} />, accent: "text-amber-200" },
+    { label: "Published videos", value: statValue(stats.publishedVideos), icon: <FileText size={16} />, accent: "text-amber-200" },
   ];
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-[#080910] pb-12 text-white">
+    <>
+      <main className="relative min-h-screen overflow-hidden bg-[#080910] pb-12 text-white">
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 overflow-hidden"
@@ -62,8 +90,8 @@ function ChannelAnalytics() {
       <div className="relative z-10">
         <ChannelHeader title="Creator Analytics" backTo="/settings" />
 
-        <div className="mx-auto max-w-2xl">
-          <div className="flex gap-2 overflow-x-auto px-4 pt-5 no-scrollbar">
+        <div className="mx-auto min-w-0 max-w-2xl">
+          <div className="flex w-full min-w-0 flex-nowrap touch-pan-x gap-2 overflow-x-auto overscroll-x-contain px-4 pb-1 pt-5 no-scrollbar">
             {([7, 30, 90, "lifetime"] as const).map((period) => (
               <button
                 key={period}
@@ -71,7 +99,7 @@ function ChannelAnalytics() {
                 data-testid={`analytics-period-${period}`}
                 aria-pressed={periodDays === period}
                 onClick={() => setPeriodDays(period)}
-                className={`shrink-0 rounded-full px-4 py-2 text-xs font-semibold transition-all ${
+                className={`shrink-0 whitespace-nowrap rounded-full px-4 py-2 text-xs font-semibold transition-all ${
                   periodDays === period
                     ? "bg-gradient-to-r from-fuchsia-500 to-violet-500 text-white shadow-[0_8px_24px_-10px_rgba(217,70,239,0.85)]"
                     : "border border-white/10 bg-white/[0.045] text-slate-300 backdrop-blur-xl hover:bg-white/[0.09]"
@@ -92,7 +120,7 @@ function ChannelAnalytics() {
             <section className="overflow-hidden rounded-[28px] border border-white/[0.1] bg-white/[0.045] shadow-[0_22px_65px_-42px_rgba(0,0,0,0.95)] backdrop-blur-2xl">
               <div className="flex items-center justify-between px-4 pb-2 pt-4">
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-300">
-                  Top Performing
+                  Top Performing Videos
                 </p>
                 <span className="rounded-full border border-white/[0.08] bg-white/[0.045] px-2.5 py-1 text-[10px] font-medium text-slate-400">
                   {top.length === 0 ? "0 items" : loading ? "…" : `${top.length} items`}
@@ -107,42 +135,49 @@ function ChannelAnalytics() {
               </div>
               <ul data-testid="creator-analytics-top-list">
                 {loading ? (
-                  <li className="px-4 py-8 text-center text-sm text-slate-400">Loading content…</li>
+                  <li className="px-4 py-8 text-center text-sm text-slate-400">Loading videos…</li>
                 ) : (
                   top.map((item) => (
                     <li
                       key={item.id}
                       data-testid={`creator-analytics-item-${item.id}`}
-                      className="grid grid-cols-[minmax(0,1fr)_5rem] items-center gap-3 border-t border-white/[0.06] px-4 py-3"
+                      className="border-t border-white/[0.06]"
                     >
-                      <span className="flex min-w-0 items-center gap-3">
-                        <VideoPoster
-                          mediaUrl={item.mediaUrl}
-                          thumbnailUrl={item.thumb}
-                          alt={item.title}
-                          className="h-12 w-[4.25rem] shrink-0 rounded-xl"
-                        />
-                        <span className="min-w-0">
-                          <span className="block truncate text-sm font-medium text-white">
-                            {item.title}
-                          </span>
-                          <span className="block pt-0.5 text-[11px] text-slate-400">
-                            {item.publishedAt}
+                      <button
+                        type="button"
+                        aria-label={`Open analytics for ${item.title}`}
+                        onClick={() => openVideo(item)}
+                        className="grid w-full grid-cols-[minmax(0,1fr)_5rem] items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-white/[0.035] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fuchsia-300"
+                      >
+                        <span className="flex min-w-0 items-center gap-3">
+                          <VideoPoster
+                            mediaUrl={item.mediaUrl}
+                            thumbnailUrl={item.thumb}
+                            alt={item.title}
+                            className="h-12 w-[4.25rem] shrink-0 rounded-xl"
+                          />
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-medium text-white">
+                              {item.title}
+                            </span>
+                            <span className="block pt-0.5 text-[11px] text-slate-400">
+                              {item.publishedAt}
+                            </span>
                           </span>
                         </span>
-                      </span>
-                      <span
-                        data-testid="creator-analytics-item-views"
-                        className="text-right text-xs font-semibold tabular-nums text-slate-100"
-                      >
-                        {loading && item.views !== 0 ? "…" : formatCount(item.views)}
-                      </span>
+                        <span
+                          data-testid="creator-analytics-item-views"
+                          className="text-right text-xs font-semibold tabular-nums text-slate-100"
+                        >
+                          {loading && item.views !== 0 ? "…" : formatCount(item.views)}
+                        </span>
+                      </button>
                     </li>
                   ))
                 )}
                 {!loading && top.length === 0 && (
                   <li className="border-t border-white/[0.06] px-4 py-8 text-center text-sm text-slate-400">
-                    No published content yet.
+                    No published videos yet.
                   </li>
                 )}
               </ul>
@@ -150,7 +185,13 @@ function ChannelAnalytics() {
           </div>
         </div>
       </div>
-    </main>
+      </main>
+      <CreatorVideoAnalyticsSheet
+        video={selectedVideo}
+        earnings={selectedVideo && earnings?.videoId === selectedVideo.id ? earnings : null}
+        onClose={closeVideo}
+      />
+    </>
   );
 }
 

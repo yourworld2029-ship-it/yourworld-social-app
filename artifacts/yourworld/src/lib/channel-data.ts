@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { resolveMediaUrl, timeAgo } from "@/lib/social-data";
-import { missingColumn, normalizePostRow, postKind } from "@/lib/supabase-compat";
+import { postKind } from "@/lib/supabase-compat";
 
 export type ChannelItem = {
   id: string;
@@ -15,14 +15,14 @@ export type ChannelItem = {
   publishedAt: string;
 };
 
-export type Subscriber = { id: string; name: string; handle: string; since: string; hue: number };
-
 export type ChannelLiveData = {
   videos: ChannelItem[];
-  reels: ChannelItem[];
-  posts: ChannelItem[];
-  subscribers: Subscriber[];
-  stats: { subscribers: number; views30d: number; watchHours: number; posts: number };
+  stats: {
+    subscribers: number;
+    videoViews: number;
+    watchHours: number;
+    publishedVideos: number;
+  };
   watchTimeError: string | null;
   loading: boolean;
 };
@@ -31,18 +31,22 @@ export type LoadedChannelData = Omit<ChannelLiveData, "loading">;
 
 const emptyData: ChannelLiveData = {
   videos: [],
-  reels: [],
-  posts: [],
-  subscribers: [],
-  stats: { subscribers: 0, views30d: 0, watchHours: 0, posts: 0 },
+  stats: { subscribers: 0, videoViews: 0, watchHours: 0, publishedVideos: 0 },
   watchTimeError: null,
   loading: true,
 };
 
-function hueOf(id: string) {
-  let hue = 0;
-  for (let i = 0; i < id.length; i += 1) hue = (hue * 31 + id.charCodeAt(i)) % 360;
-  return hue;
+function postViewCount(row: Record<string, unknown>) {
+  const views = Number(row.views ?? row.views_count ?? 0);
+  return Number.isFinite(views) ? Math.max(0, views) : 0;
+}
+
+function isAnalyticsVideo(row: Record<string, unknown>) {
+  const explicitKind = row.kind ?? row.type;
+  if (typeof explicitKind === "string" && explicitKind.trim()) {
+    return explicitKind.trim().toLowerCase() === "video";
+  }
+  return postKind(row) === "video";
 }
 
 /** Loads the signed-in creator's channel data directly from Supabase. */
@@ -55,187 +59,125 @@ export async function loadChannelData(
     watchPeriodDays === "lifetime"
       ? new Date(0).toISOString()
       : new Date(Date.now() - watchPeriodDays * 24 * 60 * 60 * 1000).toISOString();
-  const [
-    postsResult,
-    followsResult,
-    countsResult,
-    watchResult,
-    liveWatchResult,
-  ] = await Promise.all([
+  const [postsResult, countsResult, watchResult] = await Promise.all([
     client
       .from("posts")
-      // The live project has older and newer post shapes in use. Selecting the
-      // row rather than a guessed column list lets normalization handle both.
       .select("*")
       .eq("user_id", uid)
       .order("created_at", { ascending: false })
-      .limit(12),
-    client.rpc("list_follows", { _user_id: uid, _kind: "followers", _limit: 500 }),
+      .limit(1000),
     client.rpc("get_follow_counts", { ids: [uid] }),
     client.rpc("get_channel_watch_hours", {
       _channel_id: uid,
       _period_start: periodStart,
     }),
-    client.rpc("get_channel_live_watch_hours", {
-      _channel_id: uid,
-      _period_start: periodStart,
-    }),
   ]);
-  let { data: rows, error } = postsResult;
-  const { data: followRows } = followsResult;
+  const { data: rows, error } = postsResult;
   const { data: countRows } = countsResult;
   const { data: watchHours, error: watchError } = watchResult;
-  const {
-    data: liveWatchHours,
-    error: liveWatchError,
-  } = liveWatchResult;
-
-  if (missingColumn(error) === "kind") {
-    const fallback = await client
-      .from("posts")
-      .select("*")
-      .eq("user_id", uid)
-      .order("created_at", { ascending: false })
-      .limit(12);
-    rows = fallback.data?.map(normalizePostRow) ?? null;
-    error = fallback.error;
-  }
 
   if (error) {
     return {
       videos: [],
-      reels: [],
-      posts: [],
-      subscribers: [],
-      stats: { subscribers: 0, views30d: 0, watchHours: 0, posts: 0 },
-      watchTimeError: null,
+      stats: { subscribers: 0, videoViews: 0, watchHours: 0, publishedVideos: 0 },
+      watchTimeError: watchError?.message ?? null,
     };
   }
 
   const postRows = rows ?? [];
-  const postIds = postRows.map((row) => row.id);
-  const legacyLikesTable = (client as unknown as {
-    from: (name: "post_likes") => ReturnType<typeof supabase.from>;
-  }).from;
-  let { data: likes, error: likesError } = postIds.length
-    ? await client.from("likes").select("post_id").in("post_id", postIds)
-    : { data: [], error: null };
-  // Keep fixtures and older deployments readable while using the live likes
-  // table first. A missing legacy table is intentionally ignored.
-  if (postIds.length && (!likes?.length || likesError)) {
-    const legacyLikes = await legacyLikesTable("post_likes")
-      .select("post_id")
-      .in("post_id", postIds);
-    if (!legacyLikes.error && legacyLikes.data?.length) {
-      likes = legacyLikes.data;
-      likesError = null;
-    }
-  }
-  const likesByPost = new Map<string, number>();
-  for (const like of likes ?? []) {
-    likesByPost.set(like.post_id, (likesByPost.get(like.post_id) ?? 0) + 1);
-  }
-
-  const items = await Promise.all(
-    postRows.map(async (row): Promise<ChannelItem> => {
-      const kind = postKind(row);
-      const mediaUrl = await resolveMediaUrl(
-        row.media_url,
-        kind === "reel" ? "reels" : "videos",
-      );
-      const thumb = row.thumbnail_url
-        ? await resolveMediaUrl(row.thumbnail_url, "videos")
-        : null;
+  const videoRows = postRows.filter((row) =>
+    isAnalyticsVideo(row as unknown as Record<string, unknown>),
+  );
+  const subscribersCount = Number((countRows ?? [])[0]?.followers ?? 0);
+  const parsedWatchHours =
+    typeof watchHours === "number"
+      ? watchHours
+      : Number((watchHours as { watch_hours?: number } | null)?.watch_hours ?? watchHours ?? 0);
+  const videoViews = videoRows.reduce(
+    (sum, row) => sum + postViewCount(row as unknown as Record<string, unknown>),
+    0,
+  );
+  const topVideoRows = [...videoRows]
+    .sort(
+      (a, b) =>
+        postViewCount(b as unknown as Record<string, unknown>) -
+        postViewCount(a as unknown as Record<string, unknown>),
+    )
+    .slice(0, 4);
+  const videos = await Promise.all(
+    topVideoRows.map(async (row): Promise<ChannelItem> => {
+      const mediaPath = typeof row.media_url === "string" ? row.media_url : "";
+      const thumbnailPath = typeof row.thumbnail_url === "string" ? row.thumbnail_url : null;
+      const [mediaUrl, thumb] = await Promise.all([
+        resolveMediaUrl(mediaPath, "videos"),
+        thumbnailPath ? resolveMediaUrl(thumbnailPath, "videos") : Promise.resolve(null),
+      ]);
+      const record = row as unknown as Record<string, unknown>;
       return {
-        id: row.id,
-        title: row.title || row.caption || "Untitled",
+        id: String(row.id),
+        title: String(row.title || row.caption || "Untitled"),
         thumb,
         mediaUrl,
-        mediaType: row.media_type,
-        kind,
-        views: Number(
-          row.views ??
-            (row as typeof row & { views_count?: number | null }).views_count ??
-            0,
-        ),
-        likes: likesByPost.get(row.id) ?? 0,
-        publishedAt: timeAgo(row.created_at),
+        mediaType: String(row.media_type ?? "video"),
+        kind: "video",
+        views: postViewCount(record),
+        likes: 0,
+        publishedAt: timeAgo(String(row.created_at ?? "")),
       };
     }),
   );
 
-  const followerIds = (followRows ?? [])
-    .map((row: { id?: string | null }) => row.id as string)
-    .filter(Boolean);
-  const { data: profiles } = followerIds.length
-    ? await client.rpc("get_public_profiles", { ids: followerIds })
-    : { data: [] };
-  type PublicProfileSummary = {
-    id: string;
-    display_name?: string | null;
-    username?: string | null;
-  };
-  const profileById = new Map<string, PublicProfileSummary>(
-    (profiles ?? []).map((profile: PublicProfileSummary) => [profile.id, profile]),
-  );
-  const subscribers = followerIds.flatMap((id: string): Subscriber[] => {
-    const profile = profileById.get(id);
-    if (!profile) return [];
-    return [{
-      id,
-      name: profile.display_name || profile.username || "YourWorld user",
-      handle: profile.username || "user",
-      since: "Subscriber",
-      hue: hueOf(id),
-    }];
-  });
-
-   const videos = items.filter((_, index) => postKind(postRows[index]) === "video");
-   const reels = items.filter((_, index) => postKind(postRows[index]) === "reel");
-   const posts = items.filter((_, index) => postKind(postRows[index]) === "post");
-  const subscribersCount = Number((countRows ?? [])[0]?.followers ?? subscribers.length);
-  const parsedVideoWatchHours =
-    typeof watchHours === "number"
-      ? watchHours
-      : Number((watchHours as { watch_hours?: number } | null)?.watch_hours ?? watchHours ?? 0);
-  const parsedLiveWatchHours =
-    typeof liveWatchHours === "number"
-      ? liveWatchHours
-      : Number(
-          (liveWatchHours as { watch_hours?: number } | null)?.watch_hours ??
-            liveWatchHours ??
-            0,
-        );
-  const parsedWatchHours =
-    (Number.isFinite(parsedVideoWatchHours)
-      ? Math.max(0, parsedVideoWatchHours)
-      : 0) +
-    (Number.isFinite(parsedLiveWatchHours)
-      ? Math.max(0, parsedLiveWatchHours)
-      : 0);
-
   return {
     videos,
-    reels,
-    posts,
-    subscribers,
     stats: {
       subscribers: subscribersCount,
-      views30d: postRows.reduce(
-        (sum, row) =>
-          sum +
-          Number(
-            row.views ??
-              (row as typeof row & { views_count?: number | null }).views_count ??
-              0,
-          ),
-        0,
-      ),
-       watchHours: parsedWatchHours,
-      posts: postRows.length,
+      videoViews,
+      watchHours: Number.isFinite(parsedWatchHours) ? Math.max(0, parsedWatchHours) : 0,
+      publishedVideos: videoRows.length,
     },
-    watchTimeError: watchError?.message ?? liveWatchError?.message ?? null,
+    watchTimeError: watchError?.message ?? null,
   };
+}
+
+type VideoPurchaseRow = { creator_share?: number | string | null; status?: string | null };
+type VideoPurchaseResult = {
+  data: VideoPurchaseRow[] | null;
+  error: { message: string } | null;
+};
+type VideoPurchaseQuery = {
+  eq: (column: string, value: string) => VideoPurchaseQuery;
+  then: (resolve: (result: VideoPurchaseResult) => void) => unknown;
+};
+
+/** Reads paid purchase shares for one creator-owned video under existing RLS. */
+export async function loadVideoPurchaseEarnings(
+  videoId: string,
+  client: typeof supabase = supabase,
+) {
+  const { data: sessionData, error: sessionError } = await client.auth.getSession();
+  if (sessionError) throw new Error(sessionError.message);
+  const creatorId = sessionData.session?.user.id;
+  if (!creatorId) return 0;
+
+  const purchasesClient = client as unknown as {
+    from: (table: "video_purchases") => {
+      select: (columns: string) => VideoPurchaseQuery;
+    };
+  };
+  const result = await new Promise<VideoPurchaseResult>((resolve) => {
+    purchasesClient
+      .from("video_purchases")
+      .select("creator_share,status")
+      .eq("creator_id", creatorId)
+      .eq("video_id", videoId)
+      .eq("status", "paid")
+      .then(resolve);
+  });
+  if (result.error) throw new Error(result.error.message);
+  return (result.data ?? []).reduce(
+    (sum, row) => (row.status === "paid" ? sum + Number(row.creator_share ?? 0) : sum),
+    0,
+  );
 }
 
 export function useChannelData(watchPeriodDays: number | "lifetime" = 30) {
@@ -263,7 +205,6 @@ export function useChannelData(watchPeriodDays: number | "lifetime" = 30) {
     const channel = supabase
       .channel("channel-live-data")
       .on("postgres_changes", { event: "*", schema: "public", table: "posts" }, () => void load())
-       .on("postgres_changes", { event: "*", schema: "public", table: "likes" }, () => void load())
       .on("postgres_changes", { event: "*", schema: "public", table: "follows" }, () => void load())
       .subscribe();
     const { data: auth } = supabase.auth.onAuthStateChange(() => void load());
