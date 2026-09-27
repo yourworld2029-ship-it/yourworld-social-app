@@ -62,6 +62,9 @@ function VideoUploadPage() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [tags, setTags] = useState<string[]>([]);
+  const [seriesEnabled, setSeriesEnabled] = useState(false);
+  const [seriesTitle, setSeriesTitle] = useState("");
+  const [episodeNumber, setEpisodeNumber] = useState("");
 
   const [paidPromotion, setPaidPromotion] = useState(false);
   const [scheduled, setScheduled] = useState(false);
@@ -145,6 +148,7 @@ function VideoUploadPage() {
     !!fileUrl &&
     !tooShort &&
     title.trim().length >= 2 &&
+    (!seriesEnabled || (seriesTitle.trim().length >= 2 && episodeNumber.trim().length > 0)) &&
     (!scheduled || !!scheduledAt) &&
     !busy;
 
@@ -160,6 +164,10 @@ function VideoUploadPage() {
     }
     if (scheduled && scheduledAt && scheduledAt.getTime() <= Date.now()) {
       toast.error("Pick a future date and time to schedule");
+      return;
+    }
+    if (seriesEnabled && (!seriesTitle.trim() || !episodeNumber.trim())) {
+      toast.error("Add the series title and episode or part number.");
       return;
     }
     const parsedInputPrice = price.trim() ? Number(price) : 0;
@@ -189,6 +197,8 @@ function VideoUploadPage() {
           description,
           tags,
           orientation,
+          seriesTitle: seriesEnabled ? seriesTitle.trim() : null,
+          episodeNumber: seriesEnabled ? episodeNumber.trim() : null,
           durationSeconds: duration,
             originalWidth: dimensions?.width ?? null,
             originalHeight: dimensions?.height ?? null,
@@ -237,19 +247,57 @@ function VideoUploadPage() {
       <div className="mx-auto max-w-xl space-y-5 px-4 pt-5">
         {/* PLAYER / PICKER */}
         {!fileUrl ? (
-          <button
-            onClick={() => videoInput.current?.click()}
-            className="flex w-full flex-col items-center gap-3 rounded-3xl border border-dashed border-zinc-700 bg-zinc-900/40 px-6 py-14 text-center active:scale-[0.99]"
-          >
-            <div className="grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br from-pink-500 to-purple-600">
-              <Upload size={24} />
+          <div className="space-y-3">
+            <div>
+              <p className="text-sm font-semibold">Choose a long-video format</p>
+              <p className="mt-1 text-xs text-zinc-400">
+                Both formats support videos from 90 seconds to several hours.
+              </p>
             </div>
-            <p className="font-semibold">Select a long video</p>
-            <p className="text-xs text-zinc-400">
-              Horizontal (16:9) or vertical (9:16) · 90 seconds to several hours
-            </p>
-
-          </button>
+            <div className="grid grid-cols-2 gap-3">
+              {([
+                {
+                  value: "landscape" as const,
+                  label: "Horizontal",
+                  ratio: "16:9",
+                  description: "Wide-screen video",
+                },
+                {
+                  value: "portrait" as const,
+                  label: "Vertical",
+                  ratio: "9:16",
+                  description: "Tall-screen video",
+                },
+              ]).map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  aria-pressed={orientation === option.value}
+                  onClick={() => {
+                    setOrientation(option.value);
+                    videoInput.current?.click();
+                  }}
+                  className={`flex min-h-36 flex-col items-center justify-center gap-2 rounded-2xl border bg-zinc-900/50 px-3 py-4 text-center transition-colors active:scale-[0.98] ${
+                    orientation === option.value
+                      ? "border-pink-500/80 bg-pink-500/10"
+                      : "border-zinc-800 hover:border-zinc-600"
+                  }`}
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`grid place-items-center rounded-lg border border-pink-400/60 bg-zinc-950 text-pink-300 ${
+                      option.value === "portrait" ? "h-12 w-7" : "h-7 w-12"
+                    }`}
+                  >
+                    <Upload size={14} />
+                  </span>
+                  <span className="text-sm font-semibold">{option.label}</span>
+                  <span className="text-xs text-pink-300">{option.ratio}</span>
+                  <span className="text-[11px] text-zinc-400">{option.description}</span>
+                </button>
+              ))}
+            </div>
+          </div>
         ) : (
           <div className="space-y-2">
             <div
@@ -292,7 +340,10 @@ function VideoUploadPage() {
           type="file"
           accept="video/*"
           hidden
-          onChange={(e) => pickVideo(e.target.files?.[0])}
+          onChange={(e) => {
+            pickVideo(e.target.files?.[0]);
+            e.currentTarget.value = "";
+          }}
         />
 
         {/* TITLE */}
@@ -390,6 +441,41 @@ function VideoUploadPage() {
             })}
           </div>
         </Field>
+
+        {/* SERIES METADATA */}
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold">Part of a series?</p>
+              <p className="text-[11px] text-zinc-400">
+                Group related long videos and show the next parts in the player.
+              </p>
+            </div>
+            <Switch checked={seriesEnabled} onCheckedChange={setSeriesEnabled} />
+          </div>
+          {seriesEnabled && (
+            <div className="mt-4 grid gap-3">
+              <Field label="Series title">
+                <Input
+                  value={seriesTitle}
+                  maxLength={120}
+                  onChange={(event) => setSeriesTitle(event.target.value)}
+                  placeholder="e.g. The Mountain Journal"
+                  className="h-11 rounded-xl border-zinc-800 bg-zinc-900/60"
+                />
+              </Field>
+              <Field label="Episode or part number">
+                <Input
+                  value={episodeNumber}
+                  maxLength={40}
+                  onChange={(event) => setEpisodeNumber(event.target.value)}
+                  placeholder="e.g. Episode 1 or Part 2"
+                  className="h-11 rounded-xl border-zinc-800 bg-zinc-900/60"
+                />
+              </Field>
+            </div>
+          )}
+        </div>
 
         {/* ACCESS CONTROL & PRICING */}
         <Field label="Access Control & Pricing">

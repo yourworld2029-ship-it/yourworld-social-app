@@ -716,6 +716,8 @@ export type Database = {
           original_height: number | null
           original_width: number | null
           price: number | null
+          series_title: string | null
+          episode_number: string | null
           source_quality_tier: string | null
           thumbnail_url: string | null
           user_id: string | null
@@ -736,6 +738,8 @@ export type Database = {
           original_height?: number | null
           original_width?: number | null
           price?: number | null
+          series_title?: string | null
+          episode_number?: string | null
           source_quality_tier?: string | null
           thumbnail_url?: string | null
           user_id?: string | null
@@ -756,6 +760,8 @@ export type Database = {
           original_height?: number | null
           original_width?: number | null
           price?: number | null
+          series_title?: string | null
+          episode_number?: string | null
           source_quality_tier?: string | null
           thumbnail_url?: string | null
           user_id?: string | null

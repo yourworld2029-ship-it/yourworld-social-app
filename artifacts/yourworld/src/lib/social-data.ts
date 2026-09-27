@@ -98,6 +98,8 @@ export type DbPost = {
   mentions?: string[] | null;
   category?: string | null;
   sports_tag?: string | null;
+  series_title?: string | null;
+  episode_number?: string | null;
 };
 
 export type SocialPost = DbPost & {

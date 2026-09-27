@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { isPublishedPostRow } from "@/lib/long-video-utils";
 import { resolveMediaUrl } from "@/lib/social-data";
 import { resolveNormalProfileCategories } from "@/lib/profile-category";
 import type { Hashtag, SuggestedUser } from "@/lib/yw-data";
@@ -255,6 +256,7 @@ function toSearchVideos(rows: SearchPostRow[], profiles: ProfileRow[]) {
     const userId = textValue(row.user_id);
     const mediaUrl = textValue(row.media_url);
     if (!id || !userId || !mediaUrl) return [];
+    if (!isPublishedPostRow(row as unknown as Record<string, unknown>)) return [];
 
     const kind = textValue(row.kind || row.type).toLowerCase();
     const isReel = kind === "reel" || row.is_reel === true;

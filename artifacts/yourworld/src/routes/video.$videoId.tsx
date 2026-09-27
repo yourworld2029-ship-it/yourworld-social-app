@@ -47,6 +47,11 @@ import { resolveLongVideoUrl } from "@/lib/video-data";
 import { resolveMediaUrl, usePostComments } from "@/lib/social-data";
 import { registerUniqueView } from "@/lib/unique-views";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  isNextSeriesEpisode,
+  isPublishedLongVideoRow,
+  sortSeriesEpisodes,
+} from "@/lib/long-video-utils";
 import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadSheet";
 import {
   downloadAudioOnly,
@@ -92,6 +97,12 @@ type Video = {
   source_quality_tier?: string | null;
   original_width?: number | null;
   original_height?: number | null;
+  series_title?: string | null;
+  episode_number?: string | null;
+  status?: string | null;
+  review_status?: string | null;
+  scheduled_at?: string | null;
+  archived?: boolean | null;
   quality_urls?: QualityUrls | null;
   qualityUrls?: QualityUrls | null;
   user?: VideoUser | null;
@@ -282,6 +293,9 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
 
         if (error || !data) {
           if (error) console.error("Error fetching video:", error);
+          return null;
+        }
+        if (!isPublishedLongVideoRow(data as unknown as Record<string, unknown>)) {
           return null;
         }
 
@@ -476,6 +490,34 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   });
   const relatedVideos = relatedPages?.pages.flatMap((page) => page.videos) ?? [];
   const relatedSentinelRef = useRef<HTMLDivElement>(null);
+  const seriesTitle = video?.series_title?.trim() ?? "";
+  const { data: seriesCandidates = [] } = useQuery<RecommendedVideo[]>({
+    queryKey: ["video-series", seriesTitle],
+    enabled: Boolean(seriesTitle),
+    staleTime: 30_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("posts")
+        .select("*")
+        .eq("kind", "video")
+        .eq("series_title", seriesTitle)
+        .order("created_at", { ascending: true })
+        .limit(100);
+      if (error) {
+        console.warn("Unable to load this video's series", error);
+        return [];
+      }
+
+      return ((data ?? []) as unknown as RecommendedVideo[]).filter((candidate) =>
+        candidate.id !== videoId &&
+        candidate.series_title?.trim() === seriesTitle &&
+        isPublishedLongVideoRow(candidate as unknown as Record<string, unknown>),
+      );
+    },
+  });
+  const nextSeriesEpisodes = sortSeriesEpisodes(seriesCandidates).filter((episode) =>
+    isNextSeriesEpisode(video?.episode_number, episode.episode_number),
+  );
 
   useResumeAuthAction("video-like", videoId, () => {
     setDisliked(false);
@@ -934,6 +976,64 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
       )}
 
       <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-3 px-3 py-3 sm:gap-4 sm:px-4 sm:py-4">
+        {seriesTitle && (
+          <section
+            aria-label={`Next episodes in ${seriesTitle}`}
+            className="border-b border-white/10 pb-4"
+          >
+            <div className="mb-3 flex items-baseline justify-between gap-3">
+              <h2 className="text-base font-bold text-white">Next Episodes / Parts</h2>
+              <p className="truncate text-xs text-gray-400">{seriesTitle}</p>
+            </div>
+            {nextSeriesEpisodes.length ? (
+              <div className="no-scrollbar flex gap-3 overflow-x-auto pb-1">
+                {nextSeriesEpisodes.map((episode) => {
+                  const episodeTitle = episode.title || episode.caption || "Untitled Video";
+                  const episodeMedia =
+                    episode.media_url || episode.video_url || episode.url || "";
+                  const portrait =
+                    typeof episode.original_height === "number" &&
+                    typeof episode.original_width === "number" &&
+                    episode.original_height > episode.original_width;
+                  return (
+                    <button
+                      key={episode.id}
+                      type="button"
+                      onClick={() =>
+                        void navigate({
+                          to: "/video/$videoId",
+                          params: { videoId: episode.id },
+                        })
+                      }
+                      className="group w-44 shrink-0 text-left sm:w-52"
+                    >
+                      <div
+                        className={`relative mb-2 overflow-hidden rounded-xl bg-zinc-900 ${
+                          portrait ? "aspect-[9/16] w-24" : "aspect-video w-full"
+                        }`}
+                      >
+                        <VideoPoster
+                          thumbnailUrl={episode.thumbnail_url}
+                          mediaUrl={episodeMedia}
+                          alt={episodeTitle}
+                        />
+                      </div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-pink-300">
+                        {episode.episode_number || "Next part"}
+                      </p>
+                      <h3 className="mt-1 line-clamp-2 text-sm font-semibold text-white group-hover:text-pink-300">
+                        {episodeTitle}
+                      </h3>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-xs text-gray-400">No later parts yet.</p>
+            )}
+          </section>
+        )}
+
         <div className="space-y-1">
           <h1 className="line-clamp-2 text-lg font-bold leading-tight text-white sm:text-xl">
             {video.title || video.caption || "Untitled Video"}

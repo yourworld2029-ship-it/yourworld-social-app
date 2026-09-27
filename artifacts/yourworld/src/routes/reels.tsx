@@ -1,5 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Heart,
   MessageCircle,
@@ -46,6 +47,8 @@ import {
 import { trackEvent } from "@/lib/analytics";
 import { prefetchVideo } from "@/lib/video-prefetch";
 import { deleteMyPost } from "@/lib/profile-data";
+import { supabase } from "@/integrations/supabase/client";
+import { isLongVideoRow } from "@/lib/long-video-utils";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -121,6 +124,24 @@ function ReelsList() {
   const initialId = initialVideoId || reelId;
   const [active, setActive] = useState(0);
   const nodes = useRef<(HTMLElement | null)[]>([]);
+  const longVideoTarget = useQuery({
+    queryKey: ["reel-target-long-video", initialId],
+    enabled: Boolean(initialId),
+    staleTime: 60_000,
+    queryFn: async () => {
+      if (!initialId) return false;
+      const { data, error } = await supabase
+        .from("posts")
+        .select("*")
+        .eq("id", initialId)
+        .maybeSingle();
+      if (error) throw error;
+      return Boolean(
+        data && isLongVideoRow(data as unknown as Record<string, unknown>),
+      );
+    },
+  });
+  const openingLongVideo = longVideoTarget.data === true;
   const {
     posts: dbReels,
     toggleLike: toggleDbLike,
@@ -132,6 +153,15 @@ function ReelsList() {
     hasNextPage,
     isFetchingNextPage,
   } = useSocialPosts(scoped ? "creator-media" : "reel", userId);
+  useEffect(() => {
+    if (!openingLongVideo || !initialId) return;
+    void navigate({
+      to: "/video/$videoId",
+      params: { videoId: initialId },
+      search: { focusComments: focusComments || undefined },
+      replace: true,
+    });
+  }, [focusComments, initialId, navigate, openingLongVideo]);
   useResumeAuthAction("reel-like", "*", (action) =>
     toggleDbLike(action.targetId),
   );
@@ -271,6 +301,14 @@ function ReelsList() {
     return (
       <div className="grid h-full min-h-[calc(100dvh-4.75rem)] place-items-center px-6 text-center text-sm text-muted-foreground">
         Loading reels…
+      </div>
+    );
+  }
+
+  if ((initialId && longVideoTarget.isLoading) || openingLongVideo) {
+    return (
+      <div className="grid h-full min-h-[calc(100dvh-4.75rem)] place-items-center px-6 text-center text-sm text-muted-foreground">
+        Opening full video…
       </div>
     );
   }
