@@ -37,26 +37,27 @@ export function VideoPoster({
   const [resolvedThumbnail, setResolvedThumbnail] = useState<string | null>(thumbnailUrl ?? null);
   const [resolvedMedia, setResolvedMedia] = useState(mediaUrl);
   const [mediaReady, setMediaReady] = useState(false);
-  const [mediaFailed, setMediaFailed] = useState(false);
+  const [thumbnailReady, setThumbnailReady] = useState(false);
+  const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     setResolvedThumbnail(thumbnailUrl ?? null);
+    setThumbnailReady(false);
+    setThumbnailFailed(false);
   }, [thumbnailUrl]);
 
   useEffect(() => {
     if (posterOnly) {
       setResolvedMedia("");
       setMediaReady(false);
-      setMediaFailed(false);
       return;
     }
 
     let alive = true;
     setResolvedMedia(mediaUrl);
     setMediaReady(false);
-    setMediaFailed(false);
     if (!mediaUrl) {
       return () => {
         alive = false;
@@ -79,12 +80,19 @@ export function VideoPoster({
   useEffect(() => {
     if (!thumbnailUrl) {
       setResolvedThumbnail(null);
+      setThumbnailReady(false);
+      setThumbnailFailed(false);
       return;
     }
     let alive = true;
     void resolveMediaUrl(thumbnailUrl, bucket)
       .then((url) => {
-        if (alive) setResolvedThumbnail(url || thumbnailUrl);
+        if (!alive || !url) return;
+        if (url !== thumbnailUrl) {
+          setThumbnailReady(false);
+          setThumbnailFailed(false);
+        }
+        setResolvedThumbnail(url);
       })
       .catch(() => {
         if (alive) setResolvedThumbnail(thumbnailUrl);
@@ -97,8 +105,12 @@ export function VideoPoster({
   useEffect(() => {
     if (!resolvedMedia || posterOnly) return;
     const cachedPoster = getVideoPoster(resolvedMedia);
-    if (cachedPoster && !thumbnailUrl) setResolvedThumbnail(cachedPoster);
-  }, [posterOnly, resolvedMedia, thumbnailUrl]);
+    if (cachedPoster && (!thumbnailUrl || thumbnailFailed)) {
+      setResolvedThumbnail(cachedPoster);
+      setThumbnailFailed(false);
+      setThumbnailReady(true);
+    }
+  }, [posterOnly, resolvedMedia, thumbnailFailed, thumbnailUrl]);
 
   useEffect(() => {
     const card = cardRef.current;
@@ -116,10 +128,17 @@ export function VideoPoster({
   }, [posterOnly, resolvedMedia]);
 
   const source = !posterOnly && resolvedMedia ? firstFrameUrl(resolvedMedia) : "";
-  const showFallback = !resolvedThumbnail && (!source || mediaFailed || !mediaReady);
+  const hasThumbnail = Boolean(resolvedThumbnail) && !thumbnailFailed;
+  const showFallback = !thumbnailReady && !mediaReady;
 
   return (
-    <div ref={cardRef} className={cn("relative h-full w-full overflow-hidden bg-zinc-900", className)}>
+    <div
+      ref={cardRef}
+      className={cn(
+        "relative h-full w-full overflow-hidden bg-gradient-to-br from-zinc-800 via-zinc-900 to-zinc-950",
+        className,
+      )}
+    >
       <div
         aria-hidden="true"
         className={cn(
@@ -127,28 +146,52 @@ export function VideoPoster({
           showFallback ? "animate-thumbnail-shimmer opacity-100" : "opacity-0",
         )}
       />
+      {hasThumbnail ? (
+        <img
+          src={resolvedThumbnail ?? undefined}
+          alt={alt}
+          loading={loading}
+          decoding="async"
+          onLoad={() => {
+            setThumbnailReady(true);
+            setThumbnailFailed(false);
+          }}
+          onError={() => {
+            setThumbnailReady(false);
+            setThumbnailFailed(true);
+          }}
+          className={cn(
+            "absolute inset-0 h-full w-full object-cover transition-opacity duration-300",
+            mediaReady ? "opacity-0" : "opacity-100",
+          )}
+        />
+      ) : null}
       {source ? (
         <video
           ref={videoRef}
           {...({ loading } as const)}
           crossOrigin="anonymous"
           src={source}
-          poster={resolvedThumbnail ?? undefined}
+          poster={hasThumbnail ? resolvedThumbnail ?? undefined : undefined}
           aria-label={alt}
           playsInline
           muted
           preload="metadata"
           onLoadedData={() => {
             setMediaReady(true);
-            if (!resolvedThumbnail && videoRef.current) {
+            if (!hasThumbnail && videoRef.current) {
               const generatedPoster = cacheVideoPoster(videoRef.current, resolvedMedia);
-              if (generatedPoster) setResolvedThumbnail(generatedPoster);
+              if (generatedPoster) {
+                setResolvedThumbnail(generatedPoster);
+                setThumbnailReady(true);
+                setThumbnailFailed(false);
+              }
             }
           }}
-          onError={() => setMediaFailed(true)}
+          onError={() => setMediaReady(false)}
           className={cn(
             "absolute inset-0 h-full w-full object-cover transition-opacity duration-300",
-            showFallback ? "opacity-0" : "opacity-100",
+            mediaReady ? "opacity-100" : "opacity-0",
           )}
         />
       ) : null}

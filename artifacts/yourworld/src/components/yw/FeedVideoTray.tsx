@@ -18,7 +18,7 @@ export function FeedVideoTray({
   renderPreview,
   onOpenVideo,
 }: FeedVideoTrayProps) {
-  if (videos.length < 2) return null;
+  if (videos.length === 0) return null;
 
   return (
     <section
@@ -45,7 +45,7 @@ export function FeedVideoTray({
           className="shrink-0 pb-0.5 text-[11px] font-medium text-zinc-500"
           data-testid="text-feed-video-count"
         >
-          {videos.length} videos
+          {videos.length} {videos.length === 1 ? "video" : "videos"}
         </span>
       </div>
 

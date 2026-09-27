@@ -346,7 +346,6 @@ export function FeedVideoPreview({
   fullVisibility = false,
   forceMuted = false,
   loop = false,
-  hidePosterPlayIcon = false,
   className,
   onDurationChange,
 }: {
@@ -355,7 +354,6 @@ export function FeedVideoPreview({
   fullVisibility?: boolean;
   forceMuted?: boolean;
   loop?: boolean;
-  hidePosterPlayIcon?: boolean;
   className?: string;
   onDurationChange?: (duration: number) => void;
 }) {
@@ -396,7 +394,10 @@ export function FeedVideoPreview({
   return (
     <div
       ref={containerRef}
-      className={cn("relative h-full w-full overflow-hidden bg-black", className)}
+      className={cn(
+        "relative h-full w-full overflow-hidden bg-gradient-to-br from-zinc-800 via-zinc-900 to-zinc-950",
+        className,
+      )}
       data-feed-autoplay-candidate={candidateId}
       data-testid={`feed-autoplay-preview-${video.id}`}
     >
@@ -407,7 +408,7 @@ export function FeedVideoPreview({
         loading="lazy"
         bucket="videos"
         posterOnly
-        showPlayFallback={!hidePosterPlayIcon}
+        showPlayFallback={false}
         className="pointer-events-none select-none"
       />
       <video

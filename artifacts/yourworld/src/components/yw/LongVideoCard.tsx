@@ -120,6 +120,9 @@ export function LongVideoCard({
   const previewId = `feed:${video.id}:${useId()}`;
   const { activeCandidateId, stopCandidate } = useFeedVideoAutoplay();
   const previewIsActive = activeCandidateId === previewId;
+  const normalizedTitle = video.title.trim().replace(/\s+/g, " ").toLowerCase();
+  const normalizedCaption = video.caption.trim().replace(/\s+/g, " ").toLowerCase();
+  const showCaption = normalizedCaption.length > 0 && normalizedCaption !== normalizedTitle;
   const { following, toggleFollow } = useYw();
   const { user, requestAuthAction } = useAuth();
   const [hidden, setHidden] = useState(false);
@@ -269,11 +272,11 @@ export function LongVideoCard({
           event.stopPropagation();
           openVideo();
         }}
-        className="group relative z-20 block w-full cursor-pointer touch-manipulation select-none border-0 bg-black p-0 text-left"
+        className="group relative z-20 block w-full cursor-pointer touch-manipulation select-none border-0 bg-gradient-to-br from-zinc-800 via-zinc-900 to-zinc-950 p-0 text-left"
       >
         <div
           className={cn(
-            "relative mx-auto w-full overflow-hidden bg-black",
+            "relative mx-auto w-full overflow-hidden bg-gradient-to-br from-zinc-800 via-zinc-900 to-zinc-950",
             video.orientation === "portrait"
               ? "max-h-[75vh] aspect-[9/16]"
               : "aspect-[16/9]",
@@ -411,7 +414,7 @@ export function LongVideoCard({
           </p>
         )}
 
-        {video.caption && (
+        {showCaption && (
           <p className="line-clamp-2 text-xs leading-relaxed text-zinc-300">{video.caption}</p>
         )}
 

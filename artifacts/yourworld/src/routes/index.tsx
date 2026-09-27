@@ -24,7 +24,7 @@ import {
 
 type FeedItem =
   | { kind: "standard"; key: string; video: LongVideo }
-  | { kind: "tray"; key: string; instanceKey: string };
+  | { kind: "tray"; key: string };
 
 export const Route = createFileRoute("/")({
   component: HomePage,
@@ -228,21 +228,21 @@ function HomePage() {
   }, [resumeVideo, videos]);
   const feedItems = React.useMemo<FeedItem[]>(() => {
     const items: FeedItem[] = [];
+    const shouldShowTray = verticalVideos.length > 0;
+    const trayAfterPostCount = Math.min(2, regularVideos.length);
+
+    if (shouldShowTray && regularVideos.length === 0) {
+      items.push({ kind: "tray", key: "feed-video-tray" });
+    }
 
     regularVideos.forEach((video, index) => {
       items.push({ kind: "standard", key: `post-${video.id}`, video });
 
       const regularVideoCount = index + 1;
-      if (verticalVideos.length >= 2 && regularVideoCount % 5 === 0) {
-        const trayKey = `feed-video-tray-${regularVideoCount}`;
-        items.push({ kind: "tray", key: trayKey, instanceKey: trayKey });
+      if (shouldShowTray && regularVideoCount === trayAfterPostCount) {
+        items.push({ kind: "tray", key: "feed-video-tray" });
       }
     });
-
-    if (verticalVideos.length >= 2 && regularVideos.length < 5) {
-      const trayKey = `feed-video-tray-${regularVideos.length}`;
-      items.push({ kind: "tray", key: trayKey, instanceKey: trayKey });
-    }
 
     return items;
   }, [regularVideos, verticalVideos.length]);
