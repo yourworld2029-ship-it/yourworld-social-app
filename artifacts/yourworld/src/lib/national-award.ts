@@ -14,9 +14,13 @@ export type NationalAwardCode = (typeof NATIONAL_AWARD_OPTIONS)[number]["value"]
 export type NationalAwardEvidenceKind = "certificate" | "introduction";
 export type NationalAwardStatus =
   | "not_submitted"
+  | "draft"
+  | "pending"
   | "pending_verification"
   | "approved"
   | "rejected";
+
+export const NATIONAL_AWARD_TERMS_VERSION = "national-award-v1";
 
 export type NationalAwardEvidence = {
   path: string;
@@ -56,6 +60,7 @@ export type NationalAwardSubmissionInput = Omit<
   certificateFileName: string;
   introductionVideoPath: string;
   introductionFileName: string;
+  termsAccepted: true;
 };
 
 export type NationalAwardPublicBadge = {

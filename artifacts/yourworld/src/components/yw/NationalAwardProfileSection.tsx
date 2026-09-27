@@ -6,6 +6,7 @@ import {
 } from "@/components/yw/NationalAwardProfile";
 import {
   getNationalAwardVerificationDetails,
+  saveNationalAwardVerificationDraft,
   submitNationalAwardVerification,
 } from "@/lib/national-award.functions";
 import {
@@ -21,6 +22,7 @@ export function NationalAwardProfileSection({ userId }: { userId: string }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
   const [uploadingKind, setUploadingKind] = useState<NationalAwardEvidenceKind | null>(
     null,
   );
@@ -63,8 +65,51 @@ export function NationalAwardProfileSection({ userId }: { userId: string }) {
     [userId],
   );
 
-  const handleSubmit = useCallback(
+  const handleSaveDraft = useCallback(
     async (values: NationalAwardFormValues) => {
+      if (!values.certificate || !values.introductionVideo) {
+        toast.error("Upload both required verification files before saving.");
+        return;
+      }
+
+      setSavingDraft(true);
+      try {
+        const nextDetails = await saveNationalAwardVerificationDraft({
+          data: {
+            fullName: values.fullName,
+            fatherName: values.fatherName,
+            dateOfBirth: values.dateOfBirth,
+            phoneNumber: values.phoneNumber,
+            email: values.email,
+            villageTown: values.villageTown,
+            district: values.district,
+            state: values.state,
+            identityDetailsConfirmed: values.identityDetailsConfirmed,
+            awardCode: values.awardCode,
+            awardYear: values.awardYear,
+            certificatePath: values.certificate.path,
+            certificateFileName: values.certificate.name,
+            introductionPath: values.introductionVideo.path,
+            introductionFileName: values.introductionVideo.name,
+          },
+        });
+        setDetails(nextDetails);
+        toast.success("Verification details saved.");
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Could not save National Award Verification details.",
+        );
+      } finally {
+        setSavingDraft(false);
+      }
+    },
+    [],
+  );
+
+  const handleSubmit = useCallback(
+    async (values: NationalAwardFormValues, termsAccepted: true) => {
       if (!values.certificate || !values.introductionVideo) {
         toast.error("Upload both required verification files before submitting.");
         return;
@@ -89,11 +134,12 @@ export function NationalAwardProfileSection({ userId }: { userId: string }) {
             certificateFileName: values.certificate.name,
             introductionPath: values.introductionVideo.path,
             introductionFileName: values.introductionVideo.name,
+            termsAccepted,
           },
         });
         setDetails(nextDetails);
         setOpen(false);
-        toast.success("National Award Verification submitted for review.");
+        toast.success("National Award Profile submitted for verification.");
       } catch (error) {
         toast.error(
           error instanceof Error
@@ -125,8 +171,10 @@ export function NationalAwardProfileSection({ userId }: { userId: string }) {
         details={details}
         loading={loading}
         saving={saving}
+        savingDraft={savingDraft}
         uploadingKind={uploadingKind}
         onUpload={handleUpload}
+        onSaveDraft={handleSaveDraft}
         onSubmit={handleSubmit}
       />
     </>

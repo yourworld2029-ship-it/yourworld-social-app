@@ -224,7 +224,10 @@ function NationalAwardVerificationAdminPage() {
                       {awardLabel} · {application.awardYear}
                     </p>
                     <p className="mt-1 text-[11px] text-zinc-500">
-                      Submitted {new Date(application.submittedAt).toLocaleString()}
+                      Submitted{" "}
+                      {application.submittedAt
+                        ? new Date(application.submittedAt).toLocaleString()
+                        : "time unavailable"}
                     </p>
                   </div>
                 </div>

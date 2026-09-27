@@ -955,7 +955,9 @@ export type Database = {
           reviewed_at: string | null
           reviewed_by: string | null
           state: string
-          submitted_at: string
+          submitted_at: string | null
+          terms_accepted_at: string | null
+          terms_version: string | null
           updated_at: string
           user_id: string
           village_town: string
@@ -985,7 +987,9 @@ export type Database = {
           reviewed_at?: string | null
           reviewed_by?: string | null
           state: string
-          submitted_at?: string
+          submitted_at?: string | null
+          terms_accepted_at?: string | null
+          terms_version?: string | null
           updated_at?: string
           user_id: string
           village_town: string
@@ -1015,7 +1019,9 @@ export type Database = {
           reviewed_at?: string | null
           reviewed_by?: string | null
           state?: string
-          submitted_at?: string
+          submitted_at?: string | null
+          terms_accepted_at?: string | null
+          terms_version?: string | null
           updated_at?: string
           user_id?: string
           village_town?: string
@@ -1275,6 +1281,32 @@ export type Database = {
         Returns: string
       }
       submit_national_award_verification: {
+        Args: {
+          p_award_code: string
+          p_award_year: number
+          p_certificate_file_name: string
+          p_certificate_mime_type: string
+          p_certificate_path: string
+          p_certificate_size: number
+          p_date_of_birth: string
+          p_district: string
+          p_email: string
+          p_father_name: string
+          p_full_name: string
+          p_introduction_file_name: string
+          p_introduction_mime_type: string
+          p_introduction_path: string
+          p_introduction_size: number
+          p_phone_number: string
+          p_state: string
+          p_terms_accepted: boolean
+          p_terms_version: string
+          p_user_id: string
+          p_village_town: string
+        }
+        Returns: string
+      }
+      save_national_award_verification_draft: {
         Args: {
           p_award_code: string
           p_award_year: number

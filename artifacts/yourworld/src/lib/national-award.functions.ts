@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import {
   isNationalAwardCode,
+  NATIONAL_AWARD_TERMS_VERSION,
   NATIONAL_AWARD_OPTIONS,
   type NationalAwardCode,
   type NationalAwardEvidence,
@@ -51,7 +52,7 @@ type NationalAwardRow = {
   introduction_size: number;
   review_status: Exclude<NationalAwardStatus, "not_submitted">;
   review_reason: string | null;
-  submitted_at: string;
+  submitted_at: string | null;
 };
 
 async function getAdminClient() {
@@ -137,7 +138,7 @@ export const getNationalAwardVerificationDetails = createServerFn({ method: "GET
     return mapRow((data as NationalAwardRow | null) ?? null);
   });
 
-const submissionSchema = z.object({
+const submissionFieldsSchema = z.object({
   fullName: z.string().trim().min(1).max(120),
   fatherName: z.string().trim().min(1).max(120),
   dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -153,6 +154,10 @@ const submissionSchema = z.object({
   certificateFileName: z.string().trim().min(1).max(255),
   introductionPath: z.string().min(1).max(512),
   introductionFileName: z.string().trim().min(1).max(255),
+});
+
+const submissionSchema = submissionFieldsSchema.extend({
+  termsAccepted: z.literal(true),
 });
 
 async function findStoredEvidence(
@@ -207,58 +212,101 @@ function validateDateOfBirth(value: string) {
   }
 }
 
+type SubmissionFields = z.infer<typeof submissionFieldsSchema>;
+
+async function buildNationalAwardRpcArgs(
+  admin: Awaited<ReturnType<typeof getAdminClient>>,
+  userId: string,
+  data: SubmissionFields,
+) {
+  validateDateOfBirth(data.dateOfBirth);
+  const [certificate, introduction] = await Promise.all([
+    findStoredEvidence(admin, userId, "certificate", data.certificatePath),
+    findStoredEvidence(admin, userId, "introduction", data.introductionPath),
+  ]);
+  const awardCode = data.awardCode as NationalAwardCode;
+  if (!NATIONAL_AWARD_OPTIONS.some((option) => option.value === awardCode)) {
+    throw new Error("Select a valid National Award.");
+  }
+
+  return {
+    p_user_id: userId,
+    p_full_name: data.fullName,
+    p_father_name: data.fatherName,
+    p_date_of_birth: data.dateOfBirth,
+    p_phone_number: data.phoneNumber,
+    p_email: data.email,
+    p_village_town: data.villageTown,
+    p_district: data.district,
+    p_state: data.state,
+    p_award_code: awardCode,
+    p_award_year: data.awardYear,
+    p_certificate_path: certificate.path,
+    p_certificate_file_name: data.certificateFileName,
+    p_certificate_mime_type: certificate.mimeType,
+    p_certificate_size: certificate.size,
+    p_introduction_path: introduction.path,
+    p_introduction_file_name: data.introductionFileName,
+    p_introduction_mime_type: introduction.mimeType,
+    p_introduction_size: introduction.size,
+  };
+}
+
+async function loadSavedNationalAwardDetails(
+  admin: Awaited<ReturnType<typeof getAdminClient>>,
+  userId: string,
+) {
+  const { data, error } = await admin
+    .from("national_award_verifications")
+    .select("*")
+    .eq("user_id", userId)
+    .single();
+  if (error) throw new Error(error.message);
+  return mapRow(data as NationalAwardRow);
+}
+
+export const saveNationalAwardVerificationDraft = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((data) => submissionFieldsSchema.parse(data))
+  .handler(async ({ data, context }) => {
+    const admin = await getAdminClient();
+    const rpcArgs = await buildNationalAwardRpcArgs(admin, context.userId, data);
+    const { data: status, error } = await admin.rpc(
+      "save_national_award_verification_draft",
+      rpcArgs,
+    );
+    if (error) throw new Error(error.message);
+    if (status !== "draft") {
+      throw new Error("National Award Verification details could not be saved.");
+    }
+    return loadSavedNationalAwardDetails(admin, context.userId);
+  });
+
 export const submitNationalAwardVerification = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator((data) => submissionSchema.parse(data))
   .handler(async ({ data, context }) => {
-    validateDateOfBirth(data.dateOfBirth);
+    const { termsAccepted, ...submissionData } = data;
     const admin = await getAdminClient();
-    const [certificate, introduction] = await Promise.all([
-      findStoredEvidence(admin, context.userId, "certificate", data.certificatePath),
-      findStoredEvidence(admin, context.userId, "introduction", data.introductionPath),
-    ]);
-
-    const awardCode = data.awardCode as NationalAwardCode;
-    if (!NATIONAL_AWARD_OPTIONS.some((option) => option.value === awardCode)) {
-      throw new Error("Select a valid National Award.");
-    }
-
+    const rpcArgs = await buildNationalAwardRpcArgs(
+      admin,
+      context.userId,
+      submissionData,
+    );
     const { data: status, error } = await admin.rpc(
       "submit_national_award_verification",
       {
-        p_user_id: context.userId,
-        p_full_name: data.fullName,
-        p_father_name: data.fatherName,
-        p_date_of_birth: data.dateOfBirth,
-        p_phone_number: data.phoneNumber,
-        p_email: data.email,
-        p_village_town: data.villageTown,
-        p_district: data.district,
-        p_state: data.state,
-        p_award_code: awardCode,
-        p_award_year: data.awardYear,
-        p_certificate_path: certificate.path,
-        p_certificate_file_name: data.certificateFileName,
-        p_certificate_mime_type: certificate.mimeType,
-        p_certificate_size: certificate.size,
-        p_introduction_path: introduction.path,
-        p_introduction_file_name: data.introductionFileName,
-        p_introduction_mime_type: introduction.mimeType,
-        p_introduction_size: introduction.size,
+        ...rpcArgs,
+        p_terms_accepted: termsAccepted,
+        p_terms_version: NATIONAL_AWARD_TERMS_VERSION,
       },
     );
     if (error) throw new Error(error.message);
-    if (status !== "pending_verification") {
+    if (status !== "pending") {
       throw new Error("National Award Verification could not be submitted.");
     }
 
-    const { data: savedRow, error: savedError } = await admin
-      .from("national_award_verifications")
-      .select("*")
-      .eq("user_id", context.userId)
-      .single();
-    if (savedError) throw new Error(savedError.message);
-    return mapRow(savedRow as NationalAwardRow);
+    return loadSavedNationalAwardDetails(admin, context.userId);
   });
 
 function requireAdminStepUp(claims: unknown) {
@@ -294,7 +342,7 @@ export const listNationalAwardVerificationApplications = createServerFn({
     const { data, error } = await admin
       .from("national_award_verifications")
       .select("*")
-      .eq("review_status", "pending_verification")
+      .in("review_status", ["pending", "pending_verification"])
       .order("submitted_at", { ascending: true })
       .limit(100);
     if (error) throw new Error(`Could not load Award Verification requests: ${error.message}`);

@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   Check,
@@ -32,6 +32,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Form } from "@/components/ui/form";
+import { NationalAwardTermsSection } from "@/components/yw/NationalAwardTermsSection";
 import { useForm, useFormContext } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -109,6 +110,16 @@ const STATUS_COPY: Record<
     title: "Award Profile",
     className: "text-amber-100/80",
   },
+  draft: {
+    eyebrow: "NATIONAL HONOUR",
+    title: "Award Profile draft",
+    className: "text-amber-100",
+  },
+  pending: {
+    eyebrow: "NATIONAL HONOUR",
+    title: "Verification pending",
+    className: "text-amber-100",
+  },
   pending_verification: {
     eyebrow: "NATIONAL HONOUR",
     title: "Verification pending",
@@ -137,7 +148,9 @@ export function NationalAwardProfileCard({
   const statusLabel =
     status === "approved"
       ? "Approved"
-      : status === "pending_verification"
+      : status === "draft"
+        ? "Draft saved"
+        : status === "pending" || status === "pending_verification"
         ? "Pending verification"
         : status === "rejected"
           ? "Rejected — corrections available"
@@ -185,7 +198,7 @@ export function NationalAwardProfileCard({
               ? "bg-emerald-300"
               : status === "rejected"
                 ? "bg-rose-300"
-                : status === "pending_verification"
+                : status === "pending" || status === "pending_verification"
                   ? "bg-amber-300"
                   : "bg-zinc-600"
           }`}
@@ -202,8 +215,10 @@ export function NationalAwardVerificationDialog({
   details,
   loading,
   saving,
+  savingDraft,
   uploadingKind,
   onUpload,
+  onSaveDraft,
   onSubmit,
 }: {
   open: boolean;
@@ -211,12 +226,14 @@ export function NationalAwardVerificationDialog({
   details: NationalAwardVerificationDetails | null;
   loading: boolean;
   saving: boolean;
+  savingDraft: boolean;
   uploadingKind: NationalAwardEvidenceKind | null;
   onUpload: (
     kind: NationalAwardEvidenceKind,
     file: File,
   ) => Promise<NationalAwardEvidence>;
-  onSubmit: (values: NationalAwardFormValues) => Promise<void>;
+  onSaveDraft: (values: NationalAwardFormValues) => Promise<void>;
+  onSubmit: (values: NationalAwardFormValues, termsAccepted: true) => Promise<void>;
 }) {
   const form = useForm<NationalAwardFormValues>({
     resolver: zodResolver(nationalAwardFormSchema),
@@ -233,7 +250,14 @@ export function NationalAwardVerificationDialog({
     watch,
   } = form;
   const values = watch();
-  const editable = !details || details.status === "not_submitted" || details.status === "rejected";
+  const [termsAgreed, setTermsAgreed] = useState(false);
+  const editable =
+    !details ||
+    details.status === "not_submitted" ||
+    details.status === "draft" ||
+    details.status === "rejected";
+  const isPending =
+    details?.status === "pending" || details?.status === "pending_verification";
   const selectedAwardLabel = useMemo(
     () => NATIONAL_AWARD_OPTIONS.find((option) => option.value === values.awardCode)?.label,
     [values.awardCode],
@@ -251,6 +275,10 @@ export function NationalAwardVerificationDialog({
       reset(details ? { ...details } : { ...EMPTY_FORM });
     }
   }, [open, details, reset]);
+
+  useEffect(() => {
+    if (open) setTermsAgreed(false);
+  }, [open]);
 
   const uploadEvidence = async (
     kind: NationalAwardEvidenceKind,
@@ -273,17 +301,13 @@ export function NationalAwardVerificationDialog({
   };
 
   const submit = async (submittedValues: NationalAwardFormValues) => {
-    if (!editable || saving) return;
-    await onSubmit({
-      ...submittedValues,
-      fullName: submittedValues.fullName.trim(),
-      fatherName: submittedValues.fatherName.trim(),
-      phoneNumber: submittedValues.phoneNumber.trim(),
-      email: submittedValues.email.trim(),
-      villageTown: submittedValues.villageTown.trim(),
-      district: submittedValues.district.trim(),
-      state: submittedValues.state.trim(),
-    });
+    if (!editable || saving || savingDraft || !termsAgreed) return;
+    await onSubmit(normalizeNationalAwardValues(submittedValues), true);
+  };
+
+  const saveDraft = async (draftValues: NationalAwardFormValues) => {
+    if (!editable || saving || savingDraft) return;
+    await onSaveDraft(normalizeNationalAwardValues(draftValues));
   };
 
   return (
@@ -332,7 +356,7 @@ export function NationalAwardVerificationDialog({
                 }}
                 className="min-h-0 overflow-y-auto px-5 py-5"
               >
-              {details?.status === "pending_verification" ? (
+              {isPending ? (
                 <div
                   data-testid="status-national-award-under-review"
                   className="mb-4 flex items-start gap-2 rounded-2xl border border-amber-200/25 bg-amber-200/[0.08] px-4 py-3 text-sm text-amber-100"
@@ -352,7 +376,8 @@ export function NationalAwardVerificationDialog({
                 </div>
               ) : null}
 
-              {details?.status === "rejected" && details.reviewReason ? (
+              {(details?.status === "rejected" || details?.status === "draft") &&
+              details.reviewReason ? (
                 <div
                   data-testid="status-national-award-review-reason"
                   className="mb-4 rounded-2xl border border-rose-200/25 bg-rose-200/[0.08] px-4 py-3"
@@ -601,12 +626,13 @@ export function NationalAwardVerificationDialog({
 
                {editable ? (
                 <Button
-                  type="submit"
+                   type="button"
                   data-testid="button-save-national-award-verification"
-                  disabled={saving || Boolean(uploadingKind)}
+                   disabled={saving || savingDraft || Boolean(uploadingKind)}
+                   onClick={() => void handleSubmit(saveDraft)()}
                   className="mt-5 h-11 w-full rounded-full bg-[#e2b75e] font-semibold text-black hover:bg-[#f0cb7b]"
                 >
-                  {saving ? (
+                   {savingDraft ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       Saving…
@@ -621,11 +647,18 @@ export function NationalAwardVerificationDialog({
                   className="mt-5 flex items-center justify-center gap-2 text-xs text-zinc-500"
                 >
                   <ShieldCheck className="h-4 w-4" />
-                  {details?.status === "approved"
+                   {details?.status === "approved"
                     ? "Approved submissions are read-only."
                     : "Pending submissions are read-only."}
                 </p>
                )}
+               <NationalAwardTermsSection
+                 accepted={termsAgreed}
+                 editable={editable}
+                 busy={saving || savingDraft || Boolean(uploadingKind)}
+                 submitting={saving}
+                 onAcceptedChange={setTermsAgreed}
+               />
               </form>
             </Form>
           )}
@@ -633,6 +666,19 @@ export function NationalAwardVerificationDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+function normalizeNationalAwardValues(values: NationalAwardFormValues) {
+  return {
+    ...values,
+    fullName: values.fullName.trim(),
+    fatherName: values.fatherName.trim(),
+    phoneNumber: values.phoneNumber.trim(),
+    email: values.email.trim(),
+    villageTown: values.villageTown.trim(),
+    district: values.district.trim(),
+    state: values.state.trim(),
+  };
 }
 
 function SectionHeading({
