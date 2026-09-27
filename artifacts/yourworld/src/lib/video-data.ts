@@ -30,7 +30,12 @@ import { scanVideoContent, type ModerationVerdict } from "@/lib/moderation.funct
 import { missingColumn, normalizePostRow, postKind, writeCompat } from "@/lib/supabase-compat";
 import { isPublishedLongVideoRow } from "@/lib/long-video-utils";
 import { registerUniqueView } from "@/lib/unique-views";
-import { isVideoQualityTier, qualityTierFromDimensions, type VideoQualityTier } from "@/lib/video-quality";
+import {
+  qualityTierFromDimensions,
+  qualityTierFromSourceMetadata,
+  sourceQualityTierFromDimensions,
+  type VideoQualityTier,
+} from "@/lib/video-quality";
 
 const liveLikesTable = () => supabase.from("likes");
 
@@ -408,7 +413,7 @@ export async function publishLongVideo(opts: {
         duration_seconds: opts.durationSeconds ? Math.round(opts.durationSeconds) : null,
         original_width: opts.originalWidth ?? null,
         original_height: opts.originalHeight ?? null,
-        source_quality_tier: qualityTierFromDimensions(opts.originalWidth, opts.originalHeight),
+        source_quality_tier: sourceQualityTierFromDimensions(opts.originalWidth, opts.originalHeight),
         scheduled_at: opts.scheduledAt ?? null,
         video_access: opts.access ?? "public",
         price: opts.price ?? null,
@@ -566,9 +571,8 @@ async function loadLongVideoPage(
           durationSeconds: post.duration_seconds,
           originalWidth: typeof metadata.original_width === "number" ? metadata.original_width : null,
           originalHeight: typeof metadata.original_height === "number" ? metadata.original_height : null,
-          sourceQualityTier: isVideoQualityTier(metadata.source_quality_tier)
-            ? metadata.source_quality_tier
-            : qualityTierFromDimensions(metadata.original_width, metadata.original_height),
+          sourceQualityTier: qualityTierFromSourceMetadata(metadata.source_quality_tier)
+            ?? qualityTierFromDimensions(metadata.original_width, metadata.original_height),
           views: Number(post.views ?? (post as typeof post & { views_count?: number | null }).views_count ?? 0),
           hashtags: post.hashtags ?? [],
           createdAt: post.created_at,

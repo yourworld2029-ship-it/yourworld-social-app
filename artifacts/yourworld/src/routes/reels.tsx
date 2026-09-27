@@ -40,8 +40,8 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadSheet";
 import {
-  isVideoQualityTier,
   qualityTierFromDimensions,
+  qualityTierFromSourceMetadata,
   type VideoQualityTier,
 } from "@/lib/video-quality";
 import { trackEvent } from "@/lib/analytics";
@@ -218,9 +218,8 @@ function ReelsList() {
           original_height?: number | null;
           source_quality_tier?: string | null;
         };
-        return isVideoQualityTier(row.source_quality_tier)
-          ? row.source_quality_tier
-          : qualityTierFromDimensions(row.original_width, row.original_height);
+        return qualityTierFromSourceMetadata(row.source_quality_tier)
+          ?? qualityTierFromDimensions(row.original_width, row.original_height);
       })(),
       durationSeconds: p.duration_seconds,
       createdAt: p.created_at,

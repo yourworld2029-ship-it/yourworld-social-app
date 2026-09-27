@@ -80,8 +80,8 @@ import {
 } from "@/lib/yw-download";
 import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadSheet";
 import {
-  isVideoQualityTier,
   qualityTierFromDimensions,
+  qualityTierFromSourceMetadata,
   type VideoQualityTier,
 } from "@/lib/video-quality";
 import { getAllOfflineVideos } from "@/lib/offlineVideosDB";
@@ -168,9 +168,8 @@ function ProfilePage() {
       })
     | null;
   const downloadSourceQualityTier = downloadQualityPost
-    ? isVideoQualityTier(downloadQualityPost.source_quality_tier)
-      ? downloadQualityPost.source_quality_tier
-      : qualityTierFromDimensions(
+    ? qualityTierFromSourceMetadata(downloadQualityPost.source_quality_tier)
+      ?? qualityTierFromDimensions(
           downloadQualityPost.original_width,
           downloadQualityPost.original_height,
         )

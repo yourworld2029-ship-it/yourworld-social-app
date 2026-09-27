@@ -32,7 +32,7 @@ import {
   MIN_REEL_DURATION_MESSAGE,
   MIN_REEL_DURATION_SECONDS,
 } from "@/lib/reel-editor";
-import { qualityTierFromDimensions } from "@/lib/video-quality";
+import { sourceQualityTierFromDimensions } from "@/lib/video-quality";
 import {
   AFTER_VIEW_DELAY_MS,
   afterViewExpiresAt,
@@ -925,7 +925,7 @@ export async function publishReel(opts: {
     duration_seconds: opts.durationSeconds ? Math.round(opts.durationSeconds) : null,
     original_width: opts.originalWidth ?? null,
     original_height: opts.originalHeight ?? null,
-    source_quality_tier: qualityTierFromDimensions(opts.originalWidth, opts.originalHeight),
+    source_quality_tier: sourceQualityTierFromDimensions(opts.originalWidth, opts.originalHeight),
   }, { kind: "type" });
   if (error) console.error("Reel database insert failed", error);
   else rememberLocalMedia(mediaUrl, opts.fileUrl);
@@ -1019,7 +1019,7 @@ export async function publishDirectReel(opts: {
       duration_seconds: Math.round(opts.durationSeconds),
       original_width: opts.originalWidth ?? null,
       original_height: opts.originalHeight ?? null,
-      source_quality_tier: qualityTierFromDimensions(
+      source_quality_tier: sourceQualityTierFromDimensions(
         opts.originalWidth,
         opts.originalHeight,
       ),

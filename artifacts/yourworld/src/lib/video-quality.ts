@@ -10,6 +10,14 @@ export const VIDEO_QUALITY_TIERS = [
 
 export type VideoQualityTier = (typeof VIDEO_QUALITY_TIERS)[number]["id"];
 
+export type StoredSourceQualityTier =
+  | VideoQualityTier
+  | "2k"
+  | "4k"
+  | "original"
+  | "high"
+  | "standard";
+
 export function qualityTierFromDimensions(
   width: number | null | undefined,
   height: number | null | undefined,
@@ -25,12 +33,30 @@ export function qualityTierFromDimensions(
   return tier;
 }
 
+export function sourceQualityTierFromDimensions(
+  width: number | null | undefined,
+  height: number | null | undefined,
+): StoredSourceQualityTier | null {
+  const tier = qualityTierFromDimensions(width, height);
+  if (tier === "1440p") return "2k";
+  if (tier === "2160p") return "4k";
+  return tier;
+}
+
+export function qualityTierFromSourceMetadata(
+  sourceTier: string | null | undefined,
+): VideoQualityTier | null {
+  if (sourceTier === "2k") return "1440p";
+  if (sourceTier === "4k") return "2160p";
+  return isVideoQualityTier(sourceTier) ? sourceTier : null;
+}
+
 export function qualityTierFromMetadata(
   sourceTier: string | null | undefined,
   width: number | null | undefined,
   height: number | null | undefined,
 ): VideoQualityTier | null {
-  const declaredTier = isVideoQualityTier(sourceTier) ? sourceTier : null;
+  const declaredTier = qualityTierFromSourceMetadata(sourceTier);
   const dimensionTier = qualityTierFromDimensions(width, height);
   const hasDimensions =
     Number.isFinite(Number(width)) &&
