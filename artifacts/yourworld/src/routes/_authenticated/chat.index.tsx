@@ -4,11 +4,12 @@ import { Search, SquarePen, MessageSquare, X, Check, Trash2 } from "lucide-react
 import { supabase } from "@/integrations/supabase/client";
 import { resolveThreadPeer, dmThreadId } from "@/lib/social-data";
 import { cacheGet, cacheSet } from "@/lib/local-cache";
-import { deleteDirectThreads, hiddenThreadIds } from "@/lib/chat-delete";
+import { deleteDirectThreads, hiddenThreadIds, loadHiddenDirectThreads } from "@/lib/chat-delete";
 import { useChatNames } from "@/lib/chat-names";
 import { useSecretChats } from "@/lib/secret-chats";
 import { ProfileAvatar } from "@/components/yw/ProfileAvatar";
 import { ProtectedCanvasText } from "@/components/yw/ProtectedCanvasContent";
+import { formatChatRelativeTime } from "@/lib/chat-time";
 
 export const Route = createFileRoute("/_authenticated/chat/")({
   component: ChatListPage,
@@ -19,7 +20,8 @@ interface ChatThread {
   name: string;
   peerId?: string | null;
   lastMessage: string;
-  time: string;
+  lastMessageAt?: string;
+  time?: string;
   unreadCount?: number;
   avatar_url?: string | null;
 }
@@ -31,28 +33,6 @@ interface DiscoverProfile {
   avatar_url?: string | null;
   profile_pic?: string | null;
   profile_image?: string | null;
-}
-
-function formatChatListTime(iso: string) {
-  const timestamp = new Date(iso).getTime();
-  if (!Number.isFinite(timestamp)) return "Just now";
-
-  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
-  if (elapsedSeconds < 60) return "Just now";
-  if (elapsedSeconds < 3600) return `${Math.floor(elapsedSeconds / 60)}m ago`;
-  if (elapsedSeconds < 86400) return `${Math.floor(elapsedSeconds / 3600)}h ago`;
-
-  const elapsedDays = Math.floor(elapsedSeconds / 86400);
-  if (elapsedDays === 1) return "Yesterday";
-  if (elapsedDays <= 6) return `${elapsedDays}d ago`;
-
-  const elapsedWeeks = Math.floor(elapsedDays / 7);
-  if (elapsedWeeks <= 4) return `${elapsedWeeks}w ago`;
-
-  const elapsedMonths = Math.floor(elapsedDays / 30);
-  if (elapsedMonths < 12) return `${Math.max(1, elapsedMonths)}mo ago`;
-
-  return `${Math.max(1, Math.floor(elapsedDays / 365))}y ago`;
 }
 
 function ChatListPage() {
@@ -77,10 +57,17 @@ function NativeChatListPage() {
   const [hidden, setHidden] = useState<string[]>(() => hiddenThreadIds());
   const [deleting, setDeleting] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [relativeNow, setRelativeNow] = useState(() => Date.now());
   const pressTimer = useRef<number | null>(null);
   const longPressed = useRef(false);
+  const pendingHiddenRef = useRef(new Set<string>());
   const { nameFor } = useChatNames();
   const { isHidden, ready: secretChatsReady } = useSecretChats(searchQuery);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setRelativeNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const toggleSelect = (id: string) =>
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -107,6 +94,16 @@ function NativeChatListPage() {
           setLoadError("Sign in to view your chats.");
           return;
         }
+        let hiddenForUser = hiddenThreadIds();
+        let hiddenLoadError: string | null = null;
+        try {
+          hiddenForUser = await loadHiddenDirectThreads(me);
+        } catch (cause) {
+          hiddenLoadError = cause instanceof Error ? cause.message : "Could not sync deleted chats.";
+        }
+        if (generation !== requestGeneration) return;
+        hiddenForUser = [...new Set([...hiddenForUser, ...pendingHiddenRef.current])];
+        setHidden(hiddenForUser);
         // public.messages is the conversation source of truth. Canonical route
         // ids are derived from the authenticated user and the other endpoint.
         const { data, error } = await supabase
@@ -131,15 +128,15 @@ function NativeChatListPage() {
                 name: "Loading…",
                 peerId,
                 lastMessage: msg.content || (msg.voice_note_url ? "Voice note" : msg.media_url ? "Media file" : "Message"),
-                time: formatChatListTime(msg.created_at),
+              lastMessageAt: msg.created_at,
                 unreadCount: unread,
               });
-              setLoadError(null);
             } else {
               existing.unreadCount = unread;
             }
           });
-          const base = Array.from(map.values());
+          const base = Array.from(map.values()).filter((thread) => !hiddenForUser.includes(thread.id));
+          setLoadError(hiddenLoadError);
           // Keep already-resolved names from the cache instead of flashing "Loading…".
           setThreads((prev) =>
             base.map((t) => {
@@ -267,10 +264,27 @@ function NativeChatListPage() {
   const removeSelected = async () => {
     const ids = [...selected];
     if (!ids.length) return;
+    const removedThreads = threads.filter((thread) => ids.includes(thread.id));
+    ids.forEach((id) => pendingHiddenRef.current.add(id));
     setDeleting(true);
     setHidden((prev) => [...prev, ...ids]);
-    setThreads((prev) => prev.filter((t) => !ids.includes(t.id)));
-    await deleteDirectThreads(ids);
+    setThreads((prev) => {
+      const next = prev.filter((t) => !ids.includes(t.id));
+      cacheSet("chat-threads", next.slice(0, 30));
+      return next;
+    });
+    const result = await deleteDirectThreads(ids);
+    if (result.error) setLoadError(result.error);
+    if (!result.persisted) {
+      ids.forEach((id) => pendingHiddenRef.current.delete(id));
+      setHidden((prev) => prev.filter((id) => !ids.includes(id)));
+      setThreads((prev) => {
+        const restored = [...prev, ...removedThreads];
+        restored.sort((a, b) => Date.parse(b.lastMessageAt ?? "") - Date.parse(a.lastMessageAt ?? ""));
+        cacheSet("chat-threads", restored.slice(0, 30));
+        return restored;
+      });
+    }
     setDeleting(false);
     exitSelect();
   };
@@ -289,7 +303,10 @@ function NativeChatListPage() {
   };
 
   return (
-    <div className="flex h-screen flex-col bg-black text-white p-4">
+    <div
+      className="flex h-screen flex-col bg-black text-white p-4"
+      style={{ paddingTop: "max(env(safe-area-inset-top), 36px)" }}
+    >
       {/* Top Header */}
       <div className="flex items-center justify-between mb-4">
         {selecting ? (
@@ -397,7 +414,9 @@ function NativeChatListPage() {
                 </div>
 
                 <div className="flex flex-col items-end gap-1">
-                  <span className="text-[10px] text-gray-500">{chat.time}</span>
+                  <span className="text-[10px] text-gray-500">
+                    {chat.lastMessageAt ? formatChatRelativeTime(chat.lastMessageAt, relativeNow) : chat.time ?? "Just now"}
+                  </span>
                   {chat.unreadCount && chat.unreadCount > 0 ? (
                     <span className="bg-pink-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
                       {chat.unreadCount}
@@ -435,6 +454,19 @@ function NativeChatListPage() {
                   if (longPressed.current) {
                     e.preventDefault();
                     longPressed.current = false;
+                    return;
+                  }
+                  if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+                    setThreads((prev) => {
+                      const next = prev.map((thread) =>
+                        thread.id === chat.id ? { ...thread, unreadCount: 0 } : thread,
+                      );
+                      cacheSet("chat-threads", next.slice(0, 30));
+                      return next;
+                    });
+                    window.dispatchEvent(
+                      new CustomEvent("yw:chat-thread-opened", { detail: { threadId: chat.id } }),
+                    );
                   }
                 }}
                 onContextMenu={(e) => {

@@ -28,6 +28,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useThreadPresence } from "@/lib/presence";
 import { useCall } from "@/lib/call-store";
 import { useMoments } from "@/lib/moment-context";
+import { formatChatRelativeTime } from "@/lib/chat-time";
 import { useChatNames, saveChatDisplayName } from "@/lib/chat-names";
 import { useChatSettings } from "@/lib/chat-settings";
 import { hashPin, randomPinSalt } from "@/lib/secret-chats";
@@ -369,6 +370,7 @@ function NativeChatThreadPage() {
     remove: removeFromDb,
     clearForEveryone,
     markRead,
+    markThreadRead,
     consumeViewOnce,
     purgeViewedMedia,
     loading: messagesLoading,
@@ -449,6 +451,7 @@ function NativeChatThreadPage() {
   const [localMessages, setLocalMessages] = useState<Message[]>([]);
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
+  const [relativeNow, setRelativeNow] = useState(() => Date.now());
   const [revealedProtectedIds, setRevealedProtectedIds] = useState<string[]>([]);
   const captureAlertSequenceRef = useRef(0);
   const lastScreenshotAlertAtRef = useRef(0);
@@ -517,6 +520,11 @@ function NativeChatThreadPage() {
   }, [dbMessages, localMessages, hiddenIds, currentUserId]);
 
   useEffect(() => {
+    const timer = window.setInterval(() => setRelativeNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
     if (!dbMessages.some((m) =>
       m.auto_delete_mode === "after_view" &&
       m.is_viewed &&
@@ -559,6 +567,13 @@ function NativeChatThreadPage() {
       .map((m) => m.id);
     if (unread.length) void markRead(unread);
   }, [dbMessages, currentUserId, markRead]);
+
+  useEffect(() => {
+    window.dispatchEvent(
+      new CustomEvent("yw:chat-thread-opened", { detail: { threadId } }),
+    );
+    void markThreadRead();
+  }, [threadId, markThreadRead]);
 
   const [showEmojis, setShowEmojis] = useState(false);
   const [showOptionsMenu, setShowOptionsMenu] = useState(false);
@@ -776,11 +791,27 @@ function NativeChatThreadPage() {
   };
   const toggleSelect = (id: string) =>
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  const deleteIds = (ids: string[]) => {
-    setLocalMessages((prev) => prev.filter((m) => !ids.includes(m.id)));
-    setHiddenIds((prev) => [...prev, ...ids]);
-    void removeFromDb(ids.filter((id) => !id.startsWith("local-")));
+  const deleteIds = async (ids: string[]) => {
+    const localIds = ids.filter((id) => id.startsWith("local-"));
+    const persistedIds = ids.filter((id) =>
+      dbMessages.some((message) => message.id === id && message.sender_id === currentUserId),
+    );
+    const allowedIds = [...new Set([...localIds, ...persistedIds])];
+    if (allowedIds.length !== ids.length) {
+      toast.message("You can only delete messages you sent.");
+    }
+    if (!allowedIds.length) return;
+
+    setLocalMessages((prev) => prev.filter((m) => !allowedIds.includes(m.id)));
+    setHiddenIds((prev) => [...new Set([...prev, ...allowedIds])]);
     setSelectedIds([]);
+    if (!persistedIds.length) return;
+
+    const result = await removeFromDb(persistedIds);
+    if (result.error) {
+      setHiddenIds((prev) => prev.filter((id) => !persistedIds.includes(id)));
+      toast.error(`Message deletion failed: ${result.error}`);
+    }
   };
   const confirmClearForEveryone = async () => {
     const result = await clearForEveryone();
@@ -1184,6 +1215,7 @@ function NativeChatThreadPage() {
                 threadId,
                 peerId: peer.peerId ?? undefined,
                 peerName: displayName,
+                avatarUrl: peer.avatarUrl ?? null,
                 mode: "audio",
               })
             }
@@ -1198,6 +1230,7 @@ function NativeChatThreadPage() {
                 threadId,
                 peerId: peer.peerId ?? undefined,
                 peerName: displayName,
+                avatarUrl: peer.avatarUrl ?? null,
                 mode: "video",
               })
             }
@@ -1383,7 +1416,7 @@ function NativeChatThreadPage() {
           <p key={m.id} className="mx-auto flex w-fit items-center gap-2 rounded-full bg-zinc-800/70 px-3 py-1 text-center text-[11px] text-zinc-400">
             <span>{m.text}</span>
             <time dateTime={new Date(m.ts).toISOString()} className="text-[10px] text-zinc-500">
-              {m.time}
+              {formatChatRelativeTime(m.ts, relativeNow)}
             </time>
           </p>
         ) : (
@@ -1557,7 +1590,7 @@ function NativeChatThreadPage() {
             )}
 
             <span className="text-[10px] text-zinc-500 mt-1 px-1 flex items-center gap-1">
-              {m.time}
+              {formatChatRelativeTime(m.ts, relativeNow)}
               {m.sender === "me" && (
                 m.local ? (
                   <Check size={12} className="text-zinc-500" />

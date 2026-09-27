@@ -1157,10 +1157,24 @@ export async function ensureThreadConversation(
 export function useUnreadMessageCount() {
   const [count, setCount] = useState(0);
   const meRef = useRef<string | null>(null);
+  const unreadByThreadRef = useRef(new Map<string, number>());
+  const openedThreadsRef = useRef(new Set<string>());
+
+  const visibleUnreadCount = useCallback(() => {
+    let total = 0;
+    unreadByThreadRef.current.forEach((threadCount, threadId) => {
+      if (!openedThreadsRef.current.has(threadId)) total += threadCount;
+    });
+    return total;
+  }, []);
 
   const reload = useCallback(async () => {
     const { data: sessionData } = await supabase.auth.getSession();
     const uid = sessionData.session?.user.id ?? null;
+    if (meRef.current !== uid) {
+      unreadByThreadRef.current.clear();
+      openedThreadsRef.current.clear();
+    }
     meRef.current = uid;
     if (!uid) {
       setCount(0);
@@ -1169,11 +1183,22 @@ export function useUnreadMessageCount() {
 
     const { data, error } = await supabase
       .from("messages" as never)
-      .select("id" as never)
+      .select("sender_id" as never)
       .eq("receiver_id" as never, uid)
       .eq("is_read" as never, false);
-    if (!error) setCount(Array.isArray(data) ? data.length : 0);
-  }, []);
+    if (!error) {
+      const nextCounts = new Map<string, number>();
+      for (const row of (Array.isArray(data) ? data : []) as unknown as Array<{ sender_id: string }>) {
+        const threadId = dmThreadId(uid, row.sender_id);
+        nextCounts.set(threadId, (nextCounts.get(threadId) ?? 0) + 1);
+      }
+      unreadByThreadRef.current = nextCounts;
+      openedThreadsRef.current.forEach((threadId) => {
+        if (!nextCounts.has(threadId)) openedThreadsRef.current.delete(threadId);
+      });
+      setCount(visibleUnreadCount());
+    }
+  }, [visibleUnreadCount]);
 
   useEffect(() => {
     void reload();
@@ -1185,16 +1210,33 @@ export function useUnreadMessageCount() {
       })
       .subscribe();
     const onLocalRead = () => void reload();
+    const onThreadOpened = (event: Event) => {
+      const detail = (event as CustomEvent<{ threadId?: string }>).detail;
+      if (!detail?.threadId) return;
+      openedThreadsRef.current.add(detail.threadId);
+      setCount(visibleUnreadCount());
+      void reload();
+    };
+    const onReadFailed = (event: Event) => {
+      const detail = (event as CustomEvent<{ threadId?: string }>).detail;
+      if (detail?.threadId) openedThreadsRef.current.delete(detail.threadId);
+      setCount(visibleUnreadCount());
+      void reload();
+    };
     const onVisible = () => {
       if (document.visibilityState === "visible") void reload();
     };
     const onAuthChange = () => void reload();
     window.addEventListener("yw:chat-unread-changed", onLocalRead);
+    window.addEventListener("yw:chat-thread-opened", onThreadOpened);
+    window.addEventListener("yw:chat-read-failed", onReadFailed);
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("online", onVisible);
     const { data: auth } = supabase.auth.onAuthStateChange(onAuthChange);
     return () => {
       window.removeEventListener("yw:chat-unread-changed", onLocalRead);
+      window.removeEventListener("yw:chat-thread-opened", onThreadOpened);
+      window.removeEventListener("yw:chat-read-failed", onReadFailed);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("online", onVisible);
       auth.subscription.unsubscribe();
@@ -1457,10 +1499,12 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
           const row = (payload.new ?? payload.old) as PublicMessageRow;
           if (!row?.id || threadIdRef.current !== threadId) return;
           if (payload.eventType === "DELETE") {
-            setMessages((prev) => {
-              if (messagesThreadIdRef.current !== threadId) return prev;
-              return prev.filter((m) => m.id !== row.id);
-            });
+            if (!messagesRef.current.some((message) => message.id === row.id)) return;
+            clearGenerationRef.current += 1;
+            messagesRef.current = messagesRef.current.filter((message) => message.id !== row.id);
+            setMessages(messagesRef.current);
+            cacheSet(`thread:${threadId}`, messagesRef.current);
+            saveCachedThread(`social:${threadId}`, messagesRef.current);
             return;
           }
           if (!belongsRef.current(row)) return;
@@ -1518,6 +1562,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
         setMessages([]);
         setHasMore(false);
         cacheSet(`thread:${threadId}`, []);
+        saveCachedThread(`social:${threadId}`, []);
       })
       .subscribe();
     clearChannelRef.current = channel;
@@ -1534,14 +1579,16 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       .channel(`social-chat-events-${conversationId}`)
       .on("broadcast", { event: "MESSAGE_DELETED" }, ({ payload }) => {
         if (payload?.conversationId !== conversationId || typeof payload?.messageId !== "string") return;
-        setMessages((prev) => prev.filter((message) => message.id !== payload.messageId));
+        clearGenerationRef.current += 1;
+        messagesRef.current = messagesRef.current.filter((message) => message.id !== payload.messageId);
+        setMessages(messagesRef.current);
         cacheSet(
           `thread:${threadId}`,
-          messagesRef.current.filter((message) => message.id !== payload.messageId),
+          messagesRef.current,
         );
         saveCachedThread(
           `social:${threadId}`,
-          messagesRef.current.filter((message) => message.id !== payload.messageId),
+          messagesRef.current,
         );
       })
       .subscribe();
@@ -1814,11 +1861,73 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     }
   }, [me, pair, threadId, conversationId, merge]);
   const remove = useCallback(async (ids: string[]) => {
-    if (!me || !ids.length) return;
-    const { error: deleteError } = await supabase.from("messages" as never).delete().in("id", ids).eq("sender_id", me);
-    if (deleteError) { setError(deleteError.message); return; }
-    setMessages((prev) => prev.filter((m) => !ids.includes(m.id) || m.sender_id !== me));
-  }, [me]);
+    if (!me || !ids.length) return { error: null };
+    const targetIds = [...new Set(ids)].filter((id) =>
+      messagesRef.current.some((message) => message.id === id && message.sender_id === me),
+    );
+    if (!targetIds.length) return { error: null };
+
+    const previousRows = messagesRef.current.filter((message) => targetIds.includes(message.id));
+    clearGenerationRef.current += 1;
+    messagesRef.current = messagesRef.current.filter((message) => !targetIds.includes(message.id));
+    setMessages(messagesRef.current);
+    cacheSet(`thread:${threadId}`, messagesRef.current);
+    saveCachedThread(`social:${threadId}`, messagesRef.current);
+
+    const { data: deletedRows, error: deleteError } = await supabase
+      .from("messages" as never)
+      .delete()
+      .in("id" as never, targetIds as never)
+      .eq("sender_id" as never, me)
+      .select("id" as never);
+    if (deleteError) {
+      clearGenerationRef.current += 1;
+      messagesRef.current = [...messagesRef.current, ...previousRows]
+        .sort((a, b) => a.created_at.localeCompare(b.created_at));
+      setMessages(messagesRef.current);
+      cacheSet(`thread:${threadId}`, messagesRef.current);
+      saveCachedThread(`social:${threadId}`, messagesRef.current);
+      setError(deleteError.message);
+      return { error: deleteError.message };
+    }
+
+    const deletedIds = new Set(
+      ((deletedRows ?? []) as unknown as Array<{ id: string }>).map((row) => row.id),
+    );
+    const possiblyStillPresent = targetIds.filter((id) => !deletedIds.has(id));
+    if (possiblyStillPresent.length) {
+      const { data: stillPresent, error: verifyError } = await supabase
+        .from("messages" as never)
+        .select("id" as never)
+        .in("id" as never, possiblyStillPresent as never)
+        .eq("sender_id" as never, me);
+      if (verifyError || (stillPresent ?? []).length) {
+        const message = verifyError?.message ?? "The message deletion was not confirmed.";
+        clearGenerationRef.current += 1;
+        messagesRef.current = [...messagesRef.current, ...previousRows]
+          .sort((a, b) => a.created_at.localeCompare(b.created_at));
+        setMessages(messagesRef.current);
+        cacheSet(`thread:${threadId}`, messagesRef.current);
+        saveCachedThread(`social:${threadId}`, messagesRef.current);
+        setError(message);
+        return { error: message };
+      }
+    }
+
+    const channel = deletionChannelRef.current;
+    if (channel && conversationIdRef.current) {
+      await Promise.all(
+        targetIds.map((messageId) =>
+          channel.send({
+            type: "broadcast",
+            event: "MESSAGE_DELETED",
+            payload: { conversationId: conversationIdRef.current, messageId },
+          }),
+        ),
+      );
+    }
+    return { error: null };
+  }, [me, threadId]);
   const clearForEveryone = useCallback(async () => {
     if (!me || !conversationId) {
       return { error: "Chat is still syncing. Try again in a moment." };
@@ -1840,6 +1949,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     setMessages([]);
     setHasMore(false);
     cacheSet(`thread:${threadId}`, []);
+    saveCachedThread(`social:${threadId}`, []);
     const channel = clearChannelRef.current;
     if (channel) {
       await channel.send({
@@ -1851,9 +1961,14 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     return { error: null };
   }, [conversationId, me, threadId]);
   const markRead = useCallback(async (ids: string[]) => {
-    if (!me || !ids.length) return;
+    if (!me || !ids.length) return { error: null };
     const { error: updateError } = await supabase.from("messages" as never).update({ is_read: true } as never).in("id", ids).eq("receiver_id", me);
-    if (updateError) { setError(updateError.message); return; }
+    if (updateError) { setError(updateError.message); return { error: updateError.message }; }
+    setMessages((prev) => prev.map((message) =>
+      ids.includes(message.id) && message.receiver_id === me
+        ? { ...message, is_read: true }
+        : message,
+    ));
     if (typeof window !== "undefined") {
       window.dispatchEvent(new Event("yw:chat-unread-changed"));
     }
@@ -1865,7 +1980,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       .eq("auto_delete_mode", "after_view")
       .eq("is_deleted", false)
       .select("id,viewed_at,expires_at" as never);
-    if (viewedError) { setError(viewedError.message); return; }
+    if (viewedError) { setError(viewedError.message); return { error: viewedError.message }; }
     const viewedById = new Map(
       ((viewedRows ?? []) as unknown as { id: string; viewed_at: string | null; expires_at: string | null }[])
         .map((row) => [row.id, row]),
@@ -1887,7 +2002,55 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
           }
         : m)
       );
+    return { error: null };
   }, [me]);
+
+  const markThreadRead = useCallback(async () => {
+    if (!me || !pair) return { error: null };
+    const peerId = pair.find((participantId) => participantId !== me);
+    if (!peerId) return { error: null };
+
+    const unreadIds: string[] = [];
+    const pageSize = 500;
+    for (let offset = 0; ; offset += pageSize) {
+      const { data, error: queryError } = await supabase
+        .from("messages" as never)
+        .select("id,auto_delete_mode,metadata,is_viewed" as never)
+        .eq("sender_id" as never, peerId)
+        .eq("receiver_id" as never, me)
+        .eq("is_read" as never, false)
+        .order("created_at" as never, { ascending: true })
+        .range(offset, offset + pageSize - 1);
+      if (queryError) {
+        setError(queryError.message);
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("yw:chat-read-failed", { detail: { threadId } }));
+        }
+        return { error: queryError.message };
+      }
+
+      const batch = (data ?? []) as unknown as Array<{
+        id: string;
+        auto_delete_mode?: string | null;
+        metadata?: Record<string, unknown> | null;
+        is_viewed?: boolean;
+      }>;
+      for (const row of batch) {
+        const viewOnceNotOpened =
+          row.auto_delete_mode === "after_view" &&
+          row.metadata?.view_once === true &&
+          row.is_viewed !== true;
+        if (!viewOnceNotOpened) unreadIds.push(row.id);
+      }
+      if (batch.length < pageSize) break;
+    }
+
+    const result = await markRead([...new Set(unreadIds)]);
+    if (result.error && typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("yw:chat-read-failed", { detail: { threadId } }));
+    }
+    return result;
+  }, [me, pair, markRead, threadId]);
 
   const consumeViewOnce = useCallback(async (id: string) => {
     if (!me) return { error: "Sign in to open view-once media." };
@@ -1926,6 +2089,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     remove,
     clearForEveryone,
     markRead,
+    markThreadRead,
     consumeViewOnce,
     purgeViewedMedia,
     error,

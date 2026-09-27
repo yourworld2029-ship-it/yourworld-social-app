@@ -789,6 +789,7 @@ function NativeOrbitChatPage() {
     void call.startCall({
       peerId: userId,
       peerName: displayName ?? p?.name ?? "Orbit",
+      avatarUrl: p?.photo ?? null,
       mode: mode === "video" ? "video" : "audio",
     });
   };
