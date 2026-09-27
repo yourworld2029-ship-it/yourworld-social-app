@@ -10,7 +10,7 @@ import {
 import { FeedVideoTray } from "@/components/yw/FeedVideoTray";
 import { useLongVideos, type LongVideo } from "@/lib/video-data";
 import { setVideoQueue } from "@/lib/video-queue";
-import { Search, Heart, Plus, MoreVertical, Play } from "lucide-react";
+import { Search, Heart, Plus } from "lucide-react";
 import { useMoments } from "@/lib/moment-context";
 import { useAlertsCount } from "@/lib/alerts-count";
 import { useAuth } from "@/lib/auth-store";
@@ -25,12 +25,8 @@ import {
 } from "@/lib/video-resume";
 import { useVideoPlayback } from "@/lib/video-playback";
 
-type FeedGroup =
-  | { kind: "standard"; video: LongVideo }
-  | { kind: "vertical"; verticalPostsGroup: LongVideo[] };
-
 type FeedItem =
-  | { kind: "group"; key: string; group: FeedGroup }
+  | { kind: "standard"; key: string; video: LongVideo }
   | { kind: "tray"; key: string; instanceKey: string };
 
 export const Route = createFileRoute("/")({
@@ -57,55 +53,6 @@ function MomentAvatar({
   src?: string | null;
 }) {
   return <ProfileAvatar user={{ full_name: fullName, username, avatar_url: src }} />;
-}
-
-function FeedPortraitVideoCard({ video }: { video: LongVideo }) {
-  const previewId = `portrait:${video.id}:${React.useId()}`;
-  const { activeCandidateId, stopCandidate } = useFeedVideoAutoplay();
-  const previewIsActive = activeCandidateId === previewId;
-
-  return (
-    <div className="relative aspect-[9/16] w-full overflow-hidden rounded-2xl bg-zinc-900">
-      <button
-        type="button"
-        aria-label={`Open ${video.title || "Shorts"}`}
-        onClick={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          stopCandidate(previewId);
-          window.location.href = `/video/${video.id}`;
-        }}
-        className="group absolute inset-0 z-20 block h-full w-full cursor-pointer touch-manipulation select-none overflow-hidden border-0 bg-zinc-900 p-0 text-left"
-      >
-        <FeedVideoPreview
-          video={video}
-          candidateId={previewId}
-          className="pointer-events-none select-none"
-        />
-        {!previewIsActive ? (
-          <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/15">
-            <span className="grid h-12 w-12 place-items-center rounded-full bg-black/70 text-white shadow-lg">
-              <Play className="h-6 w-6 translate-x-0.5 fill-white text-white" />
-            </span>
-          </span>
-        ) : null}
-        <span className="pointer-events-none absolute left-2 top-2 rounded-full bg-black/40 p-1 text-white/90 backdrop-blur-sm">
-          <MoreVertical className="h-3.5 w-3.5" />
-        </span>
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/40 to-transparent p-2.5">
-          <p className="line-clamp-2 text-xs font-semibold leading-tight text-white">
-            {video.title || "Shorts"}
-          </p>
-          <span className="mt-1 text-[10px] text-zinc-300">{video.views || 0} views</span>
-        </div>
-      </button>
-      <FeedVideoMuteButton
-        candidateId={previewId}
-        title={video.title}
-        className="right-2 top-auto bottom-11"
-      />
-    </div>
-  );
 }
 
 function HomePage() {
