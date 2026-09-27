@@ -91,7 +91,7 @@ function ChannelAnalytics() {
         <ChannelHeader title="Creator Analytics" backTo="/settings" />
 
         <div className="mx-auto min-w-0 max-w-2xl">
-          <div className="flex w-full min-w-0 flex-nowrap touch-pan-x gap-2 overflow-x-auto overscroll-x-contain px-4 pb-1 pt-5 no-scrollbar">
+          <div className="grid w-full min-w-0 grid-cols-4 gap-1 px-4 pb-1 pt-5">
             {([7, 30, 90, "lifetime"] as const).map((period) => (
               <button
                 key={period}
@@ -99,7 +99,7 @@ function ChannelAnalytics() {
                 data-testid={`analytics-period-${period}`}
                 aria-pressed={periodDays === period}
                 onClick={() => setPeriodDays(period)}
-                className={`shrink-0 whitespace-nowrap rounded-full px-4 py-2 text-xs font-semibold transition-all ${
+                className={`flex min-w-0 items-center justify-center whitespace-nowrap rounded-full px-1 py-1 text-[10px] font-semibold transition-all min-[380px]:px-2 min-[380px]:text-[11px] sm:px-2.5 sm:text-xs ${
                   periodDays === period
                     ? "bg-gradient-to-r from-fuchsia-500 to-violet-500 text-white shadow-[0_8px_24px_-10px_rgba(217,70,239,0.85)]"
                     : "border border-white/10 bg-white/[0.045] text-slate-300 backdrop-blur-xl hover:bg-white/[0.09]"
