@@ -278,7 +278,7 @@ export function LongVideoCard({
             "relative m-0 w-full overflow-hidden bg-gradient-to-br from-zinc-800 via-zinc-900 to-zinc-950 p-0",
             video.orientation === "portrait"
               ? "max-h-[70vh] aspect-[9/16]"
-              : "aspect-[16/9] max-h-[260px]",
+              : "aspect-[16/9] feed-post-video-frame",
           )}
         >
           <FeedVideoPreview

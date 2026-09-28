@@ -23,7 +23,7 @@ export function FeedVideoTray({
   return (
     <section
       aria-label="Video tray"
-      className="border-y border-white/[0.07] bg-[#050507] py-3"
+      className="feed-video-tray border-y border-white/[0.07] bg-[#050507] py-0"
       data-testid="feed-video-tray"
     >
       <div className="mb-2 flex items-end justify-between gap-3 px-3">
@@ -51,7 +51,7 @@ export function FeedVideoTray({
 
       <div
         aria-label="Swipe through videos"
-        className="flex snap-x snap-mandatory gap-2 overflow-x-auto overscroll-x-contain scroll-smooth px-3 pb-1 touch-pan-x [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+        className="feed-video-scroll flex snap-x snap-mandatory gap-0 overflow-x-auto overscroll-x-contain scroll-smooth px-3 touch-pan-x [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
         data-testid="feed-video-scroll"
       >
         {videos.map((video) => {
@@ -60,7 +60,7 @@ export function FeedVideoTray({
           return (
             <article
               key={video.id}
-              className="relative w-[min(28vw,140px)] shrink-0 snap-start overflow-hidden rounded-xl bg-[#111116] ring-1 ring-white/[0.08]"
+              className="feed-video-card relative shrink-0 snap-start overflow-hidden bg-[#111116] ring-1 ring-white/[0.08]"
               data-testid={`feed-video-card-${video.id}`}
             >
               <button

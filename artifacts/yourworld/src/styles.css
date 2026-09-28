@@ -1225,6 +1225,59 @@ html[data-theme="midnight"] {
   object-fit: cover !important;
 }
 
+.feed-post-video-frame {
+  width: 100% !important;
+  aspect-ratio: 16 / 9 !important;
+  height: auto !important;
+  max-height: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  background: #000 !important;
+  background-image: none !important;
+}
+
+.feed-post-video-frame [data-feed-autoplay-candidate],
+.feed-post-video-frame [data-feed-autoplay-candidate] > div {
+  background: #000 !important;
+  background-image: none !important;
+}
+
+.feed-post-video-frame :is(video, img),
+.feed-video-card :is(video, img) {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  display: block !important;
+}
+
+.feed-video-tray {
+  margin-block: 0 !important;
+  padding-block: 0 !important;
+}
+
+.feed-video-scroll {
+  gap: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+.feed-video-card {
+  width: 140px !important;
+  min-width: 140px !important;
+  aspect-ratio: 9 / 16 !important;
+  height: 240px !important;
+  border-radius: 12px !important;
+  overflow: hidden !important;
+  margin: 0 6px !important;
+  position: relative !important;
+}
+
+.feed-video-card > button {
+  width: 100% !important;
+  height: 100% !important;
+  aspect-ratio: auto !important;
+}
+
 @keyframes yw-pop {
   0% {
     transform: scale(1);
