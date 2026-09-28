@@ -662,7 +662,15 @@ function NativeChatThreadPage() {
       if (pinMode === "remove") {
         const salt = settings.secretPinSalt;
         const hash = settings.secretPinHash;
-        if (!pin || !salt || !hash || (await hashPin(salt, pin)) !== hash) {
+        if (
+          typeof pin !== "string" ||
+          !pin ||
+          typeof salt !== "string" ||
+          !salt ||
+          typeof hash !== "string" ||
+          !hash ||
+          (await hashPin(salt, pin)) !== hash
+        ) {
           setPinError("Incorrect PIN");
           return;
         }
@@ -679,6 +687,9 @@ function NativeChatThreadPage() {
       }
       const salt = randomPinSalt();
       const hash = await hashPin(salt, pin);
+      if (typeof hash !== "string" || !hash) {
+        throw new Error("Chat security verification is unavailable");
+      }
       const result = await patch({ secretLock: true, secretPinSalt: salt, secretPinHash: hash });
       if (result.error) throw new Error(result.error);
       setChatUnlocked(true);
@@ -1209,23 +1220,47 @@ function NativeChatThreadPage() {
   return (
     <>
     <div className="fixed inset-0 z-50 flex h-[100dvh] flex-col justify-between overflow-hidden bg-black font-sans text-white">
-      {!settingsReady || (secretLock && !chatUnlocked && settings.secretPinHash) ? (
+      {!settingsReady || (secretLock && !chatUnlocked) ? (
         <div className="absolute inset-0 z-[95] grid place-items-center bg-black px-6">
           {settingsReady ? <form
             className="w-full max-w-xs space-y-4 text-center"
             onSubmit={(e) => {
               e.preventDefault();
               void (async () => {
-                const salt = settings.secretPinSalt;
-                const hash = settings.secretPinHash;
-                if (!salt || !hash || (await hashPin(salt, unlockPin)) !== hash) {
-                  setUnlockError("Incorrect PIN");
+                try {
+                  const salt = settings?.secretPinSalt;
+                  const hash = settings?.secretPinHash;
+                  const pin = unlockPin;
+                  if (
+                    typeof salt !== "string" ||
+                    !salt ||
+                    typeof hash !== "string" ||
+                    !hash ||
+                    typeof pin !== "string" ||
+                    !pin
+                  ) {
+                    setUnlockError("Unable to verify chat security. Try again.");
+                    setUnlockPin("");
+                    return;
+                  }
+
+                  const candidateHash = await hashPin(salt, pin);
+                  if (typeof candidateHash !== "string" || candidateHash !== hash) {
+                    setUnlockError(
+                      candidateHash ? "Incorrect PIN" : "Unable to verify chat security. Try again.",
+                    );
+                    setUnlockPin("");
+                    return;
+                  }
+
+                  setUnlockError(null);
+                  setChatUnlocked(true);
                   setUnlockPin("");
-                  return;
+                } catch (cause) {
+                  console.error("[secret-lock] unlock verification failed", cause);
+                  setUnlockError("Unable to verify chat security. Try again.");
+                  setUnlockPin("");
                 }
-                setUnlockError(null);
-                setChatUnlocked(true);
-                setUnlockPin("");
               })();
             }}
           >

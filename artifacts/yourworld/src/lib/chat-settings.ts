@@ -73,7 +73,7 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
 
     void (async () => {
       const { data: auth } = await supabase.auth.getUser();
-      const me = auth.user?.id ?? null;
+      const me = auth?.user?.id ?? null;
       meRef.current = me;
       if (!me || !alive) return;
       const [{ data: legacyData }, preferenceResult] = await Promise.all([
@@ -232,7 +232,12 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
       const channel = channelBuilder.subscribe();
       settingsChannelRef.current = channel;
       setReady(true);
-    })();
+    })().catch((cause) => {
+      if (!alive) return;
+      // Keep the existing loading gate fail-closed, but never let a rejected
+      // security-settings request become an unhandled promise in the WebView.
+      console.error("[chat-settings] Unable to load security settings", cause);
+    });
 
     return () => {
       alive = false;
