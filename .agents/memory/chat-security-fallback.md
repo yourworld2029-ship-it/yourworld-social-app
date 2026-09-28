@@ -3,8 +3,8 @@ name: Chat security load fallback
 description: User-approved behavior when chat lock data or PIN verification is missing or unavailable.
 ---
 
-When a chat thread has missing lock state, security settings, or PIN salt/hash material, it must not remain on the security-loading screen. Catch load and verification failures and allow the affected thread to show its messages. A wrong PIN remains rejected; only absent or broken verification data triggers the open fallback.
+Render the thread and message input immediately with defaults while conversation settings load in the background; never block the whole chat on a security-loading screen. A valid stored Secret Lock may arrive after the first render, so preserve its PIN prompt once confirmed. Missing lock state or PIN salt/hash material, and caught verification failures, fall back to showing the thread. A wrong PIN remains rejected.
 
-**Why:** The user explicitly chose chat availability over fail-closed behavior after the Android WebView crash, accepting that missing lock data can bypass Secret Lock for that thread.
+**Why:** The user explicitly prioritized avoiding the Android WebView crash and requested immediate chat rendering even before settings resolve, accepting that a valid lock can be recognized after the initial render.
 
-**How to apply:** Keep this fallback limited to opening the affected thread. Do not turn verification failures into a successful PIN comparison or persistently delete lock settings unless separately requested.
+**How to apply:** Keep settings and crypto work asynchronous and bounded to data changes or explicit PIN submission; do not add a recurring hash effect. Keep wrong-PIN rejection and do not persistently delete lock settings unless separately requested.

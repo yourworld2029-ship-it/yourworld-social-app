@@ -1232,9 +1232,9 @@ function NativeChatThreadPage() {
   return (
     <>
     <div className="fixed inset-0 z-50 flex h-[100dvh] flex-col justify-between overflow-hidden bg-black font-sans text-white">
-      {!settingsReady || (secretLock && !chatUnlocked) ? (
+      {secretLock && !chatUnlocked ? (
         <div className="absolute inset-0 z-[95] grid place-items-center bg-black px-6">
-          {settingsReady ? <form
+          <form
             className="w-full max-w-xs space-y-4 text-center"
             onSubmit={(e) => {
               e.preventDefault();
@@ -1302,7 +1302,7 @@ function NativeChatThreadPage() {
             {unlockError && <p className="text-xs font-medium text-red-400">{unlockError}</p>}
             <button type="submit" className="h-11 w-full rounded-xl bg-purple-600 text-sm font-bold">Unlock</button>
 
-          </form> : <div className="text-sm text-zinc-400">Loading chat security…</div>}
+          </form>
         </div>
       ) : null}
       
