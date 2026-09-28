@@ -228,7 +228,7 @@ function encodeVideo(
  * may be reduced to 4K so the result remains crisp without uploading waste.
  *
  * This is never an upload-size gate. If metadata, codecs, or device resources
- * are unavailable, the original Blob is returned and TUS uploads it directly.
+ * are unavailable, the original Blob is returned for direct Storage upload.
  */
 export async function optimizeVideoBlob(
   source: Blob,

@@ -10,7 +10,7 @@
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "serve": "node --enable-source-maps server/index.mjs",
-    "test": "tsx --test src/lib/live-data.test.ts src/lib/profile-category.test.ts src/lib/sports-profile.test.ts src/lib/sports-identity.test.ts src/lib/national-award.test.ts src/components/yw/national-award-terms.test.tsx src/lib/monetization-math.test.ts src/lib/yw-download.test.ts src/lib/post-deletion.test.ts src/lib/long-video-utils.test.ts src/lib/watch-links.test.ts src/lib/video-resume.test.ts src/lib/video-quality.test.ts src/lib/storage-upload-strategy.test.ts",
+    "test": "tsx --test src/lib/live-data.test.ts src/lib/profile-category.test.ts src/lib/sports-profile.test.ts src/lib/sports-identity.test.ts src/lib/national-award.test.ts src/components/yw/national-award-terms.test.tsx src/lib/monetization-math.test.ts src/lib/yw-download.test.ts src/lib/post-deletion.test.ts src/lib/long-video-utils.test.ts src/lib/watch-links.test.ts src/lib/video-resume.test.ts src/lib/video-quality.test.ts src/lib/storage-upload-request.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "format": "prettier --write ."
@@ -75,7 +75,6 @@
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "^4.2.1",
-    "tus-js-client": "^4.3.1",
     "tw-animate-css": "^1.3.4",
     "vaul": "^1.1.2",
     "vite-tsconfig-paths": "^6.0.2",

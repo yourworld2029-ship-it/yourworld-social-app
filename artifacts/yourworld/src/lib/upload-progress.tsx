@@ -29,6 +29,21 @@ export type UploadTask = {
   retry?: () => void;
 };
 
+function readableTaskError(error: unknown) {
+  if (typeof error === "string" && error.trim()) return error;
+  if (error instanceof Error && error.message) return error.message;
+  if (
+    error &&
+    typeof error === "object" &&
+    "message" in error &&
+    typeof (error as { message?: unknown }).message === "string" &&
+    (error as { message: string }).message
+  ) {
+    return (error as { message: string }).message;
+  }
+  return "Upload failed";
+}
+
 type Ctx = {
   tasks: UploadTask[];
   /** Runs an upload in the background while the user keeps browsing. */
@@ -100,10 +115,11 @@ export function UploadProvider({ children }: { children: ReactNode }) {
             }),
           );
         } catch (e) {
-          result = { error: e instanceof Error ? e.message : "Upload failed" };
+          result = { error: readableTaskError(e) };
         }
 
         if (result.error) {
+          console.error(`[Background ${meta.kind} upload failed] ${result.error}`);
           patch(id, { status: "error", error: result.error, detail: null, retry: () => void run() });
           timers.current.set(id, setTimeout(() => dismiss(id), 30_000));
         } else {
@@ -173,7 +189,7 @@ function UploadProgressStack() {
 
             <div className="min-w-0 flex-1">
               <p className="truncate text-[13px] font-semibold text-white">
-                {t.status === "done"
+                {t.status === "done" || (t.status === "processing" && t.progress >= 100)
                   ? "Upload complete"
                   : t.status === "error"
                     ? "Upload failed"
