@@ -405,7 +405,7 @@ export function FeedVideoPreview({
         thumbnailUrl={video.thumbnailUrl}
         mediaUrl={video.mediaUrl}
         alt={video.title}
-        loading="lazy"
+        loading="eager"
         bucket="videos"
         posterOnly
         showPlayFallback={false}

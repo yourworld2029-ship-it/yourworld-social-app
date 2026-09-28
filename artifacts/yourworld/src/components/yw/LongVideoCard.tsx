@@ -276,7 +276,9 @@ export function LongVideoCard({
         <div
           className={cn(
             "relative m-0 w-full overflow-hidden bg-gradient-to-br from-zinc-800 via-zinc-900 to-zinc-950 p-0",
-            "aspect-video",
+            video.orientation === "portrait"
+              ? "max-h-[70vh] aspect-[9/16]"
+              : "aspect-[16/9] max-h-[260px]",
           )}
         >
           <FeedVideoPreview
