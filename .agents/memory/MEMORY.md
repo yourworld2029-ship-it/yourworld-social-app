@@ -6,9 +6,9 @@
 - [Orval integer schemas](orval-integer-schemas.md) — OpenAPI integer currently emits invalid top-level `zod.int()`; use number for numeric counts.
 - [Reel editor performance](reel-editor-performance.md) — keep thumbnail generation source-keyed and off the trim-drag hot path; use worker encoding with a local fallback.
 - [Unique interaction counting](unique-interaction-counting.md) — use one database-enforced key per user/content/type and an atomic insert-before-increment RPC for views.
-- [Video playback and downloads](video-playback-downloads.md) — keep playback metadata-first and let the browser own byte ranges; use the service worker only for streamed background saves.
+- [Video playback and downloads](video-playback-downloads.md) — keep CDN playback metadata-first and manage offline copies separately with owner-scoped metadata.
 - [Persistent video player](persistent-video-player.md) — keep one root-owned video element mounted across route changes; detail pages provide a slot and mini-player mode is presentation-only.
-- [Watermarked Reel downloads](watermarked-reel-downloads.md) — keep creator branding in a separate client-rendered export; never fall back to unwatermarked bytes.
+- [Watermarked video downloads](watermarked-reel-downloads.md) — use the creator-watermarked export for Reels and horizontal/vertical videos; never fall back to unwatermarked bytes.
 - [Quality-specific downloads](quality-downloads.md) — preserve the source tier and keep offline copies until explicit user deletion; scope library rows by owner.
 - [Audio-preserving compression](audio-preserving-compression.md) — only use a local re-encode when a source audio track is attached; otherwise upload the original.
 - [Auto-delete messages](auto-delete-messages.md) — shared settings and row retention; validated non-View-Once Moment replies must not delete their source asset.

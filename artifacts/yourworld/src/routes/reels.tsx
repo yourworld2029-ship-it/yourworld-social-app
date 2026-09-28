@@ -30,7 +30,7 @@ import { formatCount, type Reel, type User } from "@/lib/yw-data";
 import { getLocalMedia, resolveMediaUrl, timeAgo, useSocialPosts } from "@/lib/social-data";
 import { useDoubleTapLike, useYw } from "@/lib/yw-store";
 import {
-  downloadWatermarkedReelInBackground,
+  downloadWatermarkedVideoInBackground,
   downloadAudioOnly,
   downloadWithWatermark,
   reelWatermarkText,
@@ -997,7 +997,7 @@ function ReelItem({
             toast.loading(`Preparing MP3 audio... ${percent}%`, { id: toastId });
           });
         } else {
-          await downloadWatermarkedReelInBackground(
+          await downloadWatermarkedVideoInBackground(
             playableUrl,
             baseName,
             creatorUsername,

@@ -72,8 +72,7 @@ import {
   getDownloadedVideoUrl,
   removeDownloadedVideo,
   downloadAudioOnly,
-  downloadVideoInBackground,
-  downloadWatermarkedReelInBackground,
+  downloadWatermarkedVideoInBackground,
   sanitizeDownloadName,
   type DownloadedVideo,
   type DownloadedVideoMetadata,
@@ -430,26 +429,21 @@ function ProfilePage() {
 
       if (choice === "mp3") {
         await downloadAudioOnly(mediaUrl, baseName, reportProgress);
-      } else if (post.kind === "reel") {
-        await downloadWatermarkedReelInBackground(
+      } else {
+        await downloadWatermarkedVideoInBackground(
           mediaUrl,
           baseName,
           creatorUsername,
           reportProgress,
           metadata,
         );
-      } else {
-        await downloadVideoInBackground(
-          mediaUrl,
-          `${baseName}.mp4`,
-          reportProgress,
-          metadata,
-        );
       }
       toast.success(
-        post.kind === "reel" && choice !== "mp3"
-          ? "Saved Reel with YourWorld watermark"
-          : "Download saved",
+        choice === "mp3"
+          ? "Download saved"
+          : post.kind === "reel"
+            ? "Saved Reel with YourWorld watermark"
+            : "Saved video with YourWorld watermark",
       );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Couldn't download this media");

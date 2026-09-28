@@ -32,9 +32,3 @@ Reel playback metadata may use a `poster` field for the media source, so downloa
 **Why:** A video URL is not a valid `<img>` source; older download rows can also have expired or missing remote thumbnails.
 
 **How to apply:** Persist a resolved thumbnail when available, and fall back to a poster frame generated from the cached video bytes before showing a gradient placeholder.
-
-Upload size must not be coupled to compression success. Resumable TUS should receive the original File when browser metadata, codecs, or device memory make adaptive compression unavailable.
-
-**Why:** A client-side compression ceiling turns large uploads into hard failures and defeats resumable storage; preserving the source keeps multi-gigabyte uploads possible.
-
-**How to apply:** Use compression only as a best-effort optimization, retain native dimensions through 4K, and report progress at the chunk level while the upload continues independently of route navigation.

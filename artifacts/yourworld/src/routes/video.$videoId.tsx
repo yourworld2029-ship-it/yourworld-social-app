@@ -56,7 +56,7 @@ import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadShee
 import { ShareSheet } from "@/components/yw/ShareSheet";
 import {
   downloadAudioOnly,
-  downloadVideoInBackground,
+  downloadWatermarkedVideoInBackground,
   sanitizeDownloadName,
 } from "@/lib/yw-download";
 import { qualityTierFromMetadata, type VideoQualityTier } from "@/lib/video-quality";
@@ -1048,16 +1048,16 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
            toast.loading(`Preparing MP3 audio... ${percent}%`, { id: toastId });
          },
         );
+         toast.success("Saved to your device", { id: toastId });
       } else {
-          await downloadVideoInBackground(
+           await downloadWatermarkedVideoInBackground(
             downloadMediaUrl,
-            `${baseName}.mp4`,
+             baseName,
+             creatorUsername,
             (percent) => reportProgress?.(percent),
             { ...downloadMetadata, quality: choice as VideoQualityTier },
          );
-      }
-       if (choice === "mp3") {
-         toast.success("Saved to your device", { id: toastId });
+         toast.success("Saved video with YourWorld watermark");
        }
     } catch (cause) {
       console.error("Video download failed:", cause);

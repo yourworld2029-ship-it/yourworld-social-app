@@ -495,11 +495,8 @@ export async function downloadVideoInBackground(
   return task;
 }
 
-/**
- * Renders a Reel through a canvas so its download carries the creator
- * watermark. This stays separate from the shared original-byte video path.
- */
-export async function downloadWatermarkedReelInBackground(
+/** Renders a video through a canvas so its download carries the creator watermark. */
+export async function downloadWatermarkedVideoInBackground(
   src: string,
   fileNameBase: string,
   creatorUsername: string,
@@ -507,7 +504,7 @@ export async function downloadWatermarkedReelInBackground(
   metadata?: DownloadedVideoMetadata,
 ) {
   const watermark = reelWatermarkText(creatorUsername);
-  const key = `${src}|watermarked-reel|${fileNameBase}|${watermark}`;
+  const key = `${src}|watermarked-video|${fileNameBase}|${watermark}`;
   const existing = activeVideoDownloads.get(key);
   if (existing) return existing;
 
@@ -534,7 +531,7 @@ export async function downloadWatermarkedReelInBackground(
       const extension = extensionForMime(blob.type || "video/webm", "webm");
       triggerBlobDownload(
         blob,
-        `${sanitizeDownloadName(fileNameBase, "yourworld-reel")}.${extension}`,
+        `${sanitizeDownloadName(fileNameBase, "yourworld-video")}.${extension}`,
       );
       updateDownloadTask(key, title, 100);
       window.setTimeout(() => removeDownloadTask(key), 400);
@@ -566,14 +563,14 @@ async function renderWatermarkedVideo(
     throw new Error("This browser cannot render a watermarked video download");
   }
   const Ctx = audioContextConstructor();
-  if (!Ctx) throw new Error("This browser cannot preserve Reel audio during export");
+  if (!Ctx) throw new Error("This browser cannot preserve audio during video export");
 
   const video = await loadVideoForExport(src);
   if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
     await new Promise<void>((resolve, reject) => {
       const timeout = window.setTimeout(() => {
         cleanup();
-        reject(new Error("The Reel did not load a video frame for watermarking"));
+        reject(new Error("The video did not load a frame for watermarking"));
       }, 15_000);
       const cleanup = () => {
         window.clearTimeout(timeout);
@@ -586,7 +583,7 @@ async function renderWatermarkedVideo(
       };
       const onError = () => {
         cleanup();
-        reject(new Error("The Reel could not be decoded for watermarking"));
+        reject(new Error("The video could not be decoded for watermarking"));
       };
       video.addEventListener("loadeddata", onLoaded, { once: true });
       video.addEventListener("error", onError, { once: true });
@@ -598,7 +595,7 @@ async function renderWatermarkedVideo(
   canvas.height = video.videoHeight;
   if (!canvas.width || !canvas.height) {
     await audioContext.close().catch(() => {});
-    throw new Error("The Reel dimensions are unavailable");
+    throw new Error("The video dimensions are unavailable");
   }
 
   const context = canvas.getContext("2d");
@@ -691,7 +688,7 @@ async function renderWatermarkedVideo(
       if (recorder?.state !== "inactive") recorder?.stop();
     };
     const failOnMediaError = () => {
-      rejectRecording?.(new Error("The Reel could not be rendered for download"));
+      rejectRecording?.(new Error("The video could not be rendered for download"));
       if (recorder?.state !== "inactive") recorder?.stop();
     };
     video.addEventListener("timeupdate", updateProgress);
@@ -704,7 +701,7 @@ async function renderWatermarkedVideo(
     } catch {
       if (recorder.state !== "inactive") recorder.stop();
       await recorded.catch(() => {});
-      throw new Error("This browser blocked playback needed to watermark the Reel");
+      throw new Error("This browser blocked playback needed to watermark the video");
     }
     drawNextFrame();
     const result = await recorded;
@@ -716,7 +713,7 @@ async function renderWatermarkedVideo(
   } catch (error) {
     if (recorder && recorder.state !== "inactive") recorder.stop();
     if (error instanceof DOMException && error.name === "SecurityError") {
-      throw new Error("This Reel cannot be watermarked because its video source blocks canvas export");
+      throw new Error("This video cannot be watermarked because its source blocks canvas export");
     }
     if (error instanceof DOMException && error.name === "NotSupportedError") {
       throw new Error("This browser does not support the video format needed for a watermarked download");
@@ -782,9 +779,10 @@ export async function downloadVideoAtQuality(
 ) {
   const target = VIDEO_QUALITY_TIERS.find((candidate) => candidate.id === quality);
   if (!target) throw new Error("Unsupported video quality");
-  await downloadVideoInBackground(
+  await downloadWatermarkedVideoInBackground(
     src,
-    `${sanitizeDownloadName(_fileNameBase, "yourworld-video")}.mp4`,
+    sanitizeDownloadName(_fileNameBase, "yourworld-video"),
+    metadata?.creatorUsername || "user",
     onProgress,
     metadata ? { ...metadata, quality } : undefined,
   );
