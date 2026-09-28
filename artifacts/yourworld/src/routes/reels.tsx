@@ -1003,7 +1003,6 @@ function ReelItem({
             creatorUsername,
             (percent) => {
               reportProgress?.(percent);
-              toast.loading(`Watermarking Reel… ${percent}%`, { id: toastId });
             },
             downloadMetadata,
           );
