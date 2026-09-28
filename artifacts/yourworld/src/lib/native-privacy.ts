@@ -6,7 +6,7 @@ import {
 import { useEffect } from "react";
 
 interface PrivacyBridgePlugin {
-  setSecureFlag(options: { enabled: boolean }): Promise<void>;
+  setScreenSecurity(options: { enabled: boolean }): Promise<void>;
   setCaptureMonitoring(options: { enabled: boolean }): Promise<void>;
   requestStartupRuntimePermissions(): Promise<void>;
   addListener(
@@ -70,10 +70,13 @@ export async function requestCallMediaPermissions(
   return result.granted === true;
 }
 
-function updateAndroidChatSecureFlag(enabled: boolean) {
-  if (!isNativeAndroid()) return;
+export function setScreenSecurity(enabled: boolean): Promise<void> {
+  if (!isNativeAndroid()) return Promise.resolve();
+  return privacyBridge.setScreenSecurity({ enabled });
+}
 
-  void privacyBridge.setSecureFlag({ enabled }).catch((error: unknown) => {
+function updateAndroidChatSecureFlag(enabled: boolean) {
+  void setScreenSecurity(enabled).catch((error: unknown) => {
     console.error("[privacy-bridge] Could not update Android chat capture protection", error);
   });
 }

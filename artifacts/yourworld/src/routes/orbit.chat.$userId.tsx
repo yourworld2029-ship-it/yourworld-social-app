@@ -26,6 +26,7 @@ import {
   BellOff,
   UserX,
   Flag,
+  Shield,
 } from "lucide-react";
 import { toast } from "sonner";
 import { approxDistance } from "@/lib/orbit-data";
@@ -41,6 +42,7 @@ import { buildInvite, inviteById, type InviteCard, type InviteKind } from "@/lib
 import { ChatMessageErrorBoundary } from "@/components/yw/ChatMessageErrorBoundary";
 import { supabase } from "@/integrations/supabase/client";
 import { saveChatDisplayName, setChatNameLocal, useChatNames } from "@/lib/chat-names";
+import { useAndroidChatSecureFlag } from "@/lib/native-privacy";
 import { saveSecretChatLock } from "@/lib/secret-chats";
 import { PinDialog } from "@/components/yw/PinDialog";
 import {
@@ -178,6 +180,7 @@ function MenuItem({
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={state}
       className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-xs font-semibold transition-colors ${
         danger ? "text-destructive hover:bg-destructive/10" : "text-foreground hover:bg-secondary"
       }`}
@@ -240,6 +243,13 @@ function NativeOrbitChatPage() {
   const autoDeleteChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const [screenshotAlert, setScreenshotAlert] = useState(true);
   const [recordingAlert, setRecordingAlert] = useState(true);
+  const [chatProtection, setChatProtection] = useState<{
+    userId: string;
+    enabled: boolean;
+  } | null>(null);
+  const protectChatEnabled =
+    chatProtection?.userId === userId && chatProtection.enabled;
+  useAndroidChatSecureFlag(protectChatEnabled);
   const [muted, setMuted] = useState(false);
   const [reported, setReported] = useState(false);
   const [settingsReady, setSettingsReady] = useState(false);
@@ -1091,6 +1101,18 @@ function NativeOrbitChatPage() {
                 state={autoDelete !== "off"}
                 onClick={() => {
                   setAutoDeleteOpen(true);
+                  setMenuOpen(false);
+                }}
+              />
+              <MenuItem
+                icon={<Shield className="h-4 w-4 text-muted-foreground" strokeWidth={1.8} />}
+                label="Protect Chat (Block Screenshots & Recording)"
+                state={protectChatEnabled}
+                onClick={() => {
+                  setChatProtection((current) => ({
+                    userId,
+                    enabled: !(current?.userId === userId && current.enabled),
+                  }));
                   setMenuOpen(false);
                 }}
               />

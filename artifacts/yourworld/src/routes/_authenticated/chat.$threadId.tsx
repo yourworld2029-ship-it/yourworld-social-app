@@ -3,7 +3,7 @@ import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router"
 import {
   ArrowLeft, Phone, Video, MoreVertical, Image as ImageIcon,
   Mic, Send, Smile, Play, Pause, X,
-  Pencil, Lock, EyeOff, Clock, Camera, VideoOff, BellOff, UserX, Flag,
+  Pencil, Lock, EyeOff, Clock, Camera, VideoOff, BellOff, UserX, Flag, Shield,
   Trash2, CheckCheck, Check, Crop, Type, Sparkles 
 } from "lucide-react";
 import {
@@ -37,6 +37,7 @@ import { PinDialog } from "@/components/yw/PinDialog";
 import { toast } from "sonner";
 import { AUTO_DELETE_OPTIONS, autoDeleteLabel } from "@/lib/auto-delete";
 import { historyBackOr } from "@/lib/navigation";
+import { useAndroidChatSecureFlag } from "@/lib/native-privacy";
 import {
   STORAGE_BUCKETS,
   uploadSourceWithProgress,
@@ -482,6 +483,7 @@ function MenuItem({
   return (
     <button
       onClick={onClick}
+      aria-pressed={state}
       className={`w-full text-left px-3 py-2.5 text-xs font-semibold rounded-xl flex items-center gap-3 ${
         danger ? "text-red-400 hover:bg-red-950/40" : "text-zinc-200 hover:bg-zinc-800/80"
       }`}
@@ -880,6 +882,13 @@ function NativeChatThreadPage() {
 
   // Chat options persisted per conversation in the backend.
   const { settings, patch, setAutoDeleteSetting } = useChatSettings(peer.peerId, conversationId);
+  const [chatProtection, setChatProtection] = useState<{
+    threadId: string;
+    enabled: boolean;
+  } | null>(null);
+  const protectChatEnabled =
+    chatProtection?.threadId === threadId && chatProtection.enabled;
+  useAndroidChatSecureFlag(protectChatEnabled);
   const { nameFor } = useChatNames();
   const displayName = nameFor(peer.peerId, settings.displayName ?? peer.peerName ?? "");
   const openPeerProfile = {
@@ -1663,6 +1672,18 @@ function NativeChatThreadPage() {
                 setAutoDeleteOpen(true);
                 setShowOptionsMenu(false);
               }} />
+              <MenuItem
+                icon={<Shield size={16} className="text-zinc-400" />}
+                label="Protect Chat (Block Screenshots & Recording)"
+                state={protectChatEnabled}
+                onClick={() => {
+                  setChatProtection((current) => ({
+                    threadId,
+                    enabled: !(current?.threadId === threadId && current.enabled),
+                  }));
+                  setShowOptionsMenu(false);
+                }}
+              />
               <MenuItem icon={<Camera size={16} className="text-zinc-400" />} label="Screenshot Alert" state={screenshotAlert} onClick={() => {
                 void updateSetting({ screenshotAlert: !screenshotAlert }, `Screenshot alerts ${!screenshotAlert ? "on" : "off"}`);
                 setShowOptionsMenu(false);

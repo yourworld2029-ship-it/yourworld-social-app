@@ -103,7 +103,7 @@ public class PrivacyBridgePlugin extends Plugin {
     }
 
     @PluginMethod
-    public void setSecureFlag(PluginCall call) {
+    public void setScreenSecurity(PluginCall call) {
         Boolean enabled = call.getBoolean("enabled");
         if (enabled == null) {
             call.reject("The enabled option must be a boolean.");
