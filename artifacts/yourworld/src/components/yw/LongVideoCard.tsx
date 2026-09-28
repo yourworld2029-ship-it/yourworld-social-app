@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import {
-  Play, Eye, Heart, Clock, MessageCircle, Send,
+  Eye, Heart, Clock, MessageCircle, Send,
   MoreHorizontal, Link2, Trash2, EyeOff, Pencil,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
@@ -118,8 +118,7 @@ export function LongVideoCard({
   onEdited,
 }: Props) {
   const previewId = `feed:${video.id}:${useId()}`;
-  const { activeCandidateId, stopCandidate } = useFeedVideoAutoplay();
-  const previewIsActive = activeCandidateId === previewId;
+  const { stopCandidate } = useFeedVideoAutoplay();
   const normalizedTitle = video.title.trim().replace(/\s+/g, " ").toLowerCase();
   const normalizedCaption = video.caption.trim().replace(/\s+/g, " ").toLowerCase();
   const showCaption = normalizedCaption.length > 0 && normalizedCaption !== normalizedTitle;
@@ -272,11 +271,11 @@ export function LongVideoCard({
           event.stopPropagation();
           openVideo();
         }}
-        className="group relative z-20 block w-full cursor-pointer touch-manipulation select-none border-0 bg-gradient-to-br from-zinc-800 via-zinc-900 to-zinc-950 p-0 text-left"
+        className="group relative z-20 m-0 block w-full cursor-pointer touch-manipulation select-none border-0 bg-gradient-to-br from-zinc-800 via-zinc-900 to-zinc-950 p-0 text-left"
       >
         <div
           className={cn(
-            "relative mx-auto w-full overflow-hidden bg-gradient-to-br from-zinc-800 via-zinc-900 to-zinc-950",
+            "relative m-0 w-full overflow-hidden bg-gradient-to-br from-zinc-800 via-zinc-900 to-zinc-950 p-0",
             video.orientation === "portrait"
               ? "max-h-[75vh] aspect-[9/16]"
               : "aspect-[16/9]",
@@ -285,16 +284,10 @@ export function LongVideoCard({
           <FeedVideoPreview
             video={video}
             candidateId={previewId}
+            loop
             onDurationChange={(duration) => setDurationSeconds(duration)}
-            className="pointer-events-none select-none"
+            className="pointer-events-none m-0 select-none p-0"
           />
-          {!previewIsActive ? (
-          <span className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-            <span className="grid h-14 w-14 items-center justify-center rounded-full bg-white/90 text-black shadow-lg">
-              <Play size={22} className="ml-0.5 fill-black" />
-            </span>
-          </span>
-          ) : null}
           {formattedDuration && (
             <span className="pointer-events-none absolute bottom-2 right-2 rounded-md bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold">
               {formattedDuration}
