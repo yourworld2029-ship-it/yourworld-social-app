@@ -37,7 +37,7 @@ The Android CLI deprecates `sdkmanager`; its `--licenses` wrapper can warn and e
 
 **Why:** Google's SDK tooling moved package management to `android sdk`, and command-line-tools archive URLs may be stale. Package installation is the reliable way to record the required SDK license.
 
-**How to apply:** Download the official Android CLI to `$HOME/.local/bin/android` and mark it executable. Use `android --no-metrics --sdk="$SDK_ROOT" sdk list/install ...`, set `JAVA_HOME` explicitly to JDK 21, and confirm required packages plus license files under `$SDK_ROOT/licenses`. Avoid `yes | ...` under `set -o pipefail`: `yes` can get SIGPIPE after a successful install and make the shell report exit 141.
+**How to apply:** Download the official Android CLI to `$HOME/.local/bin/android` and mark it executable. Use `sdk list --all '*36*'` to find remote packages; its package IDs use slash namespaces such as `platforms/android-36` and `build-tools/35.0.0`. Install the exact platform/build-tools Gradle needs, set `JAVA_HOME` explicitly to JDK 21, and confirm packages plus license files under `$SDK_ROOT`. Avoid `yes | ...` under `set -o pipefail`: `yes` can get SIGPIPE after a successful install and make the shell report exit 141.
 
 In September 2026, Google's generic `commandlinetools-linux-latest.zip` URL returned 404, while the repository metadata still advertised the current archive.
 
