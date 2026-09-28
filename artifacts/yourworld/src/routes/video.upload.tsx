@@ -310,7 +310,7 @@ function VideoUploadPage() {
                 src={fileUrl}
                 controls
                 playsInline
-                preload="metadata"
+                preload="none"
                 onLoadedMetadata={onMeta}
                 className="h-full w-full object-contain"
               />

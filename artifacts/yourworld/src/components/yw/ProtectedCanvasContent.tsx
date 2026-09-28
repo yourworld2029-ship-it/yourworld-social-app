@@ -408,7 +408,7 @@ export function ProtectedCanvasVideo({
         className="absolute h-px w-px opacity-0"
         aria-hidden="true"
         playsInline
-        preload="auto"
+        preload="none"
       />
       <canvas
         ref={canvasRef}

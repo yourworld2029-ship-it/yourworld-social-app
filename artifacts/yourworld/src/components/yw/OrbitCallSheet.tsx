@@ -106,6 +106,7 @@ export function OrbitCallSheet({
               autoPlay
               playsInline
               muted
+              preload="none"
               className={cn(
                 "absolute inset-0 h-full w-full object-cover opacity-90",
                 camOff && "hidden",

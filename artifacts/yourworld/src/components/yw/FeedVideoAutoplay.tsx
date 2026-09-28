@@ -12,7 +12,6 @@ import { Volume2, VolumeX } from "lucide-react";
 import Hls from "hls.js";
 import type { LongVideo } from "@/lib/video-data";
 import { resolveMediaUrl } from "@/lib/social-data";
-import { prefetchVideo } from "@/lib/video-prefetch";
 import { cn } from "@/lib/utils";
 import { VideoPoster } from "@/components/yw/VideoPoster";
 
@@ -149,7 +148,7 @@ export function FeedVideoAutoplayProvider({
       activeCandidateRef.current = candidate;
       candidate.video.muted = candidate.forceMuted ? true : mutedRef.current;
       candidate.video.playsInline = true;
-      candidate.video.preload = "metadata";
+      candidate.video.preload = "none";
       const playCandidate = () => {
         if (activeCandidateRef.current !== candidate) return;
         void candidate.video.play().catch(() => {
@@ -165,13 +164,6 @@ export function FeedVideoAutoplayProvider({
           void candidate.video.play().catch(() => {});
         });
       };
-
-      const ordered = [...candidatesRef.current.values()].sort((a, b) => a.order - b.order);
-      const currentIndex = ordered.findIndex((item) => item.candidateId === candidate.candidateId);
-      const nextCandidate = currentIndex >= 0 ? ordered[currentIndex + 1] : null;
-      if (nextCandidate && nextCandidate.url !== candidate.url) {
-        void resolveCandidateUrl(nextCandidate).then(prefetchVideo);
-      }
 
       void resolveCandidateUrl(candidate).then((url) => {
         if (
@@ -343,11 +335,7 @@ export function useFeedVideoAutoplay() {
 export function FeedVideoPreview({
   video,
   candidateId,
-  fullVisibility = false,
-  forceMuted = false,
-  loop = false,
   className,
-  onDurationChange,
 }: {
   video: LongVideo;
   candidateId: string;
@@ -357,43 +345,8 @@ export function FeedVideoPreview({
   className?: string;
   onDurationChange?: (duration: number) => void;
 }) {
-  const { activeCandidateId, registerCandidate } = useFeedVideoAutoplay();
-  const containerRef = useRef<HTMLDivElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [frameReady, setFrameReady] = useState(false);
-  const canAutoplay = video.access === undefined || video.access === "public";
-  const isActive = activeCandidateId === candidateId;
-
-  useEffect(() => {
-    const element = containerRef.current;
-    const player = videoRef.current;
-    if (!canAutoplay || !video.mediaUrl || !element || !player) return;
-    return registerCandidate({
-      candidateId,
-      videoId: video.id,
-      element,
-      video: player,
-      url: video.mediaUrl,
-      minimumRatio: fullVisibility ? TRAY_VISIBILITY_RATIO : NORMAL_VISIBILITY_RATIO,
-      forceMuted,
-    });
-  }, [
-    candidateId,
-    canAutoplay,
-    fullVisibility,
-    forceMuted,
-    registerCandidate,
-    video.mediaUrl,
-    video.id,
-  ]);
-
-  useEffect(() => {
-    if (!isActive) setFrameReady(false);
-  }, [isActive]);
-
   return (
     <div
-      ref={containerRef}
       className={cn(
         "relative h-full w-full overflow-hidden bg-gradient-to-br from-zinc-800 via-zinc-900 to-zinc-950",
         className,
@@ -410,26 +363,6 @@ export function FeedVideoPreview({
         posterOnly
         showPlayFallback={false}
         className="pointer-events-none m-0 select-none p-0 [&_img]:block"
-      />
-      <video
-        ref={videoRef}
-        aria-hidden="true"
-        crossOrigin="anonymous"
-        autoPlay
-        playsInline
-        muted
-        loop={loop}
-        preload="metadata"
-        onLoadedMetadata={(event) => {
-          const duration = event.currentTarget.duration;
-          if (Number.isFinite(duration) && duration > 0) onDurationChange?.(duration);
-        }}
-        onLoadedData={() => setFrameReady(true)}
-        onError={() => setFrameReady(false)}
-        className={cn(
-          "pointer-events-none absolute inset-0 m-0 block h-full w-full object-cover !p-0 transition-opacity duration-150",
-          isActive && frameReady ? "opacity-100" : "opacity-0",
-        )}
       />
     </div>
   );

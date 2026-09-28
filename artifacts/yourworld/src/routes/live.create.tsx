@@ -216,6 +216,7 @@ function LiveCreatePage() {
                 autoPlay
                 muted
                 playsInline
+                preload="none"
                 aria-label="Private live camera and microphone preview"
                 className="h-full w-full object-cover transition-transform duration-300 ease-out"
                 style={{

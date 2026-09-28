@@ -2054,6 +2054,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 ref={remoteVideo}
                 autoPlay
                 playsInline
+                preload="none"
                 controls={false}
                 poster=""
                 muted={false}
@@ -2131,6 +2132,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
                   autoPlay
                   playsInline
                   muted
+                  preload="none"
                   className="h-full w-full bg-black object-cover transition-transform duration-500"
                   style={{
                     width: "100%",

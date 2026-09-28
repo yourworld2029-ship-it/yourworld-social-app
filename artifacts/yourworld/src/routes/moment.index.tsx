@@ -102,7 +102,7 @@ function Section({
                 src={m.media ? `${m.media}${m.media.includes("#") ? "" : "#t=0.1"}` : undefined}
                 muted
                 playsInline
-                preload="metadata"
+                preload="none"
                 className="size-full bg-zinc-900 object-cover"
               />
             ) : m.kind === "photo" ? (

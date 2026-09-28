@@ -386,7 +386,7 @@ function MomentViewRoute() {
                 autoPlay
                 playsInline
                 muted={muted}
-                preload="metadata"
+                preload="none"
                 style={{ filter }}
                 className="h-full w-full object-cover opacity-0"
                 onTimeUpdate={(e) => {

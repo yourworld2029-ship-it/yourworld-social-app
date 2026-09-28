@@ -259,7 +259,7 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
                   loop
                   muted={isMuted}
                   playsInline
-                  preload="auto"
+                  preload="none"
                   controls={false}
                   onLoadedMetadata={(event) => {
                     setCurrentTime(event.currentTarget.currentTime);

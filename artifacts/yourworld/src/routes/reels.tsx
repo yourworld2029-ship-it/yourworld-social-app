@@ -23,6 +23,7 @@ import {
   ProtectedCanvasImage,
   ProtectedCanvasVideoMirror,
 } from "@/components/yw/ProtectedCanvasContent";
+import { VideoPoster } from "@/components/yw/VideoPoster";
 import { ShareSheet } from "@/components/yw/ShareSheet";
 import { CommentsSheet } from "@/components/yw/CommentsSheet";
 import { useAuth, useResumeAuthAction } from "@/lib/auth-store";
@@ -45,7 +46,6 @@ import {
   type VideoQualityTier,
 } from "@/lib/video-quality";
 import { trackEvent } from "@/lib/analytics";
-import { prefetchVideo } from "@/lib/video-prefetch";
 import { deleteMyPost } from "@/lib/profile-data";
 import { supabase } from "@/integrations/supabase/client";
 import { isLongVideoRow } from "@/lib/long-video-utils";
@@ -237,11 +237,6 @@ function ReelsList() {
   }));
 
   const items = live;
-  const reelMediaKey = items
-    .map(({ reel, mediaUrl, mediaType, mediaBucket }) =>
-      `${reel.id}:${mediaUrl}:${mediaType}:${mediaBucket}`,
-    )
-    .join("|");
 
   useEffect(() => {
     if (!initialId || loading) return;
@@ -280,30 +275,6 @@ function ReelsList() {
     scroller.addEventListener("scroll", onScroll, { passive: true });
     return () => scroller.removeEventListener("scroll", onScroll);
   }, [hasNextPage, isFetchingNextPage, loadMore]);
-
-  // Warm only the next two playable reels. Resolve storage references first so
-  // private media keeps its signed URL; prefetchVideo then performs a bounded
-  // 206-only prefix request and will never fetch a whole object on 200.
-  useEffect(() => {
-    let cancelled = false;
-    const upcoming = items
-      .slice(active + 1)
-      .filter(({ mediaUrl, mediaType }) => {
-        return Boolean(mediaUrl) && mediaType?.toLowerCase().startsWith("video");
-      })
-      .slice(0, 2);
-
-    void Promise.all(
-      upcoming.map(async ({ mediaUrl, mediaBucket }) => {
-        const resolved = await resolveMediaUrl(mediaUrl, mediaBucket);
-        if (!cancelled && resolved) prefetchVideo(resolved);
-      }),
-    );
-
-    return () => {
-      cancelled = true;
-    };
-  }, [active, reelMediaKey]);
 
   if (loading) {
     return (
@@ -348,29 +319,42 @@ function ReelsList() {
           }}
           className="relative h-[calc(100dvh-4.75rem)] w-full snap-start snap-always overflow-hidden [contain:layout_paint_size] [content-visibility:auto]"
         >
-          {/* window: only current, 1 previous and 1 next are mounted */}
+          {/* Only the active reel mounts its player and interaction controls. */}
           {Math.abs(i - active) <= 1 ? (
-            <ReelItem
-              reel={reel}
-              currentUserId={currentUserId}
-              active={i === active}
-              author={author}
-              likedByMe={likedByMe}
-              mediaUrl={mediaUrl}
-              mediaType={mediaType}
-              mediaBucket={mediaBucket}
-              thumbnailUrl={thumbnailUrl}
-              scoped={scoped}
-              onBack={handleBack}
-              commentsDisabled={!!dbReels[i]?.comments_off}
-               hideLikeCount={!!dbReels[i]?.hide_like_count}
-               hideShareCount={!!dbReels[i]?.hide_share_count}
-              initialCommentsOpen={focusComments && reel.id === initialId && i === active}
-              onDbLike={() => toggleDbLike(reel.id)}
-              onView={() => recordView(reel.id)}
-               canDelete={currentUserId === reel.userId}
-               onDeleted={() => removePost(reel.id)}
-            />
+            i === active ? (
+              <ReelItem
+                reel={reel}
+                currentUserId={currentUserId}
+                active
+                author={author}
+                likedByMe={likedByMe}
+                mediaUrl={mediaUrl}
+                mediaType={mediaType}
+                mediaBucket={mediaBucket}
+                thumbnailUrl={thumbnailUrl}
+                scoped={scoped}
+                onBack={handleBack}
+                commentsDisabled={!!dbReels[i]?.comments_off}
+                hideLikeCount={!!dbReels[i]?.hide_like_count}
+                hideShareCount={!!dbReels[i]?.hide_share_count}
+                initialCommentsOpen={focusComments && reel.id === initialId && i === active}
+                onDbLike={() => toggleDbLike(reel.id)}
+                onView={() => recordView(reel.id)}
+                canDelete={currentUserId === reel.userId}
+                onDeleted={() => removePost(reel.id)}
+              />
+            ) : (
+              <VideoPoster
+                thumbnailUrl={thumbnailUrl ?? (mediaType?.toLowerCase().startsWith("video") ? null : mediaUrl)}
+                mediaUrl={mediaUrl}
+                alt=""
+                loading="lazy"
+                bucket={mediaBucket}
+                posterOnly
+                showPlayFallback={false}
+                className="absolute inset-0"
+              />
+            )
           ) : null}
         </section>
       ))}
@@ -483,6 +467,16 @@ function ReelMedia({
   }, [bucket, src, url]);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const setVideoRef = useCallback((element: HTMLVideoElement | null) => {
+    const previous = videoRef.current;
+    if (!element && previous) {
+      previous.pause();
+      previous.removeAttribute("src");
+      previous.load();
+    }
+    videoRef.current = element;
+    mediaRef.current = element;
+  }, [mediaRef]);
   useEffect(() => {
     const v = videoRef.current;
     if (!v || asImage) return;
@@ -543,15 +537,12 @@ function ReelMedia({
   return (
     <div className="relative h-full w-full">
       <video
-        ref={(el) => {
-          videoRef.current = el;
-          mediaRef.current = el;
-        }}
+        ref={setVideoRef}
         src={posterSrc ? src : firstFrameUrl(src)}
         poster={posterSrc ?? undefined}
         playsInline
         muted={muted || !active}
-        preload="metadata"
+        preload="none"
         {...({ loading: active ? "eager" : "lazy" } as const)}
         onError={handleError}
         onLoadedMetadata={onLoadedMetadata}

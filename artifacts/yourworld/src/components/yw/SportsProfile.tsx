@@ -1143,7 +1143,7 @@ function SportsIntroductionSection({
             controlsList="nodownload noplaybackrate"
             disablePictureInPicture
             playsInline
-            preload="metadata"
+            preload="none"
             className="aspect-[9/16] max-h-80 w-full rounded-2xl border border-amber-200/15 bg-black object-contain"
           />
         ) : (

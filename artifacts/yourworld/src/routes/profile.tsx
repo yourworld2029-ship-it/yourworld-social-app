@@ -150,7 +150,8 @@ function ProfilePage() {
   const { connections, tab } = Route.useSearch();
   const { activateVideo } = useVideoPlayback();
   const [downloads, setDownloads] = useState<DownloadedVideo[]>([]);
-  const [downloadsLoading, setDownloadsLoading] = useState(true);
+  const [downloadsLoading, setDownloadsLoading] = useState(false);
+  const [downloadsLoadedFor, setDownloadsLoadedFor] = useState<string | null>(null);
   const [downloadTarget, setDownloadTarget] = useState<DbPost | null>(null);
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [downloadSourceUrl, setDownloadSourceUrl] = useState<string | null>(null);
@@ -202,13 +203,14 @@ function ProfilePage() {
       setDownloadsLoading(false);
       return;
     }
-    setDownloads([]);
+    if (tab !== "downloads" || downloadsLoadedFor === userId) return;
     setDownloadsLoading(true);
     void migrateLegacyDownloadedVideos(userId)
       .then(() => listDownloadedVideos(userId))
       .then((records) => {
         if (!cancelled) {
           setDownloads(records);
+          setDownloadsLoadedFor(userId);
         }
       })
       .catch((error) => {
@@ -223,7 +225,7 @@ function ProfilePage() {
     return () => {
       cancelled = true;
     };
-  }, [userId]);
+  }, [downloadsLoadedFor, tab, userId]);
 
   const openDownloadedVideo = async (record: DownloadedVideo) => {
     const url = await getDownloadedVideoUrl(record);
@@ -746,7 +748,34 @@ function ProfilePage() {
   };
 
   if (loading || (userId !== null && profile.id !== userId)) {
-    return null;
+    return (
+      <main
+        className="min-h-screen bg-background px-4 pb-8"
+        role="status"
+        aria-label="Loading profile"
+        aria-busy="true"
+        data-testid="profile-loading-skeleton"
+      >
+        <header className="sticky top-0 z-40 border-b border-border bg-background/90 py-3 backdrop-blur">
+          <div className="mx-auto h-6 w-32 animate-pulse rounded bg-secondary" />
+        </header>
+        <section className="mx-auto max-w-3xl animate-pulse pt-8">
+          <div className="flex items-center gap-4">
+            <div className="h-24 w-24 rounded-full bg-secondary" />
+            <div className="space-y-3">
+              <div className="h-5 w-40 rounded bg-secondary" />
+              <div className="h-3 w-28 rounded bg-secondary" />
+            </div>
+          </div>
+          <div className="mt-6 h-12 rounded-xl bg-secondary" />
+          <div className="mt-6 grid grid-cols-3 gap-1.5">
+            {[0, 1, 2].map((item) => (
+              <div key={item} className="aspect-square rounded-lg bg-secondary" />
+            ))}
+          </div>
+        </section>
+      </main>
+    );
   }
 
   if (!userId) {

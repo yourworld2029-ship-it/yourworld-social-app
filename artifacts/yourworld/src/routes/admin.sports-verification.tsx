@@ -311,7 +311,7 @@ function ApplicationCard({
               src={application.sportsIntroductionUrl}
               controls
               playsInline
-              preload="metadata"
+              preload="none"
               className="aspect-[9/16] max-h-80 w-full rounded-xl bg-black object-contain"
             />
           ) : (

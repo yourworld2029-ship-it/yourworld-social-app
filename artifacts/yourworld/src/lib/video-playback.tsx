@@ -371,6 +371,15 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     setActiveHlsHeight(null);
   }, []);
 
+  const previousPathnameRef = useRef(location.pathname);
+  useEffect(() => {
+    const previousPathname = previousPathnameRef.current;
+    previousPathnameRef.current = location.pathname;
+    if (previousPathname !== location.pathname && activeVideo && !isPlayerRoute) {
+      closeVideo();
+    }
+  }, [activeVideo, closeVideo, isPlayerRoute, location.pathname]);
+
   const markControlsActivity = useCallback(() => {
     setControlsVisible(true);
     setControlsActivity((activity) => activity + 1);
@@ -1212,7 +1221,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               loop={loopVideo}
               muted={isMuted}
               playsInline
-              preload="metadata"
+              preload="none"
               onLoadedMetadata={handleLoadedMetadata}
               onTimeUpdate={handleTimeUpdate}
               onSeeking={handleVideoSeeking}

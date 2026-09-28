@@ -210,7 +210,7 @@ function OrbitMyProfile() {
                     src={m.url}
                     muted
                     playsInline
-                    preload="metadata"
+                    preload="none"
                     controls
                     className="h-full w-full object-cover"
                   />

@@ -1472,7 +1472,7 @@ function NativeChatThreadPage() {
                             src={m.momentMediaUrl}
                             muted
                             playsInline
-                            preload="metadata"
+                            preload="none"
                             className="h-full w-full object-cover transition duration-200 group-hover:scale-105"
                           />
                         ) : (

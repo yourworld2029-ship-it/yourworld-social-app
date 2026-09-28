@@ -208,6 +208,7 @@ export function LiveStreamHud({
         autoPlay
         muted={isBroadcaster}
         playsInline
+        preload="none"
         data-testid="video-live-stream"
         aria-label={isBroadcaster ? "Your live camera preview" : "Live video"}
         className="absolute inset-0 h-full w-full bg-[#120d12] object-cover"

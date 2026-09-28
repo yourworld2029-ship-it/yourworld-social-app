@@ -213,7 +213,7 @@ function DirectReelUploadPage() {
                 disablePictureInPicture
                 disableRemotePlayback
                 playsInline
-                preload="metadata"
+                preload="none"
                 onLoadedMetadata={handleMetadata}
                 onTimeUpdate={handleTimeUpdate}
                 onPlay={() => setIsPlaying(true)}

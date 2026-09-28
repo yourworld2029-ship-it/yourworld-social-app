@@ -1614,7 +1614,7 @@ function NativeOrbitChatPage() {
                               className="h-40 w-full object-cover"
                               muted
                               playsInline
-                              preload="metadata"
+                              preload="none"
                             />
                             <span className="absolute inset-0 grid place-items-center">
                               <span className="grid h-10 w-10 place-items-center rounded-full bg-background/70 backdrop-blur">
@@ -1816,7 +1816,7 @@ function NativeOrbitChatPage() {
                 controls
                 autoPlay
                 playsInline
-                preload="metadata"
+                preload="none"
                 className="max-h-full max-w-full object-contain"
               />
             ) : (

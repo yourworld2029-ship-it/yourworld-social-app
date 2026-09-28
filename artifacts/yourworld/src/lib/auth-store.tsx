@@ -243,7 +243,33 @@ export function AuthGate({ children }: { children: ReactNode }) {
     }
   }, [href, loading, navigate, publicRoute, session]);
 
-  if (loading && !publicRoute) return null;
+  if (loading && !publicRoute) {
+    return (
+      <main
+        className="min-h-[100dvh] bg-background px-4 pt-8"
+        role="status"
+        aria-label="Loading your account"
+        aria-busy="true"
+      >
+        <div className="mx-auto max-w-3xl animate-pulse">
+          <div className="h-8 w-36 rounded-lg bg-secondary" />
+          <div className="mt-8 flex items-center gap-4">
+            <div className="h-16 w-16 rounded-full bg-secondary" />
+            <div className="space-y-3">
+              <div className="h-4 w-40 rounded bg-secondary" />
+              <div className="h-3 w-28 rounded bg-secondary" />
+            </div>
+          </div>
+          <div className="mt-8 h-12 rounded-xl bg-secondary" />
+          <div className="mt-6 grid grid-cols-3 gap-2">
+            {[0, 1, 2].map((item) => (
+              <div key={item} className="aspect-square rounded-lg bg-secondary" />
+            ))}
+          </div>
+        </div>
+      </main>
+    );
+  }
   if (!publicRoute && !session) return null;
   return <>{children}</>;
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   ArrowLeft,
@@ -85,6 +85,8 @@ export type ProfileTemplateProps = {
   onOpenDownloadAthlete?: (video: DownloadedVideo) => void;
   selectedTab?: "videos" | "reels" | "downloads";
   onTabChange?: (tab: "videos" | "reels" | "downloads") => void;
+  hasMoreMedia?: boolean;
+  onLoadMoreMedia?: () => void;
   mediaSrc?: (url: string) => string;
   emptyVideos?: string;
   emptyReels?: string;
@@ -99,6 +101,7 @@ const ownerShareButtonClass =
   "h-8 rounded-lg border border-white/10 bg-white/[0.06] px-3 text-xs font-semibold hover:bg-white/[0.12]";
 const otherFollowButtonClass =
   "h-8 rounded-lg border-0 bg-gradient-to-r from-fuchsia-500 to-violet-500 px-3 text-xs font-semibold text-white shadow-[0_8px_20px_-10px_rgba(217,70,239,0.9)] hover:from-fuchsia-400 hover:to-violet-400 disabled:opacity-60";
+const identityMediaSrc = (url: string) => url;
 
 export function ProfileTemplate({
   profile,
@@ -135,7 +138,9 @@ export function ProfileTemplate({
   onOpenDownloadAthlete,
   selectedTab,
   onTabChange,
-  mediaSrc = (url) => url,
+  hasMoreMedia = false,
+  onLoadMoreMedia,
+  mediaSrc = identityMediaSrc,
   emptyVideos = "No posts yet. Create your first one.",
   emptyReels = "No reels yet.",
   children,
@@ -144,6 +149,30 @@ export function ProfileTemplate({
   const [nationalAwardBadge, setNationalAwardBadge] =
     useState<NationalAwardPublicBadge | null>(null);
   const src = mediaSrc;
+  const videoItems = useMemo(
+    () =>
+      sortPinned(grid).map((post) => ({
+        src: post.thumbnail_url ?? post.cover_image ?? (post.kind === "video" || post.kind === "reel" ? post.media_url : src(post.media_url)),
+        mediaUrl: post.media_url,
+        thumbnail: post.thumbnail_url ?? post.cover_image,
+        type: post.kind === "video" ? "video" : post.media_type,
+        post,
+        ratio: mediaAspect(post),
+      })),
+    [grid, src],
+  );
+  const reelItems = useMemo(
+    () =>
+      sortPinned(reels).map((post) => ({
+        src: post.thumbnail_url ?? post.cover_image ?? post.media_url,
+        mediaUrl: post.media_url,
+        thumbnail: post.thumbnail_url ?? post.cover_image,
+        type: "video",
+        post,
+        ratio: mediaAspect(post),
+      })),
+    [reels],
+  );
   const activeTab: ProfileTab = isOwner
     ? selectedTab ?? "videos"
     : internalTab === "reels"
@@ -365,31 +394,27 @@ export function ProfileTemplate({
 
         <TabsContent value="videos" className="mt-0">
           {grid.length ? (
-            <MediaGrid onOpen={onOpen} onManage={onManage} items={sortPinned(grid).map((post) => ({
-              src: post.thumbnail_url ?? post.cover_image ?? (post.kind === "video" || post.kind === "reel" ? post.media_url : src(post.media_url)),
-              mediaUrl: post.media_url,
-              thumbnail: post.thumbnail_url ?? post.cover_image,
-              type: post.kind === "video" ? "video" : post.media_type,
-              post,
-              ratio: mediaAspect(post),
-            }))} />
+            <MediaGrid onOpen={onOpen} onManage={onManage} items={videoItems} />
+          ) : mediaLoading ? (
+            <ProfileMediaSkeleton />
           ) : (
             <Empty text={emptyVideos} />
           )}
+          {hasMoreMedia ? (
+            <MoreMediaButton loading={mediaLoading} onClick={onLoadMoreMedia} />
+          ) : null}
         </TabsContent>
         <TabsContent value="reels" className="mt-0">
           {reels.length ? (
-            <MediaGrid onOpen={onOpen} onManage={onManage} items={sortPinned(reels).map((post) => ({
-              src: post.thumbnail_url ?? post.cover_image ?? post.media_url,
-              mediaUrl: post.media_url,
-              thumbnail: post.thumbnail_url ?? post.cover_image,
-              type: "video",
-              post,
-              ratio: mediaAspect(post),
-            }))} />
+            <MediaGrid onOpen={onOpen} onManage={onManage} items={reelItems} />
+          ) : mediaLoading ? (
+            <ProfileMediaSkeleton />
           ) : (
             <Empty text={emptyReels} />
           )}
+          {hasMoreMedia ? (
+            <MoreMediaButton loading={mediaLoading} onClick={onLoadMoreMedia} />
+          ) : null}
         </TabsContent>
         {isOwner ? (
           <TabsContent value="downloads" className="mt-0">
@@ -423,6 +448,21 @@ function sortPinned(list: DbPost[]) {
 
 function Empty({ text }: { text: string }) {
   return <p data-testid="status-profile-empty" className="px-4 py-14 text-center text-sm text-muted-foreground">{text}</p>;
+}
+
+function ProfileMediaSkeleton() {
+  return (
+    <div
+      className="grid animate-pulse grid-cols-3 gap-1.5 px-3 py-2 sm:px-4"
+      role="status"
+      aria-label="Loading profile media"
+      data-testid="profile-media-skeleton"
+    >
+      {[0, 1, 2, 3, 4, 5].map((item) => (
+        <div key={item} className="aspect-square rounded-lg bg-secondary" />
+      ))}
+    </div>
+  );
 }
 
 function Stat({ label, value, onClick }: { label: string; value: string; onClick?: () => void }) {
@@ -467,6 +507,7 @@ function MediaGrid({
                 alt=""
                 loading="lazy"
                 bucket={it.post?.kind === "reel" ? "reels" : "videos"}
+                posterOnly
                 className="h-full w-full object-cover"
               />
           ) : (
@@ -528,6 +569,28 @@ function MediaGrid({
         </li>
       ))}
     </ul>
+  );
+}
+
+function MoreMediaButton({
+  loading,
+  onClick,
+}: {
+  loading: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <div className="flex justify-center px-4 py-5">
+      <Button
+        type="button"
+        variant="outline"
+        disabled={loading || !onClick}
+        onClick={onClick}
+        data-testid="button-load-more-profile-media"
+      >
+        {loading ? "Loading…" : "Load more"}
+      </Button>
+    </div>
   );
 }
 

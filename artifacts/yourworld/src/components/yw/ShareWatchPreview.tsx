@@ -63,7 +63,7 @@ export function ShareWatchPreview({
             poster={posterUrl ?? undefined}
             controls
             playsInline
-            preload="metadata"
+            preload="none"
             aria-label={`Watch ${title}`}
             data-testid="video-share-watch"
           />

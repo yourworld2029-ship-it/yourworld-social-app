@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { dmThreadId, resolveMediaUrl, type DbPost } from "@/lib/social-data";
-import { useResolvedMedia } from "@/lib/profile-data";
 import { isRealUserId, useFollowCounts } from "@/lib/follow-data";
 import { fetchOrbitProfileRow, rowToOrbitProfile } from "@/lib/orbit-live";
 import { missingColumn, normalizePostRow } from "@/lib/supabase-compat";
@@ -12,6 +11,8 @@ import { useYw } from "@/lib/yw-store";
 import { useAuth, useResumeAuthAction } from "@/lib/auth-store";
 import { getOrCreateSportsProfile } from "@/components/yw/SportsProfile";
 import { ProfileTemplate } from "@/components/yw/ProfileTemplate";
+
+const PUBLIC_PROFILE_MEDIA_PAGE_SIZE = 12;
 
 export const Route = createFileRoute("/u/$userId")({
   head: () => ({
@@ -57,6 +58,7 @@ function PublicProfilePage() {
   const [profile, setProfile] = useState<PublicProfile | null>(null);
   const [avatarSrc, setAvatarSrc] = useState<string | null>(null);
   const [posts, setPosts] = useState<DbPost[]>([]);
+  const [hasMoreMedia, setHasMoreMedia] = useState(false);
   const [loading, setLoading] = useState(true);
   const [mediaLoading, setMediaLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -71,6 +73,7 @@ function PublicProfilePage() {
   const me = authUser?.id ?? null;
   const isOwnProfile = Boolean(me && resolvedUserId && me === resolvedUserId);
   const loadRequestRef = useRef(0);
+  const mediaLoadInFlightRef = useRef(false);
 
   const load = useCallback(async () => {
     const requestId = ++loadRequestRef.current;
@@ -80,6 +83,8 @@ function PublicProfilePage() {
     setMediaError(null);
     setProfile(null);
     setPosts([]);
+    setHasMoreMedia(false);
+    mediaLoadInFlightRef.current = false;
     setAvatarSrc(null);
     setResolvedUserId(null);
 
@@ -123,43 +128,31 @@ function PublicProfilePage() {
         is_verified: row?.is_verified === true,
         verification_requested: false,
       };
-      let nextAvatar: string | null = null;
-      if (next.avatar_url) {
-        try {
-          nextAvatar = await resolveMediaUrl(next.avatar_url, "avatars");
-        } catch {
-          // A missing private avatar must not hide the public profile shell.
-          nextAvatar = next.avatar_url;
-        }
-      }
       if (requestId !== loadRequestRef.current) return;
       setResolvedUserId(targetId);
       setProfile(next);
-      setAvatarSrc(nextAvatar);
+      setAvatarSrc(null);
       setLoading(false);
+      if (next.avatar_url) {
+        void resolveMediaUrl(next.avatar_url, "avatars")
+          .then((resolved) => {
+            if (requestId === loadRequestRef.current) {
+              setAvatarSrc(resolved || next.avatar_url);
+            }
+          })
+          .catch(() => {
+            if (requestId === loadRequestRef.current) {
+              // A missing private avatar must not hide the public profile shell.
+              setAvatarSrc(next.avatar_url);
+            }
+          });
+      }
 
       try {
-        let postsResult = await supabase
-          .from("posts")
-          .select("*")
-          .eq("user_id", targetId)
-          .eq("archived", false)
-          .order("created_at", { ascending: false })
-          .limit(100);
-
-        // Older deployments may not have archived yet. Public profile media
-        // should still load rather than taking the whole profile shell down.
-        if (postsResult.error && missingColumn(postsResult.error) === "archived") {
-          postsResult = await supabase
-            .from("posts")
-            .select("*")
-            .eq("user_id", targetId)
-            .order("created_at", { ascending: false })
-            .limit(100);
-        }
-        if (postsResult.error) throw postsResult.error;
+        const firstPage = await fetchPublicPostsPage(targetId, 0);
         if (requestId !== loadRequestRef.current) return;
-        setPosts((postsResult.data ?? []).map(normalizePostRow) as DbPost[]);
+        setPosts(firstPage.slice(0, PUBLIC_PROFILE_MEDIA_PAGE_SIZE));
+        setHasMoreMedia(firstPage.length > PUBLIC_PROFILE_MEDIA_PAGE_SIZE);
       } catch (error) {
         if (requestId !== loadRequestRef.current) return;
         console.error("[PublicProfilePage] unable to load profile media", error);
@@ -183,13 +176,46 @@ function PublicProfilePage() {
     void load();
   }, [load]);
 
+  const loadMoreMedia = useCallback(async () => {
+    if (
+      !resolvedUserId ||
+      !hasMoreMedia ||
+      mediaLoading ||
+      mediaLoadInFlightRef.current
+    ) {
+      return;
+    }
+
+    const requestId = loadRequestRef.current;
+    const offset = posts.length;
+    mediaLoadInFlightRef.current = true;
+    setMediaLoading(true);
+    setMediaError(null);
+    try {
+      const nextPage = await fetchPublicPostsPage(resolvedUserId, offset);
+      if (requestId !== loadRequestRef.current) return;
+      setPosts((current) => [
+        ...current,
+        ...nextPage.slice(0, PUBLIC_PROFILE_MEDIA_PAGE_SIZE),
+      ]);
+      setHasMoreMedia(nextPage.length > PUBLIC_PROFILE_MEDIA_PAGE_SIZE);
+    } catch (error) {
+      if (requestId !== loadRequestRef.current) return;
+      console.error("[PublicProfilePage] unable to load more profile media", error);
+      setMediaError("More posts are temporarily unavailable.");
+    } finally {
+      if (requestId === loadRequestRef.current) {
+        mediaLoadInFlightRef.current = false;
+        setMediaLoading(false);
+      }
+    }
+  }, [hasMoreMedia, mediaLoading, posts.length, resolvedUserId]);
+
   useEffect(() => {
     if (!isOwnProfile) return;
     void navigate({ to: "/profile", replace: true });
   }, [isOwnProfile, navigate]);
 
-  const media = useResolvedMedia(posts.map((post) => post.media_url));
-  const mediaSrc = (url: string) => media[url] ?? url;
   const grid = useMemo(
     () =>
       posts.filter(
@@ -321,6 +347,8 @@ function PublicProfilePage() {
       grid={grid}
       reels={reels}
       mediaLoading={mediaLoading}
+      hasMoreMedia={hasMoreMedia}
+      onLoadMoreMedia={loadMoreMedia}
       counts={counts}
       sportsProfile={sportsProfile}
       isVerifiedSports={isVerifiedSports}
@@ -344,7 +372,6 @@ function PublicProfilePage() {
       onShare={onShare}
       onBack={onBack}
       onOpen={openViewer}
-      mediaSrc={mediaSrc}
       emptyVideos={mediaError ?? (mediaLoading ? "Loading posts…" : "No posts yet.")}
       emptyReels={mediaError ?? (mediaLoading ? "Loading reels…" : "No posts yet.")}
     />
@@ -370,6 +397,31 @@ async function resolvePublicProfileId(routeParam: string) {
     (row) => typeof row.username === "string" && row.username.toLowerCase() === routeParam.toLowerCase(),
   );
   return exact?.id ?? rows[0]?.id ?? null;
+}
+
+async function fetchPublicPostsPage(targetId: string, offset: number) {
+  let postsResult = await supabase
+    .from("posts")
+    .select("*")
+    .eq("user_id", targetId)
+    .eq("archived", false)
+    .order("pinned", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false })
+    .range(offset, offset + PUBLIC_PROFILE_MEDIA_PAGE_SIZE);
+
+  // Older deployments may not have archived yet. Keep the profile media path
+  // compatible without delaying the profile shell.
+  if (postsResult.error && missingColumn(postsResult.error) === "archived") {
+    postsResult = await supabase
+      .from("posts")
+      .select("*")
+      .eq("user_id", targetId)
+      .order("pinned", { ascending: false, nullsFirst: false })
+      .order("created_at", { ascending: false })
+      .range(offset, offset + PUBLIC_PROFILE_MEDIA_PAGE_SIZE);
+  }
+  if (postsResult.error) throw postsResult.error;
+  return (postsResult.data ?? []).map(normalizePostRow) as DbPost[];
 }
 
 function PublicProfileLoading({ onBack }: { onBack: () => void }) {

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Play } from "lucide-react";
 import { resolveMediaUrl } from "@/lib/social-data";
 import { cn } from "@/lib/utils";
-import { cacheVideoPoster, getVideoPoster, prefetchVideo } from "@/lib/video-prefetch";
+import { cacheVideoPoster, getVideoPoster } from "@/lib/video-prefetch";
 
 type Props = {
   thumbnailUrl?: string | null;
@@ -20,9 +20,8 @@ function firstFrameUrl(url: string) {
 }
 
 /**
- * Uses the stored thumbnail as a real video poster. When no thumbnail exists,
- * the browser loads only metadata and the first frame instead of downloading
- * the full source video just to paint a card.
+ * Shows stored thumbnails as static images. A first-frame fallback is kept for
+ * legacy media without a thumbnail, but never preloads video bytes in the card.
  */
 export function VideoPoster({
   thumbnailUrl,
@@ -39,7 +38,6 @@ export function VideoPoster({
   const [mediaReady, setMediaReady] = useState(false);
   const [thumbnailReady, setThumbnailReady] = useState(false);
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
-  const cardRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -112,28 +110,15 @@ export function VideoPoster({
     }
   }, [posterOnly, resolvedMedia, thumbnailFailed, thumbnailUrl]);
 
-  useEffect(() => {
-    const card = cardRef.current;
-    if (posterOnly || !card || !resolvedMedia || typeof IntersectionObserver === "undefined") return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting && entry.intersectionRatio >= 0.5)) {
-          prefetchVideo(resolvedMedia);
-        }
-      },
-      { threshold: 0.5 },
-    );
-    observer.observe(card);
-    return () => observer.disconnect();
-  }, [posterOnly, resolvedMedia]);
-
-  const source = !posterOnly && resolvedMedia ? firstFrameUrl(resolvedMedia) : "";
+  const source =
+    !posterOnly && !thumbnailUrl && resolvedMedia
+      ? firstFrameUrl(resolvedMedia)
+      : "";
   const hasThumbnail = Boolean(resolvedThumbnail) && !thumbnailFailed;
   const showFallback = !thumbnailReady && !mediaReady;
 
   return (
     <div
-      ref={cardRef}
       className={cn(
         "relative h-full w-full overflow-hidden bg-gradient-to-br from-zinc-800 via-zinc-900 to-zinc-950",
         className,
@@ -176,7 +161,7 @@ export function VideoPoster({
           aria-label={alt}
           playsInline
           muted
-          preload="metadata"
+          preload="none"
           onLoadedData={() => {
             setMediaReady(true);
             if (!hasThumbnail && videoRef.current) {

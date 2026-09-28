@@ -2516,6 +2516,7 @@ function MomentCreatePage() {
           autoPlay
           playsInline
           muted
+          preload="none"
           className={`gpu-layer absolute inset-0 w-full h-full object-cover ${
             facingMode === "user"
               ? "scale-x-[-1]"
@@ -2901,7 +2902,7 @@ function MomentCreatePage() {
                     autoPlay
                     loop
                     playsInline
-                    preload="metadata"
+                    preload="none"
                     muted={videoMuted}
                     className="h-full w-full object-contain"
                     style={getMediaRenderTransform()}
@@ -3924,7 +3925,7 @@ function MomentCreatePage() {
                     autoPlay
                     loop
                     playsInline
-                    preload="metadata"
+                    preload="none"
                     controls
                     muted={videoMuted}
                   />
@@ -4031,7 +4032,7 @@ function MomentCreatePage() {
                 src={mediaUrl}
                 muted
                 playsInline
-                preload="metadata"
+                preload="none"
                 className="w-full h-full object-cover"
               />
             ) : (
