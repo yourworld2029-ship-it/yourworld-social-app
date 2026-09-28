@@ -46,6 +46,7 @@ import {
 
 export const Route = createFileRoute("/_authenticated/chat/$threadId")({
   component: ChatThreadPage,
+  errorComponent: ChatThreadErrorFallback,
 });
 
 type Message = {
@@ -78,6 +79,64 @@ type ReplyPreview = {
   text?: string;
   mediaKind?: "image" | "video" | "audio";
 };
+
+function isRenderableChatMessage(value: unknown): value is Message {
+  if (!value || typeof value !== "object") return false;
+  const message = value as Partial<Message>;
+  return (
+    typeof message.id === "string" &&
+    message.id.trim().length > 0 &&
+    (message.sender === "me" || message.sender === "them") &&
+    typeof message.ts === "number" &&
+    Number.isFinite(message.ts)
+  );
+}
+
+function ChatThreadErrorFallback({
+  error,
+  reset,
+}: {
+  error: unknown;
+  reset: () => void;
+}) {
+  const navigate = useNavigate();
+  console.error("[chat] conversation view failed", error);
+  return (
+    <main className="flex min-h-[100dvh] items-center justify-center bg-background p-6 text-foreground">
+      <section
+        aria-labelledby="chat-error-title"
+        className="w-full max-w-sm rounded-2xl border border-border bg-card p-6 text-center shadow-xl"
+        role="alert"
+      >
+        <h1 id="chat-error-title" className="text-lg font-semibold">
+          Chat couldn’t be opened
+        </h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          This conversation hit a display problem. Your messages have not been changed.
+        </p>
+        <div className="mt-5 flex flex-col gap-2">
+          <button
+            className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+            onClick={reset}
+            type="button"
+          >
+            Try again
+          </button>
+          <button
+            className="rounded-xl border border-border px-4 py-2 text-sm font-medium"
+            onClick={() => {
+              if (window.history.length > 1) window.history.back();
+              else void navigate({ to: "/" });
+            }}
+            type="button"
+          >
+            Go back
+          </button>
+        </div>
+      </section>
+    </main>
+  );
+}
 
 function sendCaptureAlertSafely(
   channel: ReturnType<typeof supabase.channel>,
@@ -481,57 +540,102 @@ function NativeChatThreadPage() {
     payload: Record<string, unknown>;
   }>>([]);
 
-  const fmtTime = (iso: string) =>
-    new Date(iso).toLocaleTimeString("en-US", {
+  const fmtTime = (value: unknown) => {
+    const timestamp =
+      typeof value === "string" || typeof value === "number"
+        ? new Date(value).getTime()
+        : Number.NaN;
+    if (!Number.isFinite(timestamp)) return "—";
+    return new Date(timestamp).toLocaleTimeString("en-US", {
       hour: "numeric",
       minute: "2-digit",
       hour12: true,
     });
+  };
 
   const messages = useMemo<Message[]>(() => {
-    const fromDb: Message[] = dbMessages.map((m) => ({
-      id: m.id,
-      text: m.content || undefined,
-      image: m.media_url ?? undefined,
-      audio: m.voice_note_url ?? undefined,
-      mediaKind: mediaKindFromMetadata(m.metadata, m.media_url, m.voice_note_url),
-      sharedMedia: sharedMediaFromMetadata(m.metadata),
-      sender: m.sender_id === currentUserId ? "me" : "them",
-       system: m.is_system_message || CALL_LOG_PATTERN.test(m.content),
-       captureEventId:
-         typeof m.metadata?.capture_event_id === "string"
-           ? m.metadata.capture_event_id
-           : undefined,
-      time: fmtTime(m.created_at),
-      ts: new Date(m.created_at).getTime(),
-      read: m.is_read,
-       deletingAt:
-         m.auto_delete_mode === "after_view" && m.is_viewed && m.expires_at
-           ? Date.parse(m.expires_at)
-           : undefined,
-       viewOnce: m.metadata?.view_once === true,
-      opened: m.is_viewed,
-      momentId: m.moment_id ?? undefined,
-      momentMediaUrl: m.moment_media_url ?? undefined,
-      momentCreatedAt: m.moment_created_at ?? undefined,
-       replyTo: replyPreviewFromMetadata(m.metadata),
-      momentKind:
-        m.metadata &&
-        typeof m.metadata.preview === "object" &&
-        m.metadata.preview !== null &&
-        "kind" in m.metadata.preview &&
-        (m.metadata.preview.kind === "photo" ||
-          m.metadata.preview.kind === "video" ||
-          m.metadata.preview.kind === "text")
-          ? m.metadata.preview.kind
-          : undefined,
-    }));
+    const fromDb: Message[] = (Array.isArray(dbMessages) ? dbMessages : []).flatMap(
+      (candidate) => {
+        if (!candidate || typeof candidate !== "object") return [];
+        const m = candidate;
+        const id = typeof m?.id === "string" ? m.id.trim() : "";
+        const senderId = typeof m?.sender_id === "string" ? m.sender_id : "";
+        const timestamp =
+          typeof m?.created_at === "string" ? Date.parse(m.created_at) : Number.NaN;
+        if (
+          !id ||
+          !senderId ||
+          !currentUserId ||
+          (m?.sender_id !== currentUserId && m?.receiver_id !== currentUserId) ||
+          !Number.isFinite(timestamp)
+        ) {
+          return [];
+        }
+        const text = typeof m?.content === "string" ? m.content : undefined;
+        const metadata =
+          m?.metadata && typeof m.metadata === "object" && !Array.isArray(m.metadata)
+            ? m.metadata
+            : null;
+        const expiresAt =
+          typeof m?.expires_at === "string" ? Date.parse(m.expires_at) : Number.NaN;
+        return [
+          {
+            id,
+            text,
+            image: typeof m?.media_url === "string" ? m.media_url : undefined,
+            audio: typeof m?.voice_note_url === "string" ? m.voice_note_url : undefined,
+            mediaKind: mediaKindFromMetadata(metadata, m?.media_url, m?.voice_note_url),
+            sharedMedia: sharedMediaFromMetadata(metadata),
+            sender: m?.sender_id === currentUserId ? "me" : "them",
+            system: m?.is_system_message === true || CALL_LOG_PATTERN.test(text ?? ""),
+            captureEventId:
+              typeof metadata?.capture_event_id === "string"
+                ? metadata.capture_event_id
+                : undefined,
+            time: fmtTime(m?.created_at),
+            ts: timestamp,
+            read: m?.is_read === true,
+            deletingAt:
+              m?.auto_delete_mode === "after_view" &&
+              m?.is_viewed === true &&
+              Number.isFinite(expiresAt)
+                ? expiresAt
+                : undefined,
+            viewOnce: metadata?.view_once === true,
+            opened: m?.is_viewed === true,
+            momentId: typeof m?.moment_id === "string" ? m.moment_id : undefined,
+            momentMediaUrl:
+              typeof m?.moment_media_url === "string" ? m.moment_media_url : undefined,
+            momentCreatedAt:
+              typeof m?.moment_created_at === "string" ? m.moment_created_at : undefined,
+            replyTo: replyPreviewFromMetadata(metadata),
+            momentKind:
+              metadata?.preview &&
+              typeof metadata.preview === "object" &&
+              !Array.isArray(metadata.preview) &&
+              "kind" in metadata.preview &&
+              (metadata.preview.kind === "photo" ||
+                metadata.preview.kind === "video" ||
+                metadata.preview.kind === "text")
+                ? metadata.preview.kind
+                : undefined,
+          },
+        ];
+      },
+    );
     const persistedCaptureIds = new Set(
       fromDb.map((message) => message.captureEventId).filter((id): id is string => Boolean(id)),
     );
-    return [...fromDb, ...localMessages.filter(
-      (message) => !message.captureEventId || !persistedCaptureIds.has(message.captureEventId),
-    )]
+    return [
+      ...fromDb,
+      ...(Array.isArray(localMessages) ? localMessages : [])
+        .filter(isRenderableChatMessage)
+        .filter(
+          (message) =>
+            !message.captureEventId || !persistedCaptureIds.has(message.captureEventId),
+        ),
+    ]
+      .filter(isRenderableChatMessage)
       .filter((m) => !hiddenIds.includes(m.id))
       .sort((a, b) => a.ts - b.ts);
   }, [dbMessages, localMessages, hiddenIds, currentUserId]);

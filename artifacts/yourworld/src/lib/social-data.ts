@@ -743,7 +743,10 @@ const toDbMessage = (row: PublicMessageRow): DbMessage => ({
   voice_note_url: typeof row.voice_note_url === "string" ? row.voice_note_url : null,
   metadata: asRecord(row.metadata),
   is_read: row.is_read === true,
-  created_at: typeof row.created_at === "string" ? row.created_at : new Date(0).toISOString(),
+  created_at:
+    typeof row.created_at === "string" && Number.isFinite(Date.parse(row.created_at))
+      ? row.created_at
+      : new Date().toISOString(),
   ...momentContextFromRow(row),
   auto_delete_setting: row.auto_delete_setting ?? "off",
   auto_delete_mode: row.auto_delete_mode ?? row.auto_delete_setting ?? "off",
@@ -757,27 +760,72 @@ const toDbMessage = (row: PublicMessageRow): DbMessage => ({
 });
 
 const isRenderablePublicMessage = (
-  row: Pick<
-    PublicMessageRow,
-    | "sender_id"
-    | "receiver_id"
-     | "auto_delete_setting"
-     | "auto_delete_mode"
-    | "expires_at"
-     | "is_deleted"
-    | "is_viewed"
-     | "media_url"
-     | "voice_note_url"
-     | "metadata"
-     | "content"
-     | "is_system_message"
-  >,
-  _viewerId: string | null,
+  value: unknown,
+  viewerId: string | null,
   now = Date.now(),
-) =>
-  (!row.expires_at || new Date(row.expires_at).getTime() > now) &&
-  row.is_deleted !== true &&
-  !isCaptureAlertMessage(row);
+): value is PublicMessageRow => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const row = value as Partial<PublicMessageRow>;
+  if (
+    typeof row.id !== "string" ||
+    !row.id.trim() ||
+    typeof row.sender_id !== "string" ||
+    !row.sender_id.trim() ||
+    typeof row.receiver_id !== "string" ||
+    !row.receiver_id.trim() ||
+    typeof row.created_at !== "string" ||
+    !Number.isFinite(Date.parse(row.created_at))
+  ) {
+    return false;
+  }
+  if (
+    row.content !== undefined &&
+    row.content !== null &&
+    typeof row.content !== "string"
+  ) {
+    return false;
+  }
+  if (
+    (row.media_url !== undefined &&
+      row.media_url !== null &&
+      typeof row.media_url !== "string") ||
+    (row.voice_note_url !== undefined &&
+      row.voice_note_url !== null &&
+      typeof row.voice_note_url !== "string")
+  ) {
+    return false;
+  }
+  if (viewerId && row.sender_id !== viewerId && row.receiver_id !== viewerId) {
+    return false;
+  }
+  if (row.expires_at !== undefined && row.expires_at !== null) {
+    if (
+      typeof row.expires_at !== "string" ||
+      !Number.isFinite(Date.parse(row.expires_at)) ||
+      Date.parse(row.expires_at) <= now
+    ) {
+      return false;
+    }
+  }
+
+  return row.is_deleted !== true && !isCaptureAlertMessage(toDbMessage(row as PublicMessageRow));
+};
+
+function normalizeCachedThreadRows(
+  value: unknown,
+  pair: [string, string] | null,
+  viewerId: string | null = null,
+): DbMessage[] {
+  if (!Array.isArray(value) || !pair) return [];
+  return value.flatMap((candidate) => {
+    if (!isRenderablePublicMessage(candidate, viewerId)) return [];
+    const row = candidate;
+    const belongsToPair =
+      (row.sender_id === pair[0] && row.receiver_id === pair[1]) ||
+      (row.sender_id === pair[1] && row.receiver_id === pair[0]);
+    return belongsToPair ? [toDbMessage(row)] : [];
+  });
+}
 
 function isMissingAutoDeleteColumn(error: unknown): boolean {
   const text =
@@ -1453,11 +1501,12 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
   const pair = useMemo(() => dmThreadPair(threadId), [threadId]);
   const [messages, setMessages] = useState<DbMessage[]>(
     () =>
-      (
-        loadCachedThreadSync<DbMessage>(`social:${threadId}`) ??
-        cacheGet<DbMessage[]>(`thread:${threadId}`) ??
-        []
-      ).filter((row) => !isCaptureAlertMessage(row)),
+      normalizeCachedThreadRows(
+        loadCachedThreadSync<unknown>(`social:${threadId}`) ??
+          cacheGet<unknown>(`thread:${threadId}`) ??
+          [],
+        pair,
+      ),
   );
   const [messagesThreadId, setMessagesThreadId] = useState(threadId);
   const messagesThreadIdRef = useRef(threadId);
@@ -1492,11 +1541,12 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
 
   useEffect(() => {
     let cancelled = false;
-    const cachedRows = (
-      loadCachedThreadSync<DbMessage>(`social:${threadId}`) ??
-      cacheGet<DbMessage[]>(`thread:${threadId}`) ??
-      []
-    ).filter((row) => !isCaptureAlertMessage(row));
+    const cachedRows = normalizeCachedThreadRows(
+      loadCachedThreadSync<unknown>(`social:${threadId}`) ??
+        cacheGet<unknown>(`thread:${threadId}`) ??
+        [],
+      pair,
+    );
     messagesThreadIdRef.current = threadId;
     setMessagesThreadId(threadId);
     messagesRef.current = cachedRows;
@@ -1509,14 +1559,14 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     conversationIdRef.current = null;
     setConversationState({ threadId, id: null });
 
-    void loadCachedThread<DbMessage>(`social:${threadId}`).then((rows) => {
+    void loadCachedThread<unknown>(`social:${threadId}`).then((rows) => {
       if (
         cancelled ||
         threadIdRef.current !== threadId ||
         messagesThreadIdRef.current !== threadId ||
         !rows?.length
       ) return;
-      const safeRows = rows.filter((row) => isRenderablePublicMessage(row, meRef.current));
+      const safeRows = normalizeCachedThreadRows(rows, pair, meRef.current);
       setMessages((current) => {
         if (
           threadIdRef.current !== threadId ||
@@ -1737,10 +1787,11 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
                 return;
               }
               if (!belongsRef.current(row)) return;
+              const rowId = row.id;
               if (!isRenderablePublicMessage(row, meRef.current)) {
                 setMessages((prev) => {
                   if (messagesThreadIdRef.current !== threadId) return prev;
-                  return prev.filter((message) => message.id !== row.id);
+                  return prev.filter((message) => message.id !== rowId);
                 });
               } else {
                 mergeRef.current([row]);

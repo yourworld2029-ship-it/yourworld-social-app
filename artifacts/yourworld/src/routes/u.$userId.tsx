@@ -5,7 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { dmThreadId, resolveMediaUrl, type DbPost } from "@/lib/social-data";
 import { isRealUserId, useFollowCounts } from "@/lib/follow-data";
 import { fetchOrbitProfileRow, rowToOrbitProfile } from "@/lib/orbit-live";
-import { missingColumn, normalizePostRow } from "@/lib/supabase-compat";
+import { fetchProfilePostsPage } from "@/lib/profile-posts";
 import { historyBackOr } from "@/lib/navigation";
 import { useYw } from "@/lib/yw-store";
 import { useAuth, useResumeAuthAction } from "@/lib/auth-store";
@@ -400,28 +400,11 @@ async function resolvePublicProfileId(routeParam: string) {
 }
 
 async function fetchPublicPostsPage(targetId: string, offset: number) {
-  let postsResult = await supabase
-    .from("posts")
-    .select("*")
-    .eq("user_id", targetId)
-    .eq("archived", false)
-    .order("pinned", { ascending: false, nullsFirst: false })
-    .order("created_at", { ascending: false })
-    .range(offset, offset + PUBLIC_PROFILE_MEDIA_PAGE_SIZE);
-
-  // Older deployments may not have archived yet. Keep the profile media path
-  // compatible without delaying the profile shell.
-  if (postsResult.error && missingColumn(postsResult.error) === "archived") {
-    postsResult = await supabase
-      .from("posts")
-      .select("*")
-      .eq("user_id", targetId)
-      .order("pinned", { ascending: false, nullsFirst: false })
-      .order("created_at", { ascending: false })
-      .range(offset, offset + PUBLIC_PROFILE_MEDIA_PAGE_SIZE);
-  }
-  if (postsResult.error) throw postsResult.error;
-  return (postsResult.data ?? []).map(normalizePostRow) as DbPost[];
+  return fetchProfilePostsPage(
+    targetId,
+    offset,
+    PUBLIC_PROFILE_MEDIA_PAGE_SIZE + 1,
+  );
 }
 
 function PublicProfileLoading({ onBack }: { onBack: () => void }) {

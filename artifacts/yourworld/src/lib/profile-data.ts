@@ -5,7 +5,8 @@ import { normalizeSupabaseProjectUrl } from "@/integrations/supabase/url";
 import { STORAGE_BUCKETS, uploadWithProgress, type ProgressFn } from "@/lib/storage-upload";
 import { resolveMediaUrl, type DbPost } from "@/lib/social-data";
 import { announcePostDeleted, isPostDeleted } from "@/lib/post-deletion";
-import { normalizePostRow, writeCompat } from "@/lib/supabase-compat";
+import { writeCompat } from "@/lib/supabase-compat";
+import { fetchProfilePostsPage } from "@/lib/profile-posts";
 import {
   isSportsIdentityCategory,
   normalizeNormalProfileCategories,
@@ -632,19 +633,20 @@ export function useMyProfile() {
 
       const loadSecondary = async () => {
         try {
-          const { data: myPosts } = await supabase
-            .from("posts")
-            .select("*")
-            .eq("user_id", uid)
-            .order("created_at", { ascending: false })
-            .limit(12);
+          const myPosts = await fetchProfilePostsPage(uid, 0, 12, {
+            includeArchived: true,
+          });
           if (generation !== loadGeneration.current) return;
 
           setPosts(
-            (myPosts ?? [])
-              .map(normalizePostRow)
+            myPosts
               .filter((post) => !isPostDeleted(post.id)) as DbPost[],
           );
+        } catch (cause) {
+          if (generation === loadGeneration.current) {
+            console.error("[profile] own profile media load failed", cause);
+            setPosts([]);
+          }
         } finally {
           if (generation === loadGeneration.current) setMediaLoading(false);
         }
