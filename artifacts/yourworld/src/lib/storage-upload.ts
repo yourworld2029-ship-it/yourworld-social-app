@@ -114,8 +114,52 @@ function uploadMetadata(
 }
 
 function readableUploadError(error: unknown) {
+  if (typeof error === "string" && error.trim()) return error;
   if (error instanceof Error && error.message) return error.message;
-  return "The resumable upload failed. Please try again.";
+  if (
+    error &&
+    typeof error === "object" &&
+    "message" in error &&
+    typeof (error as { message?: unknown }).message === "string" &&
+    (error as { message: string }).message
+  ) {
+    return (error as { message: string }).message;
+  }
+  return "The storage upload failed. Please try again.";
+}
+
+/**
+ * The regular Storage upload endpoint is more reliable than TUS for the
+ * video buckets. It does not expose byte-level progress, so report the
+ * request lifecycle rather than pretending to know bytes sent.
+ */
+async function uploadDirect(
+  bucket: string,
+  path: string,
+  fileOrBlob: Blob,
+  contentType: string,
+  onProgress?: ProgressFn,
+  cacheControl = "3600",
+): Promise<{ error: string | null }> {
+  onProgress?.(0, "Uploading");
+  try {
+    const { error } = await supabase.storage.from(bucket).upload(path, fileOrBlob, {
+      cacheControl,
+      upsert: false,
+      contentType,
+    });
+    if (error) {
+      const message = readableUploadError(error);
+      console.error(`Direct storage upload failed for ${bucket}/${path}: ${message}`, error);
+      return { error: message };
+    }
+    onProgress?.(100);
+    return { error: null };
+  } catch (error) {
+    const message = readableUploadError(error);
+    console.error(`Direct storage upload failed for ${bucket}/${path}: ${message}`, error);
+    return { error: message };
+  }
 }
 
 /**
@@ -397,16 +441,19 @@ export async function uploadWithProgress(
     const reportProgress: ProgressFn = (percent, detail) => {
       onProgress?.(needsFastStart ? Math.min(percent, 97) : percent, detail);
     };
-    upload = await uploadTus(
-      bucket,
-      path,
-      blob,
-      contentType,
-      token,
-      storageConfig().key,
-      reportProgress,
-      cacheControl,
-    );
+    upload =
+      bucket === STORAGE_BUCKETS.videos || bucket === STORAGE_BUCKETS.reels
+        ? await uploadDirect(bucket, path, blob, contentType, reportProgress, cacheControl)
+        : await uploadTus(
+            bucket,
+            path,
+            blob,
+            contentType,
+            token,
+            storageConfig().key,
+            reportProgress,
+            cacheControl,
+          );
   } catch (error) {
     console.error(`Storage upload failed for ${bucket}/${path}`, error);
     return { url: null, storagePath: null, error: readableUploadError(error) };

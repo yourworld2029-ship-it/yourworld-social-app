@@ -423,66 +423,6 @@ function triggerBlobDownload(blob: Blob, fileName: string) {
   }
 }
 
-function fetchVideoBlobInWorker(
-  src: string,
-  fileName: string,
-  onProgress?: (percent: number) => void,
-  onTransferProgress?: (bytesTransferred: number, totalBytes: number) => void,
-) {
-  if (typeof Worker === "undefined") {
-    return fetchVideoBlob(src, onProgress, fileName, onTransferProgress);
-  }
-
-  let worker: Worker;
-  try {
-    worker = new Worker(new URL("./video-download.worker.ts", import.meta.url), {
-      type: "module",
-    });
-  } catch {
-    return fetchVideoBlob(src, onProgress, fileName, onTransferProgress);
-  }
-
-  return new Promise<Blob>((resolve, reject) => {
-    let settled = false;
-    const finish = (error: Error | null, blob?: Blob) => {
-      if (settled) return;
-      settled = true;
-      worker.terminate();
-      if (error) reject(error);
-      else if (blob) resolve(blob);
-      else reject(new Error("The video download worker returned no file."));
-    };
-
-    worker.onmessage = (event: MessageEvent) => {
-      const message = event.data as
-        | { type: "progress"; percent: number }
-        | { type: "bytes"; bytesTransferred: number; totalBytes: number }
-        | { type: "complete"; blob: Blob }
-        | { type: "error"; message: string };
-      if (message.type === "progress") {
-        onProgress?.(message.percent);
-      } else if (message.type === "bytes") {
-        onTransferProgress?.(message.bytesTransferred, message.totalBytes);
-      } else if (message.type === "complete") {
-        finish(null, message.blob);
-      } else if (message.type === "error") {
-        finish(new Error(message.message || "The video download failed."));
-      }
-    };
-    worker.onerror = (event) => {
-      finish(new Error(event.message || "The video download worker failed."));
-    };
-
-    try {
-      worker.postMessage({ type: "start", src, fileName });
-    } catch {
-      worker.terminate();
-      void fetchVideoBlob(src, onProgress, fileName, onTransferProgress)
-        .then(resolve, reject);
-    }
-  });
-}
-
 /**
  * Streams a video without blocking the player and persists the completed bytes
  * in IndexedDB. The task map is module scoped so route/card unmounts do not
@@ -527,13 +467,13 @@ export async function downloadVideoInBackground(
           });
         }
       };
-      const blob = await fetchVideoBlobInWorker(
+      const blob = await fetchVideoBlob(
         src,
-        fileName,
         (percent) => {
           updateDownloadTask(key, title, percent);
           onProgress?.(percent);
         },
+        fileName,
         reportBytes,
       );
       if (metadata) await saveDownloadedVideo(metadata, blob);
@@ -575,10 +515,20 @@ export async function downloadWatermarkedReelInBackground(
     const title = metadata?.title || fileNameBase;
     updateDownloadTask(key, title, 0);
     try {
-      const blob = await renderWatermarkedVideo(src, watermark, (percent) => {
+      const sourceBlob = await fetchVideoBlob(src, (percent) => {
         updateDownloadTask(key, title, percent);
         onProgress?.(percent);
       });
+      const sourceUrl = URL.createObjectURL(sourceBlob);
+      let blob: Blob;
+      try {
+        blob = await renderWatermarkedVideo(sourceUrl, watermark, (percent) => {
+          updateDownloadTask(key, title, percent);
+          onProgress?.(percent);
+        });
+      } finally {
+        URL.revokeObjectURL(sourceUrl);
+      }
       if (!blob.size) throw new Error("Watermarked video export produced an empty file");
       if (metadata) await saveDownloadedVideo(metadata, blob);
       const extension = extensionForMime(blob.type || "video/webm", "webm");
