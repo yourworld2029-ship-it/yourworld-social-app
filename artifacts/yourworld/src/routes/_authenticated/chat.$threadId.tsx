@@ -3,7 +3,7 @@ import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router"
 import {
   ArrowLeft, Phone, Video, MoreVertical, Image as ImageIcon,
   Mic, Send, Smile, Play, Pause, X,
-  Pencil, Lock, EyeOff, Clock, Camera, VideoOff, BellOff, UserX, Flag, Shield,
+  Pencil, Lock, EyeOff, Clock, Camera, BellOff, UserX, Flag, Shield,
   Trash2, CheckCheck, Check, Crop, Type, Sparkles 
 } from "lucide-react";
 import {
@@ -1684,14 +1684,6 @@ function NativeChatThreadPage() {
                   setShowOptionsMenu(false);
                 }}
               />
-              <MenuItem icon={<Camera size={16} className="text-zinc-400" />} label="Screenshot Alert" state={screenshotAlert} onClick={() => {
-                void updateSetting({ screenshotAlert: !screenshotAlert }, `Screenshot alerts ${!screenshotAlert ? "on" : "off"}`);
-                setShowOptionsMenu(false);
-              }} />
-              <MenuItem icon={<VideoOff size={16} className="text-zinc-400" />} label="Screen Recording Alert" state={recordingAlert} onClick={() => {
-                void updateSetting({ recordingAlert: !recordingAlert }, `Recording alerts ${!recordingAlert ? "on" : "off"}`);
-                setShowOptionsMenu(false);
-              }} />
               <MenuItem icon={<BellOff size={16} className="text-zinc-400" />} label="Mute Notifications" state={muted} onClick={() => {
                 void updateSetting({ muted: !muted }, `Notifications ${!muted ? "muted" : "unmuted"}`);
                 setShowOptionsMenu(false);

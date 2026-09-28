@@ -9,6 +9,12 @@ Lifetime retention is the default for both chat surfaces. `after_view` is a shar
 
 **How to apply:** Keep the shared setting and per-message metadata aligned, and preserve the server-side trigger whenever chat schemas or message insert paths change. Screenshot and recording events should be broadcast to the shared conversation channel; screenshot alerts use `send_system_alert`, while legacy screenshot events remain readable. The receiving user applies their own alert and mute preferences before creating a local notice. Web screenshot fallback may use blur/visibility only when enabled, must ignore focused inputs and contenteditable elements, must apply the chat container's `blur(35px)` inline before dispatch, and must throttle to three seconds; native bridge events remain authoritative.
 
+Social and Orbit chat menus should expose “Protect Chat (Block Screenshots & Recording)” as their only chat-screen capture control. Do not restore the per-chat “Screenshot Alert” or “Screen Recording Alert” menu items; keep stored alert preferences and incoming-alert filtering intact.
+
+**Why:** The user asked for one clear chat privacy toggle while retaining the distinct incoming capture-alert behavior.
+
+**How to apply:** Remove only the redundant menu items and their UI-only handlers. Preserve the alert state and broadcast/receive paths as long as they still drive incoming notifications.
+
 Clear Chat must remove both message rows and durable `calls` rows for the participant pair. Any realtime clear channel must use a canonical participant key; a peer-relative channel name gives each side a different subscription.
 
 **Why:** Social call outcomes were written as ordinary messages without a conversation ID, and directional Orbit channels allowed one participant to miss the reset event.

@@ -22,7 +22,6 @@ import {
   Pencil,
   Lock,
   Clock,
-  VideoOff,
   BellOff,
   UserX,
   Flag,
@@ -1113,30 +1112,6 @@ function NativeOrbitChatPage() {
                     userId,
                     enabled: !(current?.userId === userId && current.enabled),
                   }));
-                  setMenuOpen(false);
-                }}
-              />
-              <MenuItem
-                icon={<Camera className="h-4 w-4 text-muted-foreground" strokeWidth={1.8} />}
-                label="Screenshot Alert"
-                state={screenshotAlert}
-                onClick={() => {
-                  setScreenshotAlert((v) => {
-                    pushSystem(`Screenshot alerts ${!v ? "on" : "off"}`);
-                    return !v;
-                  });
-                  setMenuOpen(false);
-                }}
-              />
-              <MenuItem
-                icon={<VideoOff className="h-4 w-4 text-muted-foreground" strokeWidth={1.8} />}
-                label="Screen Recording Alert"
-                state={recordingAlert}
-                onClick={() => {
-                  setRecordingAlert((v) => {
-                    pushSystem(`Recording alerts ${!v ? "on" : "off"}`);
-                    return !v;
-                  });
                   setMenuOpen(false);
                 }}
               />
