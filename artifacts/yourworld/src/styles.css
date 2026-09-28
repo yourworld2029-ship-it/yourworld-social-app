@@ -1226,20 +1226,31 @@ html[data-theme="midnight"] {
 }
 
 .feed-post-video-frame {
+  position: relative !important;
+  display: block !important;
   width: 100% !important;
   aspect-ratio: 16 / 9 !important;
   height: auto !important;
-  max-height: none !important;
+  max-height: 220px !important;
   margin: 0 !important;
   padding: 0 !important;
   overflow: hidden !important;
-  background: #000 !important;
+  background: #000000 !important;
   background-image: none !important;
 }
 
-.feed-post-video-frame [data-feed-autoplay-candidate],
+.feed-post-video-frame > [data-feed-autoplay-candidate] {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  background: #000000 !important;
+  background-image: none !important;
+}
+
 .feed-post-video-frame [data-feed-autoplay-candidate] > div {
-  background: #000 !important;
+  background: #000000 !important;
   background-image: none !important;
 }
 
@@ -1249,6 +1260,7 @@ html[data-theme="midnight"] {
   height: 100% !important;
   object-fit: cover !important;
   display: block !important;
+  vertical-align: top !important;
 }
 
 .feed-video-tray {

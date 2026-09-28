@@ -260,7 +260,7 @@ export function LongVideoCard({
   return (
     <>
     <article
-      className="overflow-hidden border-y border-zinc-800/80 bg-[#141418] shadow-2xl"
+      className="overflow-hidden border-b border-zinc-800/80 bg-[#141418] shadow-2xl"
     >
       <div className="relative">
       <button
@@ -275,9 +275,9 @@ export function LongVideoCard({
       >
         <div
           className={cn(
-            "relative m-0 w-full overflow-hidden bg-gradient-to-br from-zinc-800 via-zinc-900 to-zinc-950 p-0",
+            "m-0 w-full overflow-hidden p-0",
             video.orientation === "portrait"
-              ? "max-h-[70vh] aspect-[9/16]"
+              ? "relative max-h-[70vh] aspect-[9/16] bg-gradient-to-br from-zinc-800 via-zinc-900 to-zinc-950"
               : "aspect-[16/9] feed-post-video-frame",
           )}
         >
