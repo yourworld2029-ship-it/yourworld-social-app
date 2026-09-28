@@ -8,15 +8,20 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Volume2, VolumeX } from "lucide-react";
+import { Play, Volume2, VolumeX } from "lucide-react";
 import Hls from "hls.js";
 import type { LongVideo } from "@/lib/video-data";
 import { resolveMediaUrl } from "@/lib/social-data";
+import { cacheVideoPoster } from "@/lib/video-prefetch";
 import { cn } from "@/lib/utils";
-import { VideoPoster } from "@/components/yw/VideoPoster";
+import {
+  VIDEO_POSTER_FALLBACK,
+  VideoPoster,
+} from "@/components/yw/VideoPoster";
 
 const FEED_MUTE_STORAGE_KEY = "yourworld.feed-video-muted";
-const NORMAL_VISIBILITY_RATIO = 0.5;
+const NORMAL_VISIBILITY_RATIO = 0.7;
+const WARM_VISIBILITY_RATIO = 0.25;
 const TRAY_VISIBILITY_RATIO = 0.99;
 
 type FeedCandidate = {
@@ -40,6 +45,7 @@ export type FeedVideoAutoplayControls = {
   muted: boolean;
   registerCandidate: (candidate: FeedCandidateRegistration) => () => void;
   stopCandidate: (candidateId: string) => void;
+  toggleCandidate: (candidateId: string) => void;
   toggleMute: () => void;
 };
 
@@ -148,7 +154,8 @@ export function FeedVideoAutoplayProvider({
       activeCandidateRef.current = candidate;
       candidate.video.muted = candidate.forceMuted ? true : mutedRef.current;
       candidate.video.playsInline = true;
-      candidate.video.preload = "none";
+      candidate.video.preload = "metadata";
+      candidate.video.loop = true;
       const playCandidate = () => {
         if (activeCandidateRef.current !== candidate) return;
         void candidate.video.play().catch(() => {
@@ -182,6 +189,7 @@ export function FeedVideoAutoplayProvider({
           hls.attachMedia(candidate.video);
         } else {
           candidate.video.src = url;
+          candidate.video.load();
           playCandidate();
         }
       });
@@ -247,6 +255,24 @@ export function FeedVideoAutoplayProvider({
     [clearActiveCandidate],
   );
 
+  const toggleCandidate = useCallback(
+    (candidateId: string) => {
+      const candidate = candidatesRef.current.get(candidateId);
+      if (!candidate) return;
+
+      if (activeCandidateRef.current === candidate) {
+        suppressedCandidateRef.current = candidateId;
+        clearActiveCandidate();
+        reconcileRef.current();
+        return;
+      }
+
+      suppressedCandidateRef.current = null;
+      activateCandidate(candidate);
+    },
+    [activateCandidate, clearActiveCandidate],
+  );
+
   const toggleMute = useCallback(() => {
     const nextMuted = !mutedRef.current;
     mutedRef.current = nextMuted;
@@ -267,6 +293,9 @@ export function FeedVideoAutoplayProvider({
           const candidate = candidateByElementRef.current.get(entry.target);
           if (!candidate) continue;
           candidate.ratio = entry.isIntersecting ? entry.intersectionRatio : 0;
+          if (candidate.ratio >= WARM_VISIBILITY_RATIO) {
+            void resolveCandidateUrl(candidate);
+          }
           if (
             candidate.ratio < candidate.minimumRatio &&
             suppressedCandidateRef.current === candidate.candidateId
@@ -276,7 +305,11 @@ export function FeedVideoAutoplayProvider({
         }
         reconcileRef.current();
       },
-      { root: null, rootMargin: "0px", threshold: [NORMAL_VISIBILITY_RATIO, TRAY_VISIBILITY_RATIO] },
+      {
+        root: null,
+        rootMargin: "0px",
+        threshold: [WARM_VISIBILITY_RATIO, NORMAL_VISIBILITY_RATIO, TRAY_VISIBILITY_RATIO],
+      },
     );
     observerRef.current = observer;
     for (const candidate of candidatesRef.current.values()) observer.observe(candidate.element);
@@ -312,9 +345,10 @@ export function FeedVideoAutoplayProvider({
       muted,
       registerCandidate,
       stopCandidate,
+      toggleCandidate,
       toggleMute,
     }),
-    [activeCandidateId, muted, registerCandidate, stopCandidate, toggleMute],
+    [activeCandidateId, muted, registerCandidate, stopCandidate, toggleCandidate, toggleMute],
   );
 
   return (
@@ -339,14 +373,42 @@ export function FeedVideoPreview({
 }: {
   video: LongVideo;
   candidateId: string;
-  fullVisibility?: boolean;
-  forceMuted?: boolean;
-  loop?: boolean;
   className?: string;
-  onDurationChange?: (duration: number) => void;
 }) {
+  const {
+    activeCandidateId,
+    muted,
+    registerCandidate,
+    toggleCandidate,
+  } = useFeedVideoAutoplay();
+  const previewRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [posterUrl, setPosterUrl] = useState(VIDEO_POSTER_FALLBACK);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [videoReady, setVideoReady] = useState(false);
+  const active = activeCandidateId === candidateId;
+  const onPosterResolved = useCallback((url: string) => {
+    setPosterUrl(url || VIDEO_POSTER_FALLBACK);
+  }, []);
+
+  useEffect(() => {
+    const element = previewRef.current;
+    const player = videoRef.current;
+    if (!element || !player || !video.mediaUrl) return;
+
+    return registerCandidate({
+      candidateId,
+      videoId: video.id,
+      element,
+      video: player,
+      url: video.mediaUrl,
+      minimumRatio: NORMAL_VISIBILITY_RATIO,
+    });
+  }, [candidateId, registerCandidate, video.id, video.mediaUrl]);
+
   return (
     <div
+      ref={previewRef}
       className={cn(
         "relative h-full w-full overflow-hidden bg-gradient-to-br from-zinc-800 via-zinc-900 to-zinc-950",
         className,
@@ -358,12 +420,62 @@ export function FeedVideoPreview({
         thumbnailUrl={video.thumbnailUrl}
         mediaUrl={video.mediaUrl}
         alt={video.title}
-        loading="eager"
+        loading="lazy"
         bucket="videos"
         posterOnly
         showPlayFallback={false}
+        onPosterResolved={onPosterResolved}
         className="pointer-events-none m-0 select-none p-0 [&_img]:block"
       />
+      <video
+        ref={videoRef}
+        poster={posterUrl}
+        crossOrigin="anonymous"
+        playsInline
+        muted={active ? muted : true}
+        loop
+        preload="metadata"
+        aria-label={video.title}
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
+        onLoadedData={() => {
+          setVideoReady(true);
+          if (!video.thumbnailUrl && videoRef.current) {
+            const generated = cacheVideoPoster(videoRef.current, video.mediaUrl);
+            if (generated) setPosterUrl(generated);
+          }
+        }}
+        onEmptied={() => {
+          setIsPlaying(false);
+          setVideoReady(false);
+        }}
+        onError={() => {
+          setIsPlaying(false);
+          setVideoReady(false);
+        }}
+        className={cn(
+          "absolute inset-0 h-full w-full object-cover transition-opacity duration-150",
+          active && videoReady ? "opacity-100" : "opacity-0",
+        )}
+      />
+      <button
+        type="button"
+        aria-label={isPlaying ? `Pause ${video.title}` : `Play ${video.title}`}
+        aria-pressed={isPlaying}
+        data-testid={`button-feed-video-toggle-${video.id}`}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          toggleCandidate(candidateId);
+        }}
+        className="absolute inset-0 z-10 grid h-full w-full place-items-center bg-transparent text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fuchsia-300"
+      >
+        {!isPlaying ? (
+          <span className="grid h-12 w-12 place-items-center rounded-full border border-white/25 bg-black/50 shadow-lg backdrop-blur-sm">
+            <Play className="ml-0.5 h-5 w-5 fill-current" aria-hidden="true" />
+          </span>
+        ) : null}
+      </button>
     </div>
   );
 }

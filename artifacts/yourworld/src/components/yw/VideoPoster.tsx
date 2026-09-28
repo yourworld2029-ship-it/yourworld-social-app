@@ -13,15 +13,22 @@ type Props = {
   bucket?: "reels" | "videos";
   posterOnly?: boolean;
   showPlayFallback?: boolean;
+  onPosterResolved?: (url: string) => void;
 };
 
 function firstFrameUrl(url: string) {
   return url.includes("#") ? url : `${url}#t=0.001`;
 }
 
+const FALLBACK_VIDEO_POSTER_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 9"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#171126"/><stop offset="1" stop-color="#4c1d65"/></linearGradient></defs><rect width="16" height="9" fill="url(#g)"/><circle cx="14" cy="1" r="4" fill="#d946ef" fill-opacity=".24"/><circle cx="2" cy="9" r="5" fill="#7c3aed" fill-opacity=".22"/></svg>';
+
+export const VIDEO_POSTER_FALLBACK =
+  `data:image/svg+xml;charset=utf-8,${encodeURIComponent(FALLBACK_VIDEO_POSTER_SVG)}`;
+
 /**
- * Shows stored thumbnails as static images. A first-frame fallback is kept for
- * legacy media without a thumbnail, but never preloads video bytes in the card.
+ * Shows stored thumbnails as static images and uses a branded image immediately
+ * when a thumbnail is missing or unavailable.
  */
 export function VideoPoster({
   thumbnailUrl,
@@ -32,8 +39,9 @@ export function VideoPoster({
   bucket = "videos",
   posterOnly = false,
   showPlayFallback = true,
+  onPosterResolved,
 }: Props) {
-  const [resolvedThumbnail, setResolvedThumbnail] = useState<string | null>(thumbnailUrl ?? null);
+  const [resolvedThumbnail, setResolvedThumbnail] = useState<string | null>(null);
   const [resolvedMedia, setResolvedMedia] = useState(mediaUrl);
   const [mediaReady, setMediaReady] = useState(false);
   const [thumbnailReady, setThumbnailReady] = useState(false);
@@ -41,7 +49,7 @@ export function VideoPoster({
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
-    setResolvedThumbnail(thumbnailUrl ?? null);
+    setResolvedThumbnail(null);
     setThumbnailReady(false);
     setThumbnailFailed(false);
   }, [thumbnailUrl]);
@@ -93,7 +101,7 @@ export function VideoPoster({
         setResolvedThumbnail(url);
       })
       .catch(() => {
-        if (alive) setResolvedThumbnail(thumbnailUrl);
+          if (alive) setResolvedThumbnail(null);
       });
     return () => {
       alive = false;
@@ -101,7 +109,7 @@ export function VideoPoster({
   }, [bucket, thumbnailUrl]);
 
   useEffect(() => {
-    if (!resolvedMedia || posterOnly) return;
+    if (!resolvedMedia) return;
     const cachedPoster = getVideoPoster(resolvedMedia);
     if (cachedPoster && (!thumbnailUrl || thumbnailFailed)) {
       setResolvedThumbnail(cachedPoster);
@@ -110,12 +118,17 @@ export function VideoPoster({
     }
   }, [posterOnly, resolvedMedia, thumbnailFailed, thumbnailUrl]);
 
+  const hasThumbnail = Boolean(resolvedThumbnail) && !thumbnailFailed;
+  const posterImage = hasThumbnail ? resolvedThumbnail! : VIDEO_POSTER_FALLBACK;
   const source =
-    !posterOnly && !thumbnailUrl && resolvedMedia
+    !posterOnly && !hasThumbnail && resolvedMedia
       ? firstFrameUrl(resolvedMedia)
       : "";
-  const hasThumbnail = Boolean(resolvedThumbnail) && !thumbnailFailed;
   const showFallback = !thumbnailReady && !mediaReady;
+
+  useEffect(() => {
+    onPosterResolved?.(posterImage);
+  }, [onPosterResolved, posterImage]);
 
   return (
     <div
@@ -131,37 +144,40 @@ export function VideoPoster({
           showFallback ? "animate-thumbnail-shimmer opacity-100" : "opacity-0",
         )}
       />
-      {hasThumbnail ? (
-        <img
-          src={resolvedThumbnail ?? undefined}
-          alt={alt}
-          loading={loading}
-          decoding="async"
-          onLoad={() => {
-            setThumbnailReady(true);
+      <img
+        src={posterImage}
+        alt={alt}
+        loading={loading}
+        decoding="async"
+        onLoad={() => {
+          setThumbnailReady(true);
+          if (posterImage !== VIDEO_POSTER_FALLBACK) {
             setThumbnailFailed(false);
-          }}
-          onError={() => {
-            setThumbnailReady(false);
-            setThumbnailFailed(true);
-          }}
-          className={cn(
-            "absolute inset-0 h-full w-full object-cover transition-opacity duration-300",
-            mediaReady ? "opacity-0" : "opacity-100",
-          )}
-        />
-      ) : null}
+          }
+        }}
+        onError={() => {
+          if (posterImage === VIDEO_POSTER_FALLBACK) {
+            setThumbnailReady(true);
+            return;
+          }
+          setThumbnailReady(false);
+          setThumbnailFailed(true);
+        }}
+        className={cn(
+          "absolute inset-0 h-full w-full object-cover transition-opacity duration-300",
+          mediaReady ? "opacity-0" : "opacity-100",
+        )}
+      />
       {source ? (
         <video
           ref={videoRef}
-          {...({ loading } as const)}
           crossOrigin="anonymous"
           src={source}
-          poster={hasThumbnail ? resolvedThumbnail ?? undefined : undefined}
+          poster={posterImage}
           aria-label={alt}
           playsInline
           muted
-          preload="none"
+          preload="metadata"
           onLoadedData={() => {
             setMediaReady(true);
             if (!hasThumbnail && videoRef.current) {

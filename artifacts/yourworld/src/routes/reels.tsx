@@ -23,7 +23,7 @@ import {
   ProtectedCanvasImage,
   ProtectedCanvasVideoMirror,
 } from "@/components/yw/ProtectedCanvasContent";
-import { VideoPoster } from "@/components/yw/VideoPoster";
+import { VIDEO_POSTER_FALLBACK, VideoPoster } from "@/components/yw/VideoPoster";
 import { ShareSheet } from "@/components/yw/ShareSheet";
 import { CommentsSheet } from "@/components/yw/CommentsSheet";
 import { useAuth, useResumeAuthAction } from "@/lib/auth-store";
@@ -539,10 +539,10 @@ function ReelMedia({
       <video
         ref={setVideoRef}
         src={posterSrc ? src : firstFrameUrl(src)}
-        poster={posterSrc ?? undefined}
+        poster={posterSrc ?? VIDEO_POSTER_FALLBACK}
         playsInline
         muted={muted || !active}
-        preload="none"
+        preload="metadata"
         {...({ loading: active ? "eager" : "lazy" } as const)}
         onError={handleError}
         onLoadedMetadata={onLoadedMetadata}

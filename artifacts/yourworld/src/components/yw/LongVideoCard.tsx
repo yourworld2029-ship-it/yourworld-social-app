@@ -263,16 +263,7 @@ export function LongVideoCard({
       className="feed-post-card overflow-hidden bg-[#141418]"
     >
       <div className="relative">
-      <button
-        type="button"
-        aria-label={`Open ${video.title}`}
-        onClick={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          openVideo();
-        }}
-        className="group relative z-20 m-0 block w-full cursor-pointer touch-manipulation select-none border-0 bg-gradient-to-br from-zinc-800 via-zinc-900 to-zinc-950 p-0 text-left"
-      >
+      <div className="relative bg-gradient-to-br from-zinc-800 via-zinc-900 to-zinc-950">
         <div
           className={cn(
             "m-0 w-full overflow-hidden p-0",
@@ -284,9 +275,7 @@ export function LongVideoCard({
           <FeedVideoPreview
             video={video}
             candidateId={previewId}
-            loop
-            onDurationChange={(duration) => setDurationSeconds(duration)}
-            className="pointer-events-none m-0 select-none p-0"
+            className="m-0 select-none p-0"
           />
           {formattedDuration && (
             <span className="pointer-events-none absolute bottom-2 right-2 rounded-md bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold">
@@ -294,7 +283,7 @@ export function LongVideoCard({
             </span>
           )}
         </div>
-      </button>
+      </div>
       <FeedVideoMuteButton
         candidateId={previewId}
         title={video.title}
