@@ -221,6 +221,9 @@ function ReelsList() {
         return qualityTierFromSourceMetadata(row.source_quality_tier)
           ?? qualityTierFromDimensions(row.original_width, row.original_height);
       })(),
+      qualityUrls: (p as typeof p & {
+        quality_urls?: Reel["qualityUrls"];
+      }).quality_urls ?? undefined,
       durationSeconds: p.duration_seconds,
       createdAt: p.created_at,
       thumbnailUrl: p.thumbnail_url ?? null,
@@ -962,7 +965,14 @@ function ReelItem({
     );
     try {
       if (isVideo) {
-        const playableUrl = getLocalMedia(source) ?? await resolveMediaUrl(source);
+        const selectedQualityUrl =
+          choice && choice !== "original" && choice !== "mp3"
+            ? reel.qualityUrls?.[choice]
+            : undefined;
+        const playableUrl = selectedQualityUrl
+          ? getLocalMedia(selectedQualityUrl) ??
+            await resolveMediaUrl(selectedQualityUrl, mediaBucket ?? "reels")
+          : getLocalMedia(source) ?? await resolveMediaUrl(source);
         const baseName = sanitizeDownloadName(reel.caption, `yw-reel-${reel.id}`);
         const resolvedThumbnailUrl = reel.thumbnailUrl
           ? await resolveMediaUrl(reel.thumbnailUrl, mediaBucket ?? "reels")
@@ -1358,6 +1368,7 @@ function ReelItem({
         title={reel.caption || "YourWorld reel"}
         durationSeconds={reel.durationSeconds ?? REEL_DURATION}
         sourceQualityTier={reel.sourceQualityTier ?? null}
+        qualityMediaUrls={reel.qualityUrls}
         sourceMediaUrl={mediaUrl}
         onDownload={handleDownload}
       />

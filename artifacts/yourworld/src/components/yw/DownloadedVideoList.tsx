@@ -291,7 +291,7 @@ export function DownloadsEmptyState() {
       </span>
       <h2 className="mt-5 font-display text-[17px] font-semibold text-white">No downloaded videos</h2>
       <p className="mt-2 max-w-xs text-[12px] leading-relaxed text-zinc-500">
-        Videos you download in 720p or 1080p will appear here for smooth offline viewing.
+        Videos you download in 720p, 1080p, or 2K will appear here for smooth offline viewing.
       </p>
     </div>
   );
@@ -315,6 +315,8 @@ function formatDate(value: string) {
 function qualityLabel(value: string) {
   if (value === "original") return "Original";
   if (value === "720p") return "720p HD";
+  if (value === "1440p") return "2K (1440p)";
+  if (value === "2160p") return "4K (2160p)";
   return value;
 }
 

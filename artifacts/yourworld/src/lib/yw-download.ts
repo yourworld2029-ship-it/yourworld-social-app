@@ -287,6 +287,84 @@ export async function migrateLegacyDownloadedVideos(ownerId: string) {
   }
 }
 
+async function removeLegacyDownloadCopies(record: DownloadedVideo) {
+  const legacyRecords = await readLegacyDownloadRecords();
+  const matches = legacyRecords.filter(
+    (legacy) => legacy.ownerId === record.ownerId && legacy.id === record.id,
+  );
+  if (!matches.length) return;
+
+  if (typeof caches !== "undefined") {
+    const cacheNames = await caches.keys();
+    if (cacheNames.includes(LEGACY_DOWNLOAD_CACHE_NAME)) {
+      const legacyCache = await caches.open(LEGACY_DOWNLOAD_CACHE_NAME);
+      await Promise.all(
+        matches
+          .map((legacy) => legacy.cacheKey)
+          .filter((cacheKey): cacheKey is string => typeof cacheKey === "string")
+          .map((cacheKey) => legacyCache.delete(cacheKey)),
+      );
+    }
+  }
+
+  if (typeof indexedDB === "undefined") return;
+  await new Promise<void>((resolve, reject) => {
+    const request = indexedDB.open(LEGACY_DOWNLOAD_DB_NAME);
+    request.onupgradeneeded = () => request.transaction?.abort();
+    request.onsuccess = () => {
+      const database = request.result;
+      if (!database.objectStoreNames.contains(LEGACY_DOWNLOAD_STORE_NAME)) {
+        database.close();
+        resolve();
+        return;
+      }
+
+      try {
+        const transaction = database.transaction(
+          LEGACY_DOWNLOAD_STORE_NAME,
+          "readwrite",
+        );
+        const cursorRequest = transaction
+          .objectStore(LEGACY_DOWNLOAD_STORE_NAME)
+          .openCursor();
+        cursorRequest.onsuccess = () => {
+          const cursor = cursorRequest.result;
+          if (!cursor) return;
+          const legacy = cursor.value as LegacyCachedDownload;
+          if (legacy.ownerId === record.ownerId && legacy.id === record.id) {
+            cursor.delete();
+          }
+          cursor.continue();
+        };
+        transaction.oncomplete = () => {
+          database.close();
+          resolve();
+        };
+        transaction.onerror = () => {
+          database.close();
+          reject(
+            transaction.error ??
+              new Error("Could not remove the legacy offline download record"),
+          );
+        };
+        transaction.onabort = () => {
+          database.close();
+          reject(
+            transaction.error ??
+              new Error("Legacy offline download removal was aborted"),
+          );
+        };
+      } catch (error) {
+        database.close();
+        reject(error);
+      }
+    };
+    request.onerror = () =>
+      reject(request.error ?? new Error("Could not open legacy offline video storage"));
+    request.onblocked = () => reject(new Error("Legacy offline video storage is busy"));
+  });
+}
+
 export async function listDownloadedVideos(ownerId: string) {
   await syncNativeDownloadedVideos();
   const records = await getAllOfflineVideos();
@@ -303,6 +381,7 @@ export async function getDownloadedVideo(id: string, ownerId?: string) {
 }
 
 export async function removeDownloadedVideo(record: DownloadedVideo) {
+  await removeLegacyDownloadCopies(record);
   if (record.nativePath && supportsNativeTransfers()) {
     await nativeTransfer.deleteDownload({ relativePath: record.nativePath });
   }

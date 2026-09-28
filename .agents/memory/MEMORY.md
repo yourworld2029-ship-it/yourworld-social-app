@@ -9,7 +9,7 @@
 - [Video playback and downloads](video-playback-downloads.md) — keep playback metadata-first and let the browser own byte ranges; use the service worker only for streamed background saves.
 - [Persistent video player](persistent-video-player.md) — keep one root-owned video element mounted across route changes; detail pages provide a slot and mini-player mode is presentation-only.
 - [Watermarked Reel downloads](watermarked-reel-downloads.md) — keep creator branding in a separate client-rendered export; never fall back to unwatermarked bytes.
-- [Quality-specific downloads](quality-downloads.md) — preserve original source downloads, process smaller tiers only when selected, and keep an original fallback for legacy rows.
+- [Quality-specific downloads](quality-downloads.md) — preserve the source tier and keep offline copies until explicit user deletion; scope library rows by owner.
 - [Audio-preserving compression](audio-preserving-compression.md) — only use a local re-encode when a source audio track is attached; otherwise upload the original.
 - [Auto-delete messages](auto-delete-messages.md) — shared settings and row retention; validated non-View-Once Moment replies must not delete their source asset.
 - [Destructive list mutations](destructive-list-mutations.md) — after a confirmed delete, preserve the local removal instead of applying an uncoordinated stale refresh.

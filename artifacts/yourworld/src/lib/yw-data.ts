@@ -139,6 +139,7 @@ export type Reel = {
   originalWidth?: number | null;
   originalHeight?: number | null;
   sourceQualityTier?: import("@/lib/video-quality").VideoQualityTier | null;
+  qualityUrls?: import("@/lib/video-quality").DownloadQualityUrls | null;
   durationSeconds?: number | null;
   createdAt?: string;
   thumbnailUrl?: string | null;

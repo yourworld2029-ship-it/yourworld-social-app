@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  availableDownloadQualityTiers,
   qualityTierFromDimensions,
   qualityTierFromMetadata,
   qualityTierFromSourceMetadata,
@@ -26,4 +27,13 @@ test("normalizes stored 2K and 4K aliases for existing download tiers", () => {
 test("dimension quality tiers keep their existing values", () => {
   assert.equal(qualityTierFromDimensions(2560, 1440), "1440p");
   assert.equal(qualityTierFromDimensions(3840, 2160), "2160p");
+});
+
+test("2K downloads are offered for a 2K source or an explicit 2K stream", () => {
+  assert.ok(availableDownloadQualityTiers("1440p").some((tier) => tier.id === "1440p"));
+  assert.ok(!availableDownloadQualityTiers("2160p").some((tier) => tier.id === "1440p"));
+  assert.ok(
+    availableDownloadQualityTiers("1080p", { "1440p": "https://media.example/2k.mp4" })
+      .some((tier) => tier.id === "1440p"),
+  );
 });

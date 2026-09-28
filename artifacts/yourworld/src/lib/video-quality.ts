@@ -9,6 +9,7 @@ export const VIDEO_QUALITY_TIERS = [
 ] as const;
 
 export type VideoQualityTier = (typeof VIDEO_QUALITY_TIERS)[number]["id"];
+export type DownloadQualityUrls = Partial<Record<VideoQualityTier, string>>;
 
 export type StoredSourceQualityTier =
   | VideoQualityTier
@@ -85,6 +86,22 @@ export function availableVideoQualityTiers(
   if (!sourceTier) return [];
   const sourceIndex = VIDEO_QUALITY_TIERS.findIndex((candidate) => candidate.id === sourceTier);
   return VIDEO_QUALITY_TIERS.slice(0, sourceIndex + 1);
+}
+
+export function availableDownloadQualityTiers(
+  sourceTier: VideoQualityTier | null | undefined,
+  qualityUrls?: DownloadQualityUrls | null,
+) {
+  const tiers = availableVideoQualityTiers(sourceTier);
+  const has2kSource = sourceTier === "1440p";
+  const has2kStream = Boolean(qualityUrls?.["1440p"]?.trim());
+  if ((has2kSource || has2kStream) && !tiers.some((tier) => tier.id === "1440p")) {
+    const twoKTier = VIDEO_QUALITY_TIERS.find((tier) => tier.id === "1440p");
+    if (twoKTier) tiers.push(twoKTier);
+  }
+  return tiers.filter(
+    (tier) => tier.id !== "1440p" || has2kSource || has2kStream,
+  );
 }
 
 export function estimateDownloadSizeMb(

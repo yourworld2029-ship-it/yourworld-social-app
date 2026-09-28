@@ -67,10 +67,10 @@ import {
   submitSportsVerification,
 } from "@/lib/sports-verification.functions";
 import {
+  listDownloadedVideos,
   migrateLegacyDownloadedVideos,
   getDownloadedVideoUrl,
   removeDownloadedVideo,
-  toDownloadedVideo,
   downloadAudioOnly,
   downloadVideoInBackground,
   downloadWatermarkedReelInBackground,
@@ -82,9 +82,9 @@ import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadShee
 import {
   qualityTierFromDimensions,
   qualityTierFromSourceMetadata,
+  type DownloadQualityUrls,
   type VideoQualityTier,
 } from "@/lib/video-quality";
-import { getAllOfflineVideos } from "@/lib/offlineVideosDB";
 import { useVideoPlayback } from "@/lib/video-playback";
 import { PostEditDialog } from "@/components/yw/PostEditDialog";
 
@@ -165,6 +165,8 @@ function ProfilePage() {
         source_quality_tier?: string | null;
         original_width?: number | null;
         original_height?: number | null;
+        quality_urls?: DownloadQualityUrls | null;
+        qualityUrls?: DownloadQualityUrls | null;
       })
     | null;
   const downloadSourceQualityTier = downloadQualityPost
@@ -174,6 +176,8 @@ function ProfilePage() {
           downloadQualityPost.original_height,
         )
     : null;
+  const downloadQualityUrls =
+    downloadQualityPost?.qualityUrls ?? downloadQualityPost?.quality_urls ?? undefined;
   const [editing, setEditing] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<DbPost | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -199,16 +203,13 @@ function ProfilePage() {
       setDownloadsLoading(false);
       return;
     }
+    setDownloads([]);
     setDownloadsLoading(true);
     void migrateLegacyDownloadedVideos(userId)
-      .then(() => getAllOfflineVideos())
+      .then(() => listDownloadedVideos(userId))
       .then((records) => {
         if (!cancelled) {
-          setDownloads(
-            records
-              .filter((record) => record.ownerId === userId)
-              .map(toDownloadedVideo),
-          );
+          setDownloads(records);
         }
       })
       .catch((error) => {
@@ -387,8 +388,13 @@ function ProfilePage() {
     try {
       const mediaBucket =
         post.kind === "reel" ? STORAGE_BUCKETS.reels : STORAGE_BUCKETS.videos;
-      const mediaUrl =
-        downloadSourceUrl ?? (await resolveMediaUrl(post.media_url, mediaBucket));
+      const selectedQualityPath =
+        choice !== "original" && choice !== "mp3"
+          ? downloadQualityUrls?.[choice]
+          : undefined;
+      const mediaUrl = selectedQualityPath
+        ? await resolveMediaUrl(selectedQualityPath, mediaBucket)
+        : downloadSourceUrl ?? (await resolveMediaUrl(post.media_url, mediaBucket));
       if (!mediaUrl) throw new Error("This media file is unavailable");
 
       const creatorName = profile.display_name || "YourWorld creator";
@@ -923,6 +929,7 @@ function ProfilePage() {
         title={downloadTarget?.title || downloadTarget?.caption || "YourWorld media"}
         durationSeconds={downloadTarget?.duration_seconds ?? null}
         sourceQualityTier={downloadSourceQualityTier}
+        qualityMediaUrls={downloadQualityUrls}
         sourceMediaUrl={downloadSourceUrl}
         onDownload={downloadManagedMedia}
       />

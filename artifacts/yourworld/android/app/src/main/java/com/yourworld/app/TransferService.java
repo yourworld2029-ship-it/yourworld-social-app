@@ -170,6 +170,22 @@ public class TransferService extends Service {
     }
     public static JSONArray snapshots(Context c){JSONArray out=new JSONArray();Map<String,?> all=c.getSharedPreferences("transfer_snapshots",0).getAll();for(Object value:all.values())if(value instanceof String)try{out.put(new JSONObject((String)value));}catch(Exception ignored){}return out;}
     public static Uri downloadUri(Context c,String rel)throws Exception{File f=privateDownload(c,rel);return Uri.fromFile(f);}
-    public static void deleteDownload(Context c,String rel)throws Exception{privateDownload(c,rel).delete();}
+    public static void deleteDownload(Context c,String rel)throws Exception{
+        File file=privateDownload(c,rel);
+        if(file.exists()&&!file.delete())throw new IOException("Could not delete the offline video");
+        SharedPreferences preferences=c.getSharedPreferences("transfer_snapshots",0);
+        SharedPreferences.Editor editor=preferences.edit();
+        boolean changed=false;
+        for(Map.Entry<String,?> entry:preferences.getAll().entrySet()){
+            if(!(entry.getValue() instanceof String))continue;
+            try{
+                JSONObject snapshot=new JSONObject((String)entry.getValue());
+                if("download".equals(snapshot.optString("kind"))&&rel.equals(snapshot.optString("relativePath"))){
+                    editor.remove(entry.getKey());changed=true;
+                }
+            }catch(Exception ignored){}
+        }
+        if(changed)editor.apply();
+    }
     private static File privateDownload(Context c,String rel)throws Exception{if(rel==null||rel.contains("..")||!rel.startsWith("downloads/"))throw new SecurityException("Invalid download path");File root=new File(c.getFilesDir(),"downloads").getCanonicalFile(),f=new File(c.getFilesDir(),rel).getCanonicalFile();if(!f.getPath().startsWith(root.getPath()+File.separator))throw new SecurityException("Download is outside app storage");return f;}
 }

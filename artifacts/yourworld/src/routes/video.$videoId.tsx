@@ -1013,6 +1013,14 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     reportProgress?: (percent: number) => void,
   ) => {
      if (!playableMediaUrl) throw new Error("This video has no downloadable media");
+     const qualityMediaUrls = video.qualityUrls ?? video.quality_urls ?? undefined;
+     const selectedQualityUrl =
+       choice !== "original" && choice !== "mp3"
+         ? qualityMediaUrls?.[choice]
+         : undefined;
+     const downloadMediaUrl = selectedQualityUrl
+       ? await resolveMediaUrl(selectedQualityUrl, "videos")
+       : playableMediaUrl;
       const toastId = choice === "mp3" ? toast.loading("Preparing MP3 audio… 0%") : undefined;
     const baseName = sanitizeDownloadName(video.title || "yourworld-video", `yourworld-${videoId}`);
        const downloadMetadata = {
@@ -1042,7 +1050,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
         );
       } else {
           await downloadVideoInBackground(
-           playableMediaUrl,
+            downloadMediaUrl,
             `${baseName}.mp4`,
             (percent) => reportProgress?.(percent),
             { ...downloadMetadata, quality: choice as VideoQualityTier },
@@ -1304,6 +1312,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
            title={video.title || video.caption || "YourWorld video"}
            durationSeconds={video.duration_seconds}
            sourceQualityTier={sourceQualityTier}
+           qualityMediaUrls={video.qualityUrls ?? video.quality_urls ?? undefined}
             sourceMediaUrl={playableMediaUrl}
            onDownload={downloadSelected}
          />

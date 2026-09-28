@@ -8,7 +8,8 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import {
-  availableVideoQualityTiers,
+  availableDownloadQualityTiers,
+  type DownloadQualityUrls,
   estimateDownloadSizeMb,
   formatDownloadSizeMb,
   type VideoQualityTier,
@@ -33,6 +34,7 @@ type Props = {
   title: string;
   durationSeconds?: number | null;
   sourceQualityTier?: VideoQualityTier | null;
+  qualityMediaUrls?: DownloadQualityUrls | null;
   sourceMediaUrl?: string | null;
   sourceFileSizeBytes?: number | null;
   onDownload: (
@@ -88,18 +90,20 @@ export function DownloadSheet({
   title,
   durationSeconds,
   sourceQualityTier,
+  qualityMediaUrls,
   sourceMediaUrl,
   sourceFileSizeBytes,
   onDownload,
 }: Props) {
   const choices = useMemo<DownloadChoice[]>(
     () => {
-      const qualityTiers = sourceQualityTier
-        ? availableVideoQualityTiers(sourceQualityTier)
-        : [];
+      const qualityTiers = availableDownloadQualityTiers(
+        sourceQualityTier,
+        qualityMediaUrls,
+      );
       return [...qualityTiers.map((choice) => choice.id), "original"];
     },
-    [sourceQualityTier],
+    [qualityMediaUrls, sourceQualityTier],
   );
   const [selected, setSelected] = useState<DownloadChoice>(
     sourceQualityTier ?? "original",

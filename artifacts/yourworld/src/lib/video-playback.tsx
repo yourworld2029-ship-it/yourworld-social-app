@@ -13,6 +13,7 @@ import {
 } from "react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { ScreenOrientation } from "@capacitor/screen-orientation";
+import type { VideoQualityTier } from "@/lib/video-quality";
 import {
   ArrowLeft,
   Check,
@@ -42,7 +43,7 @@ const QUALITY_OPTIONS = [
 ] as const;
 
 export type QualityId = (typeof QUALITY_OPTIONS)[number]["id"];
-export type QualityUrls = Partial<Record<Exclude<QualityId, "auto">, string>>;
+export type QualityUrls = Partial<Record<VideoQualityTier, string>>;
 
 function isHlsUrl(url: string) {
   return /\.m3u8(?:$|[?#])/i.test(url);

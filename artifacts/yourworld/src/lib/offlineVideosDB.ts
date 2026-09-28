@@ -24,34 +24,41 @@ export type OfflineVideo = {
 };
 
 let databasePromise: Promise<IDBDatabase> | null = null;
+let persistenceRequest: Promise<void> | null = null;
 
 function requestPersistentStorage() {
-  if (typeof navigator === "undefined") return;
-  if (navigator.storage?.persist) {
-    void navigator.storage.persist().catch(() => {
-      // Persistence is best effort; IndexedDB remains the durable fallback.
-    });
+  if (typeof navigator === "undefined" || !navigator.storage?.persist) {
+    return Promise.resolve();
   }
+  persistenceRequest ??= navigator.storage.persist().then(() => undefined).catch(() => {
+    // Persistence is best effort; the app still uses its durable IndexedDB store.
+  });
+  return persistenceRequest;
 }
 
 function openDatabase() {
   if (typeof indexedDB === "undefined") {
     return Promise.reject(new Error("Offline video storage is unavailable in this browser"));
   }
-  requestPersistentStorage();
   if (databasePromise) return databasePromise;
 
-  databasePromise = new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open(OFFLINE_VIDEOS_DB_NAME, 1);
-    request.onupgradeneeded = () => {
-      if (!request.result.objectStoreNames.contains(OFFLINE_VIDEOS_STORE_NAME)) {
-        request.result.createObjectStore(OFFLINE_VIDEOS_STORE_NAME, { keyPath: "id" });
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error("Could not open offline video storage"));
-    request.onblocked = () => reject(new Error("Offline video storage is busy"));
-  }).catch((error) => {
+  databasePromise = requestPersistentStorage()
+    .then(
+      () =>
+        new Promise<IDBDatabase>((resolve, reject) => {
+          const request = indexedDB.open(OFFLINE_VIDEOS_DB_NAME, 1);
+          request.onupgradeneeded = () => {
+            if (!request.result.objectStoreNames.contains(OFFLINE_VIDEOS_STORE_NAME)) {
+              request.result.createObjectStore(OFFLINE_VIDEOS_STORE_NAME, { keyPath: "id" });
+            }
+          };
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () =>
+            reject(request.error ?? new Error("Could not open offline video storage"));
+          request.onblocked = () => reject(new Error("Offline video storage is busy"));
+        }),
+    )
+    .catch((error) => {
     databasePromise = null;
     throw error;
   });
