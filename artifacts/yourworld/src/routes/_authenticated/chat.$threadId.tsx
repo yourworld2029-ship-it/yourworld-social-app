@@ -65,6 +65,7 @@ type Message = {
   read?: boolean;
   viewOnce?: boolean;
   opened?: boolean;
+  isMomentReply?: boolean;
   momentId?: string;
   momentMediaUrl?: string;
   momentCreatedAt?: string;
@@ -89,6 +90,138 @@ function isRenderableChatMessage(value: unknown): value is Message {
     (message.sender === "me" || message.sender === "them") &&
     typeof message.ts === "number" &&
     Number.isFinite(message.ts)
+  );
+}
+
+type MomentReplyMoment = {
+  id: string;
+  kind?: "photo" | "video" | "text";
+  media?: unknown;
+  archived: boolean;
+  expiresAt?: number;
+};
+
+type MomentReplyPreview = {
+  available: boolean;
+  mediaUrl: string | null;
+  kind?: "photo" | "video" | "text";
+};
+
+function safeMomentMediaUrl(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const url = value.trim();
+  if (!url) return null;
+  if (
+    /^https?:\/\//i.test(url) ||
+    /^blob:/i.test(url) ||
+    /^data:(?:image|video)\//i.test(url) ||
+    url.startsWith("/storage/v1/object/")
+  ) {
+    return url;
+  }
+  return null;
+}
+
+function resolveMomentReplyPreview(
+  message: Message,
+  moments: readonly MomentReplyMoment[],
+  now = Date.now(),
+): MomentReplyPreview {
+  const moment = message.momentId
+    ? moments.find((candidate) => candidate.id === message.momentId)
+    : undefined;
+  const expiresAt = moment?.expiresAt;
+  const mediaUrl =
+    safeMomentMediaUrl(message.momentMediaUrl) ??
+    safeMomentMediaUrl(moment?.media);
+  const available = Boolean(
+    moment &&
+      !moment.archived &&
+      typeof expiresAt === "number" &&
+      Number.isFinite(expiresAt) &&
+      expiresAt > now &&
+      mediaUrl,
+  );
+
+  return {
+    available,
+    mediaUrl: available ? mediaUrl : null,
+    kind: message.momentKind ?? moment?.kind,
+  };
+}
+
+function MomentReplyCard({
+  message,
+  preview,
+  onOpen,
+}: {
+  message: Message;
+  preview: MomentReplyPreview;
+  onOpen: (message: Message) => void;
+}) {
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  const canOpen =
+    preview.available &&
+    Boolean(preview.mediaUrl) &&
+    failedUrl !== preview.mediaUrl;
+
+  return (
+    <button
+      type="button"
+      disabled={!canOpen}
+      onClick={(event) => {
+        event.stopPropagation();
+        if (canOpen) onOpen(message);
+      }}
+      className={`group mb-2 flex w-full items-center gap-2 rounded-xl border border-white/15 bg-black/20 p-2 text-left focus:outline-none focus:ring-2 focus:ring-white/60 ${
+        canOpen
+          ? "transition hover:border-white/35 hover:bg-black/30"
+          : "cursor-default opacity-80"
+      }`}
+      aria-label={canOpen ? "Open replied Moment" : "Moment unavailable"}
+    >
+      <span className="relative grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-lg bg-zinc-900 text-[9px] text-zinc-400 ring-1 ring-white/15">
+        {canOpen && preview.mediaUrl ? (
+          preview.kind === "video" ? (
+            <video
+              src={preview.mediaUrl}
+              muted
+              playsInline
+              preload="none"
+              onError={() => setFailedUrl(preview.mediaUrl)}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <img
+              src={preview.mediaUrl}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              onError={() => setFailedUrl(preview.mediaUrl)}
+              className="h-full w-full object-cover"
+            />
+          )
+        ) : (
+          <span aria-hidden="true">Unavailable</span>
+        )}
+        {canOpen && (
+          <span className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/10 to-transparent" />
+        )}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[10px] font-bold uppercase tracking-[0.12em] text-white/65">
+          Replying to Moment
+        </span>
+        <span className="mt-0.5 block truncate text-xs font-semibold text-white/90">
+          {canOpen ? "Tap to view" : "Moment unavailable"}
+        </span>
+      </span>
+      {canOpen && (
+        <span className="text-lg leading-none text-white/60 transition-transform group-hover:translate-x-0.5">
+          ›
+        </span>
+      )}
+    </button>
   );
 }
 
@@ -576,6 +709,12 @@ function NativeChatThreadPage() {
           m?.metadata && typeof m.metadata === "object" && !Array.isArray(m.metadata)
             ? m.metadata
             : null;
+        const previewMetadata =
+          metadata?.preview &&
+          typeof metadata.preview === "object" &&
+          !Array.isArray(metadata.preview)
+            ? (metadata.preview as Record<string, unknown>)
+            : null;
         const expiresAt =
           typeof m?.expires_at === "string" ? Date.parse(m.expires_at) : Number.NaN;
         return [
@@ -603,21 +742,36 @@ function NativeChatThreadPage() {
                 : undefined,
             viewOnce: metadata?.view_once === true,
             opened: m?.is_viewed === true,
-            momentId: typeof m?.moment_id === "string" ? m.moment_id : undefined,
+            isMomentReply:
+              metadata?.type === "moment_reply" ||
+              typeof m?.moment_id === "string" ||
+              typeof m?.moment_media_url === "string",
+            momentId:
+              typeof m?.moment_id === "string"
+                ? m.moment_id
+                : typeof metadata?.moment_id === "string"
+                  ? metadata.moment_id
+                  : undefined,
             momentMediaUrl:
-              typeof m?.moment_media_url === "string" ? m.moment_media_url : undefined,
+              typeof m?.moment_media_url === "string"
+                ? m.moment_media_url
+                : typeof metadata?.moment_media_url === "string"
+                  ? metadata.moment_media_url
+                : typeof previewMetadata?.media_url === "string"
+                  ? previewMetadata.media_url
+                    : undefined,
             momentCreatedAt:
-              typeof m?.moment_created_at === "string" ? m.moment_created_at : undefined,
+              typeof m?.moment_created_at === "string"
+                ? m.moment_created_at
+                : typeof metadata?.moment_created_at === "string"
+                  ? metadata.moment_created_at
+                  : undefined,
             replyTo: replyPreviewFromMetadata(metadata),
             momentKind:
-              metadata?.preview &&
-              typeof metadata.preview === "object" &&
-              !Array.isArray(metadata.preview) &&
-              "kind" in metadata.preview &&
-              (metadata.preview.kind === "photo" ||
-                metadata.preview.kind === "video" ||
-                metadata.preview.kind === "text")
-                ? metadata.preview.kind
+              previewMetadata?.kind === "photo" ||
+              previewMetadata?.kind === "video" ||
+              previewMetadata?.kind === "text"
+                ? previewMetadata.kind
                 : undefined,
           },
         ];
@@ -658,10 +812,8 @@ function NativeChatThreadPage() {
   }, [dbMessages]);
 
   const openMomentReply = (message: Message) => {
-    if (!message.momentId) return;
-    const moment = moments.find((candidate) => candidate.id === message.momentId);
-    if (!moment || moment.archived || (moment.expiresAt != null && moment.expiresAt <= Date.now())) {
-      toast.error("This moment is no longer available (expired)");
+    if (!message.momentId || !resolveMomentReplyPreview(message, moments).available) {
+      toast.error("This Moment is no longer available.");
       return;
     }
     void navigate({
@@ -987,21 +1139,46 @@ function NativeChatThreadPage() {
 
   const didFirstScroll = useRef(false);
   const lastMessageKeyRef = useRef<string | null>(null);
-  const scrollToLatest = () => {
-    requestAnimationFrame(() => {
-      messagesEndRef.current?.scrollIntoView({
-        behavior: didFirstScroll.current ? "smooth" : "auto",
-        block: "end",
-      });
-      didFirstScroll.current = true;
+  const pendingScrollFrameRef = useRef<number | null>(null);
+  const scrollToLatest = useCallback(() => {
+    if (pendingScrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(pendingScrollFrameRef.current);
+    }
+    pendingScrollFrameRef.current = window.requestAnimationFrame(() => {
+      pendingScrollFrameRef.current = null;
+      const target = messagesEndRef.current;
+      if (!target?.isConnected || typeof target.scrollIntoView !== "function") return;
+      try {
+        target.scrollIntoView({
+          behavior: didFirstScroll.current ? "smooth" : "auto",
+          block: "end",
+        });
+        didFirstScroll.current = true;
+      } catch (cause) {
+        console.warn("[chat] auto-scroll failed", cause);
+      }
     });
-  };
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (pendingScrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(pendingScrollFrameRef.current);
+        pendingScrollFrameRef.current = null;
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     // Older pages prepend above — keep the reader anchored instead of jumping down.
-    if (keepScrollRef.current !== null && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight - keepScrollRef.current;
+    if (keepScrollRef.current !== null) {
+      const container = scrollRef.current;
+      const previousHeight = keepScrollRef.current;
       keepScrollRef.current = null;
+      if (container?.isConnected) {
+        container.scrollTop = container.scrollHeight - previousHeight;
+      }
       return;
     }
     const newest = messages[messages.length - 1];
@@ -1010,11 +1187,11 @@ function NativeChatThreadPage() {
     const isNewMessage = nextKey !== null && nextKey !== lastMessageKeyRef.current;
     lastMessageKeyRef.current = nextKey;
     if (isInitialLoad || isNewMessage) scrollToLatest();
-  }, [messages]);
+  }, [messages, scrollToLatest]);
 
   const onScrollMessages = () => {
     const el = scrollRef.current;
-    if (!el || el.scrollTop > 80 || loadingMore || !hasMore) return;
+    if (!el?.isConnected || el.scrollTop > 80 || loadingMore || !hasMore) return;
     keepScrollRef.current = el.scrollHeight;
     void loadOlder();
   };
@@ -1704,55 +1881,19 @@ function NativeChatThreadPage() {
                 {selectedIds.includes(m.id) && <Check size={11} />}
               </span>
             )}
-            {m.text && (
+            {(m.text || m.isMomentReply || m.momentId) && (
               <div className={`max-w-[78%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
                 m.sender === "me" ? "bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-br-xs" : "bg-zinc-800/90 text-zinc-100 rounded-bl-xs border border-zinc-700/50"
               }`}>
                 {m.replyTo && <ReplyQuote reply={m.replyTo} className="mb-2 rounded-lg" />}
-                {m.momentId ? (
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      openMomentReply(m);
-                    }}
-                    className="group mb-2 flex w-full items-center gap-2 rounded-xl border border-white/15 bg-black/20 p-2 text-left transition hover:border-white/35 hover:bg-black/30 focus:outline-none focus:ring-2 focus:ring-white/60"
-                    aria-label="Open replied Moment"
-                  >
-                    <span className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-zinc-900 ring-1 ring-white/15">
-                      {m.momentMediaUrl ? (
-                        m.momentKind === "video" ? (
-                          <video
-                            src={m.momentMediaUrl}
-                            muted
-                            playsInline
-                            preload="none"
-                            className="h-full w-full object-cover transition duration-200 group-hover:scale-105"
-                          />
-                        ) : (
-                          <img
-                            src={m.momentMediaUrl}
-                            alt=""
-                            className="h-full w-full object-cover transition duration-200 group-hover:scale-105"
-                          />
-                        )
-                      ) : (
-                        <span className="grid h-full w-full place-items-center text-[10px] text-zinc-500">Text</span>
-                      )}
-                      <span className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent" />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-[10px] font-bold uppercase tracking-[0.12em] text-white/65">
-                        Replying to Moment
-                      </span>
-                      <span className="mt-0.5 block truncate text-xs font-semibold text-white/90">
-                        Tap to view
-                      </span>
-                    </span>
-                    <span className="text-lg leading-none text-white/60 transition-transform group-hover:translate-x-0.5">›</span>
-                  </button>
+                {m.isMomentReply || m.momentId ? (
+                  <MomentReplyCard
+                    message={m}
+                    preview={resolveMomentReplyPreview(m, moments)}
+                    onOpen={openMomentReply}
+                  />
                 ) : null}
-                <ProtectedCanvasText text={m.text} />
+                {m.text ? <ProtectedCanvasText text={m.text} /> : null}
                 {m.sharedMedia ? (
                   <SharedMediaMessageCard
                     media={m.sharedMedia}
@@ -1783,7 +1924,10 @@ function NativeChatThreadPage() {
                 <span className="w-5 h-5 rounded-full border border-emerald-500 flex items-center justify-center">1</span>
                 {openingViewOnceId === m.id ? "Opening…" : "Hold to view once"}
               </HoldToRevealButton>
-            ) : m.image && !m.momentId && !(m.viewOnce && (m.opened || openedOnce.includes(m.id))) ? (
+            ) : m.image &&
+              !m.momentId &&
+              !m.isMomentReply &&
+              !(m.viewOnce && (m.opened || openedOnce.includes(m.id))) ? (
               <div className="max-w-[75%] rounded-2xl overflow-hidden border border-zinc-800 shadow-lg">
                 <LazyImage
                   src={m.image}

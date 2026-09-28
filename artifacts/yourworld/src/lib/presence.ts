@@ -64,12 +64,37 @@ export function useThreadPresence(threadId: string, me: string | null) {
     const sync = (target: ReturnType<typeof supabase.channel>) => {
       if (!alive || channel !== target) return;
       try {
-        const state = target.presenceState<PresenceMeta>();
-        const others = Object.entries(state)
-          .filter(([key]) => key !== me)
-          .flatMap(([, metas]) => metas);
-        setPeerOnline(others.length > 0);
-        setPeerTyping(others.some((meta) => (meta.typing_until ?? 0) > Date.now()));
+        const state = target.presenceState<Record<string, unknown>>();
+        if (!state || typeof state !== "object" || Array.isArray(state)) {
+          setPeerOnline(false);
+          setPeerTyping(false);
+          return;
+        }
+        const peerEntries = Object.entries(state as Record<string, unknown>).filter(
+          ([key, metas]) =>
+            key !== me && Array.isArray(metas) && metas.length > 0,
+        );
+        const others = peerEntries.flatMap(([, metas]) =>
+          (metas as unknown[]).filter(
+            (meta): meta is Record<string, unknown> =>
+              Boolean(meta) &&
+              typeof meta === "object" &&
+              !Array.isArray(meta),
+          ),
+        );
+        const peerOnlineNow = peerEntries.length > 0;
+        const peerTypingNow = others.some(
+          (meta) =>
+            typeof meta.typing_until === "number" &&
+            Number.isFinite(meta.typing_until) &&
+            meta.typing_until > Date.now(),
+        );
+        setPeerOnline((current) =>
+          current === peerOnlineNow ? current : peerOnlineNow,
+        );
+        setPeerTyping((current) =>
+          current === peerTypingNow ? current : peerTypingNow,
+        );
       } catch (cause) {
         console.warn("[chat-presence] presence state handler failed", cause);
       }

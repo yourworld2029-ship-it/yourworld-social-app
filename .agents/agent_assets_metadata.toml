@@ -14,3 +14,17 @@ mtime_ms = 1790498261261
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/2c17a9e8-38b4-4902-92f4-ac2caa1d0cfc/37d50aac-a59f-477c-b602-2cd7b3a2750d"
 storage_version_token = "1790498470181967"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "cRZGAKCahUfcQ7_StBnn5"
+uri = "file://artifacts/yourworld/public/downloads/yourworld-20260928T165207Z-v2.apk"
+type = "unspecified"
+title = "YourWorld Android APK"
+description = "Fresh debug APK with the Android chat crash guards."
+logical_id = "9aeb611b-b160-448f-a12c-321653e136fd"
+content_hash = "sha256:941c00bbeb140fdad0a467c7b71d572b38d533aae68ae8cd1f1d32dc80fd7a1d"
+size = 7039885
+mtime_ms = 1790614327308
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/9aeb611b-b160-448f-a12c-321653e136fd/61ea3d0a-2c86-48ea-a9b9-51d7917253d2"
+storage_version_token = "1790614407691682"
+content_type = "application/octet-stream"

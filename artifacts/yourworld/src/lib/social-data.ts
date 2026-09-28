@@ -1775,19 +1775,37 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
           .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, (payload) => {
             if (!alive || channel !== nextChannel || threadIdRef.current !== threadId) return;
             try {
-              const row = (payload.new ?? payload.old) as PublicMessageRow;
-              if (!row?.id) return;
-              if (payload.eventType === "DELETE") {
-                if (!messagesRef.current.some((message) => message.id === row.id)) return;
+              if (!payload || typeof payload !== "object") return;
+              const eventType = payload.eventType;
+              if (
+                eventType !== "INSERT" &&
+                eventType !== "UPDATE" &&
+                eventType !== "DELETE"
+              ) {
+                return;
+              }
+              const candidate =
+                eventType === "DELETE" ? payload.old : payload.new;
+              if (
+                !candidate ||
+                typeof candidate !== "object" ||
+                Array.isArray(candidate)
+              ) {
+                return;
+              }
+              const row = candidate as PublicMessageRow;
+              if (typeof row.id !== "string" || !row.id.trim()) return;
+              const rowId = row.id;
+              if (eventType === "DELETE") {
+                if (!messagesRef.current.some((message) => message.id === rowId)) return;
                 clearGenerationRef.current += 1;
-                messagesRef.current = messagesRef.current.filter((message) => message.id !== row.id);
+                messagesRef.current = messagesRef.current.filter((message) => message.id !== rowId);
                 setMessages(messagesRef.current);
                 cacheSet(`thread:${threadId}`, messagesRef.current);
                 saveCachedThread(`social:${threadId}`, messagesRef.current);
                 return;
               }
               if (!belongsRef.current(row)) return;
-              const rowId = row.id;
               if (!isRenderablePublicMessage(row, meRef.current)) {
                 setMessages((prev) => {
                   if (messagesThreadIdRef.current !== threadId) return prev;
