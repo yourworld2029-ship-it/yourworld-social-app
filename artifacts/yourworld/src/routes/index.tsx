@@ -377,7 +377,7 @@ function HomePage() {
       {/* Main Long Video Feed */}
       <FeedVideoAutoplayProvider disabled={Boolean(activeVideo)}>
         {() => (
-          <main className="max-w-lg mx-auto px-2 sm:px-4 py-4 space-y-4">
+          <main className="max-w-lg mx-auto px-2 sm:px-4 pt-0 pb-4 space-y-4">
             {!hydrated || loading ? (
               <div className="text-center py-12 text-neutral-500 text-sm">Loading feed...</div>
             ) : videos.length === 0 && !resumeVideo ? (

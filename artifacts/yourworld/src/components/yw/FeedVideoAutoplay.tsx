@@ -409,7 +409,7 @@ export function FeedVideoPreview({
         bucket="videos"
         posterOnly
         showPlayFallback={false}
-        className="pointer-events-none m-0 select-none p-0"
+        className="pointer-events-none m-0 select-none p-0 [&_img]:block"
       />
       <video
         ref={videoRef}
@@ -427,7 +427,7 @@ export function FeedVideoPreview({
         onLoadedData={() => setFrameReady(true)}
         onError={() => setFrameReady(false)}
         className={cn(
-          "pointer-events-none absolute inset-0 m-0 h-full w-full object-cover !p-0 transition-opacity duration-150",
+          "pointer-events-none absolute inset-0 m-0 block h-full w-full object-cover !p-0 transition-opacity duration-150",
           isActive && frameReady ? "opacity-100" : "opacity-0",
         )}
       />
