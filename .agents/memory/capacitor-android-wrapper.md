@@ -39,11 +39,11 @@ The Android CLI deprecates `sdkmanager`; its `--licenses` wrapper can warn and e
 
 **How to apply:** Download the official Android CLI to `$HOME/.local/bin/android` and mark it executable. Use `sdk list --all '*36*'` to find remote packages; its package IDs use slash namespaces such as `platforms/android-36` and `build-tools/35.0.0`. Install the exact platform/build-tools Gradle needs, set `JAVA_HOME` explicitly to JDK 21, and confirm packages plus license files under `$SDK_ROOT`. Avoid `yes | ...` under `set -o pipefail`: `yes` can get SIGPIPE after a successful install and make the shell report exit 141.
 
-In September 2026, Google's generic `commandlinetools-linux-latest.zip` URL returned 404, while the repository metadata still advertised the current archive.
+In September 2026, the Replit system-dependency installer rejected `androidenv.androidPkgs.androidsdk`, but the official Android Studio page linked a revision-specific Linux command-line tools archive with a published SHA-256. The generic `commandlinetools-linux-latest.zip` URL still returned 404.
 
-**Why:** The official package version changed without the generic download alias resolving in this environment.
+**Why:** The workspace's system package index may omit the full Android SDK, while Google's versioned command-line tools remain available as a verified fallback.
 
-**How to apply:** Read `cmdline-tools;latest` from `https://dl.google.com/android/repository/repository2-1.xml`, download its Linux archive URL, and verify the published checksum before extraction instead of guessing or pinning the URL.
+**How to apply:** Prefer the supported Android CLI when available. Otherwise, get the current revision-specific archive URL and checksum from Google's Android Studio page, verify the checksum, then install the exact platform and build-tools versions Gradle requests. Avoid guessing or pinning generic download URLs.
 
 Express routes that serve the packaged APK should resolve its path from `import.meta.url`, not `process.cwd()`, because workflow and deployment working directories can differ.
 

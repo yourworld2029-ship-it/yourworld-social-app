@@ -35,11 +35,11 @@
 - [Supabase MFA factor listing](supabase-mfa-factor-listing.md) — `listFactors().totp` only contains verified factors; inspect `all` to resume unverified TOTP verification.
 - [Highlight deletion boundary](highlight-deletion-boundary.md) — route destructive Highlight deletes through authenticated server code and verify the single JSONB row is gone before updating the UI.
 - [Account deletion pipeline](account-deletion-pipeline.md) — use a transactional SECURITY DEFINER Supabase function for authenticated cleanup before removing auth.users.
-- [Capacitor Android wrapper](capacitor-android-wrapper.md) — TanStack Start needs a generated static client shell for Capacitor, while APK builds require an Android SDK outside the web workspace.
+- [Capacitor Android wrapper](capacitor-android-wrapper.md) — preserve TanStack's static Capacitor shell; use JDK 21 and verify the Android SDK is actually installed before APK builds.
 - [Creator monetization settlement](creator-monetization-settlement.md) — keep buyer surcharge, creator/platform splits, single TDS deduction, and terms gates server-authoritative.
 - [Moment expiry cleanup](moment-expiry-cleanup.md) — storage-aware expiry needs a privileged Edge Function plus a scheduled pg_cron/pg_net invocation; clients still filter strictly by expires_at.
 - [Session and email OTP security](session-and-email-2fa-security.md) — revoke Auth session state before deleting the app row; email OTP must gate the final sign-in session.
 - [Android system-bar insets](android-system-bar-insets.md) — SDK 35+ forces edge-to-edge on Android 15+, so keep bars visible and inset WebView content natively.
-- [Android capture protection](android-capture-protection.md) — keep FLAG_SECURE off app-wide; enable it only while a chat thread is open.
+- [Android capture protection](android-capture-protection.md) — never attach FLAG_SECURE or local screenshot detection to Social or Orbit chat windows.
 - [Managed Realtime table ownership](realtime-system-table-ownership.md) — do not alter Supabase-managed Realtime tables or publication through the project migration connection.
 - [Direct Supabase media uploads](direct-supabase-uploads.md) — use standard Storage requests; report 100% only after Supabase responds and preserve exact failures.

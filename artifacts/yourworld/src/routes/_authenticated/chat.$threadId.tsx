@@ -14,8 +14,8 @@ import { needsProtectionWarning, PLATFORM_PROTECTION_WARNING_TITLE, PLATFORM_PRO
 import { LazyImage } from "@/components/yw/LazyImage";
 import { HoldToRevealButton } from "@/components/yw/HoldToRevealButton";
 import { ProtectedCanvasImage, ProtectedCanvasText } from "@/components/yw/ProtectedCanvasContent";
+import { ChatMessageErrorBoundary } from "@/components/yw/ChatMessageErrorBoundary";
 import { compressImageFile } from "@/lib/image-compress";
-import { useCaptureDetect } from "@/lib/capture-detect";
 import { useMyProfile } from "@/lib/profile-data";
 import {
   cleanupChatRealtimeChannel,
@@ -37,7 +37,6 @@ import { PinDialog } from "@/components/yw/PinDialog";
 import { toast } from "sonner";
 import { AUTO_DELETE_OPTIONS, autoDeleteLabel } from "@/lib/auto-delete";
 import { historyBackOr } from "@/lib/navigation";
-import { useAndroidChatSecureFlag } from "@/lib/native-privacy";
 import {
   STORAGE_BUCKETS,
   uploadSourceWithProgress,
@@ -506,7 +505,6 @@ function NativeChatThreadPage() {
   const { profile: myProfile } = useMyProfile();
   const { moments } = useMoments();
   const currentUserName = myProfile.display_name || myProfile.username || "YourWorld user";
-  const currentUsername = myProfile.username || "user";
   const navigate = useNavigate();
   const router = useRouter();
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
@@ -662,8 +660,6 @@ function NativeChatThreadPage() {
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
   const [relativeNow, setRelativeNow] = useState(() => Date.now());
   const [revealedProtectedIds, setRevealedProtectedIds] = useState<string[]>([]);
-  const captureAlertSequenceRef = useRef(0);
-  const lastScreenshotAlertAtRef = useRef(0);
   const lastIncomingScreenshotAtRef = useRef(0);
   const protectedRevealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const captureChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
@@ -838,14 +834,24 @@ function NativeChatThreadPage() {
               !m.is_viewed)),
       )
       .map((m) => m.id);
-    if (unread.length) void markRead(unread);
+    if (unread.length) {
+      void Promise.resolve()
+        .then(() => markRead(unread))
+        .catch((cause) => {
+          console.warn("[social-chat] marking messages read failed", cause);
+        });
+    }
   }, [dbMessages, currentUserId, markRead]);
 
   useEffect(() => {
     window.dispatchEvent(
       new CustomEvent("yw:chat-thread-opened", { detail: { threadId } }),
     );
-    void markThreadRead();
+    void Promise.resolve()
+      .then(() => markThreadRead())
+      .catch((cause) => {
+        console.warn("[social-chat] marking thread read failed", cause);
+      });
   }, [threadId, markThreadRead]);
 
   const [showEmojis, setShowEmojis] = useState(false);
@@ -873,7 +879,7 @@ function NativeChatThreadPage() {
   const { peerOnline, peerTyping, setTyping } = useThreadPresence(threadId, currentUserId);
 
   // Chat options persisted per conversation in the backend.
-  const { settings, ready: settingsReady, patch, setAutoDeleteSetting } = useChatSettings(peer.peerId, conversationId);
+  const { settings, patch, setAutoDeleteSetting } = useChatSettings(peer.peerId, conversationId);
   const { nameFor } = useChatNames();
   const displayName = nameFor(peer.peerId, settings.displayName ?? peer.peerName ?? "");
   const openPeerProfile = {
@@ -1198,9 +1204,6 @@ function NativeChatThreadPage() {
 
 
   const captureChannelName = conversationId ? `social-chat-capture-${conversationId}` : null;
-  const captureAlertsEnabled = settingsReady && Boolean(conversationId && currentUserId) &&
-    (screenshotAlert || recordingAlert);
-  useAndroidChatSecureFlag(captureAlertsEnabled);
 
   const handleIncomingCaptureAlert = useCallback(
     (payload: Record<string, unknown>, kind: "screenshot" | "recording") => {
@@ -1336,71 +1339,6 @@ function NativeChatThreadPage() {
     };
   }, [captureChannelName, currentUserId, handleIncomingCaptureAlert, recordingAlert, screenshotAlert]);
 
-  const dispatchChatSecurityAlert = useCallback(
-    (kind: "screenshot" | "recording") => {
-      if (
-        !captureChannelName ||
-        !currentUserId ||
-        (kind === "screenshot" && !screenshotAlert) ||
-        (kind === "recording" && !recordingAlert)
-      ) return;
-      if (kind === "screenshot") {
-        const now = Date.now();
-        if (now - lastScreenshotAlertAtRef.current < 3_000) return;
-        lastScreenshotAlertAtRef.current = now;
-      }
-      const eventId = `${currentUserId}-${Date.now()}-${captureAlertSequenceRef.current++}`;
-      const text =
-        kind === "screenshot"
-          ? `📸 ${currentUsername} attempted to take a screenshot`
-          : `📹 ${currentUsername} attempted to take a screen recording`;
-      appendSecurityNotice(text, eventId);
-      void sendToDb({
-        content: text,
-        isSystemMessage: true,
-        metadata: { capture_event_id: eventId, capture_kind: kind },
-      }).then((result) => {
-        if (result.error) {
-          setLocalMessages((previous) =>
-            previous.filter((message) => message.captureEventId !== eventId),
-          );
-        }
-      });
-
-      const event = kind === "screenshot"
-        ? "send_system_alert"
-        : "USER_SCREEN_RECORDING_ALERT";
-      const payload = {
-        chatId: conversationId,
-        senderId: currentUserId,
-        actorName: currentUsername,
-        eventId,
-        kind,
-      };
-      if (captureChannelReadyRef.current && captureChannelRef.current) {
-        sendCaptureAlertSafely(captureChannelRef.current, event, payload);
-      } else {
-        pendingCaptureAlertsRef.current.push({ event, payload });
-      }
-    },
-    [
-      captureChannelName,
-      conversationId,
-      currentUserId,
-      currentUsername,
-      appendSecurityNotice,
-      recordingAlert,
-      screenshotAlert,
-      sendToDb,
-    ],
-  );
-
-  useCaptureDetect(Boolean(settingsReady && conversationId && currentUserId), dispatchChatSecurityAlert, {
-    screenshotEnabled: screenshotAlert,
-    recordingEnabled: recordingAlert,
-    protectedElementId: secretLock ? "chat-messages-container" : undefined,
-  });
-
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | undefined;
     if (isRecording) {
@@ -1458,55 +1396,70 @@ function NativeChatThreadPage() {
   };
 
   const startRecording = async () => {
+    let stream: MediaStream | null = null;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const activeStream = stream;
+      const recorder = new MediaRecorder(activeStream);
       mediaRecorderRef.current = recorder;
       const chunks: Blob[] = [];
 
       recorder.ondataavailable = (e) => chunks.push(e.data);
       recorder.onstop = () => {
+        mediaRecorderRef.current = null;
+        activeStream.getTracks().forEach((track) => track.stop());
         const blob = new Blob(chunks, { type: "audio/webm" });
         void (async () => {
-          if (!currentUserId) return;
-          const path = `${currentUserId}/${threadId}/voice-${Date.now()}.webm`;
-          const uploaded = await uploadWithProgress(
-            STORAGE_BUCKETS.voiceNotes,
-            path,
-            blob,
-            "audio/webm",
-          );
-          if (uploaded.error || !uploaded.url) {
-            toast.error(uploaded.error ?? "Voice note upload failed");
-            return;
+          try {
+            if (!currentUserId) return;
+            const path = `${currentUserId}/${threadId}/voice-${Date.now()}.webm`;
+            const uploaded = await uploadWithProgress(
+              STORAGE_BUCKETS.voiceNotes,
+              path,
+              blob,
+              "audio/webm",
+            );
+            if (uploaded.error || !uploaded.url) {
+              toast.error(uploaded.error ?? "Voice note upload failed");
+              return;
+            }
+            const sent = await sendToDb({
+              voice_note_url: uploaded.url,
+              viewOnce: settings.viewOnce,
+              expiringMedia: settings.viewOnce,
+              metadata: {
+                ...(replyTo ? { reply_to: replyTo } : {}),
+                media_bucket: STORAGE_BUCKETS.voiceNotes,
+                media_path: path,
+              },
+            });
+            if (sent.error) toast.error(sent.error);
+            else setReplyTo(null);
+          } catch (cause) {
+            console.error("[chat-media] voice note send failed", cause);
+            toast.error("Couldn't send that voice note. Please try again.");
           }
-          const sent = await sendToDb({
-            voice_note_url: uploaded.url,
-            viewOnce: settings.viewOnce,
-            expiringMedia: settings.viewOnce,
-            metadata: {
-              ...(replyTo ? { reply_to: replyTo } : {}),
-              media_bucket: STORAGE_BUCKETS.voiceNotes,
-              media_path: path,
-            },
-          });
-          if (sent.error) toast.error(sent.error);
-          else setReplyTo(null);
         })();
-        stream.getTracks().forEach((t) => t.stop());
       };
 
       recorder.start();
       setIsRecording(true);
     } catch (err) {
+      stream?.getTracks().forEach((track) => track.stop());
       console.error("Microphone error", err);
+      toast.error("Couldn't start voice recording. Check microphone permission and try again.");
     }
   };
 
   const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
+      try {
+        mediaRecorderRef.current.stop();
+      } catch (cause) {
+        console.warn("[chat-media] stopping voice recording failed", cause);
+      } finally {
+        setIsRecording(false);
+      }
     }
   };
 
@@ -1651,6 +1604,9 @@ function NativeChatThreadPage() {
                 peerName: displayName,
                 avatarUrl: peer.avatarUrl ?? null,
                 mode: "audio",
+              }).catch((cause) => {
+                console.error("[social-chat] voice call start failed", cause);
+                toast.error("Couldn't start the call. Please try again.");
               })
             }
             aria-label="Voice call"
@@ -1666,6 +1622,9 @@ function NativeChatThreadPage() {
                 peerName: displayName,
                 avatarUrl: peer.avatarUrl ?? null,
                 mode: "video",
+              }).catch((cause) => {
+                console.error("[social-chat] video call start failed", cause);
+                toast.error("Couldn't start the call. Please try again.");
               })
             }
             aria-label="Video call"
@@ -1846,8 +1805,10 @@ function NativeChatThreadPage() {
             ))}
           </div>
         )}
-        {messages.map((m) => m.system ? (
-          <p key={m.id} className="mx-auto flex w-fit items-center gap-2 rounded-full bg-zinc-800/70 px-3 py-1 text-center text-[11px] text-zinc-400">
+        {messages.map((m) => (
+          <ChatMessageErrorBoundary key={`${threadId}:${m.id}`}>
+          {m.system ? (
+          <p className="mx-auto flex w-fit items-center gap-2 rounded-full bg-zinc-800/70 px-3 py-1 text-center text-[11px] text-zinc-400">
             <span>{m.text}</span>
             <time dateTime={new Date(m.ts).toISOString()} className="text-[10px] text-zinc-500">
               {formatChatRelativeTime(m.ts, relativeNow)}
@@ -1855,7 +1816,6 @@ function NativeChatThreadPage() {
           </p>
         ) : (
           <div
-            key={m.id}
             onPointerDown={(event) => startMessageGesture(m, event)}
             onPointerMove={moveMessageGesture}
             onPointerUp={() => endMessageGesture(m)}
@@ -2003,6 +1963,8 @@ function NativeChatThreadPage() {
               )}
             </span>
           </div>
+          )}
+          </ChatMessageErrorBoundary>
         ))}
          {peerTyping ? (
            <div className="flex items-end gap-2" aria-live="polite" aria-label="The other person is typing">

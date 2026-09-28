@@ -8,6 +8,7 @@ import { useEffect } from "react";
 interface PrivacyBridgePlugin {
   setSecureFlag(options: { enabled: boolean }): Promise<void>;
   setCaptureMonitoring(options: { enabled: boolean }): Promise<void>;
+  requestStartupRuntimePermissions(): Promise<void>;
   addListener(
     eventName: "capture",
     listenerFunc: (event: { kind?: unknown }) => void,
@@ -18,9 +19,47 @@ interface PrivacyBridgePlugin {
 }
 
 const privacyBridge = registerPlugin<PrivacyBridgePlugin>("PrivacyBridge");
+const STARTUP_PERMISSION_REQUESTED_KEY =
+  "yourworld:startup-runtime-permissions-requested:v1";
+let startupPermissionRequestAttempted = false;
+let startupPermissionRequest: Promise<void> | null = null;
 
 export function isNativeAndroid() {
   return Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
+}
+
+export function requestStartupRuntimePermissionsOnce(): Promise<void> {
+  if (typeof window === "undefined" || !isNativeAndroid()) {
+    return Promise.resolve();
+  }
+  if (startupPermissionRequestAttempted) {
+    return startupPermissionRequest ?? Promise.resolve();
+  }
+  try {
+    if (window.localStorage.getItem(STARTUP_PERMISSION_REQUESTED_KEY) === "done") {
+      startupPermissionRequestAttempted = true;
+      return Promise.resolve();
+    }
+  } catch {
+    // Storage is only used to avoid repeating denied prompts on later launches.
+  }
+
+  startupPermissionRequestAttempted = true;
+  startupPermissionRequest = (async () => {
+    try {
+      await privacyBridge.requestStartupRuntimePermissions();
+      try {
+        window.localStorage.setItem(STARTUP_PERMISSION_REQUESTED_KEY, "done");
+      } catch {
+        // The module-level guard still keeps this to one request per app session.
+      }
+    } catch (error: unknown) {
+      console.warn("[privacy-bridge] Startup permission request failed", error);
+    }
+  })().finally(() => {
+    startupPermissionRequest = null;
+  });
+  return startupPermissionRequest;
 }
 
 export async function requestCallMediaPermissions(

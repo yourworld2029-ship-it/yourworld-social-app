@@ -4,6 +4,8 @@ import android.Manifest;
 import android.os.Build;
 import android.view.WindowManager;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 
@@ -20,7 +22,12 @@ import com.getcapacitor.annotation.PermissionCallback;
     name = "PrivacyBridge",
     permissions = {
         @Permission(alias = "camera", strings = { Manifest.permission.CAMERA }),
-        @Permission(alias = "microphone", strings = { Manifest.permission.RECORD_AUDIO })
+        @Permission(alias = "microphone", strings = { Manifest.permission.RECORD_AUDIO }),
+        @Permission(alias = "images", strings = { Manifest.permission.READ_MEDIA_IMAGES }),
+        @Permission(alias = "videos", strings = { Manifest.permission.READ_MEDIA_VIDEO }),
+        @Permission(alias = "selectedVisualMedia", strings = { Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED }),
+        @Permission(alias = "legacyStorage", strings = { Manifest.permission.READ_EXTERNAL_STORAGE }),
+        @Permission(alias = "notifications", strings = { Manifest.permission.POST_NOTIFICATIONS })
     }
 )
 public class PrivacyBridgePlugin extends Plugin {
@@ -32,6 +39,42 @@ public class PrivacyBridgePlugin extends Plugin {
             notifyListeners("capture", event);
         }
     };
+
+    @PluginMethod
+    public void requestStartupRuntimePermissions(PluginCall call) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            call.resolve();
+            return;
+        }
+
+        List<String> aliases = new ArrayList<>();
+        aliases.add("camera");
+        aliases.add("microphone");
+        if (Build.VERSION.SDK_INT >= 34) {
+            aliases.add("images");
+            aliases.add("videos");
+            aliases.add("selectedVisualMedia");
+        } else if (Build.VERSION.SDK_INT >= 33) {
+            aliases.add("images");
+            aliases.add("videos");
+        } else {
+            aliases.add("legacyStorage");
+        }
+        if (Build.VERSION.SDK_INT >= 33) {
+            aliases.add("notifications");
+        }
+        requestPermissionForAliases(
+            aliases.toArray(new String[0]),
+            call,
+            "startupRuntimePermissionsResult"
+        );
+    }
+
+    @PermissionCallback
+    private void startupRuntimePermissionsResult(PluginCall call) {
+        // Permission denial is a normal result; do not reject the startup call.
+        call.resolve();
+    }
 
     @PluginMethod
     public void requestCallMediaPermissions(PluginCall call) {

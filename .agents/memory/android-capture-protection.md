@@ -1,10 +1,10 @@
 ---
 name: Android capture protection
-description: Limit Android screenshot and recording prevention to active chat threads.
+description: Keep chat windows free from local screenshot detection and capture blocking.
 ---
 
-Keep `FLAG_SECURE` off on general app screens. In an active chat, enable it only when that chat's screenshot or recording alert is enabled; either alert blocks both capture types. Clear it when both alerts are off or the chat unmounts, and reapply on resume only while the chat policy still enables it.
+Do not set `FLAG_SECURE` or attach `useCaptureDetect` to Social or Orbit chat routes. Chat windows must not install local blur, visibility, or native capture listeners or change screenshot behavior. Remote capture-alert broadcasts may remain as received system notices; they are separate from local detection or blocking. Keep per-call media and WebRTC setup user-initiated while preserving app-wide incoming-call discovery.
 
-**Why:** The user chose a block-first compromise because Android's `FLAG_SECURE` blocks screenshots and recordings together. Android does not report a screenshot attempt for a secure window, so blocking cannot also guarantee a screenshot notice.
+**Why:** The latest user request explicitly supersedes the earlier block-first preference; chat must remain screenshot-accessible and avoid attaching capture hooks during chat entry.
 
-**How to apply:** Keep the policy in Social and accepted Orbit chat routes, gate each alert independently, and never set the flag from `MainActivity`. Android 15/API 35 can report when the app is visible in a screen recording; older Android versions have no equivalent recording-state signal here. Use web blur/visibility only as a best-effort screenshot heuristic, ignore focused editable controls, and apply `blur(35px)` before dispatching that notice. Never claim Android screenshot-attempt alerts are guaranteed while the secure flag is active.
+**How to apply:** Keep remote alert-channel handling separate from OS/window capture listeners. Do not reintroduce chat-local screenshot or recording detection, and do not set a secure flag from `MainActivity`.
