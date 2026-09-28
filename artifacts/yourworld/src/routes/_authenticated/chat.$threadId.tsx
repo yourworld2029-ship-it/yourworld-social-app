@@ -18,6 +18,7 @@ import { compressImageFile } from "@/lib/image-compress";
 import { useCaptureDetect } from "@/lib/capture-detect";
 import { useMyProfile } from "@/lib/profile-data";
 import {
+  cleanupChatRealtimeChannel,
   useThreadMessages,
   useThreadPeer,
   dmThreadId,
@@ -77,6 +78,20 @@ type ReplyPreview = {
   text?: string;
   mediaKind?: "image" | "video" | "audio";
 };
+
+function sendCaptureAlertSafely(
+  channel: ReturnType<typeof supabase.channel>,
+  event: string,
+  payload: Record<string, unknown>,
+) {
+  try {
+    void Promise.resolve(channel.send({ type: "broadcast", event, payload })).catch((cause) => {
+      console.warn("[chat-capture] broadcast failed", cause);
+    });
+  } catch (cause) {
+    console.warn("[chat-capture] broadcast threw", cause);
+  }
+}
 
 type SharedMediaPreview = {
   id: string;
@@ -355,6 +370,8 @@ function NativeChatThreadPage() {
         params: { threadId: dmThreadId(uid, threadId) },
         replace: true,
       });
+    }).catch((cause) => {
+      if (alive) console.warn("[chat-route] could not validate thread route", cause);
     });
     return () => {
       alive = false;
@@ -913,33 +930,105 @@ function NativeChatThreadPage() {
     captureChannelRef.current = null;
     pendingCaptureAlertsRef.current = [];
     if (!captureChannelName || !currentUserId || (!screenshotAlert && !recordingAlert)) return;
-    const channel = supabase
-      .channel(captureChannelName)
-       .on("broadcast", { event: "send_system_alert" }, ({ payload }) => {
-         const value = payload as Record<string, unknown>;
-         handleIncomingCaptureAlert(value, value.kind === "recording" ? "recording" : "screenshot");
-       })
-       .on("broadcast", { event: "USER_SCREENSHOT_TAKEN" }, ({ payload }) => {
-        handleIncomingCaptureAlert(payload as Record<string, unknown>, "screenshot");
-      })
-      .on("broadcast", { event: "USER_SCREEN_RECORDING_ALERT" }, ({ payload }) => {
-        handleIncomingCaptureAlert(payload as Record<string, unknown>, "recording");
-      });
-    captureChannelRef.current = channel;
-    channel.subscribe((status) => {
-      if (status !== "SUBSCRIBED") return;
-      captureChannelReadyRef.current = true;
-      const pending = pendingCaptureAlertsRef.current.splice(0);
-      pending.forEach(({ event, payload }) => {
-        void channel.send({ type: "broadcast", event, payload });
-      });
-    });
+    let alive = true;
+    let retry: number | null = null;
+    let retryCount = 0;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    const scheduleRetry = () => {
+      if (!alive || retry !== null) return;
+      const delay = Math.min(15_000, 1000 * 2 ** Math.min(retryCount, 4));
+      retryCount += 1;
+      retry = window.setTimeout(() => {
+        retry = null;
+        subscribe();
+      }, delay);
+    };
+    const receive = (
+      nextChannel: ReturnType<typeof supabase.channel>,
+      payload: unknown,
+      kind: "screenshot" | "recording",
+    ) => {
+      if (!alive || channel !== nextChannel) return;
+      try {
+        const value =
+          payload && typeof payload === "object"
+            ? (payload as Record<string, unknown>)
+            : {};
+        handleIncomingCaptureAlert(value, kind);
+      } catch (cause) {
+        console.warn("[chat-capture] incoming alert handler failed", cause);
+      }
+    };
+    const subscribe = () => {
+      if (!alive) return;
+      try {
+        const nextChannel = supabase
+          .channel(captureChannelName)
+          .on("broadcast", { event: "send_system_alert" }, ({ payload }) => {
+            const value =
+              payload && typeof payload === "object"
+                ? (payload as Record<string, unknown>)
+                : {};
+            receive(
+              nextChannel,
+              value,
+              value.kind === "recording" ? "recording" : "screenshot",
+            );
+          })
+          .on("broadcast", { event: "USER_SCREENSHOT_TAKEN" }, ({ payload }) => {
+            receive(nextChannel, payload, "screenshot");
+          })
+          .on("broadcast", { event: "USER_SCREEN_RECORDING_ALERT" }, ({ payload }) => {
+            receive(nextChannel, payload, "recording");
+          });
+        channel = nextChannel;
+        captureChannelRef.current = nextChannel;
+        nextChannel.subscribe((status) => {
+          if (!alive || channel !== nextChannel) return;
+          try {
+            if (status === "SUBSCRIBED") {
+              retryCount = 0;
+              captureChannelReadyRef.current = true;
+              const pending = pendingCaptureAlertsRef.current.splice(0);
+              pending.forEach(({ event, payload }) => {
+                sendCaptureAlertSafely(nextChannel, event, payload);
+              });
+              return;
+            }
+            if (!["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(status)) return;
+            captureChannelReadyRef.current = false;
+            channel = null;
+            if (captureChannelRef.current === nextChannel) captureChannelRef.current = null;
+            cleanupChatRealtimeChannel(nextChannel, "capture-alert reconnect");
+            scheduleRetry();
+          } catch (cause) {
+            console.warn("[chat-capture] realtime status handler failed", cause);
+            captureChannelReadyRef.current = false;
+            channel = null;
+            if (captureChannelRef.current === nextChannel) captureChannelRef.current = null;
+            cleanupChatRealtimeChannel(nextChannel, "capture-alert status failure");
+            scheduleRetry();
+          }
+        });
+      } catch (cause) {
+        console.warn("[chat-capture] realtime setup failed", cause);
+        const failed = channel;
+        channel = null;
+        captureChannelReadyRef.current = false;
+        captureChannelRef.current = null;
+        if (failed) cleanupChatRealtimeChannel(failed, "capture-alert setup failure");
+        scheduleRetry();
+      }
+    };
+    subscribe();
     return () => {
+      alive = false;
+      if (retry !== null) window.clearTimeout(retry);
       captureChannelReadyRef.current = false;
       if (captureChannelRef.current === channel) captureChannelRef.current = null;
       pendingCaptureAlertsRef.current = [];
-      void channel.unsubscribe();
-      void supabase.removeChannel(channel);
+      if (channel) cleanupChatRealtimeChannel(channel, "capture-alert cleanup");
+      channel = null;
     };
   }, [captureChannelName, currentUserId, handleIncomingCaptureAlert, recordingAlert, screenshotAlert]);
 
@@ -985,7 +1074,7 @@ function NativeChatThreadPage() {
         kind,
       };
       if (captureChannelReadyRef.current && captureChannelRef.current) {
-        void captureChannelRef.current.send({ type: "broadcast", event, payload });
+        sendCaptureAlertSafely(captureChannelRef.current, event, payload);
       } else {
         pendingCaptureAlertsRef.current.push({ event, payload });
       }
@@ -1051,12 +1140,17 @@ function NativeChatThreadPage() {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
-    // Compress on-device first so sending/uploading is near-instant.
-    const compressed = await compressImageFile(file, { maxDim: 1600, quality: 0.82 });
-    setCaption("");
-    setSelectedFilter("normal");
-    setShowFilters(false);
-    setSelectedImage(compressed);
+    try {
+      // Compress on-device first so sending/uploading is near-instant.
+      const compressed = await compressImageFile(file, { maxDim: 1600, quality: 0.82 });
+      setCaption("");
+      setSelectedFilter("normal");
+      setShowFilters(false);
+      setSelectedImage(compressed);
+    } catch (cause) {
+      console.error("[chat-media] image compression failed", cause);
+      toast.error("Couldn't prepare that image. Please try another.");
+    }
   };
 
   const startRecording = async () => {

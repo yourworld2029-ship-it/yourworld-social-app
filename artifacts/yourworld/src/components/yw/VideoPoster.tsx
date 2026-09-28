@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Play } from "lucide-react";
 import { resolveMediaUrl } from "@/lib/social-data";
 import { cn } from "@/lib/utils";
@@ -17,18 +17,18 @@ type Props = {
 };
 
 function firstFrameUrl(url: string) {
-  return url.includes("#") ? url : `${url}#t=0.001`;
+  return `${url.split("#", 1)[0]}#t=0.1`;
 }
 
 const FALLBACK_VIDEO_POSTER_SVG =
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 9"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#171126"/><stop offset="1" stop-color="#4c1d65"/></linearGradient></defs><rect width="16" height="9" fill="url(#g)"/><circle cx="14" cy="1" r="4" fill="#d946ef" fill-opacity=".24"/><circle cx="2" cy="9" r="5" fill="#7c3aed" fill-opacity=".22"/></svg>';
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 9"><rect width="16" height="9" fill="#09090b"/></svg>';
 
 export const VIDEO_POSTER_FALLBACK =
   `data:image/svg+xml;charset=utf-8,${encodeURIComponent(FALLBACK_VIDEO_POSTER_SVG)}`;
 
 /**
- * Shows stored thumbnails as static images and uses a branded image immediately
- * when a thumbnail is missing or unavailable.
+ * Shows stored thumbnails first, then captures the real 0.1s video frame when
+ * a thumbnail is missing or unavailable. Extraction is deferred until near view.
  */
 export function VideoPoster({
   thumbnailUrl,
@@ -41,21 +41,52 @@ export function VideoPoster({
   showPlayFallback = true,
   onPosterResolved,
 }: Props) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const [resolvedThumbnail, setResolvedThumbnail] = useState<string | null>(null);
-  const [resolvedMedia, setResolvedMedia] = useState(mediaUrl);
+  const [resolvedMedia, setResolvedMedia] = useState("");
   const [mediaReady, setMediaReady] = useState(false);
   const [thumbnailReady, setThumbnailReady] = useState(false);
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
+  const [shouldLoadFrame, setShouldLoadFrame] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const hasThumbnail = Boolean(resolvedThumbnail) && !thumbnailFailed;
+  const needsFrame = !hasThumbnail && (!thumbnailUrl || thumbnailFailed);
 
   useEffect(() => {
     setResolvedThumbnail(null);
     setThumbnailReady(false);
     setThumbnailFailed(false);
-  }, [thumbnailUrl]);
+    setResolvedMedia("");
+    setMediaReady(false);
+    setShouldLoadFrame(false);
+  }, [mediaUrl, thumbnailUrl]);
 
   useEffect(() => {
-    if (posterOnly) {
+    if (!needsFrame) {
+      setShouldLoadFrame(false);
+      return;
+    }
+
+    const element = containerRef.current;
+    if (!element || typeof IntersectionObserver === "undefined") {
+      setShouldLoadFrame(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        setShouldLoadFrame(true);
+        observer.disconnect();
+      },
+      { rootMargin: "240px", threshold: 0.01 },
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [needsFrame, mediaUrl, thumbnailUrl]);
+
+  useEffect(() => {
+    if (!needsFrame || !shouldLoadFrame || !mediaUrl) {
       setResolvedMedia("");
       setMediaReady(false);
       return;
@@ -64,24 +95,23 @@ export function VideoPoster({
     let alive = true;
     setResolvedMedia(mediaUrl);
     setMediaReady(false);
-    if (!mediaUrl) {
-      return () => {
-        alive = false;
-      };
-    }
-
     void resolveMediaUrl(mediaUrl, bucket)
       .then((url) => {
-        if (alive && url) setResolvedMedia(url);
+        if (!alive) return;
+        if (url) {
+          setResolvedMedia(url);
+        } else {
+          setThumbnailFailed(true);
+        }
       })
       .catch(() => {
-        // Keep the original reference as a last attempt.
+        if (alive) setResolvedMedia(mediaUrl);
       });
 
     return () => {
       alive = false;
     };
-  }, [bucket, mediaUrl, posterOnly]);
+  }, [bucket, mediaUrl, needsFrame, shouldLoadFrame]);
 
   useEffect(() => {
     if (!thumbnailUrl) {
@@ -93,7 +123,12 @@ export function VideoPoster({
     let alive = true;
     void resolveMediaUrl(thumbnailUrl, bucket)
       .then((url) => {
-        if (!alive || !url) return;
+        if (!alive) return;
+        if (!url) {
+          setResolvedThumbnail(null);
+          setThumbnailFailed(true);
+          return;
+        }
         if (url !== thumbnailUrl) {
           setThumbnailReady(false);
           setThumbnailFailed(false);
@@ -101,7 +136,10 @@ export function VideoPoster({
         setResolvedThumbnail(url);
       })
       .catch(() => {
-          if (alive) setResolvedThumbnail(null);
+        if (alive) {
+          setResolvedThumbnail(null);
+          setThumbnailFailed(true);
+        }
       });
     return () => {
       alive = false;
@@ -118,20 +156,43 @@ export function VideoPoster({
     }
   }, [posterOnly, resolvedMedia, thumbnailFailed, thumbnailUrl]);
 
-  const hasThumbnail = Boolean(resolvedThumbnail) && !thumbnailFailed;
   const posterImage = hasThumbnail ? resolvedThumbnail! : VIDEO_POSTER_FALLBACK;
   const source =
-    !posterOnly && !hasThumbnail && resolvedMedia
-      ? firstFrameUrl(resolvedMedia)
-      : "";
+    needsFrame && shouldLoadFrame && resolvedMedia ? firstFrameUrl(resolvedMedia) : "";
   const showFallback = !thumbnailReady && !mediaReady;
 
   useEffect(() => {
     onPosterResolved?.(posterImage);
   }, [onPosterResolved, posterImage]);
 
+  const captureFrame = useCallback(() => {
+    const player = videoRef.current;
+    if (!player) return;
+    if (
+      Number.isFinite(player.duration) &&
+      player.duration > 0.1 &&
+      player.currentTime < 0.08
+    ) {
+      try {
+        player.currentTime = 0.1;
+        return;
+      } catch {
+        // Some remote streams only allow seeking after the first frame is ready.
+      }
+    }
+
+    setMediaReady(true);
+    const generatedPoster = cacheVideoPoster(player, resolvedMedia);
+    if (generatedPoster) {
+      setResolvedThumbnail(generatedPoster);
+      setThumbnailReady(true);
+      setThumbnailFailed(false);
+    }
+  }, [resolvedMedia]);
+
   return (
     <div
+      ref={containerRef}
       className={cn(
         "relative h-full w-full overflow-hidden bg-gradient-to-br from-zinc-800 via-zinc-900 to-zinc-950",
         className,
@@ -150,14 +211,12 @@ export function VideoPoster({
         loading={loading}
         decoding="async"
         onLoad={() => {
+          if (posterImage === VIDEO_POSTER_FALLBACK) return;
           setThumbnailReady(true);
-          if (posterImage !== VIDEO_POSTER_FALLBACK) {
-            setThumbnailFailed(false);
-          }
+          setThumbnailFailed(false);
         }}
         onError={() => {
           if (posterImage === VIDEO_POSTER_FALLBACK) {
-            setThumbnailReady(true);
             return;
           }
           setThumbnailReady(false);
@@ -178,17 +237,22 @@ export function VideoPoster({
           playsInline
           muted
           preload="metadata"
-          onLoadedData={() => {
-            setMediaReady(true);
-            if (!hasThumbnail && videoRef.current) {
-              const generatedPoster = cacheVideoPoster(videoRef.current, resolvedMedia);
-              if (generatedPoster) {
-                setResolvedThumbnail(generatedPoster);
-                setThumbnailReady(true);
-                setThumbnailFailed(false);
+          onLoadedMetadata={(event) => {
+            const player = event.currentTarget;
+            if (
+              Number.isFinite(player.duration) &&
+              player.duration > 0.1 &&
+              player.currentTime < 0.08
+            ) {
+              try {
+                player.currentTime = 0.1;
+              } catch {
+                captureFrame();
               }
             }
           }}
+          onLoadedData={captureFrame}
+          onSeeked={captureFrame}
           onError={() => setMediaReady(false)}
           className={cn(
             "absolute inset-0 h-full w-full object-cover transition-opacity duration-300",

@@ -3,6 +3,38 @@ import { supabase } from "@/integrations/supabase/client";
 
 type PresenceMeta = { user_id: string; typing_until: number; online_at: string };
 
+function safelyRemovePresenceChannel(
+  channel: ReturnType<typeof supabase.channel>,
+) {
+  try {
+    void Promise.resolve(channel.unsubscribe()).catch((cause) => {
+      console.warn("[chat-presence] unsubscribe failed", cause);
+    });
+  } catch (cause) {
+    console.warn("[chat-presence] unsubscribe threw", cause);
+  }
+  try {
+    void Promise.resolve(supabase.removeChannel(channel)).catch((cause) => {
+      console.warn("[chat-presence] channel removal failed", cause);
+    });
+  } catch (cause) {
+    console.warn("[chat-presence] channel removal threw", cause);
+  }
+}
+
+function safelyTrackPresence(
+  channel: ReturnType<typeof supabase.channel>,
+  value: PresenceMeta,
+) {
+  try {
+    void Promise.resolve(channel.track(value)).catch((cause) => {
+      console.warn("[chat-presence] presence update failed", cause);
+    });
+  } catch (cause) {
+    console.warn("[chat-presence] presence update threw", cause);
+  }
+}
+
 /**
  * Live presence for a chat thread: who else is in the room and whether the
  * peer is currently typing. Uses a Supabase Realtime presence channel.
@@ -17,40 +49,107 @@ export function useThreadPresence(threadId: string, me: string | null) {
   const tick = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    if (!me || !threadId) return;
-    const channel = supabase.channel(`presence-thread-${threadId}`, {
-      config: { presence: { key: me } },
-    });
-    channelRef.current = channel;
+    let alive = true;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let retry: ReturnType<typeof setTimeout> | null = null;
+    let retryCount = 0;
+    setPeerOnline(false);
+    setPeerTyping(false);
+    if (!me || !threadId) {
+      return () => {
+        alive = false;
+      };
+    }
 
-    const sync = () => {
-      const state = channel.presenceState<PresenceMeta>();
-      const others = Object.entries(state)
-        .filter(([key]) => key !== me)
-        .flatMap(([, metas]) => metas);
-      setPeerOnline(others.length > 0);
-      setPeerTyping(others.some((m) => (m.typing_until ?? 0) > Date.now()));
+    const sync = (target: ReturnType<typeof supabase.channel>) => {
+      if (!alive || channel !== target) return;
+      try {
+        const state = target.presenceState<PresenceMeta>();
+        const others = Object.entries(state)
+          .filter(([key]) => key !== me)
+          .flatMap(([, metas]) => metas);
+        setPeerOnline(others.length > 0);
+        setPeerTyping(others.some((meta) => (meta.typing_until ?? 0) > Date.now()));
+      } catch (cause) {
+        console.warn("[chat-presence] presence state handler failed", cause);
+      }
     };
 
-    channel
-      .on("presence", { event: "sync" }, sync)
-      .on("presence", { event: "join" }, sync)
-      .on("presence", { event: "leave" }, sync)
-      .subscribe((status) => {
-        if (status === "SUBSCRIBED") {
-          void channel.track({ user_id: me, typing_until: 0, online_at: new Date().toISOString() });
-        }
-      });
+    const scheduleRetry = () => {
+      if (!alive || retry) return;
+      const delay = Math.min(15_000, 1000 * 2 ** Math.min(retryCount, 4));
+      retryCount += 1;
+      retry = setTimeout(() => {
+        retry = null;
+        subscribe();
+      }, delay);
+    };
+
+    const subscribe = () => {
+      if (!alive) return;
+      try {
+        const nextChannel = supabase.channel(`presence-thread-${threadId}`, {
+          config: { presence: { key: me } },
+        });
+        channel = nextChannel;
+        channelRef.current = nextChannel;
+        nextChannel
+          .on("presence", { event: "sync" }, () => sync(nextChannel))
+          .on("presence", { event: "join" }, () => sync(nextChannel))
+          .on("presence", { event: "leave" }, () => sync(nextChannel))
+          .subscribe((status) => {
+            if (!alive || channel !== nextChannel) return;
+            try {
+              if (status === "SUBSCRIBED") {
+                retryCount = 0;
+                safelyTrackPresence(nextChannel, {
+                  user_id: me,
+                  typing_until: 0,
+                  online_at: new Date().toISOString(),
+                });
+                sync(nextChannel);
+                return;
+              }
+              if (!["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(status)) return;
+              channel = null;
+              if (channelRef.current === nextChannel) channelRef.current = null;
+              safelyRemovePresenceChannel(nextChannel);
+              scheduleRetry();
+            } catch (cause) {
+              console.warn("[chat-presence] realtime status handler failed", cause);
+              channel = null;
+              if (channelRef.current === nextChannel) channelRef.current = null;
+              safelyRemovePresenceChannel(nextChannel);
+              scheduleRetry();
+            }
+          });
+      } catch (cause) {
+        console.warn("[chat-presence] realtime setup failed", cause);
+        const failed = channel;
+        channel = null;
+        channelRef.current = null;
+        if (failed) safelyRemovePresenceChannel(failed);
+        scheduleRetry();
+      }
+    };
+    subscribe();
 
     // Typing flags expire on their own; re-evaluate on a light interval.
-    tick.current = setInterval(sync, 1000);
+    tick.current = setInterval(() => {
+      if (channel) sync(channel);
+    }, 1000);
 
     return () => {
+      alive = false;
       if (tick.current) clearInterval(tick.current);
+      tick.current = null;
+      if (retry) clearTimeout(retry);
       if (typingStopTimer.current) clearTimeout(typingStopTimer.current);
       typingStopTimer.current = null;
-      channelRef.current = null;
-      void supabase.removeChannel(channel);
+      const current = channel;
+      channel = null;
+      if (channelRef.current === current) channelRef.current = null;
+      if (current) safelyRemovePresenceChannel(current);
     };
   }, [threadId, me]);
 
@@ -65,7 +164,7 @@ export function useThreadPresence(threadId: string, me: string | null) {
         if (now - lastTypingSentAt.current >= 1000) {
           lastTypingSentAt.current = now;
           typingUntil.current = now + 2000;
-          void channel.track({
+          safelyTrackPresence(channel, {
             user_id: me,
             typing_until: typingUntil.current,
             online_at: new Date().toISOString(),
@@ -75,7 +174,7 @@ export function useThreadPresence(threadId: string, me: string | null) {
           typingUntil.current = 0;
           lastTypingSentAt.current = 0;
           typingStopTimer.current = null;
-          void channel.track({
+          safelyTrackPresence(channel, {
             user_id: me,
             typing_until: 0,
             online_at: new Date().toISOString(),
@@ -88,7 +187,7 @@ export function useThreadPresence(threadId: string, me: string | null) {
       typingStopTimer.current = null;
       typingUntil.current = 0;
       lastTypingSentAt.current = 0;
-      void channel.track({
+      safelyTrackPresence(channel, {
         user_id: me,
         typing_until: 0,
         online_at: new Date().toISOString(),

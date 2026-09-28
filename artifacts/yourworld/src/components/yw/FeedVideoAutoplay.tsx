@@ -45,7 +45,6 @@ export type FeedVideoAutoplayControls = {
   muted: boolean;
   registerCandidate: (candidate: FeedCandidateRegistration) => () => void;
   stopCandidate: (candidateId: string) => void;
-  toggleCandidate: (candidateId: string) => void;
   toggleMute: () => void;
 };
 
@@ -255,24 +254,6 @@ export function FeedVideoAutoplayProvider({
     [clearActiveCandidate],
   );
 
-  const toggleCandidate = useCallback(
-    (candidateId: string) => {
-      const candidate = candidatesRef.current.get(candidateId);
-      if (!candidate) return;
-
-      if (activeCandidateRef.current === candidate) {
-        suppressedCandidateRef.current = candidateId;
-        clearActiveCandidate();
-        reconcileRef.current();
-        return;
-      }
-
-      suppressedCandidateRef.current = null;
-      activateCandidate(candidate);
-    },
-    [activateCandidate, clearActiveCandidate],
-  );
-
   const toggleMute = useCallback(() => {
     const nextMuted = !mutedRef.current;
     mutedRef.current = nextMuted;
@@ -345,10 +326,9 @@ export function FeedVideoAutoplayProvider({
       muted,
       registerCandidate,
       stopCandidate,
-      toggleCandidate,
       toggleMute,
     }),
-    [activeCandidateId, muted, registerCandidate, stopCandidate, toggleCandidate, toggleMute],
+    [activeCandidateId, muted, registerCandidate, stopCandidate, toggleMute],
   );
 
   return (
@@ -370,17 +350,14 @@ export function FeedVideoPreview({
   video,
   candidateId,
   className,
+  onOpen,
 }: {
   video: LongVideo;
   candidateId: string;
   className?: string;
+  onOpen: () => void;
 }) {
-  const {
-    activeCandidateId,
-    muted,
-    registerCandidate,
-    toggleCandidate,
-  } = useFeedVideoAutoplay();
+  const { activeCandidateId, muted, registerCandidate } = useFeedVideoAutoplay();
   const previewRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [posterUrl, setPosterUrl] = useState(VIDEO_POSTER_FALLBACK);
@@ -460,13 +437,12 @@ export function FeedVideoPreview({
       />
       <button
         type="button"
-        aria-label={isPlaying ? `Pause ${video.title}` : `Play ${video.title}`}
-        aria-pressed={isPlaying}
-        data-testid={`button-feed-video-toggle-${video.id}`}
+        aria-label={`Watch ${video.title}`}
+        data-testid={`button-feed-video-watch-${video.id}`}
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
-          toggleCandidate(candidateId);
+          onOpen();
         }}
         className="absolute inset-0 z-10 grid h-full w-full place-items-center bg-transparent text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fuchsia-300"
       >

@@ -365,7 +365,7 @@ function ReelsList() {
 const REEL_DURATION = 15;
 
 function firstFrameUrl(url: string) {
-  return url.includes("#") ? url : `${url}#t=0.001`;
+  return `${url.split("#", 1)[0]}#t=0.1`;
 }
 
 function formatTime(value: number) {

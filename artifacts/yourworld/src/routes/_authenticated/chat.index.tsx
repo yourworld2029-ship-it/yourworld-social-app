@@ -2,7 +2,11 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect, useRef } from "react";
 import { Search, SquarePen, MessageSquare, X, Check, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { resolveThreadPeer, dmThreadId } from "@/lib/social-data";
+import {
+  cleanupChatRealtimeChannel,
+  resolveThreadPeer,
+  dmThreadId,
+} from "@/lib/social-data";
 import { cacheGet, cacheSet } from "@/lib/local-cache";
 import { deleteDirectThreads, hiddenThreadIds, loadHiddenDirectThreads } from "@/lib/chat-delete";
 import { useChatNames } from "@/lib/chat-names";
@@ -35,6 +39,28 @@ interface DiscoverProfile {
   profile_image?: string | null;
 }
 
+function normalizeChatThreads(value: unknown): ChatThread[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item): ChatThread[] => {
+    if (!item || typeof item !== "object") return [];
+    const row = item as Record<string, unknown>;
+    if (typeof row.id !== "string" || !row.id) return [];
+    return [{
+      id: row.id,
+      name: typeof row.name === "string" ? row.name : "Chat",
+      peerId: typeof row.peerId === "string" ? row.peerId : null,
+      lastMessage: typeof row.lastMessage === "string" ? row.lastMessage : "",
+      lastMessageAt: typeof row.lastMessageAt === "string" ? row.lastMessageAt : undefined,
+      time: typeof row.time === "string" ? row.time : undefined,
+      unreadCount:
+        typeof row.unreadCount === "number" && Number.isFinite(row.unreadCount)
+          ? Math.max(0, row.unreadCount)
+          : 0,
+      avatar_url: typeof row.avatar_url === "string" ? row.avatar_url : null,
+    }];
+  });
+}
+
 function ChatListPage() {
   return <NativeChatListPage />;
 }
@@ -42,7 +68,7 @@ function ChatListPage() {
 function NativeChatListPage() {
   // Paint the cached list immediately, then refresh from the network.
   const [threads, setThreads] = useState<ChatThread[]>(
-    () => cacheGet<ChatThread[]>("chat-threads") ?? [],
+    () => normalizeChatThreads(cacheGet<unknown>("chat-threads")),
   );
   const [searchQuery, setSearchQuery] = useState("");
   const [newChatOpen, setNewChatOpen] = useState(false);
@@ -80,13 +106,16 @@ function NativeChatListPage() {
 
   useEffect(() => {
     let requestGeneration = 0;
+    let alive = true;
 
     async function loadThreads() {
+      if (!alive) return;
       const generation = ++requestGeneration;
+      const isCurrent = () => alive && generation === requestGeneration;
       try {
         const { data: sessionData } = await supabase.auth.getSession();
         const me = sessionData.session?.user.id ?? null;
-        if (generation !== requestGeneration) return;
+        if (!isCurrent()) return;
         setMe(me);
 
         if (!me) {
@@ -101,7 +130,7 @@ function NativeChatListPage() {
         } catch (cause) {
           hiddenLoadError = cause instanceof Error ? cause.message : "Could not sync deleted chats.";
         }
-        if (generation !== requestGeneration) return;
+        if (!isCurrent()) return;
         hiddenForUser = [...new Set([...hiddenForUser, ...pendingHiddenRef.current])];
         setHidden(hiddenForUser);
         // public.messages is the conversation source of truth. Canonical route
@@ -113,22 +142,28 @@ function NativeChatListPage() {
           .order("created_at", { ascending: false })
           .limit(50);
 
-        if (generation !== requestGeneration) return;
-        if (!error && data) {
+        if (!isCurrent()) return;
+        if (!error && Array.isArray(data)) {
           const map = new Map<string, ChatThread>();
-          (data as unknown as Array<{ sender_id: string; receiver_id: string; content: string; media_url: string | null; voice_note_url: string | null; is_read: boolean; created_at: string }>).forEach((msg) => {
-            const peerId = msg.sender_id === me ? msg.receiver_id : msg.sender_id;
+          (data as unknown as Array<Record<string, unknown>>).forEach((msg) => {
+            if (typeof msg.sender_id !== "string" || typeof msg.receiver_id !== "string") return;
+            const senderId = msg.sender_id;
+            const receiverId = msg.receiver_id;
+            if (!senderId || !receiverId) return;
+            const peerId = senderId === me ? receiverId : senderId;
             const id = dmThreadId(me, peerId);
             const existing = map.get(id);
             const unread =
-              (existing?.unreadCount ?? 0) + (!msg.is_read && msg.sender_id !== me ? 1 : 0);
+              (existing?.unreadCount ?? 0) + (msg.is_read !== true && senderId !== me ? 1 : 0);
             if (!existing) {
               map.set(id, {
                 id,
                 name: "Loading…",
                 peerId,
-                lastMessage: msg.content || (msg.voice_note_url ? "Voice note" : msg.media_url ? "Media file" : "Message"),
-              lastMessageAt: msg.created_at,
+                lastMessage:
+                  (typeof msg.content === "string" && msg.content) ||
+                  (msg.voice_note_url ? "Voice note" : msg.media_url ? "Media file" : "Message"),
+                lastMessageAt: typeof msg.created_at === "string" ? msg.created_at : undefined,
                 unreadCount: unread,
               });
             } else {
@@ -147,23 +182,29 @@ function NativeChatListPage() {
 
           const resolved = await Promise.all(
             base.map(async (t) => {
-              const peer = await resolveThreadPeer(t.id, me);
-              return {
-                ...t,
-                name: peer.peerName,
-                peerId: peer.peerId,
-                avatar_url: peer.avatarUrl ?? null,
-              };
+              try {
+                const peer = await resolveThreadPeer(t.id, me);
+                return {
+                  ...t,
+                  name: typeof peer.peerName === "string" ? peer.peerName : t.name,
+                  peerId: typeof peer.peerId === "string" ? peer.peerId : t.peerId,
+                  avatar_url: typeof peer.avatarUrl === "string" ? peer.avatarUrl : t.avatar_url ?? null,
+                };
+              } catch (cause) {
+                console.warn("[chat-list] could not resolve participant", cause);
+                return t;
+              }
             }),
           );
-          if (generation !== requestGeneration) return;
-          setThreads(resolved);
-          cacheSet("chat-threads", resolved.slice(0, 30));
+          if (!isCurrent()) return;
+          const safeResolved = normalizeChatThreads(resolved);
+          setThreads(safeResolved);
+          cacheSet("chat-threads", safeResolved.slice(0, 30));
         } else if (error) {
           setLoadError(error.message);
         }
       } catch (cause) {
-        if (generation !== requestGeneration) return;
+        if (!isCurrent()) return;
         setThreads([]);
         setLoadError(cause instanceof Error ? cause.message : "Couldn't load your chats.");
       }
@@ -173,46 +214,74 @@ function NativeChatListPage() {
 
     let channel: ReturnType<typeof supabase.channel> | null = null;
     let retry: number | null = null;
-    let alive = true;
+    let retryCount = 0;
+    const scheduleRetry = () => {
+      if (!alive || retry) return;
+      const delay = Math.min(15_000, 1000 * 2 ** Math.min(retryCount, 4));
+      retryCount += 1;
+      retry = window.setTimeout(() => {
+        retry = null;
+        subscribe();
+      }, delay);
+    };
     const subscribe = () => {
       if (!alive) return;
-      channel = supabase
-        .channel(`chat-list-${Math.random().toString(36).slice(2)}`)
-        .on(
-          "postgres_changes",
-           { event: "*", schema: "public", table: "messages" },
-          () => void loadThreads(),
-        )
-        .subscribe((status) => {
-          if (status === "SUBSCRIBED") {
-            void loadThreads();
-            return;
-          }
-          if (status !== "CHANNEL_ERROR" && status !== "TIMED_OUT" && status !== "CLOSED") return;
-          const failed = channel;
-          channel = null;
-          if (failed && status !== "CLOSED") window.setTimeout(() => void supabase.removeChannel(failed), 0);
-          if (alive && !retry) {
-            retry = window.setTimeout(() => {
-              retry = null;
-              subscribe();
-            }, 1500);
+      try {
+        const nextChannel = supabase
+          .channel(`chat-list-${Math.random().toString(36).slice(2)}`)
+          .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, () => {
+            if (!alive || channel !== nextChannel) return;
+            try {
+              void loadThreads();
+            } catch (cause) {
+              console.error("[chat-list] realtime refresh failed", cause);
+            }
+          });
+        channel = nextChannel;
+        nextChannel.subscribe((status) => {
+          if (!alive || channel !== nextChannel) return;
+          try {
+            if (status === "SUBSCRIBED") {
+              retryCount = 0;
+              void loadThreads();
+              return;
+            }
+            if (!["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(status)) return;
+            channel = null;
+            cleanupChatRealtimeChannel(nextChannel, "chat list reconnect");
+            scheduleRetry();
+          } catch (cause) {
+            console.error("[chat-list] realtime status handler failed", cause);
+            channel = null;
+            cleanupChatRealtimeChannel(nextChannel, "chat list status failure");
+            scheduleRetry();
           }
         });
+      } catch (cause) {
+        console.error("[chat-list] realtime subscription setup failed", cause);
+        const failed = channel;
+        channel = null;
+        if (failed) cleanupChatRealtimeChannel(failed, "chat list setup failure");
+        scheduleRetry();
+      }
     };
     subscribe();
     const resyncOnVisible = () => {
-      if (document.visibilityState === "visible") void loadThreads();
+      if (alive && document.visibilityState === "visible") void loadThreads();
     };
-    const resyncOnOnline = () => void loadThreads();
+    const resyncOnOnline = () => {
+      if (alive) void loadThreads();
+    };
     document.addEventListener("visibilitychange", resyncOnVisible);
     window.addEventListener("online", resyncOnOnline);
     return () => {
       alive = false;
+      requestGeneration += 1;
       if (retry) window.clearTimeout(retry);
       document.removeEventListener("visibilitychange", resyncOnVisible);
       window.removeEventListener("online", resyncOnOnline);
-      if (channel) void supabase.removeChannel(channel);
+      if (channel) cleanupChatRealtimeChannel(channel, "chat list cleanup");
+      channel = null;
     };
   }, []);
 
@@ -249,14 +318,16 @@ function NativeChatListPage() {
 
   const pinQuery = /^\d{4,8}$/.test(searchQuery.trim());
   const filteredThreads = secretChatsReady && me
-    ? threads.filter(
-        (t) =>
-          !hidden.includes(t.id) &&
-          !isHidden(t.peerId) &&
-          (pinQuery ? true :
-          (t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            t.lastMessage.toLowerCase().includes(searchQuery.toLowerCase()))),
-      )
+    ? threads.filter((thread) => {
+        const name = typeof thread.name === "string" ? thread.name : "";
+        const lastMessage = typeof thread.lastMessage === "string" ? thread.lastMessage : "";
+        const query = searchQuery.toLowerCase();
+        return (
+          !hidden.includes(thread.id) &&
+          !isHidden(thread.peerId) &&
+          (pinQuery || name.toLowerCase().includes(query) || lastMessage.toLowerCase().includes(query))
+        );
+      })
     : [];
 
   const allSelected = filteredThreads.length > 0 && selected.length === filteredThreads.length;

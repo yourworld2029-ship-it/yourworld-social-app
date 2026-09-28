@@ -1173,27 +1173,31 @@ export function useUnreadMessageCount() {
   }, []);
 
   const reload = useCallback(async () => {
-    const { data: sessionData } = await supabase.auth.getSession();
-    const uid = sessionData.session?.user.id ?? null;
-    if (meRef.current !== uid) {
-      unreadByThreadRef.current.clear();
-      openedThreadsRef.current.clear();
-    }
-    meRef.current = uid;
-    if (!uid) {
-      setCount(0);
-      return;
-    }
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const uid = sessionData.session?.user.id ?? null;
+      if (meRef.current !== uid) {
+        unreadByThreadRef.current.clear();
+        openedThreadsRef.current.clear();
+      }
+      meRef.current = uid;
+      if (!uid) {
+        setCount(0);
+        return;
+      }
 
-    const { data, error } = await supabase
-      .from("messages" as never)
-      .select("sender_id" as never)
-      .eq("receiver_id" as never, uid)
-      .eq("is_read" as never, false);
-    if (!error) {
+      const { data, error } = await supabase
+        .from("messages" as never)
+        .select("sender_id" as never)
+        .eq("receiver_id" as never, uid)
+        .eq("is_read" as never, false);
+      if (error) return;
       const nextCounts = new Map<string, number>();
-      for (const row of (Array.isArray(data) ? data : []) as unknown as Array<{ sender_id: string }>) {
-        const threadId = dmThreadId(uid, row.sender_id);
+      for (const value of (Array.isArray(data) ? data : []) as unknown[]) {
+        if (!value || typeof value !== "object") continue;
+        const senderId = (value as Record<string, unknown>).sender_id;
+        if (typeof senderId !== "string" || !senderId) continue;
+        const threadId = dmThreadId(uid, senderId);
         nextCounts.set(threadId, (nextCounts.get(threadId) ?? 0) + 1);
       }
       unreadByThreadRef.current = nextCounts;
@@ -1201,36 +1205,105 @@ export function useUnreadMessageCount() {
         if (!nextCounts.has(threadId)) openedThreadsRef.current.delete(threadId);
       });
       setCount(visibleUnreadCount());
+    } catch (cause) {
+      console.warn("[social-chat] unread refresh failed", cause);
     }
   }, [visibleUnreadCount]);
 
   useEffect(() => {
-    void reload();
-    const channel = supabase
-      .channel(`chat-unread-${Math.random().toString(36).slice(2)}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, (payload) => {
-        const row = (payload.new ?? payload.old) as { receiver_id?: string } | null;
-        if (row?.receiver_id === meRef.current) void reload();
-      })
-      .subscribe();
-    const onLocalRead = () => void reload();
+    let alive = true;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let retry: ReturnType<typeof setTimeout> | null = null;
+    let retryCount = 0;
+    const refresh = () => {
+      if (!alive) return;
+      try {
+        void reload();
+      } catch (cause) {
+        console.warn("[social-chat] unread refresh handler failed", cause);
+      }
+    };
+    const scheduleRetry = () => {
+      if (!alive || retry) return;
+      const delay = Math.min(15_000, 1000 * 2 ** Math.min(retryCount, 4));
+      retryCount += 1;
+      retry = setTimeout(() => {
+        retry = null;
+        subscribe();
+      }, delay);
+    };
+    const subscribe = () => {
+      if (!alive) return;
+      try {
+        const nextChannel = supabase
+          .channel(`chat-unread-${Math.random().toString(36).slice(2)}`)
+          .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, (payload) => {
+            if (!alive || channel !== nextChannel) return;
+            try {
+              const row = (payload.new ?? payload.old) as { receiver_id?: unknown } | null;
+              if (typeof row?.receiver_id === "string" && row.receiver_id === meRef.current) {
+                refresh();
+              }
+            } catch (cause) {
+              console.warn("[social-chat] unread realtime handler failed", cause);
+            }
+          });
+        channel = nextChannel;
+        nextChannel.subscribe((status) => {
+          if (!alive || channel !== nextChannel) return;
+          try {
+            if (status === "SUBSCRIBED") {
+              retryCount = 0;
+              refresh();
+              return;
+            }
+            if (!["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(status)) return;
+            channel = null;
+            cleanupChatRealtimeChannel(nextChannel, "unread listener reconnect");
+            scheduleRetry();
+          } catch (cause) {
+            console.warn("[social-chat] unread status handler failed", cause);
+            channel = null;
+            cleanupChatRealtimeChannel(nextChannel, "unread listener status failure");
+            scheduleRetry();
+          }
+        });
+      } catch (cause) {
+        console.warn("[social-chat] unread subscription setup failed", cause);
+        const failed = channel;
+        channel = null;
+        if (failed) cleanupChatRealtimeChannel(failed, "unread listener setup failure");
+        scheduleRetry();
+      }
+    };
+    refresh();
+    subscribe();
+    const onLocalRead = () => refresh();
     const onThreadOpened = (event: Event) => {
-      const detail = (event as CustomEvent<{ threadId?: string }>).detail;
-      if (!detail?.threadId) return;
-      openedThreadsRef.current.add(detail.threadId);
-      setCount(visibleUnreadCount());
-      void reload();
+      try {
+        const detail = (event as CustomEvent<{ threadId?: string }>).detail;
+        if (!detail?.threadId) return;
+        openedThreadsRef.current.add(detail.threadId);
+        setCount(visibleUnreadCount());
+        refresh();
+      } catch (cause) {
+        console.warn("[social-chat] thread-opened handler failed", cause);
+      }
     };
     const onReadFailed = (event: Event) => {
-      const detail = (event as CustomEvent<{ threadId?: string }>).detail;
-      if (detail?.threadId) openedThreadsRef.current.delete(detail.threadId);
-      setCount(visibleUnreadCount());
-      void reload();
+      try {
+        const detail = (event as CustomEvent<{ threadId?: string }>).detail;
+        if (detail?.threadId) openedThreadsRef.current.delete(detail.threadId);
+        setCount(visibleUnreadCount());
+        refresh();
+      } catch (cause) {
+        console.warn("[social-chat] read-failed handler failed", cause);
+      }
     };
     const onVisible = () => {
-      if (document.visibilityState === "visible") void reload();
+      if (document.visibilityState === "visible") refresh();
     };
-    const onAuthChange = () => void reload();
+    const onAuthChange = () => refresh();
     window.addEventListener("yw:chat-unread-changed", onLocalRead);
     window.addEventListener("yw:chat-thread-opened", onThreadOpened);
     window.addEventListener("yw:chat-read-failed", onReadFailed);
@@ -1243,12 +1316,136 @@ export function useUnreadMessageCount() {
       window.removeEventListener("yw:chat-read-failed", onReadFailed);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("online", onVisible);
-      auth.subscription.unsubscribe();
-      void supabase.removeChannel(channel);
+      alive = false;
+      if (retry) clearTimeout(retry);
+      try {
+        auth.subscription.unsubscribe();
+      } catch (cause) {
+        console.warn("[social-chat] unread auth listener cleanup failed", cause);
+      }
+      if (channel) cleanupChatRealtimeChannel(channel, "unread listener cleanup");
+      channel = null;
     };
   }, [reload]);
 
   return count;
+}
+
+/** Best-effort Realtime teardown; cleanup must never reject into React. */
+export function cleanupChatRealtimeChannel(
+  channel: ReturnType<typeof supabase.channel>,
+  source: string,
+) {
+  try {
+    void Promise.resolve(channel.unsubscribe()).catch((cause) => {
+      console.warn(`[social-chat] ${source} unsubscribe failed`, cause);
+    });
+  } catch (cause) {
+    console.warn(`[social-chat] ${source} unsubscribe threw`, cause);
+  }
+  try {
+    void Promise.resolve(supabase.removeChannel(channel)).catch((cause) => {
+      console.warn(`[social-chat] ${source} channel removal failed`, cause);
+    });
+  } catch (cause) {
+    console.warn(`[social-chat] ${source} channel removal threw`, cause);
+  }
+}
+
+function sendChatBroadcastSafely(
+  channel: ReturnType<typeof supabase.channel> | null,
+  event: string,
+  payload: Record<string, unknown>,
+  source: string,
+) {
+  if (!channel) return;
+  try {
+    void Promise.resolve(channel.send({ type: "broadcast", event, payload })).catch((cause) => {
+      console.warn(`[social-chat] ${source} broadcast failed`, cause);
+    });
+  } catch (cause) {
+    console.warn(`[social-chat] ${source} broadcast threw`, cause);
+  }
+}
+
+function maintainChatBroadcastSubscription(
+  topic: string,
+  event: string,
+  source: string,
+  onPayload: (payload: Record<string, unknown>) => void,
+  onChannelChange?: (channel: ReturnType<typeof supabase.channel> | null) => void,
+) {
+  let alive = true;
+  let retry: ReturnType<typeof setTimeout> | null = null;
+  let retryCount = 0;
+  let channel: ReturnType<typeof supabase.channel> | null = null;
+
+  const scheduleRetry = () => {
+    if (!alive || retry) return;
+    const delay = Math.min(15_000, 1000 * 2 ** Math.min(retryCount, 4));
+    retryCount += 1;
+    retry = setTimeout(() => {
+      retry = null;
+      subscribe();
+    }, delay);
+  };
+
+  const subscribe = () => {
+    if (!alive) return;
+    try {
+      const nextChannel = supabase.channel(topic).on("broadcast", { event }, ({ payload }) => {
+        if (!alive || channel !== nextChannel) return;
+        try {
+          const safePayload =
+            payload && typeof payload === "object"
+              ? (payload as Record<string, unknown>)
+              : {};
+          onPayload(safePayload);
+        } catch (cause) {
+          console.error(`[social-chat] ${source} handler failed`, cause);
+        }
+      });
+      channel = nextChannel;
+      onChannelChange?.(nextChannel);
+      nextChannel.subscribe((status) => {
+        if (!alive || channel !== nextChannel) return;
+        try {
+          if (status === "SUBSCRIBED") {
+            retryCount = 0;
+            return;
+          }
+          if (!["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(status)) return;
+          channel = null;
+          onChannelChange?.(null);
+          cleanupChatRealtimeChannel(nextChannel, `${source} reconnect`);
+          scheduleRetry();
+        } catch (cause) {
+          console.error(`[social-chat] ${source} status handler failed`, cause);
+          channel = null;
+          onChannelChange?.(null);
+          cleanupChatRealtimeChannel(nextChannel, `${source} status failure`);
+          scheduleRetry();
+        }
+      });
+    } catch (cause) {
+      console.error(`[social-chat] ${source} subscription setup failed`, cause);
+      const failed = channel;
+      channel = null;
+      onChannelChange?.(null);
+      if (failed) cleanupChatRealtimeChannel(failed, `${source} setup failure`);
+      scheduleRetry();
+    }
+  };
+
+  subscribe();
+  return () => {
+    alive = false;
+    if (retry) clearTimeout(retry);
+    const current = channel;
+    channel = null;
+    onChannelChange?.(null);
+    if (current) cleanupChatRealtimeChannel(current, `${source} cleanup`);
+  };
 }
 
 /** Live public.messages records for the canonical two-person route id. */
@@ -1276,6 +1473,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
   const [me, setMe] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const loadingMoreLockRef = useRef<symbol | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState<string | null>(pair ? null : "Invalid chat address.");
   const messagesRef = useRef<DbMessage[]>([]);
@@ -1305,6 +1503,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     setMessages(cachedRows);
     setLoading(false);
     setLoadingMore(false);
+    loadingMoreLockRef.current = null;
     setHasMore(true);
     setError(pair ? null : "Invalid chat address.");
     conversationIdRef.current = null;
@@ -1326,6 +1525,10 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
         ) return current;
         return safeRows;
       });
+    }).catch((cause) => {
+      if (!cancelled) {
+        console.warn("[social-chat] cached thread load failed", cause);
+      }
     });
     return () => {
       cancelled = true;
@@ -1428,11 +1631,17 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     }
   }, [pair, queryRows, merge, threadId]);
   const loadOlder = useCallback(async () => {
-    if (messagesThreadIdRef.current !== threadId || threadIdRef.current !== threadId) return;
+    if (
+      loadingMoreLockRef.current ||
+      messagesThreadIdRef.current !== threadId ||
+      threadIdRef.current !== threadId
+    ) return;
     const oldest = messagesRef.current.filter((m) => !m.id.startsWith("tmp-")).sort((a, b) => a.created_at.localeCompare(b.created_at))[0]?.created_at;
     if (!oldest || loadingMore || !hasMore) return;
     const requestThreadId = threadId;
     const generation = clearGenerationRef.current;
+    const requestLock = Symbol("load-older");
+    loadingMoreLockRef.current = requestLock;
     setLoadingMore(true);
     try {
       const rows = await queryRows(oldest);
@@ -1448,7 +1657,10 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       setError(cause instanceof Error ? cause.message : "Couldn't load older messages.");
     }
     finally {
-      if (threadIdRef.current === requestThreadId) setLoadingMore(false);
+      if (loadingMoreLockRef.current === requestLock) {
+        loadingMoreLockRef.current = null;
+        if (threadIdRef.current === requestThreadId) setLoadingMore(false);
+      }
     }
   }, [queryRows, merge, loadingMore, hasMore, messagesThreadIdRef, threadId]);
 
@@ -1495,51 +1707,85 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     let alive = true;
     let retry: ReturnType<typeof setTimeout> | null = null;
     let channel: ReturnType<typeof supabase.channel> | null = null;
+    let retryCount = 0;
+    const scheduleRetry = () => {
+      if (!alive || retry) return;
+      const delay = Math.min(15_000, 1000 * 2 ** Math.min(retryCount, 4));
+      retryCount += 1;
+      retry = setTimeout(() => {
+        retry = null;
+        subscribe();
+      }, delay);
+    };
     const subscribe = () => {
       if (!alive) return;
-      channel = supabase
-        .channel(`social-messages-${threadId}`)
-        .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, (payload) => {
-          const row = (payload.new ?? payload.old) as PublicMessageRow;
-          if (!row?.id || threadIdRef.current !== threadId) return;
-          if (payload.eventType === "DELETE") {
-            if (!messagesRef.current.some((message) => message.id === row.id)) return;
-            clearGenerationRef.current += 1;
-            messagesRef.current = messagesRef.current.filter((message) => message.id !== row.id);
-            setMessages(messagesRef.current);
-            cacheSet(`thread:${threadId}`, messagesRef.current);
-            saveCachedThread(`social:${threadId}`, messagesRef.current);
-            return;
-          }
-          if (!belongsRef.current(row)) return;
-          if (!isRenderablePublicMessage(row, meRef.current)) {
-            setMessages((prev) => {
-              if (messagesThreadIdRef.current !== threadId) return prev;
-              return prev.filter((m) => m.id !== row.id);
-            });
-          } else {
-            mergeRef.current([row]);
-          }
-        })
-        .subscribe((status) => {
-          if (status === "SUBSCRIBED") return;
-          if (!["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(status) || !alive || retry) return;
-          retry = setTimeout(() => {
-            retry = null;
-            if (channel) {
-              void channel.unsubscribe();
-              void supabase.removeChannel(channel);
+      try {
+        const nextChannel = supabase
+          .channel(`social-messages-${threadId}-${Math.random().toString(36).slice(2)}`)
+          .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, (payload) => {
+            if (!alive || channel !== nextChannel || threadIdRef.current !== threadId) return;
+            try {
+              const row = (payload.new ?? payload.old) as PublicMessageRow;
+              if (!row?.id) return;
+              if (payload.eventType === "DELETE") {
+                if (!messagesRef.current.some((message) => message.id === row.id)) return;
+                clearGenerationRef.current += 1;
+                messagesRef.current = messagesRef.current.filter((message) => message.id !== row.id);
+                setMessages(messagesRef.current);
+                cacheSet(`thread:${threadId}`, messagesRef.current);
+                saveCachedThread(`social:${threadId}`, messagesRef.current);
+                return;
+              }
+              if (!belongsRef.current(row)) return;
+              if (!isRenderablePublicMessage(row, meRef.current)) {
+                setMessages((prev) => {
+                  if (messagesThreadIdRef.current !== threadId) return prev;
+                  return prev.filter((message) => message.id !== row.id);
+                });
+              } else {
+                mergeRef.current([row]);
+              }
+            } catch (cause) {
+              console.error("[social-chat] realtime message handler failed", cause);
+              if (alive && threadIdRef.current === threadId) {
+                setError(cause instanceof Error ? cause.message : "Couldn't apply a chat update.");
+              }
             }
+          });
+        channel = nextChannel;
+        nextChannel.subscribe((status) => {
+          if (!alive || channel !== nextChannel) return;
+          try {
+            if (status === "SUBSCRIBED") {
+              retryCount = 0;
+              return;
+            }
+            if (!["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(status)) return;
             channel = null;
-            subscribe();
-          }, 1500);
+            cleanupChatRealtimeChannel(nextChannel, "message listener reconnect");
+            scheduleRetry();
+          } catch (cause) {
+            console.error("[social-chat] realtime status handler failed", cause);
+            channel = null;
+            cleanupChatRealtimeChannel(nextChannel, "message listener status failure");
+            scheduleRetry();
+          }
         });
+      } catch (cause) {
+        console.error("[social-chat] realtime subscription setup failed", cause);
+        const failed = channel;
+        channel = null;
+        if (failed) cleanupChatRealtimeChannel(failed, "message listener setup failure");
+        scheduleRetry();
+      }
     };
     subscribe();
     const resyncOnVisible = () => {
-      if (document.visibilityState === "visible") void loadRef.current();
+      if (alive && document.visibilityState === "visible") void loadRef.current();
     };
-    const resyncOnOnline = () => void loadRef.current();
+    const resyncOnOnline = () => {
+      if (alive) void loadRef.current();
+    };
     document.addEventListener("visibilitychange", resyncOnVisible);
     window.addEventListener("online", resyncOnOnline);
     return () => {
@@ -1547,18 +1793,18 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       if (retry) clearTimeout(retry);
       document.removeEventListener("visibilitychange", resyncOnVisible);
       window.removeEventListener("online", resyncOnOnline);
-      if (channel) {
-        void channel.unsubscribe();
-        void supabase.removeChannel(channel);
-      }
+      if (channel) cleanupChatRealtimeChannel(channel, "message listener cleanup");
+      channel = null;
     };
   }, [threadId]);
   useEffect(() => {
     if (!conversationId) return;
-    const channel = supabase
-      .channel(`social-chat-clear-${conversationId}`)
-      .on("broadcast", { event: "chat_cleared" }, ({ payload }) => {
-        if (payload?.conversationId !== conversationId) return;
+    return maintainChatBroadcastSubscription(
+      `social-chat-clear-${conversationId}`,
+      "chat_cleared",
+      "chat clear",
+      (payload) => {
+        if (payload.conversationId !== conversationId) return;
         clearGenerationRef.current += 1;
         afterViewTimersRef.current.forEach((timer) => clearTimeout(timer));
         afterViewTimersRef.current.clear();
@@ -1567,22 +1813,24 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
         setHasMore(false);
         cacheSet(`thread:${threadId}`, []);
         saveCachedThread(`social:${threadId}`, []);
-      })
-      .subscribe();
-    clearChannelRef.current = channel;
-    return () => {
-      if (clearChannelRef.current === channel) clearChannelRef.current = null;
-      void channel.unsubscribe();
-      void supabase.removeChannel(channel);
-    };
+      },
+      (channel) => {
+        clearChannelRef.current = channel;
+      },
+    );
   }, [conversationId, threadId]);
 
   useEffect(() => {
     if (!conversationId) return;
-    const channel = supabase
-      .channel(`social-chat-events-${conversationId}`)
-      .on("broadcast", { event: "MESSAGE_DELETED" }, ({ payload }) => {
-        if (payload?.conversationId !== conversationId || typeof payload?.messageId !== "string") return;
+    return maintainChatBroadcastSubscription(
+      `social-chat-events-${conversationId}`,
+      "MESSAGE_DELETED",
+      "message deletion",
+      (payload) => {
+        if (
+          payload.conversationId !== conversationId ||
+          typeof payload.messageId !== "string"
+        ) return;
         clearGenerationRef.current += 1;
         messagesRef.current = messagesRef.current.filter((message) => message.id !== payload.messageId);
         setMessages(messagesRef.current);
@@ -1594,19 +1842,31 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
           `social:${threadId}`,
           messagesRef.current,
         );
-      })
-      .subscribe();
-    deletionChannelRef.current = channel;
-    return () => {
-      if (deletionChannelRef.current === channel) deletionChannelRef.current = null;
-      void channel.unsubscribe();
-      void supabase.removeChannel(channel);
-    };
+      },
+      (channel) => {
+        deletionChannelRef.current = channel;
+      },
+    );
   }, [conversationId, threadId]);
   useEffect(() => {
     const sweep = () => {
-      setMessages((prev) => prev.filter((message) => isRenderablePublicMessage(message, meRef.current)));
-      void supabase.rpc("delete_expired_chat_messages" as never);
+      try {
+        setMessages((prev) =>
+          prev.filter((message) => isRenderablePublicMessage(message, meRef.current)),
+        );
+        void supabase
+          .rpc("delete_expired_chat_messages" as never)
+          .then(
+            ({ error: sweepError }) => {
+              if (sweepError) console.warn("[social-chat] expiry sweep failed", sweepError);
+            },
+            (cause) => {
+              console.warn("[social-chat] expiry sweep threw", cause);
+            },
+          );
+      } catch (cause) {
+        console.warn("[social-chat] expiry sweep handler failed", cause);
+      }
     };
     sweep();
     const timer = window.setInterval(sweep, 30_000);
@@ -1615,36 +1875,45 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
 
   const deleteAfterView = useCallback(async (id: string) => {
     if (!me) return false;
-    const { data, error: deleteError } = await supabase.rpc(
-      "delete_social_message_after_view" as never,
-      { _message_id: id } as never,
-    );
-    if (deleteError) {
-      setError(deleteError.message);
+    try {
+      const { data, error: deleteError } = await supabase.rpc(
+        "delete_social_message_after_view" as never,
+        { _message_id: id } as never,
+      );
+      if (threadIdRef.current !== threadId) return false;
+      if (deleteError) {
+        setError(deleteError.message);
+        return false;
+      }
+      if (data !== true) return false;
+      const now = Date.now();
+      setMessages((prev) => prev.filter((message) =>
+        message.id !== id &&
+        (!message.expires_at || Date.parse(message.expires_at) > now),
+      ));
+      return true;
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not delete the viewed message.");
       return false;
     }
-    if (data !== true) return false;
-    const now = Date.now();
-    setMessages((prev) => prev.filter((message) =>
-      message.id !== id &&
-      (!message.expires_at || Date.parse(message.expires_at) > now),
-    ));
-    return true;
-  }, [me]);
+  }, [me, threadId]);
 
   const purgeViewedMedia = useCallback(async (id: string) => {
+    const requestThreadId = threadId;
     try {
       const result = await purgeViewedSocialMedia({ data: { messageId: id } });
+      if (threadIdRef.current !== requestThreadId) return { error: null as string | null };
       if (result.deleted) {
         const retained = messagesRef.current.filter((message) => message.id !== id);
         messagesRef.current = retained;
         setMessages(retained);
         cacheSet(`thread:${threadId}`, retained);
-        void deletionChannelRef.current?.send({
-          type: "broadcast",
-          event: "MESSAGE_DELETED",
-          payload: { conversationId, messageId: id },
-        });
+        sendChatBroadcastSafely(
+          deletionChannelRef.current,
+          "MESSAGE_DELETED",
+          { conversationId, messageId: id },
+          "viewed-media cleanup",
+        );
       }
       return { error: null as string | null };
     } catch (error) {
@@ -1670,24 +1939,42 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
         ? Date.parse(message.expires_at)
         : viewedAt + AFTER_VIEW_DELAY_MS;
       const delay = Math.max(0, expiresAt - Date.now());
+      const requestThreadId = threadId;
+      const scheduleRetry = () => {
+        if (threadIdRef.current !== requestThreadId) return;
+        const retry = setTimeout(() => void runCleanup(), 15_000);
+        afterViewTimersRef.current.set(message.id, retry);
+      };
       const runCleanup = async () => {
         afterViewTimersRef.current.delete(message.id);
-        if (message.media_url || message.voice_note_url) {
-          const cleanup = await purgeViewedMedia(message.id);
-          if (cleanup.error) {
-            setError(cleanup.error);
-            const retry = setTimeout(() => void runCleanup(), 15_000);
-            afterViewTimersRef.current.set(message.id, retry);
-            return;
+        if (threadIdRef.current !== requestThreadId) return;
+        try {
+          if (message.media_url || message.voice_note_url) {
+            const cleanup = await purgeViewedMedia(message.id);
+            if (threadIdRef.current !== requestThreadId) return;
+            if (cleanup.error) {
+              setError(cleanup.error);
+              scheduleRetry();
+              return;
+            }
           }
-        }
-        const deleted = await deleteAfterView(message.id);
-        if (deleted) {
-          void deletionChannelRef.current?.send({
-            type: "broadcast",
-            event: "MESSAGE_DELETED",
-            payload: { conversationId, messageId: message.id },
-          });
+          const deleted = await deleteAfterView(message.id);
+          if (threadIdRef.current !== requestThreadId) return;
+          if (deleted) {
+            sendChatBroadcastSafely(
+              deletionChannelRef.current,
+              "MESSAGE_DELETED",
+              { conversationId, messageId: message.id },
+              "after-view cleanup",
+            );
+          }
+        } catch (cause) {
+          if (threadIdRef.current !== requestThreadId) return;
+          const messageText =
+            cause instanceof Error ? cause.message : "Could not clean up viewed chat media.";
+          setError(messageText);
+          console.error("[social-chat] after-view cleanup failed", cause);
+          scheduleRetry();
         }
       };
       const timer = setTimeout(() => void runCleanup(), delay);
@@ -1698,7 +1985,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
   useEffect(() => () => {
     afterViewTimersRef.current.forEach((timer) => clearTimeout(timer));
     afterViewTimersRef.current.clear();
-  }, []);
+  }, [threadId]);
 
   const visibleMessages = useMemo(() => {
     if (messagesThreadId === threadId) return messages;

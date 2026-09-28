@@ -275,6 +275,7 @@ export function LongVideoCard({
           <FeedVideoPreview
             video={video}
             candidateId={previewId}
+            onOpen={openVideo}
             className="m-0 select-none p-0"
           />
           {formattedDuration && (
