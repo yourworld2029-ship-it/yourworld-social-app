@@ -9,11 +9,14 @@ import {
   supportsNativeTransfers,
   type NativeTransferSnapshot,
 } from "@/lib/native-transfer";
+import {
+  getTusParallelUploadCount,
+  TUS_CHUNK_SIZE_BYTES,
+} from "@/lib/storage-upload-strategy";
 
 export type ProgressFn = (percent: number, detail?: string) => void;
 
-/** Keep resumable TUS PATCH requests at the requested 5 MiB size. */
-export const TUS_CHUNK_SIZE_BYTES = 5 * 1024 * 1024;
+export { TUS_CHUNK_SIZE_BYTES } from "@/lib/storage-upload-strategy";
 export const RESUMABLE_UPLOAD_THRESHOLD_BYTES = 25 * 1024 * 1024;
 
 export const STORAGE_BUCKETS = {
@@ -47,7 +50,60 @@ function storageConfig() {
 
 function resumableUploadEndpoint() {
   const { url } = storageConfig();
-  return `${url}/storage/v1/upload/resumable`;
+  const projectUrl = new URL(url);
+  const projectHost = projectUrl.hostname.match(/^([^.]+)\.supabase\.co$/i);
+  if (projectHost) {
+    projectUrl.hostname = `${projectHost[1]}.storage.supabase.co`;
+  }
+  return `${projectUrl.origin}/storage/v1/upload/resumable`;
+}
+
+let tusConcatenationSupport: boolean | null = null;
+let tusConcatenationSupportCheck: Promise<boolean> | null = null;
+
+function supportsTusConcatenation(
+  token: string,
+  supabaseKey: string,
+): Promise<boolean> {
+  if (tusConcatenationSupport !== null) {
+    return Promise.resolve(tusConcatenationSupport);
+  }
+  if (!tusConcatenationSupportCheck) {
+    tusConcatenationSupportCheck = (async () => {
+      const controller = new AbortController();
+      const timeout = globalThis.setTimeout(() => controller.abort(), 4_000);
+      try {
+        const response = await fetch(resumableUploadEndpoint(), {
+          method: "OPTIONS",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            apikey: supabaseKey,
+            "Tus-Resumable": "1.0.0",
+          },
+          signal: controller.signal,
+        });
+        if (!response.ok) return null;
+        const extensions = response.headers.get("Tus-Extension") ?? "";
+        return (
+          extensions
+            .split(",")
+            .some((extension) => extension.trim().toLowerCase() === "concatenation")
+        );
+      } catch {
+        // If discovery fails or the header is not exposed by CORS, use the
+        // ordinary single-stream TUS upload rather than risking corrupt parts.
+        return null;
+      } finally {
+        globalThis.clearTimeout(timeout);
+      }
+    })().then((supported) => {
+      if (supported !== null) tusConcatenationSupport = supported;
+      return supported === true;
+    }).finally(() => {
+      tusConcatenationSupportCheck = null;
+    });
+  }
+  return tusConcatenationSupportCheck;
 }
 
 function uploadMetadata(
@@ -72,7 +128,7 @@ function readableUploadError(error: unknown) {
 /**
  * Uploads a Blob through Supabase Storage's resumable TUS endpoint.
  *
- * tus-js-client sends the file in 5 MiB PATCH requests, persists its upload
+ * tus-js-client sends the file in 6 MiB PATCH requests, persists its upload
  * fingerprint for resume support, and retries interrupted chunks. The
  * `uploadDataDuringCreation` option lets Supabase receive the first chunk with
  * the creation request instead of sending the whole file as one payload.
@@ -159,7 +215,7 @@ function uploadTusInWindow(
   });
 }
 
-function uploadTus(
+async function uploadTus(
   bucket: string,
   path: string,
   blob: Blob,
@@ -180,6 +236,21 @@ function uploadTus(
       onProgress,
       cacheControl,
     );
+  }
+
+  const isVideoUpload =
+    contentType.toLowerCase().startsWith("video/") ||
+    bucket === STORAGE_BUCKETS.videos ||
+    bucket === STORAGE_BUCKETS.reels;
+  const requestedParallelUploads = isVideoUpload
+    ? getTusParallelUploadCount(blob.size, true)
+    : 1;
+  let parallelUploads = 1;
+  if (requestedParallelUploads > 1) {
+    onProgress?.(0, "Preparing resumable upload");
+    if (await supportsTusConcatenation(token, supabaseKey)) {
+      parallelUploads = requestedParallelUploads;
+    }
   }
 
   let worker: Worker;
@@ -278,6 +349,7 @@ function uploadTus(
         supabaseKey,
         cacheControl,
         chunkSize: TUS_CHUNK_SIZE_BYTES,
+        parallelUploads,
         retryDelays,
       });
     } catch {

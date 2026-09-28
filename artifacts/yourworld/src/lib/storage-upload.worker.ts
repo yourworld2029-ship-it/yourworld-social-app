@@ -11,6 +11,7 @@ type StartUploadMessage = {
   supabaseKey: string;
   cacheControl: string;
   chunkSize: number;
+  parallelUploads: number;
   retryDelays: number[];
 };
 
@@ -51,7 +52,8 @@ workerScope.onmessage = ({ data }) => {
       cacheControl: data.cacheControl,
     },
     chunkSize: data.chunkSize,
-    uploadDataDuringCreation: true,
+    parallelUploads: data.parallelUploads,
+    uploadDataDuringCreation: data.parallelUploads <= 1,
     removeFingerprintOnSuccess: true,
     retryDelays: data.retryDelays,
     onProgress: (bytesSent, bytesTotal) => {

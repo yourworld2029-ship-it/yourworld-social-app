@@ -20,7 +20,7 @@ public class TransferService extends Service {
     public static final String ACTION_DOWNLOAD = "com.yourworld.DOWNLOAD";
     private static final String ACTION_PROGRESS = "com.yourworld.TRANSFER_PROGRESS";
     private static final int NOTIFICATION_ID = 4107;
-    private static final long CHUNK = 5L * 1024 * 1024;
+    private static final long CHUNK = 6L * 1024 * 1024;
     private ExecutorService tasks;
     private final Map<String, Future<?>> running = new ConcurrentHashMap<>();
     private final Map<String, Long> startedAt = new ConcurrentHashMap<>();
