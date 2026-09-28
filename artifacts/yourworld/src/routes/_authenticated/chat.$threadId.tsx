@@ -637,7 +637,19 @@ function NativeChatThreadPage() {
     void saveChatDisplayName(peer.peerId ?? "", n);
   };
 
-  const secretLock = settings.secretLock;
+  const [securityFallbackThreadId, setSecurityFallbackThreadId] = useState<string | null>(null);
+  useEffect(() => {
+    setSecurityFallbackThreadId(null);
+  }, [threadId]);
+  const hasSecretLockMaterial =
+    typeof settings.secretPinSalt === "string" &&
+    settings.secretPinSalt.length > 0 &&
+    typeof settings.secretPinHash === "string" &&
+    settings.secretPinHash.length > 0;
+  const secretLock =
+    securityFallbackThreadId !== threadId &&
+    settings.secretLock === true &&
+    hasSecretLockMaterial;
   const [chatUnlocked, setChatUnlocked] = useState(false);
   const protectedMessagesEnabled = secretLock && chatUnlocked;
   const [unlockPin, setUnlockPin] = useState("");
@@ -1235,20 +1247,28 @@ function NativeChatThreadPage() {
                     typeof salt !== "string" ||
                     !salt ||
                     typeof hash !== "string" ||
-                    !hash ||
-                    typeof pin !== "string" ||
-                    !pin
+                    !hash
                   ) {
-                    setUnlockError("Unable to verify chat security. Try again.");
+                    setSecurityFallbackThreadId(threadId);
+                    setUnlockError(null);
+                    setUnlockPin("");
+                    return;
+                  }
+                  if (typeof pin !== "string" || !pin) {
+                    setUnlockError("Incorrect PIN");
                     setUnlockPin("");
                     return;
                   }
 
                   const candidateHash = await hashPin(salt, pin);
-                  if (typeof candidateHash !== "string" || candidateHash !== hash) {
-                    setUnlockError(
-                      candidateHash ? "Incorrect PIN" : "Unable to verify chat security. Try again.",
-                    );
+                  if (typeof candidateHash !== "string" || !candidateHash) {
+                    setSecurityFallbackThreadId(threadId);
+                    setUnlockError(null);
+                    setUnlockPin("");
+                    return;
+                  }
+                  if (candidateHash !== hash) {
+                    setUnlockError("Incorrect PIN");
                     setUnlockPin("");
                     return;
                   }
@@ -1258,7 +1278,8 @@ function NativeChatThreadPage() {
                   setUnlockPin("");
                 } catch (cause) {
                   console.error("[secret-lock] unlock verification failed", cause);
-                  setUnlockError("Unable to verify chat security. Try again.");
+                  setSecurityFallbackThreadId(threadId);
+                  setUnlockError(null);
                   setUnlockPin("");
                 }
               })();

@@ -69,180 +69,221 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
     let alive = true;
     setReady(false);
     setSettings(DEFAULTS);
-    if (!peerId) return;
+    if (!peerId) {
+      setReady(true);
+      return;
+    }
 
     void (async () => {
-      const { data: auth } = await supabase.auth.getUser();
-      const me = auth?.user?.id ?? null;
-      meRef.current = me;
-      if (!me || !alive) return;
-      const [{ data: legacyData }, preferenceResult] = await Promise.all([
-        supabase
-          .from("orbit_chat_settings")
-          .select("*")
-          .eq("user_id", me)
-          .eq("peer_id", peerId)
-          .maybeSingle(),
-        conversationId
-          ? supabase
-              .from("conversation_preferences" as never)
-              .select("*" as never)
-              .eq("conversation_id" as never, conversationId)
-              .eq("user_id" as never, me)
-              .maybeSingle()
-          : Promise.resolve({ data: null, error: null }),
-      ]);
-      const { data: blockedData } = await supabase
-        .from("user_blocks" as never)
-        .select("blocked_id" as never)
-        .eq("blocker_id" as never, me)
-        .eq("blocked_id" as never, peerId)
-        .maybeSingle();
-      if (!alive) return;
-      const legacyRow = legacyData as Row | null;
-      const preference = preferenceResult.data as {
-        secret_pin_salt?: string | null;
-        secret_pin_hash?: string | null;
-        is_locked?: boolean;
-        view_once?: boolean;
-        auto_delete_setting?: string | null;
-        screenshot_alert?: boolean;
-        screen_recording_alert?: boolean;
-        is_muted?: boolean;
-      } | null;
-      const row = legacyRow;
-      let conversationSetting: AutoDeleteSetting | null = null;
-      if (conversationId) {
-        const conversationResult = await supabase
-          .from("conversations" as never)
-          .select("auto_delete_setting" as never)
-          .eq("id" as never, conversationId)
-          .maybeSingle();
-        if (!conversationResult.error && conversationResult.data) {
-          conversationSetting = normalizeAutoDeleteSetting(
-            (conversationResult.data as { auto_delete_setting?: unknown }).auto_delete_setting,
-          );
+      try {
+        const { data: auth } = await supabase.auth.getUser();
+        const me = auth?.user?.id ?? null;
+        meRef.current = me;
+        if (!alive) return;
+        if (!me) {
+          setSettings(DEFAULTS);
+          setReady(true);
+          return;
         }
-      }
-      if (!alive) return;
-      if (row || preference || conversationSetting) {
-        const preferenceMode = normalizeAutoDeleteSetting(preference?.auto_delete_setting);
-        setSettings({
-          displayName: row?.display_name ?? DEFAULTS.displayName,
-          secretLock: preference?.is_locked ?? row?.secret_lock_enabled ?? DEFAULTS.secretLock,
-          secretPinSalt: preference?.secret_pin_salt ?? row?.secret_pin_salt ?? DEFAULTS.secretPinSalt,
-          secretPinHash: preference?.secret_pin_hash ?? row?.secret_pin_hash ?? DEFAULTS.secretPinHash,
-          viewOnce: preference?.view_once ?? row?.view_once_mode ?? DEFAULTS.viewOnce,
-          autoDeleteSetting: conversationSetting ?? (preference ? preferenceMode : normalizeAutoDeleteSetting(
-            row?.auto_delete_mode ?? row?.auto_delete_setting,
-            row?.auto_delete_seconds,
-          )),
-          autoDelete: autoDeleteSeconds(conversationSetting ?? (preference ? preferenceMode : normalizeAutoDeleteSetting(
-            row?.auto_delete_mode ?? row?.auto_delete_setting,
-            row?.auto_delete_seconds,
-          ))),
-          screenshotAlert: preference?.screenshot_alert ?? row?.screenshot_alert ?? DEFAULTS.screenshotAlert,
-          recordingAlert: preference?.screen_recording_alert ?? row?.recording_alert ?? DEFAULTS.recordingAlert,
-          muted: preference?.is_muted ?? row?.muted ?? DEFAULTS.muted,
-          blocked: Boolean(blockedData),
-        });
-      } else {
-        setSettings((current) => ({ ...current, blocked: Boolean(blockedData) }));
-      }
-      const channelName = conversationId
-        ? `conversation-settings-${conversationId}`
-        : `chat-settings-${[me, peerId].sort().join("_")}`;
-      const channelBuilder = supabase
-        .channel(channelName)
-        .on("broadcast", { event: "auto_delete_updated" }, ({ payload }) => {
-          const incoming = (payload ?? {}) as { auto_delete_setting?: unknown; new_setting?: unknown };
-          const mode = normalizeAutoDeleteSetting(incoming.auto_delete_setting ?? incoming.new_setting);
-          setSettings((current) => ({
-            ...current,
-            autoDeleteSetting: mode,
-            autoDelete: autoDeleteSeconds(mode),
-          }));
-        });
-      channelBuilder.on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "conversation_preferences", filter: `user_id=eq.${me}` },
-        (payload) => {
-          const row = payload.new as {
-            conversation_id?: string;
-            is_locked?: boolean;
-            secret_pin_salt?: string | null;
-            secret_pin_hash?: string | null;
-            view_once?: boolean;
-            screenshot_alert?: boolean;
-            screen_recording_alert?: boolean;
-            is_muted?: boolean;
-            auto_delete_setting?: string;
-          };
-          if (!row || row.conversation_id !== conversationId) return;
-          setSettings((current) => ({
-            ...current,
-            secretLock: row.is_locked ?? current.secretLock,
-            secretPinSalt: row.secret_pin_salt ?? current.secretPinSalt,
-            secretPinHash: row.secret_pin_hash ?? current.secretPinHash,
-            viewOnce: row.view_once ?? current.viewOnce,
-            screenshotAlert: row.screenshot_alert ?? current.screenshotAlert,
-            recordingAlert: row.screen_recording_alert ?? current.recordingAlert,
-            muted: row.is_muted ?? current.muted,
-            autoDeleteSetting: row.auto_delete_setting
-              ? normalizeAutoDeleteSetting(row.auto_delete_setting)
-              : current.autoDeleteSetting,
-            autoDelete: row.auto_delete_setting
-              ? autoDeleteSeconds(normalizeAutoDeleteSetting(row.auto_delete_setting))
-              : current.autoDelete,
-          }));
-        },
-      );
-      channelBuilder.on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "user_blocks", filter: `blocker_id=eq.${me}` },
-        () => {
-          void supabase
-            .from("user_blocks" as never)
-            .select("blocked_id" as never)
-            .eq("blocker_id" as never, me)
-            .eq("blocked_id" as never, peerId)
-            .maybeSingle()
-            .then(({ data }) => {
-              if (!alive) return;
-              setSettings((current) => ({ ...current, blocked: Boolean(data) }));
-            });
-        },
-      );
-      if (conversationId) {
-        channelBuilder.on(
-          "postgres_changes",
-          { event: "UPDATE", schema: "public", table: "conversations", filter: `id=eq.${conversationId}` },
-          (payload) => {
-            const mode = normalizeAutoDeleteSetting(
-              (payload.new as { auto_delete_setting?: unknown }).auto_delete_setting,
+        const [{ data: legacyData }, preferenceResult] = await Promise.all([
+          supabase
+            .from("orbit_chat_settings")
+            .select("*")
+            .eq("user_id", me)
+            .eq("peer_id", peerId)
+            .maybeSingle(),
+          conversationId
+            ? supabase
+                .from("conversation_preferences" as never)
+                .select("*" as never)
+                .eq("conversation_id" as never, conversationId)
+                .eq("user_id" as never, me)
+                .maybeSingle()
+            : Promise.resolve({ data: null, error: null }),
+        ]);
+        const { data: blockedData } = await supabase
+          .from("user_blocks" as never)
+          .select("blocked_id" as never)
+          .eq("blocker_id" as never, me)
+          .eq("blocked_id" as never, peerId)
+          .maybeSingle();
+        if (!alive) return;
+        const legacyRow = legacyData as Row | null;
+        const preference = preferenceResult.data as {
+          secret_pin_salt?: string | null;
+          secret_pin_hash?: string | null;
+          is_locked?: boolean;
+          view_once?: boolean;
+          auto_delete_setting?: string | null;
+          screenshot_alert?: boolean;
+          screen_recording_alert?: boolean;
+          is_muted?: boolean;
+        } | null;
+        const row = legacyRow;
+        let conversationSetting: AutoDeleteSetting | null = null;
+        if (conversationId) {
+          const conversationResult = await supabase
+            .from("conversations" as never)
+            .select("auto_delete_setting" as never)
+            .eq("id" as never, conversationId)
+            .maybeSingle();
+          if (!conversationResult.error && conversationResult.data) {
+            conversationSetting = normalizeAutoDeleteSetting(
+              (conversationResult.data as { auto_delete_setting?: unknown }).auto_delete_setting,
             );
+          }
+        }
+        if (!alive) return;
+        if (row || preference || conversationSetting) {
+          const preferenceMode = normalizeAutoDeleteSetting(preference?.auto_delete_setting);
+          const secretPinSalt =
+            preference?.secret_pin_salt ?? row?.secret_pin_salt ?? DEFAULTS.secretPinSalt;
+          const secretPinHash =
+            preference?.secret_pin_hash ?? row?.secret_pin_hash ?? DEFAULTS.secretPinHash;
+          const lockRequested =
+            preference?.is_locked ?? row?.secret_lock_enabled ?? DEFAULTS.secretLock;
+          const lockCanBeVerified =
+            typeof secretPinSalt === "string" &&
+            secretPinSalt.length > 0 &&
+            typeof secretPinHash === "string" &&
+            secretPinHash.length > 0;
+          setSettings({
+            displayName: row?.display_name ?? DEFAULTS.displayName,
+            secretLock: Boolean(lockRequested && lockCanBeVerified),
+            secretPinSalt,
+            secretPinHash,
+            viewOnce: preference?.view_once ?? row?.view_once_mode ?? DEFAULTS.viewOnce,
+            autoDeleteSetting: conversationSetting ?? (preference ? preferenceMode : normalizeAutoDeleteSetting(
+              row?.auto_delete_mode ?? row?.auto_delete_setting,
+              row?.auto_delete_seconds,
+            )),
+            autoDelete: autoDeleteSeconds(conversationSetting ?? (preference ? preferenceMode : normalizeAutoDeleteSetting(
+              row?.auto_delete_mode ?? row?.auto_delete_setting,
+              row?.auto_delete_seconds,
+            ))),
+            screenshotAlert: preference?.screenshot_alert ?? row?.screenshot_alert ?? DEFAULTS.screenshotAlert,
+            recordingAlert: preference?.screen_recording_alert ?? row?.recording_alert ?? DEFAULTS.recordingAlert,
+            muted: preference?.is_muted ?? row?.muted ?? DEFAULTS.muted,
+            blocked: Boolean(blockedData),
+          });
+        } else {
+          setSettings((current) => ({ ...current, blocked: Boolean(blockedData) }));
+        }
+        const channelName = conversationId
+          ? `conversation-settings-${conversationId}`
+          : `chat-settings-${[me, peerId].sort().join("_")}`;
+        const channelBuilder = supabase
+          .channel(channelName)
+          .on("broadcast", { event: "auto_delete_updated" }, ({ payload }) => {
+            const incoming = (payload ?? {}) as { auto_delete_setting?: unknown; new_setting?: unknown };
+            const mode = normalizeAutoDeleteSetting(incoming.auto_delete_setting ?? incoming.new_setting);
             setSettings((current) => ({
               ...current,
               autoDeleteSetting: mode,
               autoDelete: autoDeleteSeconds(mode),
             }));
+          });
+        channelBuilder.on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "conversation_preferences", filter: `user_id=eq.${me}` },
+          (payload) => {
+            const row = payload.new as {
+              conversation_id?: string;
+              is_locked?: boolean | null;
+              secret_pin_salt?: string | null;
+              secret_pin_hash?: string | null;
+              view_once?: boolean;
+              screenshot_alert?: boolean;
+              screen_recording_alert?: boolean;
+              is_muted?: boolean;
+              auto_delete_setting?: string;
+            };
+            if (!row || row.conversation_id !== conversationId) return;
+            setSettings((current) => {
+              const nextSalt = Object.prototype.hasOwnProperty.call(row, "secret_pin_salt")
+                ? row.secret_pin_salt ?? null
+                : current.secretPinSalt;
+              const nextHash = Object.prototype.hasOwnProperty.call(row, "secret_pin_hash")
+                ? row.secret_pin_hash ?? null
+                : current.secretPinHash;
+              const lockCanBeVerified =
+                typeof nextSalt === "string" &&
+                nextSalt.length > 0 &&
+                typeof nextHash === "string" &&
+                nextHash.length > 0;
+              return {
+                ...current,
+                secretLock: Boolean((row.is_locked ?? current.secretLock) && lockCanBeVerified),
+                secretPinSalt: nextSalt,
+                secretPinHash: nextHash,
+                viewOnce: row.view_once ?? current.viewOnce,
+                screenshotAlert: row.screenshot_alert ?? current.screenshotAlert,
+                recordingAlert: row.screen_recording_alert ?? current.recordingAlert,
+                muted: row.is_muted ?? current.muted,
+                autoDeleteSetting: row.auto_delete_setting
+                  ? normalizeAutoDeleteSetting(row.auto_delete_setting)
+                  : current.autoDeleteSetting,
+                autoDelete: row.auto_delete_setting
+                  ? autoDeleteSeconds(normalizeAutoDeleteSetting(row.auto_delete_setting))
+                  : current.autoDelete,
+              };
+            });
           },
         );
+        channelBuilder.on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "user_blocks", filter: `blocker_id=eq.${me}` },
+          () => {
+            void supabase
+              .from("user_blocks" as never)
+              .select("blocked_id" as never)
+              .eq("blocker_id" as never, me)
+              .eq("blocked_id" as never, peerId)
+              .maybeSingle()
+              .then(
+                ({ data }) => {
+                  if (!alive) return;
+                  setSettings((current) => ({ ...current, blocked: Boolean(data) }));
+                },
+                (cause: unknown) => {
+                  if (alive) console.error("[chat-settings] Unable to refresh block state", cause);
+                },
+              );
+          },
+        );
+        if (conversationId) {
+          channelBuilder.on(
+            "postgres_changes",
+            { event: "UPDATE", schema: "public", table: "conversations", filter: `id=eq.${conversationId}` },
+            (payload) => {
+              const mode = normalizeAutoDeleteSetting(
+                (payload.new as { auto_delete_setting?: unknown }).auto_delete_setting,
+              );
+              setSettings((current) => ({
+                ...current,
+                autoDeleteSetting: mode,
+                autoDelete: autoDeleteSeconds(mode),
+              }));
+            },
+          );
+        }
+        const channel = channelBuilder.subscribe();
+        settingsChannelRef.current = channel;
+        setReady(true);
+      } catch (cause) {
+        if (!alive) return;
+        console.error("[chat-settings] Unable to load security settings; opening with defaults", cause);
+        setSettings(DEFAULTS);
+        setReady(true);
       }
-      const channel = channelBuilder.subscribe();
-      settingsChannelRef.current = channel;
-      setReady(true);
-    })().catch((cause) => {
-      if (!alive) return;
-      // Keep the existing loading gate fail-closed, but never let a rejected
-      // security-settings request become an unhandled promise in the WebView.
-      console.error("[chat-settings] Unable to load security settings", cause);
-    });
+    })();
 
     return () => {
       alive = false;
       if (settingsChannelRef.current) {
-        void supabase.removeChannel(settingsChannelRef.current);
+        void supabase.removeChannel(settingsChannelRef.current).catch((cause) => {
+          console.error("[chat-settings] Unable to remove settings channel", cause);
+        });
         settingsChannelRef.current = null;
       }
     };

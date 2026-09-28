@@ -115,12 +115,18 @@ export function useSecretChats(query: string) {
       return;
     }
     void (async () => {
-      const hits: string[] = [];
-      for (const row of locked) {
-        if (!row.salt || !row.hash) continue;
-        if ((await hashPin(row.salt, pin)) === row.hash) hits.push(row.peerId);
+      try {
+        const hits: string[] = [];
+        for (const row of locked) {
+          if (!row.salt || !row.hash) continue;
+          if ((await hashPin(row.salt, pin)) === row.hash) hits.push(row.peerId);
+        }
+        if (alive) setRevealed(hits);
+      } catch (cause) {
+        if (!alive) return;
+        console.error("[secret-chats] PIN verification failed", cause);
+        setRevealed([]);
       }
-      if (alive) setRevealed(hits);
     })();
     return () => {
       alive = false;
