@@ -260,7 +260,7 @@ export function LongVideoCard({
   return (
     <>
     <article
-      className="overflow-hidden border-b border-zinc-800/80 bg-[#141418] shadow-2xl"
+      className="feed-post-card overflow-hidden bg-[#141418]"
     >
       <div className="relative">
       <button

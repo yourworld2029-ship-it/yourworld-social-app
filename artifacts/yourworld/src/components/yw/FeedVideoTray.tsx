@@ -23,7 +23,7 @@ export function FeedVideoTray({
   return (
     <section
       aria-label="Video tray"
-      className="feed-video-tray border-y border-white/[0.07] bg-[#050507] py-0"
+      className="feed-video-tray bg-[#050507] py-0"
       data-testid="feed-video-tray"
     >
       <div className="mb-2 flex items-end justify-between gap-3 px-3">

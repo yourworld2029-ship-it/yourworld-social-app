@@ -1239,6 +1239,22 @@ html[data-theme="midnight"] {
   background-image: none !important;
 }
 
+.feed-post-list {
+  gap: 0 !important;
+}
+
+.feed-post-list > * {
+  margin-block: 0 !important;
+}
+
+.feed-post-card {
+  margin-block-start: 0 !important;
+  padding-block-start: 0 !important;
+  border-block-start: 0 !important;
+  border-block-end: 0 !important;
+  box-shadow: none !important;
+}
+
 .feed-post-video-frame > [data-feed-autoplay-candidate] {
   display: block !important;
   width: 100% !important;
