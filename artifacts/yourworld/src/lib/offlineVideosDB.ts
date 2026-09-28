@@ -8,9 +8,8 @@ export type OfflineVideo = {
   thumbnailUrl: string;
   quality: string;
   sizeBytes: number;
-  /** Browser downloads retain their Blob; Android transfers may live in app-private files. */
+  /** Offline video bytes are stored as a persistent IndexedDB Blob. */
   videoBlob?: Blob;
-  nativePath?: string;
   downloadedAt: string;
   ownerId?: string;
   mediaId?: string;

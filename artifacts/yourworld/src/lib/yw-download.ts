@@ -14,14 +14,6 @@ import {
   type OfflineVideo,
 } from "@/lib/offlineVideosDB";
 import {
-  createNativeTransferId,
-  getNativeDownloadUri,
-  getNativeTransferSnapshot,
-  nativeTransfer,
-  supportsNativeTransfers,
-  type NativeTransferSnapshot,
-} from "@/lib/native-transfer";
-import {
   attachmentMediaUrl,
   fetchVideoBlob,
   sanitizeDownloadName,
@@ -106,8 +98,6 @@ export type DownloadedVideo = DownloadedVideoMetadata & {
   id: string;
   sizeBytes: number;
   videoBlob?: Blob;
-  /** Relative to Android's app-private Directory.Data-equivalent files directory. */
-  nativePath?: string;
   downloadedAt: string;
   cacheKey?: string;
 };
@@ -136,7 +126,6 @@ export function toDownloadedVideo(record: OfflineVideo): DownloadedVideo {
     quality: record.quality as DownloadQuality,
     sizeBytes: record.sizeBytes,
     videoBlob: record.videoBlob,
-    nativePath: record.nativePath,
     downloadedAt: record.downloadedAt,
   };
 }
@@ -366,7 +355,6 @@ async function removeLegacyDownloadCopies(record: DownloadedVideo) {
 }
 
 export async function listDownloadedVideos(ownerId: string) {
-  await syncNativeDownloadedVideos();
   const records = await getAllOfflineVideos();
   return records
     .filter((record) => record.ownerId === ownerId)
@@ -374,7 +362,6 @@ export async function listDownloadedVideos(ownerId: string) {
 }
 
 export async function getDownloadedVideo(id: string, ownerId?: string) {
-  await syncNativeDownloadedVideos();
   const result = await getOfflineVideoById(id);
   if (!result || (ownerId && result.ownerId !== ownerId)) return null;
   return toDownloadedVideo(result);
@@ -382,114 +369,14 @@ export async function getDownloadedVideo(id: string, ownerId?: string) {
 
 export async function removeDownloadedVideo(record: DownloadedVideo) {
   await removeLegacyDownloadCopies(record);
-  if (record.nativePath && supportsNativeTransfers()) {
-    await nativeTransfer.deleteDownload({ relativePath: record.nativePath });
-  }
   await deleteOfflineVideo(record.id);
 }
 
 export async function getDownloadedVideoUrl(record: DownloadedVideo) {
   const storedVideo = await getOfflineVideoById(record.id);
   if (!storedVideo) return null;
-  if (storedVideo.nativePath && supportsNativeTransfers()) {
-    return getNativeDownloadUri(storedVideo.nativePath);
-  }
   if (!storedVideo.videoBlob) return null;
   return URL.createObjectURL(storedVideo.videoBlob);
-}
-
-function nativeMetadata(
-  value: Record<string, unknown> | undefined,
-): DownloadedVideoMetadata | null {
-  if (
-    !value ||
-    typeof value.ownerId !== "string" ||
-    typeof value.mediaId !== "string" ||
-    typeof value.title !== "string" ||
-    typeof value.creatorName !== "string" ||
-    typeof value.creatorUsername !== "string" ||
-    typeof value.quality !== "string"
-  ) {
-    return null;
-  }
-  return {
-    ownerId: value.ownerId,
-    mediaId: value.mediaId,
-    title: value.title,
-    creatorName: value.creatorName,
-    creatorUsername: value.creatorUsername,
-    creatorId: typeof value.creatorId === "string" ? value.creatorId : null,
-    views: typeof value.views === "number" ? value.views : null,
-    createdAt: typeof value.createdAt === "string" ? value.createdAt : null,
-    durationSeconds:
-      typeof value.durationSeconds === "number" ? value.durationSeconds : null,
-    thumbnailUrl:
-      typeof value.thumbnailUrl === "string" ? value.thumbnailUrl : null,
-    posterUrl: typeof value.posterUrl === "string" ? value.posterUrl : null,
-    quality: value.quality as DownloadQuality,
-  };
-}
-
-async function persistNativeDownloadedVideo(
-  metadata: DownloadedVideoMetadata,
-  nativePath: string,
-  sizeBytes: number,
-) {
-  const id = `${metadata.ownerId}:${metadata.mediaId}:${metadata.quality}`;
-  const existing = await getOfflineVideoById(id);
-  const thumbnailUrl = metadata.thumbnailUrl ?? metadata.posterUrl ?? "";
-  await saveOfflineVideo({
-    ...(existing ?? {}),
-    id,
-    title: metadata.title,
-    author: metadata.creatorName,
-    thumbnailUrl,
-    quality: metadata.quality,
-    sizeBytes,
-    videoBlob: existing?.videoBlob,
-    nativePath,
-    downloadedAt: existing?.downloadedAt ?? new Date().toISOString(),
-    ownerId: metadata.ownerId,
-    mediaId: metadata.mediaId,
-    creatorName: metadata.creatorName,
-    creatorUsername: metadata.creatorUsername,
-    creatorId: metadata.creatorId,
-    views: metadata.views,
-    createdAt: metadata.createdAt,
-    durationSeconds: metadata.durationSeconds,
-    posterUrl: metadata.posterUrl ?? thumbnailUrl,
-  });
-}
-
-async function syncNativeDownloadedVideos() {
-  if (!supportsNativeTransfers()) return;
-  let snapshots: NativeTransferSnapshot[];
-  try {
-    snapshots = await nativeTransfer.getTransfers();
-  } catch (error) {
-    console.warn("Could not restore completed native downloads", error);
-    return;
-  }
-  for (const snapshot of snapshots) {
-    if (
-      snapshot.kind !== "download" ||
-      snapshot.status !== "complete" ||
-      !snapshot.relativePath
-    ) {
-      continue;
-    }
-    const metadata = nativeMetadata(snapshot.metadata);
-    if (!metadata) continue;
-    try {
-      await persistNativeDownloadedVideo(
-        metadata,
-        snapshot.relativePath,
-        snapshot.totalBytes || snapshot.bytesTransferred,
-      );
-    } catch (error) {
-      console.warn("Could not restore a native Profile download", error);
-    }
-  }
 }
 
 export async function saveDownloadedVideo(
@@ -517,100 +404,6 @@ export async function saveDownloadedVideo(
     durationSeconds: metadata.durationSeconds,
     posterUrl: metadata.posterUrl ?? thumbnailUrl,
   });
-}
-
-async function waitForNativeDownload(
-  options: {
-    id: string;
-    src: string;
-    fileName: string;
-    title: string;
-    metadata: DownloadedVideoMetadata;
-    taskId: string;
-    onProgress?: (percent: number) => void;
-  },
-) {
-  const { id, src, fileName, title, metadata, taskId, onProgress } = options;
-  let listener: Awaited<ReturnType<typeof nativeTransfer.addListener>> | null = null;
-  let pollTimer: number | null = null;
-
-  try {
-    return await new Promise<NativeTransferSnapshot>((resolve, reject) => {
-      let settled = false;
-      const finish = (snapshot: NativeTransferSnapshot, error?: Error) => {
-        if (settled) return;
-        settled = true;
-        if (pollTimer !== null) {
-          window.clearInterval(pollTimer);
-          pollTimer = null;
-        }
-        if (error) reject(error);
-        else resolve(snapshot);
-      };
-      const consume = (snapshot: NativeTransferSnapshot) => {
-        if (snapshot.id !== id || snapshot.kind !== "download") return;
-        const percent = snapshot.status === "complete"
-          ? 100
-          : snapshot.totalBytes > 0
-            ? Math.min(99, (snapshot.bytesTransferred / snapshot.totalBytes) * 100)
-            : 0;
-        updateDownloadTask(taskId, title, percent, {
-          bytesTransferred: snapshot.bytesTransferred,
-          totalBytes: snapshot.totalBytes || undefined,
-          bytesPerSecond: snapshot.bytesPerSecond,
-        });
-        onProgress?.(percent);
-        if (snapshot.status === "complete") {
-          finish(snapshot);
-        } else if (snapshot.status === "error") {
-          finish(
-            snapshot,
-            new Error(snapshot.error || "The background download failed."),
-          );
-        }
-      };
-
-      void (async () => {
-        try {
-          listener = await nativeTransfer.addListener(
-            "transferProgress",
-            consume,
-          );
-          await nativeTransfer.enqueueDownload({
-            id,
-            url: src,
-            fileName,
-            title,
-            metadata: { ...metadata },
-          });
-          const snapshot = await getNativeTransferSnapshot(id);
-          if (snapshot) consume(snapshot);
-          if (settled) return;
-          pollTimer = window.setInterval(() => {
-            void getNativeTransferSnapshot(id)
-              .then((next) => {
-                if (next) consume(next);
-              })
-              .catch((error) => {
-                console.warn("Could not refresh native download progress", error);
-              });
-          }, 1_000);
-        } catch (error) {
-          finish(
-            { id, kind: "download", status: "error", bytesTransferred: 0, totalBytes: 0, bytesPerSecond: 0 },
-            error instanceof Error
-              ? error
-              : new Error("Could not start the background download."),
-          );
-        }
-      })();
-    });
-  } finally {
-    if (pollTimer !== null) window.clearInterval(pollTimer);
-    const activeListener =
-      listener as Awaited<ReturnType<typeof nativeTransfer.addListener>> | null;
-    await activeListener?.remove().catch(() => {});
-  }
 }
 
 function triggerBlobDownload(blob: Blob, fileName: string) {
@@ -709,37 +502,6 @@ export async function downloadVideoInBackground(
     const title = metadata?.title || fileName.replace(/\.mp4$/i, "");
     updateDownloadTask(key, title, 0);
     try {
-      if (metadata && supportsNativeTransfers()) {
-        const nativeId = createNativeTransferId("download");
-        const snapshot = await waitForNativeDownload({
-          id: nativeId,
-          src,
-          fileName: sanitizeDownloadName(fileName, "yourworld-media"),
-          title,
-          metadata,
-          taskId: key,
-          onProgress,
-        });
-        if (!snapshot.relativePath) {
-          throw new Error("The background download finished without a saved file.");
-        }
-        await persistNativeDownloadedVideo(
-          metadata,
-          snapshot.relativePath,
-          snapshot.totalBytes || snapshot.bytesTransferred,
-        );
-        updateDownloadTask(key, title, 100, {
-          bytesTransferred: snapshot.totalBytes || snapshot.bytesTransferred,
-          totalBytes: snapshot.totalBytes || snapshot.bytesTransferred,
-          bytesPerSecond: snapshot.bytesPerSecond,
-        });
-        toast.success("Download complete! Ready offline in Profile > Downloads", {
-          duration: 3_000,
-        });
-        window.setTimeout(() => removeDownloadTask(key), 400);
-        return;
-      }
-
       const startedAt = performance.now();
       let sampledAt = startedAt;
       let sampledBytes = 0;

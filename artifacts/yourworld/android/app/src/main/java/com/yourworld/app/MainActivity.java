@@ -20,7 +20,6 @@ public class MainActivity extends BridgeActivity {
     protected void onCreate(Bundle savedInstanceState) {
         registerPlugin(PrivacyBridgePlugin.class);
         registerPlugin(CallAudioRoutingPlugin.class);
-        registerPlugin(TransferPlugin.class);
         super.onCreate(savedInstanceState);
 
         configureSystemBars();
