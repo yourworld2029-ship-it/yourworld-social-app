@@ -62,14 +62,18 @@ type PreferenceRow = {
 export function useChatSettings(peerId: string | null, conversationId: string | null = null) {
   const [settings, setSettings] = useState<ChatSettings>(DEFAULTS);
   const [ready, setReady] = useState(false);
+  const [readyScopeKey, setReadyScopeKey] = useState<string | null>(null);
   const meRef = useRef<string | null>(null);
   const settingsChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const scopeKey = JSON.stringify([peerId, conversationId]);
 
   useEffect(() => {
     let alive = true;
     setReady(false);
+    setReadyScopeKey(null);
     setSettings(DEFAULTS);
     if (!peerId) {
+      setReadyScopeKey(scopeKey);
       setReady(true);
       return;
     }
@@ -102,6 +106,7 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
             .maybeSingle(),
         ]);
         if (!alive) return;
+        if (preferenceResult.error) throw preferenceResult.error;
         const preference = preferenceResult.data as PreferenceRow | null;
         let conversationSetting: AutoDeleteSetting | null = null;
         if (conversationId) {
@@ -249,6 +254,7 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
         }
         const channel = channelBuilder.subscribe();
         settingsChannelRef.current = channel;
+        setReadyScopeKey(scopeKey);
         setReady(true);
       } catch (cause) {
         if (!alive) return;
@@ -267,7 +273,7 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
         settingsChannelRef.current = null;
       }
     };
-  }, [peerId, conversationId]);
+  }, [peerId, conversationId, scopeKey]);
 
   /** Optimistic local update + persisted conversation-scoped upsert. */
   const patch = useCallback(
@@ -382,5 +388,5 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
     return { error: null };
   }, [conversationId, peerId, settings.autoDeleteSetting]);
 
-  return { settings, ready, patch, setAutoDeleteSetting };
+  return { settings, ready, readyScopeKey, patch, setAutoDeleteSetting };
 }

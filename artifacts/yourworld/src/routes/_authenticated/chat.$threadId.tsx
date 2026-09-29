@@ -1022,15 +1022,30 @@ function NativeChatThreadPage() {
     patch,
     setAutoDeleteSetting,
     ready: chatSettingsReady,
+    readyScopeKey: chatSettingsReadyScopeKey,
   } = useChatSettings(peer.peerId, conversationId);
-  const protectChatEnabled = chatSettingsReady && settings.protectChatEnabled;
-  const peerProtectChatEnabled = usePeerChatProtectionPresence(
+  const chatSettingsScopeKey = JSON.stringify([peer.peerId, conversationId]);
+  const chatSettingsResolvedForThread =
+    chatSettingsReady && chatSettingsReadyScopeKey === chatSettingsScopeKey;
+  const protectChatEnabled =
+    chatSettingsResolvedForThread && settings.protectChatEnabled;
+  const peerProtection = usePeerChatProtectionPresence(
     conversationId ? `social-chat-protection-${conversationId}` : null,
     currentUserId,
     peer.peerId,
     protectChatEnabled,
+    chatSettingsResolvedForThread,
   );
-  useAndroidChatSecureFlag(peerProtectChatEnabled);
+  const chatProtectionDecisionReady =
+    Boolean(currentUserId && peer.peerId) &&
+    chatSettingsResolvedForThread &&
+    peerProtection.ready;
+  const chatSecurityScopeKey = JSON.stringify([currentUserId, threadId, conversationId]);
+  const chatScreenSecurityReady = useAndroidChatSecureFlag(
+    peerProtection.enabled,
+    chatProtectionDecisionReady,
+    chatSecurityScopeKey,
+  );
   const { nameFor } = useChatNames();
   const displayName = nameFor(peer.peerId, settings.displayName ?? peer.peerName ?? "");
   const openPeerProfile = {
@@ -1676,6 +1691,15 @@ function NativeChatThreadPage() {
       }
     }
   };
+
+  if (!chatScreenSecurityReady) {
+    return (
+      <div
+        aria-hidden="true"
+        className="fixed inset-0 z-[10000] h-[100dvh] w-screen bg-black"
+      />
+    );
+  }
 
   return (
     <>

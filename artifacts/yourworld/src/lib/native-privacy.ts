@@ -3,7 +3,7 @@ import {
   registerPlugin,
   type PluginListenerHandle,
 } from "@capacitor/core";
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 
 interface PrivacyBridgePlugin {
   setScreenSecurity(options: { enabled: boolean }): Promise<void>;
@@ -75,10 +75,14 @@ export function setScreenSecurity(enabled: boolean): Promise<void> {
   return privacyBridge.setScreenSecurity({ enabled });
 }
 
-function updateAndroidChatSecureFlag(enabled: boolean) {
-  void setScreenSecurity(enabled).catch((error: unknown) => {
-    console.error("[privacy-bridge] Could not update Android chat capture protection", error);
-  });
+let screenSecurityQueue: Promise<void> = Promise.resolve();
+
+function queueScreenSecurityUpdate(enabled: boolean) {
+  const update = screenSecurityQueue
+    .catch(() => {})
+    .then(() => setScreenSecurity(enabled));
+  screenSecurityQueue = update.catch(() => {});
+  return update;
 }
 
 export function listenForAndroidCaptureEvents(
@@ -125,9 +129,51 @@ export function listenForAndroidCaptureEvents(
   };
 }
 
-export function useAndroidChatSecureFlag(enabled: boolean) {
-  useEffect(() => {
-    const syncProtection = () => updateAndroidChatSecureFlag(enabled);
+const useIsomorphicLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
+
+export function useAndroidChatSecureFlag(
+  enabled: boolean,
+  decisionReady: boolean,
+  scopeKey: string,
+) {
+  const [appliedState, setAppliedState] = useState<{
+    scopeKey: string;
+    enabled: boolean;
+    ready: boolean;
+  } | null>(null);
+
+  useIsomorphicLayoutEffect(() => {
+    let active = true;
+    setAppliedState(null);
+
+    if (!isNativeAndroid()) {
+      setAppliedState({ scopeKey, enabled, ready: true });
+      return () => {
+        active = false;
+      };
+    }
+
+    if (!decisionReady) {
+      return () => {
+        active = false;
+        void queueScreenSecurityUpdate(false).catch((error: unknown) => {
+          console.error("[privacy-bridge] Could not clear Android chat capture protection", error);
+        });
+      };
+    }
+
+    const syncProtection = () => {
+      setAppliedState(null);
+      void queueScreenSecurityUpdate(enabled).then(
+        () => {
+          if (active) setAppliedState({ scopeKey, enabled, ready: true });
+        },
+        (error: unknown) => {
+          console.error("[privacy-bridge] Could not update Android chat capture protection", error);
+        },
+      );
+    };
     const syncWhenVisible = () => {
       if (document.visibilityState === "visible") syncProtection();
     };
@@ -138,10 +184,19 @@ export function useAndroidChatSecureFlag(enabled: boolean) {
     document.addEventListener("visibilitychange", syncWhenVisible);
 
     return () => {
+      active = false;
       window.removeEventListener("focus", syncProtection);
       window.removeEventListener("yw-app-resume", syncProtection);
       document.removeEventListener("visibilitychange", syncWhenVisible);
-      updateAndroidChatSecureFlag(false);
+      void queueScreenSecurityUpdate(false).catch((error: unknown) => {
+        console.error("[privacy-bridge] Could not clear Android chat capture protection", error);
+      });
     };
-  }, [enabled]);
+  }, [decisionReady, enabled, scopeKey]);
+
+  return (
+    appliedState?.scopeKey === scopeKey &&
+    appliedState.enabled === enabled &&
+    appliedState.ready
+  );
 }
