@@ -24,6 +24,7 @@ export { fetchVideoBlob, sanitizeDownloadName } from "@/lib/video-download-trans
 
 const activeVideoDownloads = new Map<string, Promise<void>>();
 const downloadTaskListeners = new Set<() => void>();
+const downloadedVideoLibraryListeners = new Set<(ownerId: string) => void>();
 const downloadTasks = new Map<string, DownloadTask>();
 let downloadTaskSnapshot: DownloadTask[] = [];
 
@@ -45,6 +46,13 @@ export type DownloadTask = {
 export function subscribeDownloadTasks(listener: () => void) {
   downloadTaskListeners.add(listener);
   return () => downloadTaskListeners.delete(listener);
+}
+
+export function subscribeDownloadedVideoLibrary(listener: (ownerId: string) => void) {
+  downloadedVideoLibraryListeners.add(listener);
+  return () => {
+    downloadedVideoLibraryListeners.delete(listener);
+  };
 }
 
 export function getDownloadTasksSnapshot() {
@@ -77,6 +85,81 @@ function updateDownloadTask(
 function removeDownloadTask(id: string) {
   downloadTasks.delete(id);
   publishDownloadTasks();
+}
+
+function notifyDownloadedVideoLibrary(ownerId: string) {
+  downloadedVideoLibraryListeners.forEach((listener) => listener(ownerId));
+}
+
+type DownloadWorkerMessage =
+  | { type: "progress"; percent: number }
+  | { type: "bytes"; bytesTransferred: number; totalBytes: number }
+  | { type: "complete"; blob: Blob }
+  | { type: "error"; message: string };
+
+function fetchVideoBlobInWorker(
+  src: string,
+  fileName: string,
+  onProgress?: (percent: number) => void,
+  onTransferProgress?: (bytesTransferred: number, totalBytes: number) => void,
+) {
+  if (typeof Worker === "undefined") {
+    return fetchVideoBlob(src, onProgress, fileName, onTransferProgress);
+  }
+
+  let worker: Worker;
+  try {
+    worker = new Worker(new URL("./video-download.worker.ts", import.meta.url), {
+      type: "module",
+    });
+  } catch {
+    return fetchVideoBlob(src, onProgress, fileName, onTransferProgress);
+  }
+
+  return new Promise<Blob>((resolve, reject) => {
+    let settled = false;
+    let receivedWorkerMessage = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      worker.terminate();
+    };
+    const fallbackToMainThread = () => {
+      finish();
+      void fetchVideoBlob(src, onProgress, fileName, onTransferProgress).then(resolve, reject);
+    };
+
+    worker.onmessage = (event: MessageEvent<DownloadWorkerMessage>) => {
+      receivedWorkerMessage = true;
+      const message = event.data;
+      if (message.type === "progress") {
+        onProgress?.(message.percent);
+      } else if (message.type === "bytes") {
+        onTransferProgress?.(message.bytesTransferred, message.totalBytes);
+      } else if (message.type === "complete") {
+        finish();
+        resolve(message.blob);
+      } else if (message.type === "error") {
+        finish();
+        reject(new Error(message.message));
+      }
+    };
+    worker.onerror = (event) => {
+      event.preventDefault();
+      if (!receivedWorkerMessage) {
+        fallbackToMainThread();
+      } else {
+        finish();
+        reject(event.error ?? new Error("The video download worker failed"));
+      }
+    };
+
+    try {
+      worker.postMessage({ type: "start", src, fileName });
+    } catch {
+      fallbackToMainThread();
+    }
+  });
 }
 
 export type DownloadedVideoMetadata = {
@@ -370,6 +453,7 @@ export async function getDownloadedVideo(id: string, ownerId?: string) {
 export async function removeDownloadedVideo(record: DownloadedVideo) {
   await removeLegacyDownloadCopies(record);
   await deleteOfflineVideo(record.id);
+  notifyDownloadedVideoLibrary(record.ownerId);
 }
 
 export async function getDownloadedVideoUrl(record: DownloadedVideo) {
@@ -404,6 +488,7 @@ export async function saveDownloadedVideo(
     durationSeconds: metadata.durationSeconds,
     posterUrl: metadata.posterUrl ?? thumbnailUrl,
   });
+  notifyDownloadedVideoLibrary(metadata.ownerId);
 }
 
 function triggerBlobDownload(blob: Blob, fileName: string) {
@@ -467,13 +552,13 @@ export async function downloadVideoInBackground(
           });
         }
       };
-      const blob = await fetchVideoBlob(
+      const blob = await fetchVideoBlobInWorker(
         src,
+        fileName,
         (percent) => {
           updateDownloadTask(key, title, percent);
           onProgress?.(percent);
         },
-        fileName,
         reportBytes,
       );
       if (metadata) await saveDownloadedVideo(metadata, blob);
@@ -512,10 +597,14 @@ export async function downloadWatermarkedVideoInBackground(
     const title = metadata?.title || fileNameBase;
     updateDownloadTask(key, title, 0);
     try {
-      const sourceBlob = await fetchVideoBlob(src, (percent) => {
-        updateDownloadTask(key, title, percent);
-        onProgress?.(percent);
-      });
+      const sourceBlob = await fetchVideoBlobInWorker(
+        src,
+        `${sanitizeDownloadName(fileNameBase, "yourworld-video")}.mp4`,
+        (percent) => {
+          updateDownloadTask(key, title, percent);
+          onProgress?.(percent);
+        },
+      );
       const sourceUrl = URL.createObjectURL(sourceBlob);
       let blob: Blob;
       try {

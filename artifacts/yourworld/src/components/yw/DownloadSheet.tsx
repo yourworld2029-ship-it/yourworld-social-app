@@ -11,9 +11,11 @@ import {
   availableDownloadQualityTiers,
   type DownloadQualityUrls,
   estimateDownloadSizeMb,
+  estimateDownloadSizeMbFromSourceFile,
   formatDownloadSizeMb,
   type VideoQualityTier,
 } from "@/lib/video-quality";
+import { resolveMediaUrl } from "@/lib/social-data";
 import { cn } from "@/lib/utils";
 
 export type DownloadChoice = VideoQualityTier | "mp3" | "original";
@@ -37,6 +39,7 @@ type Props = {
   qualityMediaUrls?: DownloadQualityUrls | null;
   sourceMediaUrl?: string | null;
   sourceFileSizeBytes?: number | null;
+  mediaBucket?: "reels" | "videos";
   onDownload: (
     choice: DownloadChoice,
     onProgress?: (percent: number) => void,
@@ -48,12 +51,17 @@ function positiveByteSize(value: number | null | undefined) {
   return Number.isFinite(size) && size > 0 ? size : null;
 }
 
+function positiveDuration(value: number | null | undefined) {
+  const duration = Number(value);
+  return Number.isFinite(duration) && duration > 0 ? duration : null;
+}
+
 function contentLengthFromResponse(response: Response) {
-  const contentLength = Number(response.headers.get("content-length"));
-  if (Number.isFinite(contentLength) && contentLength > 0) return contentLength;
   const contentRange = response.headers.get("content-range") ?? "";
   const total = Number(contentRange.match(/\/(\d+)$/)?.[1]);
-  return Number.isFinite(total) && total > 0 ? total : null;
+  if (Number.isFinite(total) && total > 0) return total;
+  const contentLength = Number(response.headers.get("content-length"));
+  return Number.isFinite(contentLength) && contentLength > 0 ? contentLength : null;
 }
 
 async function readSourceFileSize(sourceMediaUrl: string, signal: AbortSignal) {
@@ -78,10 +86,63 @@ async function readSourceFileSize(sourceMediaUrl: string, signal: AbortSignal) {
       cache: "no-store",
       signal,
     });
-    return response.ok ? contentLengthFromResponse(response) : null;
+    const size = response.status === 206 ? contentLengthFromResponse(response) : null;
+    await response.body?.cancel().catch(() => {});
+    return size;
   } catch {
     return null;
   }
+}
+
+async function readVideoDuration(
+  sourceMediaUrl: string,
+  mediaBucket: "reels" | "videos",
+  signal: AbortSignal,
+) {
+  if (typeof document === "undefined") return null;
+
+  return new Promise<number | null>((resolve) => {
+    const video = document.createElement("video");
+    let settled = false;
+    const timeout = window.setTimeout(() => finish(null), 12_000);
+    const finish = (duration: number | null) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      signal.removeEventListener("abort", abort);
+      video.removeEventListener("loadedmetadata", loaded);
+      video.removeEventListener("error", failed);
+      video.removeAttribute("src");
+      video.load();
+      resolve(positiveDuration(duration));
+    };
+    const loaded = () => finish(video.duration);
+    const failed = () => finish(null);
+    const abort = () => finish(null);
+
+    video.preload = "metadata";
+    video.muted = true;
+    video.playsInline = true;
+    video.crossOrigin = "anonymous";
+    video.addEventListener("loadedmetadata", loaded, { once: true });
+    video.addEventListener("error", failed, { once: true });
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) {
+      finish(null);
+      return;
+    }
+
+    void resolveMediaUrl(sourceMediaUrl, mediaBucket)
+      .then((url) => {
+        if (signal.aborted || !url) {
+          finish(null);
+          return;
+        }
+        video.src = url;
+        video.load();
+      })
+      .catch(() => finish(null));
+  });
 }
 
 export function DownloadSheet({
@@ -93,6 +154,7 @@ export function DownloadSheet({
   qualityMediaUrls,
   sourceMediaUrl,
   sourceFileSizeBytes,
+  mediaBucket = "videos",
   onDownload,
 }: Props) {
   const choices = useMemo<DownloadChoice[]>(
@@ -108,8 +170,11 @@ export function DownloadSheet({
   const [selected, setSelected] = useState<DownloadChoice>(
     sourceQualityTier ?? "original",
   );
-  const [resolvedSourceFileSizeBytes, setResolvedSourceFileSizeBytes] = useState<number | null>(
-    positiveByteSize(sourceFileSizeBytes),
+  const [resolvedFileSizes, setResolvedFileSizes] = useState<
+    Partial<Record<DownloadChoice, number>>
+  >({});
+  const [resolvedDurationSeconds, setResolvedDurationSeconds] = useState<number | null>(
+    positiveDuration(durationSeconds),
   );
 
   useEffect(() => {
@@ -120,25 +185,90 @@ export function DownloadSheet({
 
   useEffect(() => {
     const providedSize = positiveByteSize(sourceFileSizeBytes);
-    setResolvedSourceFileSizeBytes(providedSize);
-    if (!open || providedSize || !sourceMediaUrl) return;
+    setResolvedFileSizes(
+      providedSize
+        ? {
+            original: providedSize,
+            ...(sourceQualityTier ? { [sourceQualityTier]: providedSize } : {}),
+          }
+        : {},
+    );
+    setResolvedDurationSeconds(positiveDuration(durationSeconds));
+    if (!open || !sourceMediaUrl) return;
 
     const controller = new AbortController();
-    void readSourceFileSize(sourceMediaUrl, controller.signal).then((size) => {
-      if (!controller.signal.aborted) setResolvedSourceFileSizeBytes(size);
-    });
-    return () => controller.abort();
-  }, [open, sourceFileSizeBytes, sourceMediaUrl]);
-
-  const sizeForChoice = (choice: DownloadChoice) => {
-    const isSourceFile = choice === "original" || choice === sourceQualityTier;
-    if (isSourceFile && resolvedSourceFileSizeBytes) {
-      return formatDownloadSizeMb(resolvedSourceFileSizeBytes / 1_000_000, true);
+    if (!positiveDuration(durationSeconds)) {
+      void readVideoDuration(sourceMediaUrl, mediaBucket, controller.signal).then((duration) => {
+        if (!controller.signal.aborted && duration) setResolvedDurationSeconds(duration);
+      });
     }
 
-    const estimateTier = isSourceFile ? sourceQualityTier : choice;
+    const sizeCandidates = choices.flatMap((choice) => {
+      const url =
+        choice === "original"
+          ? sourceMediaUrl
+          : choice !== "mp3"
+            ? qualityMediaUrls?.[choice] ??
+              (choice === sourceQualityTier ? sourceMediaUrl : undefined)
+            : undefined;
+      return url ? [{ choice, url }] : [];
+    });
+    void Promise.all(
+      sizeCandidates.map(async ({ choice, url }) => {
+        try {
+          const resolvedUrl = await resolveMediaUrl(url, mediaBucket);
+          if (controller.signal.aborted || !resolvedUrl) return null;
+          const size = await readSourceFileSize(resolvedUrl, controller.signal);
+          return size ? ([choice, size] as const) : null;
+        } catch {
+          return null;
+        }
+      }),
+    ).then((entries) => {
+      if (controller.signal.aborted) return;
+      const resolved = Object.fromEntries(
+        entries.filter((entry): entry is readonly [DownloadChoice, number] => entry !== null),
+      );
+      setResolvedFileSizes((current) => ({ ...current, ...resolved }));
+    });
+
+    return () => controller.abort();
+  }, [
+    choices,
+    durationSeconds,
+    mediaBucket,
+    open,
+    qualityMediaUrls,
+    sourceFileSizeBytes,
+    sourceMediaUrl,
+    sourceQualityTier,
+  ]);
+
+  const sizeForChoice = (choice: DownloadChoice) => {
+    const providedSourceSize = positiveByteSize(sourceFileSizeBytes);
+    const exactSize =
+      resolvedFileSizes[choice] ??
+      ((choice === "original" || choice === sourceQualityTier) ? providedSourceSize : null);
+    if (exactSize) {
+      return formatDownloadSizeMb(exactSize / 1_000_000, true);
+    }
+
+    if (choice === "original") {
+      return formatDownloadSizeMb(
+        sourceQualityTier
+          ? estimateDownloadSizeMb(resolvedDurationSeconds, sourceQualityTier)
+          : null,
+      );
+    }
+    if (choice === "mp3") {
+      return formatDownloadSizeMb(estimateDownloadSizeMb(resolvedDurationSeconds, "mp3"));
+    }
+
+    const sourceSizeBytes =
+      resolvedFileSizes.original ?? providedSourceSize;
     return formatDownloadSizeMb(
-      estimateTier ? estimateDownloadSizeMb(durationSeconds, estimateTier) : null,
+      estimateDownloadSizeMb(resolvedDurationSeconds, choice) ??
+        estimateDownloadSizeMbFromSourceFile(sourceSizeBytes, sourceQualityTier, choice),
     );
   };
 

@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import type React from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Settings,
   Link2,
@@ -71,6 +71,7 @@ import {
   migrateLegacyDownloadedVideos,
   getDownloadedVideoUrl,
   removeDownloadedVideo,
+  subscribeDownloadedVideoLibrary,
   downloadAudioOnly,
   downloadWatermarkedVideoInBackground,
   sanitizeDownloadName,
@@ -152,6 +153,7 @@ function ProfilePage() {
   const [downloads, setDownloads] = useState<DownloadedVideo[]>([]);
   const [downloadsLoading, setDownloadsLoading] = useState(false);
   const [downloadsLoadedFor, setDownloadsLoadedFor] = useState<string | null>(null);
+  const downloadsRevisionRef = useRef(0);
   const [downloadTarget, setDownloadTarget] = useState<DbPost | null>(null);
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [downloadSourceUrl, setDownloadSourceUrl] = useState<string | null>(null);
@@ -197,24 +199,51 @@ function ProfilePage() {
   );
 
   useEffect(() => {
+    if (!userId) return;
+    let subscribed = true;
+    const unsubscribe = subscribeDownloadedVideoLibrary((ownerId) => {
+      if (ownerId !== userId) return;
+      const revision = ++downloadsRevisionRef.current;
+      void listDownloadedVideos(userId)
+        .then((records) => {
+          if (!subscribed || revision !== downloadsRevisionRef.current) return;
+          setDownloads(records);
+          setDownloadsLoadedFor(userId);
+        })
+        .catch((error) => {
+          if (subscribed && revision === downloadsRevisionRef.current) {
+            console.error("[downloads] could not refresh the offline library", error);
+          }
+        });
+    });
+    return () => {
+      subscribed = false;
+      unsubscribe();
+    };
+  }, [userId]);
+
+  useEffect(() => {
     let cancelled = false;
     if (!userId) {
+      downloadsRevisionRef.current += 1;
       setDownloads([]);
       setDownloadsLoading(false);
+      setDownloadsLoadedFor(null);
       return;
     }
     if (tab !== "downloads" || downloadsLoadedFor === userId) return;
+    const revisionAtLoadStart = downloadsRevisionRef.current;
     setDownloadsLoading(true);
     void migrateLegacyDownloadedVideos(userId)
       .then(() => listDownloadedVideos(userId))
       .then((records) => {
-        if (!cancelled) {
+        if (!cancelled && revisionAtLoadStart === downloadsRevisionRef.current) {
           setDownloads(records);
           setDownloadsLoadedFor(userId);
         }
       })
       .catch((error) => {
-        if (!cancelled) {
+        if (!cancelled && revisionAtLoadStart === downloadsRevisionRef.current) {
           setDownloads([]);
           toast.error(error instanceof Error ? error.message : "Could not load offline videos");
         }
@@ -954,6 +983,7 @@ function ProfilePage() {
         sourceQualityTier={downloadSourceQualityTier}
         qualityMediaUrls={downloadQualityUrls}
         sourceMediaUrl={downloadSourceUrl}
+        mediaBucket={downloadTarget?.kind === "reel" ? "reels" : "videos"}
         onDownload={downloadManagedMedia}
       />
 

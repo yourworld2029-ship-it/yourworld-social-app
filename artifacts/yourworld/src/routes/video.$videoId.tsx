@@ -1314,6 +1314,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
            sourceQualityTier={sourceQualityTier}
            qualityMediaUrls={video.qualityUrls ?? video.quality_urls ?? undefined}
             sourceMediaUrl={playableMediaUrl}
+           mediaBucket="videos"
            onDownload={downloadSelected}
          />
 

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   availableDownloadQualityTiers,
+  estimateDownloadSizeMbFromSourceFile,
   qualityTierFromDimensions,
   qualityTierFromMetadata,
   qualityTierFromSourceMetadata,
@@ -35,5 +36,20 @@ test("2K downloads are offered for a 2K source or an explicit 2K stream", () => 
   assert.ok(
     availableDownloadQualityTiers("1080p", { "1440p": "https://media.example/2k.mp4" })
       .some((tier) => tier.id === "1440p"),
+  );
+});
+
+test("estimates quality sizes from the source file when duration is missing", () => {
+  assert.equal(
+    estimateDownloadSizeMbFromSourceFile(6_410_000, "1080p", "720p"),
+    4,
+  );
+  assert.equal(
+    estimateDownloadSizeMbFromSourceFile(6_410_000, "1080p", "original"),
+    6.41,
+  );
+  assert.equal(
+    estimateDownloadSizeMbFromSourceFile(6_410_000, null, "720p"),
+    null,
   );
 });

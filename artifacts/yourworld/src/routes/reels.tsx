@@ -1355,6 +1355,7 @@ function ReelItem({
         sourceQualityTier={reel.sourceQualityTier ?? null}
         qualityMediaUrls={reel.qualityUrls}
         sourceMediaUrl={mediaUrl}
+        mediaBucket={mediaBucket ?? "reels"}
         onDownload={handleDownload}
       />
       <AlertDialog

@@ -120,6 +120,27 @@ export function estimateDownloadSizeMb(
   return Math.ceil((duration * (definition.bitrate + 128_000)) / 8 / 1_000_000);
 }
 
+export function estimateDownloadSizeMbFromSourceFile(
+  sourceFileSizeBytes: number | null | undefined,
+  sourceTier: VideoQualityTier | null | undefined,
+  targetTier: VideoQualityTier | "original",
+) {
+  const sizeBytes = Number(sourceFileSizeBytes);
+  if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) return null;
+  if (targetTier === "original") return sizeBytes / 1_000_000;
+
+  const sourceDefinition = VIDEO_QUALITY_TIERS.find((candidate) => candidate.id === sourceTier);
+  const targetDefinition = VIDEO_QUALITY_TIERS.find((candidate) => candidate.id === targetTier);
+  if (!sourceDefinition || !targetDefinition) return null;
+
+  const audioBitrate = 128_000;
+  return Math.ceil(
+    (sizeBytes * (targetDefinition.bitrate + audioBitrate)) /
+      (sourceDefinition.bitrate + audioBitrate) /
+      1_000_000,
+  );
+}
+
 export function formatDownloadSizeMb(sizeMb: number | null, exact = false) {
   if (sizeMb == null || !Number.isFinite(sizeMb) || sizeMb <= 0) {
     return "Size unavailable";
