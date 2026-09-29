@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
 import {
-  ArrowLeft, Phone, Video, MoreVertical, Image as ImageIcon,
+  ArrowLeft, Phone, Video, MoreVertical, ChevronRight, Palette, Image as ImageIcon,
   Mic, Send, Smile, Play, Pause, X,
   Pencil, Lock, EyeOff, Clock, Camera, BellOff, UserX, Flag, Shield,
   Trash2, CheckCheck, Check, Crop, Type, Sparkles 
@@ -92,6 +92,42 @@ type ReplyPreview = {
   text?: string;
   mediaKind?: "image" | "video" | "audio";
 };
+
+type ChatBubbleThemeId = "sunset-rose" | "ocean-breeze" | "midnight-amethyst";
+type ChatBubbleThemeState = {
+  storageKey: string | null;
+  theme: ChatBubbleThemeId | null;
+};
+
+const CHAT_BUBBLE_THEMES: Array<{
+  id: ChatBubbleThemeId;
+  label: string;
+  swatchClass: string;
+  bubbleClass: string;
+}> = [
+  {
+    id: "sunset-rose",
+    label: "Sunset Rose",
+    swatchClass: "bg-gradient-to-r from-pink-500 to-violet-400",
+    bubbleClass: "bg-gradient-to-br from-pink-500 via-fuchsia-500 to-violet-400",
+  },
+  {
+    id: "ocean-breeze",
+    label: "Ocean Breeze",
+    swatchClass: "bg-gradient-to-r from-cyan-400 to-blue-700",
+    bubbleClass: "bg-gradient-to-br from-cyan-400 via-sky-500 to-blue-700",
+  },
+  {
+    id: "midnight-amethyst",
+    label: "Midnight Amethyst",
+    swatchClass: "bg-gradient-to-r from-violet-950 to-fuchsia-400",
+    bubbleClass: "bg-gradient-to-br from-violet-950 via-purple-800 to-fuchsia-400",
+  },
+];
+
+function isChatBubbleThemeId(value: string | null): value is ChatBubbleThemeId {
+  return CHAT_BUBBLE_THEMES.some((theme) => theme.id === value);
+}
 
 function isRenderableChatMessage(value: unknown): value is Message {
   if (!value || typeof value !== "object") return false;
@@ -185,14 +221,15 @@ function MomentReplyCard({
         event.stopPropagation();
         if (canOpen) onOpen(message);
       }}
-      className={`group mb-2 flex w-full items-center gap-2 rounded-xl border border-white/15 bg-black/20 p-2 text-left focus:outline-none focus:ring-2 focus:ring-white/60 ${
+      data-testid="moment-reply-strip"
+      className={`group mb-2 flex w-full items-center gap-2.5 rounded-xl border border-white/10 bg-white/[0.06] p-1.5 text-left focus:outline-none focus:ring-2 focus:ring-white/60 ${
         canOpen
-          ? "transition hover:border-white/35 hover:bg-black/30"
+          ? "transition hover:border-white/20 hover:bg-white/[0.09]"
           : "cursor-default opacity-80"
       }`}
       aria-label={canOpen ? "Open replied Moment" : "Moment unavailable"}
     >
-      <span className="relative grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-lg bg-zinc-900 text-[9px] text-zinc-400 ring-1 ring-white/15">
+      <span className="relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-lg bg-zinc-900 text-[9px] text-zinc-400 ring-1 ring-white/15">
         {canOpen && preview.mediaUrl ? (
           preview.kind === "video" ? (
             <video
@@ -220,19 +257,16 @@ function MomentReplyCard({
           <span className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/10 to-transparent" />
         )}
       </span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-[10px] font-bold uppercase tracking-[0.12em] text-white/65">
-          Replying to Moment
-        </span>
-        <span className="mt-0.5 block truncate text-xs font-semibold text-white/90">
-          {canOpen ? "Tap to view" : "Moment unavailable"}
-        </span>
+      <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-white/90">
+        {canOpen
+          ? `Replying to ${
+              preview.kind === "video" ? "video" : preview.kind === "photo" ? "photo" : ""
+            } Moment`.replace("  ", " ")
+          : "Moment unavailable"}
       </span>
-      {canOpen && (
-        <span className="text-lg leading-none text-white/60 transition-transform group-hover:translate-x-0.5">
-          ›
+      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-white/55 transition group-hover:translate-x-0.5 group-hover:text-white/80">
+        <ChevronRight size={16} aria-hidden="true" />
         </span>
-      )}
     </button>
   );
 }
@@ -390,9 +424,9 @@ function SharedMediaMessageCard({
         event.stopPropagation();
         onOpen(media);
       }}
-      className="group mt-2.5 block w-full max-w-[280px] overflow-hidden rounded-2xl border border-white/10 bg-[#090a0e] text-left shadow-lg transition-transform active:scale-[0.99]"
+      className="group relative mt-2.5 block aspect-video w-full max-w-[280px] overflow-hidden rounded-2xl border border-white/10 bg-[#090a0e] text-left shadow-lg transition-transform active:scale-[0.99]"
     >
-      <span className="relative block aspect-video w-full overflow-hidden bg-zinc-950">
+      <span className="absolute inset-0 overflow-hidden bg-zinc-950">
         {poster ? (
           <img
             src={poster}
@@ -406,26 +440,58 @@ function SharedMediaMessageCard({
             <Play className="h-8 w-8 fill-white/20 text-white/75" />
           </span>
         )}
-        <span className="absolute inset-0 bg-gradient-to-t from-black/65 via-transparent to-black/10" />
-        <span className="absolute inset-0 grid place-items-center">
-          <span className="grid h-10 w-10 place-items-center rounded-full border border-white/35 bg-white/15 text-white shadow-xl backdrop-blur-md transition-transform group-hover:scale-105">
-            <Play className="ml-0.5 h-4 w-4 fill-current" />
-          </span>
+      </span>
+      <span className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-black/10" />
+      <span className="pointer-events-none absolute inset-0 grid place-items-center">
+        <span className="grid h-11 w-11 place-items-center rounded-full border border-white/35 bg-white/15 text-white shadow-xl backdrop-blur-md transition-transform group-hover:scale-105">
+          <Play className="ml-0.5 h-4 w-4 fill-current" />
         </span>
       </span>
-      <span className="block p-3">
-        <span className="block text-[9px] font-bold uppercase tracking-[0.16em] text-fuchsia-200/75">
-          {media.kind === "reel" ? "Reel" : "Video"} · Tap to play
-        </span>
-        <span className="mt-1 block truncate text-xs font-semibold text-white/95">
-          {media.title}
-        </span>
+      <span className="pointer-events-none absolute inset-x-3 bottom-2.5 z-10 block min-w-0 truncate whitespace-nowrap text-xs font-semibold text-white drop-shadow-lg">
+        {media.title}
       </span>
     </button>
   );
 }
 
-const CALL_LOG_PATTERN = /^(Missed (Audio|Video) Call|(Audio|Video) Call ended • \d{2}:\d{2})$/;
+const MISSED_CALL_PATTERN = /^Missed(?: (Audio|Voice|Video))? Call$/i;
+const CALL_LOG_PATTERN =
+  /^(?:Missed(?: (?:Audio|Voice|Video))? Call|(?:Audio|Video) Call ended • \d{2}:\d{2})$/i;
+
+function missedCallTypeFromText(text: string | undefined): "audio" | "video" | null {
+  if (!text) return null;
+  const match = MISSED_CALL_PATTERN.exec(text.trim());
+  if (!match) return null;
+  return match[1]?.toLowerCase() === "video" ? "video" : "audio";
+}
+
+function MissedCallPill({
+  text,
+  timestamp,
+  now,
+}: {
+  text: string | undefined;
+  timestamp: number;
+  now: number;
+}) {
+  const callType = missedCallTypeFromText(text);
+  if (!callType) return null;
+  const CallIcon = callType === "video" ? Video : Phone;
+
+  return (
+    <p
+      data-testid={`missed-${callType}-call-pill`}
+      className="mx-auto flex w-fit max-w-[90%] items-center gap-1.5 rounded-full border border-white/[0.07] bg-white/[0.045] px-2.5 py-1 text-[10px] font-medium text-zinc-300 shadow-sm"
+    >
+      <CallIcon size={13} aria-hidden="true" className="shrink-0 text-zinc-400" />
+      <span className="whitespace-nowrap">Missed {callType} call</span>
+      <span aria-hidden="true" className="text-zinc-600">·</span>
+      <time dateTime={new Date(timestamp).toISOString()} className="whitespace-nowrap text-zinc-500">
+        {formatChatRelativeTime(timestamp, now)}
+      </time>
+    </p>
+  );
+}
 
 function mediaKindFromMetadata(
   metadata: Record<string, unknown> | null | undefined,
@@ -881,6 +947,7 @@ function NativeChatThreadPage() {
 
   const [showEmojis, setShowEmojis] = useState(false);
   const [showOptionsMenu, setShowOptionsMenu] = useState(false);
+  const [showChatThemePicker, setShowChatThemePicker] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
@@ -900,6 +967,52 @@ function NativeChatThreadPage() {
 
   // Peer identity resolved from the thread (never hardcoded)
   const peer = useThreadPeer(threadId, currentUserId);
+  const chatThemeStorageKey =
+    currentUserId && peer.peerId
+      ? `yourworld:chat-bubble-theme:${currentUserId}:${dmThreadId(currentUserId, peer.peerId)}`
+      : null;
+  const [chatBubbleThemeState, setChatBubbleThemeState] = useState<ChatBubbleThemeState>({
+    storageKey: null,
+    theme: null,
+  });
+  const selectedChatBubbleTheme =
+    chatBubbleThemeState.storageKey === chatThemeStorageKey
+      ? chatBubbleThemeState.theme
+      : null;
+
+  useEffect(() => {
+    let theme: ChatBubbleThemeId | null = null;
+    if (chatThemeStorageKey) {
+      try {
+        const savedTheme = window.localStorage.getItem(chatThemeStorageKey);
+        if (isChatBubbleThemeId(savedTheme)) theme = savedTheme;
+      } catch (cause) {
+        console.warn("[chat-theme] Unable to read this device's saved theme", cause);
+      }
+    }
+    setChatBubbleThemeState({ storageKey: chatThemeStorageKey, theme });
+  }, [chatThemeStorageKey]);
+
+  useEffect(() => {
+    setShowChatThemePicker(false);
+  }, [threadId]);
+
+  const chooseChatBubbleTheme = (theme: ChatBubbleThemeId | null) => {
+    if (!chatThemeStorageKey) return;
+    setChatBubbleThemeState({ storageKey: chatThemeStorageKey, theme });
+    try {
+      if (theme) window.localStorage.setItem(chatThemeStorageKey, theme);
+      else window.localStorage.removeItem(chatThemeStorageKey);
+    } catch (cause) {
+      console.warn("[chat-theme] Unable to save this device's theme", cause);
+      toast.error("This theme is selected for now, but could not be saved on this device.");
+    }
+  };
+
+  const ownMessageBubbleThemeClass =
+    CHAT_BUBBLE_THEMES.find((theme) => theme.id === selectedChatBubbleTheme)?.bubbleClass ??
+    "bg-gradient-to-r from-purple-600 to-pink-600";
+
   // Live presence: online dot + "typing..." indicator.
   const { peerOnline, peerTyping, setTyping } = useThreadPresence(threadId, currentUserId);
 
@@ -1676,6 +1789,51 @@ function NativeChatThreadPage() {
           <>
             <div className="fixed inset-0 z-[75]" onClick={() => setShowOptionsMenu(false)} />
             <div className="absolute right-3 top-full z-[80] mt-2 max-h-[calc(100dvh_-_env(safe-area-inset-top,24px)_-_1rem)] w-64 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-2xl border border-zinc-800 bg-zinc-900/95 p-2 shadow-2xl backdrop-blur-md animate-in fade-in zoom-in-95 duration-150">
+              <MenuItem
+                icon={<Palette size={16} className="text-zinc-400" />}
+                label="Chat theme"
+                onClick={() => setShowChatThemePicker((open) => !open)}
+              />
+              {showChatThemePicker && (
+                <div
+                  data-testid="chat-theme-picker"
+                  className="mb-1 rounded-xl border border-zinc-800 bg-black/25 p-2"
+                >
+                  <p className="px-2 pb-1.5 pt-1 text-[9px] font-bold uppercase tracking-[0.14em] text-zinc-500">
+                    Outgoing message color
+                  </p>
+                  {CHAT_BUBBLE_THEMES.map((theme) => (
+                    <button
+                      key={theme.id}
+                      type="button"
+                      data-testid={`chat-theme-option-${theme.id}`}
+                      aria-pressed={selectedChatBubbleTheme === theme.id}
+                      disabled={!chatThemeStorageKey}
+                      onClick={() => chooseChatBubbleTheme(theme.id)}
+                      className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-[11px] font-medium text-zinc-200 transition-colors hover:bg-zinc-800/80 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <span className={`h-5 w-8 shrink-0 rounded-full ${theme.swatchClass}`} aria-hidden="true" />
+                      <span className="min-w-0 flex-1 truncate">{theme.label}</span>
+                      {selectedChatBubbleTheme === theme.id && (
+                        <Check size={14} className="shrink-0 text-emerald-300" aria-hidden="true" />
+                      )}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    data-testid="chat-theme-reset"
+                    aria-pressed={selectedChatBubbleTheme === null}
+                    disabled={!chatThemeStorageKey}
+                    onClick={() => chooseChatBubbleTheme(null)}
+                    className="mt-1 flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-[10px] font-medium text-zinc-400 transition-colors hover:bg-zinc-800/80 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Use original colors
+                    {selectedChatBubbleTheme === null && (
+                      <Check size={13} className="text-emerald-300" aria-hidden="true" />
+                    )}
+                  </button>
+                </div>
+              )}
               <MenuItem icon={<Pencil size={16} className="text-zinc-400" />} label="Change Display Name" onClick={() => {
                 setNameDraft(displayName);
                 setNameDialogOpen(true);
@@ -1847,12 +2005,16 @@ function NativeChatThreadPage() {
         {messages.map((m) => (
           <ChatMessageErrorBoundary key={`${threadId}:${m.id}`}>
           {m.system ? (
-          <p className="mx-auto flex w-fit items-center gap-2 rounded-full bg-zinc-800/70 px-3 py-1 text-center text-[11px] text-zinc-400">
-            <span>{m.text}</span>
-            <time dateTime={new Date(m.ts).toISOString()} className="text-[10px] text-zinc-500">
-              {formatChatRelativeTime(m.ts, relativeNow)}
-            </time>
-          </p>
+          missedCallTypeFromText(m.text) ? (
+            <MissedCallPill text={m.text} timestamp={m.ts} now={relativeNow} />
+          ) : (
+            <p className="mx-auto flex w-fit items-center gap-2 rounded-full bg-zinc-800/70 px-3 py-1 text-center text-[11px] text-zinc-400">
+              <span>{m.text}</span>
+              <time dateTime={new Date(m.ts).toISOString()} className="text-[10px] text-zinc-500">
+                {formatChatRelativeTime(m.ts, relativeNow)}
+              </time>
+            </p>
+          )
         ) : (
           <div
             onPointerDown={(event) => startMessageGesture(m, event)}
@@ -1876,9 +2038,9 @@ function NativeChatThreadPage() {
                 {selectedIds.includes(m.id) && <Check size={11} />}
               </span>
             )}
-            {(m.text || m.isMomentReply || m.momentId) && (
+            {(m.text || m.isMomentReply || m.momentId || m.sharedMedia) && (
               <div className={`max-w-[78%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
-                m.sender === "me" ? "bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-br-xs" : "bg-zinc-800/90 text-zinc-100 rounded-bl-xs border border-zinc-700/50"
+                m.sender === "me" ? `${ownMessageBubbleThemeClass} text-white rounded-br-xs` : "bg-zinc-800/90 text-zinc-100 rounded-bl-xs border border-zinc-700/50"
               }`}>
                 {m.replyTo && <ReplyQuote reply={m.replyTo} className="mb-2 rounded-lg" />}
                 {m.isMomentReply || m.momentId ? (
@@ -1888,7 +2050,7 @@ function NativeChatThreadPage() {
                     onOpen={openMomentReply}
                   />
                 ) : null}
-                {m.text ? <ProtectedCanvasText text={m.text} /> : null}
+                {m.text && !m.sharedMedia ? <ProtectedCanvasText text={m.text} /> : null}
                 {m.sharedMedia ? (
                   <SharedMediaMessageCard
                     media={m.sharedMedia}
@@ -1953,7 +2115,7 @@ function NativeChatThreadPage() {
 
             {m.audio && !(m.viewOnce && (m.sender === "them" || m.opened || openedOnce.includes(m.id))) && (
               <div className={`flex items-center gap-3 px-4 py-3 rounded-2xl min-w-[200px] ${
-                m.sender === "me" ? "bg-gradient-to-r from-purple-600 to-pink-600 text-white" : "bg-zinc-800 text-white border border-zinc-700"
+                m.sender === "me" ? `${ownMessageBubbleThemeClass} text-white` : "bg-zinc-800 text-white border border-zinc-700"
               }`}>
                 <button
                   onClick={() => {
