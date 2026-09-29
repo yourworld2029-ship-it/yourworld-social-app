@@ -29,6 +29,8 @@ import {
   PictureInPicture,
   Play,
   Repeat,
+  RotateCcw,
+  RotateCw,
   Settings2,
   Sun,
   Volume2,
@@ -77,7 +79,8 @@ function levelForQuality(levels: Hls["levels"], quality: Exclude<QualityId, "aut
 }
 
 type GestureFeedback = {
-  kind: "seek" | "volume" | "brightness" | "zoom";
+  id: number;
+  kind: "seek" | "volume" | "brightness" | "zoom" | "playback";
   value: number;
   label: string;
 };
@@ -381,6 +384,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const playerTapTimerRef = useRef<number | null>(null);
   const suppressSyntheticClickUntilRef = useRef(0);
   const feedbackTimerRef = useRef<number | null>(null);
+  const gestureFeedbackIdRef = useRef(0);
   const controlsHideTimerRef = useRef<number | null>(null);
   const lockedUnlockTimerRef = useRef<number | null>(null);
   const fullscreenScrollYRef = useRef<number | null>(null);
@@ -816,15 +820,37 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     markControlsActivity();
   }, [markControlsActivity]);
 
+  const showGestureFeedback = useCallback(
+    (kind: GestureFeedback["kind"], value: number, label: string) => {
+      setGestureFeedback({
+        id: ++gestureFeedbackIdRef.current,
+        kind,
+        value,
+        label,
+      });
+      if (feedbackTimerRef.current !== null) {
+        window.clearTimeout(feedbackTimerRef.current);
+      }
+      feedbackTimerRef.current = window.setTimeout(() => {
+        setGestureFeedback(null);
+        feedbackTimerRef.current = null;
+      }, 1000);
+    },
+    [],
+  );
+
   const togglePlayPause = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
+    if (isDetailPlayer && !screenLocked) {
+      showGestureFeedback("playback", 0, video.paused ? "play" : "pause");
+    }
     if (video.paused) {
       void video.play().catch(() => {});
     } else {
       video.pause();
     }
-  }, []);
+  }, [isDetailPlayer, screenLocked, showGestureFeedback]);
 
   const toggleMute = useCallback(() => {
     const video = videoRef.current;
@@ -1061,20 +1087,6 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("yw-app-resume", restoreFullscreenSystemBars);
     };
   }, [isAndroidApp, isVerticalVideo]);
-  const showGestureFeedback = useCallback(
-    (kind: GestureFeedback["kind"], value: number, label: string) => {
-      setGestureFeedback({ kind, value, label });
-      if (feedbackTimerRef.current !== null) {
-        window.clearTimeout(feedbackTimerRef.current);
-      }
-      feedbackTimerRef.current = window.setTimeout(() => {
-        setGestureFeedback(null);
-        feedbackTimerRef.current = null;
-      }, 1000);
-    },
-    [],
-  );
-
   const toggleScreenLock = useCallback(() => {
     if (!isFullscreen) return;
     if (screenLocked) {
@@ -1101,9 +1113,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       const nextTime = clamp(currentTime + seconds, 0, duration);
       video.currentTime = nextTime;
       setCurrentTime(nextTime);
-      if (isFullscreen) {
-        showGestureFeedback("seek", seconds, `${seconds > 0 ? "+" : ""}${seconds}s`);
-      }
+      showGestureFeedback("seek", seconds, `${seconds > 0 ? "+" : ""}${seconds}s`);
       markControlsActivity();
     },
     [isDetailPlayer, isFullscreen, markControlsActivity, screenLocked, showGestureFeedback],
@@ -1711,18 +1721,18 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                       <button
                         type="button"
                         onClick={toggleMute}
-                        className="rounded-full p-2 transition hover:bg-white/15"
+                        className="relative top-1 rounded-full p-2 transition hover:bg-white/15"
                         aria-label={isMuted ? "Unmute video" : "Mute video"}
                       >
-                        {isMuted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
+                        {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
                       </button>
                       <button
                         type="button"
                         onClick={toggleFullscreen}
-                        className="rounded-full p-2 transition hover:bg-white/15"
+                        className="relative top-1 rounded-full p-2 transition hover:bg-white/15"
                         aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
                       >
-                        {isFullscreen ? <Minimize className="h-5 w-5" /> : <Maximize className="h-5 w-5" />}
+                        {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
                       </button>
                     </div>
                   </div>
@@ -1740,22 +1750,65 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               </div>
             ) : null}
 
+            {showDetailChrome && !screenLocked && gestureFeedback?.kind === "playback" ? (
+              <div className="pointer-events-none absolute inset-0 z-50 grid place-items-center">
+                <span
+                  key={gestureFeedback.id}
+                  aria-hidden="true"
+                  className="yw-video-playback-feedback grid h-14 w-14 place-items-center rounded-full border border-white/15 bg-black/45 text-white/90 shadow-lg backdrop-blur-sm"
+                >
+                  {gestureFeedback.label === "play" ? (
+                    <Play className="ml-0.5 h-6 w-6 fill-current" />
+                  ) : (
+                    <Pause className="h-6 w-6 fill-current" />
+                  )}
+                </span>
+              </div>
+            ) : null}
+
+            {showDetailChrome && !screenLocked && gestureFeedback?.kind === "seek" ? (
+              <div className="pointer-events-none absolute inset-0 z-50">
+                <div
+                  key={gestureFeedback.id}
+                  className={`absolute inset-y-0 flex w-1/2 items-center justify-center ${
+                    gestureFeedback.value > 0 ? "right-0" : "left-0"
+                  }`}
+                  role="status"
+                  aria-live="polite"
+                >
+                  <span className="relative grid h-24 w-24 place-items-center">
+                    <span
+                      aria-hidden="true"
+                      className="yw-video-seek-ripple absolute inset-0 rounded-full border border-white/45"
+                    />
+                    <span
+                      aria-hidden="true"
+                      className="yw-video-seek-ripple absolute inset-2 rounded-full border border-white/30"
+                      style={{ animationDelay: "100ms" }}
+                    />
+                    <span className="relative flex flex-col items-center gap-1 rounded-full border border-white/10 bg-black/60 px-4 py-3 text-white shadow-xl backdrop-blur-md">
+                      {gestureFeedback.value > 0 ? (
+                        <RotateCw
+                          aria-hidden="true"
+                          className="yw-video-seek-arrow h-6 w-6"
+                        />
+                      ) : (
+                        <RotateCcw
+                          aria-hidden="true"
+                          className="yw-video-seek-arrow h-6 w-6"
+                        />
+                      )}
+                      <span className="text-sm font-bold tabular-nums">
+                        {gestureFeedback.label}
+                      </span>
+                    </span>
+                  </span>
+                </div>
+              </div>
+            ) : null}
+
             {showDetailChrome && isFullscreen && !screenLocked ? (
               <div className="pointer-events-none absolute inset-0 z-50">
-                {gestureFeedback?.kind === "seek" ? (
-                  <div
-                    className={`pointer-events-none absolute top-1/2 flex -translate-y-1/2 flex-col items-center gap-2 ${
-                      gestureFeedback.value > 0 ? "right-1/4" : "left-1/4"
-                    }`}
-                    aria-live="polite"
-                  >
-                    <span className="absolute h-20 w-20 animate-ping rounded-full border border-white/50" />
-                    <span className="grid h-16 w-16 place-items-center rounded-full bg-black/65 text-sm font-bold text-white backdrop-blur-sm">
-                      {gestureFeedback.label}
-                    </span>
-                  </div>
-                ) : null}
-
                 {gestureFeedback?.kind === "volume" ? (
                   <div className="pointer-events-none absolute right-5 top-1/2 flex -translate-y-1/2 flex-col items-center gap-2 rounded-full bg-black/60 px-2.5 py-3 text-white backdrop-blur-sm">
                     <Volume2 className="h-4 w-4" />
@@ -1820,7 +1873,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                       : void navigate({ to: "/" })
                 }
                 className={`absolute left-3 ${
-                  isFullscreen ? "top-[max(env(safe-area-inset-top,0px),40px)]" : "top-3"
+                  isFullscreen
+                    ? "top-[max(env(safe-area-inset-top,0px),32px)]"
+                    : "top-2"
                 } z-50 rounded-full bg-black/60 p-2 text-white transition-opacity duration-200 hover:bg-black/80 ${
                   controlsVisible ? "opacity-100" : "pointer-events-none opacity-0"
                 }`}
@@ -1879,7 +1934,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                     setSettingsMenu((current) => (current === "closed" ? "root" : "closed"));
                   }}
                   className={`absolute right-3 ${
-                    isFullscreen ? "top-[calc(env(safe-area-inset-top,24px)_+_0.75rem)]" : "top-3"
+                    isFullscreen
+                      ? "top-[max(env(safe-area-inset-top,0px),32px)]"
+                      : "top-2"
                   } z-[70] rounded-full bg-black/60 p-2 text-white transition-opacity duration-200 hover:bg-black/90 ${
                     controlsVisible ? "opacity-100" : "pointer-events-none opacity-0"
                   }`}

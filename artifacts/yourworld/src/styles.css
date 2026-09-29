@@ -1164,6 +1164,59 @@ html[data-theme="midnight"] {
   }
 }
 
+@keyframes yw-video-playback-feedback {
+  0% {
+    opacity: 0;
+  }
+  16% {
+    opacity: 0.82;
+  }
+  68% {
+    opacity: 0.72;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes yw-video-seek-ripple {
+  0% {
+    opacity: 0.5;
+    transform: scale(0.65);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.45);
+  }
+}
+
+@keyframes yw-video-seek-arrow {
+  0% {
+    opacity: 0.55;
+    transform: scale(0.82) rotate(-24deg);
+  }
+  58% {
+    opacity: 1;
+    transform: scale(1.08) rotate(10deg);
+  }
+  100% {
+    opacity: 0.95;
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+@utility yw-video-playback-feedback {
+  animation: yw-video-playback-feedback 720ms ease-out both;
+}
+
+@utility yw-video-seek-ripple {
+  animation: yw-video-seek-ripple 420ms ease-out 2 both;
+}
+
+@utility yw-video-seek-arrow {
+  animation: yw-video-seek-arrow 420ms ease-out both;
+}
+
 @utility animate-float {
   animation: yw-float 4.5s ease-in-out infinite;
 }
@@ -1172,8 +1225,14 @@ html[data-theme="midnight"] {
   .animate-rise,
   .animate-float,
   .ring-live,
-  .animate-kenburns {
+  .animate-kenburns,
+  .yw-video-seek-ripple,
+  .yw-video-seek-arrow {
     animation: none !important;
+  }
+
+  .yw-video-playback-feedback {
+    animation-duration: 320ms !important;
   }
 }
 

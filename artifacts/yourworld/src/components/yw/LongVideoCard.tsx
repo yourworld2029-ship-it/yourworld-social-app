@@ -288,7 +288,7 @@ export function LongVideoCard({
       <FeedVideoMuteButton
         candidateId={previewId}
         title={video.title}
-        className="right-3 top-auto bottom-11"
+        className="right-3 top-auto bottom-8"
       />
       </div>
 
