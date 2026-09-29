@@ -32,7 +32,12 @@ import { useMoments } from "@/lib/moment-context";
 import { formatChatRelativeTime } from "@/lib/chat-time";
 import { useChatNames, saveChatDisplayName } from "@/lib/chat-names";
 import { useChatSettings } from "@/lib/chat-settings";
-import { hashPin, randomPinSalt } from "@/lib/secret-chats";
+import {
+  consumeSecretChatUnlock,
+  hasSecretChatUnlock,
+  hashPin,
+  randomPinSalt,
+} from "@/lib/secret-chats";
 import { PinDialog } from "@/components/yw/PinDialog";
 import { toast } from "sonner";
 import { AUTO_DELETE_OPTIONS, autoDeleteLabel } from "@/lib/auto-delete";
@@ -661,9 +666,7 @@ function NativeChatThreadPage() {
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
   const [relativeNow, setRelativeNow] = useState(() => Date.now());
-  const [revealedProtectedIds, setRevealedProtectedIds] = useState<string[]>([]);
   const lastIncomingScreenshotAtRef = useRef(0);
-  const protectedRevealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const captureChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const captureChannelReadyRef = useRef(false);
   const pendingCaptureAlertsRef = useRef<Array<{
@@ -789,6 +792,10 @@ function NativeChatThreadPage() {
     ]
       .filter(isRenderableChatMessage)
       .filter((m) => !hiddenIds.includes(m.id))
+      .filter(
+        (m) =>
+          !(m.system && /^secret\s+lock\s+(?:enabled|disabled)$/i.test(m.text?.trim() ?? "")),
+      )
       .sort((a, b) => a.ts - b.ts);
   }, [dbMessages, localMessages, hiddenIds, currentUserId]);
 
@@ -921,10 +928,22 @@ function NativeChatThreadPage() {
     securityFallbackThreadId !== threadId &&
     settings.secretLock === true &&
     hasSecretLockMaterial;
-  const [chatUnlocked, setChatUnlocked] = useState(false);
-  const protectedMessagesEnabled = secretLock && chatUnlocked;
-  const [unlockPin, setUnlockPin] = useState("");
+  const activeChatKey = currentUserId ? `${currentUserId}:${threadId}` : null;
+  const [unlockedChatKey, setUnlockedChatKey] = useState<string | null>(null);
   const [unlockError, setUnlockError] = useState<string | null>(null);
+  const chatUnlocked =
+    (!!activeChatKey && unlockedChatKey === activeChatKey) ||
+    hasSecretChatUnlock(currentUserId, peer.peerId);
+  useEffect(() => {
+    setUnlockedChatKey(null);
+    setUnlockError(null);
+  }, [activeChatKey]);
+  useEffect(() => {
+    if (!activeChatKey || !currentUserId || !peer.peerId) return;
+    if (consumeSecretChatUnlock(currentUserId, peer.peerId)) {
+      setUnlockedChatKey(activeChatKey);
+    }
+  }, [activeChatKey, currentUserId, peer.peerId]);
   const [pinMode, setPinMode] = useState<"set" | "remove" | null>(null);
   const [pinError, setPinError] = useState<string | null>(null);
   const [autoDeleteOpen, setAutoDeleteOpen] = useState(false);
@@ -938,9 +957,9 @@ function NativeChatThreadPage() {
     setPinMode(secretLock ? "remove" : "set");
   };
 
-  const submitPin = async (pin: string) => {
+  const submitPin = async (pin: string): Promise<boolean> => {
     const peerId = peer.peerId;
-    if (!peerId) return;
+    if (!peerId) return false;
     try {
       if (pinMode === "remove") {
         const salt = settings.secretPinSalt;
@@ -955,18 +974,18 @@ function NativeChatThreadPage() {
           (await hashPin(salt, pin)) !== hash
         ) {
           setPinError("Incorrect PIN");
-          return;
+          return false;
         }
         const result = await patch({ secretLock: false, secretPinSalt: null, secretPinHash: null });
         if (result.error) throw new Error(result.error);
-        setChatUnlocked(true);
+        setUnlockedChatKey(activeChatKey);
         setPinMode(null);
-        pushSystem("Secret lock disabled");
-        return;
+        setPinError(null);
+        return true;
       }
-      if (!/^\d{4}$/.test(pin)) {
-        setPinError("Use exactly 4 digits");
-        return;
+      if (!/^\d{4,8}$/.test(pin)) {
+        setPinError("Use a 4–8 digit PIN");
+        return false;
       }
       const salt = randomPinSalt();
       const hash = await hashPin(salt, pin);
@@ -975,12 +994,48 @@ function NativeChatThreadPage() {
       }
       const result = await patch({ secretLock: true, secretPinSalt: salt, secretPinHash: hash });
       if (result.error) throw new Error(result.error);
-      setChatUnlocked(true);
+      setUnlockedChatKey(activeChatKey);
       setPinMode(null);
-      pushSystem("Secret lock enabled");
+      setPinError(null);
+      return true;
     } catch (err) {
       console.error("[secret-lock] save failed", err);
       setPinError("Couldn't save. Check your connection and try again.");
+      return false;
+    }
+  };
+
+  const verifyUnlockPin = async (pin: string): Promise<boolean> => {
+    const salt = settings.secretPinSalt;
+    const hash = settings.secretPinHash;
+    if (typeof salt !== "string" || !salt || typeof hash !== "string" || !hash) {
+      setSecurityFallbackThreadId(threadId);
+      setUnlockError(null);
+      return true;
+    }
+    if (!/^\d{4,8}$/.test(pin)) {
+      setUnlockError("Use a 4–8 digit PIN");
+      return false;
+    }
+    try {
+      const candidateHash = await hashPin(salt, pin);
+      if (typeof candidateHash !== "string" || !candidateHash) {
+        setSecurityFallbackThreadId(threadId);
+        setUnlockError(null);
+        return true;
+      }
+      if (candidateHash !== hash) {
+        setUnlockError("Incorrect PIN");
+        return false;
+      }
+      setUnlockError(null);
+      setUnlockedChatKey(activeChatKey);
+      return true;
+    } catch (cause) {
+      console.error("[secret-lock] unlock verification failed", cause);
+      setSecurityFallbackThreadId(threadId);
+      setUnlockError(null);
+      return true;
     }
   };
 
@@ -1036,19 +1091,6 @@ function NativeChatThreadPage() {
     if (longPressRef.current) clearTimeout(longPressRef.current);
     longPressRef.current = null;
   };
-  const startProtectedReveal = (id: string) => {
-    if (protectedRevealTimerRef.current) clearTimeout(protectedRevealTimerRef.current);
-    protectedRevealTimerRef.current = setTimeout(() => {
-      setRevealedProtectedIds((previous) =>
-        previous.includes(id) ? previous : [...previous, id],
-      );
-    }, 250);
-  };
-  const endProtectedReveal = (id: string) => {
-    if (protectedRevealTimerRef.current) clearTimeout(protectedRevealTimerRef.current);
-    protectedRevealTimerRef.current = null;
-    setRevealedProtectedIds((previous) => previous.filter((value) => value !== id));
-  };
   const createReplyPreview = (messageToReply: Message): ReplyPreview => ({
     id: messageToReply.id,
     author: messageToReply.sender === "me" ? currentUserName : displayName,
@@ -1057,11 +1099,6 @@ function NativeChatThreadPage() {
   });
   const startMessageGesture = (messageToReply: Message, event: React.PointerEvent<HTMLDivElement>) => {
     if (selectMode) return;
-    if (protectedMessagesEnabled) {
-      startProtectedReveal(messageToReply.id);
-      event.currentTarget.setPointerCapture?.(event.pointerId);
-      return;
-    }
     startLongPress(messageToReply.id);
     swipeRef.current = {
       id: messageToReply.id,
@@ -1073,7 +1110,6 @@ function NativeChatThreadPage() {
     event.currentTarget.setPointerCapture?.(event.pointerId);
   };
   const moveMessageGesture = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (protectedMessagesEnabled) return;
     const gesture = swipeRef.current;
     if (!gesture) return;
     const deltaX = event.clientX - gesture.startX;
@@ -1087,10 +1123,6 @@ function NativeChatThreadPage() {
     setSwipeState({ id: gesture.id, offset: gesture.offset });
   };
   const endMessageGesture = (messageToReply: Message) => {
-    if (protectedMessagesEnabled) {
-      endProtectedReveal(messageToReply.id);
-      return;
-    }
     const gesture = swipeRef.current;
     cancelLongPress();
     if (gesture?.id === messageToReply.id && gesture.active && Math.abs(gesture.offset) >= 64) {
@@ -1145,7 +1177,6 @@ function NativeChatThreadPage() {
   useEffect(
     () => () => {
       cancelLongPress();
-      if (protectedRevealTimerRef.current) clearTimeout(protectedRevealTimerRef.current);
     },
     [],
   );
@@ -1474,81 +1505,10 @@ function NativeChatThreadPage() {
 
   return (
     <>
-    <div className="fixed inset-0 z-50 flex h-[100dvh] flex-col justify-between overflow-hidden bg-black font-sans text-white">
-      {secretLock && !chatUnlocked ? (
-        <div className="absolute inset-0 z-[95] grid place-items-center bg-black px-6">
-          <form
-            className="w-full max-w-xs space-y-4 text-center"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void (async () => {
-                try {
-                  const salt = settings?.secretPinSalt;
-                  const hash = settings?.secretPinHash;
-                  const pin = unlockPin;
-                  if (
-                    typeof salt !== "string" ||
-                    !salt ||
-                    typeof hash !== "string" ||
-                    !hash
-                  ) {
-                    setSecurityFallbackThreadId(threadId);
-                    setUnlockError(null);
-                    setUnlockPin("");
-                    return;
-                  }
-                  if (typeof pin !== "string" || !pin) {
-                    setUnlockError("Incorrect PIN");
-                    setUnlockPin("");
-                    return;
-                  }
-
-                  const candidateHash = await hashPin(salt, pin);
-                  if (typeof candidateHash !== "string" || !candidateHash) {
-                    setSecurityFallbackThreadId(threadId);
-                    setUnlockError(null);
-                    setUnlockPin("");
-                    return;
-                  }
-                  if (candidateHash !== hash) {
-                    setUnlockError("Incorrect PIN");
-                    setUnlockPin("");
-                    return;
-                  }
-
-                  setUnlockError(null);
-                  setChatUnlocked(true);
-                  setUnlockPin("");
-                } catch (cause) {
-                  console.error("[secret-lock] unlock verification failed", cause);
-                  setSecurityFallbackThreadId(threadId);
-                  setUnlockError(null);
-                  setUnlockPin("");
-                }
-              })();
-            }}
-          >
-            <Lock size={28} className="mx-auto text-purple-400" />
-            <div>
-              <h1 className="text-lg font-bold">Secret chat locked</h1>
-              <p className="mt-1 text-xs text-zinc-400">Enter your PIN to open this conversation.</p>
-            </div>
-            <input
-              value={unlockPin}
-               onChange={(e) => { setUnlockPin(e.target.value.replace(/\D/g, "").slice(0, 4)); setUnlockError(null); }}
-              inputMode="numeric"
-              type="password"
-              autoFocus
-              aria-label="Secret chat PIN"
-              className="h-12 w-full rounded-xl bg-zinc-900 px-4 text-center text-lg outline-none"
-            />
-            {unlockError && <p className="text-xs font-medium text-red-400">{unlockError}</p>}
-            <button type="submit" className="h-11 w-full rounded-xl bg-purple-600 text-sm font-bold">Unlock</button>
-
-          </form>
-        </div>
-      ) : null}
-      
+    <div
+      hidden={secretLock && !chatUnlocked}
+      className="fixed inset-0 z-50 flex h-[100dvh] flex-col justify-between overflow-hidden bg-black font-sans text-white"
+    >
       <input type="file" ref={fileInputRef} accept="image/*" className="hidden" onChange={handleImageSelect} />
       <input type="file" ref={cameraInputRef} accept="image/*" capture="environment" className="hidden" onChange={handleImageSelect} />
 
@@ -1841,10 +1801,6 @@ function NativeChatThreadPage() {
             style={{
               transform: swipeState?.id === m.id ? `translateX(${swipeState.offset}px)` : undefined,
               transition: swipeState?.id === m.id ? "none" : "transform 120ms ease-out",
-               filter:
-                 protectedMessagesEnabled && !revealedProtectedIds.includes(m.id)
-                   ? "blur(14px)"
-                   : undefined,
             }}
           >
             {selectMode && (
@@ -2433,7 +2389,7 @@ function NativeChatThreadPage() {
     </div>
   </div>
 )}
-{nameDialogOpen && (
+{nameDialogOpen && (!secretLock || chatUnlocked) && (
   <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 p-6" onClick={() => setNameDialogOpen(false)}>
     <div className="w-full max-w-xs rounded-2xl border border-zinc-800 bg-zinc-900 p-4" onClick={(e) => e.stopPropagation()}>
       <p className="mb-3 text-sm font-semibold text-white">Change Display Name</p>
@@ -2460,7 +2416,7 @@ function NativeChatThreadPage() {
     </div>
   </div>
 )}
-{clearConfirmOpen && (
+{clearConfirmOpen && (!secretLock || chatUnlocked) && (
   <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 p-6" onClick={() => setClearConfirmOpen(false)}>
     <div className="w-full max-w-sm rounded-2xl border border-zinc-800 bg-zinc-900 p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
       <p className="text-base font-semibold text-white">Clear Chat for Everyone?</p>
@@ -2473,7 +2429,7 @@ function NativeChatThreadPage() {
   </div>
 )}
     <PinDialog
-      open={pinMode !== null}
+      open={pinMode !== null && (!secretLock || chatUnlocked)}
       title={pinMode === "remove" ? "Remove Secret Lock" : "Create chat PIN"}
       description={
         pinMode === "remove"
@@ -2483,7 +2439,15 @@ function NativeChatThreadPage() {
       confirmLabel={pinMode === "remove" ? "Remove" : "Lock chat"}
       error={pinError}
       onCancel={() => { setPinMode(null); setPinError(null); }}
-      onSubmit={(pin) => void submitPin(pin)}
+      onSubmit={submitPin}
+    />
+    <PinDialog
+      open={secretLock && !chatUnlocked}
+      title="Secret chat locked"
+      description="Enter your PIN to open this conversation."
+      confirmLabel="Unlock"
+      error={unlockError}
+      onSubmit={verifyUnlockPin}
     />
     </>
 

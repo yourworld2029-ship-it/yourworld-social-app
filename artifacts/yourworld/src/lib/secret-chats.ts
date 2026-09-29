@@ -4,8 +4,38 @@ import { supabase } from "@/integrations/supabase/client";
 /**
  * Shared Secret Chat Lock helpers used by both Social and Orbit message lists.
  * Locked conversations disappear from the list/search until the exact PIN is
- * typed into the search bar; opening them still requires the PIN.
+ * typed into the search bar. A successful search PIN grants one short-lived,
+ * local unlock so opening that result does not ask for the same PIN twice.
  */
+
+const unlockGrantTtlMs = 60_000;
+const unlockGrants = new Map<string, number>();
+
+function unlockGrantKey(ownerId: string, peerId: string) {
+  return `${ownerId}\u0000${peerId}`;
+}
+
+export function grantSecretChatUnlock(ownerId: string, peerId: string) {
+  if (!ownerId || !peerId) return;
+  const now = Date.now();
+  for (const [key, expiresAt] of unlockGrants) {
+    if (expiresAt <= now) unlockGrants.delete(key);
+  }
+  unlockGrants.set(unlockGrantKey(ownerId, peerId), now + unlockGrantTtlMs);
+}
+
+export function hasSecretChatUnlock(ownerId?: string | null, peerId?: string | null) {
+  if (!ownerId || !peerId) return false;
+  const key = unlockGrantKey(ownerId, peerId);
+  const expiresAt = unlockGrants.get(key);
+  return !!expiresAt && expiresAt > Date.now();
+}
+
+export function consumeSecretChatUnlock(ownerId?: string | null, peerId?: string | null) {
+  if (!hasSecretChatUnlock(ownerId, peerId)) return false;
+  unlockGrants.delete(unlockGrantKey(ownerId!, peerId!));
+  return true;
+}
 
 export function randomPinSalt() {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
@@ -42,7 +72,12 @@ export async function saveSecretChatLock(
   if (error) throw error;
 }
 
-export type LockedChat = { peerId: string; salt: string | null; hash: string | null };
+export type LockedChat = {
+  ownerId: string;
+  peerId: string;
+  salt: string | null;
+  hash: string | null;
+};
 
 async function fetchLocked(): Promise<LockedChat[]> {
   const { data: auth, error: authError } = await supabase.auth.getUser();
@@ -56,6 +91,7 @@ async function fetchLocked(): Promise<LockedChat[]> {
     .eq("secret_lock_enabled", true);
   if (error) throw error;
   return ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({
+    ownerId: me,
     peerId: String(r['peer_id']),
     salt: (r['secret_pin_salt'] as string | null) ?? null,
     hash: (r['secret_pin_hash'] as string | null) ?? null,
@@ -110,7 +146,7 @@ export function useSecretChats(query: string) {
 
   useEffect(() => {
     let alive = true;
-    if (!/^\d{4}$/.test(pin) || locked.length === 0) {
+    if (!/^\d{4,8}$/.test(pin) || locked.length === 0) {
       setRevealed((prev) => (prev.length ? [] : prev));
       return;
     }
@@ -119,7 +155,10 @@ export function useSecretChats(query: string) {
         const hits: string[] = [];
         for (const row of locked) {
           if (!row.salt || !row.hash) continue;
-          if ((await hashPin(row.salt, pin)) === row.hash) hits.push(row.peerId);
+          if ((await hashPin(row.salt, pin)) === row.hash) {
+            hits.push(row.peerId);
+            grantSecretChatUnlock(row.ownerId, row.peerId);
+          }
         }
         if (alive) setRevealed(hits);
       } catch (cause) {

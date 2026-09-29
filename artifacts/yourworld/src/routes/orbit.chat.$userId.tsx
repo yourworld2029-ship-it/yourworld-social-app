@@ -42,7 +42,11 @@ import { ChatMessageErrorBoundary } from "@/components/yw/ChatMessageErrorBounda
 import { supabase } from "@/integrations/supabase/client";
 import { saveChatDisplayName, setChatNameLocal, useChatNames } from "@/lib/chat-names";
 import { useAndroidChatSecureFlag } from "@/lib/native-privacy";
-import { saveSecretChatLock } from "@/lib/secret-chats";
+import {
+  consumeSecretChatUnlock,
+  hasSecretChatUnlock,
+  saveSecretChatLock,
+} from "@/lib/secret-chats";
 import { PinDialog } from "@/components/yw/PinDialog";
 import {
   AUTO_DELETE_OPTIONS,
@@ -232,8 +236,6 @@ function NativeOrbitChatPage() {
   const [actionRect, setActionRect] = useState<{ rect: DOMRect; me: boolean } | null>(null);
   const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastIncomingScreenshotAtRef = useRef(0);
-  const [revealedProtectedIds, setRevealedProtectedIds] = useState<string[]>([]);
-  const protectedRevealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Chat options (mirrors the Social chat 3-dot menu)
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [secretLock, setSecretLock] = useState(false);
@@ -252,14 +254,40 @@ function NativeOrbitChatPage() {
   const [muted, setMuted] = useState(false);
   const [reported, setReported] = useState(false);
   const [settingsReady, setSettingsReady] = useState(false);
+  const [settingsOwnerUserId, setSettingsOwnerUserId] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [clearedBefore, setClearedBefore] = useState<string | null>(null);
   const [secretPinSalt, setSecretPinSalt] = useState<string | null>(null);
   const [secretPinHash, setSecretPinHash] = useState<string | null>(null);
-  const [chatUnlocked, setChatUnlocked] = useState(true);
-  const protectedMessagesEnabled = secretLock && chatUnlocked;
-  const [unlockPin, setUnlockPin] = useState("");
+  const activeChatKey = currentUserId ? `${currentUserId}:${userId}` : null;
+  const [unlockedChatKey, setUnlockedChatKey] = useState<string | null>(null);
   const [unlockError, setUnlockError] = useState<string | null>(null);
+  const [securityFallbackUserId, setSecurityFallbackUserId] = useState<string | null>(null);
+  const hasSecretLockMaterial =
+    typeof secretPinSalt === "string" &&
+    secretPinSalt.length > 0 &&
+    typeof secretPinHash === "string" &&
+    secretPinHash.length > 0;
+  const secretLockActive =
+    settingsOwnerUserId === userId &&
+    settingsReady &&
+    securityFallbackUserId !== userId &&
+    secretLock &&
+    hasSecretLockMaterial;
+  const chatUnlocked =
+    (!!activeChatKey && unlockedChatKey === activeChatKey) ||
+    hasSecretChatUnlock(currentUserId, userId);
+  useEffect(() => {
+    setUnlockedChatKey(null);
+    setUnlockError(null);
+    setSecurityFallbackUserId(null);
+  }, [activeChatKey]);
+  useEffect(() => {
+    if (!activeChatKey || !currentUserId) return;
+    if (consumeSecretChatUnlock(currentUserId, userId)) {
+      setUnlockedChatKey(activeChatKey);
+    }
+  }, [activeChatKey, currentUserId, userId]);
   const [pinMode, setPinMode] = useState<"set" | "remove" | null>(null);
   const [pinError, setPinError] = useState<string | null>(null);
 
@@ -270,6 +298,16 @@ function NativeOrbitChatPage() {
   // Chat options are per-person and survive leaving the chat.
   const prefsKey = `yw.orbit.chatprefs.${userId}`;
   const orbitChatId = currentUserId ? orbitChatIdFor(currentUserId, userId) : "";
+  useEffect(() => {
+    setSettingsOwnerUserId(null);
+    setSettingsReady(false);
+    setSecretLock(false);
+    setSecretPinSalt(null);
+    setSecretPinHash(null);
+    setUnlockedChatKey(null);
+    setUnlockError(null);
+    setSecurityFallbackUserId(null);
+  }, [userId]);
   useEffect(() => {
     let cancelled = false;
     const loadSettings = async () => {
@@ -321,7 +359,6 @@ function NativeOrbitChatPage() {
         setSecretLock(locked);
         setSecretPinSalt((row?.["secret_pin_salt"] as string | null) ?? null);
         setSecretPinHash((row?.["secret_pin_hash"] as string | null) ?? null);
-        setChatUnlocked(!locked);
         setViewOnceMode(row ? !!row["view_once_mode"] : !!v["viewOnceMode"]);
         setAutoDelete(
           normalizeAutoDeleteSetting(
@@ -336,6 +373,8 @@ function NativeOrbitChatPage() {
         setMuted(!!v["muted"]);
         if (row) setMuted(!!row["muted"]);
         setClearedBefore((row?.["cleared_before"] as string | null) ?? null);
+        setSettingsOwnerUserId(userId);
+        setSettingsReady(true);
         const { data: report } = me
           ? await migrationSupabase
               .from("user_reports")
@@ -347,7 +386,6 @@ function NativeOrbitChatPage() {
           : { data: null };
         if (cancelled) return;
         setReported(!!report);
-        setSettingsReady(true);
       } catch {
         if (!cancelled) setSettingsReady(true);
       }
@@ -779,7 +817,6 @@ function NativeOrbitChatPage() {
   useEffect(
     () => () => {
       if (longPressRef.current) clearTimeout(longPressRef.current);
-      if (protectedRevealTimerRef.current) clearTimeout(protectedRevealTimerRef.current);
     },
     [],
   );
@@ -850,19 +887,6 @@ function NativeOrbitChatPage() {
     if (longPressRef.current) clearTimeout(longPressRef.current);
     longPressRef.current = null;
   };
-  const startProtectedReveal = (id: string) => {
-    if (protectedRevealTimerRef.current) clearTimeout(protectedRevealTimerRef.current);
-    protectedRevealTimerRef.current = setTimeout(() => {
-      setRevealedProtectedIds((previous) =>
-        previous.includes(id) ? previous : [...previous, id],
-      );
-    }, 250);
-  };
-  const endProtectedReveal = (id: string) => {
-    if (protectedRevealTimerRef.current) clearTimeout(protectedRevealTimerRef.current);
-    protectedRevealTimerRef.current = null;
-    setRevealedProtectedIds((previous) => previous.filter((value) => value !== id));
-  };
   const toggleSelect = (id: string) =>
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   const deleteIds = (ids: string[]) => {
@@ -901,26 +925,27 @@ function NativeOrbitChatPage() {
     try {
       if (pinMode === "remove") {
         if (
-          !pin ||
+          !/^\d{4,8}$/.test(pin) ||
           !secretPinSalt ||
           !secretPinHash ||
           (await hashPin(secretPinSalt, pin)) !== secretPinHash
         ) {
           setPinError("Incorrect PIN");
-          return;
+          return false;
         }
         await saveSecretChatLock(userId, false, null, null);
         setSecretLock(false);
         setSecretPinSalt(null);
         setSecretPinHash(null);
-        setChatUnlocked(true);
+        setUnlockedChatKey(activeChatKey);
         setPinMode(null);
+        setPinError(null);
         toast.success("Secret Lock removed");
-        return;
+        return true;
       }
       if (!/^\d{4,8}$/.test(pin)) {
         setPinError("Use a 4–8 digit PIN");
-        return;
+        return false;
       }
       const salt = randomPinSalt();
       const hash = await hashPin(salt, pin);
@@ -928,12 +953,41 @@ function NativeOrbitChatPage() {
       setSecretPinSalt(salt);
       setSecretPinHash(hash);
       setSecretLock(true);
-      setChatUnlocked(true);
+      setUnlockedChatKey(activeChatKey);
       setPinMode(null);
+      setPinError(null);
       toast.success("Secret Lock enabled");
+      return true;
     } catch (err) {
       console.error("[secret-lock] save failed", err);
       setPinError("Couldn't save. Check your connection and try again.");
+      return false;
+    }
+  };
+
+  const verifyUnlockPin = async (pin: string): Promise<boolean> => {
+    if (!secretPinSalt || !secretPinHash) {
+      setSecurityFallbackUserId(userId);
+      setUnlockError(null);
+      return true;
+    }
+    if (!/^\d{4,8}$/.test(pin)) {
+      setUnlockError("Use a 4–8 digit PIN");
+      return false;
+    }
+    try {
+      if ((await hashPin(secretPinSalt, pin)) !== secretPinHash) {
+        setUnlockError("Incorrect PIN");
+        return false;
+      }
+      setUnlockError(null);
+      setUnlockedChatKey(activeChatKey);
+      return true;
+    } catch (cause) {
+      console.error("[secret-lock] unlock verification failed", cause);
+      setSecurityFallbackUserId(userId);
+      setUnlockError(null);
+      return true;
     }
   };
 
@@ -990,12 +1044,25 @@ function NativeOrbitChatPage() {
     incomingPending || declined || blocked || (!accepted && requestMessagesLeft <= 0) || selectMode;
   const photoDisabled =
     incomingPending || declined || blocked || (!accepted && requestMessagesLeft <= 0);
-  const allMsgs: Msg[] = accepted
-    ? [...preMessages.map((m) => ({ id: m.id, me: m.me, text: m.text, url: m.url })), ...msgs]
-    : preMessages.map((m) => ({ id: m.id, me: m.me, text: m.text, url: m.url }));
+  const allMsgs: Msg[] = (
+    accepted
+      ? [...preMessages.map((m) => ({ id: m.id, me: m.me, text: m.text, url: m.url })), ...msgs]
+      : preMessages.map((m) => ({ id: m.id, me: m.me, text: m.text, url: m.url }))
+  ).filter(
+    (m) =>
+      !(
+        "system" in m &&
+        m.system &&
+        /^secret\s+lock\s+(?:enabled|disabled)$/i.test(m.text?.trim() ?? "")
+      ),
+  );
 
   return (
-    <main className="flex h-[100dvh] flex-col overflow-hidden">
+    <>
+    <main
+      hidden={secretLockActive && !chatUnlocked}
+      className="flex h-[100dvh] flex-col overflow-hidden"
+    >
       <header className="sticky top-0 z-50 flex shrink-0 items-center gap-2 border-b border-border bg-background px-3 pb-2.5 pt-[calc(env(safe-area-inset-top,0px)+0.625rem)]">
         <button
           type="button"
@@ -1276,58 +1343,6 @@ function NativeOrbitChatPage() {
         </div>
       )}
 
-      {secretLock && !chatUnlocked && (
-        <div className="absolute inset-0 z-[120] grid place-items-center bg-background px-6">
-          <form
-            className="w-full max-w-xs space-y-4 text-center"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void (async () => {
-                if (
-                  !secretPinSalt ||
-                  !secretPinHash ||
-                  (await hashPin(secretPinSalt, unlockPin)) !== secretPinHash
-                ) {
-                  setUnlockError("Incorrect PIN");
-                  setUnlockPin("");
-                  return;
-                }
-                setUnlockError(null);
-                setChatUnlocked(true);
-                setUnlockPin("");
-              })();
-            }}
-          >
-            <Lock className="mx-auto h-8 w-8 text-primary" strokeWidth={1.7} />
-            <div>
-              <h1 className="text-lg font-bold">Secret chat locked</h1>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Enter your PIN to open this conversation.
-              </p>
-            </div>
-            <input
-              value={unlockPin}
-              onChange={(event) => {
-                setUnlockPin(event.target.value.replace(/\D/g, "").slice(0, 8));
-                setUnlockError(null);
-              }}
-              inputMode="numeric"
-              type="password"
-              autoFocus
-              aria-label="Secret chat PIN"
-              className="h-12 w-full rounded-xl bg-secondary px-4 text-center text-lg outline-none"
-            />
-            {unlockError && <p className="text-xs font-medium text-destructive">{unlockError}</p>}
-            <button
-              type="submit"
-              className="h-11 w-full rounded-xl bg-primary text-sm font-bold text-primary-foreground"
-            >
-              Unlock
-            </button>
-          </form>
-        </div>
-      )}
-
       <PinDialog
         open={pinMode !== null}
         title={pinMode === "remove" ? "Remove Secret Lock" : "Create chat PIN"}
@@ -1342,7 +1357,7 @@ function NativeOrbitChatPage() {
           setPinMode(null);
           setPinError(null);
         }}
-        onSubmit={(pin) => void submitPin(pin)}
+        onSubmit={submitPin}
       />
       {clearConfirmOpen && (
         <div
@@ -1479,17 +1494,7 @@ function NativeOrbitChatPage() {
             }
             const deletable = isDeletable(m.id);
             const selected = selectedIds.includes(m.id);
-            const handlers = protectedMessagesEnabled
-              ? {
-                  onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => {
-                    e.currentTarget.setPointerCapture?.(e.pointerId);
-                    startProtectedReveal(m.id);
-                  },
-                  onPointerUp: () => endProtectedReveal(m.id),
-                  onPointerCancel: () => endProtectedReveal(m.id),
-                  onPointerLeave: () => endProtectedReveal(m.id),
-                }
-              : deletable
+            const handlers = deletable
               ? {
                   onPointerDown: (e: React.PointerEvent) => {
                     if (!selectMode)
@@ -1514,12 +1519,6 @@ function NativeOrbitChatPage() {
                 className={`flex flex-col ${m.me ? "items-end" : "items-start"} ${
                   selectMode && selected ? "rounded-2xl bg-primary/10 ring-1 ring-primary/40" : ""
                 } ${selectMode && deletable ? "cursor-pointer select-none px-1 py-1" : ""}`}
-                 style={{
-                   filter:
-                     protectedMessagesEnabled && !revealedProtectedIds.includes(m.id)
-                       ? "blur(14px)"
-                       : undefined,
-                 }}
               >
                 {selectMode && deletable && (
                   <span
@@ -1783,6 +1782,15 @@ function NativeOrbitChatPage() {
         </div>
       )}
     </main>
+    <PinDialog
+      open={secretLockActive && !chatUnlocked}
+      title="Secret chat locked"
+      description="Enter your PIN to open this conversation."
+      confirmLabel="Unlock"
+      error={unlockError}
+      onSubmit={verifyUnlockPin}
+    />
+    </>
   );
 }
 

@@ -27,6 +27,12 @@ With this Android Gradle setup, `assembleDebug` requested Build Tools 35.0.0 eve
 
 **How to apply:** Check the exact package versions requested by Gradle, include them all in the temporary SDK root, and make package-directory links directly at their SDK-relative paths.
 
+Nix-provided SDKs expose Build Tools version directories as symlinks into the store, so `Dirent.isDirectory()` skips them even though their `aapt` and `apksigner` tools are available.
+
+**Why:** A successful Gradle build can still fail the APK verification/copy step if the build helper enumerates only real directories.
+
+**How to apply:** Enumerate Build Tools entry names, then use `stat()` on each candidate path so directory symlinks are followed before checking for SDK tools.
+
 SDK installations staged under `/tmp` may disappear between agent runs even when previously built APK files remain.
 
 **Why:** Temporary SDK state is not durable across runtime resets, so an old APK does not indicate that Gradle's SDK dependencies are still present.

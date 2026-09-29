@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { access, copyFile, mkdir, readFile, readdir } from "node:fs/promises";
+import { access, copyFile, mkdir, readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -66,10 +66,20 @@ async function getSdkRoot() {
 
 async function findAndroidTool(sdkRoot, toolName) {
   const buildToolsDir = path.join(sdkRoot, "build-tools");
-  const versions = (await readdir(buildToolsDir, { withFileTypes: true }))
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name)
-    .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+  const entries = await readdir(buildToolsDir);
+  const versions = [];
+  for (const version of entries) {
+    try {
+      // Android SDKs assembled from Nix packages expose version directories as
+      // symlinks, which Dirent.isDirectory() does not follow.
+      if ((await stat(path.join(buildToolsDir, version))).isDirectory()) {
+        versions.push(version);
+      }
+    } catch {
+      // Ignore broken symlinks and non-directory entries.
+    }
+  }
+  versions.sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
   for (const version of versions) {
     const candidate = path.join(buildToolsDir, version, toolName);
     try {
