@@ -37,6 +37,8 @@ import {
   hasSecretChatUnlock,
   hashPin,
   randomPinSalt,
+  verifyAccountPassword,
+  verifyPin,
 } from "@/lib/secret-chats";
 import { PinDialog } from "@/components/yw/PinDialog";
 import { toast } from "sonner";
@@ -985,7 +987,7 @@ function NativeChatThreadPage() {
           !salt ||
           typeof hash !== "string" ||
           !hash ||
-          (await hashPin(salt, pin)) !== hash
+          !(await verifyPin(salt, pin, hash))
         ) {
           setPinError("Incorrect PIN");
           return false;
@@ -1032,13 +1034,7 @@ function NativeChatThreadPage() {
       return false;
     }
     try {
-      const candidateHash = await hashPin(salt, pin);
-      if (typeof candidateHash !== "string" || !candidateHash) {
-        setSecurityFallbackThreadId(threadId);
-        setUnlockError(null);
-        return true;
-      }
-      if (candidateHash !== hash) {
+      if (!(await verifyPin(salt, pin, hash))) {
         setUnlockError("Incorrect PIN");
         return false;
       }
@@ -1050,6 +1046,31 @@ function NativeChatThreadPage() {
       setSecurityFallbackThreadId(threadId);
       setUnlockError(null);
       return true;
+    }
+  };
+
+  const recoverSecretLock = async (password: string): Promise<string | null> => {
+    if (!currentUserId || !peer.peerId) {
+      return "Could not verify this account. Sign in again and retry.";
+    }
+    const verification = await verifyAccountPassword(currentUserId, password);
+    if (!verification.ok) return verification.error;
+
+    try {
+      const result = await patch({
+        secretLock: false,
+        secretPinSalt: null,
+        secretPinHash: null,
+      });
+      if (result.error) throw new Error(result.error);
+      setUnlockedChatKey(activeChatKey);
+      setPinMode(null);
+      setPinError(null);
+      setUnlockError(null);
+      return null;
+    } catch (cause) {
+      console.error("[secret-lock] recovery reset failed", cause);
+      return "Could not reset Secret Lock. Check your connection and try again.";
     }
   };
 
@@ -2508,6 +2529,7 @@ function NativeChatThreadPage() {
       confirmLabel="Unlock"
       error={unlockError}
       onSubmit={verifyUnlockPin}
+      onForgotPin={recoverSecretLock}
     />
     </>
 

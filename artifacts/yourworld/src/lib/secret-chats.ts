@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
+import { verifyPin } from "@/lib/secret-pin";
+
+export { hashPin, randomPinSalt, verifyPin } from "@/lib/secret-pin";
 
 /**
  * Shared Secret Chat Lock helpers used by both Social and Orbit message lists.
@@ -37,15 +41,98 @@ export function consumeSecretChatUnlock(ownerId?: string | null, peerId?: string
   return true;
 }
 
-export function randomPinSalt() {
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+function createVerificationFetch(apiKey: string): typeof fetch {
+  return (input, init) => {
+    const headers = new Headers(
+      typeof Request !== "undefined" && input instanceof Request ? input.headers : undefined,
+    );
+    if (init?.headers) {
+      new Headers(init.headers).forEach((value, key) => headers.set(key, value));
+    }
+
+    // Match the main client: newer publishable keys belong in apikey, not Bearer auth.
+    if (
+      (apiKey.startsWith("sb_publishable_") || apiKey.startsWith("sb_secret_")) &&
+      headers.get("Authorization") === `Bearer ${apiKey}`
+    ) {
+      headers.delete("Authorization");
+    }
+    headers.set("apikey", apiKey);
+    return fetch(input, { ...init, headers });
+  };
 }
 
-export async function hashPin(salt: string, pin: string) {
-  const bytes = new TextEncoder().encode(`${salt}:${pin}`);
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+export type AccountPasswordVerification =
+  | { ok: true }
+  | { ok: false; error: string };
+
+/**
+ * Verify password recovery in an isolated, non-persistent Supabase client so
+ * checking a password cannot replace or broadcast the app's active session.
+ */
+export async function verifyAccountPassword(
+  expectedUserId: string,
+  password: string,
+): Promise<AccountPasswordVerification> {
+  if (!password) return { ok: false, error: "Enter your account password." };
+
+  const { data: auth, error: authError } = await supabase.auth.getUser();
+  const user = auth.user;
+  if (authError || !user || user.id !== expectedUserId) {
+    return { ok: false, error: "Could not verify this account. Sign in again and retry." };
+  }
+  if (!user.email) {
+    return { ok: false, error: "This account does not have password sign-in enabled." };
+  }
+
+  // These normalized client values are protected in Supabase's public typings,
+  // but are available on the runtime client for this isolated verifier.
+  const { supabaseUrl: apiUrl, supabaseKey: apiKey } = supabase as unknown as {
+    supabaseUrl: string;
+    supabaseKey: string;
+  };
+  if (!apiUrl || !apiKey) {
+    return { ok: false, error: "Account verification is unavailable. Try again." };
+  }
+
+  const verifier = createClient(apiUrl, apiKey, {
+    global: { fetch: createVerificationFetch(apiKey) },
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+  });
+
+  try {
+    const { data, error } = await verifier.auth.signInWithPassword({
+      email: user.email,
+      password,
+    });
+    if (error) {
+      const invalidPassword =
+        error.code === "invalid_credentials" ||
+        error.message.toLowerCase().includes("invalid login credentials");
+      return {
+        ok: false,
+        error: invalidPassword
+          ? "Account password is incorrect."
+          : "Could not verify your account password. Try again.",
+      };
+    }
+    if (data.user?.id !== expectedUserId) {
+      return { ok: false, error: "The password did not verify this signed-in account." };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "Could not verify your account password. Try again." };
+  } finally {
+    try {
+      await verifier.auth.signOut({ scope: "local" });
+    } catch {
+      // The verifier is isolated and non-persistent; cleanup failure is harmless.
+    }
+  }
 }
 
 /** Persist only this user's lock fields for one peer, atomically. */
@@ -150,25 +237,29 @@ export function useSecretChats(query: string) {
       setRevealed((prev) => (prev.length ? [] : prev));
       return;
     }
-    void (async () => {
-      try {
-        const hits: string[] = [];
-        for (const row of locked) {
-          if (!row.salt || !row.hash) continue;
-          if ((await hashPin(row.salt, pin)) === row.hash) {
-            hits.push(row.peerId);
+    const verificationTimer = window.setTimeout(() => {
+      void Promise.all(
+        locked.map(async (row) => {
+          if (!row.salt || !row.hash) return null;
+          if (await verifyPin(row.salt, pin, row.hash)) {
             grantSecretChatUnlock(row.ownerId, row.peerId);
+            return row.peerId;
           }
-        }
-        if (alive) setRevealed(hits);
-      } catch (cause) {
-        if (!alive) return;
-        console.error("[secret-chats] PIN verification failed", cause);
-        setRevealed([]);
-      }
-    })();
+          return null;
+        }),
+      )
+        .then((matches) => {
+          if (alive) setRevealed(matches.filter((peerId): peerId is string => !!peerId));
+        })
+        .catch((cause) => {
+          if (!alive) return;
+          console.error("[secret-chats] PIN verification failed", cause);
+          setRevealed([]);
+        });
+    }, 120);
     return () => {
       alive = false;
+      window.clearTimeout(verificationTimer);
     };
   }, [pin, locked]);
 

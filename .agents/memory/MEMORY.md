@@ -13,6 +13,7 @@
 - [Audio-preserving compression](audio-preserving-compression.md) — only use a local re-encode when a source audio track is attached; otherwise upload the original.
 - [Auto-delete messages](auto-delete-messages.md) — shared settings and row retention; validated non-View-Once Moment replies must not delete their source asset.
 - [Chat security load fallback](chat-security-fallback.md) — missing lock metadata or PIN material must clear the loading gate and show the thread; catch settings and crypto failures.
+- [Secret Lock PIN recovery](secret-lock-pin-recovery.md) — use versioned PBKDF2 for new PINs, retain legacy verification, and isolate password checks from the active session.
 - [Destructive list mutations](destructive-list-mutations.md) — after a confirmed delete, preserve the local removal instead of applying an uncoordinated stale refresh.
 - [Moment profile joins](moment-profile-joins.md) — load author profiles with Moments and retain RPC/non-joined fallbacks for avatar data.
 - [Chat retention and capture alerts](chat-retention-and-alerts.md) — server-enforce lifetime defaults; after-view is media-only and capture alerts are recipient-preference broadcasts.

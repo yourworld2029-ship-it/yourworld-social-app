@@ -49,7 +49,11 @@ import { usePeerChatProtectionPresence } from "@/lib/chat-protection-presence";
 import {
   consumeSecretChatUnlock,
   hasSecretChatUnlock,
+  hashPin,
+  randomPinSalt,
   saveSecretChatLock,
+  verifyAccountPassword,
+  verifyPin,
 } from "@/lib/secret-chats";
 import { PinDialog } from "@/components/yw/PinDialog";
 import {
@@ -122,17 +126,6 @@ type Msg = {
 
 /** Invites travel as a tagged text message so both sides see the same card. */
 const INVITE_PREFIX = "orbit-invite:";
-
-function randomPinSalt() {
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-async function hashPin(salt: string, pin: string) {
-  const bytes = new TextEncoder().encode(`${salt}:${pin}`);
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
 
 function toUiMsg(m: OrbitMessage): Msg {
   if (m.kind === "text" && m.text?.startsWith(INVITE_PREFIX)) {
@@ -1129,7 +1122,7 @@ function NativeOrbitChatPage() {
           !/^\d{4,8}$/.test(pin) ||
           !secretPinSalt ||
           !secretPinHash ||
-          (await hashPin(secretPinSalt, pin)) !== secretPinHash
+          !(await verifyPin(secretPinSalt, pin, secretPinHash))
         ) {
           setPinError("Incorrect PIN");
           return false;
@@ -1177,7 +1170,7 @@ function NativeOrbitChatPage() {
       return false;
     }
     try {
-      if ((await hashPin(secretPinSalt, pin)) !== secretPinHash) {
+      if (!(await verifyPin(secretPinSalt, pin, secretPinHash))) {
         setUnlockError("Incorrect PIN");
         return false;
       }
@@ -1189,6 +1182,29 @@ function NativeOrbitChatPage() {
       setSecurityFallbackUserId(userId);
       setUnlockError(null);
       return true;
+    }
+  };
+
+  const recoverSecretLock = async (password: string): Promise<string | null> => {
+    if (!currentUserId) {
+      return "Could not verify this account. Sign in again and retry.";
+    }
+    const verification = await verifyAccountPassword(currentUserId, password);
+    if (!verification.ok) return verification.error;
+
+    try {
+      await saveSecretChatLock(userId, false, null, null);
+      setSecretLock(false);
+      setSecretPinSalt(null);
+      setSecretPinHash(null);
+      setUnlockedChatKey(activeChatKey);
+      setUnlockError(null);
+      setPinError(null);
+      toast.success("Secret Lock reset and chat unlocked");
+      return null;
+    } catch (cause) {
+      console.error("[secret-lock] recovery reset failed", cause);
+      return "Could not reset Secret Lock. Check your connection and try again.";
     }
   };
 
@@ -1987,6 +2003,7 @@ function NativeOrbitChatPage() {
       confirmLabel="Unlock"
       error={unlockError}
       onSubmit={verifyUnlockPin}
+      onForgotPin={recoverSecretLock}
     />
     </>
   );
