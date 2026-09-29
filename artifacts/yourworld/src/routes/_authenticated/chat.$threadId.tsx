@@ -424,9 +424,9 @@ function SharedMediaMessageCard({
         event.stopPropagation();
         onOpen(media);
       }}
-      className="group relative mt-2.5 block aspect-video w-full max-w-[280px] overflow-hidden rounded-2xl border border-white/10 bg-[#090a0e] text-left shadow-lg transition-transform active:scale-[0.99]"
+      className="group mt-2.5 block w-full max-w-[280px] overflow-hidden rounded-2xl border border-white/10 bg-[#090a0e] text-left shadow-lg transition-transform active:scale-[0.99]"
     >
-      <span className="absolute inset-0 overflow-hidden bg-zinc-950">
+      <span className="relative block aspect-video w-full overflow-hidden bg-zinc-950">
         {poster ? (
           <img
             src={poster}
@@ -440,15 +440,22 @@ function SharedMediaMessageCard({
             <Play className="h-8 w-8 fill-white/20 text-white/75" />
           </span>
         )}
-      </span>
-      <span className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-black/10" />
-      <span className="pointer-events-none absolute inset-0 grid place-items-center">
-        <span className="grid h-11 w-11 place-items-center rounded-full border border-white/35 bg-white/15 text-white shadow-xl backdrop-blur-md transition-transform group-hover:scale-105">
-          <Play className="ml-0.5 h-4 w-4 fill-current" />
+        <span className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
+        <span className="pointer-events-none absolute inset-0 grid place-items-center">
+          <span className="grid h-11 w-11 place-items-center rounded-full border border-white/35 bg-white/15 text-white shadow-xl backdrop-blur-md transition-transform group-hover:scale-105">
+            <Play className="ml-0.5 h-4 w-4 fill-current" />
+          </span>
         </span>
       </span>
-      <span className="pointer-events-none absolute inset-x-3 bottom-2.5 z-10 block min-w-0 truncate whitespace-nowrap text-xs font-semibold text-white drop-shadow-lg">
-        {media.title}
+      <span className="block min-w-0 px-3 py-2.5 text-left">
+        <span className="block truncate text-sm font-semibold leading-5 text-white">
+          {media.title}
+        </span>
+        <span className="mt-1 flex items-center gap-1.5 text-[11px] font-medium text-zinc-400">
+          <span>{media.kind === "reel" ? "Reel" : "Video"}</span>
+          <span aria-hidden="true" className="text-zinc-600">·</span>
+          <span>YourWorld</span>
+        </span>
       </span>
     </button>
   );
@@ -2063,7 +2070,9 @@ function NativeChatThreadPage() {
               </span>
             )}
             {(m.text || m.isMomentReply || m.momentId || m.sharedMedia) && (
-              <div className={`max-w-[78%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
+              <div className={`max-w-[78%] rounded-2xl text-sm leading-relaxed ${
+                m.sharedMedia ? "w-[300px] p-2.5" : "px-4 py-2.5"
+              } ${
                 m.sender === "me" ? `${ownMessageBubbleThemeClass} text-white rounded-br-xs` : "bg-zinc-800/90 text-zinc-100 rounded-bl-xs border border-zinc-700/50"
               }`}>
                 {m.replyTo && <ReplyQuote reply={m.replyTo} className="mb-2 rounded-lg" />}
