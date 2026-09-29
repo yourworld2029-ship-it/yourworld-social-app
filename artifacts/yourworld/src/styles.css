@@ -228,6 +228,10 @@ html[data-theme="midnight"] {
     display: none !important;
   }
 
+  .video-upload-preview::-webkit-media-controls-overlay-play-button {
+    display: none !important;
+  }
+
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);

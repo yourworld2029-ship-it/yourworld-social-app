@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Play, Volume2, VolumeX } from "lucide-react";
+import { Volume2, VolumeX } from "lucide-react";
 import Hls from "hls.js";
 import type { LongVideo } from "@/lib/video-data";
 import { resolveMediaUrl } from "@/lib/social-data";
@@ -361,7 +361,6 @@ export function FeedVideoPreview({
   const previewRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [posterUrl, setPosterUrl] = useState(VIDEO_POSTER_FALLBACK);
-  const [isPlaying, setIsPlaying] = useState(false);
   const [videoReady, setVideoReady] = useState(false);
   const active = activeCandidateId === candidateId;
   const onPosterResolved = useCallback((url: string) => {
@@ -413,8 +412,6 @@ export function FeedVideoPreview({
         loop
         preload="metadata"
         aria-label={video.title}
-        onPlay={() => setIsPlaying(true)}
-        onPause={() => setIsPlaying(false)}
         onLoadedData={() => {
           setVideoReady(true);
           if (!video.thumbnailUrl && videoRef.current) {
@@ -423,11 +420,9 @@ export function FeedVideoPreview({
           }
         }}
         onEmptied={() => {
-          setIsPlaying(false);
           setVideoReady(false);
         }}
         onError={() => {
-          setIsPlaying(false);
           setVideoReady(false);
         }}
         className={cn(
@@ -446,11 +441,6 @@ export function FeedVideoPreview({
         }}
         className="absolute inset-0 z-10 grid h-full w-full place-items-center bg-transparent text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fuchsia-300"
       >
-        {!isPlaying ? (
-          <span className="grid h-12 w-12 place-items-center rounded-full border border-white/25 bg-black/50 shadow-lg backdrop-blur-sm">
-            <Play className="ml-0.5 h-5 w-5 fill-current" aria-hidden="true" />
-          </span>
-        ) : null}
       </button>
     </div>
   );

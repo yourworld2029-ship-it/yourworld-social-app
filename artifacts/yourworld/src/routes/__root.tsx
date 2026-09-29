@@ -156,7 +156,9 @@ function RootComponent() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const [createOpen, setCreateOpen] = useState(false);
-  const [isAndroidApp, setIsAndroidApp] = useState(false);
+  const [isAndroidApp, setIsAndroidApp] = useState(
+    () => Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android",
+  );
   const isWatchPreview = pathname.startsWith("/watch/");
   const hideNav = isWatchPreview || pathname.startsWith("/auth") || pathname.startsWith("/verify-2fa") || pathname.startsWith("/create") || pathname.startsWith("/moment/create") || pathname.startsWith("/channel/create");
   const wideProfileLayout = pathname === "/profile";

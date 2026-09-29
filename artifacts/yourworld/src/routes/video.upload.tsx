@@ -15,6 +15,7 @@ import {
 import { useUploads } from "@/lib/upload-progress";
 import { trackEvent } from "@/lib/analytics";
 import { historyBackOr } from "@/lib/navigation";
+import { cacheVideoPoster } from "@/lib/video-prefetch";
 
 type AccessOption = "public" | "vip" | "paid";
 const MIN_PAID_VIDEO_PRICE = 10;
@@ -54,6 +55,7 @@ function VideoUploadPage() {
   const thumbInput = useRef<HTMLInputElement | null>(null);
 
   const [fileUrl, setFileUrl] = useState<string | null>(null);
+  const [previewFrame, setPreviewFrame] = useState<string | null>(null);
   const [orientation, setOrientation] = useState<"landscape" | "portrait">("landscape");
   const [duration, setDuration] = useState<number | null>(null);
   const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null);
@@ -99,6 +101,7 @@ function VideoUploadPage() {
     selectedFileRef.current = file;
     thumbnailFileRef.current = null;
     setFileUrl(url);
+    setPreviewFrame(null);
     setThumb(null);
     setDuration(null);
     setDimensions(null);
@@ -308,11 +311,18 @@ function VideoUploadPage() {
               <video
                 ref={videoRef}
                 src={fileUrl}
+                poster={thumb ?? previewFrame ?? undefined}
                 controls
                 playsInline
-                preload="none"
+                preload="metadata"
                 onLoadedMetadata={onMeta}
-                className="h-full w-full object-contain"
+                onLoadedData={() => {
+                  const video = videoRef.current;
+                  if (!video || !fileUrl) return;
+                  const poster = cacheVideoPoster(video, fileUrl);
+                  if (poster) setPreviewFrame(poster);
+                }}
+                className="video-upload-preview h-full w-full object-contain"
               />
             </div>
             <div className="flex items-center justify-between text-[11px] text-zinc-400">

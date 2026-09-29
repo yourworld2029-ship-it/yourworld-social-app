@@ -14,6 +14,7 @@ import {
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { ScreenOrientation } from "@capacitor/screen-orientation";
 import type { VideoQualityTier } from "@/lib/video-quality";
+import { resolveMediaUrl } from "@/lib/social-data";
 import {
   ArrowLeft,
   Check,
@@ -249,6 +250,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [activeVideo, setActiveVideo] = useState<PersistentVideo | null>(null);
+  const [resolvedPoster, setResolvedPoster] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isVerticalVideo, setIsVerticalVideo] = useState(false);
   const [screenLocked, setScreenLocked] = useState(false);
@@ -276,6 +278,25 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const activeSourceRef = useRef<{ id: string; url: string } | null>(null);
   const hlsRef = useRef<Hls | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    const thumbnailUrl = activeVideo?.thumbnailUrl;
+    setResolvedPoster(null);
+    if (!thumbnailUrl) return;
+
+    void resolveMediaUrl(thumbnailUrl, "videos")
+      .then((url) => {
+        if (alive) setResolvedPoster(url || thumbnailUrl);
+      })
+      .catch(() => {
+        if (alive) setResolvedPoster(thumbnailUrl);
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [activeVideo?.id, activeVideo?.thumbnailUrl]);
   const timeUpdateHandlerRef = useRef<
     ((currentTime: number, duration: number, wasSeeking: boolean) => void) | null
   >(null);
@@ -1216,6 +1237,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
           >
             <video
               ref={videoRef}
+              poster={resolvedPoster ?? activeVideo.thumbnailUrl ?? undefined}
               controls={false}
               autoPlay
               loop={loopVideo}

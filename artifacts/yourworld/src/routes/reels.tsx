@@ -16,7 +16,6 @@ import {
   Star,
   ArrowLeft,
   Trash2,
-  Play,
 } from "lucide-react";
 import { YwAvatar } from "@/components/yw/Avatar";
 import {
@@ -514,11 +513,7 @@ function ReelMedia({
           }}
           aria-label={alt}
           className="flex h-full w-full items-center justify-center bg-gradient-to-br from-zinc-800 via-zinc-900 to-zinc-950"
-        >
-          <span className="grid h-14 w-14 place-items-center rounded-full border border-white/20 bg-black/45 text-white/90 shadow-lg">
-            <Play className="ml-0.5 h-6 w-6 fill-current" aria-hidden="true" />
-          </span>
-        </div>
+        />
       );
     }
     return (
