@@ -41,7 +41,11 @@ import { buildInvite, inviteById, type InviteCard, type InviteKind } from "@/lib
 import { ChatMessageErrorBoundary } from "@/components/yw/ChatMessageErrorBoundary";
 import { supabase } from "@/integrations/supabase/client";
 import { saveChatDisplayName, setChatNameLocal, useChatNames } from "@/lib/chat-names";
-import { useAndroidChatSecureFlag } from "@/lib/native-privacy";
+import {
+  listenForAndroidCaptureEvents,
+  useAndroidChatSecureFlag,
+} from "@/lib/native-privacy";
+import { usePeerChatProtectionPresence } from "@/lib/chat-protection-presence";
 import {
   consumeSecretChatUnlock,
   hasSecretChatUnlock,
@@ -242,6 +246,9 @@ function NativeOrbitChatPage() {
   const [viewOnceMode, setViewOnceMode] = useState(false);
   const [autoDelete, setAutoDelete] = useState<AutoDeleteSetting>("off");
   const autoDeleteChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const captureChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const captureChannelReadyRef = useRef(false);
+  const pendingCaptureAlertsRef = useRef<Array<Record<string, unknown>>>([]);
   const [screenshotAlert, setScreenshotAlert] = useState(true);
   const [recordingAlert, setRecordingAlert] = useState(true);
   const [chatProtection, setChatProtection] = useState<{
@@ -250,15 +257,24 @@ function NativeOrbitChatPage() {
   } | null>(null);
   const protectChatEnabled =
     chatProtection?.userId === userId && chatProtection.enabled;
-  useAndroidChatSecureFlag(protectChatEnabled);
   const [muted, setMuted] = useState(false);
   const [reported, setReported] = useState(false);
   const [settingsReady, setSettingsReady] = useState(false);
   const [settingsOwnerUserId, setSettingsOwnerUserId] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [currentUserName, setCurrentUserName] = useState("YourWorld user");
   const [clearedBefore, setClearedBefore] = useState<string | null>(null);
   const [secretPinSalt, setSecretPinSalt] = useState<string | null>(null);
   const [secretPinHash, setSecretPinHash] = useState<string | null>(null);
+  const peerProtectChatEnabled = usePeerChatProtectionPresence(
+    currentUserId
+      ? `orbit-chat-protection-${[currentUserId, userId].sort().join("-")}`
+      : null,
+    currentUserId,
+    userId,
+    protectChatEnabled,
+  );
+  useAndroidChatSecureFlag(peerProtectChatEnabled);
   const activeChatKey = currentUserId ? `${currentUserId}:${userId}` : null;
   const [unlockedChatKey, setUnlockedChatKey] = useState<string | null>(null);
   const [unlockError, setUnlockError] = useState<string | null>(null);
@@ -315,6 +331,17 @@ function NativeOrbitChatPage() {
         const { data: authData } = await supabase.auth.getUser();
         const me = authData.user?.id ?? null;
         setCurrentUserId(me);
+        const userMetadata = authData.user?.user_metadata ?? {};
+        const nameCandidate = [
+          userMetadata.display_name,
+          userMetadata.full_name,
+          userMetadata.name,
+          authData.user?.email?.split("@")[0],
+        ].find(
+          (value): value is string =>
+            typeof value === "string" && value.trim().length > 0,
+        );
+        setCurrentUserName(nameCandidate?.trim() ?? "YourWorld user");
         const { data } = me
           ? await supabase
               .from("orbit_chat_settings")
@@ -665,8 +692,7 @@ function NativeOrbitChatPage() {
   const captureAlertsEnabled = Boolean(
     accepted &&
       settingsReady &&
-      chat.meId &&
-      (screenshotAlert || recordingAlert),
+      chat.meId,
   );
   const handleIncomingCaptureAlert = useCallback(
     (payload: Record<string, unknown>, kind: "screenshot" | "recording") => {
@@ -678,17 +704,35 @@ function NativeOrbitChatPage() {
         if (now - lastIncomingScreenshotAtRef.current < 3_000) return;
         lastIncomingScreenshotAtRef.current = now;
       }
-      const actorName = String(payload.actorName ?? "Someone");
+      const actorName = String(
+        payload.actorName ?? nameFor(userId, displayName ?? p?.name ?? "Someone"),
+      );
       const text =
         kind === "screenshot"
-          ? `📸 ${actorName} attempted to take a screenshot`
+          ? `📸 ${actorName} tried to take a screenshot!`
           : `📹 ${actorName} attempted to take a screen recording`;
+      if (kind === "screenshot") {
+        toast.warning(`${actorName} tried to take a screenshot!`);
+      }
       pushSystem(text, String(payload.eventId ?? `${kind}-${Date.now()}`));
     },
-    [chat.meId, muted, pushSystem, recordingAlert, screenshotAlert],
+    [
+      chat.meId,
+      displayName,
+      muted,
+      nameFor,
+      p?.name,
+      pushSystem,
+      recordingAlert,
+      screenshotAlert,
+      userId,
+    ],
   );
 
   useEffect(() => {
+    captureChannelReadyRef.current = false;
+    captureChannelRef.current = null;
+    pendingCaptureAlertsRef.current = [];
     if (!captureAlertsEnabled) return;
     const safePayload = (payload: unknown): Record<string, unknown> | null =>
       payload && typeof payload === "object" && !Array.isArray(payload)
@@ -713,8 +757,32 @@ function NativeOrbitChatPage() {
         const value = safePayload(payload);
         if (value) handleIncomingCaptureAlert(value, "recording");
     });
-    channel.subscribe();
+    captureChannelRef.current = channel;
+    channel.subscribe((status) => {
+      if (status === "SUBSCRIBED") {
+        captureChannelReadyRef.current = true;
+        const pending = pendingCaptureAlertsRef.current.splice(0);
+        pending.forEach((payload) => {
+          void Promise.resolve(
+            channel.send({
+              type: "broadcast",
+              event: "send_system_alert",
+              payload,
+            }),
+          ).catch((cause) => {
+            console.warn("[orbit-chat] screenshot alert broadcast failed", cause);
+            pendingCaptureAlertsRef.current.push(payload);
+          });
+        });
+      } else if (["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(status)) {
+        captureChannelReadyRef.current = false;
+        if (captureChannelRef.current === channel) captureChannelRef.current = null;
+      }
+    });
     return () => {
+      captureChannelReadyRef.current = false;
+      if (captureChannelRef.current === channel) captureChannelRef.current = null;
+      pendingCaptureAlertsRef.current = [];
       void Promise.resolve(channel.unsubscribe()).catch((cause) => {
         console.warn("[orbit-chat] capture channel unsubscribe failed", cause);
       });
@@ -727,6 +795,38 @@ function NativeOrbitChatPage() {
     captureChannelName,
     handleIncomingCaptureAlert,
   ]);
+
+  useEffect(() => {
+    if (!captureAlertsEnabled || !currentUserId) return;
+
+    return listenForAndroidCaptureEvents((kind) => {
+      if (kind !== "screenshot") return;
+      const payload = {
+        chatId: captureChannelName,
+        senderId: currentUserId,
+        actorName: currentUserName,
+        kind: "screenshot",
+        eventId: `${currentUserId}-${Date.now()}`,
+      };
+      const channel = captureChannelRef.current;
+      if (captureChannelReadyRef.current && channel) {
+        void Promise.resolve(
+          channel.send({
+            type: "broadcast",
+            event: "send_system_alert",
+            payload,
+          }),
+        ).then((status) => {
+          if (status !== "ok") pendingCaptureAlertsRef.current.push(payload);
+        }).catch((cause) => {
+          console.warn("[orbit-chat] screenshot alert broadcast failed", cause);
+          pendingCaptureAlertsRef.current.push(payload);
+        });
+      } else {
+        pendingCaptureAlertsRef.current.push(payload);
+      }
+    });
+  }, [captureAlertsEnabled, captureChannelName, currentUserId, currentUserName]);
 
   const startRecording = async () => {
     if (!accepted) {

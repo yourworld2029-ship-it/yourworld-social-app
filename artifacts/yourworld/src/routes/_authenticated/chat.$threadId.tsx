@@ -42,7 +42,11 @@ import { PinDialog } from "@/components/yw/PinDialog";
 import { toast } from "sonner";
 import { AUTO_DELETE_OPTIONS, autoDeleteLabel } from "@/lib/auto-delete";
 import { historyBackOr } from "@/lib/navigation";
-import { useAndroidChatSecureFlag } from "@/lib/native-privacy";
+import {
+  listenForAndroidCaptureEvents,
+  useAndroidChatSecureFlag,
+} from "@/lib/native-privacy";
+import { usePeerChatProtectionPresence } from "@/lib/chat-protection-presence";
 import {
   STORAGE_BUCKETS,
   uploadSourceWithProgress,
@@ -895,7 +899,13 @@ function NativeChatThreadPage() {
   } | null>(null);
   const protectChatEnabled =
     chatProtection?.threadId === threadId && chatProtection.enabled;
-  useAndroidChatSecureFlag(protectChatEnabled);
+  const peerProtectChatEnabled = usePeerChatProtectionPresence(
+    conversationId ? `social-chat-protection-${conversationId}` : null,
+    currentUserId,
+    peer.peerId,
+    protectChatEnabled,
+  );
+  useAndroidChatSecureFlag(peerProtectChatEnabled);
   const { nameFor } = useChatNames();
   const displayName = nameFor(peer.peerId, settings.displayName ?? peer.peerName ?? "");
   const openPeerProfile = {
@@ -1255,17 +1265,21 @@ function NativeChatThreadPage() {
         if (now - lastIncomingScreenshotAtRef.current < 3_000) return;
         lastIncomingScreenshotAtRef.current = now;
       }
-      const actorName = String(payload.actorName ?? "Someone");
+      const actorName = String(payload.actorName ?? displayName ?? "Someone");
       const text =
         kind === "screenshot"
-          ? `📸 ${actorName} attempted to take a screenshot`
+          ? `📸 ${actorName} tried to take a screenshot!`
           : `📹 ${actorName} attempted to take a screen recording`;
+      if (kind === "screenshot") {
+        toast.warning(`${actorName} tried to take a screenshot!`);
+      }
       appendSecurityNotice(text, String(payload.eventId ?? `${kind}-${Date.now()}`));
     },
     [
       appendSecurityNotice,
       conversationId,
       currentUserId,
+      displayName,
       muted,
       recordingAlert,
       screenshotAlert,
@@ -1276,7 +1290,7 @@ function NativeChatThreadPage() {
     captureChannelReadyRef.current = false;
     captureChannelRef.current = null;
     pendingCaptureAlertsRef.current = [];
-    if (!captureChannelName || !currentUserId || (!screenshotAlert && !recordingAlert)) return;
+    if (!captureChannelName || !currentUserId) return;
     let alive = true;
     let retry: number | null = null;
     let retryCount = 0;
@@ -1378,6 +1392,30 @@ function NativeChatThreadPage() {
       channel = null;
     };
   }, [captureChannelName, currentUserId, handleIncomingCaptureAlert, recordingAlert, screenshotAlert]);
+
+  useEffect(() => {
+    if (!captureChannelName || !conversationId || !currentUserId) return;
+
+    return listenForAndroidCaptureEvents((kind) => {
+      if (kind !== "screenshot") return;
+      const payload = {
+        chatId: conversationId,
+        senderId: currentUserId,
+        actorName: currentUserName,
+        kind: "screenshot",
+        eventId: `${currentUserId}-${Date.now()}`,
+      };
+      const channel = captureChannelRef.current;
+      if (captureChannelReadyRef.current && channel) {
+        sendCaptureAlertSafely(channel, "send_system_alert", payload);
+      } else {
+        pendingCaptureAlertsRef.current.push({
+          event: "send_system_alert",
+          payload,
+        });
+      }
+    });
+  }, [captureChannelName, conversationId, currentUserId, currentUserName]);
 
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | undefined;

@@ -15,6 +15,12 @@ Android Gradle builds for this Capacitor project require Java 21. The workspace'
 
 **How to apply:** Before `assembleDebug`, provision Android platform 36 plus build-tools, set `JAVA_HOME` to JDK 21, and prepend its `bin` directory to `PATH` so an earlier JDK 17 cannot be selected.
 
+Installing a JDK 21 system dependency may leave the default shell's `java` command resolving to JDK 17 even when JDK 21 is also on `PATH`.
+
+**Why:** Gradle selects the first Java executable, while the project's APK helper can find a later JDK 21 entry and set `JAVA_HOME` explicitly.
+
+**How to apply:** Do not infer that JDK 21 is absent from `java -version` alone; use the repository Android build helper or inspect every PATH entry before building directly with Gradle.
+
 This Replit shell may leave `ANDROID_HOME` unset even when Nix store packages already contain the Android platform, build tools, and platform tools. The system-package index may not expose the Nix Android SDK package.
 
 **Why:** Gradle needs one coherent SDK directory and Java 21; the default shell may expose neither even when the SDK components are present.

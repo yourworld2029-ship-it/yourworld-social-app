@@ -1,11 +1,20 @@
 package com.yourworld.app;
 
 import android.Manifest;
+import android.app.Activity;
+import android.content.ContentResolver;
+import android.database.ContentObserver;
+import android.database.Cursor;
+import android.net.Uri;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
+import android.provider.MediaStore;
 import android.view.WindowManager;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 
@@ -32,13 +41,127 @@ import com.getcapacitor.annotation.PermissionCallback;
 )
 public class PrivacyBridgePlugin extends Plugin {
     private boolean captureMonitoringEnabled = false;
+    private boolean screenshotMonitoringEnabled = false;
+    private boolean recordingMonitoringEnabled = false;
+    private Api34ScreenCaptureCallback screenCaptureCallback;
+    private ContentObserver legacyScreenshotObserver;
+    private long lastScreenshotEventAt = 0L;
     private final Consumer<Integer> screenRecordingCallback = state -> {
-        if (state == WindowManager.SCREEN_RECORDING_STATE_VISIBLE) {
-            JSObject event = new JSObject();
-            event.put("kind", "recording");
-            notifyListeners("capture", event);
+        if (captureMonitoringEnabled &&
+            state == WindowManager.SCREEN_RECORDING_STATE_VISIBLE) {
+            emitCaptureEvent("recording");
         }
     };
+
+    private static final class Api34ScreenCaptureCallback {
+        private final Activity.ScreenCaptureCallback callback;
+
+        private Api34ScreenCaptureCallback(PrivacyBridgePlugin plugin) {
+            callback = plugin::emitScreenshotCaptured;
+        }
+
+        private void register(Activity activity, Executor executor) {
+            activity.registerScreenCaptureCallback(executor, callback);
+        }
+
+        private void unregister(Activity activity) {
+            activity.unregisterScreenCaptureCallback(callback);
+        }
+    }
+
+    private void emitScreenshotCaptured() {
+        emitCaptureEvent("screenshot");
+    }
+
+    private void emitCaptureEvent(String kind) {
+        if (!captureMonitoringEnabled) return;
+        if ("screenshot".equals(kind)) {
+            long now = System.currentTimeMillis();
+            if (now - lastScreenshotEventAt < 2_500L) return;
+            lastScreenshotEventAt = now;
+        }
+        JSObject event = new JSObject();
+        event.put("kind", kind);
+        notifyListeners("capture", event);
+    }
+
+    private void startLegacyScreenshotMonitoring() {
+        if (legacyScreenshotObserver != null || Build.VERSION.SDK_INT >= 34) return;
+
+        ContentResolver resolver = getContext().getContentResolver();
+        legacyScreenshotObserver = new ContentObserver(new Handler(Looper.getMainLooper())) {
+            @Override
+            public void onChange(boolean selfChange, Uri uri) {
+                super.onChange(selfChange, uri);
+                if (!captureMonitoringEnabled || uri == null) return;
+
+                String displayName = null;
+                String relativePath = null;
+                String[] projection = Build.VERSION.SDK_INT >= 29
+                    ? new String[] {
+                        MediaStore.Images.Media.DISPLAY_NAME,
+                        MediaStore.Images.Media.RELATIVE_PATH
+                    }
+                    : new String[] { MediaStore.Images.Media.DISPLAY_NAME };
+                try (Cursor cursor = resolver.query(
+                    uri,
+                    projection,
+                    null,
+                    null,
+                    null
+                )) {
+                    if (cursor != null && cursor.moveToFirst()) {
+                        int column = cursor.getColumnIndex(MediaStore.Images.Media.DISPLAY_NAME);
+                        if (column >= 0) displayName = cursor.getString(column);
+                        if (Build.VERSION.SDK_INT >= 29) {
+                            int pathColumn = cursor.getColumnIndex(
+                                MediaStore.Images.Media.RELATIVE_PATH
+                            );
+                            if (pathColumn >= 0) relativePath = cursor.getString(pathColumn);
+                        }
+                    }
+                } catch (SecurityException | IllegalArgumentException ignored) {
+                    // Older Android versions may not grant access to the changed media row.
+                }
+
+                String location = (displayName == null ? "" : displayName) + " " +
+                    (relativePath == null ? "" : relativePath);
+                if (location.toLowerCase(Locale.ROOT).contains("screenshot")) {
+                    emitCaptureEvent("screenshot");
+                }
+            }
+        };
+        resolver.registerContentObserver(
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            true,
+            legacyScreenshotObserver
+        );
+    }
+
+    private void stopCaptureMonitoring() {
+        captureMonitoringEnabled = false;
+        Activity activity = getActivity();
+
+        if (screenshotMonitoringEnabled) {
+            if (Build.VERSION.SDK_INT >= 34 && screenCaptureCallback != null) {
+                screenCaptureCallback.unregister(activity);
+            } else if (legacyScreenshotObserver != null) {
+                getContext().getContentResolver().unregisterContentObserver(
+                    legacyScreenshotObserver
+                );
+                legacyScreenshotObserver = null;
+            }
+            screenshotMonitoringEnabled = false;
+        }
+
+        if (recordingMonitoringEnabled && Build.VERSION.SDK_INT >= 35) {
+            WindowManager windowManager = activity.getWindowManager();
+            if (windowManager != null) {
+                windowManager.removeScreenRecordingCallback(screenRecordingCallback);
+            }
+            recordingMonitoringEnabled = false;
+        }
+    }
 
     @PluginMethod
     public void requestStartupRuntimePermissions(PluginCall call) {
@@ -129,30 +252,48 @@ public class PrivacyBridgePlugin extends Plugin {
         }
 
         getActivity().runOnUiThread(() -> {
-            if (Build.VERSION.SDK_INT < 35) {
+            if (!enabled) {
+                stopCaptureMonitoring();
                 call.resolve();
                 return;
             }
 
-            WindowManager windowManager = getActivity().getWindowManager();
-            if (windowManager == null) {
-                call.reject("Screen recording monitoring is unavailable.");
-                return;
-            }
-
-            if (enabled && !captureMonitoringEnabled) {
-                Executor mainExecutor = command -> getActivity().runOnUiThread(command);
-                int initialState = windowManager.addScreenRecordingCallback(
-                    mainExecutor,
-                    screenRecordingCallback
-                );
+            try {
                 captureMonitoringEnabled = true;
-                if (initialState == WindowManager.SCREEN_RECORDING_STATE_VISIBLE) {
-                    screenRecordingCallback.accept(initialState);
+                Executor mainExecutor = command -> getActivity().runOnUiThread(command);
+
+                if (!screenshotMonitoringEnabled) {
+                    if (Build.VERSION.SDK_INT >= 34) {
+                        if (screenCaptureCallback == null) {
+                            screenCaptureCallback = new Api34ScreenCaptureCallback(this);
+                        }
+                        screenCaptureCallback.register(getActivity(), mainExecutor);
+                    } else {
+                        startLegacyScreenshotMonitoring();
+                    }
+                    screenshotMonitoringEnabled = true;
                 }
-            } else if (!enabled && captureMonitoringEnabled) {
-                windowManager.removeScreenRecordingCallback(screenRecordingCallback);
-                captureMonitoringEnabled = false;
+
+                if (Build.VERSION.SDK_INT >= 35 && !recordingMonitoringEnabled) {
+                    WindowManager windowManager = getActivity().getWindowManager();
+                    if (windowManager == null) {
+                        call.reject("Screen recording monitoring is unavailable.");
+                        stopCaptureMonitoring();
+                        return;
+                    }
+                    int initialState = windowManager.addScreenRecordingCallback(
+                        mainExecutor,
+                        screenRecordingCallback
+                    );
+                    recordingMonitoringEnabled = true;
+                    if (initialState == WindowManager.SCREEN_RECORDING_STATE_VISIBLE) {
+                        screenRecordingCallback.accept(initialState);
+                    }
+                }
+            } catch (RuntimeException error) {
+                stopCaptureMonitoring();
+                call.reject("Android capture monitoring could not be started.");
+                return;
             }
             call.resolve();
         });
@@ -160,13 +301,7 @@ public class PrivacyBridgePlugin extends Plugin {
 
     @Override
     protected void handleOnDestroy() {
-        if (captureMonitoringEnabled && Build.VERSION.SDK_INT >= 35) {
-            WindowManager windowManager = getActivity().getWindowManager();
-            if (windowManager != null) {
-                windowManager.removeScreenRecordingCallback(screenRecordingCallback);
-            }
-            captureMonitoringEnabled = false;
-        }
+        stopCaptureMonitoring();
         super.handleOnDestroy();
     }
 }
