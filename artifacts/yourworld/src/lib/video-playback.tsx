@@ -1724,7 +1724,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                         className="relative top-1 rounded-full p-2 transition hover:bg-white/15"
                         aria-label={isMuted ? "Unmute video" : "Mute video"}
                       >
-                        {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+                        {isMuted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
                       </button>
                       <button
                         type="button"
@@ -1732,7 +1732,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                         className="relative top-1 rounded-full p-2 transition hover:bg-white/15"
                         aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
                       >
-                        {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
+                        {isFullscreen ? <Minimize className="h-5 w-5" /> : <Maximize className="h-5 w-5" />}
                       </button>
                     </div>
                   </div>
@@ -1872,11 +1872,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                       ? window.history.back()
                       : void navigate({ to: "/" })
                 }
-                className={`absolute left-3 ${
-                  isFullscreen
-                    ? "top-[max(env(safe-area-inset-top,0px),32px)]"
-                    : "top-2"
-                } z-50 rounded-full bg-black/60 p-2 text-white transition-opacity duration-200 hover:bg-black/80 ${
+                className={`absolute left-3 top-2 z-50 rounded-full bg-black/60 p-2 text-white transition-opacity duration-200 hover:bg-black/80 ${
                   controlsVisible ? "opacity-100" : "pointer-events-none opacity-0"
                 }`}
                 aria-label="Go back"
@@ -1933,11 +1929,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                     event.stopPropagation();
                     setSettingsMenu((current) => (current === "closed" ? "root" : "closed"));
                   }}
-                  className={`absolute right-3 ${
-                    isFullscreen
-                      ? "top-[max(env(safe-area-inset-top,0px),32px)]"
-                      : "top-2"
-                  } z-[70] rounded-full bg-black/60 p-2 text-white transition-opacity duration-200 hover:bg-black/90 ${
+                  className={`absolute right-3 top-2 z-[70] rounded-full bg-black/60 p-2 text-white transition-opacity duration-200 hover:bg-black/90 ${
                     controlsVisible ? "opacity-100" : "pointer-events-none opacity-0"
                   }`}
                   aria-label="Player settings"

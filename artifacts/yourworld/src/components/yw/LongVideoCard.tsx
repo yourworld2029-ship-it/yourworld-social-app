@@ -279,7 +279,7 @@ export function LongVideoCard({
             className="m-0 select-none p-0"
           />
           {formattedDuration && (
-            <span className="pointer-events-none absolute bottom-2 right-2 rounded-md bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold">
+            <span className="pointer-events-none absolute bottom-2 left-2 right-auto rounded-md bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold">
               {formattedDuration}
             </span>
           )}
@@ -288,7 +288,7 @@ export function LongVideoCard({
       <FeedVideoMuteButton
         candidateId={previewId}
         title={video.title}
-        className="right-3 top-auto bottom-8"
+        className="right-3 top-auto bottom-3 z-20"
       />
       </div>
 
