@@ -5,6 +5,7 @@ import path from "node:path";
 
 const router: IRouter = Router();
 const APK_CONTENT_TYPE = "application/vnd.android.package-archive";
+const APK_DOWNLOAD_FILENAME = "YourWorld.apk";
 const apkPublicDir = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../../yourworld/public",
@@ -43,10 +44,11 @@ function registerApkDownload(routePath: string) {
     const buildId = timestampedApkPattern.exec(filename)?.[1] ?? "unknown";
     res.download(
       filePath,
-      filename,
+      APK_DOWNLOAD_FILENAME,
       {
         headers: {
           "Content-Type": APK_CONTENT_TYPE,
+          "Content-Disposition": 'attachment; filename="YourWorld.apk"',
           "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0, no-transform",
           "Pragma": "no-cache",
           "Expires": "0",
