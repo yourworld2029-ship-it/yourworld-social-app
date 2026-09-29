@@ -71,13 +71,13 @@ public class MainActivity extends BridgeActivity {
     }
 
     @Override
-    protected void onPause() {
+    public void onPause() {
         appForeground = false;
         super.onPause();
     }
 
     @Override
-    protected void onStop() {
+    public void onStop() {
         clearIncomingCallLockScreenFlags();
         super.onStop();
     }

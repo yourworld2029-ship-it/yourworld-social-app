@@ -15,6 +15,12 @@ Android Gradle builds for this Capacitor project require Java 21. The workspace'
 
 **How to apply:** Before `assembleDebug`, provision Android platform 36 plus build-tools, set `JAVA_HOME` to JDK 21, and prepend its `bin` directory to `PATH` so an earlier JDK 17 cannot be selected.
 
+Capacitor 8's `BridgeActivity` exposes `onPause()` and `onStop()` as public lifecycle methods, so overrides in `MainActivity` must also be public.
+
+**Why:** Java compilation rejects protected overrides as weaker access than the Capacitor superclass methods.
+
+**How to apply:** Match or widen visibility when overriding inherited Android lifecycle callbacks, then verify with the Android Gradle compile task.
+
 Installing a JDK 21 system dependency may leave the default shell's `java` command resolving to JDK 17 even when JDK 21 is also on `PATH`.
 
 **Why:** Gradle selects the first Java executable, while the project's APK helper can find a later JDK 21 entry and set `JAVA_HOME` explicitly.
