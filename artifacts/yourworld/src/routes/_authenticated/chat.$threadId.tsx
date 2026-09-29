@@ -280,17 +280,21 @@ function ChatThreadErrorFallback({
   );
 }
 
-function sendCaptureAlertSafely(
+async function sendCaptureAlertSafely(
   channel: ReturnType<typeof supabase.channel>,
   event: string,
   payload: Record<string, unknown>,
-) {
+): Promise<boolean> {
   try {
-    void Promise.resolve(channel.send({ type: "broadcast", event, payload })).catch((cause) => {
-      console.warn("[chat-capture] broadcast failed", cause);
-    });
+    const status = await channel.send({ type: "broadcast", event, payload });
+    if (status !== "ok") {
+      console.warn("[chat-capture] broadcast was not accepted", status);
+      return false;
+    }
+    return true;
   } catch (cause) {
     console.warn("[chat-capture] broadcast threw", cause);
+    return false;
   }
 }
 
@@ -892,13 +896,13 @@ function NativeChatThreadPage() {
   const { peerOnline, peerTyping, setTyping } = useThreadPresence(threadId, currentUserId);
 
   // Chat options persisted per conversation in the backend.
-  const { settings, patch, setAutoDeleteSetting } = useChatSettings(peer.peerId, conversationId);
-  const [chatProtection, setChatProtection] = useState<{
-    threadId: string;
-    enabled: boolean;
-  } | null>(null);
-  const protectChatEnabled =
-    chatProtection?.threadId === threadId && chatProtection.enabled;
+  const {
+    settings,
+    patch,
+    setAutoDeleteSetting,
+    ready: chatSettingsReady,
+  } = useChatSettings(peer.peerId, conversationId);
+  const protectChatEnabled = chatSettingsReady && settings.protectChatEnabled;
   const peerProtectChatEnabled = usePeerChatProtectionPresence(
     conversationId ? `social-chat-protection-${conversationId}` : null,
     currentUserId,
@@ -1268,7 +1272,7 @@ function NativeChatThreadPage() {
       const actorName = String(payload.actorName ?? displayName ?? "Someone");
       const text =
         kind === "screenshot"
-          ? `📸 ${actorName} tried to take a screenshot!`
+          ? `${actorName} tried to take a screenshot!`
           : `📹 ${actorName} attempted to take a screen recording`;
       if (kind === "screenshot") {
         toast.warning(`${actorName} tried to take a screenshot!`);
@@ -1352,7 +1356,12 @@ function NativeChatThreadPage() {
               captureChannelReadyRef.current = true;
               const pending = pendingCaptureAlertsRef.current.splice(0);
               pending.forEach(({ event, payload }) => {
-                sendCaptureAlertSafely(nextChannel, event, payload);
+                void sendCaptureAlertSafely(nextChannel, event, payload).then((sent) => {
+                  if (!sent && alive) {
+                    pendingCaptureAlertsRef.current.push({ event, payload });
+                    toast.error("Screenshot alert could not be sent. Check your connection.");
+                  }
+                });
               });
               return;
             }
@@ -1407,7 +1416,15 @@ function NativeChatThreadPage() {
       };
       const channel = captureChannelRef.current;
       if (captureChannelReadyRef.current && channel) {
-        sendCaptureAlertSafely(channel, "send_system_alert", payload);
+        void sendCaptureAlertSafely(channel, "send_system_alert", payload).then((sent) => {
+          if (!sent) {
+            pendingCaptureAlertsRef.current.push({
+              event: "send_system_alert",
+              payload,
+            });
+            toast.error("Screenshot alert could not be sent. Check your connection.");
+          }
+        });
       } else {
         pendingCaptureAlertsRef.current.push({
           event: "send_system_alert",
@@ -1675,10 +1692,15 @@ function NativeChatThreadPage() {
                 label="Protect Chat (Block Screenshots & Recording)"
                 state={protectChatEnabled}
                 onClick={() => {
-                  setChatProtection((current) => ({
-                    threadId,
-                    enabled: !(current?.threadId === threadId && current.enabled),
-                  }));
+                  if (!chatSettingsReady) {
+                    toast.info("Chat settings are still loading.");
+                  } else {
+                    const next = !settings.protectChatEnabled;
+                    void updateSetting(
+                      { protectChatEnabled: next },
+                      `Chat protection ${next ? "enabled" : "disabled"}`,
+                    );
+                  }
                   setShowOptionsMenu(false);
                 }}
               />

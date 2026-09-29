@@ -10,7 +10,7 @@ import {
 
 /**
  * Per-conversation chat options (display name, secret lock, view once, auto
- * delete, capture alerts, mute, block) persisted in the
+ * delete, capture alerts, chat protection, mute, block) persisted in the
  * conversation-scoped `conversation_preferences` table. The legacy
  * `orbit_chat_settings` row is still updated for display-name compatibility
  * and for Orbit's existing settings screens.
@@ -26,6 +26,7 @@ export type ChatSettings = {
   autoDelete: number;
   screenshotAlert: boolean;
   recordingAlert: boolean;
+  protectChatEnabled: boolean;
   muted: boolean;
   blocked: boolean;
 };
@@ -40,6 +41,7 @@ const DEFAULTS: ChatSettings = {
   autoDelete: 0,
   screenshotAlert: true,
   recordingAlert: true,
+  protectChatEnabled: false,
   muted: false,
   blocked: false,
 };
@@ -55,6 +57,7 @@ type Row = {
   auto_delete_seconds: number;
   screenshot_alert: boolean;
   recording_alert: boolean;
+  protect_chat_enabled?: boolean;
   muted: boolean;
   blocked: boolean | null;
 };
@@ -117,6 +120,7 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
           auto_delete_setting?: string | null;
           screenshot_alert?: boolean;
           screen_recording_alert?: boolean;
+          protect_chat_enabled?: boolean;
           is_muted?: boolean;
         } | null;
         const row = legacyRow;
@@ -163,6 +167,10 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
             ))),
             screenshotAlert: preference?.screenshot_alert ?? row?.screenshot_alert ?? DEFAULTS.screenshotAlert,
             recordingAlert: preference?.screen_recording_alert ?? row?.recording_alert ?? DEFAULTS.recordingAlert,
+            protectChatEnabled:
+              preference?.protect_chat_enabled ??
+              row?.protect_chat_enabled ??
+              DEFAULTS.protectChatEnabled,
             muted: preference?.is_muted ?? row?.muted ?? DEFAULTS.muted,
             blocked: Boolean(blockedData),
           });
@@ -195,6 +203,7 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
               view_once?: boolean;
               screenshot_alert?: boolean;
               screen_recording_alert?: boolean;
+              protect_chat_enabled?: boolean;
               is_muted?: boolean;
               auto_delete_setting?: string;
             };
@@ -219,6 +228,8 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
                 viewOnce: row.view_once ?? current.viewOnce,
                 screenshotAlert: row.screenshot_alert ?? current.screenshotAlert,
                 recordingAlert: row.screen_recording_alert ?? current.recordingAlert,
+                protectChatEnabled:
+                  row.protect_chat_enabled ?? current.protectChatEnabled,
                 muted: row.is_muted ?? current.muted,
                 autoDeleteSetting: row.auto_delete_setting
                   ? normalizeAutoDeleteSetting(row.auto_delete_setting)
@@ -311,6 +322,7 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
             auto_delete_setting: merged.autoDeleteSetting,
             screenshot_alert: merged.screenshotAlert,
             screen_recording_alert: merged.recordingAlert,
+            protect_chat_enabled: merged.protectChatEnabled,
             is_muted: merged.muted,
             updated_at: new Date().toISOString(),
           } as never, { onConflict: "conversation_id,user_id" });
@@ -341,6 +353,7 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
           view_once_mode: merged.viewOnce,
           screenshot_alert: merged.screenshotAlert,
           recording_alert: merged.recordingAlert,
+          protect_chat_enabled: merged.protectChatEnabled,
           muted: merged.muted,
           blocked: merged.blocked,
         } as never, { onConflict: "user_id,peer_id" });

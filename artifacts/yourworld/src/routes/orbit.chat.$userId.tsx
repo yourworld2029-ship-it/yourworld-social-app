@@ -266,6 +266,33 @@ function NativeOrbitChatPage() {
   const [clearedBefore, setClearedBefore] = useState<string | null>(null);
   const [secretPinSalt, setSecretPinSalt] = useState<string | null>(null);
   const [secretPinHash, setSecretPinHash] = useState<string | null>(null);
+  const protectChatWriteVersionRef = useRef(0);
+  const updateChatProtection = useCallback(async () => {
+    if (!settingsReady || !currentUserId) {
+      toast.info("Chat settings are still loading.");
+      return;
+    }
+    const previous = protectChatEnabled;
+    const enabled = !previous;
+    const writeVersion = ++protectChatWriteVersionRef.current;
+    setChatProtection({ userId, enabled });
+    const { error } = await migrationSupabase.from("orbit_chat_settings").upsert(
+      {
+        user_id: currentUserId,
+        peer_id: userId,
+        protect_chat_enabled: enabled,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id,peer_id" },
+    );
+    if (error) {
+      console.error("[orbit-chat] Could not save chat protection", error);
+      if (writeVersion === protectChatWriteVersionRef.current) {
+        setChatProtection({ userId, enabled: previous });
+        toast.error(error.message ?? "Could not save chat protection.");
+      }
+    }
+  }, [currentUserId, protectChatEnabled, settingsReady, userId]);
   const peerProtectChatEnabled = usePeerChatProtectionPresence(
     currentUserId
       ? `orbit-chat-protection-${[currentUserId, userId].sort().join("-")}`
@@ -317,6 +344,7 @@ function NativeOrbitChatPage() {
   useEffect(() => {
     setSettingsOwnerUserId(null);
     setSettingsReady(false);
+    setChatProtection(null);
     setSecretLock(false);
     setSecretPinSalt(null);
     setSecretPinHash(null);
@@ -346,7 +374,7 @@ function NativeOrbitChatPage() {
           ? await supabase
               .from("orbit_chat_settings")
               .select(
-                "display_name,secret_lock_enabled,secret_pin_salt,secret_pin_hash,view_once_mode,auto_delete_setting,auto_delete_seconds,screenshot_alert,recording_alert,muted,cleared_before",
+                "display_name,secret_lock_enabled,secret_pin_salt,secret_pin_hash,view_once_mode,auto_delete_setting,auto_delete_seconds,screenshot_alert,recording_alert,protect_chat_enabled,muted,cleared_before",
               )
               .eq("user_id", me)
               .eq("peer_id", userId)
@@ -397,6 +425,7 @@ function NativeOrbitChatPage() {
           row ? row["screenshot_alert"] !== false : v["screenshotAlert"] !== false,
         );
         setRecordingAlert(row ? row["recording_alert"] !== false : v["recordingAlert"] !== false);
+        setChatProtection({ userId, enabled: row?.["protect_chat_enabled"] === true });
         setMuted(!!v["muted"]);
         if (row) setMuted(!!row["muted"]);
         setClearedBefore((row?.["cleared_before"] as string | null) ?? null);
@@ -457,6 +486,7 @@ function NativeOrbitChatPage() {
               auto_delete_seconds: autoDeleteSeconds(autoDelete),
               screenshot_alert: screenshotAlert,
               recording_alert: recordingAlert,
+              protect_chat_enabled: protectChatEnabled,
               muted,
               cleared_before: clearedBefore,
             } as never,
@@ -487,6 +517,7 @@ function NativeOrbitChatPage() {
     autoDelete,
     screenshotAlert,
     recordingAlert,
+    protectChatEnabled,
     muted,
     reported,
     settingsReady,
@@ -532,6 +563,10 @@ function NativeOrbitChatPage() {
             setAutoDelete(normalizeAutoDeleteSetting(row.auto_delete_setting));
             setScreenshotAlert(row.screenshot_alert !== false);
             setRecordingAlert(row.recording_alert !== false);
+            setChatProtection({
+              userId,
+              enabled: row.protect_chat_enabled === true,
+            });
             setMuted(row.muted === true);
           },
         )
@@ -709,7 +744,7 @@ function NativeOrbitChatPage() {
       );
       const text =
         kind === "screenshot"
-          ? `📸 ${actorName} tried to take a screenshot!`
+          ? `${actorName} tried to take a screenshot!`
           : `📹 ${actorName} attempted to take a screen recording`;
       if (kind === "screenshot") {
         toast.warning(`${actorName} tried to take a screenshot!`);
@@ -734,61 +769,122 @@ function NativeOrbitChatPage() {
     captureChannelRef.current = null;
     pendingCaptureAlertsRef.current = [];
     if (!captureAlertsEnabled) return;
+    let alive = true;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let retryCount = 0;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    const scheduleRetry = () => {
+      if (!alive || retryTimer !== null) return;
+      const delay = Math.min(15_000, 1000 * 2 ** Math.min(retryCount, 4));
+      retryCount += 1;
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        subscribe();
+      }, delay);
+    };
+    const stopFailedChannel = (
+      failedChannel: ReturnType<typeof supabase.channel>,
+      reason: string,
+    ) => {
+      if (!alive || channel !== failedChannel) return;
+      captureChannelReadyRef.current = false;
+      channel = null;
+      if (captureChannelRef.current === failedChannel) captureChannelRef.current = null;
+      void Promise.resolve(failedChannel.unsubscribe()).catch((cause) => {
+        console.warn(`[orbit-chat] ${reason} unsubscribe failed`, cause);
+      });
+      void Promise.resolve(supabase.removeChannel(failedChannel)).catch((cause) => {
+        console.warn(`[orbit-chat] ${reason} cleanup failed`, cause);
+      });
+      scheduleRetry();
+    };
+    const sendQueuedAlert = (
+      target: ReturnType<typeof supabase.channel>,
+      payload: Record<string, unknown>,
+    ) => {
+      void Promise.resolve(
+        target.send({
+          type: "broadcast",
+          event: "send_system_alert",
+          payload,
+        }),
+      )
+        .then((status) => {
+          if (status !== "ok") throw new Error(`Realtime returned ${status}`);
+        })
+        .catch((cause) => {
+          if (!alive) return;
+          pendingCaptureAlertsRef.current.push(payload);
+          console.warn("[orbit-chat] screenshot alert broadcast failed", cause);
+          toast.error("Screenshot alert could not be sent. Reconnecting.");
+          stopFailedChannel(target, "capture-alert send failure");
+        });
+    };
     const safePayload = (payload: unknown): Record<string, unknown> | null =>
       payload && typeof payload === "object" && !Array.isArray(payload)
         ? (payload as Record<string, unknown>)
         : null;
-    const channel = supabase
-      .channel(captureChannelName)
-      .on("broadcast", { event: "send_system_alert" }, ({ payload }) => {
-        const value = safePayload(payload);
-        if (value) {
-          handleIncomingCaptureAlert(
-            value,
-            value.kind === "recording" ? "recording" : "screenshot",
-          );
-        }
-      })
-      .on("broadcast", { event: "USER_SCREENSHOT_TAKEN" }, ({ payload }) => {
-        const value = safePayload(payload);
-        if (value) handleIncomingCaptureAlert(value, "screenshot");
-      })
-      .on("broadcast", { event: "USER_SCREEN_RECORDING_ALERT" }, ({ payload }) => {
-        const value = safePayload(payload);
-        if (value) handleIncomingCaptureAlert(value, "recording");
-    });
-    captureChannelRef.current = channel;
-    channel.subscribe((status) => {
-      if (status === "SUBSCRIBED") {
-        captureChannelReadyRef.current = true;
-        const pending = pendingCaptureAlertsRef.current.splice(0);
-        pending.forEach((payload) => {
-          void Promise.resolve(
-            channel.send({
-              type: "broadcast",
-              event: "send_system_alert",
-              payload,
-            }),
-          ).catch((cause) => {
-            console.warn("[orbit-chat] screenshot alert broadcast failed", cause);
-            pendingCaptureAlertsRef.current.push(payload);
+    const subscribe = () => {
+      if (!alive) return;
+      try {
+        const nextChannel = supabase
+          .channel(captureChannelName)
+          .on("broadcast", { event: "send_system_alert" }, ({ payload }) => {
+            const value = safePayload(payload);
+            if (value) {
+              handleIncomingCaptureAlert(
+                value,
+                value.kind === "recording" ? "recording" : "screenshot",
+              );
+            }
+          })
+          .on("broadcast", { event: "USER_SCREENSHOT_TAKEN" }, ({ payload }) => {
+            const value = safePayload(payload);
+            if (value) handleIncomingCaptureAlert(value, "screenshot");
+          })
+          .on("broadcast", { event: "USER_SCREEN_RECORDING_ALERT" }, ({ payload }) => {
+            const value = safePayload(payload);
+            if (value) handleIncomingCaptureAlert(value, "recording");
           });
+        channel = nextChannel;
+        captureChannelRef.current = nextChannel;
+        nextChannel.subscribe((status) => {
+          if (!alive || channel !== nextChannel) return;
+          if (status === "SUBSCRIBED") {
+            captureChannelReadyRef.current = true;
+            retryCount = 0;
+            const pending = pendingCaptureAlertsRef.current.splice(0);
+            pending.forEach((payload) => sendQueuedAlert(nextChannel, payload));
+            return;
+          }
+          if (["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(status)) {
+            stopFailedChannel(nextChannel, `capture channel ${status}`);
+          }
         });
-      } else if (["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(status)) {
+      } catch (cause) {
+        console.warn("[orbit-chat] capture channel setup failed", cause);
         captureChannelReadyRef.current = false;
-        if (captureChannelRef.current === channel) captureChannelRef.current = null;
+        channel = null;
+        captureChannelRef.current = null;
+        scheduleRetry();
       }
-    });
+    };
+    subscribe();
     return () => {
+      alive = false;
+      if (retryTimer !== null) clearTimeout(retryTimer);
       captureChannelReadyRef.current = false;
-      if (captureChannelRef.current === channel) captureChannelRef.current = null;
       pendingCaptureAlertsRef.current = [];
-      void Promise.resolve(channel.unsubscribe()).catch((cause) => {
-        console.warn("[orbit-chat] capture channel unsubscribe failed", cause);
-      });
-      void Promise.resolve(supabase.removeChannel(channel)).catch((cause) => {
-        console.warn("[orbit-chat] capture channel removal failed", cause);
-      });
+      if (captureChannelRef.current === channel) captureChannelRef.current = null;
+      if (channel) {
+        void Promise.resolve(channel.unsubscribe()).catch((cause) => {
+          console.warn("[orbit-chat] capture channel unsubscribe failed", cause);
+        });
+        void Promise.resolve(supabase.removeChannel(channel)).catch((cause) => {
+          console.warn("[orbit-chat] capture channel removal failed", cause);
+        });
+      }
+      channel = null;
     };
   }, [
     captureAlertsEnabled,
@@ -817,10 +913,17 @@ function NativeOrbitChatPage() {
             payload,
           }),
         ).then((status) => {
-          if (status !== "ok") pendingCaptureAlertsRef.current.push(payload);
+          if (status !== "ok") {
+            pendingCaptureAlertsRef.current.push(payload);
+            console.warn("[orbit-chat] screenshot alert was not accepted", status);
+            toast.error("Screenshot alert could not be sent. Reconnecting.");
+            void channel.unsubscribe();
+          }
         }).catch((cause) => {
           console.warn("[orbit-chat] screenshot alert broadcast failed", cause);
           pendingCaptureAlertsRef.current.push(payload);
+          toast.error("Screenshot alert could not be sent. Reconnecting.");
+          void channel.unsubscribe();
         });
       } else {
         pendingCaptureAlertsRef.current.push(payload);
@@ -1275,10 +1378,7 @@ function NativeOrbitChatPage() {
                 label="Protect Chat (Block Screenshots & Recording)"
                 state={protectChatEnabled}
                 onClick={() => {
-                  setChatProtection((current) => ({
-                    userId,
-                    enabled: !(current?.userId === userId && current.enabled),
-                  }));
+                  void updateChatProtection();
                   setMenuOpen(false);
                 }}
               />
