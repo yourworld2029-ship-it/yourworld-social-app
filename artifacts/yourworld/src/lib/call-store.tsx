@@ -11,6 +11,7 @@ import {
 } from "react";
 import { Bell, Mic, MicOff, PhoneOff, Phone, Video, VideoOff, SwitchCamera, Zap, ZapOff, Volume2, X, LockKeyhole, Sparkles, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { dmThreadId, ensureThreadConversation } from "@/lib/social-data";
 import { isSecretChatLockedWith } from "@/lib/secret-chats";
 import { isActiveChatFocusedForCall } from "@/lib/active-chat";
 import { toast } from "sonner";
@@ -1290,9 +1291,17 @@ export function CallProvider({ children }: { children: ReactNode }) {
             .maybeSingle();
           if (lookupError) throw lookupError;
           if (!existing) {
+            const conversation = await ensureThreadConversation(
+              dmThreadId(me2, row.caller_id),
+              [me2, row.caller_id],
+            );
+            if (!conversation) {
+              throw new Error("Could not resolve the shared conversation for the missed call.");
+            }
             const { error } = await callDb.from("messages").insert({
               sender_id: me2,
               receiver_id: row.caller_id,
+              conversation_id: conversation.id,
               content: `Missed ${label} Call`,
               media_url: null,
               voice_note_url: null,
