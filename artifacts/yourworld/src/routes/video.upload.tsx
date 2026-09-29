@@ -309,18 +309,28 @@ function VideoUploadPage() {
               }`}
             >
               <video
+                key={fileUrl}
                 ref={videoRef}
                 src={fileUrl}
                 poster={thumb ?? previewFrame ?? undefined}
                 controls
                 playsInline
-                preload="metadata"
+                preload="auto"
                 onLoadedMetadata={onMeta}
                 onLoadedData={() => {
                   const video = videoRef.current;
                   if (!video || !fileUrl) return;
-                  const poster = cacheVideoPoster(video, fileUrl);
-                  if (poster) setPreviewFrame(poster);
+                  const previewUrl = fileUrl;
+                  window.setTimeout(() => {
+                    if (
+                      videoRef.current !== video ||
+                      video.getAttribute("src") !== previewUrl
+                    ) {
+                      return;
+                    }
+                    const poster = cacheVideoPoster(video, previewUrl);
+                    if (poster) setPreviewFrame(poster);
+                  }, 0);
                 }}
                 className="video-upload-preview h-full w-full object-contain"
               />

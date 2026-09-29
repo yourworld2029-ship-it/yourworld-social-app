@@ -1387,22 +1387,6 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
             ) : null}
 
             {showDetailChrome && !screenLocked ? (
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  togglePlayPause();
-                }}
-                className={`absolute left-1/2 top-1/2 z-50 grid h-14 w-14 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-black/65 text-white shadow-xl backdrop-blur-md transition-opacity duration-200 hover:bg-black/80 ${
-                  controlsVisible ? "opacity-100" : "pointer-events-none opacity-0"
-                }`}
-                aria-label={isPlaying ? "Pause video" : "Play video"}
-              >
-                {isPlaying ? <Pause className="h-7 w-7 fill-current" /> : <Play className="ml-0.5 h-7 w-7 fill-current" />}
-              </button>
-            ) : null}
-
-            {showDetailChrome && !screenLocked ? (
               <div
                 className={`pointer-events-none absolute inset-x-0 bottom-0 z-40 transition-opacity duration-200 ${
                   controlsVisible ? "opacity-100" : "opacity-0"

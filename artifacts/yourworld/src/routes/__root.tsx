@@ -151,22 +151,59 @@ function RootShell({ children }: { children: ReactNode }) {
   );
 }
 
+type CapacitorRuntimeGlobal = {
+  isNativePlatform?: () => boolean;
+  getPlatform?: () => string;
+  platform?: string;
+};
+
+function detectCapacitorEnvironment() {
+  if (typeof window === "undefined") {
+    return { isNative: false, isAndroid: false };
+  }
+
+  // Capacitor core also installs window.Capacitor in browsers, so use its
+  // native/platform signals rather than the global's presence alone.
+  const runtime = (window as Window & { Capacitor?: CapacitorRuntimeGlobal }).Capacitor;
+  let platform = "";
+  try {
+    platform =
+      runtime?.getPlatform?.() ??
+      runtime?.platform ??
+      Capacitor.getPlatform();
+  } catch {
+    platform = runtime?.platform ?? "";
+  }
+
+  let isNative = platform !== "" && platform !== "web";
+  try {
+    isNative =
+      isNative ||
+      Capacitor.isNativePlatform() ||
+      runtime?.isNativePlatform?.() === true;
+  } catch {
+    // Keep any concrete platform signal if a bridge method is unavailable.
+  }
+
+  return { isNative, isAndroid: isNative && platform === "android" };
+}
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const [createOpen, setCreateOpen] = useState(false);
-  const [isAndroidApp, setIsAndroidApp] = useState(
-    () => Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android",
-  );
+  const [isPlatformResolved, setIsPlatformResolved] = useState(false);
+  const [isNativeApp, setIsNativeApp] = useState(false);
   const isWatchPreview = pathname.startsWith("/watch/");
   const hideNav = isWatchPreview || pathname.startsWith("/auth") || pathname.startsWith("/verify-2fa") || pathname.startsWith("/create") || pathname.startsWith("/moment/create") || pathname.startsWith("/channel/create");
   const wideProfileLayout = pathname === "/profile";
 
   useEffect(() => {
-    const isAndroid = Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
-    setIsAndroidApp(isAndroid);
-    if (!isAndroid) return;
+    const environment = detectCapacitorEnvironment();
+    setIsNativeApp(environment.isNative);
+    setIsPlatformResolved(true);
+    if (!environment.isAndroid) return;
 
     void (async () => {
       try {
@@ -249,7 +286,11 @@ function RootComponent() {
     };
   }, []);
 
-  if (!isAndroidApp && !isWatchPreview) {
+  if (!isPlatformResolved && !isWatchPreview) {
+    return null;
+  }
+
+  if (!isNativeApp && !isWatchPreview) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-black px-6 text-center text-white">
         <div className="max-w-sm">
