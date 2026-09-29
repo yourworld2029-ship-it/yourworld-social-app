@@ -11,6 +11,7 @@ import {
 } from "react";
 import { Bell, Mic, MicOff, PhoneOff, Phone, Video, VideoOff, SwitchCamera, Zap, ZapOff, Volume2, X, LockKeyhole, Sparkles, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { isSecretChatLockedWith } from "@/lib/secret-chats";
 import { toast } from "sonner";
 import {
   enableCallNotifications,
@@ -57,7 +58,7 @@ import {
 const callDb = supabase as unknown as {
   // Generated types lag the verified live schema; keep the escape hatch here.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-   from: (table: "calls" | "user_blocks" | "call_push_subscriptions") => any;
+   from: (table: "calls" | "messages" | "user_blocks" | "call_push_subscriptions") => any;
 };
 
 export type CallMode = "audio" | "video";
@@ -914,14 +915,24 @@ export function CallProvider({ children }: { children: ReactNode }) {
           : `Missed ${label} Call`;
       if (!c.threadId) return;
       try {
-        await supabase.from("messages" as never).insert({
+        if (outcome === "declined") {
+          const { data: existing, error: lookupError } = await callDb
+            .from("messages")
+            .select("id")
+            .contains("metadata", { secret_call_log_id: c.callId })
+            .limit(1)
+            .maybeSingle();
+          if (lookupError) throw lookupError;
+          if (existing) return;
+        }
+        await callDb.from("messages").insert({
           sender_id: meId,
           receiver_id: c.peerId,
           content: text,
           media_url: null,
           voice_note_url: null,
           metadata: {},
-        } as never);
+        });
       } catch (err) {
         console.error("[call] log insert failed", err);
       }
@@ -1246,11 +1257,52 @@ export function CallProvider({ children }: { children: ReactNode }) {
       const row = raw as CallRow;
       if (!alive || row.receiver_id !== me2 || row.status !== "ringing" || seenCalls.current.has(row.id)) return;
       if (Date.now() - new Date(row.created_at).getTime() > 45_000) return;
+      markSeen(row.id);
       if (await blocked(row.caller_id)) {
         void callDb.from("calls").update({ status: "declined", ended_at: new Date().toISOString() }).eq("id", row.id);
         return;
       }
-      markSeen(row.id);
+      let secretLocked = false;
+      try {
+        secretLocked = await isSecretChatLockedWith(me2, row.caller_id);
+      } catch (error) {
+        // Fail closed: inability to confirm this lock must not expose the call.
+        console.error("[call] Secret Lock state could not be checked", error);
+        secretLocked = true;
+      }
+      if (secretLocked) {
+        stopAllRingtones();
+        void dismissIncomingCallNotification(row.id);
+        const label = row.call_type === "video" ? "Video" : "Audio";
+        try {
+          const { data: existing, error: lookupError } = await callDb
+            .from("messages")
+            .select("id")
+            .contains("metadata", { secret_call_log_id: row.id })
+            .limit(1)
+            .maybeSingle();
+          if (lookupError) throw lookupError;
+          if (!existing) {
+            const { error } = await callDb.from("messages").insert({
+              sender_id: me2,
+              receiver_id: row.caller_id,
+              content: `Missed ${label} Call`,
+              media_url: null,
+              voice_note_url: null,
+              metadata: { secret_call_log_id: row.id },
+            });
+            if (error) throw error;
+          }
+        } catch (error) {
+          console.error("[call] silent missed-call log failed", error);
+        }
+        await callDb
+          .from("calls")
+          .update({ status: "declined", ended_at: new Date().toISOString() })
+          .eq("id", row.id)
+          .eq("status", "ringing");
+        return;
+      }
       if (pcRef.current || phaseRef.current !== "idle") {
         void callDb.from("calls").update({ status: "declined", ended_at: new Date().toISOString() }).eq("id", row.id);
         return;

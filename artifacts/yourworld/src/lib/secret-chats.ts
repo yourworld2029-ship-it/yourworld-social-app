@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
-import { verifyPin } from "@/lib/secret-pin";
+import { isValidSecretCode, verifyPin } from "@/lib/secret-pin";
 
-export { hashPin, randomPinSalt, verifyPin } from "@/lib/secret-pin";
+export { hashPin, isValidSecretCode, randomPinSalt, verifyPin } from "@/lib/secret-pin";
 
 /**
  * Social Chat Secret Lock helpers. Locked conversations disappear from the
- * list/search until the exact PIN is typed into the search bar. A successful
- * search PIN grants one short-lived local unlock so opening that result does
+ * list/search until the exact Secret Code is typed into the search bar. A successful
+ * search code grants one short-lived local unlock so opening that result does
  * not ask for the same PIN twice.
  */
 
@@ -41,100 +40,6 @@ export function consumeSecretChatUnlock(ownerId?: string | null, peerId?: string
   return true;
 }
 
-function createVerificationFetch(apiKey: string): typeof fetch {
-  return (input, init) => {
-    const headers = new Headers(
-      typeof Request !== "undefined" && input instanceof Request ? input.headers : undefined,
-    );
-    if (init?.headers) {
-      new Headers(init.headers).forEach((value, key) => headers.set(key, value));
-    }
-
-    // Match the main client: newer publishable keys belong in apikey, not Bearer auth.
-    if (
-      (apiKey.startsWith("sb_publishable_") || apiKey.startsWith("sb_secret_")) &&
-      headers.get("Authorization") === `Bearer ${apiKey}`
-    ) {
-      headers.delete("Authorization");
-    }
-    headers.set("apikey", apiKey);
-    return fetch(input, { ...init, headers });
-  };
-}
-
-export type AccountPasswordVerification =
-  | { ok: true }
-  | { ok: false; error: string };
-
-/**
- * Verify password recovery in an isolated, non-persistent Supabase client so
- * checking a password cannot replace or broadcast the app's active session.
- */
-export async function verifyAccountPassword(
-  expectedUserId: string,
-  password: string,
-): Promise<AccountPasswordVerification> {
-  if (!password) return { ok: false, error: "Enter your account password." };
-
-  const { data: auth, error: authError } = await supabase.auth.getUser();
-  const user = auth.user;
-  if (authError || !user || user.id !== expectedUserId) {
-    return { ok: false, error: "Could not verify this account. Sign in again and retry." };
-  }
-  if (!user.email) {
-    return { ok: false, error: "This account does not have password sign-in enabled." };
-  }
-
-  // These normalized client values are protected in Supabase's public typings,
-  // but are available on the runtime client for this isolated verifier.
-  const { supabaseUrl: apiUrl, supabaseKey: apiKey } = supabase as unknown as {
-    supabaseUrl: string;
-    supabaseKey: string;
-  };
-  if (!apiUrl || !apiKey) {
-    return { ok: false, error: "Account verification is unavailable. Try again." };
-  }
-
-  const verifier = createClient(apiUrl, apiKey, {
-    global: { fetch: createVerificationFetch(apiKey) },
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-      detectSessionInUrl: false,
-    },
-  });
-
-  try {
-    const { data, error } = await verifier.auth.signInWithPassword({
-      email: user.email,
-      password,
-    });
-    if (error) {
-      const invalidPassword =
-        error.code === "invalid_credentials" ||
-        error.message.toLowerCase().includes("invalid login credentials");
-      return {
-        ok: false,
-        error: invalidPassword
-          ? "Account password is incorrect."
-          : "Could not verify your account password. Try again.",
-      };
-    }
-    if (data.user?.id !== expectedUserId) {
-      return { ok: false, error: "The password did not verify this signed-in account." };
-    }
-    return { ok: true };
-  } catch {
-    return { ok: false, error: "Could not verify your account password. Try again." };
-  } finally {
-    try {
-      await verifier.auth.signOut({ scope: "local" });
-    } catch {
-      // The verifier is isolated and non-persistent; cleanup failure is harmless.
-    }
-  }
-}
-
 export type LockedChat = {
   ownerId: string;
   peerId: string;
@@ -142,11 +47,12 @@ export type LockedChat = {
   hash: string | null;
 };
 
-async function fetchLocked(): Promise<LockedChat[]> {
+async function fetchLocked(expectedOwnerId?: string): Promise<LockedChat[]> {
   const { data: auth, error: authError } = await supabase.auth.getUser();
   if (authError) throw authError;
   const me = auth.user?.id;
   if (!me) return [];
+  if (expectedOwnerId && expectedOwnerId !== me) return [];
 
   const { data, error } = await supabase
     .from("conversation_preferences")
@@ -193,13 +99,23 @@ async function fetchLocked(): Promise<LockedChat[]> {
   });
 }
 
+export async function isSecretChatLockedWith(ownerId: string, peerId: string) {
+  if (!ownerId || !peerId) return false;
+  const lockedChats = await fetchLocked(ownerId);
+  return lockedChats.some((chat) => chat.ownerId === ownerId && chat.peerId === peerId);
+}
+
 /**
- * @param query current text in the message search bar — an exact PIN match
+ * @param query current text in the message search bar — an exact Secret Code match
  *              temporarily reveals the matching locked chat(s).
  */
-export function useSecretChats(query: string) {
+export function useSecretChats(query: string, queryRevision = 0) {
   const [locked, setLocked] = useState<LockedChat[]>([]);
-  const [revealed, setRevealed] = useState<string[]>([]);
+  const [verifiedQuery, setVerifiedQuery] = useState<{
+    query: string;
+    queryRevision: number;
+    peerIds: string[];
+  } | null>(null);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -237,19 +153,20 @@ export function useSecretChats(query: string) {
     };
   }, []);
 
-  const pin = query.trim();
-
   useEffect(() => {
     let alive = true;
-    if (!/^\d{4,8}$/.test(pin) || locked.length === 0) {
-      setRevealed((prev) => (prev.length ? [] : prev));
+    if (!isValidSecretCode(query) || locked.length === 0) {
+      setVerifiedQuery(null);
       return;
     }
+    setVerifiedQuery((current) =>
+      current?.query === query && current.queryRevision === queryRevision ? current : null,
+    );
     const verificationTimer = window.setTimeout(() => {
       void Promise.all(
         locked.map(async (row) => {
           if (!row.salt || !row.hash) return null;
-          if (await verifyPin(row.salt, pin, row.hash)) {
+          if (await verifyPin(row.salt, query, row.hash)) {
             grantSecretChatUnlock(row.ownerId, row.peerId);
             return row.peerId;
           }
@@ -257,20 +174,32 @@ export function useSecretChats(query: string) {
         }),
       )
         .then((matches) => {
-          if (alive) setRevealed(matches.filter((peerId): peerId is string => !!peerId));
+          if (alive) {
+            setVerifiedQuery({
+              query,
+              queryRevision,
+              peerIds: matches.filter((peerId): peerId is string => !!peerId),
+            });
+          }
         })
         .catch((cause) => {
           if (!alive) return;
           console.error("[secret-chats] PIN verification failed", cause);
-          setRevealed([]);
+          setVerifiedQuery({ query, queryRevision, peerIds: [] });
         });
     }, 120);
     return () => {
       alive = false;
       window.clearTimeout(verificationTimer);
     };
-  }, [pin, locked]);
+  }, [query, queryRevision, locked]);
 
+  const revealed =
+    verifiedQuery?.query === query &&
+    verifiedQuery.queryRevision === queryRevision &&
+    isValidSecretCode(query)
+      ? verifiedQuery.peerIds
+      : [];
   const lockedIds = useMemo(() => locked.map((l) => l.peerId), [locked]);
 
   /** True when this chat must stay out of the list/search results. */
@@ -280,5 +209,11 @@ export function useSecretChats(query: string) {
     [lockedIds, revealed],
   );
 
-  return { lockedIds, revealed, isHidden, hasReveal: revealed.length > 0, ready };
+  return {
+    lockedIds,
+    revealed,
+    isHidden,
+    hasReveal: revealed.length > 0,
+    ready,
+  };
 }

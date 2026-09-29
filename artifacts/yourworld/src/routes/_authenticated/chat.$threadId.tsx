@@ -36,8 +36,8 @@ import {
   consumeSecretChatUnlock,
   hasSecretChatUnlock,
   hashPin,
+  isValidSecretCode,
   randomPinSalt,
-  verifyAccountPassword,
   verifyPin,
 } from "@/lib/secret-chats";
 import { PinDialog } from "@/components/yw/PinDialog";
@@ -1003,8 +1003,8 @@ function NativeChatThreadPage() {
         setPinError(null);
         return true;
       }
-      if (!/^\d{4,8}$/.test(pin)) {
-        setPinError("Use a 4–8 digit PIN");
+      if (!isValidSecretCode(pin)) {
+        setPinError("Use 4–8 letters or numbers");
         return false;
       }
       const salt = randomPinSalt();
@@ -1033,8 +1033,8 @@ function NativeChatThreadPage() {
       setUnlockError(null);
       return true;
     }
-    if (!/^\d{4,8}$/.test(pin)) {
-      setUnlockError("Use a 4–8 digit PIN");
+    if (!isValidSecretCode(pin)) {
+      setUnlockError("Use 4–8 letters or numbers");
       return false;
     }
     try {
@@ -1050,31 +1050,6 @@ function NativeChatThreadPage() {
       setSecurityFallbackThreadId(threadId);
       setUnlockError(null);
       return true;
-    }
-  };
-
-  const recoverSecretLock = async (password: string): Promise<string | null> => {
-    if (!currentUserId || !peer.peerId) {
-      return "Could not verify this account. Sign in again and retry.";
-    }
-    const verification = await verifyAccountPassword(currentUserId, password);
-    if (!verification.ok) return verification.error;
-
-    try {
-      const result = await patch({
-        secretLock: false,
-        secretPinSalt: null,
-        secretPinHash: null,
-      });
-      if (result.error) throw new Error(result.error);
-      setUnlockedChatKey(activeChatKey);
-      setPinMode(null);
-      setPinError(null);
-      setUnlockError(null);
-      return null;
-    } catch (cause) {
-      console.error("[secret-lock] recovery reset failed", cause);
-      return "Could not reset Secret Lock. Check your connection and try again.";
     }
   };
 
@@ -2515,12 +2490,13 @@ function NativeChatThreadPage() {
 )}
     <PinDialog
       open={pinMode !== null && (!secretLock || chatUnlocked)}
-      title={pinMode === "remove" ? "Remove Secret Lock" : "Create chat PIN"}
+      title={pinMode === "remove" ? "Remove Secret Lock" : "Create Secret Code"}
       description={
         pinMode === "remove"
-          ? "Enter the PIN for this chat to remove the lock."
-          : "Choose a 4-8 digit PIN. You'll need it to open this chat."
+          ? "Enter the Secret Code for this chat to remove the lock."
+          : "Warning: There is no recovery or reset option. If you forget your Secret Code, this conversation cannot be recovered."
       }
+      warning={pinMode === "set"}
       confirmLabel={pinMode === "remove" ? "Remove" : "Lock chat"}
       error={pinError}
       onCancel={() => { setPinMode(null); setPinError(null); }}
@@ -2529,11 +2505,10 @@ function NativeChatThreadPage() {
     <PinDialog
       open={secretLock && !chatUnlocked}
       title="Secret chat locked"
-      description="Enter your PIN to open this conversation."
+      description="Enter your Secret Code to open this conversation."
       confirmLabel="Unlock"
       error={unlockError}
       onSubmit={verifyUnlockPin}
-      onForgotPin={recoverSecretLock}
     />
     </>
 

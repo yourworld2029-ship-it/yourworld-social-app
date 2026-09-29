@@ -76,6 +76,40 @@ Deno.serve(async (request) => {
     return response({ error: "Call is not available" }, 404);
   }
 
+  // A Secret Lock is recipient-specific. Suppress the OS push before it can
+  // wake the service worker, reveal caller details, or vibrate the device.
+  const { data: conversations, error: conversationError } = await admin
+    .from("conversations")
+    .select("id")
+    .or(
+      `and(participant_one_id.eq.${call.receiver_id},participant_two_id.eq.${call.caller_id}),and(participant_two_id.eq.${call.receiver_id},participant_one_id.eq.${call.caller_id})`,
+    );
+  if (conversationError) {
+    return response({ error: "Could not verify recipient chat privacy" }, 503);
+  }
+  const conversationIds = (conversations ?? []).map((conversation) => conversation.id);
+  if (conversationIds.length) {
+    const { data: preferences, error: preferenceError } = await admin
+      .from("conversation_preferences")
+      .select("is_locked,secret_pin_salt,secret_pin_hash")
+      .in("conversation_id", conversationIds)
+      .eq("user_id", call.receiver_id)
+      .eq("is_locked", true);
+    if (preferenceError) {
+      return response({ error: "Could not verify recipient chat privacy" }, 503);
+    }
+    const hasLockedPreference = (preferences ?? []).some(
+      (preference) =>
+        typeof preference.secret_pin_salt === "string" &&
+        preference.secret_pin_salt.length > 0 &&
+        typeof preference.secret_pin_hash === "string" &&
+        preference.secret_pin_hash.length > 0,
+    );
+    if (hasLockedPreference) {
+      return response({ delivered: 0, attempted: 0, suppressed: true });
+    }
+  }
+
   const { data: subscriptions, error: subscriptionsError } = await admin
     .from("call_push_subscriptions")
     .select("id, subscription")

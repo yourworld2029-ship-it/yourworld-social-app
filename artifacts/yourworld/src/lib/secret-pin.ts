@@ -42,10 +42,18 @@ export function randomPinSalt() {
   return bytesToHex(crypto.getRandomValues(new Uint8Array(16)));
 }
 
-/** New PINs use a versioned, deliberately slow hash for safer server storage. */
-export async function hashPin(salt: string, pin: string) {
-  if (!salt || !/^\d{4,8}$/.test(pin)) throw new Error("Invalid PIN input");
-  const digest = await derivePinHash(salt, pin, PIN_HASH_ITERATIONS);
+const SECRET_CODE_PATTERN = /^[a-z\d]{4,8}$/i;
+
+export function isValidSecretCode(value: string) {
+  return SECRET_CODE_PATTERN.test(value);
+}
+
+/** New Secret Codes use a versioned, deliberately slow hash for safer server storage. */
+export async function hashPin(salt: string, secretCode: string) {
+  if (!salt || !isValidSecretCode(secretCode)) {
+    throw new Error("Secret Code must contain 4 to 8 letters or numbers");
+  }
+  const digest = await derivePinHash(salt, secretCode, PIN_HASH_ITERATIONS);
   return `${PIN_HASH_PREFIX}$${PIN_HASH_ITERATIONS}$${digest}`;
 }
 
@@ -53,8 +61,8 @@ export async function hashPin(salt: string, pin: string) {
  * Accept the previous salted SHA-256 format so existing users can still unlock.
  * New PIN writes always use the PBKDF2 format above.
  */
-export async function verifyPin(salt: string, pin: string, storedHash: string) {
-  if (!salt || !/^\d{4,8}$/.test(pin)) return false;
+export async function verifyPin(salt: string, secretCode: string, storedHash: string) {
+  if (!salt || !isValidSecretCode(secretCode)) return false;
 
   const versioned = new RegExp(`^${PIN_HASH_PREFIX}\\$(\\d+)\\$([a-f\\d]{64})$`).exec(storedHash);
   if (versioned) {
@@ -66,12 +74,12 @@ export async function verifyPin(salt: string, pin: string, storedHash: string) {
     ) {
       return false;
     }
-    const candidate = await derivePinHash(salt, pin, iterations);
+    const candidate = await derivePinHash(salt, secretCode, iterations);
     return constantTimeEqual(candidate, versioned[2]);
   }
 
   if (!/^[a-f\d]{64}$/i.test(storedHash)) return false;
-  const legacyInput = encoder.encode(`${salt}:${pin}`);
+  const legacyInput = encoder.encode(`${salt}:${secretCode}`);
   const legacyDigest = await crypto.subtle.digest("SHA-256", legacyInput);
   return constantTimeEqual(bytesToHex(new Uint8Array(legacyDigest)), storedHash.toLowerCase());
 }

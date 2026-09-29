@@ -71,6 +71,7 @@ function NativeChatListPage() {
     () => normalizeChatThreads(cacheGet<unknown>("chat-threads")),
   );
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchRevision, setSearchRevision] = useState(0);
   const [newChatOpen, setNewChatOpen] = useState(false);
   const [peopleQuery, setPeopleQuery] = useState("");
   const [people, setPeople] = useState<DiscoverProfile[]>([]);
@@ -88,7 +89,10 @@ function NativeChatListPage() {
   const longPressed = useRef(false);
   const pendingHiddenRef = useRef(new Set<string>());
   const { nameFor } = useChatNames();
-  const { isHidden, ready: secretChatsReady } = useSecretChats(searchQuery);
+  const { isHidden, revealed, ready: secretChatsReady } = useSecretChats(
+    searchQuery,
+    searchRevision,
+  );
 
   useEffect(() => {
     const timer = window.setInterval(() => setRelativeNow(Date.now()), 30_000);
@@ -316,19 +320,44 @@ function NativeChatListPage() {
     };
   }, [newChatOpen, peopleQuery]);
 
-  const pinQuery = /^\d{4,8}$/.test(searchQuery.trim());
-  const filteredThreads = secretChatsReady && me
-    ? threads.filter((thread) => {
-        const name = typeof thread.name === "string" ? thread.name : "";
-        const lastMessage = typeof thread.lastMessage === "string" ? thread.lastMessage : "";
-        const query = searchQuery.toLowerCase();
-        return (
-          !hidden.includes(thread.id) &&
-          !isHidden(thread.peerId) &&
-          (pinQuery || name.toLowerCase().includes(query) || lastMessage.toLowerCase().includes(query))
-        );
-      })
+  const revealedPeers = new Set(revealed);
+  const normalizedQuery = searchQuery.toLocaleLowerCase();
+  const visibleThreads = secretChatsReady && me
+    ? threads.filter((thread) => !hidden.includes(thread.id))
     : [];
+  const visiblePeers = new Set(
+    visibleThreads.flatMap((thread) => thread.peerId ? [thread.peerId] : []),
+  );
+  const missingRevealedThreads: ChatThread[] = secretChatsReady && me
+    ? revealed
+        .filter((peerId) => !visiblePeers.has(peerId))
+        .map((peerId) => ({
+          id: dmThreadId(me, peerId),
+          name: "Secret Chat",
+          peerId,
+          lastMessage: "",
+        }))
+        .filter((thread) => !hidden.includes(thread.id))
+    : [];
+  const revealedThreads = [
+    ...missingRevealedThreads,
+    ...visibleThreads.filter(
+      (thread) => !!thread.peerId && revealedPeers.has(thread.peerId),
+    ),
+  ];
+  const matchingThreads = visibleThreads.filter((thread) => {
+    if (thread.peerId && revealedPeers.has(thread.peerId)) return false;
+    if (isHidden(thread.peerId)) return false;
+    const name = typeof thread.name === "string" ? thread.name : "";
+    const lastMessage = typeof thread.lastMessage === "string" ? thread.lastMessage : "";
+    return (
+      name.toLocaleLowerCase().includes(normalizedQuery) ||
+      lastMessage.toLocaleLowerCase().includes(normalizedQuery)
+    );
+  });
+  // An exact Secret Code match is always the first result. A query change
+  // removes it synchronously because revealed is keyed to the exact query.
+  const filteredThreads = [...revealedThreads, ...matchingThreads];
 
   const allSelected = filteredThreads.length > 0 && selected.length === filteredThreads.length;
 
@@ -442,8 +471,11 @@ function NativeChatListPage() {
         <input
           type="text"
           value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search messages"
+          onChange={(e) => {
+            setSearchQuery(e.target.value);
+            setSearchRevision((revision) => revision + 1);
+          }}
+          placeholder="Search messages or enter Secret Code"
           className="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-9 pr-4 py-2 text-sm focus:outline-none focus:border-zinc-700"
         />
       </div>

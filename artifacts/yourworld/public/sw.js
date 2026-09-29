@@ -97,6 +97,9 @@ self.addEventListener("push", (event) => {
   const notification = payload.notification || {};
   const merged = { ...notification, ...data, ...payload };
   const isCall = merged.type === "call" || merged.callId;
+  // Message-push producers must pass the recipient-specific lock state. Keep
+  // ordinary notifications unchanged, but never show a locked-chat push.
+  if (!isCall && merged.secretLocked === true) return;
   const mode = merged.mode === "video" ? "video" : "audio";
   const peerName = merged.peerName || "YourWorld";
   const title = isCall
