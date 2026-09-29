@@ -27,6 +27,7 @@ import {
 } from "@/lib/social-data";
 import { supabase } from "@/integrations/supabase/client";
 import { useThreadPresence } from "@/lib/presence";
+import { registerActiveChatView } from "@/lib/active-chat";
 import { useCall } from "@/lib/call-store";
 import { useMoments } from "@/lib/moment-context";
 import { formatChatRelativeTime } from "@/lib/chat-time";
@@ -872,6 +873,11 @@ function NativeChatThreadPage() {
         console.warn("[social-chat] marking thread read failed", cause);
       });
   }, [threadId, markThreadRead]);
+
+  useEffect(() => {
+    if (!currentUserId) return;
+    return registerActiveChatView(currentUserId, threadId);
+  }, [currentUserId, threadId]);
 
   const [showEmojis, setShowEmojis] = useState(false);
   const [showOptionsMenu, setShowOptionsMenu] = useState(false);

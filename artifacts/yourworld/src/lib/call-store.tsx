@@ -12,6 +12,7 @@ import {
 import { Bell, Mic, MicOff, PhoneOff, Phone, Video, VideoOff, SwitchCamera, Zap, ZapOff, Volume2, X, LockKeyhole, Sparkles, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { isSecretChatLockedWith } from "@/lib/secret-chats";
+import { isActiveChatFocusedForCall } from "@/lib/active-chat";
 import { toast } from "sonner";
 import {
   enableCallNotifications,
@@ -1263,14 +1264,20 @@ export function CallProvider({ children }: { children: ReactNode }) {
         return;
       }
       let secretLocked = false;
+      let secretLockCheckFailed = false;
       try {
         secretLocked = await isSecretChatLockedWith(me2, row.caller_id);
       } catch (error) {
         // Fail closed: inability to confirm this lock must not expose the call.
         console.error("[call] Secret Lock state could not be checked", error);
         secretLocked = true;
+        secretLockCheckFailed = true;
       }
-      if (secretLocked) {
+      const activeLockedConversation =
+        secretLocked &&
+        !secretLockCheckFailed &&
+        isActiveChatFocusedForCall(me2, row.caller_id);
+      if (secretLocked && !activeLockedConversation) {
         stopAllRingtones();
         void dismissIncomingCallNotification(row.id);
         const label = row.call_type === "video" ? "Video" : "Audio";
