@@ -53,6 +53,30 @@ export interface PublicLiveStream {
   peak_viewer_count: number;
 }
 
+export interface CallPushInput {
+  /** @pattern ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$ */
+  callId: string;
+}
+
+export interface CallPushResponse {
+  /** @minimum 0 */
+  delivered: number;
+  suppressed: boolean;
+}
+
+export interface CallPushRegistrationInput {
+  /**
+     * @minLength 16
+     * @maxLength 4096
+     */
+  token: string;
+}
+
+export const CallPushRegistrationResponseValue = {
+  registered: true,
+} as const;
+export type CallPushRegistrationResponse = typeof CallPushRegistrationResponseValue;
+
 export interface ApiError {
   error: string;
 }

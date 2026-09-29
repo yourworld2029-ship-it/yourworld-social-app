@@ -16,6 +16,8 @@ tags:
     description: Post operations
   - name: live
     description: Public live-stream discovery
+  - name: calls
+    description: Call notification delivery
 paths:
   /healthz:
     get:
@@ -208,6 +210,94 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+  /calls/push:
+    post:
+      operationId: sendIncomingCallPush
+      tags: [calls]
+      summary: Send an authenticated, Secret-Lock-aware incoming call push
+      security:
+        - SupabaseBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CallPushInput"
+      responses:
+        "200":
+          description: Push delivery result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CallPushResponse"
+        "400":
+          description: Invalid call ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Call is not available to the caller
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "502":
+          description: Supabase or FCM could not complete push delivery
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: FCM delivery is not configured or chat privacy could not be verified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /calls/push/register:
+    post:
+      operationId: registerIncomingCallPush
+      tags: [calls]
+      summary: Register the authenticated Android device for incoming call pushes
+      security:
+        - SupabaseBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CallPushRegistrationInput"
+      responses:
+        "200":
+          description: Android device registration saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CallPushRegistrationResponse"
+        "400":
+          description: Invalid FCM device token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "502":
+          description: Supabase could not save the device registration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
 components:
   securitySchemes:
     SupabaseBearer:
@@ -296,6 +386,47 @@ components:
         - started_at
         - ended_at
         - peak_viewer_count
+    CallPushInput:
+      type: object
+      additionalProperties: false
+      properties:
+        callId:
+          type: string
+          pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+      required:
+        - callId
+    CallPushResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        delivered:
+          type: number
+          multipleOf: 1
+          minimum: 0
+        suppressed:
+          type: boolean
+      required:
+        - delivered
+        - suppressed
+    CallPushRegistrationInput:
+      type: object
+      additionalProperties: false
+      properties:
+        token:
+          type: string
+          minLength: 16
+          maxLength: 4096
+      required:
+        - token
+    CallPushRegistrationResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        registered:
+          type: boolean
+          const: true
+      required:
+        - registered
     ApiError:
       type: object
       properties:

@@ -95,3 +95,41 @@ export const GetPublicLiveStreamResponse = zod.object({
 })
 
 
+/**
+ * @summary Send an authenticated, Secret-Lock-aware incoming call push
+ */
+export const sendIncomingCallPushBodyCallIdRegExp = new RegExp('^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$');
+
+
+export const SendIncomingCallPushBody = zod.object({
+  "callId": zod.string().regex(sendIncomingCallPushBodyCallIdRegExp)
+})
+
+export const sendIncomingCallPushResponseDeliveredMin = 0;
+export const sendIncomingCallPushResponseDeliveredMultipleOf = 1;
+
+
+
+export const SendIncomingCallPushResponse = zod.object({
+  "delivered": zod.number().min(sendIncomingCallPushResponseDeliveredMin).multipleOf(sendIncomingCallPushResponseDeliveredMultipleOf),
+  "suppressed": zod.boolean()
+})
+
+
+/**
+ * @summary Register the authenticated Android device for incoming call pushes
+ */
+export const registerIncomingCallPushBodyTokenMin = 16;
+export const registerIncomingCallPushBodyTokenMax = 4096;
+
+
+
+export const RegisterIncomingCallPushBody = zod.object({
+  "token": zod.string().min(registerIncomingCallPushBodyTokenMin).max(registerIncomingCallPushBodyTokenMax)
+})
+
+export const RegisterIncomingCallPushResponse = zod.object({
+  "registered": zod.literal(true)
+})
+
+

@@ -21,6 +21,10 @@ import type {
 
 import type {
   ApiError,
+  CallPushInput,
+  CallPushRegistrationInput,
+  CallPushRegistrationResponse,
+  CallPushResponse,
   HealthStatus,
   PostPinInput,
   PostPinResponse,
@@ -127,6 +131,13 @@ export function useHealthCheck<TData = Awaited<ReturnType<typeof healthCheck>>, 
 
   return withQueryKey(query, queryOptions.queryKey);
 }
+
+
+
+
+
+
+
 export const getTranscodeVideoUrl = () => {
 
 
@@ -341,6 +352,12 @@ export function useListPublicLiveStreams<TData = Awaited<ReturnType<typeof listP
   return withQueryKey(query, queryOptions.queryKey);
 }
 
+
+
+
+
+
+
 export const getGetPublicLiveStreamUrl = (streamId: string,) => {
 
 
@@ -417,4 +434,146 @@ export function useGetPublicLiveStream<TData = Awaited<ReturnType<typeof getPubl
 
 
 
+
+export const getSendIncomingCallPushUrl = () => {
+
+
+
+
+  return `/api/calls/push`
+}
+
+/**
+ * @summary Send an authenticated, Secret-Lock-aware incoming call push
+ */
+export const sendIncomingCallPush = async (callPushInput: CallPushInput, options?: Parameters<typeof customFetch>[1]): Promise<CallPushResponse> => {
+
+  return customFetch<CallPushResponse>(getSendIncomingCallPushUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(callPushInput)
+  }
+);}
+
+
+
+
+
+export const getSendIncomingCallPushMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendIncomingCallPush>>, TError,{data: BodyType<CallPushInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof sendIncomingCallPush>>, TError,{data: BodyType<CallPushInput>}, TContext> => {
+
+const mutationKey = ['sendIncomingCallPush'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof sendIncomingCallPush>>, {data: BodyType<CallPushInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  sendIncomingCallPush(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SendIncomingCallPushMutationResult = NonNullable<Awaited<ReturnType<typeof sendIncomingCallPush>>>
+    export type SendIncomingCallPushMutationBody = BodyType<CallPushInput>
+    export type SendIncomingCallPushMutationError = ErrorType<ApiError>
+
+    /**
+ * @summary Send an authenticated, Secret-Lock-aware incoming call push
+ */
+export const useSendIncomingCallPush = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendIncomingCallPush>>, TError,{data: BodyType<CallPushInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof sendIncomingCallPush>>,
+        TError,
+        {data: BodyType<CallPushInput>},
+        TContext
+      > => {
+      return useMutation(getSendIncomingCallPushMutationOptions(options));
+    }
+
+export const getRegisterIncomingCallPushUrl = () => {
+
+
+
+
+  return `/api/calls/push/register`
+}
+
+/**
+ * @summary Register the authenticated Android device for incoming call pushes
+ */
+export const registerIncomingCallPush = async (callPushRegistrationInput: CallPushRegistrationInput, options?: Parameters<typeof customFetch>[1]): Promise<CallPushRegistrationResponse> => {
+
+  return customFetch<CallPushRegistrationResponse>(getRegisterIncomingCallPushUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(callPushRegistrationInput)
+  }
+);}
+
+
+
+
+
+export const getRegisterIncomingCallPushMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof registerIncomingCallPush>>, TError,{data: BodyType<CallPushRegistrationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof registerIncomingCallPush>>, TError,{data: BodyType<CallPushRegistrationInput>}, TContext> => {
+
+const mutationKey = ['registerIncomingCallPush'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof registerIncomingCallPush>>, {data: BodyType<CallPushRegistrationInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  registerIncomingCallPush(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RegisterIncomingCallPushMutationResult = NonNullable<Awaited<ReturnType<typeof registerIncomingCallPush>>>
+    export type RegisterIncomingCallPushMutationBody = BodyType<CallPushRegistrationInput>
+    export type RegisterIncomingCallPushMutationError = ErrorType<ApiError>
+
+    /**
+ * @summary Register the authenticated Android device for incoming call pushes
+ */
+export const useRegisterIncomingCallPush = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof registerIncomingCallPush>>, TError,{data: BodyType<CallPushRegistrationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof registerIncomingCallPush>>,
+        TError,
+        {data: BodyType<CallPushRegistrationInput>},
+        TContext
+      > => {
+      return useMutation(getRegisterIncomingCallPushMutationOptions(options));
+    }
 

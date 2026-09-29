@@ -1,6 +1,8 @@
 package com.yourworld.app;
 
+import android.content.Intent;
 import android.graphics.Color;
+import android.os.Build;
 import android.os.Bundle;
 import android.view.WindowManager;
 import android.webkit.WebSettings;
@@ -16,12 +18,17 @@ import androidx.core.view.ViewCompat;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
+    private static volatile boolean appForeground;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         registerPlugin(PrivacyBridgePlugin.class);
         registerPlugin(CallAudioRoutingPlugin.class);
+        registerPlugin(CallPushPlugin.class);
         super.onCreate(savedInstanceState);
 
+        prepareForIncomingCall(getIntent());
+        CallPushPlugin.captureNotificationAction(getIntent());
         configureSystemBars();
 
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
@@ -42,6 +49,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onResume() {
         super.onResume();
+        appForeground = true;
         configureSystemBars();
 
         WebView webView = getBridge() != null ? getBridge().getWebView() : null;
@@ -50,6 +58,57 @@ public class MainActivity extends BridgeActivity {
             webView.evaluateJavascript(
                     "window.dispatchEvent(new Event('yw-app-resume'));",
                     null
+            );
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        prepareForIncomingCall(intent);
+        CallPushPlugin.captureNotificationAction(intent);
+    }
+
+    @Override
+    protected void onPause() {
+        appForeground = false;
+        super.onPause();
+    }
+
+    @Override
+    protected void onStop() {
+        clearIncomingCallLockScreenFlags();
+        super.onStop();
+    }
+
+    static boolean isAppForeground() {
+        return appForeground;
+    }
+
+    private void prepareForIncomingCall(Intent intent) {
+        if (intent == null || !CallPushPlugin.isCallNotificationIntent(intent)) {
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(true);
+            setTurnScreenOn(true);
+        } else {
+            getWindow().addFlags(
+                    WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+                            | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            );
+        }
+    }
+
+    private void clearIncomingCallLockScreenFlags() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(false);
+            setTurnScreenOn(false);
+        } else {
+            getWindow().clearFlags(
+                    WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+                            | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
             );
         }
     }

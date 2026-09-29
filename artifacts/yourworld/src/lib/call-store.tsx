@@ -28,6 +28,15 @@ import {
   type CallNotificationAction,
 } from "@/lib/call-notifications";
 import {
+  addAndroidCallPushActionListener,
+  consumeAndroidCallPushAction,
+  dismissAndroidCallNotification,
+  getAndroidCallPushStatus,
+  getAndroidCallPushToken,
+  isAndroidCallPushAvailable,
+  registerAndroidCallPush,
+} from "@/lib/call-push-native";
+import {
   CALL_ICE_SERVERS,
   getCallMedia,
   getCallVideo,
@@ -62,6 +71,23 @@ const callDb = supabase as unknown as {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
    from: (table: "calls" | "messages" | "user_blocks" | "call_push_subscriptions") => any;
 };
+
+async function syncAndroidCallPushToken(userId: string, token: string) {
+  const { data, error } = await supabase.auth.getSession();
+  if (error || data.session?.user.id !== userId) return;
+
+  const response = await fetch("/api/calls/push/register", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${data.session.access_token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ token }),
+  });
+  if (!response.ok) {
+    console.debug("[call-notifications] Android subscription sync pending");
+  }
+}
 
 export type CallMode = "audio" | "video";
 type Phase = "idle" | "outgoing" | "incoming" | "connecting" | "active" | "ended";
@@ -475,8 +501,21 @@ export function CallProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!me || typeof window === "undefined" || !("Notification" in window)) return;
-    if (Notification.permission === "default" && !hasSeenCallNotificationBanner()) {
+    if (!me || typeof window === "undefined" || hasSeenCallNotificationBanner()) return;
+    if (isAndroidCallPushAvailable()) {
+      void getAndroidCallPushStatus()
+        .then((status) => {
+          if (
+            status &&
+            (status.permission !== "granted" || !status.fullScreenIntentAllowed)
+          ) {
+            setShowNotificationBanner(true);
+          }
+        })
+        .catch(() => setShowNotificationBanner(true));
+      return;
+    }
+    if ("Notification" in window && Notification.permission === "default") {
       setShowNotificationBanner(true);
     }
   }, [me]);
@@ -523,7 +562,36 @@ export function CallProvider({ children }: { children: ReactNode }) {
       pendingNotificationAction.current = event.data;
     };
     navigator.serviceWorker?.addEventListener("message", onMessage);
-    return () => navigator.serviceWorker?.removeEventListener("message", onMessage);
+    let disposed = false;
+    let removeNativeListener: (() => void) | null = null;
+    const onNativeAction = (action: CallNotificationAction) => {
+      if (
+        !action?.callId ||
+        (action.action !== "accept" && action.action !== "decline") ||
+        (action.mode !== "audio" && action.mode !== "video") ||
+        typeof action.peerName !== "string"
+      ) {
+        return;
+      }
+      pendingNotificationAction.current = action;
+      void consumeAndroidCallPushAction();
+    };
+    void addAndroidCallPushActionListener(onNativeAction).then((listener) => {
+      if (!listener) return;
+      if (disposed) {
+        void listener.remove();
+      } else {
+        removeNativeListener = () => void listener.remove();
+      }
+    });
+    void consumeAndroidCallPushAction().then((action) => {
+      if (action) onNativeAction(action);
+    });
+    return () => {
+      disposed = true;
+      removeNativeListener?.();
+      navigator.serviceWorker?.removeEventListener("message", onMessage);
+    };
   }, []);
 
   useEffect(() => {
@@ -548,6 +616,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     return () => {
       document.removeEventListener("visibilitychange", syncIncomingNotification);
       void dismissIncomingCallNotification(incomingCall.callId);
+      void dismissAndroidCallNotification(incomingCall.callId);
     };
   }, [call, phase]);
 
@@ -596,11 +665,26 @@ export function CallProvider({ children }: { children: ReactNode }) {
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  // Keep the current browser device registered for provider-delivered pushes.
-  // The subscription contains public endpoint/key material only.
+  // Keep this installation registered with its native or browser push provider.
   useEffect(() => {
-    if (!me || typeof window === "undefined" || !("Notification" in window)) return;
-    if (Notification.permission !== "granted") return;
+    if (!me || typeof window === "undefined") return;
+
+    if (isAndroidCallPushAvailable()) {
+      const syncToken = () => {
+        void getAndroidCallPushToken()
+          .then((token) => {
+            if (token) return syncAndroidCallPushToken(me, token);
+          })
+          .catch(() => {
+            // Registration retries the next time the app resumes.
+          });
+      };
+      syncToken();
+      window.addEventListener("yw-app-resume", syncToken);
+      return () => window.removeEventListener("yw-app-resume", syncToken);
+    }
+
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
     void getExistingCallPushSubscription().then((subscription) => {
       if (!subscription) return;
       const serialized = serializeCallPushSubscription(subscription);
@@ -1545,8 +1629,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
           .select("avatar_url")
           .eq("id", authId)
           .maybeSingle()
-          .then(({ data: callerProfile }) =>
-            supabase.functions.invoke("send-call-push", {
+          .then(({ data: callerProfile }) => {
+            void supabase
+              .functions
+              .invoke("send-call-push", {
               body: {
                 callId,
                 receiverId: target,
@@ -1554,10 +1640,33 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 peerName: peerName ?? "YourWorld caller",
                 avatarUrl: callerProfile?.avatar_url ?? null,
               },
-            }),
-          )
-          .then(({ error: pushError }) => {
-            if (pushError) console.debug("[call-notifications] background push unavailable", pushError);
+              })
+              .then(({ error: pushError }) => {
+                if (pushError) {
+                  console.debug("[call-notifications] background push unavailable", pushError);
+                }
+              });
+            void supabase.auth
+              .getSession()
+              .then(({ data: sessionData, error: sessionError }) => {
+                const accessToken = sessionData.session?.access_token;
+                if (sessionError || !accessToken) return;
+                return fetch("/api/calls/push", {
+                  method: "POST",
+                  headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({ callId }),
+                }).then((response) => {
+                  if (!response.ok) {
+                    console.debug("[call-notifications] Android push delivery pending");
+                  }
+                });
+              })
+              .catch(() => {
+                // FCM is best-effort; realtime remains the source of truth.
+              });
           });
         const nextCall = {
           callId,
@@ -1926,6 +2035,25 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const enableNotifications = async () => {
     markCallNotificationBannerSeen();
     setShowNotificationBanner(false);
+    if (isAndroidCallPushAvailable()) {
+      try {
+        const result = await registerAndroidCallPush();
+        if (result.permission === "granted") {
+          if (result.token && me) {
+            await syncAndroidCallPushToken(me, result.token);
+            toast.success("Call notifications enabled");
+          } else if (result.fullScreenIntentPermissionRequired) {
+            toast.message("Allow full-screen call notifications, then return to YourWorld");
+          }
+        } else if (result.permission === "denied") {
+          toast.message("Notifications remain disabled");
+        }
+      } catch {
+        toast.error("Could not enable Android call notifications");
+      }
+      return;
+    }
+
     const result = await enableCallNotifications();
     if (result.permission === "granted") {
       if (result.subscription && me) {

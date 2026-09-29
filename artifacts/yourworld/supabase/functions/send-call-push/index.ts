@@ -113,7 +113,8 @@ Deno.serve(async (request) => {
   const { data: subscriptions, error: subscriptionsError } = await admin
     .from("call_push_subscriptions")
     .select("id, subscription")
-    .eq("user_id", payload.receiverId);
+    .eq("user_id", payload.receiverId)
+    .eq("provider", "webpush");
   if (subscriptionsError) return response({ error: "Could not load push subscriptions" }, 500);
 
   webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
