@@ -5,7 +5,7 @@ import { Capacitor } from "@capacitor/core";
 import {
   ArrowLeft, Phone, Video, MoreVertical, ChevronRight, Palette, Image as ImageIcon,
   Mic, Send, Smile, Play, Pause, X,
-  Pencil, Lock, EyeOff, Clock, Camera, BellOff, UserX, Flag, Shield,
+  Pencil, Lock, EyeOff, Clock, Camera, BellOff, UserX, Flag, Shield, Maximize2,
   Trash2, CheckCheck, Check, Crop, Type, Sparkles 
 } from "lucide-react";
 import {
@@ -15,7 +15,11 @@ import {
 import { needsProtectionWarning, PLATFORM_PROTECTION_WARNING_TITLE, PLATFORM_PROTECTION_WARNING_BODY } from "@/lib/chat-compliance";
 import { LazyImage } from "@/components/yw/LazyImage";
 import { HoldToRevealButton } from "@/components/yw/HoldToRevealButton";
-import { ProtectedCanvasImage, ProtectedCanvasText } from "@/components/yw/ProtectedCanvasContent";
+import {
+  ProtectedCanvasImage,
+  ProtectedCanvasText,
+} from "@/components/yw/ProtectedCanvasContent";
+import { ChatMessageText } from "@/components/yw/ChatRichLinkCard";
 import { ChatMessageErrorBoundary } from "@/components/yw/ChatMessageErrorBoundary";
 import { compressImageFile } from "@/lib/image-compress";
 import { useMyProfile } from "@/lib/profile-data";
@@ -518,6 +522,13 @@ function mediaKindFromMetadata(
   return mediaUrl ? "image" : undefined;
 }
 
+function messageAttachmentKind(message: Message): "image" | "video" {
+  return message.mediaKind === "video" ||
+    Boolean(message.image && /\.(mp4|m4v|mov|webm)(?:[?#]|$)/i.test(message.image))
+    ? "video"
+    : "image";
+}
+
 function replyPreviewFromMetadata(metadata: Record<string, unknown> | null | undefined): ReplyPreview | undefined {
   const raw = metadata?.reply_to;
   if (!raw || typeof raw !== "object") return undefined;
@@ -624,6 +635,10 @@ function NativeChatThreadPage() {
     url: string;
     kind: "image" | "audio";
     revokeUrl: boolean;
+  } | null>(null);
+  const [sentMediaViewer, setSentMediaViewer] = useState<{
+    url: string;
+    kind: "image" | "video";
   } | null>(null);
   const [openingViewOnceId, setOpeningViewOnceId] = useState<string | null>(null);
 
@@ -737,6 +752,14 @@ function NativeChatThreadPage() {
     if (!viewOnceOpen?.revokeUrl) return;
     return () => URL.revokeObjectURL(viewOnceOpen.url);
   }, [viewOnceOpen]);
+  useEffect(() => {
+    if (!sentMediaViewer) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSentMediaViewer(null);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [sentMediaViewer]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const keepScrollRef = useRef<number | null>(null);
@@ -2124,9 +2147,9 @@ function NativeChatThreadPage() {
                   />
                 ) : null}
                 {m.text && !m.sharedMedia ? (
-                  <ProtectedCanvasText
+                  <ChatMessageText
                     text={m.text}
-                    onUrlClick={(url, event) =>
+                    onOpenLink={(url, event) =>
                       handleMessageUrlClick(url, m.id, event)
                     }
                   />
@@ -2165,14 +2188,53 @@ function NativeChatThreadPage() {
               !m.momentId &&
               !m.isMomentReply &&
               !(m.viewOnce && (m.opened || openedOnce.includes(m.id))) ? (
-              <div className="max-w-[75%] rounded-2xl overflow-hidden border border-zinc-800 shadow-lg">
-                <LazyImage
-                  src={m.image}
-                  alt="Attachment"
-                  wrapperClassName="w-full"
-                  className="w-full h-auto object-cover max-h-60"
-                />
-              </div>
+              <button
+                type="button"
+                aria-label={`Open ${m.sender === "me" ? "sent " : ""}${messageAttachmentKind(m)} full screen`}
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (selectMode) {
+                    toggleSelect(m.id);
+                    return;
+                  }
+                  setSentMediaViewer({
+                    url: m.image!,
+                    kind: messageAttachmentKind(m),
+                  });
+                }}
+                className="group relative block max-w-[75%] overflow-hidden rounded-2xl border border-zinc-800 text-left shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+              >
+                {messageAttachmentKind(m) === "video" ? (
+                  <span className="relative block bg-black">
+                    <video
+                      src={m.image}
+                      muted
+                      playsInline
+                      preload="metadata"
+                      aria-hidden="true"
+                      className="block max-h-60 w-full object-contain"
+                    />
+                    <span className="pointer-events-none absolute inset-0 grid place-items-center bg-black/10">
+                      <span className="grid h-12 w-12 place-items-center rounded-full border border-white/35 bg-black/45 text-white shadow-lg backdrop-blur-sm">
+                        <Play size={19} className="ml-0.5 fill-current" />
+                      </span>
+                    </span>
+                  </span>
+                ) : (
+                  <span className="relative block">
+                    <LazyImage
+                      src={m.image}
+                      alt="Attachment"
+                      wrapperClassName="w-full"
+                      className="w-full h-auto object-cover max-h-60"
+                    />
+                  </span>
+                )}
+                <span className="pointer-events-none absolute bottom-2 right-2 grid h-8 w-8 place-items-center rounded-full border border-white/20 bg-black/65 text-white shadow-lg backdrop-blur-sm">
+                  <Maximize2 size={15} aria-hidden="true" />
+                </span>
+              </button>
             ) : null}
 
             {m.audio && m.viewOnce && m.sender === "them" && !m.opened && !openedOnce.includes(m.id) && (
@@ -2376,6 +2438,50 @@ function NativeChatThreadPage() {
 
     </div>
     {/* WhatsApp / Instagram Style Full Screen Editor */}
+{sentMediaViewer && (
+  <div
+    role="dialog"
+    aria-modal="true"
+    aria-label={`Full-screen chat ${sentMediaViewer.kind}`}
+    onClick={() => setSentMediaViewer(null)}
+    className="fixed inset-0 z-[150] flex flex-col bg-black/95 p-3 text-white"
+  >
+    <div className="flex items-center justify-between px-1 py-2">
+      <span className="text-xs font-semibold uppercase tracking-[0.14em] text-white/60">
+        {sentMediaViewer.kind === "video" ? "Video" : "Photo"}
+      </span>
+      <button
+        type="button"
+        aria-label="Close media preview"
+        onClick={() => setSentMediaViewer(null)}
+        className="grid h-10 w-10 place-items-center rounded-full bg-zinc-800/80 text-white transition hover:bg-zinc-700"
+      >
+        <X size={20} />
+      </button>
+    </div>
+    <div
+      className="flex min-h-0 flex-1 items-center justify-center overflow-hidden"
+      onClick={(event) => event.stopPropagation()}
+    >
+      {sentMediaViewer.kind === "video" ? (
+        <video
+          src={sentMediaViewer.url}
+          controls
+          playsInline
+          preload="metadata"
+          aria-label="Chat video"
+          className="max-h-full max-w-full rounded-lg object-contain"
+        />
+      ) : (
+        <ProtectedCanvasImage
+          src={sentMediaViewer.url}
+          alt="Chat photo"
+          className="max-h-full max-w-full rounded-lg object-contain"
+        />
+      )}
+    </div>
+  </div>
+)}
 {viewOnceOpen && (
   <div className="fixed inset-0 z-[95] bg-black flex flex-col">
     <div className="flex items-center justify-between p-4 text-white">

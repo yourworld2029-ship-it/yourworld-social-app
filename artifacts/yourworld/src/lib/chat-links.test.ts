@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { extractExternalTextLinks } from "./chat-links";
+import {
+  extractExternalTextLinks,
+  getExternalLinkPresentation,
+} from "./chat-links";
 
 test("finds social and other web URLs with or without a scheme", () => {
   const text =
@@ -35,4 +38,24 @@ test("does not create links for unsupported schemes", () => {
     extractExternalTextLinks("javascript://example.com or ftp://files.example.com"),
     [],
   );
+});
+
+test("identifies social platforms and normalized domains for rich link cards", () => {
+  assert.deepEqual(getExternalLinkPresentation("https://www.youtube.com/watch?v=abc"), {
+    platform: "youtube",
+    domain: "youtube.com",
+  });
+  assert.deepEqual(getExternalLinkPresentation("https://youtu.be/abc"), {
+    platform: "youtube",
+    domain: "youtu.be",
+  });
+  assert.deepEqual(getExternalLinkPresentation("https://www.instagram.com/p/abc"), {
+    platform: "instagram",
+    domain: "instagram.com",
+  });
+  assert.deepEqual(getExternalLinkPresentation("https://example.org/article"), {
+    platform: "web",
+    domain: "example.org",
+  });
+  assert.equal(getExternalLinkPresentation("javascript:alert(1)"), null);
 });

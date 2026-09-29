@@ -5,6 +5,13 @@ export type ExternalTextLink = {
   href: string;
 };
 
+export type ExternalLinkPlatform = "youtube" | "instagram" | "web";
+
+export type ExternalLinkPresentation = {
+  platform: ExternalLinkPlatform;
+  domain: string;
+};
+
 const URL_CANDIDATE_PATTERN =
   /(?:https?:\/\/|\/\/)[^\s<>"'`]+|www\.[^\s<>"'`]+|(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}(?::\d+)?(?:[/?#][^\s<>"'`]*)?/giu;
 
@@ -85,4 +92,34 @@ export function extractExternalTextLinks(text: string): ExternalTextLink[] {
   }
 
   return links;
+}
+
+export function getExternalLinkPresentation(href: string): ExternalLinkPresentation | null {
+  try {
+    const parsed = new URL(href);
+    if (
+      (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
+      !parsed.hostname
+    ) {
+      return null;
+    }
+
+    const hostname = parsed.hostname.toLowerCase().replace(/^www\./, "");
+    const platform: ExternalLinkPlatform =
+      hostname === "youtu.be" ||
+      hostname === "youtube.com" ||
+      hostname.endsWith(".youtube.com") ||
+      hostname === "youtube-nocookie.com"
+        ? "youtube"
+        : hostname === "instagram.com" || hostname.endsWith(".instagram.com")
+          ? "instagram"
+          : "web";
+
+    return {
+      platform,
+      domain: parsed.hostname.replace(/^www\./i, ""),
+    };
+  } catch {
+    return null;
+  }
 }
