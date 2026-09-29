@@ -1054,7 +1054,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   );
 
   const handlePlayerSurfaceClick = useCallback(
-    (event: ReactMouseEvent<HTMLDivElement>) => {
+    (event: ReactMouseEvent<HTMLVideoElement>) => {
       if (!isDetailPlayer) return;
       if (Date.now() < suppressSyntheticClickUntilRef.current) return;
       if (screenLocked) {
@@ -1083,7 +1083,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   );
 
   const handleTouchStart = useCallback(
-    (event: ReactTouchEvent<HTMLDivElement>) => {
+    (event: ReactTouchEvent<HTMLVideoElement>) => {
       if (!isDetailPlayer) return;
       const target = event.target;
       if (target instanceof Element && target.closest("button, input, [role='menu']")) {
@@ -1130,7 +1130,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   );
 
   const handleTouchMove = useCallback(
-    (event: ReactTouchEvent<HTMLDivElement>) => {
+    (event: ReactTouchEvent<HTMLVideoElement>) => {
       if (!isDetailPlayer) return;
       if (isFullscreen && screenLocked) {
         event.preventDefault();
@@ -1194,7 +1194,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   );
 
   const handleTouchEnd = useCallback(
-    (event: ReactTouchEvent<HTMLDivElement>) => {
+    (event: ReactTouchEvent<HTMLVideoElement>) => {
       if (!isDetailPlayer) return;
       const target = event.target;
       if (target instanceof Element && target.closest("button, input, [role='menu']")) {
@@ -1310,9 +1310,24 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
 
   return (
     <VideoPlaybackContext.Provider value={contextValue}>
-      <div className="relative min-h-screen">{children}</div>
-      {activeVideo ? (
+      <div
+        className={
+          isPlayerRoute
+            ? `relative flex h-[100dvh] flex-col ${isFullscreen ? "overflow-visible" : "overflow-hidden"}`
+            : "relative min-h-screen"
+        }
+      >
         <div
+          className={
+            isPlayerRoute
+              ? "yw-video-detail-scroll order-2 min-h-0 flex-1 overflow-y-auto overscroll-contain"
+              : "relative min-h-screen"
+          }
+        >
+          {children}
+        </div>
+        {activeVideo ? (
+          <div
           ref={containerRef}
           className={
             pictureInPicture
@@ -1330,7 +1345,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                   ? `fixed inset-0 z-50 h-screen w-screen max-w-none bg-black ${
                       needsAndroidPortraitSafeArea ? "yw-android-video-safe-area" : ""
                     }`
-                  : `fixed inset-x-0 top-0 z-50 mx-auto w-full max-w-lg bg-black ${
+                  : `sticky top-0 z-50 order-1 mx-auto block aspect-video w-full max-w-lg shrink-0 bg-black ${
                       needsAndroidPortraitSafeArea ? "yw-android-video-safe-area" : ""
                     }`
                 : isPlayerRoute
@@ -1341,9 +1356,6 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
           onPointerMove={pictureInPicture ? moveFloatingPlayer : undefined}
           onPointerUp={pictureInPicture ? finishFloatingDrag : undefined}
           onPointerCancel={pictureInPicture ? finishFloatingDrag : undefined}
-          onTouchStart={showDetailChrome ? handleTouchStart : undefined}
-          onTouchMove={showDetailChrome ? handleTouchMove : undefined}
-          onTouchEnd={showDetailChrome ? handleTouchEnd : undefined}
           style={
             pictureInPicture
               ? {
@@ -1372,9 +1384,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                             ? "yw-android-video-safe-area-fullscreen"
                             : ""
                         }`
-                      : isVerticalVideo
-                        ? "aspect-[9/16]"
-                        : "aspect-video"
+                    : "h-full"
                   }`
                 : `relative ${
                     isVerticalVideo ? "aspect-[9/16]" : "aspect-video"
@@ -1383,9 +1393,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
             onClick={
               pictureInPicture
                 ? openFromFloatingPlayer
-                : showDetailChrome
-                  ? handlePlayerSurfaceClick
-                  : undefined
+                : undefined
             }
             style={showDetailChrome && isFullscreen ? { width: "100vw", height: "100vh" } : undefined}
           >
@@ -1406,6 +1414,10 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               onVolumeChange={handleVolumeChange}
               onPlay={handleVideoPlay}
               onPause={handleVideoPause}
+              onClick={showDetailChrome ? handlePlayerSurfaceClick : undefined}
+              onTouchStart={showDetailChrome ? handleTouchStart : undefined}
+              onTouchMove={showDetailChrome ? handleTouchMove : undefined}
+              onTouchEnd={showDetailChrome ? handleTouchEnd : undefined}
               className={`video-player-native-controls h-full w-full ${
                 (showDetailChrome && isFullscreen) || displayMode === "fill"
                   ? "object-cover"
@@ -1420,6 +1432,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                     : "contain",
                 filter: `brightness(${brightness})`,
                 transition: gestureFeedback?.kind === "zoom" ? "none" : "transform 160ms ease-out",
+                touchAction: showDetailChrome ? (isFullscreen ? "none" : "auto") : undefined,
               }}
             />
 
@@ -1785,8 +1798,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               {activeVideo.title || "Now playing"}
             </button>
           ) : null}
-        </div>
-      ) : null}
+          </div>
+        ) : null}
+      </div>
     </VideoPlaybackContext.Provider>
   );
 }
@@ -1800,17 +1814,15 @@ export function useVideoPlayback() {
 }
 
 export function VideoPlaybackSlot({
-  isVertical,
   className = "",
 }: {
-  isVertical?: boolean;
   className?: string;
 } = {}) {
-  const { isDetailPlayer, isVerticalVideo } = useVideoPlayback();
-  const usePortraitAspect = isVertical ?? (isDetailPlayer && isVerticalVideo);
+  const { isDetailPlayer } = useVideoPlayback();
+  if (isDetailPlayer) return null;
   return (
     <div
-      className={`${usePortraitAspect ? "aspect-[9/16]" : "aspect-video"} mx-auto w-full max-w-lg bg-black ${className}`}
+      className={`mx-auto block aspect-video w-full max-w-lg bg-black ${className}`}
       aria-hidden="true"
     />
   );

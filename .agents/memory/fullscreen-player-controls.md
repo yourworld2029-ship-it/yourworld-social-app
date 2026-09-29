@@ -20,3 +20,9 @@ On every fullscreen exit path, restore the saved page scroll after unlocking ori
 **Why:** Device rotation and fullscreen layout changes can shift the page viewport, while leaving fullscreen is a display change rather than a playback stop.
 
 **How to apply:** Capture `scrollY` when entering, then restore it after fullscreen state and orientation have settled on button exit, external exit, or route exit. Do not pause the video as part of fullscreen teardown.
+
+On the video detail route, keep the 16:9 player in the page layout above a dedicated scrollable content area with a 24px top gap; attach basic tap handlers to the video element itself.
+
+**Why:** A fixed overlay and a separate spacer can drift out of alignment and cover the title as content scrolls.
+
+**How to apply:** Use a viewport-height column on detail routes, keep the player as a sticky block, and scroll the content below it independently. Do not render the spacer while the detail player is active.

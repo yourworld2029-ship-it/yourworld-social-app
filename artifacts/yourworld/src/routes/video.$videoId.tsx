@@ -1089,15 +1089,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           onUnlock={handleUnlock}
         />
       ) : (
-        <VideoPlaybackSlot
-          isVertical={
-            typeof video.original_width === "number" &&
-            typeof video.original_height === "number"
-              ? video.original_height > video.original_width
-              : undefined
-          }
-          className="mb-8"
-        />
+        <VideoPlaybackSlot />
       )}
 
       {showNextEpisodeCountdown ? (
