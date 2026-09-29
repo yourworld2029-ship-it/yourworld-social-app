@@ -11,7 +11,7 @@
 - [Watermarked video downloads](watermarked-reel-downloads.md) — use the creator-watermarked export for Reels and horizontal/vertical videos; never fall back to unwatermarked bytes.
 - [Quality-specific downloads](quality-downloads.md) — preserve the source tier and keep offline copies until explicit user deletion; scope library rows by owner.
 - [Audio-preserving compression](audio-preserving-compression.md) — only use a local re-encode when a source audio track is attached; otherwise upload the original.
-- [Auto-delete messages](auto-delete-messages.md) — shared settings and row retention; validated non-View-Once Moment replies must not delete their source asset.
+- [Auto-delete messages](auto-delete-messages.md) — Social Vanish Mode deletes viewed messages on chat exit; timed modes expire from creation; Moment sources remain protected.
 - [Chat security load fallback](chat-security-fallback.md) — missing lock metadata or PIN material must clear the loading gate and show the thread; catch settings and crypto failures.
 - [Secret Lock code policy](secret-lock-code-policy.md) — codes are 4–8 alphanumeric characters with no recovery; keep legacy numeric hashes verifiable.
 - [Destructive list mutations](destructive-list-mutations.md) — after a confirmed delete, preserve the local removal instead of applying an uncoordinated stale refresh.

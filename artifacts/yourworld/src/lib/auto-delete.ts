@@ -1,4 +1,4 @@
-export type AutoDeleteSetting = "off" | "after_view" | "6_hours" | "24_hours";
+export type AutoDeleteSetting = "off" | "after_view" | "3_hours" | "6_hours" | "24_hours";
 export const AFTER_VIEW_DELAY_MS = 5_000;
 
 export const AUTO_DELETE_OPTIONS: readonly {
@@ -6,16 +6,18 @@ export const AUTO_DELETE_OPTIONS: readonly {
   label: string;
 }[] = [
   { value: "off", label: "Off" },
-  { value: "after_view", label: "After View" },
-  { value: "6_hours", label: "6 Hours" },
+  { value: "after_view", label: "After View (Vanish Mode)" },
+  { value: "3_hours", label: "3 Hours" },
   { value: "24_hours", label: "24 Hours" },
 ];
 
 export function autoDeleteLabel(setting: AutoDeleteSetting) {
-  return AUTO_DELETE_OPTIONS.find((option) => option.value === setting)?.label ?? "Off";
+  const normalized = normalizeAutoDeleteSetting(setting);
+  return AUTO_DELETE_OPTIONS.find((option) => option.value === normalized)?.label ?? "Off";
 }
 
 export function autoDeleteSeconds(setting: AutoDeleteSetting) {
+  if (setting === "3_hours") return 3 * 60 * 60;
   if (setting === "6_hours") return 6 * 60 * 60;
   if (setting === "24_hours") return 24 * 60 * 60;
   return 0;
@@ -44,10 +46,11 @@ export function normalizeAutoDeleteSetting(
   value: unknown,
   legacySeconds = 0,
 ): AutoDeleteSetting {
-  if (value === "after_view" || value === "6_hours" || value === "24_hours") {
+  if (value === "after_view" || value === "3_hours" || value === "24_hours") {
     return value;
   }
+  if (value === "6_hours") return "3_hours";
   if (Number(legacySeconds) >= 24 * 60 * 60) return "24_hours";
-  if (Number(legacySeconds) > 0) return "6_hours";
+  if (Number(legacySeconds) > 0) return "3_hours";
   return "off";
 }

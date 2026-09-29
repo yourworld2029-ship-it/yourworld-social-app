@@ -10,11 +10,13 @@ type ChatMediaRow = {
   id: string;
   sender_id: string;
   receiver_id: string;
+  conversation_id?: string | null;
   media_url: string | null;
   voice_note_url: string | null;
   metadata: Record<string, unknown> | null;
   auto_delete_mode: string | null;
   is_viewed: boolean | null;
+  is_system_message?: boolean | null;
   expires_at: string | null;
 };
 
@@ -225,6 +227,94 @@ export const purgeViewedSocialMedia = createServerFn({ method: "POST" })
       hadMedia: true,
       deleted: Array.isArray(deletedRows) && deletedRows.length > 0,
     };
+  });
+
+const deleteViewedSocialMessagesSchema = z.object({
+  conversationId: z.string().uuid(),
+});
+
+/**
+ * On chat exit, removes viewed Vanish Mode rows for the authenticated recipient.
+ * Owned chat files are deleted before the participant-checked hard-delete RPC;
+ * shared Moment source files are intentionally retained.
+ */
+export const deleteViewedSocialMessagesOnExit = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((data) => deleteViewedSocialMessagesSchema.parse(data))
+  .handler(async ({ data, context }) => {
+    const { data: conversationData, error: conversationError } = await context.supabase
+      .from("conversations" as never)
+      .select("participant_one_id,participant_two_id" as never)
+      .eq("id" as never, data.conversationId)
+      .maybeSingle();
+
+    if (conversationError) throw new Error(conversationError.message);
+    const conversation = conversationData as unknown as {
+      participant_one_id: string;
+      participant_two_id: string;
+    } | null;
+    if (
+      !conversation ||
+      ![conversation.participant_one_id, conversation.participant_two_id].includes(context.userId)
+    ) {
+      throw new Error("Not a participant in this conversation.");
+    }
+
+    const selectColumns =
+      "id,sender_id,receiver_id,conversation_id,media_url,voice_note_url,metadata,auto_delete_mode,is_viewed,is_system_message,expires_at";
+    const loadViewedRows = (conversationOnly: boolean) =>
+      fetchAllPages<ChatMediaRow>((from, to) => {
+        let query = context.supabase
+          .from("messages" as never)
+          .select(selectColumns as never);
+        if (conversationOnly) {
+          query = query.eq("conversation_id" as never, data.conversationId);
+        } else {
+          query = query.or(
+            `and(sender_id.eq.${conversation.participant_one_id},receiver_id.eq.${conversation.participant_two_id}),and(sender_id.eq.${conversation.participant_two_id},receiver_id.eq.${conversation.participant_one_id})`,
+          );
+        }
+        return query
+          .eq("receiver_id" as never, context.userId)
+          .eq("auto_delete_mode" as never, "after_view")
+          .eq("is_viewed" as never, true)
+          .range(from, to) as never;
+      });
+
+    const [conversationRows, pairRows] = await Promise.all([
+      loadViewedRows(true),
+      loadViewedRows(false),
+    ]);
+    const viewedRows = [
+      ...new Map([...conversationRows, ...pairRows].map((row) => [row.id, row])).values(),
+    ].filter(
+      (row) =>
+        row.is_system_message !== true &&
+        row.metadata?.view_once !== true &&
+        row.metadata?.view_once !== "true",
+    );
+
+    await removeStorageObjects(
+      viewedRows.map((row) => getChatStorageObject(row)),
+    );
+
+    const { data: deletedRows, error: deleteError } = await context.supabase.rpc(
+      "delete_viewed_social_messages_on_exit" as never,
+      { _conversation_id: data.conversationId } as never,
+    );
+    if (deleteError) throw new Error(`Could not permanently delete viewed chat messages: ${deleteError.message}`);
+
+    const deletedRowValues: unknown = deletedRows;
+    const deletedMessageIds = Array.isArray(deletedRowValues)
+      ? deletedRowValues.flatMap((row: unknown) => {
+          if (typeof row === "string") return [row];
+          if (!row || typeof row !== "object") return [];
+          const messageId = (row as { message_id?: unknown }).message_id;
+          return typeof messageId === "string" ? [messageId] : [];
+        })
+      : [];
+
+    return { deletedMessageIds };
   });
 
 const clearSocialSchema = z.object({ conversationId: z.string().uuid() });

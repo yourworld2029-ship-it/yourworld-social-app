@@ -42,6 +42,7 @@ import {
 } from "@/lib/auto-delete";
 import {
   clearSocialConversationWithMedia,
+  deleteViewedSocialMessagesOnExit,
   purgeViewedSocialMedia,
 } from "@/lib/chat-media.functions";
 
@@ -1531,6 +1532,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
   const deletionChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const clearGenerationRef = useRef(0);
   const afterViewTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const exitCleanupTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   useEffect(() => {
     if (messagesThreadId !== threadId || threadIdRef.current !== threadId) return;
     messagesRef.current = messages;
@@ -1998,6 +2000,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
         message.receiver_id !== me ||
         message.auto_delete_mode !== "after_view" ||
         !message.is_viewed ||
+        (message.metadata?.view_once !== true && message.metadata?.view_once !== "true") ||
         message.is_deleted ||
         afterViewTimersRef.current.has(message.id)
       ) {
@@ -2086,12 +2089,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       threadIdRef.current === requestThreadId &&
       messagesThreadIdRef.current === requestThreadId;
     const receiverId = pair.find((id) => id !== me)!;
-    const expiringMedia = Boolean(
-      payload.expiringMedia ||
-        payload.viewOnce ||
-        payload.media_url ||
-        payload.voice_note_url,
-    );
+    const expiringMedia = Boolean(payload.expiringMedia || payload.viewOnce);
     const initialMode = payload.isSystemMessage
       ? "off"
       : expiringMedia
@@ -2357,7 +2355,9 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
               : m.viewed_at,
             expires_at: m.auto_delete_mode === "after_view"
               ? viewedById.get(m.id)?.expires_at ??
-                afterViewExpiresAt(Date.parse(viewedById.get(m.id)?.viewed_at ?? fallbackViewedAt))
+                (m.metadata?.view_once === true
+                  ? afterViewExpiresAt(Date.parse(viewedById.get(m.id)?.viewed_at ?? fallbackViewedAt))
+                  : null)
               : m.expires_at,
           }
         : m)
@@ -2411,6 +2411,66 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     }
     return result;
   }, [me, pair, markRead, threadId]);
+
+  const flushViewedMessagesOnExit = useCallback(async (
+    conversationIdAtExit: string,
+    threadIdAtExit: string,
+    pairAtExit: ReturnType<typeof dmThreadPair>,
+  ) => {
+    try {
+      const result = await deleteViewedSocialMessagesOnExit({
+        data: { conversationId: conversationIdAtExit },
+      });
+      const deletedIds = new Set(result.deletedMessageIds);
+      if (!deletedIds.size) return;
+
+      const cachedRows = normalizeCachedThreadRows(
+        loadCachedThreadSync<unknown>(`social:${threadIdAtExit}`) ??
+          cacheGet<unknown>(`thread:${threadIdAtExit}`) ??
+          [],
+        pairAtExit,
+      );
+      const retainedRows = cachedRows.filter((message) => !deletedIds.has(message.id));
+      cacheSet(`thread:${threadIdAtExit}`, retainedRows);
+      saveCachedThread(`social:${threadIdAtExit}`, retainedRows);
+    } catch (cause) {
+      console.warn("[social-chat] Vanish Mode exit cleanup failed", cause);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!conversationId || !me || !pair) return;
+    const cleanupKey = `${threadId}:${conversationId}:${me}`;
+    const pending = exitCleanupTimersRef.current.get(cleanupKey);
+    if (pending) {
+      clearTimeout(pending);
+      exitCleanupTimersRef.current.delete(cleanupKey);
+    }
+
+    return () => {
+      const timer = setTimeout(() => {
+        exitCleanupTimersRef.current.delete(cleanupKey);
+        void (async () => {
+          // Flush the chat's existing read-on-open behavior first, so a read
+          // request still in flight cannot race the permanent delete.
+          try {
+            await markThreadRead();
+          } catch (cause) {
+            console.warn("[social-chat] read receipt flush on exit failed", cause);
+          }
+          await flushViewedMessagesOnExit(conversationId, threadId, pair);
+        })();
+      }, 0);
+      exitCleanupTimersRef.current.set(cleanupKey, timer);
+    };
+  }, [
+    conversationId,
+    me,
+    pair,
+    threadId,
+    markThreadRead,
+    flushViewedMessagesOnExit,
+  ]);
 
   const consumeViewOnce = useCallback(async (id: string) => {
     if (!me) return { error: "Sign in to open view-once media." };
