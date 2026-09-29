@@ -5,7 +5,6 @@ const config: CapacitorConfig = {
   appName: 'YourWorld',
   webDir: '.output/public',
   server: {
-    url: 'https://your-world-social-app--yourworld2029.replit.app',
     cleartext: true
   },
   plugins: {

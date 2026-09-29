@@ -80,3 +80,9 @@ A stale `sdk.dir` in Android `local.properties` can still block Gradle after a v
 **Why:** Gradle reported the missing configured SDK path until that path resolved to the composed SDK, even though the required SDK components were already available.
 
 **How to apply:** Before building, compare `local.properties` with `ANDROID_HOME`/`ANDROID_SDK_ROOT`; make the configured path resolve to the same SDK root without installing or accepting new licenses when the existing SDK license marker is present.
+
+Capacitor's `server.url` overrides the local `webDir` as the WebView's page source. For a release APK that must display the freshly synced bundle, leave `server.url` unset.
+
+**Why:** `cap sync` can copy current JavaScript and CSS into Android assets while the installed app still loads an older remote deployment.
+
+**How to apply:** Remove `server.url` from the release config, sync the fresh web output, and verify the packaged Capacitor config has no remote URL and the APK contains the same entry HTML and referenced JS/CSS as the web build.

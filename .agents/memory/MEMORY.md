@@ -36,7 +36,7 @@
 - [Supabase MFA factor listing](supabase-mfa-factor-listing.md) — `listFactors().totp` only contains verified factors; inspect `all` to resume unverified TOTP verification.
 - [Highlight deletion boundary](highlight-deletion-boundary.md) — route destructive Highlight deletes through authenticated server code and verify the single JSONB row is gone before updating the UI.
 - [Account deletion pipeline](account-deletion-pipeline.md) — use a transactional SECURITY DEFINER Supabase function for authenticated cleanup before removing auth.users.
-- [Capacitor Android wrapper](capacitor-android-wrapper.md) — preserve TanStack's static Capacitor shell; use JDK 21 and verify the Android SDK is actually installed before APK builds.
+- [Capacitor Android wrapper](capacitor-android-wrapper.md) — preserve the static shell, omit `server.url` to load bundled assets, and build with JDK 21 plus an installed Android SDK.
 - [Capacitor native detection](capacitor-native-detection.md) — `window.Capacitor` also exists in browsers; use native platform signals and wait for client resolution before gating routes.
 - [Creator monetization settlement](creator-monetization-settlement.md) — keep buyer surcharge, creator/platform splits, single TDS deduction, and terms gates server-authoritative.
 - [Moment expiry cleanup](moment-expiry-cleanup.md) — storage-aware expiry needs a privileged Edge Function plus a scheduled pg_cron/pg_net invocation; clients still filter strictly by expires_at.
