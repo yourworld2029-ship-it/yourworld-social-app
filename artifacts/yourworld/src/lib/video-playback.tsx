@@ -81,6 +81,8 @@ type GestureFeedback = {
   label: string;
 };
 
+type TapSide = "left" | "right";
+
 type TouchGesture = {
   startX: number;
   startY: number;
@@ -141,6 +143,7 @@ export type PersistentVideo = {
 type VideoPlaybackContextValue = {
   activeVideo: PersistentVideo | null;
   isDetailPlayer: boolean;
+  isVerticalVideo: boolean;
   currentTime: number;
   duration: number;
   isPlaying: boolean;
@@ -348,7 +351,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const endedHandlerRef = useRef<(() => void) | null>(null);
   const seekActivityRef = useRef(false);
   const touchGestureRef = useRef<TouchGesture | null>(null);
-  const lastTapRef = useRef<{ time: number; x: number } | null>(null);
+  const lastTapRef = useRef<{ time: number; side: TapSide } | null>(null);
+  const playerTapTimerRef = useRef<number | null>(null);
+  const suppressSyntheticClickUntilRef = useRef(0);
   const feedbackTimerRef = useRef<number | null>(null);
   const controlsHideTimerRef = useRef<number | null>(null);
   const lockedUnlockTimerRef = useRef<number | null>(null);
@@ -358,6 +363,21 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const floatingPositionRef = useRef<FloatingPosition | null>(null);
   const floatingDragRef = useRef<FloatingDrag | null>(null);
   const suppressFloatingClickRef = useRef(false);
+
+  useEffect(() => {
+    if (playerTapTimerRef.current !== null) {
+      window.clearTimeout(playerTapTimerRef.current);
+      playerTapTimerRef.current = null;
+    }
+    lastTapRef.current = null;
+    suppressSyntheticClickUntilRef.current = 0;
+    return () => {
+      if (playerTapTimerRef.current !== null) {
+        window.clearTimeout(playerTapTimerRef.current);
+        playerTapTimerRef.current = null;
+      }
+    };
+  }, [activeVideo?.id]);
 
   const detailVideoId = getDetailVideoId(location.pathname);
   const downloadDetailPath = getDownloadDetailPath(location.pathname);
@@ -792,29 +812,6 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const handlePlayerSurfaceClick = useCallback(
-    (event: ReactMouseEvent<HTMLDivElement>) => {
-      if (!isDetailPlayer) return;
-      if (screenLocked) {
-        revealLockedUnlock();
-        return;
-      }
-      const target = event.target;
-      if (target instanceof Element && target.closest("button, input, [role='menu']")) return;
-      if (settingsMenu !== "closed") {
-        setSettingsMenu("closed");
-        markControlsActivity();
-        return;
-      }
-      if (controlsVisible) {
-        setControlsVisible(false);
-      } else {
-        markControlsActivity();
-      }
-    },
-    [controlsVisible, isDetailPlayer, markControlsActivity, revealLockedUnlock, screenLocked, settingsMenu],
-  );
-
   const handleVideoPlay = useCallback(() => {
     setIsPlaying(true);
     setControlsVisible(true);
@@ -1008,29 +1005,92 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
 
   const seekBy = useCallback(
     (seconds: number) => {
-      if (!isFullscreen || screenLocked) return;
+      if (!isDetailPlayer || (isFullscreen && screenLocked)) return;
       const video = videoRef.current;
       if (!video) return;
+      const currentTime = Number.isFinite(video.currentTime) ? video.currentTime : 0;
       const duration = Number.isFinite(video.duration) ? video.duration : Infinity;
-      video.currentTime = clamp(video.currentTime + seconds, 0, duration);
-      showGestureFeedback("seek", seconds, `${seconds > 0 ? "+" : ""}${seconds}s`);
+      const nextTime = clamp(currentTime + seconds, 0, duration);
+      video.currentTime = nextTime;
+      setCurrentTime(nextTime);
+      if (isFullscreen) {
+        showGestureFeedback("seek", seconds, `${seconds > 0 ? "+" : ""}${seconds}s`);
+      }
+      markControlsActivity();
     },
-    [isFullscreen, screenLocked, showGestureFeedback],
+    [isDetailPlayer, isFullscreen, markControlsActivity, screenLocked, showGestureFeedback],
   );
 
-  const handleDoubleTap = useCallback(
-    (event: ReactMouseEvent<HTMLDivElement>) => {
-      if (!isFullscreen || screenLocked) return;
-      const rect = event.currentTarget.getBoundingClientRect();
-      seekBy(event.clientX - rect.left >= rect.width / 2 ? 15 : -15);
+  const registerPlayerTap = useCallback(
+    (side: TapSide) => {
+      const now = Date.now();
+      const previousTap = lastTapRef.current;
+      if (previousTap && now - previousTap.time < 320 && previousTap.side === side) {
+        if (playerTapTimerRef.current !== null) {
+          window.clearTimeout(playerTapTimerRef.current);
+          playerTapTimerRef.current = null;
+        }
+        lastTapRef.current = null;
+        seekBy(side === "right" ? 20 : -20);
+        return true;
+      }
+
+      if (playerTapTimerRef.current !== null) {
+        window.clearTimeout(playerTapTimerRef.current);
+        playerTapTimerRef.current = null;
+        lastTapRef.current = null;
+        togglePlayPause();
+      }
+
+      lastTapRef.current = { time: now, side };
+      playerTapTimerRef.current = window.setTimeout(() => {
+        playerTapTimerRef.current = null;
+        lastTapRef.current = null;
+        togglePlayPause();
+      }, 320);
+      return false;
     },
-    [isFullscreen, screenLocked, seekBy],
+    [seekBy, togglePlayPause],
+  );
+
+  const handlePlayerSurfaceClick = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>) => {
+      if (!isDetailPlayer) return;
+      if (Date.now() < suppressSyntheticClickUntilRef.current) return;
+      if (screenLocked) {
+        revealLockedUnlock();
+        return;
+      }
+      const target = event.target;
+      if (target instanceof Element && target.closest("button, input, [role='menu']")) return;
+      if (settingsMenu !== "closed") {
+        setSettingsMenu("closed");
+        markControlsActivity();
+        return;
+      }
+      const rect = event.currentTarget.getBoundingClientRect();
+      const side: TapSide = event.clientX - rect.left >= rect.width / 2 ? "right" : "left";
+      registerPlayerTap(side);
+    },
+    [
+      isDetailPlayer,
+      markControlsActivity,
+      registerPlayerTap,
+      revealLockedUnlock,
+      screenLocked,
+      settingsMenu,
+    ],
   );
 
   const handleTouchStart = useCallback(
     (event: ReactTouchEvent<HTMLDivElement>) => {
-      if (!isFullscreen) return;
-      if (screenLocked) {
+      if (!isDetailPlayer) return;
+      const target = event.target;
+      if (target instanceof Element && target.closest("button, input, [role='menu']")) {
+        touchGestureRef.current = null;
+        return;
+      }
+      if (isFullscreen && screenLocked) {
         event.preventDefault();
         return;
       }
@@ -1038,6 +1098,10 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       const firstTouch = event.touches.item(0);
       if (!firstTouch) return;
       if (event.touches.length >= 2) {
+        if (!isFullscreen) {
+          if (touchGestureRef.current) touchGestureRef.current.moved = true;
+          return;
+        }
         event.preventDefault();
         touchGestureRef.current = {
           startX: firstTouch.clientX - rect.left,
@@ -1062,18 +1126,30 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
         initialZoom: zoom,
       };
     },
-    [brightness, isFullscreen, screenLocked, zoom],
+    [brightness, isDetailPlayer, isFullscreen, screenLocked, zoom],
   );
 
   const handleTouchMove = useCallback(
     (event: ReactTouchEvent<HTMLDivElement>) => {
-      if (!isFullscreen) return;
-      if (screenLocked) {
+      if (!isDetailPlayer) return;
+      if (isFullscreen && screenLocked) {
         event.preventDefault();
         return;
       }
       const gesture = touchGestureRef.current;
       if (!gesture) return;
+      if (!isFullscreen) {
+        const firstTouch = event.touches.item(0);
+        if (!firstTouch) {
+          gesture.moved = true;
+          return;
+        }
+        const rect = event.currentTarget.getBoundingClientRect();
+        const deltaX = firstTouch.clientX - rect.left - gesture.startX;
+        const deltaY = firstTouch.clientY - rect.top - gesture.startY;
+        if (Math.hypot(deltaX, deltaY) >= 12) gesture.moved = true;
+        return;
+      }
       if (event.touches.length >= 2 && gesture.initialDistance) {
         event.preventDefault();
         const distance = touchDistance(event.touches);
@@ -1114,35 +1190,31 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
         showGestureFeedback("volume", nextVolume, `${Math.round(nextVolume * 100)}%`);
       }
     },
-    [isFullscreen, screenLocked, showGestureFeedback],
+    [isDetailPlayer, isFullscreen, screenLocked, showGestureFeedback],
   );
 
   const handleTouchEnd = useCallback(
     (event: ReactTouchEvent<HTMLDivElement>) => {
-      if (!isFullscreen) return;
-      if (screenLocked) {
+      if (!isDetailPlayer) return;
+      const target = event.target;
+      if (target instanceof Element && target.closest("button, input, [role='menu']")) {
+        touchGestureRef.current = null;
+        return;
+      }
+      suppressSyntheticClickUntilRef.current = Date.now() + 500;
+      if (isFullscreen && screenLocked) {
         event.preventDefault();
         revealLockedUnlock();
+        touchGestureRef.current = null;
         return;
       }
       const gesture = touchGestureRef.current;
       touchGestureRef.current = null;
       if (!gesture || gesture.moved) return;
-      const now = Date.now();
-      const previousTap = lastTapRef.current;
-      if (
-        previousTap &&
-        now - previousTap.time < 320 &&
-        Math.abs(gesture.startX - previousTap.x) < 48
-      ) {
-        event.preventDefault();
-        seekBy(gesture.startX >= gesture.width / 2 ? 15 : -15);
-        lastTapRef.current = null;
-        return;
-      }
-      lastTapRef.current = { time: now, x: gesture.startX };
+      const side: TapSide = gesture.startX >= gesture.width / 2 ? "right" : "left";
+      if (registerPlayerTap(side)) event.preventDefault();
     },
-    [isFullscreen, revealLockedUnlock, screenLocked, seekBy],
+    [isDetailPlayer, isFullscreen, registerPlayerTap, revealLockedUnlock, screenLocked],
   );
 
   const handleTimeUpdate = useCallback((event: React.SyntheticEvent<HTMLVideoElement>) => {
@@ -1212,6 +1284,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     () => ({
       activeVideo,
       isDetailPlayer,
+      isVerticalVideo,
       currentTime,
       duration,
       isPlaying,
@@ -1228,6 +1301,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       currentTime,
       duration,
       isDetailPlayer,
+      isVerticalVideo,
       isPlaying,
       setEndedHandler,
       setTimeUpdateHandler,
@@ -1267,7 +1341,6 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
           onPointerMove={pictureInPicture ? moveFloatingPlayer : undefined}
           onPointerUp={pictureInPicture ? finishFloatingDrag : undefined}
           onPointerCancel={pictureInPicture ? finishFloatingDrag : undefined}
-          onDoubleClick={showDetailChrome ? handleDoubleTap : undefined}
           onTouchStart={showDetailChrome ? handleTouchStart : undefined}
           onTouchMove={showDetailChrome ? handleTouchMove : undefined}
           onTouchEnd={showDetailChrome ? handleTouchEnd : undefined}
@@ -1726,10 +1799,19 @@ export function useVideoPlayback() {
   return context;
 }
 
-export function VideoPlaybackSlot() {
-  const { activeVideo, isDetailPlayer } = useVideoPlayback();
-  if (!activeVideo || !isDetailPlayer) {
-    return <div className="aspect-video w-full bg-black" aria-hidden="true" />;
-  }
-  return <div className="aspect-video w-full bg-black" aria-hidden="true" />;
+export function VideoPlaybackSlot({
+  isVertical,
+  className = "",
+}: {
+  isVertical?: boolean;
+  className?: string;
+} = {}) {
+  const { isDetailPlayer, isVerticalVideo } = useVideoPlayback();
+  const usePortraitAspect = isVertical ?? (isDetailPlayer && isVerticalVideo);
+  return (
+    <div
+      className={`${usePortraitAspect ? "aspect-[9/16]" : "aspect-video"} mx-auto w-full max-w-lg bg-black ${className}`}
+      aria-hidden="true"
+    />
+  );
 }
