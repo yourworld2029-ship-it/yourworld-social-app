@@ -4,7 +4,6 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { dmThreadId, resolveMediaUrl, type DbPost } from "@/lib/social-data";
 import { isRealUserId, useFollowCounts } from "@/lib/follow-data";
-import { fetchOrbitProfileRow, rowToOrbitProfile } from "@/lib/orbit-live";
 import { fetchProfilePostsPage } from "@/lib/profile-posts";
 import { historyBackOr } from "@/lib/navigation";
 import { useYw } from "@/lib/yw-store";
@@ -92,10 +91,7 @@ function PublicProfilePage() {
       const targetId = await resolvePublicProfileId(userId);
       if (!targetId) throw new Error("PROFILE_NOT_FOUND");
 
-      const [profileResult, orbitRow] = await Promise.all([
-        supabase.rpc("get_public_profiles", { ids: [targetId] }),
-        fetchOrbitProfileRow(targetId).catch(() => null),
-      ]);
+      const profileResult = await supabase.rpc("get_public_profiles", { ids: [targetId] });
       if (profileResult.error) throw profileResult.error;
 
       const row = (profileResult.data ?? [])[0] as
@@ -110,20 +106,18 @@ function PublicProfilePage() {
             is_verified?: boolean | null;
           }
         | undefined;
-      const orbitProfile = orbitRow ? rowToOrbitProfile(orbitRow) : null;
-      if (!row && !orbitProfile) throw new Error("PROFILE_NOT_FOUND");
+      if (!row) throw new Error("PROFILE_NOT_FOUND");
 
       const next: PublicProfile = {
         id: targetId,
-        username: row?.username ?? orbitProfile?.handle ?? `user${targetId.slice(0, 4)}`,
-        display_name:
-          row?.display_name ?? row?.username ?? orbitProfile?.name ?? "YourWorld user",
-        bio: row?.bio ?? orbitProfile?.about ?? "",
+        username: row.username ?? `user${targetId.slice(0, 4)}`,
+        display_name: row.display_name ?? row.username ?? "YourWorld user",
+        bio: row.bio ?? "",
         category: row?.category ?? "",
         normal_categories: Array.isArray(row?.normal_categories) ? row.normal_categories : [],
         location: "",
         website: "",
-        avatar_url: row?.avatar_url ?? orbitProfile?.photo ?? null,
+        avatar_url: row.avatar_url ?? null,
         cover_url: null,
         is_verified: row?.is_verified === true,
         verification_requested: false,

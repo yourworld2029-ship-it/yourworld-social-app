@@ -1,7 +1,7 @@
 kind = "web"
 previewPath = "/"
 title = "YourWorld"
-description = "A social and creator platform for sharing posts, moments, reels, messages, and community experiences, with profiles, channels, Orbit matching, notifications, and creator monetization."
+description = "A social and creator platform for sharing posts, moments, reels, messages, and community experiences, with profiles, channels, notifications, and creator monetization."
 version = "1.0.0"
 id = "artifacts/yourworld"
 router = "path"

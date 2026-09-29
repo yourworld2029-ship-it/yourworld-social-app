@@ -23,7 +23,7 @@ YourWorld is a social and creator platform for sharing posts, moments, reels, me
 
 ## Where things live
 
-- `artifacts/yourworld/src/routes/` — product routes for feed, profiles, channels, moments, reels, Orbit, chat, notifications, settings, uploads, and wallet
+- `artifacts/yourworld/src/routes/` — product routes for feed, profiles, channels, moments, reels, chat, notifications, settings, uploads, and wallet
 - `artifacts/yourworld/src/components/` — shared app and Radix UI components
 - `artifacts/yourworld/src/lib/` — state stores, Supabase data access, uploads, media helpers, and server functions
 - `artifacts/yourworld/src/styles.css` — YourWorld theme and global styles
@@ -37,7 +37,7 @@ YourWorld is a social and creator platform for sharing posts, moments, reels, me
 
 ## Product
 
-Users can discover and publish social content, manage profiles and creator channels, share moments and reels, message other people, use Orbit matching, receive notifications, upload videos, and view creator earnings.
+Users can discover and publish social content, manage profiles and creator channels, share moments and reels, message other people, receive notifications, upload videos, and view creator earnings.
 
 ## User preferences
 

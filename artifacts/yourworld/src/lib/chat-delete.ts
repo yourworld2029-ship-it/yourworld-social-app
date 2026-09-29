@@ -6,15 +6,12 @@ import { supabase } from "@/integrations/supabase/client";
  * hidden from my side only. The other person keeps their copy.
  */
 
-const isUuid = (v: string) =>
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 const dmPair = (id: string): [string, string] | null => {
   const match = /^dm_([0-9a-f-]{36})_([0-9a-f-]{36})$/i.exec(id);
   return match ? [match[1]!, match[2]!] : null;
 };
 
 const HIDDEN_DM_KEY = "yw-hidden-threads";
-const HIDDEN_ORBIT_KEY = "yw-hidden-orbit-chats";
 
 function readHidden(key: string): string[] {
   if (typeof window === "undefined") return [];
@@ -37,25 +34,20 @@ function writeHidden(key: string, ids: string[]) {
 }
 
 export const hiddenThreadIds = () => readHidden(HIDDEN_DM_KEY);
-export const hiddenOrbitPeerIds = () => readHidden(HIDDEN_ORBIT_KEY);
 
 /** Merge durable per-user hides with the device cache for the signed-in user. */
 export async function loadHiddenDirectThreads(userId: string): Promise<string[]> {
   const { data: preferences, error: preferenceError } = await supabase
-    .from("conversation_preferences" as never)
-    .select("conversation_id" as never)
-    .eq("user_id" as never, userId)
-    .not("hidden_at" as never, "is", null);
+    .from("conversation_preferences")
+    .select("conversation_id")
+    .eq("user_id", userId)
+    .not("hidden_at", "is", null);
   if (preferenceError) {
     throw new Error(`Could not sync deleted chats. Apply migration 0072: ${preferenceError.message}`);
   }
 
   const conversationIds = Array.from(
-    new Set(
-      ((preferences ?? []) as unknown as Array<{ conversation_id: string }>)
-        .map((row) => row.conversation_id)
-        .filter(Boolean),
-    ),
+    new Set((preferences ?? []).map((row) => row.conversation_id).filter(Boolean)),
   );
   if (!conversationIds.length) return hiddenThreadIds();
 
@@ -131,8 +123,8 @@ export async function deleteDirectThreads(
   }
 
   const { error: hideError } = await supabase
-    .from("conversation_preferences" as never)
-    .upsert(hideRows as never, { onConflict: "conversation_id,user_id" });
+    .from("conversation_preferences")
+    .upsert(hideRows, { onConflict: "conversation_id,user_id" });
   if (hideError) {
     return {
       error: `Could not save this chat deletion. Apply migration 0072: ${hideError.message}`,
@@ -158,38 +150,4 @@ export async function deleteDirectThreads(
     error: deleteError ? `Chat hidden, but sent messages could not be deleted: ${deleteError.message}` : null,
     persisted: true,
   };
-}
-
-/** Delete one or many Orbit conversations for the signed-in user. */
-export async function deleteOrbitConversations(peerIds: string[]) {
-  const ids = [...new Set(peerIds)].filter(isUuid);
-  if (!ids.length) return;
-
-  writeHidden(HIDDEN_ORBIT_KEY, [...readHidden(HIDDEN_ORBIT_KEY), ...ids]);
-
-  const { data: auth } = await supabase.auth.getUser();
-  const me = auth.user?.id;
-  if (!me) return;
-
-  const now = new Date().toISOString();
-
-  await supabase
-    .from("orbit_messages")
-    .delete()
-    .eq("sender_id", me)
-    .in("recipient_id", ids);
-
-  // Everything received before now stays hidden on my side.
-  await supabase.from("orbit_chat_settings").upsert(
-    ids.map((peer_id) => ({ user_id: me, peer_id, cleared_before: now })) as never,
-    { onConflict: "user_id,peer_id" },
-  );
-}
-
-/** Undo the local hide, e.g. when a chat is opened again on purpose. */
-export function unhideOrbitConversation(peerId: string) {
-  writeHidden(
-    HIDDEN_ORBIT_KEY,
-    readHidden(HIDDEN_ORBIT_KEY).filter((id) => id !== peerId),
-  );
 }

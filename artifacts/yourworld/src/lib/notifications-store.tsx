@@ -11,9 +11,6 @@ import {
   Heart,
   MessageSquare,
   UserPlus,
-  Globe2,
-  Handshake,
-  Sparkles,
   Mail,
   Megaphone,
   BadgeCheck,
@@ -22,7 +19,6 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { useOrbitAppPrefs } from "@/lib/orbit-prefs";
 import { STORAGE_BUCKETS } from "@/lib/storage-upload";
 const liveDb = supabase as unknown as {
   from: (table: "likes" | "comments" | "posts" | "messages") => ReturnType<typeof supabase.from>;
@@ -32,9 +28,6 @@ export type NotificationKind =
   | "like"
   | "comment"
   | "follower"
-  | "orbit"
-  | "connection"
-  | "match"
   | "message"
   | "channel"
   | "verification"
@@ -69,18 +62,12 @@ export const NOTIFICATION_KINDS: KindMeta[] = [
   { id: "like", label: "Likes", emoji: "", icon: Heart, tint: "text-rose-400" },
   { id: "comment", label: "Comments", emoji: "", icon: MessageSquare, tint: "text-sky-400" },
   { id: "follower", label: "New Followers", emoji: "", icon: UserPlus, tint: "text-violet-400" },
-  { id: "orbit", label: "Orbit", emoji: "", icon: Globe2, tint: "text-emerald-400" },
-  { id: "connection", label: "Connections", emoji: "", icon: Handshake, tint: "text-teal-400" },
-  { id: "match", label: "Matches", emoji: "", icon: Sparkles, tint: "text-pink-400" },
   { id: "message", label: "Messages", emoji: "", icon: Mail, tint: "text-blue-400" },
   { id: "channel", label: "Channel Updates", emoji: "", icon: Megaphone, tint: "text-orange-400" },
   { id: "verification", label: "Verification", emoji: "", icon: BadgeCheck, tint: "text-cyan-400" },
   { id: "monetization", label: "Monetization", emoji: "", icon: Coins, tint: "text-amber-400" },
   { id: "system", label: "System", emoji: "", icon: Bell, tint: "text-muted-foreground" },
 ];
-
-/** Kinds suppressed by the "Hide Orbit notifications" privacy control. */
-export const ORBIT_KINDS: NotificationKind[] = ["orbit", "connection", "match"];
 
 export const kindMeta = (k: NotificationKind) =>
   NOTIFICATION_KINDS.find((m) => m.id === k) ?? NOTIFICATION_KINDS[NOTIFICATION_KINDS.length - 1];
@@ -94,10 +81,6 @@ const defaultPrefs = Object.fromEntries(
 type Ctx = {
   items: NotificationItem[];
   unread: number;
-  /** Unread excluding Orbit-only kinds (Orbit, Connections, Matches). */
-  unreadHome: number;
-  /** Unread across Orbit-only kinds. */
-  unreadOrbit: number;
   unreadByKind: Record<NotificationKind, number>;
   prefs: NotificationPrefs;
   live: boolean;
@@ -130,12 +113,6 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
     comments,
     dms,
     momentNotifications,
-    orbitMsgs,
-    orbitLikes,
-    myOrbitLikes,
-    requests,
-    connections,
-    chatSettings,
     conversationPreferences,
     userBlocks,
   ] =
@@ -171,35 +148,6 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
         .order("created_at", { ascending: false })
         .limit(80),
       supabase
-        .from("orbit_messages")
-        .select("id,sender_id,kind,text,created_at")
-        .eq("recipient_id", me)
-        .order("created_at", { ascending: false })
-        .limit(40),
-      supabase
-        .from("orbit_likes")
-        .select("id,user_id,created_at")
-        .eq("target_id", me)
-        .order("created_at", { ascending: false })
-        .limit(40),
-      supabase.from("orbit_likes").select("target_id").eq("user_id", me),
-      supabase
-        .from("orbit_chat_requests")
-        .select("id,requester_id,intro,status,created_at")
-        .eq("addressee_id", me)
-        .order("created_at", { ascending: false })
-        .limit(30),
-      supabase
-        .from("orbit_connections")
-        .select("id,requester_id,addressee_id,status,updated_at")
-        .or(`requester_id.eq.${me},addressee_id.eq.${me}`)
-        .order("updated_at", { ascending: false })
-        .limit(30),
-      supabase
-        .from("orbit_chat_settings")
-        .select("peer_id,muted")
-        .eq("user_id", me),
-      supabase
         .from("conversation_preferences" as never)
         .select("conversation_id,is_muted" as never)
         .eq("user_id" as never, me),
@@ -209,11 +157,6 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
         .eq("blocker_id" as never, me),
     ]);
 
-  const mutedPeerIds = new Set(
-    ((chatSettings.data ?? []) as { peer_id: string; muted: boolean }[])
-      .filter((setting) => setting.muted)
-      .map((setting) => setting.peer_id),
-  );
   const mutedConversationIds = new Set(
     ((conversationPreferences.data ?? []) as unknown as {
       conversation_id: string;
@@ -246,7 +189,6 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       created_at: string;
     }[]).filter((message) =>
       !blockedPeerIds.has(message.sender_id) &&
-      !mutedPeerIds.has(message.sender_id) &&
       !mutedConversationIds.has(message.conversation_id ?? ""),
     ),
     momentNotifications: (momentNotifications.data ?? []) as unknown as {
@@ -261,33 +203,7 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       read: boolean;
       created_at: string;
     }[],
-    orbitMsgs: ((orbitMsgs.data ?? []) as {
-      id: string;
-      sender_id: string;
-      kind: string;
-      text: string | null;
-      created_at: string;
-    }[]).filter((message) => !mutedPeerIds.has(message.sender_id)),
-    orbitLikes: (orbitLikes.data ?? []) as { id: string; user_id: string; created_at: string }[],
-    requests: (requests.data ?? []) as {
-      id: string;
-      requester_id: string;
-      intro: string | null;
-      status: string;
-      created_at: string;
-    }[],
-    connections: (connections.data ?? []) as {
-      id: string;
-      requester_id: string;
-      addressee_id: string;
-      status: string;
-      updated_at: string;
-    }[],
   };
-
-  const likedByMe = new Set(
-    ((myOrbitLikes.data ?? []) as { target_id: string }[]).map((r) => r.target_id),
-  );
 
   const peerIds = [
     ...new Set([
@@ -295,10 +211,6 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       ...rows.comments.map((r) => r.user_id),
       ...rows.dms.map((r) => r.sender_id),
       ...rows.momentNotifications.flatMap((r) => (r.actor_id ? [r.actor_id] : [])),
-      ...rows.orbitMsgs.map((r) => r.sender_id),
-      ...rows.orbitLikes.map((r) => r.user_id),
-      ...rows.requests.map((r) => r.requester_id),
-      ...rows.connections.map((r) => (r.requester_id === me ? r.addressee_id : r.requester_id)),
     ]),
   ];
 
@@ -442,58 +354,6 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
         r.entity_type === "moment" && r.entity_id ? momentMedia.get(r.entity_id) ?? null : null,
     });
 
-  for (const r of rows.orbitMsgs)
-    out.push({
-      id: `om-${r.id}`,
-      kind: "message",
-      title: `Orbit message from ${nameOf(r.sender_id)}`,
-      actorId: r.sender_id,
-      body: r.kind === "text" ? (r.text ?? "") : "Sent an attachment",
-      at: ts(r.created_at),
-      to: `/orbit/chat/${r.sender_id}`,
-    });
-
-  for (const r of rows.orbitLikes) {
-    const mutual = likedByMe.has(r.user_id);
-    out.push({
-      id: `olike-${r.id}`,
-      kind: mutual ? "match" : "orbit",
-      title: mutual
-        ? `You matched with ${nameOf(r.user_id)}`
-        : `${nameOf(r.user_id)} liked your Orbit profile`,
-      actorId: r.user_id,
-      at: ts(r.created_at),
-      to: mutual ? `/orbit/chat/${r.user_id}` : "/orbit/messages",
-    });
-  }
-
-  for (const r of rows.requests)
-    out.push({
-      id: `req-${r.id}`,
-      kind: "connection",
-      title:
-        r.status === "accepted"
-          ? `You accepted ${nameOf(r.requester_id)}'s chat request`
-          : `${nameOf(r.requester_id)} sent you a chat request`,
-      actorId: r.requester_id,
-      body: r.intro ?? undefined,
-      at: ts(r.created_at),
-      to: "/orbit/messages",
-    });
-
-  for (const r of rows.connections) {
-    if (r.status !== "accepted") continue;
-    const peer = r.requester_id === me ? r.addressee_id : r.requester_id;
-    out.push({
-      id: `conn-${r.id}`,
-      kind: "connection",
-      title: `You and ${nameOf(peer)} are connected`,
-      actorId: peer,
-      at: ts(r.updated_at),
-      to: `/orbit/chat/${peer}`,
-    });
-  }
-
   return out.sort((a, b) => b.at - a.at).slice(0, 120);
 }
 
@@ -503,7 +363,6 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   const [live, setLive] = useState(true);
   const [readIds, setReadIds] = useState<string[]>([]);
   const [removedIds, setRemovedIds] = useState<string[]>([]);
-  const { hideOrbitNotifications } = useOrbitAppPrefs();
 
   const load = useCallback(async () => {
     try {
@@ -523,7 +382,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   // Live updates straight from the database.
   useEffect(() => {
     if (!live) return;
-    // The feed is rebuilt with ~12 queries, so coalesce bursts (e.g. a chat
+    // The feed is rebuilt with several queries, so coalesce bursts (e.g. a chat
     // conversation) into a single refresh instead of one per row change. The
     // status callback retries transient Realtime failures; polling is still
     // available through the visibility/online resync handlers below.
@@ -583,7 +442,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     const removed = new Set(removedIds);
     const visible = events
       .filter((i) => !removed.has(i.id))
-      .filter((i) => prefs[i.kind] && !(hideOrbitNotifications && ORBIT_KINDS.includes(i.kind)))
+      .filter((i) => prefs[i.kind])
       .map((i) => ({ ...i, read: read.has(i.id) }));
 
     const unreadByKind = Object.fromEntries(
@@ -593,8 +452,6 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     return {
       items: visible,
       unread: visible.filter((i) => !i.read).length,
-      unreadHome: visible.filter((i) => !i.read && !ORBIT_KINDS.includes(i.kind)).length,
-      unreadOrbit: visible.filter((i) => !i.read && ORBIT_KINDS.includes(i.kind)).length,
       unreadByKind,
       prefs,
       live,
@@ -605,7 +462,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       remove: (id) => setRemovedIds((p) => (p.includes(id) ? p : [id, ...p])),
       clearAll: () => setRemovedIds((p) => [...new Set([...events.map((e) => e.id), ...p])]),
     };
-  }, [events, prefs, live, setPref, hideOrbitNotifications, readIds, removedIds]);
+  }, [events, prefs, live, setPref, readIds, removedIds]);
 
   return <NotificationsContext.Provider value={value}>{children}</NotificationsContext.Provider>;
 }

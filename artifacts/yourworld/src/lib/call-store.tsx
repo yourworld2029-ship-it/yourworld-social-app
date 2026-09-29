@@ -548,7 +548,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     };
   }, [call, phase]);
 
-  /* ---------- auto-hiding controls (Social + Orbit video calls) ---------- */
+  /* ---------- auto-hiding controls for Social calls ---------- */
   useEffect(() => {
     if (!call || phase === "idle" || phase === "incoming") {
       setControlsVisible(true);
@@ -912,24 +912,16 @@ export function CallProvider({ children }: { children: ReactNode }) {
         outcome === "answered" && durMs != null
           ? `${label} Call ended • ${fmtDur(durMs)}`
           : `Missed ${label} Call`;
+      if (!c.threadId) return;
       try {
-        if (c.threadId) {
-          await supabase.from("messages" as never).insert({
-            sender_id: meId,
-            receiver_id: c.peerId,
-            content: text,
-            media_url: null,
-            voice_note_url: null,
-            metadata: {},
-          } as never);
-        } else {
-          await supabase.from("orbit_messages").insert({
-            sender_id: meId,
-            recipient_id: c.peerId,
-            kind: "system",
-            text,
-          });
-        }
+        await supabase.from("messages" as never).insert({
+          sender_id: meId,
+          receiver_id: c.peerId,
+          content: text,
+          media_url: null,
+          voice_note_url: null,
+          metadata: {},
+        } as never);
       } catch (err) {
         console.error("[call] log insert failed", err);
       }

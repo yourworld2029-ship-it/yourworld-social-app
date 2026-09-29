@@ -4,7 +4,6 @@ import { markAlertsSeen } from "@/lib/alerts-count";
 import { CheckCheck, ChevronLeft, Radio, Settings2, X } from "lucide-react";
 import {
   NOTIFICATION_KINDS,
-  ORBIT_KINDS,
   kindMeta,
   timeAgo,
   useNotifications,
@@ -21,7 +20,7 @@ export const Route = createFileRoute("/notifications")({
       {
         name: "description",
         content:
-          "Real-time likes, comments, followers, Orbit matches, messages, channel, verification and monetization alerts on YourWorld.",
+          "Real-time likes, comments, followers, messages, channel, verification and monetization alerts on YourWorld.",
       },
       { property: "og:title", content: "Notifications — YourWorld" },
       {
@@ -42,7 +41,7 @@ function NotificationsPage() {
 
   const {
     items: allItems,
-    unreadHome: unread,
+    unread,
     unreadByKind,
     prefs,
     live,
@@ -57,14 +56,13 @@ function NotificationsPage() {
   const [tuning, setTuning] = useState(false);
   const navigate = useNavigate();
 
-  /** Orbit, Connections and Matches live only inside the Orbit section.
-   *  Message alerts are hidden here — they already live in the Chats inbox. */
+  /** Message alerts are hidden here because they already live in the Chats inbox. */
   const items = useMemo(
-    () => allItems.filter((i) => !ORBIT_KINDS.includes(i.kind) && i.kind !== "message"),
+    () => allItems.filter((i) => i.kind !== "message"),
     [allItems],
   );
   const homeKinds = useMemo(
-    () => NOTIFICATION_KINDS.filter((k) => !ORBIT_KINDS.includes(k.id) && k.id !== "message"),
+    () => NOTIFICATION_KINDS.filter((k) => k.id !== "message"),
     [],
   );
 

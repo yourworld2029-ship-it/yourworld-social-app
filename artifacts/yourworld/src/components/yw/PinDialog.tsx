@@ -10,7 +10,7 @@ function haptic(pattern: number | number[]) {
 }
 
 /**
- * Premium in-app PIN prompt used by Social and Orbit Secret Lock.
+ * Premium in-app PIN prompt used by Social Chat Secret Lock.
  */
 export function PinDialog({
   open,

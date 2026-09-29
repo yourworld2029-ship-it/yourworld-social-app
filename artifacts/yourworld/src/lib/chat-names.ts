@@ -3,9 +3,9 @@ import { supabase } from "@/integrations/supabase/client";
 
 /**
  * Per-contact custom display names (the "Change Display Name" chat option).
- * Stored in `orbit_chat_settings.display_name` for the signed-in user and
- * mirrored in a tiny in-memory + localStorage map so every screen (chat header,
- * chat lists, profile views) shows the custom name instantly.
+ * Stored in `conversation_preferences.display_name` for the signed-in user
+ * and mirrored in a tiny in-memory + localStorage map so every screen (chat
+ * header, chat lists, profile views) shows the custom name instantly.
  */
 
 const LS_KEY = "yw.chat.names";
@@ -60,20 +60,6 @@ export function setChatNameLocal(peerId: string, name: string | null) {
   emit();
 }
 
-/** Persist a custom display name for a contact, forever, until changed again. */
-export async function saveChatDisplayName(peerId: string, name: string | null) {
-  if (!peerId) return false;
-  setChatNameLocal(peerId, name);
-  const { data } = await supabase.auth.getUser();
-  const me = data.user?.id;
-  if (!me) return false;
-  const { error } = await supabase.from("orbit_chat_settings").upsert(
-    { user_id: me, peer_id: peerId, display_name: name?.trim() || null } as never,
-    { onConflict: "user_id,peer_id" },
-  );
-  return !error;
-}
-
 /** Pull every saved custom name for the signed-in user into the local map. */
 export async function refreshChatNames() {
   const revisionAtStart = localRevision;
@@ -81,14 +67,36 @@ export async function refreshChatNames() {
   const me = auth.user?.id;
   if (!me) return;
   const { data, error } = await supabase
-    .from("orbit_chat_settings")
-    .select("peer_id,display_name")
+    .from("conversation_preferences")
+    .select("conversation_id,display_name")
     .eq("user_id", me);
   if (error || revisionAtStart !== localRevision) return;
-  const rows = (data ?? []) as { peer_id: string; display_name: string | null }[];
+
+  const rows = data ?? [];
+  if (!rows.length) {
+    cache = {};
+    writeLocal(cache);
+    emit();
+    return;
+  }
+  const { data: conversations, error: conversationsError } = await supabase
+    .from("conversations")
+    .select("id,participant_one_id,participant_two_id")
+    .in("id", [...new Set(rows.map((row) => row.conversation_id))]);
+  if (conversationsError || revisionAtStart !== localRevision) return;
+
+  const peerByConversation = new Map<string, string>();
+  for (const conversation of conversations ?? []) {
+    const id = String(conversation.id ?? "");
+    const first = String(conversation.participant_one_id ?? "");
+    const second = String(conversation.participant_two_id ?? "");
+    const peerId = first === me ? second : second === me ? first : "";
+    if (id && peerId) peerByConversation.set(id, peerId);
+  }
   const map: Record<string, string> = {};
-  rows.forEach((r) => {
-    if (r.display_name && r.display_name.trim()) map[r.peer_id] = r.display_name.trim();
+  rows.forEach((row) => {
+    const peerId = peerByConversation.get(row.conversation_id);
+    if (peerId && row.display_name?.trim()) map[peerId] = row.display_name.trim();
   });
   cache = map;
   writeLocal(map);

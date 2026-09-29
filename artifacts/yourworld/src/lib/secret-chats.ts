@@ -6,10 +6,10 @@ import { verifyPin } from "@/lib/secret-pin";
 export { hashPin, randomPinSalt, verifyPin } from "@/lib/secret-pin";
 
 /**
- * Shared Secret Chat Lock helpers used by both Social and Orbit message lists.
- * Locked conversations disappear from the list/search until the exact PIN is
- * typed into the search bar. A successful search PIN grants one short-lived,
- * local unlock so opening that result does not ask for the same PIN twice.
+ * Social Chat Secret Lock helpers. Locked conversations disappear from the
+ * list/search until the exact PIN is typed into the search bar. A successful
+ * search PIN grants one short-lived local unlock so opening that result does
+ * not ask for the same PIN twice.
  */
 
 const unlockGrantTtlMs = 60_000;
@@ -135,30 +135,6 @@ export async function verifyAccountPassword(
   }
 }
 
-/** Persist only this user's lock fields for one peer, atomically. */
-export async function saveSecretChatLock(
-  peerId: string,
-  enabled: boolean,
-  salt: string | null,
-  hash: string | null,
-) {
-  const { data: auth, error: authError } = await supabase.auth.getUser();
-  const userId = auth.user?.id;
-  if (authError || !userId) throw authError ?? new Error("Not signed in");
-
-  const { error } = await supabase.from("orbit_chat_settings").upsert(
-    {
-      user_id: userId,
-      peer_id: peerId,
-      secret_lock_enabled: enabled,
-      secret_pin_salt: salt,
-      secret_pin_hash: hash,
-    } as never,
-    { onConflict: "user_id,peer_id" },
-  );
-  if (error) throw error;
-}
-
 export type LockedChat = {
   ownerId: string;
   peerId: string;
@@ -171,18 +147,50 @@ async function fetchLocked(): Promise<LockedChat[]> {
   if (authError) throw authError;
   const me = auth.user?.id;
   if (!me) return [];
+
   const { data, error } = await supabase
-    .from("orbit_chat_settings")
-    .select("peer_id,secret_pin_salt,secret_pin_hash,secret_lock_enabled")
+    .from("conversation_preferences")
+    .select("conversation_id,secret_pin_salt,secret_pin_hash,is_locked")
     .eq("user_id", me)
-    .eq("secret_lock_enabled", true);
+    .eq("is_locked", true);
   if (error) throw error;
-  return ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({
+
+  const rows = data ?? [];
+  const verifiableRows = rows.filter(
+    (row) =>
+      typeof row.secret_pin_salt === "string" &&
+      row.secret_pin_salt.length > 0 &&
+      typeof row.secret_pin_hash === "string" &&
+      row.secret_pin_hash.length > 0,
+  );
+  if (!verifiableRows.length) return [];
+
+  const conversationIds = [...new Set(verifiableRows.map((row) => String(row.conversation_id)))];
+  const { data: conversations, error: conversationsError } = await supabase
+    .from("conversations")
+    .select("id,participant_one_id,participant_two_id")
+    .in("id", conversationIds);
+  if (conversationsError) throw conversationsError;
+
+  const peerByConversation = new Map<string, string>();
+  for (const conversation of conversations ?? []) {
+    const id = String(conversation.id ?? "");
+    const first = String(conversation.participant_one_id ?? "");
+    const second = String(conversation.participant_two_id ?? "");
+    const peerId = first === me ? second : second === me ? first : "";
+    if (id && peerId) peerByConversation.set(id, peerId);
+  }
+
+  return verifiableRows.flatMap((row) => {
+    const peerId = peerByConversation.get(String(row.conversation_id));
+    if (!peerId) return [];
+    return [{
     ownerId: me,
-    peerId: String(r['peer_id']),
-    salt: (r['secret_pin_salt'] as string | null) ?? null,
-    hash: (r['secret_pin_hash'] as string | null) ?? null,
-  }));
+      peerId,
+      salt: row.secret_pin_salt as string,
+      hash: row.secret_pin_hash as string,
+    }];
+  });
 }
 
 /**
@@ -215,7 +223,7 @@ export function useSecretChats(query: string) {
       .channel("secret-chats")
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "orbit_chat_settings" },
+        { event: "*", schema: "public", table: "conversation_preferences" },
         refresh,
       )
       .subscribe();

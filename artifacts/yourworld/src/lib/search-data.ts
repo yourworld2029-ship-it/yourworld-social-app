@@ -49,19 +49,6 @@ type ProfileRow = {
   normal_categories?: unknown;
 };
 
-type OrbitSearchRow = {
-  user_id: string;
-  name: string | null;
-  city: string | null;
-  state: string | null;
-  country: string | null;
-  about: string | null;
-  hobbies: string[] | null;
-  looking_for: string | null;
-  gender: string | null;
-  photos: unknown;
-};
-
 type SearchPostRow = {
   id?: unknown;
   user_id?: unknown;
@@ -83,14 +70,6 @@ type SearchPostRow = {
 
 function hueOf(id: string) {
   return id.split("").reduce((h, char) => (h * 31 + char.charCodeAt(0)) % 360, 0);
-}
-
-/**
- * Escapes a value embedded in PostgREST's `or` filter grammar while retaining
- * the outer `%` wildcards used for the ILIKE match.
- */
-function escapeILikePattern(value: string) {
-  return value.replace(/[\\%_.,():"']/g, "\\$&");
 }
 
 export function normalizeProfileSearchTerm(search: string) {
@@ -134,63 +113,6 @@ async function resolveSearchAvatars(users: SearchUser[]) {
   );
 }
 
-function orbitPhotoUrl(photos: unknown) {
-  if (!Array.isArray(photos)) return "";
-  const photo = photos.find(
-    (item): item is { url?: unknown } =>
-      typeof item === "object" && item !== null && "url" in item,
-  );
-  return typeof photo?.url === "string" && !/^(blob|data):/.test(photo.url)
-    ? photo.url
-    : "";
-}
-
-function toOrbitSearchUsers(rows: OrbitSearchRow[]): SearchUser[] {
-  return rows.map((row) => {
-    const name = row.name?.trim() || "Orbit user";
-    return {
-      id: row.user_id,
-      username: name.toLowerCase().replace(/\s+/g, "."),
-      name,
-      category: "Orbit",
-      hue: hueOf(row.user_id),
-      bio: row.about?.trim() || undefined,
-      location: [row.city, row.state, row.country].filter(Boolean).join(", "),
-      avatar_url: orbitPhotoUrl(row.photos),
-    } as SearchUser;
-  });
-}
-
-async function searchOrbitProfiles(
-  term: string,
-  client: typeof supabase,
-): Promise<SearchUser[]> {
-  const pattern = escapeILikePattern(term);
-  const { data, error } = await client
-    .from("orbit_profiles")
-    .select("user_id,name,city,state,country,about,hobbies,looking_for,gender,photos")
-    .or(
-      [
-        `name.ilike.%${pattern}%`,
-        `city.ilike.%${pattern}%`,
-        `state.ilike.%${pattern}%`,
-        `country.ilike.%${pattern}%`,
-        `about.ilike.%${pattern}%`,
-        `looking_for.ilike.%${pattern}%`,
-        `gender.ilike.%${pattern}%`,
-        `mood.ilike.%${pattern}%`,
-      ].join(","),
-    )
-    .eq("orbit_enabled", true)
-    .eq("visible", true)
-    .limit(50);
-  if (error) {
-    console.warn("[search] Orbit profile search unavailable", error.message);
-    return [];
-  }
-  return toOrbitSearchUsers((data ?? []) as unknown as OrbitSearchRow[]);
-}
-
 async function loadFollowerCounts(
   ids: string[],
   client: typeof supabase,
@@ -217,10 +139,7 @@ export async function searchPublicProfiles(
   const searchTerm = normalizeProfileSearchTerm(search);
   if (!searchTerm) return [];
 
-  const [{ data, error }, orbitUsers] = await Promise.all([
-    client.rpc("search_profiles", { search: searchTerm }),
-    searchOrbitProfiles(searchTerm, client),
-  ]);
+  const { data, error } = await client.rpc("search_profiles", { search: searchTerm });
   if (error) throw error;
 
   const profiles = (data ?? []) as unknown as ProfileRow[];
@@ -231,12 +150,7 @@ export async function searchPublicProfiles(
   const standardUsers = await resolveSearchAvatars(
     toSearchUsers(profiles, followersById),
   );
-  const merged = new Map(standardUsers.map((user) => [user.id, user]));
-  for (const orbitUser of orbitUsers) {
-    const existing = merged.get(orbitUser.id);
-    merged.set(orbitUser.id, existing ? { ...orbitUser, ...existing } : orbitUser);
-  }
-  return resolveSearchAvatars([...merged.values()].slice(0, 50));
+  return resolveSearchAvatars(standardUsers.slice(0, 50));
 }
 
 function textValue(value: unknown) {

@@ -154,6 +154,68 @@ export type Database = {
           },
         ]
       }
+      conversation_preferences: {
+        Row: {
+          auto_delete_setting: string
+          conversation_id: string
+          created_at: string
+          display_name: string | null
+          hidden_at: string | null
+          is_locked: boolean
+          is_muted: boolean
+          protect_chat_enabled: boolean
+          screen_recording_alert: boolean
+          screenshot_alert: boolean
+          secret_pin_hash: string | null
+          secret_pin_salt: string | null
+          updated_at: string
+          user_id: string
+          view_once: boolean
+        }
+        Insert: {
+          auto_delete_setting?: string
+          conversation_id: string
+          created_at?: string
+          display_name?: string | null
+          hidden_at?: string | null
+          is_locked?: boolean
+          is_muted?: boolean
+          protect_chat_enabled?: boolean
+          screen_recording_alert?: boolean
+          screenshot_alert?: boolean
+          secret_pin_hash?: string | null
+          secret_pin_salt?: string | null
+          updated_at?: string
+          user_id: string
+          view_once?: boolean
+        }
+        Update: {
+          auto_delete_setting?: string
+          conversation_id?: string
+          created_at?: string
+          display_name?: string | null
+          hidden_at?: string | null
+          is_locked?: boolean
+          is_muted?: boolean
+          protect_chat_enabled?: boolean
+          screen_recording_alert?: boolean
+          screenshot_alert?: boolean
+          secret_pin_hash?: string | null
+          secret_pin_salt?: string | null
+          updated_at?: string
+          user_id?: string
+          view_once?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversation_preferences_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       conversations: {
         Row: {
           auto_delete_setting: string
@@ -439,239 +501,6 @@ export type Database = {
           title?: string
         }
         Relationships: []
-      }
-      orbit_chat_requests: {
-        Row: {
-          addressee_id: string
-          created_at: string
-          id: string
-          intro: string | null
-          requester_id: string
-          status: string
-          updated_at: string
-        }
-        Insert: {
-          addressee_id: string
-          created_at?: string
-          id?: string
-          intro?: string | null
-          requester_id: string
-          status?: string
-          updated_at?: string
-        }
-        Update: {
-          addressee_id?: string
-          created_at?: string
-          id?: string
-          intro?: string | null
-          requester_id?: string
-          status?: string
-          updated_at?: string
-        }
-        Relationships: []
-      }
-      orbit_chat_settings: {
-        Row: {
-          auto_delete_mode: string
-          auto_delete_seconds: number
-          auto_delete_setting: string
-          blocked: boolean
-          cleared_before: string | null
-          display_name: string | null
-          muted: boolean
-          peer_id: string
-          recording_alert: boolean
-          screenshot_alert: boolean
-          secret_lock_enabled: boolean
-          secret_pin_hash: string | null
-          secret_pin_salt: string | null
-          updated_at: string
-          user_id: string
-          view_once_mode: boolean
-        }
-        Insert: {
-          auto_delete_mode?: string
-          auto_delete_seconds?: number
-          auto_delete_setting?: string
-          blocked?: boolean
-          cleared_before?: string | null
-          display_name?: string | null
-          muted?: boolean
-          peer_id: string
-          recording_alert?: boolean
-          screenshot_alert?: boolean
-          secret_lock_enabled?: boolean
-          secret_pin_hash?: string | null
-          secret_pin_salt?: string | null
-          updated_at?: string
-          user_id: string
-          view_once_mode?: boolean
-        }
-        Update: {
-          auto_delete_mode?: string
-          auto_delete_seconds?: number
-          auto_delete_setting?: string
-          blocked?: boolean
-          cleared_before?: string | null
-          display_name?: string | null
-          muted?: boolean
-          peer_id?: string
-          recording_alert?: boolean
-          screenshot_alert?: boolean
-          secret_lock_enabled?: boolean
-          secret_pin_hash?: string | null
-          secret_pin_salt?: string | null
-          updated_at?: string
-          user_id?: string
-          view_once_mode?: boolean
-        }
-        Relationships: []
-      }
-      orbit_messages: {
-        Row: {
-          auto_delete_setting: string
-          created_at: string
-          expires_at: string | null
-          id: string
-          is_viewed: boolean
-          kind: string
-          recipient_id: string
-          sender_id: string
-          text: string | null
-          updated_at: string
-          url: string | null
-          view_once: boolean
-          viewed_at: string | null
-        }
-        Insert: {
-          auto_delete_setting?: string
-          created_at?: string
-          expires_at?: string | null
-          id?: string
-          is_viewed?: boolean
-          kind?: string
-          recipient_id: string
-          sender_id: string
-          text?: string | null
-          updated_at?: string
-          url?: string | null
-          view_once?: boolean
-          viewed_at?: string | null
-        }
-        Update: {
-          auto_delete_setting?: string
-          created_at?: string
-          expires_at?: string | null
-          id?: string
-          is_viewed?: boolean
-          kind?: string
-          recipient_id?: string
-          sender_id?: string
-          text?: string | null
-          updated_at?: string
-          url?: string | null
-          view_once?: boolean
-          viewed_at?: string | null
-        }
-        Relationships: []
-      }
-      orbit_profiles: {
-        Row: {
-          about: string
-          age: number
-          city: string
-          country: string
-          created_at: string
-          gender: string
-          hobbies: string[]
-          looking_for: string
-          mood: string | null
-          name: string
-          orbit_enabled: boolean
-          original_photo_privacy: string
-          photos: Json
-          state: string
-          updated_at: string
-          user_id: string
-          visible: boolean
-        }
-        Insert: {
-          about?: string
-          age?: number
-          city?: string
-          country?: string
-          created_at?: string
-          gender?: string
-          hobbies?: string[]
-          looking_for?: string
-          mood?: string | null
-          name: string
-          orbit_enabled?: boolean
-          original_photo_privacy?: string
-          photos?: Json
-          state?: string
-          updated_at?: string
-          user_id: string
-          visible?: boolean
-        }
-        Update: {
-          about?: string
-          age?: number
-          city?: string
-          country?: string
-          created_at?: string
-          gender?: string
-          hobbies?: string[]
-          looking_for?: string
-          mood?: string | null
-          name?: string
-          orbit_enabled?: boolean
-          original_photo_privacy?: string
-          photos?: Json
-          state?: string
-          updated_at?: string
-          user_id?: string
-          visible?: boolean
-        }
-        Relationships: []
-      }
-      orbit_request_messages: {
-        Row: {
-          created_at: string
-          id: string
-          kind: string
-          request_id: string
-          sender_id: string
-          text: string | null
-          url: string | null
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          kind?: string
-          request_id: string
-          sender_id: string
-          text?: string | null
-          url?: string | null
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          kind?: string
-          request_id?: string
-          sender_id?: string
-          text?: string | null
-          url?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "orbit_request_messages_request_id_fkey"
-            columns: ["request_id"]
-            isOneToOne: false
-            referencedRelation: "orbit_chat_requests"
-            referencedColumns: ["id"]
-          },
-        ]
       }
       post_saves: {
         Row: {
@@ -1338,38 +1167,11 @@ export type Database = {
       }
       burn_view_once: { Args: { _msg_id: string }; Returns: boolean }
       current_user_session_is_active: { Args: never; Returns: boolean }
-      clear_orbit_conversation: {
-        Args: { _peer_id: string }
-        Returns: undefined
-      }
       clear_social_conversation: {
         Args: { _conversation_id: string }
         Returns: undefined
       }
-      consume_orbit_view_once: { Args: { _msg_id: string }; Returns: string }
       delete_expired_chat_messages: { Args: never; Returns: number }
-      delete_expired_orbit_messages: { Args: never; Returns: number }
-      discover_orbit_profiles: {
-        Args: { ids?: string[] }
-        Returns: {
-          about: string
-          age: number
-          city: string
-          country: string
-          gender: string
-          hobbies: string[]
-          looking_for: string
-          mood: string
-          name: string
-          orbit_enabled: boolean
-          original_photo_privacy: string
-          photos: Json
-          state: string
-          updated_at: string
-          user_id: string
-          visible: boolean
-        }[]
-      }
       dm_thread_has_user: {
         Args: { _thread_id: string; _user_id: string }
         Returns: boolean
@@ -1441,10 +1243,6 @@ export type Database = {
         Args: { _content_id: string; _content_type: string }
         Returns: boolean
       }
-      respond_to_orbit_chat_request: {
-        Args: { _status: string; _target_id: string }
-        Returns: boolean
-      }
       revoke_other_user_sessions: { Args: never; Returns: number }
       revoke_user_session: {
         Args: { _session_row_id: string }
@@ -1461,19 +1259,6 @@ export type Database = {
           is_verified: boolean
           username: string
         }[]
-      }
-      send_orbit_chat_request: {
-        Args: { _intro?: string; _target_id: string }
-        Returns: string
-      }
-      send_orbit_request_message: {
-        Args: {
-          _kind: string
-          _target_id: string
-          _text?: string
-          _url?: string
-        }
-        Returns: string
       }
       set_follow: {
         Args: { _following_id: string; _on: boolean }

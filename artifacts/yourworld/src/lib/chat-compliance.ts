@@ -59,7 +59,7 @@ export function matchComplianceTerms(text: string | null | undefined): string[] 
  * so the chat experience is completely undisturbed.
  */
 export function flagChatMessage(input: {
-  surface: "social" | "orbit";
+  surface: "social";
   text?: string | null;
   threadId?: string | null;
   peerId?: string | null;

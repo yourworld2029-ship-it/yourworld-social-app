@@ -158,7 +158,7 @@ function RootComponent() {
   const [createOpen, setCreateOpen] = useState(false);
   const [isAndroidApp, setIsAndroidApp] = useState(false);
   const isWatchPreview = pathname.startsWith("/watch/");
-  const hideNav = isWatchPreview || pathname.startsWith("/orbit") || pathname.startsWith("/auth") || pathname.startsWith("/verify-2fa") || pathname.startsWith("/create") || pathname.startsWith("/moment/create") || pathname.startsWith("/channel/create");
+  const hideNav = isWatchPreview || pathname.startsWith("/auth") || pathname.startsWith("/verify-2fa") || pathname.startsWith("/create") || pathname.startsWith("/moment/create") || pathname.startsWith("/channel/create");
   const wideProfileLayout = pathname === "/profile";
 
   useEffect(() => {

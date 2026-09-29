@@ -11,9 +11,9 @@ import {
 /**
  * Per-conversation chat options (display name, secret lock, view once, auto
  * delete, capture alerts, chat protection, mute, block) persisted in the
- * conversation-scoped `conversation_preferences` table. The legacy
- * `orbit_chat_settings` row is still updated for display-name compatibility
- * and for Orbit's existing settings screens.
+ * conversation-scoped `conversation_preferences` table. Blocks remain in the
+ * participant-scoped `user_blocks` table, and auto-delete remains shared on
+ * the conversation row.
  */
 export type ChatSettings = {
   displayName: string | null;
@@ -46,20 +46,17 @@ const DEFAULTS: ChatSettings = {
   blocked: false,
 };
 
-type Row = {
-  display_name: string | null;
-  secret_lock_enabled: boolean;
-  secret_pin_salt: string | null;
-  secret_pin_hash: string | null;
-  view_once_mode: boolean;
+type PreferenceRow = {
+  display_name?: string | null;
+  secret_pin_salt?: string | null;
+  secret_pin_hash?: string | null;
+  is_locked?: boolean;
+  view_once?: boolean;
   auto_delete_setting?: string | null;
-  auto_delete_mode?: string | null;
-  auto_delete_seconds: number;
-  screenshot_alert: boolean;
-  recording_alert: boolean;
+  screenshot_alert?: boolean;
+  screen_recording_alert?: boolean;
   protect_chat_enabled?: boolean;
-  muted: boolean;
-  blocked: boolean | null;
+  is_muted?: boolean;
 };
 
 export function useChatSettings(peerId: string | null, conversationId: string | null = null) {
@@ -88,42 +85,24 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
           setReady(true);
           return;
         }
-        const [{ data: legacyData }, preferenceResult] = await Promise.all([
-          supabase
-            .from("orbit_chat_settings")
-            .select("*")
-            .eq("user_id", me)
-            .eq("peer_id", peerId)
-            .maybeSingle(),
+        const [preferenceResult, { data: blockedData }] = await Promise.all([
           conversationId
             ? supabase
-                .from("conversation_preferences" as never)
-                .select("*" as never)
-                .eq("conversation_id" as never, conversationId)
-                .eq("user_id" as never, me)
+                .from("conversation_preferences")
+                .select("*")
+                .eq("conversation_id", conversationId)
+                .eq("user_id", me)
                 .maybeSingle()
             : Promise.resolve({ data: null, error: null }),
+          supabase
+            .from("user_blocks" as never)
+            .select("blocked_id" as never)
+            .eq("blocker_id" as never, me)
+            .eq("blocked_id" as never, peerId)
+            .maybeSingle(),
         ]);
-        const { data: blockedData } = await supabase
-          .from("user_blocks" as never)
-          .select("blocked_id" as never)
-          .eq("blocker_id" as never, me)
-          .eq("blocked_id" as never, peerId)
-          .maybeSingle();
         if (!alive) return;
-        const legacyRow = legacyData as Row | null;
-        const preference = preferenceResult.data as {
-          secret_pin_salt?: string | null;
-          secret_pin_hash?: string | null;
-          is_locked?: boolean;
-          view_once?: boolean;
-          auto_delete_setting?: string | null;
-          screenshot_alert?: boolean;
-          screen_recording_alert?: boolean;
-          protect_chat_enabled?: boolean;
-          is_muted?: boolean;
-        } | null;
-        const row = legacyRow;
+        const preference = preferenceResult.data as PreferenceRow | null;
         let conversationSetting: AutoDeleteSetting | null = null;
         if (conversationId) {
           const conversationResult = await supabase
@@ -138,40 +117,28 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
           }
         }
         if (!alive) return;
-        if (row || preference || conversationSetting) {
+        if (preference || conversationSetting) {
           const preferenceMode = normalizeAutoDeleteSetting(preference?.auto_delete_setting);
-          const secretPinSalt =
-            preference?.secret_pin_salt ?? row?.secret_pin_salt ?? DEFAULTS.secretPinSalt;
-          const secretPinHash =
-            preference?.secret_pin_hash ?? row?.secret_pin_hash ?? DEFAULTS.secretPinHash;
-          const lockRequested =
-            preference?.is_locked ?? row?.secret_lock_enabled ?? DEFAULTS.secretLock;
+          const secretPinSalt = preference?.secret_pin_salt ?? DEFAULTS.secretPinSalt;
+          const secretPinHash = preference?.secret_pin_hash ?? DEFAULTS.secretPinHash;
+          const lockRequested = preference?.is_locked ?? DEFAULTS.secretLock;
           const lockCanBeVerified =
             typeof secretPinSalt === "string" &&
             secretPinSalt.length > 0 &&
             typeof secretPinHash === "string" &&
             secretPinHash.length > 0;
           setSettings({
-            displayName: row?.display_name ?? DEFAULTS.displayName,
+            displayName: preference?.display_name ?? DEFAULTS.displayName,
             secretLock: Boolean(lockRequested && lockCanBeVerified),
             secretPinSalt,
             secretPinHash,
-            viewOnce: preference?.view_once ?? row?.view_once_mode ?? DEFAULTS.viewOnce,
-            autoDeleteSetting: conversationSetting ?? (preference ? preferenceMode : normalizeAutoDeleteSetting(
-              row?.auto_delete_mode ?? row?.auto_delete_setting,
-              row?.auto_delete_seconds,
-            )),
-            autoDelete: autoDeleteSeconds(conversationSetting ?? (preference ? preferenceMode : normalizeAutoDeleteSetting(
-              row?.auto_delete_mode ?? row?.auto_delete_setting,
-              row?.auto_delete_seconds,
-            ))),
-            screenshotAlert: preference?.screenshot_alert ?? row?.screenshot_alert ?? DEFAULTS.screenshotAlert,
-            recordingAlert: preference?.screen_recording_alert ?? row?.recording_alert ?? DEFAULTS.recordingAlert,
-            protectChatEnabled:
-              preference?.protect_chat_enabled ??
-              row?.protect_chat_enabled ??
-              DEFAULTS.protectChatEnabled,
-            muted: preference?.is_muted ?? row?.muted ?? DEFAULTS.muted,
+            viewOnce: preference?.view_once ?? DEFAULTS.viewOnce,
+            autoDeleteSetting: conversationSetting ?? preferenceMode,
+            autoDelete: autoDeleteSeconds(conversationSetting ?? preferenceMode),
+            screenshotAlert: preference?.screenshot_alert ?? DEFAULTS.screenshotAlert,
+            recordingAlert: preference?.screen_recording_alert ?? DEFAULTS.recordingAlert,
+            protectChatEnabled: preference?.protect_chat_enabled ?? DEFAULTS.protectChatEnabled,
+            muted: preference?.is_muted ?? DEFAULTS.muted,
             blocked: Boolean(blockedData),
           });
         } else {
@@ -200,6 +167,7 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
               is_locked?: boolean | null;
               secret_pin_salt?: string | null;
               secret_pin_hash?: string | null;
+              display_name?: string | null;
               view_once?: boolean;
               screenshot_alert?: boolean;
               screen_recording_alert?: boolean;
@@ -225,6 +193,7 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
                 secretLock: Boolean((row.is_locked ?? current.secretLock) && lockCanBeVerified),
                 secretPinSalt: nextSalt,
                 secretPinHash: nextHash,
+                displayName: row.display_name ?? current.displayName,
                 viewOnce: row.view_once ?? current.viewOnce,
                 screenshotAlert: row.screenshot_alert ?? current.screenshotAlert,
                 recordingAlert: row.screen_recording_alert ?? current.recordingAlert,
@@ -304,11 +273,14 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
   const patch = useCallback(
     async (next: Partial<ChatSettings>) => {
       if (!ready) return { error: "Chat settings are still loading. Try again in a moment." };
+      const me = meRef.current;
+      if (!me || !peerId) return { error: "Chat is still syncing. Try again in a moment." };
+      if (!conversationId && Object.keys(next).some((key) => key !== "blocked")) {
+        return { error: "Chat is still syncing. Try again in a moment." };
+      }
       const previous = settings;
       const merged = { ...previous, ...next };
       setSettings(merged);
-      const me = meRef.current;
-      if (!me || !peerId) return { error: "Chat is still syncing. Try again in a moment." };
 
       if (conversationId) {
         const preferenceUpdate: Record<string, unknown> = {
@@ -324,12 +296,15 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
           is_muted: merged.muted,
           updated_at: new Date().toISOString(),
         };
+        if (next.displayName !== undefined) {
+          preferenceUpdate.display_name = merged.displayName;
+        }
         if (next.protectChatEnabled !== undefined) {
           preferenceUpdate.protect_chat_enabled = merged.protectChatEnabled;
         }
         const { error } = await supabase
-          .from("conversation_preferences" as never)
-          .upsert(preferenceUpdate as never, { onConflict: "conversation_id,user_id" });
+          .from("conversation_preferences")
+          .upsert(preferenceUpdate, { onConflict: "conversation_id,user_id" });
         if (error) {
           setSettings(previous);
           return { error: error.message };
@@ -344,32 +319,6 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
         }
       }
 
-      // Keep the legacy row current for the Orbit settings page and display name.
-      const legacyUpdate: Record<string, unknown> = {
-        user_id: me,
-        peer_id: peerId,
-        display_name: merged.displayName,
-        secret_lock_enabled: merged.secretLock,
-        secret_pin_salt: merged.secretPinSalt,
-        secret_pin_hash: merged.secretPinHash,
-        view_once_mode: merged.viewOnce,
-        screenshot_alert: merged.screenshotAlert,
-        recording_alert: merged.recordingAlert,
-        muted: merged.muted,
-        blocked: merged.blocked,
-      };
-      if (next.protectChatEnabled !== undefined) {
-        legacyUpdate.protect_chat_enabled = merged.protectChatEnabled;
-      }
-      const { error: legacyError } = await supabase
-        .from("orbit_chat_settings")
-        .upsert(legacyUpdate as never, { onConflict: "user_id,peer_id" });
-      if (legacyError) {
-        if (!conversationId && (next.blocked === undefined || next.blocked === previous.blocked)) {
-          setSettings(previous);
-        }
-        return { error: legacyError.message };
-      }
       return { error: null };
     },
     [conversationId, peerId, ready, settings],
@@ -383,13 +332,13 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
     const previous = settings.autoDeleteSetting;
     setSettings((current) => ({ ...current, autoDeleteSetting: setting, autoDelete: autoDeleteSeconds(setting) }));
     const { error: preferenceError } = await supabase
-      .from("conversation_preferences" as never)
+      .from("conversation_preferences")
       .upsert({
         conversation_id: conversationId,
         user_id: me,
         auto_delete_setting: setting,
         updated_at: new Date().toISOString(),
-      } as never, { onConflict: "conversation_id,user_id" });
+      }, { onConflict: "conversation_id,user_id" });
     if (preferenceError) {
       setSettings((current) => ({ ...current, autoDeleteSetting: previous, autoDelete: autoDeleteSeconds(previous) }));
       return { error: preferenceError.message };

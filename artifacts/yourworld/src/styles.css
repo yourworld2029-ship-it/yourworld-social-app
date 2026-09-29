@@ -447,26 +447,6 @@ html[data-theme="midnight"] {
   stroke-width: 1.45;
 }
 
-.sports-identity-badge__orbit {
-  position: absolute;
-  inset: 2px -4px;
-  border: 1px solid color-mix(in srgb, var(--sports-badge-bright) 55%, transparent);
-  border-radius: 50%;
-  transform: rotate(-22deg) skewX(-18deg);
-}
-
-.sports-identity-badge__orbit::after {
-  position: absolute;
-  top: -2px;
-  right: 3px;
-  width: 4px;
-  height: 4px;
-  border-radius: 999px;
-  background: var(--sports-badge-bright);
-  box-shadow: 0 0 7px var(--sports-badge-bright);
-  content: "";
-}
-
 .sports-identity-badge__gem {
   position: absolute;
   right: -3px;

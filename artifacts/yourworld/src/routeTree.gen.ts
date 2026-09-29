@@ -21,7 +21,6 @@ import { Route as CreateRouteImport } from './routes/create'
 import { Route as HelpCenterRouteImport } from './routes/help-center'
 import { Route as LicensesRouteImport } from './routes/licenses'
 import { Route as NotificationsRouteImport } from './routes/notifications'
-import { Route as OrbitRouteImport } from './routes/orbit'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as ReelsRouteImport } from './routes/reels'
@@ -44,13 +43,6 @@ import { Route as LiveCreateRouteImport } from './routes/live.create'
 import { Route as MomentIndexRouteImport } from './routes/moment.index'
 import { Route as MomentMomentIdRouteImport } from './routes/moment.$momentId'
 import { Route as MomentCreateRouteImport } from './routes/moment.create'
-import { Route as OrbitIndexRouteImport } from './routes/orbit.index'
-import { Route as OrbitProfileIdRouteImport } from './routes/orbit.$profileId'
-import { Route as OrbitCreateRouteImport } from './routes/orbit.create'
-import { Route as OrbitMeRouteImport } from './routes/orbit.me'
-import { Route as OrbitMessagesRouteImport } from './routes/orbit.messages'
-import { Route as OrbitNotificationsRouteImport } from './routes/orbit.notifications'
-import { Route as OrbitPrivacyRouteImport } from './routes/orbit.privacy'
 import { Route as PostCreateRouteImport } from './routes/post.create'
 import { Route as ReelReelIdRouteImport } from './routes/reel.$reelId'
 import { Route as TermsMonetizationRouteImport } from './routes/terms.monetization'
@@ -60,7 +52,6 @@ import { Route as VideoUploadRouteImport } from './routes/video.upload'
 import { Route as WatchContentIdRouteImport } from './routes/watch.$contentId'
 import { Route as AuthenticatedChatIndexRouteImport } from './routes/_authenticated/chat.index'
 import { Route as AuthenticatedChatThreadIdRouteImport } from './routes/_authenticated/chat.$threadId'
-import { Route as OrbitChatUserIdRouteImport } from './routes/orbit.chat.$userId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -119,11 +110,6 @@ const LicensesRoute = LicensesRouteImport.update({
 const NotificationsRoute = NotificationsRouteImport.update({
   id: '/notifications',
   path: '/notifications',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const OrbitRoute = OrbitRouteImport.update({
-  id: '/orbit',
-  path: '/orbit',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PrivacyRoute = PrivacyRouteImport.update({
@@ -236,41 +222,6 @@ const MomentCreateRoute = MomentCreateRouteImport.update({
   path: '/moment/create',
   getParentRoute: () => rootRouteImport,
 } as any)
-const OrbitIndexRoute = OrbitIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => OrbitRoute,
-} as any)
-const OrbitProfileIdRoute = OrbitProfileIdRouteImport.update({
-  id: '/$profileId',
-  path: '/$profileId',
-  getParentRoute: () => OrbitRoute,
-} as any)
-const OrbitCreateRoute = OrbitCreateRouteImport.update({
-  id: '/create',
-  path: '/create',
-  getParentRoute: () => OrbitRoute,
-} as any)
-const OrbitMeRoute = OrbitMeRouteImport.update({
-  id: '/me',
-  path: '/me',
-  getParentRoute: () => OrbitRoute,
-} as any)
-const OrbitMessagesRoute = OrbitMessagesRouteImport.update({
-  id: '/messages',
-  path: '/messages',
-  getParentRoute: () => OrbitRoute,
-} as any)
-const OrbitNotificationsRoute = OrbitNotificationsRouteImport.update({
-  id: '/notifications',
-  path: '/notifications',
-  getParentRoute: () => OrbitRoute,
-} as any)
-const OrbitPrivacyRoute = OrbitPrivacyRouteImport.update({
-  id: '/privacy',
-  path: '/privacy',
-  getParentRoute: () => OrbitRoute,
-} as any)
 const PostCreateRoute = PostCreateRouteImport.update({
   id: '/post/create',
   path: '/post/create',
@@ -317,11 +268,6 @@ const AuthenticatedChatThreadIdRoute =
     path: '/chat/$threadId',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const OrbitChatUserIdRoute = OrbitChatUserIdRouteImport.update({
-  id: '/chat/$userId',
-  path: '/chat/$userId',
-  getParentRoute: () => OrbitRoute,
-} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -335,7 +281,6 @@ export interface FileRoutesByFullPath {
   '/help-center': typeof HelpCenterRoute
   '/licenses': typeof LicensesRoute
   '/notifications': typeof NotificationsRoute
-  '/orbit': typeof OrbitRouteWithChildren
   '/privacy': typeof PrivacyRoute
   '/profile': typeof ProfileRoute
   '/reels': typeof ReelsRoute
@@ -356,12 +301,6 @@ export interface FileRoutesByFullPath {
   '/live/create': typeof LiveCreateRoute
   '/moment/$momentId': typeof MomentMomentIdRoute
   '/moment/create': typeof MomentCreateRoute
-  '/orbit/$profileId': typeof OrbitProfileIdRoute
-  '/orbit/create': typeof OrbitCreateRoute
-  '/orbit/me': typeof OrbitMeRoute
-  '/orbit/messages': typeof OrbitMessagesRoute
-  '/orbit/notifications': typeof OrbitNotificationsRoute
-  '/orbit/privacy': typeof OrbitPrivacyRoute
   '/post/create': typeof PostCreateRoute
   '/reel/$reelId': typeof ReelReelIdRoute
   '/terms/monetization': typeof TermsMonetizationRoute
@@ -371,9 +310,7 @@ export interface FileRoutesByFullPath {
   '/watch/$contentId': typeof WatchContentIdRoute
   '/channel/': typeof ChannelIndexRoute
   '/moment/': typeof MomentIndexRoute
-  '/orbit/': typeof OrbitIndexRoute
   '/chat/$threadId': typeof AuthenticatedChatThreadIdRoute
-  '/orbit/chat/$userId': typeof OrbitChatUserIdRoute
   '/chat/': typeof AuthenticatedChatIndexRoute
 }
 export interface FileRoutesByTo {
@@ -407,12 +344,6 @@ export interface FileRoutesByTo {
   '/live/create': typeof LiveCreateRoute
   '/moment/$momentId': typeof MomentMomentIdRoute
   '/moment/create': typeof MomentCreateRoute
-  '/orbit/$profileId': typeof OrbitProfileIdRoute
-  '/orbit/create': typeof OrbitCreateRoute
-  '/orbit/me': typeof OrbitMeRoute
-  '/orbit/messages': typeof OrbitMessagesRoute
-  '/orbit/notifications': typeof OrbitNotificationsRoute
-  '/orbit/privacy': typeof OrbitPrivacyRoute
   '/post/create': typeof PostCreateRoute
   '/reel/$reelId': typeof ReelReelIdRoute
   '/terms/monetization': typeof TermsMonetizationRoute
@@ -422,9 +353,7 @@ export interface FileRoutesByTo {
   '/watch/$contentId': typeof WatchContentIdRoute
   '/channel': typeof ChannelIndexRoute
   '/moment': typeof MomentIndexRoute
-  '/orbit': typeof OrbitIndexRoute
   '/chat/$threadId': typeof AuthenticatedChatThreadIdRoute
-  '/orbit/chat/$userId': typeof OrbitChatUserIdRoute
   '/chat': typeof AuthenticatedChatIndexRoute
 }
 export interface FileRoutesById {
@@ -441,7 +370,6 @@ export interface FileRoutesById {
   '/help-center': typeof HelpCenterRoute
   '/licenses': typeof LicensesRoute
   '/notifications': typeof NotificationsRoute
-  '/orbit': typeof OrbitRouteWithChildren
   '/privacy': typeof PrivacyRoute
   '/profile': typeof ProfileRoute
   '/reels': typeof ReelsRoute
@@ -462,12 +390,6 @@ export interface FileRoutesById {
   '/live/create': typeof LiveCreateRoute
   '/moment/$momentId': typeof MomentMomentIdRoute
   '/moment/create': typeof MomentCreateRoute
-  '/orbit/$profileId': typeof OrbitProfileIdRoute
-  '/orbit/create': typeof OrbitCreateRoute
-  '/orbit/me': typeof OrbitMeRoute
-  '/orbit/messages': typeof OrbitMessagesRoute
-  '/orbit/notifications': typeof OrbitNotificationsRoute
-  '/orbit/privacy': typeof OrbitPrivacyRoute
   '/post/create': typeof PostCreateRoute
   '/reel/$reelId': typeof ReelReelIdRoute
   '/terms/monetization': typeof TermsMonetizationRoute
@@ -477,9 +399,7 @@ export interface FileRoutesById {
   '/watch/$contentId': typeof WatchContentIdRoute
   '/channel/': typeof ChannelIndexRoute
   '/moment/': typeof MomentIndexRoute
-  '/orbit/': typeof OrbitIndexRoute
   '/_authenticated/chat/$threadId': typeof AuthenticatedChatThreadIdRoute
-  '/orbit/chat/$userId': typeof OrbitChatUserIdRoute
   '/_authenticated/chat/': typeof AuthenticatedChatIndexRoute
 }
 export interface FileRouteTypes {
@@ -496,7 +416,6 @@ export interface FileRouteTypes {
     | '/help-center'
     | '/licenses'
     | '/notifications'
-    | '/orbit'
     | '/privacy'
     | '/profile'
     | '/reels'
@@ -517,12 +436,6 @@ export interface FileRouteTypes {
     | '/live/create'
     | '/moment/$momentId'
     | '/moment/create'
-    | '/orbit/$profileId'
-    | '/orbit/create'
-    | '/orbit/me'
-    | '/orbit/messages'
-    | '/orbit/notifications'
-    | '/orbit/privacy'
     | '/post/create'
     | '/reel/$reelId'
     | '/terms/monetization'
@@ -532,9 +445,7 @@ export interface FileRouteTypes {
     | '/watch/$contentId'
     | '/channel/'
     | '/moment/'
-    | '/orbit/'
     | '/chat/$threadId'
-    | '/orbit/chat/$userId'
     | '/chat/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -568,12 +479,6 @@ export interface FileRouteTypes {
     | '/live/create'
     | '/moment/$momentId'
     | '/moment/create'
-    | '/orbit/$profileId'
-    | '/orbit/create'
-    | '/orbit/me'
-    | '/orbit/messages'
-    | '/orbit/notifications'
-    | '/orbit/privacy'
     | '/post/create'
     | '/reel/$reelId'
     | '/terms/monetization'
@@ -583,9 +488,7 @@ export interface FileRouteTypes {
     | '/watch/$contentId'
     | '/channel'
     | '/moment'
-    | '/orbit'
     | '/chat/$threadId'
-    | '/orbit/chat/$userId'
     | '/chat'
   id:
     | '__root__'
@@ -601,7 +504,6 @@ export interface FileRouteTypes {
     | '/help-center'
     | '/licenses'
     | '/notifications'
-    | '/orbit'
     | '/privacy'
     | '/profile'
     | '/reels'
@@ -622,12 +524,6 @@ export interface FileRouteTypes {
     | '/live/create'
     | '/moment/$momentId'
     | '/moment/create'
-    | '/orbit/$profileId'
-    | '/orbit/create'
-    | '/orbit/me'
-    | '/orbit/messages'
-    | '/orbit/notifications'
-    | '/orbit/privacy'
     | '/post/create'
     | '/reel/$reelId'
     | '/terms/monetization'
@@ -637,9 +533,7 @@ export interface FileRouteTypes {
     | '/watch/$contentId'
     | '/channel/'
     | '/moment/'
-    | '/orbit/'
     | '/_authenticated/chat/$threadId'
-    | '/orbit/chat/$userId'
     | '/_authenticated/chat/'
   fileRoutesById: FileRoutesById
 }
@@ -656,7 +550,6 @@ export interface RootRouteChildren {
   HelpCenterRoute: typeof HelpCenterRoute
   LicensesRoute: typeof LicensesRoute
   NotificationsRoute: typeof NotificationsRoute
-  OrbitRoute: typeof OrbitRouteWithChildren
   PrivacyRoute: typeof PrivacyRoute
   ProfileRoute: typeof ProfileRoute
   ReelsRoute: typeof ReelsRoute
@@ -765,13 +658,6 @@ declare module '@tanstack/react-router' {
       path: '/notifications'
       fullPath: '/notifications'
       preLoaderRoute: typeof NotificationsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/orbit': {
-      id: '/orbit'
-      path: '/orbit'
-      fullPath: '/orbit'
-      preLoaderRoute: typeof OrbitRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/privacy': {
@@ -928,55 +814,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MomentCreateRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/orbit/': {
-      id: '/orbit/'
-      path: '/'
-      fullPath: '/orbit/'
-      preLoaderRoute: typeof OrbitIndexRouteImport
-      parentRoute: typeof OrbitRoute
-    }
-    '/orbit/$profileId': {
-      id: '/orbit/$profileId'
-      path: '/$profileId'
-      fullPath: '/orbit/$profileId'
-      preLoaderRoute: typeof OrbitProfileIdRouteImport
-      parentRoute: typeof OrbitRoute
-    }
-    '/orbit/create': {
-      id: '/orbit/create'
-      path: '/create'
-      fullPath: '/orbit/create'
-      preLoaderRoute: typeof OrbitCreateRouteImport
-      parentRoute: typeof OrbitRoute
-    }
-    '/orbit/me': {
-      id: '/orbit/me'
-      path: '/me'
-      fullPath: '/orbit/me'
-      preLoaderRoute: typeof OrbitMeRouteImport
-      parentRoute: typeof OrbitRoute
-    }
-    '/orbit/messages': {
-      id: '/orbit/messages'
-      path: '/messages'
-      fullPath: '/orbit/messages'
-      preLoaderRoute: typeof OrbitMessagesRouteImport
-      parentRoute: typeof OrbitRoute
-    }
-    '/orbit/notifications': {
-      id: '/orbit/notifications'
-      path: '/notifications'
-      fullPath: '/orbit/notifications'
-      preLoaderRoute: typeof OrbitNotificationsRouteImport
-      parentRoute: typeof OrbitRoute
-    }
-    '/orbit/privacy': {
-      id: '/orbit/privacy'
-      path: '/privacy'
-      fullPath: '/orbit/privacy'
-      preLoaderRoute: typeof OrbitPrivacyRouteImport
-      parentRoute: typeof OrbitRoute
-    }
     '/post/create': {
       id: '/post/create'
       path: '/post/create'
@@ -1040,13 +877,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedChatThreadIdRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/orbit/chat/$userId': {
-      id: '/orbit/chat/$userId'
-      path: '/chat/$userId'
-      fullPath: '/orbit/chat/$userId'
-      preLoaderRoute: typeof OrbitChatUserIdRouteImport
-      parentRoute: typeof OrbitRoute
-    }
   }
 }
 
@@ -1092,30 +922,6 @@ const ChannelRouteChildren: ChannelRouteChildren = {
 const ChannelRouteWithChildren =
   ChannelRoute._addFileChildren(ChannelRouteChildren)
 
-interface OrbitRouteChildren {
-  OrbitProfileIdRoute: typeof OrbitProfileIdRoute
-  OrbitCreateRoute: typeof OrbitCreateRoute
-  OrbitMeRoute: typeof OrbitMeRoute
-  OrbitMessagesRoute: typeof OrbitMessagesRoute
-  OrbitNotificationsRoute: typeof OrbitNotificationsRoute
-  OrbitPrivacyRoute: typeof OrbitPrivacyRoute
-  OrbitIndexRoute: typeof OrbitIndexRoute
-  OrbitChatUserIdRoute: typeof OrbitChatUserIdRoute
-}
-
-const OrbitRouteChildren: OrbitRouteChildren = {
-  OrbitProfileIdRoute: OrbitProfileIdRoute,
-  OrbitCreateRoute: OrbitCreateRoute,
-  OrbitMeRoute: OrbitMeRoute,
-  OrbitMessagesRoute: OrbitMessagesRoute,
-  OrbitNotificationsRoute: OrbitNotificationsRoute,
-  OrbitPrivacyRoute: OrbitPrivacyRoute,
-  OrbitIndexRoute: OrbitIndexRoute,
-  OrbitChatUserIdRoute: OrbitChatUserIdRoute,
-}
-
-const OrbitRouteWithChildren = OrbitRoute._addFileChildren(OrbitRouteChildren)
-
 interface TermsRouteChildren {
   TermsMonetizationRoute: typeof TermsMonetizationRoute
 }
@@ -1139,7 +945,6 @@ const rootRouteChildren: RootRouteChildren = {
   HelpCenterRoute: HelpCenterRoute,
   LicensesRoute: LicensesRoute,
   NotificationsRoute: NotificationsRoute,
-  OrbitRoute: OrbitRouteWithChildren,
   PrivacyRoute: PrivacyRoute,
   ProfileRoute: ProfileRoute,
   ReelsRoute: ReelsRoute,

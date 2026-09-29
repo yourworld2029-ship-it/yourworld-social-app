@@ -9,8 +9,6 @@ import { loadChannelData, loadVideoPurchaseEarnings } from "@/lib/channel-data";
 import { recordVideoWatchHeartbeat, startVideoWatchSession } from "@/lib/video-data";
 import { createPostComment, deletePostComment, loadSocialPosts } from "@/lib/social-data";
 import { supabase } from "@/integrations/supabase/client";
-import { isRenderableOrbitMessage, isUnexpiredOrbitRow } from "@/lib/orbit-chat";
-import { ORBIT_REQUEST_MESSAGE_MAX, countRequestMessages } from "@/lib/orbit-store";
 
 type QueryResult = { data?: unknown; error?: { message: string } | null };
 
@@ -119,7 +117,7 @@ test("search exposes live profiles and normalized hashtag totals", async () => {
 test("profile search normalizes @ while preserving username and display name", async () => {
   const userId = "12121212-1212-4121-8121-121212121212";
   const { client, calls } = fakeClient({
-    from: { orbit_profiles: [{ data: [] }] },
+    from: {},
     rpc: {
       search_profiles: [{ data: [profile(userId, "sandy", "Sandeep Poonia")] }],
     },
@@ -391,41 +389,4 @@ test("comments are inserted and deleted through Supabase", async () => {
     { post_id: postId, user_id: userId, content: "persisted comment" },
   ]);
   assert.deepEqual(calls.find(({ name }) => name === "comments.eq")?.args, ["id", "comment-live"]);
-});
-
-test("Orbit expiry guards reject expired server and cached messages", () => {
-  const now = Date.parse("2026-01-01T00:00:00.000Z");
-  assert.equal(isUnexpiredOrbitRow({ expires_at: "2025-12-31T23:59:59.000Z" }, now), false);
-  assert.equal(isUnexpiredOrbitRow({ expires_at: "2026-01-01T00:00:01.000Z" }, now), true);
-  assert.equal(isRenderableOrbitMessage({ expiresAt: now - 1 }, now), false);
-  assert.equal(isRenderableOrbitMessage({ expiresAt: now + 1 }, now), true);
-});
-
-test("Orbit pending requests use one combined sender limit", () => {
-  const result = countRequestMessages({
-    direction: "outgoing",
-    status: "pending",
-    messages: [
-      { id: "1", kind: "text", text: "hello", me: true },
-      { id: "2", kind: "photo", url: "photo", me: true },
-      { id: "3", kind: "text", text: "one more", me: true },
-      { id: "4", kind: "text", text: "receiver reply", me: false },
-    ],
-  });
-
-  assert.equal(ORBIT_REQUEST_MESSAGE_MAX, 3);
-  assert.deepEqual(result, { texts: 2, photos: 1, total: 3 });
-});
-
-test("Orbit pending limit ignores receiver messages", () => {
-  const result = countRequestMessages({
-    direction: "incoming",
-    status: "pending",
-    messages: [
-      { id: "1", kind: "text", text: "incoming one", me: false },
-      { id: "2", kind: "photo", url: "incoming photo", me: false },
-    ],
-  });
-
-  assert.deepEqual(result, { texts: 0, photos: 0, total: 0 });
 });

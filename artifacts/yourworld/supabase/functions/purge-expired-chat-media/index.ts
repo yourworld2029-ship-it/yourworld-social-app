@@ -13,7 +13,6 @@ const admin = createClient(supabaseUrl, serviceRoleKey, {
 const ALLOWED_BUCKETS = new Set([
   "messages",
   "voice_notes",
-  "orbit-media",
   "avatars",
   "media",
   "videos",
@@ -39,13 +38,6 @@ type DirectRow = {
   id: string;
   sender_id: string;
   media_url: string | null;
-  expires_at: string | null;
-};
-
-type OrbitRow = {
-  id: string;
-  sender_id: string;
-  url: string | null;
   expires_at: string | null;
 };
 
@@ -161,20 +153,6 @@ function socialObject(
   return { bucket, path: segments.join("/") };
 }
 
-function orbitObject(senderId: string, url: string | null) {
-  const object = objectFromUrl(url);
-  if (!object) return null;
-  const segments = decodeSegments(object.path);
-  if (
-    segments.length !== 2 ||
-    segments[0] !== senderId ||
-    !/^\d+-[a-z0-9]+\.[a-z0-9]{1,8}$/i.test(segments[1])
-  ) {
-    throw new Error("Orbit Chat Storage path failed validation.");
-  }
-  return object;
-}
-
 async function removeObject(object: StorageObject | null) {
   if (!object) return;
   const { error } = await admin.storage.from(object.bucket).remove([object.path]);
@@ -257,26 +235,6 @@ async function processDirect(row: DirectRow): Promise<CleanupFailureStage | null
   return null;
 }
 
-async function processOrbit(row: OrbitRow): Promise<CleanupFailureStage | null> {
-  let object: StorageObject | null;
-  try {
-    object = orbitObject(row.sender_id, row.url);
-  } catch {
-    return "reference";
-  }
-  try {
-    await removeObject(object);
-  } catch {
-    return "storage";
-  }
-  try {
-    await deleteRow("orbit_messages", row.id);
-  } catch {
-    return "database";
-  }
-  return null;
-}
-
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") {
     return new Response("ok", { headers: { "Access-Control-Allow-Origin": "*" } });
@@ -322,33 +280,17 @@ Deno.serve(async (request) => {
     }
   }
 
-  const [directRows, orbitRows] = await Promise.all([
-    admin
-      .from("direct_messages")
-      .select("id,sender_id,media_url,expires_at")
-      .not("expires_at", "is", null)
-      .lte("expires_at", now)
-      .limit(BATCH_SIZE),
-    admin
-      .from("orbit_messages")
-      .select("id,sender_id,url,expires_at")
-      .not("expires_at", "is", null)
-      .lte("expires_at", now)
-      .limit(BATCH_SIZE),
-  ]);
+  const directRows = await admin
+    .from("direct_messages")
+    .select("id,sender_id,media_url,expires_at")
+    .not("expires_at", "is", null)
+    .lte("expires_at", now)
+    .limit(BATCH_SIZE);
   if (directRows.error) throw directRows.error;
-  if (orbitRows.error) throw orbitRows.error;
 
   for (const row of (directRows.data ?? []) as DirectRow[]) {
     try {
       recordResult(await processDirect(row));
-    } catch {
-      recordResult("unexpected");
-    }
-  }
-  for (const row of (orbitRows.data ?? []) as OrbitRow[]) {
-    try {
-      recordResult(await processOrbit(row));
     } catch {
       recordResult("unexpected");
     }

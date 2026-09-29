@@ -30,7 +30,7 @@ import { useThreadPresence } from "@/lib/presence";
 import { useCall } from "@/lib/call-store";
 import { useMoments } from "@/lib/moment-context";
 import { formatChatRelativeTime } from "@/lib/chat-time";
-import { useChatNames, saveChatDisplayName } from "@/lib/chat-names";
+import { useChatNames, setChatNameLocal } from "@/lib/chat-names";
 import { useChatSettings } from "@/lib/chat-settings";
 import {
   consumeSecretChatUnlock,
@@ -927,8 +927,12 @@ function NativeChatThreadPage() {
   const [nameDialogOpen, setNameDialogOpen] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
   const setDisplayName = (n: string) => {
-    patch({ displayName: n });
-    void saveChatDisplayName(peer.peerId ?? "", n);
+    setChatNameLocal(peer.peerId ?? "", n);
+    void patch({ displayName: n }).then(({ error }) => {
+      if (!error) return;
+      setChatNameLocal(peer.peerId ?? "", settings.displayName);
+      toast.error(error);
+    });
   };
 
   const [securityFallbackThreadId, setSecurityFallbackThreadId] = useState<string | null>(null);
