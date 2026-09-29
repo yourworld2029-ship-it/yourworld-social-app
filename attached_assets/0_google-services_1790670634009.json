@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "812646646685",
+    "project_id": "yourworld-2029",
+    "storage_bucket": "yourworld-2029.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:812646646685:android:e6964dd9dbec1f9f106574",
+        "android_client_info": {
+          "package_name": "com.yourworld.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDtHIP0LmekdqFBmzYwILYOw_Rb81hmCFo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
