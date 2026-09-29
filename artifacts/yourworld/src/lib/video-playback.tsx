@@ -86,7 +86,6 @@ type TapSide = "left" | "right";
 
 type TouchGesture = {
   startX: number;
-  startY: number;
   originX: number;
   originY: number;
   startedAt: number;
@@ -447,14 +446,26 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
         window.clearTimeout(swipeTransformCleanupTimerRef.current);
       }
       swipeTransformCleanupTimerRef.current = window.setTimeout(() => {
+        swipeTransformCleanupTimerRef.current = null;
         if (containerRef.current !== container) return;
         container.style.willChange = "";
         container.style.transition = "";
         container.style.transform = "";
-        swipeTransformCleanupTimerRef.current = null;
       }, PLAYER_SWIPE_TRANSITION_MS + 30);
     });
-  }, [activeVideo?.id]);
+  }, [activeVideo]);
+
+  useEffect(
+    () => () => {
+      if (swipeNavigateTimerRef.current !== null) {
+        window.clearTimeout(swipeNavigateTimerRef.current);
+      }
+      if (swipeTransformCleanupTimerRef.current !== null) {
+        window.clearTimeout(swipeTransformCleanupTimerRef.current);
+      }
+    },
+    [],
+  );
 
   const detailVideoId = getDetailVideoId(location.pathname);
   const downloadDetailPath = getDownloadDetailPath(location.pathname);
@@ -1100,17 +1111,17 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
 
   const settlePlayerSwipe = useCallback(() => {
     const container = containerRef.current;
-    if (!container) return;
+    if (!container || container.style.willChange !== "transform") return;
     writePlayerTransform(container, 0, 0, PLAYER_SWIPE_TRANSITION);
     if (swipeTransformCleanupTimerRef.current !== null) {
       window.clearTimeout(swipeTransformCleanupTimerRef.current);
     }
     swipeTransformCleanupTimerRef.current = window.setTimeout(() => {
+      swipeTransformCleanupTimerRef.current = null;
       if (containerRef.current !== container) return;
       container.style.willChange = "";
       container.style.transition = "";
       container.style.transform = "";
-      swipeTransformCleanupTimerRef.current = null;
     }, PLAYER_SWIPE_TRANSITION_MS + 30);
   }, []);
 
@@ -1178,6 +1189,10 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const handleTouchStart = useCallback(
     (event: ReactTouchEvent<HTMLVideoElement>) => {
       if (!isDetailPlayer) return;
+      if (swipeNavigationRef.current) {
+        event.preventDefault();
+        return;
+      }
       const target = event.target;
       if (target instanceof Element && target.closest("button, input, [role='menu']")) {
         touchGestureRef.current = null;
@@ -1187,12 +1202,15 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
         event.preventDefault();
         return;
       }
+      if (swipeTransformCleanupTimerRef.current !== null) {
+        window.clearTimeout(swipeTransformCleanupTimerRef.current);
+        swipeTransformCleanupTimerRef.current = null;
+      }
       const rect = event.currentTarget.getBoundingClientRect();
       const firstTouch = event.touches.item(0);
       if (!firstTouch) return;
       const startedAt = performance.now();
       const startX = firstTouch.clientX - rect.left;
-      const startY = firstTouch.clientY - rect.top;
       if (event.touches.length >= 2) {
         if (!isFullscreen) {
           if (touchGestureRef.current) touchGestureRef.current.moved = true;
@@ -1201,7 +1219,6 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
         event.preventDefault();
         touchGestureRef.current = {
           startX,
-          startY,
           originX: firstTouch.clientX,
           originY: firstTouch.clientY,
           startedAt,
@@ -1217,7 +1234,6 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       }
       touchGestureRef.current = {
         startX,
-        startY,
         originX: firstTouch.clientX,
         originY: firstTouch.clientY,
         startedAt,
@@ -1415,8 +1431,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   );
 
   const handleTouchCancel = useCallback(() => {
+    const wasSwiping = Boolean(touchGestureRef.current?.swipeAxis);
     touchGestureRef.current = null;
-    settlePlayerSwipe();
+    if (wasSwiping) settlePlayerSwipe();
   }, [settlePlayerSwipe]);
 
   const handleTimeUpdate = useCallback((event: React.SyntheticEvent<HTMLVideoElement>) => {
@@ -1620,6 +1637,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               onTouchStart={showDetailChrome ? handleTouchStart : undefined}
               onTouchMove={showDetailChrome ? handleTouchMove : undefined}
               onTouchEnd={showDetailChrome ? handleTouchEnd : undefined}
+      onTouchCancel={showDetailChrome ? handleTouchCancel : undefined}
               className={`video-player-native-controls h-full w-full ${
                 (showDetailChrome && isFullscreen) || displayMode === "fill"
                   ? "object-cover"
