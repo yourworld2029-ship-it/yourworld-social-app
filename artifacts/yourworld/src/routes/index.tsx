@@ -26,6 +26,25 @@ type FeedItem =
   | { kind: "standard"; key: string; video: LongVideo }
   | { kind: "tray"; key: string };
 
+function isVerticalLongVideo(video: LongVideo) {
+  const title = video.title.toLowerCase();
+  const hasPortraitDimensions =
+    typeof video.originalWidth === "number" &&
+    typeof video.originalHeight === "number" &&
+    video.originalHeight > video.originalWidth;
+
+  return (
+    video.aspectRatio === "9:16" ||
+    video.videoType === "vertical" ||
+    Boolean(video.isReel) ||
+    video.postType === "vertical" ||
+    hasPortraitDimensions ||
+    video.orientation === "portrait" ||
+    title.includes("#shorts") ||
+    title.includes("#reel")
+  );
+}
+
 export const Route = createFileRoute("/")({
   component: HomePage,
   head: () => ({
@@ -122,7 +141,7 @@ function HomePage() {
         title: v.title,
         mediaUrl: v.mediaUrl,
         thumbnailUrl: v.thumbnailUrl,
-        portrait: v.orientation === "portrait",
+        portrait: isVerticalLongVideo(v),
       })),
     );
   }, [videos]);
@@ -206,21 +225,7 @@ function HomePage() {
     const vertical: LongVideo[] = [];
 
     for (const video of videos.filter((item) => item.id !== resumeVideo?.id)) {
-      const title = video.title.toLowerCase();
-      const hasPortraitDimensions =
-        typeof video.originalWidth === "number" &&
-        typeof video.originalHeight === "number" &&
-        video.originalHeight > video.originalWidth;
-      const isVertical =
-        video.aspectRatio === "9:16" ||
-        video.videoType === "vertical" ||
-        Boolean(video.isReel) ||
-        video.postType === "vertical" ||
-        hasPortraitDimensions ||
-        video.orientation === "portrait" ||
-        title.includes("#shorts") ||
-        title.includes("#reel");
-      (isVertical ? vertical : regular).push(video);
+      (isVerticalLongVideo(video) ? vertical : regular).push(video);
     }
 
     if (resumeVideo) regular.unshift(resumeVideo);
@@ -377,7 +382,7 @@ function HomePage() {
       {/* Main Long Video Feed */}
       <FeedVideoAutoplayProvider disabled={Boolean(activeVideo)}>
         {() => (
-          <main className="feed-post-list flex flex-col gap-0 max-w-lg mx-auto px-2 sm:px-4 pt-0 pb-4">
+          <main className="feed-post-list flex flex-col gap-[10px] max-w-lg mx-auto px-2 sm:px-4 pt-0 pb-4">
             {!hydrated || loading ? (
               <div className="text-center py-12 text-neutral-500 text-sm">Loading feed...</div>
             ) : videos.length === 0 && !resumeVideo ? (

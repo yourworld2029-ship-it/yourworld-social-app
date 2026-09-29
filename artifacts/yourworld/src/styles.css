@@ -1228,7 +1228,7 @@ html[data-theme="midnight"] {
 }
 
 .feed-post-list {
-  gap: 0 !important;
+  gap: 10px !important;
 }
 
 .feed-post-list > * {

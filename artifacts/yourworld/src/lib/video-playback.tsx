@@ -16,6 +16,7 @@ import { Capacitor, registerPlugin } from "@capacitor/core";
 import { ScreenOrientation } from "@capacitor/screen-orientation";
 import { StatusBar } from "@capacitor/status-bar";
 import type { VideoQualityTier } from "@/lib/video-quality";
+import { getAdjacentVideo } from "@/lib/video-queue";
 import { resolveMediaUrl } from "@/lib/social-data";
 import {
   ArrowLeft,
@@ -86,12 +87,22 @@ type TapSide = "left" | "right";
 type TouchGesture = {
   startX: number;
   startY: number;
+  originX: number;
+  originY: number;
+  startedAt: number;
   width: number;
   moved: boolean;
+  swipeAxis: "x" | "y" | null;
   initialVolume: number;
   initialBrightness: number;
   initialDistance: number | null;
   initialZoom: number;
+};
+
+type SwipeNavigation = {
+  targetVideoId: string;
+  axis: "x" | "y";
+  exitOffset: number;
 };
 
 type FloatingPosition = {
@@ -158,8 +169,24 @@ type VideoPlaybackContextValue = {
 
 const VideoPlaybackContext = createContext<VideoPlaybackContextValue | null>(null);
 
+const PLAYER_SWIPE_TRANSITION_MS = 130;
+const PLAYER_SWIPE_TRANSITION =
+  `transform ${PLAYER_SWIPE_TRANSITION_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`;
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+function writePlayerTransform(
+  element: HTMLElement | null,
+  x: number,
+  y: number,
+  transition: string,
+) {
+  if (!element) return;
+  element.style.willChange = "transform";
+  element.style.transition = transition;
+  element.style.transform = `translate3d(${x}px, ${y}px, 0)`;
 }
 
 function formatTime(seconds: number) {
@@ -363,6 +390,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const floatingPositionRef = useRef<FloatingPosition | null>(null);
   const floatingDragRef = useRef<FloatingDrag | null>(null);
   const suppressFloatingClickRef = useRef(false);
+  const swipeNavigationRef = useRef<SwipeNavigation | null>(null);
+  const swipeNavigateTimerRef = useRef<number | null>(null);
+  const swipeTransformCleanupTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (playerTapTimerRef.current !== null) {
@@ -377,6 +407,53 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
         playerTapTimerRef.current = null;
       }
     };
+  }, [activeVideo?.id]);
+
+  useEffect(() => {
+    const swipe = swipeNavigationRef.current;
+    if (!swipe) return;
+
+    if (swipeNavigateTimerRef.current !== null) {
+      window.clearTimeout(swipeNavigateTimerRef.current);
+      swipeNavigateTimerRef.current = null;
+    }
+
+    if (!activeVideo) {
+      swipeNavigationRef.current = null;
+      return;
+    }
+    if (activeVideo.id !== swipe.targetVideoId) {
+      swipeNavigationRef.current = null;
+      const container = containerRef.current;
+      writePlayerTransform(container, 0, 0, PLAYER_SWIPE_TRANSITION);
+      return;
+    }
+
+    swipeNavigationRef.current = null;
+    const container = containerRef.current;
+    if (!container) return;
+
+    const enterOffset = -swipe.exitOffset;
+    writePlayerTransform(
+      container,
+      swipe.axis === "x" ? enterOffset : 0,
+      swipe.axis === "y" ? enterOffset : 0,
+      "none",
+    );
+    requestAnimationFrame(() => {
+      if (containerRef.current !== container) return;
+      writePlayerTransform(container, 0, 0, PLAYER_SWIPE_TRANSITION);
+      if (swipeTransformCleanupTimerRef.current !== null) {
+        window.clearTimeout(swipeTransformCleanupTimerRef.current);
+      }
+      swipeTransformCleanupTimerRef.current = window.setTimeout(() => {
+        if (containerRef.current !== container) return;
+        container.style.willChange = "";
+        container.style.transition = "";
+        container.style.transform = "";
+        swipeTransformCleanupTimerRef.current = null;
+      }, PLAYER_SWIPE_TRANSITION_MS + 30);
+    });
   }, [activeVideo?.id]);
 
   const detailVideoId = getDetailVideoId(location.pathname);
@@ -1021,6 +1098,22 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     [isDetailPlayer, isFullscreen, markControlsActivity, screenLocked, showGestureFeedback],
   );
 
+  const settlePlayerSwipe = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    writePlayerTransform(container, 0, 0, PLAYER_SWIPE_TRANSITION);
+    if (swipeTransformCleanupTimerRef.current !== null) {
+      window.clearTimeout(swipeTransformCleanupTimerRef.current);
+    }
+    swipeTransformCleanupTimerRef.current = window.setTimeout(() => {
+      if (containerRef.current !== container) return;
+      container.style.willChange = "";
+      container.style.transition = "";
+      container.style.transform = "";
+      swipeTransformCleanupTimerRef.current = null;
+    }, PLAYER_SWIPE_TRANSITION_MS + 30);
+  }, []);
+
   const registerPlayerTap = useCallback(
     (side: TapSide) => {
       const now = Date.now();
@@ -1097,6 +1190,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       const rect = event.currentTarget.getBoundingClientRect();
       const firstTouch = event.touches.item(0);
       if (!firstTouch) return;
+      const startedAt = performance.now();
+      const startX = firstTouch.clientX - rect.left;
+      const startY = firstTouch.clientY - rect.top;
       if (event.touches.length >= 2) {
         if (!isFullscreen) {
           if (touchGestureRef.current) touchGestureRef.current.moved = true;
@@ -1104,10 +1200,14 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
         }
         event.preventDefault();
         touchGestureRef.current = {
-          startX: firstTouch.clientX - rect.left,
-          startY: firstTouch.clientY - rect.top,
+          startX,
+          startY,
+          originX: firstTouch.clientX,
+          originY: firstTouch.clientY,
+          startedAt,
           width: rect.width,
           moved: true,
+          swipeAxis: null,
           initialVolume: videoRef.current?.volume ?? 1,
           initialBrightness: brightness,
           initialDistance: touchDistance(event.touches),
@@ -1116,10 +1216,14 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
         return;
       }
       touchGestureRef.current = {
-        startX: firstTouch.clientX - rect.left,
-        startY: firstTouch.clientY - rect.top,
+        startX,
+        startY,
+        originX: firstTouch.clientX,
+        originY: firstTouch.clientY,
+        startedAt,
         width: rect.width,
         moved: false,
+        swipeAxis: null,
         initialVolume: videoRef.current?.volume ?? 1,
         initialBrightness: brightness,
         initialDistance: null,
@@ -1144,14 +1248,14 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
           gesture.moved = true;
           return;
         }
-        const rect = event.currentTarget.getBoundingClientRect();
-        const deltaX = firstTouch.clientX - rect.left - gesture.startX;
-        const deltaY = firstTouch.clientY - rect.top - gesture.startY;
-        if (Math.hypot(deltaX, deltaY) >= 12) gesture.moved = true;
+        const deltaX = firstTouch.clientX - gesture.originX;
+        const deltaY = firstTouch.clientY - gesture.originY;
+        if (Math.hypot(deltaX, deltaY) >= 8) gesture.moved = true;
         return;
       }
       if (event.touches.length >= 2 && gesture.initialDistance) {
         event.preventDefault();
+        gesture.swipeAxis = null;
         const distance = touchDistance(event.touches);
         if (!distance) return;
         const nextZoom = clamp(
@@ -1168,13 +1272,46 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
 
       const firstTouch = event.touches.item(0);
       if (!firstTouch) return;
-      const deltaY = firstTouch.clientY - gesture.startY;
-      const deltaX =
-        firstTouch.clientX -
-        (gesture.startX + event.currentTarget.getBoundingClientRect().left);
-      if (Math.abs(deltaY) < 12 || Math.abs(deltaY) < Math.abs(deltaX)) return;
-      event.preventDefault();
-      gesture.moved = true;
+      const deltaX = firstTouch.clientX - gesture.originX;
+      const deltaY = firstTouch.clientY - gesture.originY;
+      const swipeAxis = isVerticalVideo ? "x" : "y";
+      const primaryDelta = swipeAxis === "x" ? deltaX : deltaY;
+      const crossDelta = swipeAxis === "x" ? deltaY : deltaX;
+
+      if (
+        !gesture.swipeAxis &&
+        Math.abs(primaryDelta) >= 7 &&
+        Math.abs(primaryDelta) >= Math.abs(crossDelta) * 1.1
+      ) {
+        gesture.swipeAxis = swipeAxis;
+      }
+
+      if (gesture.swipeAxis === swipeAxis) {
+        gesture.moved = true;
+        if (event.cancelable) event.preventDefault();
+        const container = containerRef.current;
+        const rect = container?.getBoundingClientRect();
+        const maxOffset =
+          Math.max(1, swipeAxis === "x" ? rect?.width ?? 0 : rect?.height ?? 0) * 0.85;
+        const offset = clamp(primaryDelta, -maxOffset, maxOffset);
+        writePlayerTransform(
+          container,
+          swipeAxis === "x" ? offset : 0,
+          swipeAxis === "y" ? offset : 0,
+          "none",
+        );
+        return;
+      }
+
+      if (Math.hypot(deltaX, deltaY) >= 8) gesture.moved = true;
+      if (
+        !isVerticalVideo ||
+        Math.abs(deltaY) < 12 ||
+        Math.abs(deltaY) < Math.abs(deltaX)
+      ) {
+        return;
+      }
+      if (event.cancelable) event.preventDefault();
 
       if (gesture.startX < gesture.width * 0.4) {
         const nextBrightness = clamp(
@@ -1190,7 +1327,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
         showGestureFeedback("volume", nextVolume, `${Math.round(nextVolume * 100)}%`);
       }
     },
-    [isDetailPlayer, isFullscreen, screenLocked, showGestureFeedback],
+    [isDetailPlayer, isFullscreen, isVerticalVideo, screenLocked, showGestureFeedback],
   );
 
   const handleTouchEnd = useCallback(
@@ -1210,12 +1347,77 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       }
       const gesture = touchGestureRef.current;
       touchGestureRef.current = null;
-      if (!gesture || gesture.moved) return;
+      if (!gesture) return;
+      if (gesture.swipeAxis) {
+        const finalTouch = event.changedTouches.item(0);
+        const deltaX = finalTouch ? finalTouch.clientX - gesture.originX : 0;
+        const deltaY = finalTouch ? finalTouch.clientY - gesture.originY : 0;
+        const primaryDelta = gesture.swipeAxis === "x" ? deltaX : deltaY;
+        const distance = Math.abs(primaryDelta);
+        const elapsed = Math.max(1, performance.now() - gesture.startedAt);
+        const container = containerRef.current;
+        const rect = container?.getBoundingClientRect();
+        const axisLength = Math.max(
+          1,
+          gesture.swipeAxis === "x" ? rect?.width ?? 0 : rect?.height ?? 0,
+        );
+        const commitDistance = clamp(axisLength * 0.14, 42, 76);
+        const isFastSwipe = distance >= 18 && distance / elapsed >= 0.55;
+        const direction: 1 | -1 = primaryDelta < 0 ? 1 : -1;
+        const adjacent = activeVideo
+          ? getAdjacentVideo(activeVideo.id, isVerticalVideo, direction)
+          : null;
+
+        if (adjacent && (distance >= commitDistance || isFastSwipe)) {
+          const exitOffset = primaryDelta < 0 ? -axisLength : axisLength;
+          swipeNavigationRef.current = {
+            targetVideoId: adjacent.id,
+            axis: gesture.swipeAxis,
+            exitOffset,
+          };
+          writePlayerTransform(
+            container,
+            gesture.swipeAxis === "x" ? exitOffset : 0,
+            gesture.swipeAxis === "y" ? exitOffset : 0,
+            PLAYER_SWIPE_TRANSITION,
+          );
+          if (swipeNavigateTimerRef.current !== null) {
+            window.clearTimeout(swipeNavigateTimerRef.current);
+          }
+          swipeNavigateTimerRef.current = window.setTimeout(() => {
+            swipeNavigateTimerRef.current = null;
+            void navigate({
+              to: "/video/$videoId",
+              params: { videoId: adjacent.id },
+            });
+          }, PLAYER_SWIPE_TRANSITION_MS);
+        } else {
+          settlePlayerSwipe();
+        }
+        event.preventDefault();
+        return;
+      }
+      if (gesture.moved) return;
       const side: TapSide = gesture.startX >= gesture.width / 2 ? "right" : "left";
       if (registerPlayerTap(side)) event.preventDefault();
     },
-    [isDetailPlayer, isFullscreen, registerPlayerTap, revealLockedUnlock, screenLocked],
+    [
+      activeVideo,
+      isDetailPlayer,
+      isFullscreen,
+      isVerticalVideo,
+      navigate,
+      registerPlayerTap,
+      revealLockedUnlock,
+      screenLocked,
+      settlePlayerSwipe,
+    ],
   );
+
+  const handleTouchCancel = useCallback(() => {
+    touchGestureRef.current = null;
+    settlePlayerSwipe();
+  }, [settlePlayerSwipe]);
 
   const handleTimeUpdate = useCallback((event: React.SyntheticEvent<HTMLVideoElement>) => {
     const video = event.currentTarget;
