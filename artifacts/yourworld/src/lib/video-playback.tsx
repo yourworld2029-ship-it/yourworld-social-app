@@ -12,7 +12,9 @@ import {
   type TouchEvent as ReactTouchEvent,
 } from "react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
+import { Capacitor, registerPlugin } from "@capacitor/core";
 import { ScreenOrientation } from "@capacitor/screen-orientation";
+import { StatusBar } from "@capacitor/status-bar";
 import type { VideoQualityTier } from "@/lib/video-quality";
 import { resolveMediaUrl } from "@/lib/social-data";
 import {
@@ -246,6 +248,47 @@ function lockPlayerOrientation(requestedOrientation: "portrait" | "landscape") {
   });
 }
 
+type ImmersiveNavigationBarPlugin = {
+  hide: () => Promise<void>;
+  show: () => Promise<void>;
+};
+
+const ImmersiveNavigationBar =
+  registerPlugin<ImmersiveNavigationBarPlugin>("ImmersiveNavigationBar");
+let androidPlayerSystemBarsQueue: Promise<void> = Promise.resolve();
+
+function setAndroidPlayerSystemBars(immersive: boolean) {
+  if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "android") {
+    return Promise.resolve();
+  }
+
+  const updates: Array<{ bar: string; apply: () => Promise<void> }> = immersive
+    ? [
+        { bar: "status", apply: () => StatusBar.hide() },
+        { bar: "navigation", apply: () => ImmersiveNavigationBar.hide() },
+      ]
+    : [
+        { bar: "navigation", apply: () => ImmersiveNavigationBar.show() },
+        { bar: "status", apply: () => StatusBar.show() },
+      ];
+
+  androidPlayerSystemBarsQueue = androidPlayerSystemBarsQueue
+    .catch(() => {})
+    .then(async () => {
+      for (const update of updates) {
+        try {
+          await update.apply();
+        } catch (error) {
+          console.warn(
+            `[video-playback] Could not update Android ${update.bar} bar visibility`,
+            error,
+          );
+        }
+      }
+    });
+  return androidPlayerSystemBarsQueue;
+}
+
 export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -268,6 +311,8 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const [pictureInPicture, setPictureInPicture] = useState(false);
   const [floatingPosition, setFloatingPosition] = useState<FloatingPosition | null>(null);
   const [floatingDragging, setFloatingDragging] = useState(false);
+  const isAndroidApp =
+    Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
   const [settingsMenu, setSettingsMenu] = useState<"closed" | "root" | "speed" | "quality">("closed");
   const [playbackRate, setPlaybackRate] = useState(1);
   const [loopVideo, setLoopVideo] = useState(false);
@@ -309,6 +354,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const lockedUnlockTimerRef = useRef<number | null>(null);
   const fullscreenScrollYRef = useRef<number | null>(null);
   const fullscreenRequestIdRef = useRef(0);
+  const nativeImmersiveModeRef = useRef(false);
   const floatingPositionRef = useRef<FloatingPosition | null>(null);
   const floatingDragRef = useRef<FloatingDrag | null>(null);
   const suppressFloatingClickRef = useRef(false);
@@ -321,6 +367,8 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   );
   const isPlayerRoute = Boolean(detailVideoId || downloadDetailPath);
   const showDetailChrome = isDetailPlayer && !pictureInPicture;
+  const needsAndroidPortraitSafeArea =
+    isAndroidApp && showDetailChrome && (!isFullscreen || isVerticalVideo);
 
   const activateVideo = useCallback((video: PersistentVideo) => {
     const source = activeSourceRef.current;
@@ -873,6 +921,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
         fullscreenScrollYRef.current !== null;
       if (playerIsFullscreen) void exitPlayerFullscreen();
       void lockPlayerOrientation("portrait").finally(restoreFullscreenScroll);
+      void setAndroidPlayerSystemBars(false);
     },
     [clearLockedUnlockTimer, restoreFullscreenScroll],
   );
@@ -903,6 +952,30 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     };
   }, [finishFullscreenExit, isFullscreen]);
 
+  useEffect(() => {
+    const shouldHideSystemBars =
+      isAndroidApp && isFullscreen && !isVerticalVideo;
+    if (nativeImmersiveModeRef.current === shouldHideSystemBars) return;
+    nativeImmersiveModeRef.current = shouldHideSystemBars;
+    void setAndroidPlayerSystemBars(shouldHideSystemBars);
+  }, [isAndroidApp, isFullscreen, isVerticalVideo]);
+
+  useEffect(() => {
+    if (!isAndroidApp) return;
+    const restoreFullscreenSystemBars = () => {
+      const fullscreenElement = getPlayerFullscreenElement();
+      const playerIsFullscreen =
+        fullscreenElement === containerRef.current ||
+        fullscreenElement === videoRef.current;
+      const shouldHideSystemBars = playerIsFullscreen && !isVerticalVideo;
+      nativeImmersiveModeRef.current = shouldHideSystemBars;
+      void setAndroidPlayerSystemBars(shouldHideSystemBars);
+    };
+    window.addEventListener("yw-app-resume", restoreFullscreenSystemBars);
+    return () => {
+      window.removeEventListener("yw-app-resume", restoreFullscreenSystemBars);
+    };
+  }, [isAndroidApp, isVerticalVideo]);
   const showGestureFeedback = useCallback(
     (kind: GestureFeedback["kind"], value: number, label: string) => {
       setGestureFeedback({ kind, value, label });
@@ -1180,8 +1253,12 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                 }`
               : isDetailPlayer
                 ? isFullscreen
-                  ? "fixed inset-0 z-50 h-screen w-screen max-w-none bg-black"
-                    : "fixed inset-x-0 top-0 z-50 mx-auto w-full max-w-lg bg-black"
+                  ? `fixed inset-0 z-50 h-screen w-screen max-w-none bg-black ${
+                      needsAndroidPortraitSafeArea ? "yw-android-video-safe-area" : ""
+                    }`
+                  : `fixed inset-x-0 top-0 z-50 mx-auto w-full max-w-lg bg-black ${
+                      needsAndroidPortraitSafeArea ? "yw-android-video-safe-area" : ""
+                    }`
                 : isPlayerRoute
                   ? "pointer-events-none fixed left-[-9999px] top-[-9999px] z-[-1] h-px w-px opacity-0"
                   : "fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] right-3 z-[70] w-[min(68vw,280px)] overflow-hidden rounded-xl border border-white/15 bg-zinc-950 shadow-2xl"
@@ -1217,7 +1294,11 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               showDetailChrome
                 ? `relative w-full bg-black ${
                     isFullscreen
-                      ? "h-screen w-screen"
+                      ? `h-screen w-screen ${
+                          needsAndroidPortraitSafeArea
+                            ? "yw-android-video-safe-area-fullscreen"
+                            : ""
+                        }`
                       : isVerticalVideo
                         ? "aspect-[9/16]"
                         : "aspect-video"

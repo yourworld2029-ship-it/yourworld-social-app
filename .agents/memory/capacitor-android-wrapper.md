@@ -74,3 +74,9 @@ Capacitor sync copies public APK downloads into the native app's WebView assets 
 **Why:** Bundling the downloadable APKs inside the app duplicates large binaries and can ship stale installers inside the fresh build.
 
 **How to apply:** Keep APK files in the web artifact's public directory for server downloads, but exclude `*.apk` from Android asset packaging.
+
+A stale `sdk.dir` in Android `local.properties` can still block Gradle after a valid temporary SDK is supplied through environment variables.
+
+**Why:** Gradle reported the missing configured SDK path until that path resolved to the composed SDK, even though the required SDK components were already available.
+
+**How to apply:** Before building, compare `local.properties` with `ANDROID_HOME`/`ANDROID_SDK_ROOT`; make the configured path resolve to the same SDK root without installing or accepting new licenses when the existing SDK license marker is present.

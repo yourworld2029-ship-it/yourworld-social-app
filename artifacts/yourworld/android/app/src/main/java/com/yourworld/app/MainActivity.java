@@ -25,6 +25,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(PrivacyBridgePlugin.class);
         registerPlugin(CallAudioRoutingPlugin.class);
         registerPlugin(CallPushPlugin.class);
+        registerPlugin(ImmersiveNavigationBarPlugin.class);
         super.onCreate(savedInstanceState);
 
         prepareForIncomingCall(getIntent());

@@ -1380,3 +1380,14 @@ nav.top-nav,
 .settings-header {
   padding-top: max(env(safe-area-inset-top, 0px), 28px) !important;
 }
+
+@media (orientation: portrait) {
+  .yw-android-video-safe-area {
+    padding-top: max(env(safe-area-inset-top, 0px), 24px);
+  }
+
+  .yw-android-video-safe-area-fullscreen {
+    height: calc(100vh - max(env(safe-area-inset-top, 0px), 24px)) !important;
+    height: calc(100dvh - max(env(safe-area-inset-top, 0px), 24px)) !important;
+  }
+}
