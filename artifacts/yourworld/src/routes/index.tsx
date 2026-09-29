@@ -7,6 +7,8 @@ import {
 } from "@/components/yw/FeedVideoAutoplay";
 import { FeedVideoTray } from "@/components/yw/FeedVideoTray";
 import { FeedVideoShelfPreview } from "@/components/yw/FeedVideoShelfPreview";
+import { VirtualizedFeedWindow } from "@/components/yw/VirtualizedFeedWindow";
+import { PendingLongVideoUploadCard } from "@/components/yw/PendingLongVideoUploadCard";
 import { loadLongVideosByIds, useLongVideos, type LongVideo } from "@/lib/video-data";
 import { setVideoQueue } from "@/lib/video-queue";
 import { Search, Heart, Plus } from "lucide-react";
@@ -17,14 +19,25 @@ import { useActiveLiveStreams } from "@/lib/live-data";
 import ywLogo from "@/assets/yw-logo.png";
 import { ProfileAvatar } from "@/components/yw/ProfileAvatar";
 import { useVideoPlayback } from "@/lib/video-playback";
+import { useUploads } from "@/lib/upload-progress";
 import {
   getUnfinishedVideoResumes,
   useVideoResumeEntries,
 } from "@/lib/video-resume";
 
 type FeedItem =
-  | { kind: "standard"; key: string; video: LongVideo }
+  | {
+      kind: "standard";
+      key: string;
+      video: LongVideo;
+      prefetchNextVideos: Array<Pick<LongVideo, "mediaUrl" | "access">>;
+    }
   | { kind: "tray"; key: string };
+
+function estimateFeedItemHeight(item: FeedItem) {
+  if (item.kind === "tray") return 260;
+  return item.video.orientation === "portrait" ? 920 : 660;
+}
 
 function isVerticalLongVideo(video: LongVideo) {
   const title = video.title.toLowerCase();
@@ -87,6 +100,7 @@ function HomePage() {
     hasNextPage,
     isFetchingNextPage,
   } = useLongVideos();
+  const { tasks: uploadTasks } = useUploads();
   const resumeCandidates = React.useMemo(
     () => getUnfinishedVideoResumes(resumeEntries),
     [resumeEntries],
@@ -115,6 +129,16 @@ function HomePage() {
     resumeCandidates.find((entry) => entry.id === resumeVideo?.id) ?? null;
   const { moments } = useMoments();
   const { user } = useAuth();
+  const pendingVideoUploads = React.useMemo(
+    () =>
+      uploadTasks.filter(
+        (task) =>
+          task.kind === "video" &&
+          task.ownerId === user?.id &&
+          (task.status === "uploading" || task.status === "processing"),
+      ),
+    [uploadTasks, user?.id],
+  );
   const {
     streams: liveStreams,
     error: liveStreamsError,
@@ -241,7 +265,17 @@ function HomePage() {
     }
 
     regularVideos.forEach((video, index) => {
-      items.push({ kind: "standard", key: `post-${video.id}`, video });
+      const prefetchNextVideos = regularVideos
+        .slice(index + 1)
+        .filter((nextVideo) => nextVideo.access === "public")
+        .slice(0, 2)
+        .map(({ mediaUrl, access }) => ({ mediaUrl, access }));
+      items.push({
+        kind: "standard",
+        key: `post-${video.id}`,
+        video,
+        prefetchNextVideos,
+      });
 
       const regularVideoCount = index + 1;
       if (shouldShowTray && regularVideoCount === trayAfterPostCount) {
@@ -381,16 +415,35 @@ function HomePage() {
 
       {/* Main Long Video Feed */}
       <FeedVideoAutoplayProvider disabled={Boolean(activeVideo)}>
-        {() => (
+        {({ activeVideoId }) => (
           <main className="feed-post-list flex flex-col gap-[10px] max-w-lg mx-auto px-2 sm:px-4 pt-0 pb-4">
+            {pendingVideoUploads.map((task) => (
+              <PendingLongVideoUploadCard key={task.id} task={task} />
+            ))}
             {!hydrated || loading ? (
-              <div className="text-center py-12 text-neutral-500 text-sm">Loading feed...</div>
-            ) : videos.length === 0 && !resumeVideo ? (
+              pendingVideoUploads.length === 0 ? (
+                <div className="text-center py-12 text-neutral-500 text-sm">Loading feed...</div>
+              ) : null
+            ) : videos.length === 0 && !resumeVideo && pendingVideoUploads.length === 0 ? (
               <div className="text-center py-12 text-neutral-500 text-sm">
                 No videos yet. Be the first to share!
               </div>
             ) : (
-              feedItems.map((item) => {
+              <VirtualizedFeedWindow
+                items={feedItems}
+                pinnedKey={
+                  activeVideoId
+                    ? feedItems.find(
+                        (item) =>
+                          item.kind === "standard" && item.video.id === activeVideoId,
+                      )?.key ??
+                      (verticalVideos.some((video) => video.id === activeVideoId)
+                        ? "feed-video-tray"
+                        : null)
+                    : null
+                }
+                estimateHeight={estimateFeedItemHeight}
+                renderItem={(item) => {
                 if (item.kind === "tray") {
                   return (
                     <FeedVideoTray
@@ -416,6 +469,7 @@ function HomePage() {
                   <LongVideoCard
                     key={item.key}
                     video={item.video}
+                    prefetchNextVideos={item.prefetchNextVideos}
                     currentUserId={currentUserId}
                     initialResumeTime={
                       item.video.id === resumeEntry?.id
@@ -427,7 +481,8 @@ function HomePage() {
                     onDeleted={() => reload()}
                   />
                 );
-              })
+                }}
+              />
             )}
             {isFetchingNextPage ? (
               <p className="py-3 text-center text-xs text-neutral-500">

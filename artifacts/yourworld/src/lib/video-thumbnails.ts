@@ -55,7 +55,7 @@ export async function uploadVideoThumbnail(
   uid: string,
   onProgress?: ProgressFn,
   bucket: string = STORAGE_BUCKETS.videos,
-): Promise<{ url: string | null; error: string | null }> {
+): Promise<{ url: string | null; storagePath: string | null; error: string | null }> {
   try {
     const blob = await encodeThumbnail(await toBlob(source));
     const result = await uploadWithProgress(
@@ -66,10 +66,15 @@ export async function uploadVideoThumbnail(
       onProgress,
       VIDEO_THUMBNAIL_CACHE_CONTROL,
     );
-    return result;
+    return {
+      url: result.url,
+      storagePath: result.storagePath,
+      error: result.error,
+    };
   } catch (error) {
     return {
       url: null,
+      storagePath: null,
       error: error instanceof Error ? error.message : "Could not upload the video thumbnail.",
     };
   }
@@ -81,8 +86,8 @@ export async function generateAndUploadVideoThumbnail(
   uid: string,
   onProgress?: ProgressFn,
   bucket: string = STORAGE_BUCKETS.videos,
-): Promise<{ url: string | null; error: string | null }> {
+): Promise<{ url: string | null; storagePath: string | null; error: string | null }> {
   const thumbnail = await generateVideoThumbnail(videoFile, 1.75);
-  if (!thumbnail) return { url: null, error: null };
+  if (!thumbnail) return { url: null, storagePath: null, error: null };
   return uploadVideoThumbnail(thumbnail, uid, onProgress, bucket);
 }

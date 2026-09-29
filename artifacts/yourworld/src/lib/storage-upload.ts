@@ -4,6 +4,8 @@ import {
   readableUploadError,
   runDirectUploadRequest,
 } from "@/lib/storage-upload-request";
+import { uploadLargeStorageObjectWithTus } from "@/lib/storage-upload-tus";
+import { shouldUseResumableStorageUpload } from "@/lib/storage-upload-tus-utils";
 
 export type ProgressFn = (percent: number, detail?: string) => void;
 
@@ -26,10 +28,6 @@ export const STORAGE_BUCKETS = {
 export const IMMUTABLE_MEDIA_CACHE_CONTROL = "31536000, immutable";
 const FASTSTART_BUCKETS = new Set(["videos", "reels", "moments"]);
 
-/**
- * The standard Storage endpoint sends the Blob as one request. It does not
- * expose byte-level progress, so report the start and complete only on response.
- */
 async function uploadDirect(
   bucket: string,
   path: string,
@@ -38,6 +36,21 @@ async function uploadDirect(
   onProgress?: ProgressFn,
   cacheControl = "3600",
 ): Promise<{ error: string | null }> {
+  if (shouldUseResumableStorageUpload(file.size)) {
+    const result = await uploadLargeStorageObjectWithTus({
+      bucket,
+      path,
+      file,
+      contentType,
+      cacheControl,
+      onProgress,
+    });
+    if (result.error) {
+      console.error(`Resumable storage upload failed for ${bucket}/${path}: ${result.error}`);
+    }
+    return result;
+  }
+
   const result = await runDirectUploadRequest(
     () =>
       supabase.storage.from(bucket).upload(path, file, {
@@ -101,7 +114,7 @@ export async function uploadWithProgress(
 
   let finalPath = path;
   if (needsFastStart) {
-    onProgress?.(100, "Preparing video for playback");
+    onProgress?.(97, "Preparing video for playback");
     let response: Response;
     try {
       response = await fetch("/api/media/transcode", {

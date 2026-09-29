@@ -294,6 +294,7 @@ export async function publishLongVideo(opts: {
   isPaid?: boolean;
   paidPromotion?: boolean;
   officialSponsorshipId?: string | null;
+  generatedThumbnailPromise?: Promise<Blob | null>;
   onProgress?: ProgressFn;
 }): Promise<{ error: string | null }> {
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
@@ -317,51 +318,102 @@ export async function publishLongVideo(opts: {
     }
   }
 
-  let mediaUrl = opts.fileUrl;
-  if (/^(blob:|data:)/.test(mediaUrl)) {
-    // Reserve the last few percent for the thumbnail + database write.
-    const up = await uploadToStorage(opts.file ?? mediaUrl, uid, "mp4", "video/mp4", (p) =>
-      opts.onProgress?.(Math.min(97, Math.round(p * 0.97))),
-    );
-    if (!up) return { error: "Video upload failed. Please try again." };
-    mediaUrl = up;
-  }
-
   let thumb = opts.thumbnailUrl ?? null;
-  if (thumb && /^(blob:|data:)/.test(thumb)) {
-    const thumbnailUpload = await uploadVideoThumbnail(
+  const customThumbnail = Boolean(thumb && /^(blob:|data:)/.test(thumb));
+  const thumbnailTaskResult = (error: unknown) => ({
+    url: null,
+    storagePath: null,
+    error: error instanceof Error ? error.message : "Could not prepare the video thumbnail.",
+  });
+  let sourceBlobPromise: Promise<Blob | null> | null = null;
+  let thumbnailUploadPromise:
+    | ReturnType<typeof uploadVideoThumbnail>
+    | null = null;
+
+  if (customThumbnail && thumb) {
+    thumbnailUploadPromise = uploadVideoThumbnail(
       opts.thumbnailFile ?? thumb,
       uid,
       undefined,
       STORAGE_BUCKETS.thumbnails,
-    );
-    thumb = thumbnailUpload.url;
-    if (thumbnailUpload.error || !thumb) {
-      return { error: thumbnailUpload.error ?? "Thumbnail upload failed. Please try again." };
+    ).catch(thumbnailTaskResult);
+  } else if (!thumb) {
+    if (opts.generatedThumbnailPromise) {
+      thumbnailUploadPromise = opts.generatedThumbnailPromise
+        .then((thumbnail) =>
+          thumbnail
+            ? uploadVideoThumbnail(
+                thumbnail,
+                uid,
+                undefined,
+                STORAGE_BUCKETS.thumbnails,
+              )
+            : { url: null, storagePath: null, error: null },
+        )
+        .catch(thumbnailTaskResult);
+    } else {
+      if (opts.file) {
+        sourceBlobPromise = Promise.resolve(opts.file);
+      } else if (/^(blob:|data:)/.test(opts.fileUrl)) {
+        sourceBlobPromise = fetch(opts.fileUrl)
+          .then((response) => (response.ok ? response.blob() : null))
+          .catch((error) => {
+            console.warn("Could not read the local video for its thumbnail", error);
+            return null;
+          });
+      }
+
+      if (sourceBlobPromise) {
+        thumbnailUploadPromise = sourceBlobPromise
+          .then((sourceBlob) =>
+            sourceBlob
+              ? generateAndUploadVideoThumbnail(
+                  sourceBlob,
+                  uid,
+                  undefined,
+                  STORAGE_BUCKETS.thumbnails,
+                )
+              : { url: null, storagePath: null, error: null },
+          )
+          .catch(thumbnailTaskResult);
+      }
     }
   }
-  if (!thumb) {
-    try {
-      const sourceBlob = opts.file ?? (
-        /^(blob:|data:)/.test(opts.fileUrl)
-          ? await (await fetch(opts.fileUrl)).blob()
-          : null
-      );
-      if (sourceBlob) {
-        const generated = await generateAndUploadVideoThumbnail(
-          sourceBlob,
-          uid,
-          undefined,
-          STORAGE_BUCKETS.thumbnails,
-        );
-        if (generated.error) {
-          console.warn("Generated long-video thumbnail upload failed", generated.error);
-        } else {
-          thumb = generated.url;
-        }
+
+  let mediaUrl = opts.fileUrl;
+  if (/^(blob:|data:)/.test(mediaUrl)) {
+    // Reserve the last few percent for thumbnail, moderation, and database work.
+    const up = await uploadToStorage(opts.file ?? mediaUrl, uid, "mp4", "video/mp4", (p) =>
+      opts.onProgress?.(Math.min(97, Math.round(p * 0.97))),
+    );
+    if (!up) {
+      if (thumbnailUploadPromise) {
+        void thumbnailUploadPromise
+          .then(async ({ storagePath }) => {
+            if (!storagePath) return;
+            const { error } = await supabase.storage
+              .from(STORAGE_BUCKETS.thumbnails)
+              .remove([storagePath]);
+            if (error) console.warn("Could not remove an orphan video thumbnail", error);
+          })
+          .catch((error) => console.warn("Could not clean up an orphan video thumbnail", error));
       }
-    } catch (error) {
-      console.warn("Automatic long-video thumbnail generation failed", error);
+      return { error: "Video upload failed. Please try again." };
+    }
+    mediaUrl = up;
+  }
+
+  if (thumbnailUploadPromise) {
+    const thumbnail = await thumbnailUploadPromise;
+    if (customThumbnail) {
+      thumb = thumbnail.url;
+      if (thumbnail.error || !thumb) {
+        return { error: thumbnail.error ?? "Thumbnail upload failed. Please try again." };
+      }
+    } else if (thumbnail.error) {
+      console.warn("Generated long-video thumbnail upload failed", thumbnail.error);
+    } else {
+      thumb = thumbnail.url;
     }
   }
 

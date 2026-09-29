@@ -13,9 +13,11 @@ import {
   publishLongVideo,
 } from "@/lib/video-data";
 import { useUploads } from "@/lib/upload-progress";
+import { useAuth } from "@/lib/auth-store";
 import { trackEvent } from "@/lib/analytics";
 import { historyBackOr } from "@/lib/navigation";
 import { cacheVideoPoster } from "@/lib/video-prefetch";
+import { generateVideoThumbnail } from "@/lib/video-frames";
 
 type AccessOption = "public" | "vip" | "paid";
 const MIN_PAID_VIDEO_PRICE = 10;
@@ -47,7 +49,8 @@ const MAX_VIDEO_BYTES = 209_715_200;
 function VideoUploadPage() {
 
   const navigate = useNavigate();
-  const { startUpload } = useUploads();
+  const { startUpload, updatePreviewThumbnail } = useUploads();
+  const { user } = useAuth();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const selectedFileRef = useRef<File | null>(null);
   const thumbnailFileRef = useRef<File | null>(null);
@@ -186,32 +189,69 @@ function VideoUploadPage() {
     const parsedPrice = access === "paid" ? parsedInputPrice : 0;
 
     setBusy(true);
+    const selectedFile = selectedFileRef.current;
+    const thumbnailFile = thumbnailFileRef.current;
+    const fileUrlSnapshot = fileUrl;
+    if (!fileUrlSnapshot) {
+      toast.error("Choose a video file before uploading.");
+      setBusy(false);
+      return;
+    }
+    const titleSnapshot = title.trim() || "Long video";
+    const descriptionSnapshot = description.trim();
+    const thumbnailUrlSnapshot = thumb;
+    const orientationSnapshot = orientation;
+    const scheduleSnapshot = scheduledAt;
+    const paidPromotionSnapshot = paidPromotion;
+    const generatedThumbnailPromise =
+      !thumbnailUrlSnapshot && selectedFile
+        ? generateVideoThumbnail(selectedFile, 1.75).catch(() => null)
+        : undefined;
+    const publishingOptions = {
+      fileUrl: fileUrlSnapshot,
+      file: selectedFile,
+      thumbnailUrl: thumbnailUrlSnapshot,
+      thumbnailFile,
+      title: titleSnapshot,
+      description: descriptionSnapshot,
+      tags: [...tags],
+      orientation: orientationSnapshot,
+      seriesTitle: seriesEnabled ? seriesTitle.trim() : null,
+      episodeNumber: seriesEnabled ? episodeNumber.trim() : null,
+      durationSeconds: duration,
+      originalWidth: dimensions?.width ?? null,
+      originalHeight: dimensions?.height ?? null,
+      scheduledAt: scheduleSnapshot ? scheduleSnapshot.toISOString() : null,
+      access,
+      price: parsedPrice,
+      isPaid: access === "paid",
+      paidPromotion: paidPromotionSnapshot,
+      generatedThumbnailPromise,
+    };
 
     // Upload keeps running in the background while the user browses the app.
     void startUpload(
-      { kind: "video", label: title.trim() || "Long video", thumbnail: thumb, viewTo: "/" },
+      {
+        kind: "video",
+        label: titleSnapshot,
+        caption: descriptionSnapshot,
+        ownerId: user?.id ?? null,
+        thumbnail: thumbnailUrlSnapshot,
+        viewTo: "/",
+      },
       (onProgress) =>
         publishLongVideo({
-          fileUrl,
-            file: selectedFileRef.current,
-          thumbnailUrl: thumb,
-            thumbnailFile: thumbnailFileRef.current,
-          title,
-          description,
-          tags,
-          orientation,
-          seriesTitle: seriesEnabled ? seriesTitle.trim() : null,
-          episodeNumber: seriesEnabled ? episodeNumber.trim() : null,
-          durationSeconds: duration,
-            originalWidth: dimensions?.width ?? null,
-            originalHeight: dimensions?.height ?? null,
-          scheduledAt: scheduledAt ? scheduledAt.toISOString() : null,
-            access,
-            price: parsedPrice,
-            isPaid: access === "paid",
-          paidPromotion,
+          ...publishingOptions,
           onProgress,
         }),
+      (taskId) => {
+        if (!generatedThumbnailPromise) return;
+        void generatedThumbnailPromise.then((thumbnail) => {
+          if (thumbnail) {
+            updatePreviewThumbnail(taskId, URL.createObjectURL(thumbnail));
+          }
+        });
+      },
     ).then(({ error }) => {
       if (error) {
         toast.error(error);
@@ -219,14 +259,14 @@ function VideoUploadPage() {
       }
       trackEvent("video_published", {
         surface: "long_video_upload",
-        orientation,
-        scheduled: Boolean(scheduledAt),
-        has_thumbnail: Boolean(thumb),
-        paid_promotion: paidPromotion,
+        orientation: orientationSnapshot,
+        scheduled: Boolean(scheduleSnapshot),
+        has_thumbnail: Boolean(thumbnailUrlSnapshot),
+        paid_promotion: paidPromotionSnapshot,
       });
       toast.success(
-        scheduledAt
-          ? `Scheduled for ${scheduledAt.toLocaleString()}`
+        scheduleSnapshot
+          ? `Scheduled for ${scheduleSnapshot.toLocaleString()}`
           : "Published — it's live on your feed",
       );
     });

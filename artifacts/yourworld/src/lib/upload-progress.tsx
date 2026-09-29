@@ -20,6 +20,8 @@ export type UploadTask = {
   kind: UploadKind;
   label: string;
   thumbnail?: string | null;
+  ownerId?: string | null;
+  caption?: string | null;
   /** Destination to open once the upload finishes. */
   viewTo: string;
   progress: number;
@@ -48,9 +50,18 @@ type Ctx = {
   tasks: UploadTask[];
   /** Runs an upload in the background while the user keeps browsing. */
   startUpload: (
-    meta: { kind: UploadKind; label: string; thumbnail?: string | null; viewTo: string },
+    meta: {
+      kind: UploadKind;
+      label: string;
+      thumbnail?: string | null;
+      viewTo: string;
+      ownerId?: string | null;
+      caption?: string | null;
+    },
     runner: (onProgress: UploadProgressReporter) => Promise<{ error: string | null }>,
+    onStarted?: (id: string) => void,
   ) => Promise<{ error: string | null }>;
+  updatePreviewThumbnail: (id: string, thumbnail: string) => void;
   dismiss: (id: string) => void;
 };
 
@@ -65,11 +76,16 @@ export function useUploads() {
 export function UploadProvider({ children }: { children: ReactNode }) {
   const [tasks, setTasks] = useState<UploadTask[]>([]);
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const liveTaskIds = useRef(new Set<string>());
+  const previewObjectUrls = useRef(new Map<string, string>());
 
   useEffect(
     () => () => {
       timers.current.forEach(clearTimeout);
       timers.current.clear();
+      previewObjectUrls.current.forEach((url) => URL.revokeObjectURL(url));
+      previewObjectUrls.current.clear();
+      liveTaskIds.current.clear();
     },
     [],
   );
@@ -84,16 +100,39 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       clearTimeout(timer);
       timers.current.delete(id);
     }
+    liveTaskIds.current.delete(id);
+    const previewUrl = previewObjectUrls.current.get(id);
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+      previewObjectUrls.current.delete(id);
+    }
     setTasks((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
+  const updatePreviewThumbnail = useCallback((id: string, thumbnail: string) => {
+    if (!liveTaskIds.current.has(id)) {
+      URL.revokeObjectURL(thumbnail);
+      return;
+    }
+    const previousUrl = previewObjectUrls.current.get(id);
+    if (previousUrl && previousUrl !== thumbnail) URL.revokeObjectURL(previousUrl);
+    previewObjectUrls.current.set(id, thumbnail);
+    setTasks((prev) => prev.map((task) => (task.id === id ? { ...task, thumbnail } : task)));
+  }, []);
+
   const startUpload = useCallback<Ctx["startUpload"]>(
-    async (meta, runner) => {
+    async (meta, runner, onStarted) => {
       const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      liveTaskIds.current.add(id);
       setTasks((prev) => [
         ...prev,
         { id, progress: 0, status: "uploading", ...meta },
       ]);
+      try {
+        onStarted?.(id);
+      } catch (error) {
+        console.warn("Could not initialize upload preview", error);
+      }
 
       const run = async (): Promise<{ error: string | null }> => {
         const previousTimer = timers.current.get(id);
@@ -146,7 +185,10 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("beforeunload", handler);
   }, [active]);
 
-  const value = useMemo(() => ({ tasks, startUpload, dismiss }), [tasks, startUpload, dismiss]);
+  const value = useMemo(
+    () => ({ tasks, startUpload, updatePreviewThumbnail, dismiss }),
+    [tasks, startUpload, updatePreviewThumbnail, dismiss],
+  );
 
   return (
     <UploadCtx.Provider value={value}>

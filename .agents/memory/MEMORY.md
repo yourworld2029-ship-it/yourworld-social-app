@@ -44,4 +44,4 @@
 - [Android system-bar insets](android-system-bar-insets.md) — SDK 35+ forces edge-to-edge on Android 15+, so keep bars visible and inset WebView content natively.
 - [Android capture protection](android-capture-protection.md) — keep FLAG_SECURE off globally; only an active chat’s explicit protection toggle may enable it, with cleanup on exit.
 - [Managed Realtime table ownership](realtime-system-table-ownership.md) — do not alter Supabase-managed Realtime tables or publication through the project migration connection.
-- [Direct Supabase media uploads](direct-supabase-uploads.md) — use standard Storage requests; report 100% only after Supabase responds and preserve exact failures.
+- [Supabase media upload transport](direct-supabase-uploads.md) — use direct Storage for small files and sequential resumable TUS for large browser uploads.

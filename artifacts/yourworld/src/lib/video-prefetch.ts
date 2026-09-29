@@ -1,4 +1,6 @@
-const PREFETCH_BYTES = 1024 * 1024;
+// A 2 MiB prefix usually covers the first few seconds of a compressed feed
+// video, while remaining bounded for slower connections and smaller devices.
+const PREFETCH_BYTES = 2 * 1024 * 1024;
 const MAX_CONCURRENT_PREFETCHES = 2;
 const MAX_QUEUED_PREFETCHES = 16;
 const MAX_SEEN_PREFETCHES = 64;
@@ -207,6 +209,18 @@ async function fetchPrefetch({ url, controller }: PrefetchJob) {
 /** Starts one bounded, deduplicated prefetch for a media URL. */
 export function prefetchVideo(url: string) {
   if (typeof window === "undefined" || !url) return;
+  const connection = (
+    navigator as Navigator & {
+      connection?: { effectiveType?: string; saveData?: boolean };
+    }
+  ).connection;
+  if (
+    connection?.saveData ||
+    connection?.effectiveType === "slow-2g" ||
+    connection?.effectiveType === "2g"
+  ) {
+    return;
+  }
   const key = url ? mediaCacheKey(url) : "";
   if (
     !/^https?:\/\//i.test(url) ||
