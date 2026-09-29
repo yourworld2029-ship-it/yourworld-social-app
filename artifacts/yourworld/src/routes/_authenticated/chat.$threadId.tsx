@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
+import { AppLauncher } from "@capacitor/app-launcher";
+import { Capacitor } from "@capacitor/core";
 import {
   ArrowLeft, Phone, Video, MoreVertical, ChevronRight, Palette, Image as ImageIcon,
   Mic, Send, Smile, Play, Pause, X,
@@ -1289,6 +1291,30 @@ function NativeChatThreadPage() {
   };
   const toggleSelect = (id: string) =>
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const handleMessageUrlClick = (
+    url: string,
+    messageId: string,
+    event: React.MouseEvent<HTMLAnchorElement>,
+  ) => {
+    event.stopPropagation();
+    if (selectMode) {
+      event.preventDefault();
+      toggleSelect(messageId);
+      return;
+    }
+    if (!Capacitor.isNativePlatform()) return;
+
+    event.preventDefault();
+    setShowOptionsMenu(false);
+    void AppLauncher.openUrl({ url })
+      .then(({ completed }) => {
+        if (!completed) window.open(url, "_system", "noopener,noreferrer");
+      })
+      .catch((cause) => {
+        console.warn("[chat] native external link launch failed", cause);
+        window.open(url, "_system", "noopener,noreferrer");
+      });
+  };
   const deleteIds = async (ids: string[]) => {
     const localIds = ids.filter((id) => id.startsWith("local-"));
     const persistedIds = ids.filter((id) =>
@@ -1340,24 +1366,28 @@ function NativeChatThreadPage() {
 
   const didFirstScroll = useRef(false);
   const lastMessageKeyRef = useRef<string | null>(null);
+  const lastScrollThreadIdRef = useRef(threadId);
   const pendingScrollFrameRef = useRef<number | null>(null);
   const scrollToLatest = useCallback(() => {
     if (pendingScrollFrameRef.current !== null) {
       window.cancelAnimationFrame(pendingScrollFrameRef.current);
     }
     pendingScrollFrameRef.current = window.requestAnimationFrame(() => {
-      pendingScrollFrameRef.current = null;
-      const target = messagesEndRef.current;
-      if (!target?.isConnected || typeof target.scrollIntoView !== "function") return;
-      try {
-        target.scrollIntoView({
-          behavior: didFirstScroll.current ? "smooth" : "auto",
-          block: "end",
-        });
-        didFirstScroll.current = true;
-      } catch (cause) {
-        console.warn("[chat] auto-scroll failed", cause);
-      }
+      pendingScrollFrameRef.current = window.requestAnimationFrame(() => {
+        pendingScrollFrameRef.current = null;
+        const target = messagesEndRef.current;
+        const container = scrollRef.current;
+        if (!target?.isConnected || !container?.isConnected) return;
+        try {
+          container.scrollTo({
+            top: container.scrollHeight,
+            behavior: didFirstScroll.current ? "smooth" : "auto",
+          });
+          didFirstScroll.current = true;
+        } catch (cause) {
+          console.warn("[chat] auto-scroll failed", cause);
+        }
+      });
     });
   }, []);
 
@@ -1372,8 +1402,16 @@ function NativeChatThreadPage() {
   );
 
   useEffect(() => {
+    const threadChanged = lastScrollThreadIdRef.current !== threadId;
+    if (threadChanged) {
+      lastScrollThreadIdRef.current = threadId;
+      lastMessageKeyRef.current = null;
+      didFirstScroll.current = false;
+      keepScrollRef.current = null;
+    }
+
     // Older pages prepend above — keep the reader anchored instead of jumping down.
-    if (keepScrollRef.current !== null) {
+    if (!threadChanged && keepScrollRef.current !== null) {
       const container = scrollRef.current;
       const previousHeight = keepScrollRef.current;
       keepScrollRef.current = null;
@@ -1387,8 +1425,10 @@ function NativeChatThreadPage() {
     const isInitialLoad = lastMessageKeyRef.current === null && nextKey !== null;
     const isNewMessage = nextKey !== null && nextKey !== lastMessageKeyRef.current;
     lastMessageKeyRef.current = nextKey;
-    if (isInitialLoad || isNewMessage) scrollToLatest();
-  }, [messages, scrollToLatest]);
+    if (threadChanged || isInitialLoad || isNewMessage) {
+      if (nextKey !== null) scrollToLatest();
+    }
+  }, [messages, scrollToLatest, threadId]);
 
   const onScrollMessages = () => {
     const el = scrollRef.current;
@@ -2083,7 +2123,14 @@ function NativeChatThreadPage() {
                     onOpen={openMomentReply}
                   />
                 ) : null}
-                {m.text && !m.sharedMedia ? <ProtectedCanvasText text={m.text} /> : null}
+                {m.text && !m.sharedMedia ? (
+                  <ProtectedCanvasText
+                    text={m.text}
+                    onUrlClick={(url, event) =>
+                      handleMessageUrlClick(url, m.id, event)
+                    }
+                  />
+                ) : null}
                 {m.sharedMedia ? (
                   <SharedMediaMessageCard
                     media={m.sharedMedia}

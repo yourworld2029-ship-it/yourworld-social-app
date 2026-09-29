@@ -3,70 +3,196 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
   type RefObject,
 } from "react";
+import { extractExternalTextLinks } from "@/lib/chat-links";
+
+type WrappedTextLine = {
+  text: string;
+  sourceOffsets: number[];
+};
+
+type ProtectedTextLinkOverlay = {
+  key: string;
+  href: string;
+  label: string;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
+
+function sourceOffsetsForWord(word: string, start: number) {
+  const offsets: number[] = [];
+  let index = 0;
+  for (const character of word) {
+    for (let codeUnit = 0; codeUnit < character.length; codeUnit += 1) {
+      offsets.push(start + index + codeUnit);
+    }
+    index += character.length;
+  }
+  return offsets;
+}
 
 function wrapText(
   context: CanvasRenderingContext2D,
   text: string,
   maxWidth: number,
 ) {
-  const lines: string[] = [];
+  const lines: WrappedTextLine[] = [];
+  let paragraphStart = 0;
+  const paragraphs = text.split(/\r?\n/);
 
-  for (const paragraph of text.split(/\r?\n/)) {
-    const words = paragraph.split(/\s+/).filter(Boolean);
+  for (const [paragraphIndex, paragraph] of paragraphs.entries()) {
+    const words = Array.from(paragraph.matchAll(/\S+/g), (match) => ({
+      text: match[0],
+      start: paragraphStart + (match.index ?? 0),
+    }));
     if (words.length === 0) {
-      lines.push("");
-      continue;
-    }
+      lines.push({ text: "", sourceOffsets: [] });
+    } else {
+      let line = "";
+      let sourceOffsets: number[] = [];
+      const pushLine = () => {
+        lines.push({ text: line, sourceOffsets });
+        line = "";
+        sourceOffsets = [];
+      };
 
-    let line = "";
-    for (const word of words) {
-      const candidate = line ? `${line} ${word}` : word;
-      if (!line || context.measureText(candidate).width <= maxWidth) {
+      for (const word of words) {
+        const candidate = line ? `${line} ${word.text}` : word.text;
         if (context.measureText(candidate).width <= maxWidth) {
-          line = candidate;
+          if (line) {
+            line += " ";
+            sourceOffsets.push(-1);
+          }
+          line += word.text;
+          sourceOffsets.push(...sourceOffsetsForWord(word.text, word.start));
           continue;
         }
-      } else {
-        lines.push(line);
-        line = "";
+
+        if (line) pushLine();
+
+        if (context.measureText(word.text).width > maxWidth) {
+          let fragment = "";
+          let fragmentOffsets: number[] = [];
+          let characterOffset = 0;
+          for (const character of word.text) {
+            if (
+              fragment &&
+              context.measureText(fragment + character).width > maxWidth
+            ) {
+              lines.push({ text: fragment, sourceOffsets: fragmentOffsets });
+              fragment = "";
+              fragmentOffsets = [];
+            }
+            fragment += character;
+            for (let codeUnit = 0; codeUnit < character.length; codeUnit += 1) {
+              fragmentOffsets.push(word.start + characterOffset + codeUnit);
+            }
+            characterOffset += character.length;
+          }
+          line = fragment;
+          sourceOffsets = fragmentOffsets;
+        } else {
+          line = word.text;
+          sourceOffsets = sourceOffsetsForWord(word.text, word.start);
+        }
       }
 
-      if (!line && context.measureText(word).width > maxWidth) {
-        let fragment = "";
-        for (const character of word) {
-          if (fragment && context.measureText(fragment + character).width > maxWidth) {
-            lines.push(fragment);
-            fragment = character;
-          } else {
-            fragment += character;
-          }
-        }
-        line = fragment;
-      } else if (!line) {
-        line = word;
-      }
+      lines.push({ text: line, sourceOffsets });
     }
-    lines.push(line);
+
+    paragraphStart += paragraph.length;
+    if (paragraphIndex < paragraphs.length - 1) {
+      paragraphStart += text.startsWith("\r\n", paragraphStart) ? 2 : 1;
+    }
   }
 
-  return lines.length ? lines : [""];
+  return lines.length ? lines : [{ text: "", sourceOffsets: [] }];
+}
+
+function layoutLinkOverlays(
+  context: CanvasRenderingContext2D,
+  lines: WrappedTextLine[],
+  text: string,
+  contentWidth: number,
+  lineHeight: number,
+  textAlign: CanvasTextAlign,
+): ProtectedTextLinkOverlay[] {
+  const links = extractExternalTextLinks(text);
+  const overlays: ProtectedTextLinkOverlay[] = [];
+
+  for (const link of links) {
+    lines.forEach((line, lineIndex) => {
+      let segmentStart = -1;
+      const addSegment = (segmentEnd: number) => {
+        if (segmentStart < 0 || segmentEnd <= segmentStart) return;
+        const lineWidth = context.measureText(line.text).width;
+        const leftOffset =
+          textAlign === "center"
+            ? (contentWidth - lineWidth) / 2
+            : textAlign === "right" || textAlign === "end"
+              ? contentWidth - lineWidth
+              : 0;
+        const left =
+          leftOffset +
+          context.measureText(line.text.slice(0, segmentStart)).width;
+        const width = context.measureText(
+          line.text.slice(segmentStart, segmentEnd),
+        ).width;
+        if (width > 0) {
+          overlays.push({
+            key: `${link.start}-${link.end}-${lineIndex}-${segmentStart}`,
+            href: link.href,
+            label: link.text,
+            left,
+            top: lineIndex * lineHeight,
+            width,
+            height: lineHeight,
+          });
+        }
+      };
+
+      for (let index = 0; index <= line.sourceOffsets.length; index += 1) {
+        const sourceOffset = line.sourceOffsets[index] ?? -1;
+        const isLinkCharacter =
+          sourceOffset >= link.start && sourceOffset < link.end;
+        if (isLinkCharacter) {
+          if (segmentStart < 0) segmentStart = index;
+        } else if (segmentStart >= 0) {
+          addSegment(index);
+          segmentStart = -1;
+        }
+      }
+    });
+  }
+
+  return overlays;
 }
 
 /** Draws message text into a non-selectable canvas while keeping an accessible label. */
 export function ProtectedCanvasText({
   text,
   maxLines,
+  onUrlClick,
 }: {
   text: string;
   maxLines?: number;
+  onUrlClick?: (
+    href: string,
+    event: ReactMouseEvent<HTMLAnchorElement>,
+  ) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [linkOverlays, setLinkOverlays] = useState<ProtectedTextLinkOverlay[]>([]);
+  const linkify = typeof onUrlClick === "function";
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    const bubble = canvas?.parentElement;
+    const container = canvas?.parentElement;
+    const bubble = linkify ? container?.parentElement : container;
     if (!canvas || !bubble) return;
 
     const render = () => {
@@ -94,7 +220,9 @@ export function ProtectedCanvasText({
       const lineHeight =
         Number.parseFloat(bubbleStyle.lineHeight) ||
         (Number.parseFloat(bubbleStyle.fontSize) || 14) * 1.5;
-      let lines = wrapText(context, text, maxWidth);
+      const wrappedLines = wrapText(context, text, maxWidth);
+      let lines = wrappedLines.map((line) => line.text);
+      let wasTruncated = false;
       if (maxLines && lines.length > maxLines) {
         lines = lines.slice(0, maxLines);
         let lastLine = lines[maxLines - 1] ?? "";
@@ -105,6 +233,7 @@ export function ProtectedCanvasText({
           lastLine = lastLine.slice(0, -1);
         }
         lines[maxLines - 1] = `${lastLine.trimEnd()}…`;
+        wasTruncated = true;
       }
       const contentWidth = Math.max(
         1,
@@ -132,6 +261,35 @@ export function ProtectedCanvasText({
       lines.forEach((line, index) => {
         context.fillText(line, textX, index * lineHeight, maxWidth);
       });
+
+      if (linkify) {
+        const visibleLines = lines.map((line, index) => {
+          const wrappedLine = wrappedLines[index] ?? {
+            text: "",
+            sourceOffsets: [],
+          };
+          const visibleLength =
+            wasTruncated && index === lines.length - 1
+              ? Math.max(0, line.length - 1)
+              : line.length;
+          return {
+            text: line,
+            sourceOffsets: wrappedLine.sourceOffsets.slice(0, visibleLength),
+          };
+        });
+        setLinkOverlays(
+          layoutLinkOverlays(
+            context,
+            visibleLines,
+            text,
+            contentWidth,
+            lineHeight,
+            bubbleStyle.textAlign as CanvasTextAlign,
+          ),
+        );
+      } else {
+        setLinkOverlays([]);
+      }
     };
 
     render();
@@ -147,15 +305,66 @@ export function ProtectedCanvasText({
       observer?.disconnect();
       window.removeEventListener("resize", render);
     };
-  }, [maxLines, text]);
+  }, [linkify, maxLines, text]);
 
-  return (
+  const canvas = (
     <canvas
       ref={canvasRef}
       className="yw-protected-canvas"
       role="img"
       aria-label={text}
     />
+  );
+
+  if (!linkify) return canvas;
+
+  return (
+    <span
+      style={{
+        position: "relative",
+        display: "inline-block",
+        verticalAlign: "top",
+      }}
+    >
+      {canvas}
+      <span
+        aria-label="Links in message"
+        style={{ position: "absolute", inset: 0, pointerEvents: "none" }}
+      >
+        {linkOverlays.map((link) => (
+          <a
+            key={link.key}
+            href={link.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={`Open link ${link.label}`}
+            title={link.label}
+            style={{
+              position: "absolute",
+              left: link.left,
+              top: link.top,
+              display: "block",
+              width: link.width,
+              height: link.height,
+              background: "transparent",
+              color: "transparent",
+              textDecoration: "none",
+              pointerEvents: "auto",
+              cursor: "pointer",
+            }}
+            onPointerDown={(event) => event.stopPropagation()}
+            onPointerMove={(event) => event.stopPropagation()}
+            onPointerUp={(event) => event.stopPropagation()}
+            onPointerCancel={(event) => event.stopPropagation()}
+            onContextMenu={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onUrlClick?.(link.href, event);
+            }}
+          />
+        ))}
+      </span>
+    </span>
   );
 }
 

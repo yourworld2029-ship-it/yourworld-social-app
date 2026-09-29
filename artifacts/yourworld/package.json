@@ -10,7 +10,7 @@
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "serve": "node --enable-source-maps server/index.mjs",
-    "test": "tsx --test src/lib/live-data.test.ts src/lib/profile-category.test.ts src/lib/sports-profile.test.ts src/lib/sports-identity.test.ts src/lib/national-award.test.ts src/components/yw/national-award-terms.test.tsx src/lib/monetization-math.test.ts src/lib/yw-download.test.ts src/lib/post-deletion.test.ts src/lib/long-video-utils.test.ts src/lib/watch-links.test.ts src/lib/video-resume.test.ts src/lib/video-quality.test.ts src/lib/storage-upload-request.test.ts src/lib/secret-pin.test.ts src/lib/active-chat.test.ts src/lib/auto-delete.test.ts",
+    "test": "tsx --test src/lib/live-data.test.ts src/lib/profile-category.test.ts src/lib/sports-profile.test.ts src/lib/sports-identity.test.ts src/lib/national-award.test.ts src/components/yw/national-award-terms.test.tsx src/lib/monetization-math.test.ts src/lib/yw-download.test.ts src/lib/post-deletion.test.ts src/lib/long-video-utils.test.ts src/lib/watch-links.test.ts src/lib/video-resume.test.ts src/lib/video-quality.test.ts src/lib/storage-upload-request.test.ts src/lib/secret-pin.test.ts src/lib/active-chat.test.ts src/lib/auto-delete.test.ts src/lib/chat-links.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "format": "prettier --write ."
@@ -18,6 +18,7 @@
   "dependencies": {
     "@capacitor/android": "^8.5.2",
     "@capacitor/app": "^8.1.1",
+    "@capacitor/app-launcher": "^8.0.1",
     "@capacitor/cli": "^8.5.2",
     "@capacitor/core": "^8.5.2",
     "@capacitor/status-bar": "^8.0.3",
