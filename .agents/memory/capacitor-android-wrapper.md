@@ -3,11 +3,11 @@ name: Capacitor Android wrapper
 description: Constraints for packaging the SSR YourWorld web artifact as a Capacitor Android app.
 ---
 
-TanStack Start's Nitro build emits SSR server output and hashed client assets but does not emit a static `index.html` for Capacitor. The Capacitor build must generate a small `.output/public/index.html` shell that loads the hashed client entry and stylesheet after the web build.
+Keep the web app's Nitro SSR output separate from Capacitor's TanStack Start SPA client build. Use Start's prerendered HTML shell in `.output/capacitor`; do not hand-write a shell or bundle a React-only entry.
 
-**Why:** Capacitor's copy/sync step requires a static HTML entry point, while the existing web deployment must continue to use Nitro's SSR server output.
+**Why:** The static shell must retain Start's stream barrier and router hydration state, and its client build must preserve server-function transforms. An empty shell or React-only entry can load assets but leave the native app blank or break RPC calls.
 
-**How to apply:** Keep the post-build shell generation in the web artifact and point `capacitor.config.ts` at `.output/public`. Android Gradle verification also requires a locally configured Android SDK (`ANDROID_HOME` or `sdk.dir`); Java alone is insufficient.
+**How to apply:** Keep Nitro output in `.output/public`, generate the Start SPA bundle in `.output/capacitor`, and point `capacitor.config.ts` there with `server.url` unset. Android Gradle verification also requires a locally configured Android SDK (`ANDROID_HOME` or `sdk.dir`); Java alone is insufficient.
 
 Android Gradle builds for this Capacitor project require Java 21. The workspace's default GraalVM Java 19 fails during Android JDK-image linking; Java 17 fixes that step but cannot compile Capacitor 8's Java 21 source level.
 
