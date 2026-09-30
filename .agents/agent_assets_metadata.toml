@@ -56,3 +56,17 @@ mtime_ms = 1790750976002
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/65f80337-b4ea-4b73-b703-919c72cfcb5c/4d54e37b-5991-44fc-aa71-80002b4f7788"
 storage_version_token = "1790752022871438"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "BtZiAFhV6dTtrx_HFcjuE"
+uri = "file://artifacts/yourworld/public/downloads/yourworld-20260930T075240Z-v2.apk"
+type = "unspecified"
+title = "YourWorld Android APK — September 30, 2026"
+description = "Fresh clean Gradle debug build, versionCode 2. APK signature verified; required camera and microphone permissions confirmed."
+logical_id = "f6531903-2d9f-4ac0-8109-6f63853fa550"
+content_hash = "sha256:54cd248c68635bee98734a9c67bcc7257a99fd392f049b7f443911626e8d6720"
+size = 7392785
+mtime_ms = 1790754760466
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/f6531903-2d9f-4ac0-8109-6f63853fa550/78ea82c4-5609-4ab2-b997-929220e611d6"
+storage_version_token = "1790755155405811"
+content_type = "application/octet-stream"

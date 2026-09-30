@@ -86,3 +86,9 @@ Capacitor's `server.url` overrides the local `webDir` as the WebView's page sour
 **Why:** `cap sync` can copy current JavaScript and CSS into Android assets while the installed app still loads an older remote deployment.
 
 **How to apply:** Remove `server.url` from the release config, sync the fresh web output, and verify the packaged Capacitor config has no remote URL and the APK contains the same entry HTML and referenced JS/CSS as the web build.
+
+Gradle may warn that its SDK XML parser supports through v3 when the installed Android CLI provides v4 metadata; this warning can coexist with a successful APK build.
+
+**Why:** Google's SDK tooling and the Android Gradle plugin can ship at different cadences, so their metadata parsers may not match even when all required SDK packages are valid.
+
+**How to apply:** Treat this as non-fatal only when `assembleDebug` succeeds and the resulting APK passes signature and permission checks. Do not change SDK versions solely to silence the warning; investigate only if Gradle fails on the metadata.
