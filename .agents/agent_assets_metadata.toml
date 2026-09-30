@@ -42,3 +42,31 @@ mtime_ms = 1790738093047
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/b04b9615-dbc0-4561-b448-f5b8e865110d/0a69848b-8ea1-4c00-9521-1caa12280200"
 storage_version_token = "1790738203587849"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "ZWSI5id_-LjKGhfWppsDC"
+uri = "file://artifacts/yourworld/public/downloads/yourworld-20260930T115123Z-v2-release-debug-signed.apk"
+type = "unspecified"
+title = "YourWorld Android APK — Release variant"
+description = "Fresh Gradle release build, version 1.0.1 (code 2). Signed with the local Android debug certificate for install/testing; this is not a production release signing key."
+logical_id = "9405925c-87e1-4bdf-afe6-977cfbf41f1b"
+content_hash = "sha256:beb9a4f8903df1198c5cd8df1e797b3b0bfd39d7d81ca994438883b09b5425d6"
+size = 6168615
+mtime_ms = 1790769089050
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/9405925c-87e1-4bdf-afe6-977cfbf41f1b/554cee7e-e10a-42da-abc0-77056dd3a36c"
+storage_version_token = "1790769128520919"
+content_type = "application/octet-stream"
+
+[[outputs]]
+id = "nbroNKFp8hMH_7QqEYjSp"
+uri = "file://artifacts/yourworld/public/downloads/yourworld-20260930T115123Z-v2.apk"
+type = "unspecified"
+title = "YourWorld Android APK — Fresh Release Build"
+description = "Gradle release variant, version 1.0.1 (code 2), verified and signed with the local Android debug certificate for install/testing. The in-app /download-apk route was verified to serve this exact build. Not signed with a production release key."
+logical_id = "72316ebd-6c61-415b-88ac-6d0909c0f8d1"
+content_hash = "sha256:beb9a4f8903df1198c5cd8df1e797b3b0bfd39d7d81ca994438883b09b5425d6"
+size = 6168615
+mtime_ms = 1790769173883
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/72316ebd-6c61-415b-88ac-6d0909c0f8d1/2087f0a8-e376-4e52-acbe-ec47664f4b23"
+storage_version_token = "1790769180502889"
+content_type = "application/octet-stream"
