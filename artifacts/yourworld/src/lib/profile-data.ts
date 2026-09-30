@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SetPostPinBody, SetPostPinResponse } from "@workspace/api-zod";
 import { supabase } from "@/integrations/supabase/client";
 import { normalizeSupabaseProjectUrl } from "@/integrations/supabase/url";
+import { useAuth } from "@/lib/auth-store";
 import { STORAGE_BUCKETS, uploadWithProgress, type ProgressFn } from "@/lib/storage-upload";
 import { resolveMediaUrl, type DbPost } from "@/lib/social-data";
 import { announcePostDeleted, isPostDeleted } from "@/lib/post-deletion";
@@ -111,6 +112,18 @@ const empty: MyProfile = {
   is_verified: false,
   verification_requested: false,
 };
+
+type MyProfileSnapshot = {
+  profile: MyProfile;
+  avatarSrc: string | null;
+  coverSrc: string | null;
+  posts: DbPost[];
+  profileFetchedAt: number;
+  mediaLoaded: boolean;
+};
+
+const myProfileSnapshots = new Map<string, MyProfileSnapshot>();
+const MY_PROFILE_STALE_TIME_MS = 30_000;
 
 async function signedIfNeeded(url: string | null) {
   if (!url) return null;
@@ -554,17 +567,47 @@ export async function deleteSportsIntroduction(ownerId: string, path: string) {
 
 /** Real signed-in profile: row from the database plus the user's own media. */
 export function useMyProfile() {
-  const [userId, setUserId] = useState<string | null>(null);
-  const [profile, setProfile] = useState<MyProfile>(empty);
-  const [avatarSrc, setAvatarSrc] = useState<string | null>(null);
-  const [coverSrc, setCoverSrc] = useState<string | null>(null);
-  const [posts, setPosts] = useState<DbPost[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [mediaLoading, setMediaLoading] = useState(true);
+  const { user: authUser } = useAuth();
+  const initialUserId = authUser?.id ?? null;
+  const initialSnapshot = initialUserId
+    ? myProfileSnapshots.get(initialUserId)
+    : undefined;
+  const initialSnapshotForUser =
+    initialSnapshot?.profile.id === initialUserId ? initialSnapshot : undefined;
+  const [userId, setUserId] = useState<string | null>(initialUserId);
+  const [profile, setProfile] = useState<MyProfile>(
+    initialSnapshotForUser?.profile ?? empty,
+  );
+  const [avatarSrc, setAvatarSrc] = useState<string | null>(
+    initialSnapshotForUser?.avatarSrc ?? null,
+  );
+  const [coverSrc, setCoverSrc] = useState<string | null>(
+    initialSnapshotForUser?.coverSrc ?? null,
+  );
+  const [posts, setPosts] = useState<DbPost[]>(
+    initialSnapshotForUser?.posts ?? [],
+  );
+  const [loading, setLoading] = useState(!initialSnapshotForUser);
+  const [mediaLoading, setMediaLoading] = useState(
+    !initialSnapshotForUser?.mediaLoaded,
+  );
   const loadInFlight = useRef<Promise<void> | null>(null);
   const pendingForce = useRef(false);
   const loadRef = useRef<(force?: boolean) => Promise<void>>(() => Promise.resolve());
-  const loadedUserId = useRef<string | null>(null);
+  const activeUserIdRef = useRef<string | null>(initialUserId);
+
+  useEffect(() => {
+    if (!userId || profile.id !== userId) return;
+    const previous = myProfileSnapshots.get(userId);
+    myProfileSnapshots.set(userId, {
+      profile,
+      avatarSrc,
+      coverSrc,
+      posts,
+      profileFetchedAt: previous?.profileFetchedAt ?? 0,
+      mediaLoaded: previous?.mediaLoaded ?? false,
+    });
+  }, [avatarSrc, coverSrc, posts, profile, userId]);
   const loadGeneration = useRef(0);
 
   const load = useCallback(async (force = false) => {
@@ -578,12 +621,30 @@ export function useMyProfile() {
       const { data: sessionData } = await supabase.auth.getSession();
       const uid = sessionData.session?.user.id ?? null;
       if (generation !== loadGeneration.current) return;
-      if (!forceThisRequest && loadedUserId.current !== null && uid === loadedUserId.current) return;
 
-      setLoading(true);
+      const cached = uid ? myProfileSnapshots.get(uid) : undefined;
+      const cachedForUser =
+        cached?.profile.id === uid ? cached : undefined;
+      const previousUserId = activeUserIdRef.current;
+      if (previousUserId !== uid) {
+        if (previousUserId) myProfileSnapshots.delete(previousUserId);
+        activeUserIdRef.current = uid;
+      }
       setUserId(uid);
+      if (cachedForUser) {
+        setProfile(cachedForUser.profile);
+        setAvatarSrc(cachedForUser.avatarSrc);
+        setCoverSrc(cachedForUser.coverSrc);
+        setPosts(cachedForUser.posts);
+      } else if (previousUserId !== uid) {
+        setProfile(empty);
+        setAvatarSrc(null);
+        setCoverSrc(null);
+        setPosts([]);
+      }
+
       if (!uid) {
-        loadedUserId.current = null;
+        myProfileSnapshots.clear();
         setProfile(empty);
         setAvatarSrc(null);
         setCoverSrc(null);
@@ -593,14 +654,37 @@ export function useMyProfile() {
         return;
       }
 
+      if (
+        !forceThisRequest &&
+        cachedForUser &&
+        cachedForUser.profileFetchedAt > 0 &&
+        Date.now() - cachedForUser.profileFetchedAt < MY_PROFILE_STALE_TIME_MS
+      ) {
+        setLoading(false);
+        setMediaLoading(!cachedForUser.mediaLoaded);
+        return;
+      }
+
+      setLoading(!cachedForUser);
+      setMediaLoading(!cachedForUser?.mediaLoaded);
+
       // The profile row is the critical path. Posts and media
       // URLs are independent secondary data and must not delay the shell.
-      const { data: row } = await supabase
+      const { data: row, error: profileError } = await supabase
         .from("profiles")
         .select("*")
         .eq("id", uid)
         .maybeSingle();
       if (generation !== loadGeneration.current) return;
+      if (profileError && cachedForUser) {
+        console.error("[profile] profile refresh failed; keeping cached data", profileError);
+        setLoading(false);
+        setMediaLoading(!cachedForUser.mediaLoaded);
+        return;
+      }
+      if (profileError) {
+        console.error("[profile] profile load failed", profileError);
+      }
 
       const email = sessionData.session?.user.email ?? "";
       const next: MyProfile = {
@@ -618,10 +702,18 @@ export function useMyProfile() {
         verification_requested: row?.verification_requested === true,
       };
 
-      loadedUserId.current = uid;
+      const previousSnapshot = myProfileSnapshots.get(uid);
+      myProfileSnapshots.set(uid, {
+        profile: next,
+        avatarSrc: previousSnapshot?.avatarSrc ?? null,
+        coverSrc: previousSnapshot?.coverSrc ?? null,
+        posts: previousSnapshot?.posts ?? [],
+        profileFetchedAt: profileError ? 0 : Date.now(),
+        mediaLoaded: previousSnapshot?.mediaLoaded ?? false,
+      });
       setProfile(next);
       setLoading(false);
-      setMediaLoading(true);
+      setMediaLoading(!previousSnapshot?.mediaLoaded);
 
       void Promise.all([signedIfNeeded(next.avatar_url), signedIfNeeded(next.cover_url)]).then(
         ([nextAvatarSrc, nextCoverSrc]) => {
@@ -638,14 +730,19 @@ export function useMyProfile() {
           });
           if (generation !== loadGeneration.current) return;
 
-          setPosts(
-            myPosts
-              .filter((post) => !isPostDeleted(post.id)) as DbPost[],
-          );
+          const nextPosts = myPosts.filter((post) => !isPostDeleted(post.id)) as DbPost[];
+          setPosts(nextPosts);
+          const snapshot = myProfileSnapshots.get(uid);
+          if (snapshot) {
+            myProfileSnapshots.set(uid, {
+              ...snapshot,
+              posts: nextPosts,
+              mediaLoaded: true,
+            });
+          }
         } catch (cause) {
           if (generation === loadGeneration.current) {
             console.error("[profile] own profile media load failed", cause);
-            setPosts([]);
           }
         } finally {
           if (generation === loadGeneration.current) setMediaLoading(false);
@@ -669,19 +766,30 @@ export function useMyProfile() {
 
   useEffect(() => {
     void load();
-    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "SIGNED_IN" || event === "SIGNED_OUT" || event === "USER_UPDATED") {
         loadGeneration.current += 1;
         loadInFlight.current = null;
-        loadedUserId.current = null;
-        setUserId(null);
-        setProfile(empty);
-        setAvatarSrc(null);
-        setCoverSrc(null);
-        setPosts([]);
-        setLoading(true);
-        setMediaLoading(false);
-        void load();
+        const nextUserId = session?.user.id ?? null;
+        const previousUserId = activeUserIdRef.current;
+        if (previousUserId && previousUserId !== nextUserId) {
+          myProfileSnapshots.delete(previousUserId);
+        }
+        if (event === "SIGNED_OUT") myProfileSnapshots.clear();
+        activeUserIdRef.current = nextUserId;
+        const snapshot = nextUserId
+          ? myProfileSnapshots.get(nextUserId)
+          : undefined;
+        const snapshotForUser =
+          snapshot?.profile.id === nextUserId ? snapshot : undefined;
+        setUserId(nextUserId);
+        setProfile(snapshotForUser?.profile ?? empty);
+        setAvatarSrc(snapshotForUser?.avatarSrc ?? null);
+        setCoverSrc(snapshotForUser?.coverSrc ?? null);
+        setPosts(snapshotForUser?.posts ?? []);
+        setLoading(!snapshotForUser);
+        setMediaLoading(!snapshotForUser?.mediaLoaded);
+        void load(true);
       }
     });
     return () => sub.subscription.unsubscribe();

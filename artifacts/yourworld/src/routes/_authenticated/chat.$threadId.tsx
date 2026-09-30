@@ -32,6 +32,7 @@ import {
   resolveMediaUrl,
 } from "@/lib/social-data";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/lib/auth-store";
 import { useThreadPresence } from "@/lib/presence";
 import { registerActiveChatView } from "@/lib/active-chat";
 import { useCall } from "@/lib/call-store";
@@ -654,6 +655,7 @@ function NativeChatThreadPage() {
     setTextDraft("");
   };
   const { threadId } = Route.useParams();
+  const { user: signedInUser } = useAuth();
 
   // Legacy links used the peer's user id as the thread id, which split the
   // conversation in two. Send those straight to the shared canonical thread.
@@ -693,6 +695,9 @@ function NativeChatThreadPage() {
     hasMore,
     loadOlder,
   } = useThreadMessages(threadId, { staleTime: Infinity });
+  // The messages hook finishes its auth/session bootstrap asynchronously. Use
+  // the already-resolved app identity to render its synchronous local cache now.
+  const messageViewerId = currentUserId ?? signedInUser?.id ?? null;
   const openViewOnce = useCallback(async (message: Message) => {
     if (
       !message.viewOnce ||
@@ -808,8 +813,8 @@ function NativeChatThreadPage() {
         if (
           !id ||
           !senderId ||
-          !currentUserId ||
-          (m?.sender_id !== currentUserId && m?.receiver_id !== currentUserId) ||
+          !messageViewerId ||
+          (m?.sender_id !== messageViewerId && m?.receiver_id !== messageViewerId) ||
           !Number.isFinite(timestamp)
         ) {
           return [];
@@ -835,7 +840,7 @@ function NativeChatThreadPage() {
             audio: typeof m?.voice_note_url === "string" ? m.voice_note_url : undefined,
             mediaKind: mediaKindFromMetadata(metadata, m?.media_url, m?.voice_note_url),
             sharedMedia: sharedMediaFromMetadata(metadata),
-            sender: m?.sender_id === currentUserId ? "me" : "them",
+            sender: m?.sender_id === messageViewerId ? "me" : "them",
             system: m?.is_system_message === true || CALL_LOG_PATTERN.test(text ?? ""),
             captureEventId:
               typeof metadata?.capture_event_id === "string"
@@ -906,7 +911,7 @@ function NativeChatThreadPage() {
           !(m.system && /^secret\s+lock\s+(?:enabled|disabled)$/i.test(m.text?.trim() ?? "")),
       )
       .sort((a, b) => a.ts - b.ts);
-  }, [dbMessages, localMessages, hiddenIds, currentUserId]);
+  }, [dbMessages, localMessages, hiddenIds, messageViewerId]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setRelativeNow(Date.now()), 30_000);

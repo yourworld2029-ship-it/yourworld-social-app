@@ -88,7 +88,6 @@ function HomePage() {
   const navigate = useNavigate();
   const { activeVideo } = useVideoPlayback();
   const resumeEntries = useVideoResumeEntries();
-  const [hydrated, setHydrated] = React.useState(false);
   const {
     videos,
     loading,
@@ -141,7 +140,6 @@ function HomePage() {
   );
   const { streams: liveStreams } = useActiveLiveStreams();
   const { count: alertCount } = useAlertsCount();
-  React.useEffect(() => setHydrated(true), []);
 
   React.useEffect(() => {
     if (!hasNextPage || isFetchingNextPage) return;
@@ -411,7 +409,7 @@ function HomePage() {
             {pendingVideoUploads.map((task) => (
               <PendingLongVideoUploadCard key={task.id} task={task} />
             ))}
-            {!hydrated || loading ? (
+            {loading && videos.length === 0 ? (
               pendingVideoUploads.length === 0 ? (
                 <div className="text-center py-12 text-neutral-500 text-sm">Loading feed...</div>
               ) : null
