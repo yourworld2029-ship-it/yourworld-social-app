@@ -4,6 +4,7 @@ const config: CapacitorConfig = {
   appId: 'com.yourworld.app',
   appName: 'YourWorld',
   webDir: '.output/capacitor',
+  backgroundColor: '#000000',
   plugins: {
     StatusBar: {
       overlaysWebView: false,

@@ -230,16 +230,16 @@ function LockedVideoPlayer({
 
 function cleanVideoId(value: unknown) {
   if (typeof value !== "string") return "";
-  let decoded = value;
-  try {
-    decoded = decodeURIComponent(value);
-  } catch {
-    // Strip invalid encoding below instead of allowing the route to throw.
-  }
-  return decoded
-    .trim()
-    .replace(/(?:\)|%29)+$/gi, "")
-    .replace(/[^a-zA-Z0-9-]/g, "");
+  const videoId = value.trim();
+  return videoId.length <= 256 ? videoId : "";
+}
+
+function optionalText(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function optionalNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function safeTimeAgo(value: string | null | undefined) {
@@ -319,35 +319,75 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           return null;
         }
 
+        const row = data as unknown as Record<string, unknown>;
         let profile: VideoUser | null = null;
-        if (data.user_id) {
+        const userId = optionalText(row.user_id);
+        if (userId) {
           try {
             const { data: profiles } = await supabase.rpc("get_public_profiles", {
-              ids: [data.user_id],
+              ids: [userId],
             });
-            profile = ((profiles ?? []) as VideoUser[])[0] ?? null;
+            const candidate = Array.isArray(profiles) ? profiles[0] : null;
+            if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
+              const creator = candidate as Record<string, unknown>;
+              profile = {
+                id: optionalText(creator.id) ?? undefined,
+                username: optionalText(creator.username),
+                full_name: optionalText(creator.full_name),
+                display_name: optionalText(creator.display_name),
+                avatar_url: optionalText(creator.avatar_url),
+              };
+            }
           } catch (cause) {
             console.error("Error fetching video creator:", cause);
           }
         }
 
-        const metadata = data as unknown as {
-          source_quality_tier?: string | null;
-          original_width?: number | null;
-          original_height?: number | null;
-          quality_urls?: QualityUrls | null;
-          qualityUrls?: QualityUrls | null;
-        };
+        const rawQualityUrls = row.qualityUrls ?? row.quality_urls;
+        const qualityUrls =
+          rawQualityUrls && typeof rawQualityUrls === "object" && !Array.isArray(rawQualityUrls)
+            ? rawQualityUrls as QualityUrls
+            : null;
         const sourceQualityTier = qualityTierFromMetadata(
-          metadata.source_quality_tier,
-          metadata.original_width,
-          metadata.original_height,
+          optionalText(row.source_quality_tier),
+          optionalNumber(row.original_width),
+          optionalNumber(row.original_height),
         );
 
         return {
-          ...(data as unknown as Video),
+          ...(row as unknown as Video),
+          id: optionalText(row.id) ?? videoId,
+          user_id: userId,
+          media_url: optionalText(row.media_url),
+          video_url: optionalText(row.video_url),
+          url: optionalText(row.url),
+          title: optionalText(row.title),
+          caption: optionalText(row.caption),
+          created_at: optionalText(row.created_at),
+          duration_seconds: optionalNumber(row.duration_seconds),
+          kind: optionalText(row.kind),
+          media_type: optionalText(row.media_type),
+          thumbnail_url: optionalText(row.thumbnail_url),
+          views_count: optionalNumber(row.views_count),
+          views: optionalNumber(row.views),
+          likes_count: optionalNumber(row.likes_count),
+          like_count: optionalNumber(row.like_count),
+          likes: optionalNumber(row.likes),
+          price: optionalNumber(row.price),
+          video_access: optionalText(row.video_access),
+          is_paid: typeof row.is_paid === "boolean" ? row.is_paid : null,
+          source_quality_tier: optionalText(row.source_quality_tier),
+          original_width: optionalNumber(row.original_width),
+          original_height: optionalNumber(row.original_height),
+          series_title: optionalText(row.series_title),
+          episode_number: optionalText(row.episode_number),
+          status: optionalText(row.status),
+          review_status: optionalText(row.review_status),
+          scheduled_at: optionalText(row.scheduled_at),
+          archived: typeof row.archived === "boolean" ? row.archived : null,
           sourceQualityTier,
-          qualityUrls: metadata.qualityUrls ?? metadata.quality_urls ?? null,
+          qualityUrls,
+          quality_urls: qualityUrls,
           user: profile,
         };
       } catch (cause) {
@@ -357,6 +397,14 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     },
     retry: 1,
   });
+
+  useEffect(() => {
+    if (isLoading) return;
+    const hasMediaUrl = [video?.media_url, video?.video_url, video?.url].some(
+      (value) => typeof value === "string" && value.trim().length > 0,
+    );
+    if (!video || !hasMediaUrl) closeVideo();
+  }, [closeVideo, isLoading, video]);
 
   const creatorId = video?.user_id || video?.user?.id || "";
   const subscribed = Boolean(creatorId && following[creatorId]);
@@ -748,6 +796,10 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     if (!mediaUrl) return;
     void resolveLongVideoUrl(mediaUrl).then((resolved) => {
       if (!cancelled) setResolvedMediaUrl(resolved || mediaUrl);
+    }).catch((cause) => {
+      if (cancelled) return;
+      console.error("Unable to resolve video source; using its stored URL", cause);
+      setResolvedMediaUrl(mediaUrl);
     });
     return () => {
       cancelled = true;

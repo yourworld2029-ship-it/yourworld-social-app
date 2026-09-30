@@ -3,7 +3,7 @@ import {
   Eye, Heart, Clock, MessageCircle, Send,
   MoreHorizontal, Link2, Trash2, EyeOff, Pencil,
 } from "lucide-react";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import {
   formatViews,
@@ -119,10 +119,19 @@ export function LongVideoCard({
   onDeleted,
   onEdited,
 }: Props) {
+  const navigate = useNavigate();
   const previewId = `feed:${video.id}:${useId()}`;
   const { stopCandidate } = useFeedVideoAutoplay();
-  const normalizedTitle = video.title.trim().replace(/\s+/g, " ").toLowerCase();
-  const normalizedCaption = video.caption.trim().replace(/\s+/g, " ").toLowerCase();
+  const normalizedTitle =
+    (typeof video.title === "string" ? video.title : "")
+      .trim()
+      .replace(/\s+/g, " ")
+      .toLowerCase();
+  const normalizedCaption =
+    (typeof video.caption === "string" ? video.caption : "")
+      .trim()
+      .replace(/\s+/g, " ")
+      .toLowerCase();
   const showCaption = normalizedCaption.length > 0 && normalizedCaption !== normalizedTitle;
   const { following, toggleFollow } = useYw();
   const { user, requestAuthAction } = useAuth();
@@ -248,6 +257,7 @@ export function LongVideoCard({
   if (hidden) return null;
 
   const openVideo = () => {
+    if (typeof video.id !== "string" || !video.id.trim()) return;
     stopCandidate(previewId);
     if (
       typeof initialResumeTime === "number" &&
@@ -256,7 +266,10 @@ export function LongVideoCard({
     ) {
       requestVideoResume(video.id, initialResumeTime);
     }
-    window.location.href = `/video/${video.id}`;
+    void navigate({
+      to: "/video/$videoId",
+      params: { videoId: video.id },
+    });
   };
 
   return (

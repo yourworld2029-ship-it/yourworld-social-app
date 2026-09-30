@@ -14,3 +14,9 @@ The feed autoplay provider is a separate owner that can activate at most one fee
 **Why:** Feed autoplay must not compete with detail playback or create two audible streams.
 
 **How to apply:** Preserve the route-level disabled gate whenever changing either the shared player or feed autoplay lifecycle.
+
+Avoid tying HLS teardown to every player-effect cleanup. Metadata-only active-video updates can rerun an effect while the source is unchanged; destroy the old HLS instance when the source changes or the user retries, and reserve unmount cleanup for provider disposal.
+
+**Why:** Destroying HLS during an effect cleanup followed by a same-source early return leaves the persistent video element mounted but disconnected from its stream.
+
+**How to apply:** Keep source identity and retry identity explicit, and make same-source refreshes leave the attached media pipeline intact.

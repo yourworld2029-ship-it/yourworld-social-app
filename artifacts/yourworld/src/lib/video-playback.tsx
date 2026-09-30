@@ -9,6 +9,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type SyntheticEvent as ReactSyntheticEvent,
   type TouchEvent as ReactTouchEvent,
 } from "react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
@@ -18,6 +19,7 @@ import { StatusBar } from "@capacitor/status-bar";
 import type { VideoQualityTier } from "@/lib/video-quality";
 import { getAdjacentVideo } from "@/lib/video-queue";
 import { resolveMediaUrl } from "@/lib/social-data";
+import { VideoPlayerErrorBoundary } from "@/components/yw/VideoPlayerErrorBoundary";
 import {
   ArrowLeft,
   Check,
@@ -325,6 +327,8 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [activeVideo, setActiveVideo] = useState<PersistentVideo | null>(null);
+  const [mediaError, setMediaError] = useState<{ id: string; url: string } | null>(null);
+  const [playbackRetryKey, setPlaybackRetryKey] = useState(0);
   const [resolvedPoster, setResolvedPoster] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isVerticalVideo, setIsVerticalVideo] = useState(false);
@@ -354,7 +358,39 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const activeSourceRef = useRef<{ id: string; url: string } | null>(null);
+  const playbackAttemptRef = useRef(0);
   const hlsRef = useRef<Hls | null>(null);
+  const activeVideoId = activeVideo?.id;
+  const activeVideoUrl = activeVideo?.url;
+  const activeVideoInitialTime = activeVideo?.initialTime;
+
+  const reportMediaError = useCallback(
+    (source: { id: string; url: string }, attempt: number) => {
+      const activeSource = activeSourceRef.current;
+      if (
+        playbackAttemptRef.current !== attempt ||
+        activeSource?.id !== source.id ||
+        activeSource.url !== source.url
+      ) {
+        return;
+      }
+      setIsPlaying(false);
+      setMediaError({ id: source.id, url: source.url });
+      videoRef.current?.pause();
+    },
+    [],
+  );
+
+  const handleNativeMediaError = useCallback(
+    (event: ReactSyntheticEvent<HTMLVideoElement>) => {
+      const source = activeSourceRef.current;
+      if (!source) return;
+      const currentSource = event.currentTarget.currentSrc;
+      if (currentSource && currentSource !== source.url) return;
+      reportMediaError(source, playbackAttemptRef.current);
+    },
+    [reportMediaError],
+  );
 
   useEffect(() => {
     let alive = true;
@@ -525,6 +561,8 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const closeVideo = useCallback(() => {
+    playbackAttemptRef.current += 1;
+    setMediaError(null);
     const video = videoRef.current;
     hlsRef.current?.destroy();
     hlsRef.current = null;
@@ -551,6 +589,24 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     setHlsLevels([]);
     setActiveHlsHeight(null);
   }, []);
+
+  const retryPlayback = useCallback(() => {
+    if (!activeVideo) return;
+    playbackAttemptRef.current += 1;
+    setMediaError(null);
+    hlsRef.current?.destroy();
+    hlsRef.current = null;
+    activeSourceRef.current = null;
+    setPlaybackRetryKey((key) => key + 1);
+  }, [activeVideo]);
+
+  const goBackFromPlayerError = useCallback(() => {
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+    void navigate({ to: "/" });
+  }, [navigate]);
 
   const previousPathnameRef = useRef(location.pathname);
   useEffect(() => {
@@ -621,24 +677,31 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !activeVideo) return;
+    if (!video || !activeVideoId || !activeVideoUrl) return;
 
     const source = activeSourceRef.current;
-    if (source?.id === activeVideo.id && source.url === activeVideo.url) return;
+    if (source?.id === activeVideoId && source.url === activeVideoUrl) return;
 
-    const isSameVideo = source?.id === activeVideo.id;
+    const attempt = ++playbackAttemptRef.current;
+    setMediaError(null);
+    const isSameVideo = source?.id === activeVideoId;
     const previousTime = isSameVideo && Number.isFinite(video.currentTime) ? video.currentTime : 0;
-    const requestedStartTime = isSameVideo ? previousTime : activeVideo.initialTime ?? 0;
+    const requestedStartTime = isSameVideo ? previousTime : activeVideoInitialTime ?? 0;
     const shouldPlay = !isSameVideo || !video.paused;
     const restorePlayback = () => {
-      if (requestedStartTime > 0 && Number.isFinite(requestedStartTime)) {
-        const safeTime = Number.isFinite(video.duration) && video.duration > 0
-          ? Math.min(requestedStartTime, Math.max(0, video.duration - 0.1))
-          : requestedStartTime;
-        video.currentTime = safeTime;
-        setCurrentTime(safeTime);
-      } else if (!isSameVideo) {
-        video.currentTime = 0;
+      try {
+        if (requestedStartTime > 0 && Number.isFinite(requestedStartTime)) {
+          const safeTime = Number.isFinite(video.duration) && video.duration > 0
+            ? Math.min(requestedStartTime, Math.max(0, video.duration - 0.1))
+            : requestedStartTime;
+          video.currentTime = safeTime;
+          setCurrentTime(safeTime);
+        } else if (!isSameVideo) {
+          video.currentTime = 0;
+        }
+      } catch (cause) {
+        console.error("[video-playback] unable to restore video time", cause);
+        reportMediaError({ id: activeVideoId, url: activeVideoUrl }, attempt);
       }
       if (shouldPlay) void video.play().catch(() => {});
     };
@@ -654,32 +717,59 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     setLoopVideo(false);
     setHlsLevels([]);
     setActiveHlsHeight(null);
-    activeSourceRef.current = { id: activeVideo.id, url: activeVideo.url };
-    video.playbackRate = playbackRate;
-    if (isHlsUrl(activeVideo.url) && Hls.isSupported()) {
-      const hls = new Hls({ enableWorker: true });
-      hlsRef.current = hls;
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        setHlsLevels([...hls.levels]);
-        setActiveHlsHeight(hls.levels[hls.currentLevel]?.height ?? hls.levels[hls.levels.length - 1]?.height ?? null);
-      });
-      hls.on(Hls.Events.LEVEL_SWITCHED, (_event, data) => {
-        setActiveHlsHeight(hls.levels[data.level]?.height ?? null);
-      });
-      hls.loadSource(activeVideo.url);
-      hls.attachMedia(video);
-    } else {
-      video.src = activeVideo.url;
-      video.load();
+    activeSourceRef.current = { id: activeVideoId, url: activeVideoUrl };
+    try {
+      if (isHlsUrl(activeVideoUrl) && Hls.isSupported()) {
+        const hls = new Hls({ enableWorker: true });
+        hlsRef.current = hls;
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          setHlsLevels([...hls.levels]);
+          setActiveHlsHeight(
+            hls.levels[hls.currentLevel]?.height ??
+              hls.levels[hls.levels.length - 1]?.height ??
+              null,
+          );
+        });
+        hls.on(Hls.Events.LEVEL_SWITCHED, (_event, data) => {
+          setActiveHlsHeight(hls.levels[data.level]?.height ?? null);
+        });
+        hls.on(Hls.Events.ERROR, (_event, data) => {
+          if (!data.fatal) return;
+          if (hlsRef.current === hls) hlsRef.current = null;
+          hls.destroy();
+          reportMediaError({ id: activeVideoId, url: activeVideoUrl }, attempt);
+        });
+        hls.loadSource(activeVideoUrl);
+        hls.attachMedia(video);
+      } else {
+        video.src = activeVideoUrl;
+        video.load();
+      }
+    } catch (cause) {
+      console.error("[video-playback] unable to mount media source", cause);
+      reportMediaError({ id: activeVideoId, url: activeVideoUrl }, attempt);
     }
     video.addEventListener("loadedmetadata", restorePlayback, { once: true });
 
     return () => {
       video.removeEventListener("loadedmetadata", restorePlayback);
+    };
+  }, [
+    activeVideoId,
+    activeVideoInitialTime,
+    activeVideoUrl,
+    playbackRetryKey,
+    reportMediaError,
+  ]);
+
+  useEffect(
+    () => () => {
       hlsRef.current?.destroy();
       hlsRef.current = null;
-    };
-  }, [activeVideo, playbackRate]);
+      playbackAttemptRef.current += 1;
+    },
+    [],
+  );
 
   useEffect(() => {
     if (videoRef.current) {
@@ -1603,6 +1693,11 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                 : undefined
           }
         >
+          <VideoPlayerErrorBoundary
+            key={`${activeVideo.id}:${activeVideo.url}`}
+            onRetry={retryPlayback}
+            onBack={showDetailChrome ? goBackFromPlayerError : undefined}
+          >
           <div
             className={
               showDetailChrome
@@ -1636,6 +1731,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               playsInline
               preload="none"
               onLoadedMetadata={handleLoadedMetadata}
+              onError={handleNativeMediaError}
               onTimeUpdate={handleTimeUpdate}
               onSeeking={handleVideoSeeking}
               onSeeked={handleVideoSeeked}
@@ -1665,6 +1761,39 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                 touchAction: showDetailChrome ? (isFullscreen ? "none" : "auto") : undefined,
               }}
             />
+
+            {mediaError?.id === activeVideo.id && mediaError.url === activeVideo.url ? (
+              <div
+                className="absolute inset-0 z-[85] grid place-items-center bg-black/95 px-5 text-center text-white"
+                role="alert"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className="flex max-w-xs flex-col items-center gap-3">
+                  <p className="text-sm font-semibold">This video could not be played.</p>
+                  <p className="text-xs text-white/65">
+                    Check your connection, then try again.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={retryPlayback}
+                      className="rounded-full bg-pink-600 px-4 py-2 text-xs font-semibold text-white hover:bg-pink-700"
+                    >
+                      Retry video
+                    </button>
+                    {showDetailChrome ? (
+                      <button
+                        type="button"
+                        onClick={goBackFromPlayerError}
+                        className="rounded-full border border-white/20 px-4 py-2 text-xs font-semibold text-white hover:bg-white/10"
+                      >
+                        Back
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            ) : null}
 
             {pictureInPicture ? (
               <>
@@ -2067,6 +2196,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               {activeVideo.title || "Now playing"}
             </button>
           ) : null}
+          </VideoPlayerErrorBoundary>
           </div>
         ) : null}
       </div>
