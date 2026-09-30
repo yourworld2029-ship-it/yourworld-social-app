@@ -196,6 +196,8 @@ function SettingsPage() {
 
   const handleLogout = async () => {
     await queryClient.cancelQueries();
+    // This clears only in-memory server query state; offline files and their
+    // persistent registry live in IndexedDB/Capacitor storage, not this cache.
     queryClient.clear();
     await signOut();
     navigate({ to: "/auth", search: { redirect: undefined }, replace: true });

@@ -84,3 +84,17 @@ mtime_ms = 1790771227223
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/bedd233b-690a-44a3-a4c4-d98383104f35/a2b15f6d-d31b-46fb-a1fc-f38946745557"
 storage_version_token = "1790771339654842"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "8qdIYHBg8WAQ52p37N8sI"
+uri = "file://artifacts/yourworld/public/downloads/yourworld-20260930T161306Z-v3.apk"
+type = "unspecified"
+title = "YourWorld Android APK — v1.0.2"
+description = "Release APK, versionCode 3. Debug-signed with the same certificate as the previous v2 release so it can update in place. SHA-256: 1af149a01cbb0238c7beffdce635735b785db4e629b1ba188f34f9f1f71c58d8"
+logical_id = "0b7ccdec-5aa3-4577-8d5f-577016d525e8"
+content_hash = "sha256:1af149a01cbb0238c7beffdce635735b785db4e629b1ba188f34f9f1f71c58d8"
+size = 6265940
+mtime_ms = 1790784786104
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/0b7ccdec-5aa3-4577-8d5f-577016d525e8/77c0ead5-33e6-43af-97fa-6645ad2957c0"
+storage_version_token = "1790784851515722"
+content_type = "application/octet-stream"

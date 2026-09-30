@@ -33,6 +33,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { useAuth } from "@/lib/auth-store";
 import { EditProfileSheet, type ProfileEdit } from "@/components/yw/EditProfileSheet";
 import {
   useMyProfile,
@@ -86,6 +87,7 @@ import {
   type VideoQualityTier,
 } from "@/lib/video-quality";
 import { useVideoPlayback } from "@/lib/video-playback";
+import { supabase } from "@/integrations/supabase/client";
 import { PostEditDialog } from "@/components/yw/PostEditDialog";
 
 
@@ -131,6 +133,7 @@ export const Route = createFileRoute("/profile")({
 
 function ProfilePage() {
   const queryClient = useQueryClient();
+  const { user: authUser } = useAuth();
   const {
     profile,
     avatarSrc,
@@ -150,9 +153,11 @@ function ProfilePage() {
   const navigate = useNavigate();
   const { connections, tab } = Route.useSearch();
   const { activateVideo } = useVideoPlayback();
+  const downloadsOwnerId = authUser?.id ?? null;
   const [downloads, setDownloads] = useState<DownloadedVideo[]>([]);
   const [downloadsLoading, setDownloadsLoading] = useState(false);
   const [downloadsLoadedFor, setDownloadsLoadedFor] = useState<string | null>(null);
+  const [downloadsAuthRevision, setDownloadsAuthRevision] = useState(0);
   const downloadsRevisionRef = useRef(0);
   const [downloadTarget, setDownloadTarget] = useState<DbPost | null>(null);
   const [downloadOpen, setDownloadOpen] = useState(false);
@@ -199,16 +204,28 @@ function ProfilePage() {
   );
 
   useEffect(() => {
-    if (!userId) return;
+    const { data } = supabase.auth.onAuthStateChange((event) => {
+      if (event !== "SIGNED_IN" && event !== "SIGNED_OUT") return;
+      downloadsRevisionRef.current += 1;
+      setDownloads([]);
+      setDownloadsLoading(false);
+      setDownloadsLoadedFor(null);
+      setDownloadsAuthRevision((revision) => revision + 1);
+    });
+    return () => data.subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!downloadsOwnerId) return;
     let subscribed = true;
     const unsubscribe = subscribeDownloadedVideoLibrary((ownerId) => {
-      if (ownerId !== userId) return;
+      if (ownerId !== downloadsOwnerId) return;
       const revision = ++downloadsRevisionRef.current;
-      void listDownloadedVideos(userId)
+      void listDownloadedVideos(downloadsOwnerId)
         .then((records) => {
           if (!subscribed || revision !== downloadsRevisionRef.current) return;
           setDownloads(records);
-          setDownloadsLoadedFor(userId);
+          setDownloadsLoadedFor(downloadsOwnerId);
         })
         .catch((error) => {
           if (subscribed && revision === downloadsRevisionRef.current) {
@@ -220,26 +237,26 @@ function ProfilePage() {
       subscribed = false;
       unsubscribe();
     };
-  }, [userId]);
+  }, [downloadsOwnerId]);
 
   useEffect(() => {
     let cancelled = false;
-    if (!userId) {
+    if (!downloadsOwnerId) {
       downloadsRevisionRef.current += 1;
       setDownloads([]);
       setDownloadsLoading(false);
       setDownloadsLoadedFor(null);
       return;
     }
-    if (tab !== "downloads" || downloadsLoadedFor === userId) return;
+    if (tab !== "downloads" || downloadsLoadedFor === downloadsOwnerId) return;
     const revisionAtLoadStart = downloadsRevisionRef.current;
     setDownloadsLoading(true);
-    void migrateLegacyDownloadedVideos(userId)
-      .then(() => listDownloadedVideos(userId))
+    void migrateLegacyDownloadedVideos(downloadsOwnerId)
+      .then(() => listDownloadedVideos(downloadsOwnerId))
       .then((records) => {
         if (!cancelled && revisionAtLoadStart === downloadsRevisionRef.current) {
           setDownloads(records);
-          setDownloadsLoadedFor(userId);
+          setDownloadsLoadedFor(downloadsOwnerId);
         }
       })
       .catch((error) => {
@@ -254,7 +271,7 @@ function ProfilePage() {
     return () => {
       cancelled = true;
     };
-  }, [downloadsLoadedFor, tab, userId]);
+  }, [downloadsAuthRevision, downloadsLoadedFor, downloadsOwnerId, tab]);
 
   const openDownloadedVideo = async (record: DownloadedVideo) => {
     const url = await getDownloadedVideoUrl(record);

@@ -809,6 +809,7 @@ function AccountPage() {
       queryClient.clear();
       await signOut("local");
       try {
+        // This is explicit account deletion cleanup, not ordinary logout.
         localStorage.clear();
         sessionStorage.clear();
       } catch (storageError) {

@@ -155,6 +155,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setAuthPromptOpen(true);
       },
       signOut: async (scope = "global") => {
+        // Supabase removes its own session token. Do not clear app storage here:
+        // the offline-download library is stored independently of auth state.
         const { error } = await supabase.auth.signOut({ scope });
         if (error && scope !== "local") {
           // Account deletion invalidates the remote session before the browser
