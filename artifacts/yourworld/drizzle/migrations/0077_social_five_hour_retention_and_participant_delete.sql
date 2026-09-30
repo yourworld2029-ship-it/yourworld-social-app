@@ -29,14 +29,6 @@ update public.conversations
 set auto_delete_setting = '5_hours'
 where auto_delete_setting in ('3_hours', '6_hours');
 
-update public.conversations
-set auto_delete_seconds = case auto_delete_setting
-  when '5_hours' then 18000
-  when '24_hours' then 86400
-  else auto_delete_seconds
-end
-where auto_delete_setting in ('5_hours', '24_hours');
-
 update public.conversation_preferences
 set auto_delete_setting = '5_hours'
 where auto_delete_setting in ('3_hours', '6_hours');
@@ -219,3 +211,19 @@ $$;
 
 revoke all on function public.purge_expired_social_text_messages()
   from public, anon, authenticated;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from cron.job
+    where jobname = 'purge-expired-social-text-messages'
+  ) then
+    perform cron.schedule(
+      'purge-expired-social-text-messages',
+      '* * * * *',
+      'select public.purge_expired_social_text_messages();'
+    );
+  end if;
+end
+$$;

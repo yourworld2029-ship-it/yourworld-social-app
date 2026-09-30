@@ -9,6 +9,12 @@ Social Chat auto-delete is one setting on the shared conversation, with each new
 
 **How to apply:** Keep Social Chat values `off`, `after_view`, `5_hours`, and `24_hours`; normalize legacy `3_hours` and `6_hours` to `5_hours`, calculate timed expiry from `created_at` rather than a stale `expires_at` snapshot, exclude system messages, and do not change Orbit retention.
 
+The live Social schema may not expose the historical `conversations.auto_delete_seconds` column; retention is represented by `auto_delete_setting` and each message's mode and `created_at`.
+
+**Why:** A live migration failed when it tried to write the absent legacy column, while message creation time already provides the required five-hour expiry source.
+
+**How to apply:** Inspect live columns before referencing historical retention fields; do not make Social cleanup depend on a per-conversation seconds snapshot.
+
 Normal `after_view` messages, including text and non-View-Once media, remain available while the chat stays open. On chat exit or unmount, either participant can trigger hard deletion of read or viewed Vanish rows and local cache removal; reopening also filters consumed rows before rendering. Owned chat media is removed first, while validated shared Moment assets remain intact. Explicit View Once media keeps its separate five-second expiry after it is opened.
 
 **Why:** A timed five-second expiry makes Vanish Mode disappear while the recipient is still in the conversation and fails the chat-exit lifecycle.
