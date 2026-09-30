@@ -39,9 +39,6 @@ export default defineConfig({
     }),
     react(),
   ],
-  esbuild: {
-    pure: ["console.log"],
-  },
   define: {
     "import.meta.env.VITE_SUPABASE_URL": JSON.stringify(
       normalizeSupabaseProjectUrl(configuredSupabaseUrl),
@@ -55,7 +52,12 @@ export default defineConfig({
   build: {
     outDir: path.join(projectRoot, ".output", "capacitor-build"),
     emptyOutDir: true,
-    minify: "esbuild",
+    minify: "terser",
+    terserOptions: {
+      compress: {
+        pure_funcs: ["console.log"],
+      },
+    },
   },
   environments: {
     client: {

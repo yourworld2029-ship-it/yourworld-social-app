@@ -70,3 +70,17 @@ mtime_ms = 1790769173883
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/72316ebd-6c61-415b-88ac-6d0909c0f8d1/2087f0a8-e376-4e52-acbe-ec47664f4b23"
 storage_version_token = "1790769180502889"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "-IOvwEDVFpsxbR037h3AH"
+uri = "file://artifacts/yourworld/public/downloads/yourworld-20260930T122704Z-v2.apk"
+type = "unspecified"
+title = "YourWorld optimized Android APK"
+description = "Fresh optimized release build with Terser log stripping and Android hardware acceleration enabled. Signed with the workspace debug key for testing; use a production key for store distribution."
+logical_id = "bedd233b-690a-44a3-a4c4-d98383104f35"
+content_hash = "sha256:0e1a3d4ce62d95c8f10eaa18b4ba965486ad887581d948a23ecbdad476cd6979"
+size = 6221993
+mtime_ms = 1790771227223
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/bedd233b-690a-44a3-a4c4-d98383104f35/a2b15f6d-d31b-46fb-a1fc-f38946745557"
+storage_version_token = "1790771339654842"
+content_type = "application/octet-stream"
