@@ -240,6 +240,12 @@ html[data-theme="midnight"] {
     display: none !important;
   }
 
+  .video-player-native-controls::-webkit-media-controls-start-playback-button,
+  .video-player-native-controls::-webkit-media-controls-overlay-play-button {
+    display: none !important;
+    -webkit-appearance: none;
+  }
+
   .video-upload-preview::-webkit-media-controls-overlay-play-button {
     display: none !important;
   }

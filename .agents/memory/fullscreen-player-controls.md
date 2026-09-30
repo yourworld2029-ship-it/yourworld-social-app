@@ -21,8 +21,8 @@ On every fullscreen exit path, restore the saved page scroll after unlocking ori
 
 **How to apply:** Capture `scrollY` when entering, then restore it after fullscreen state and orientation have settled on button exit, external exit, or route exit. Do not pause the video as part of fullscreen teardown.
 
-On the video detail route, keep the 16:9 player in the page layout above a dedicated scrollable content area with a 24px top gap; attach basic tap handlers to the video element itself.
+On the video detail route, keep the 16:9 player in the page layout above a dedicated scrollable content area with a 24px top gap. Route basic taps and fullscreen gestures through a transparent accessible hit target above the video and below visible controls, rather than depending on native video hit-testing.
 
-**Why:** A fixed overlay and a separate spacer can drift out of alignment and cover the title as content scrolls.
+**Why:** A fixed overlay and a separate spacer can drift out of alignment and cover the title as content scrolls; on Android, the native video surface can also swallow touch and click events.
 
-**How to apply:** Use a viewport-height column on detail routes, keep the player as a sticky block, and scroll the content below it independently. Do not render the spacer while the detail player is active.
+**How to apply:** Use a viewport-height column on detail routes, keep the player as a sticky block, and scroll the content below it independently. Do not render the spacer while the detail player is active. Keep the hit target beneath custom controls and overlays, with `pointer-events: none` on decorative loading feedback.

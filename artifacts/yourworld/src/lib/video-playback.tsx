@@ -334,6 +334,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const [isVerticalVideo, setIsVerticalVideo] = useState(false);
   const [screenLocked, setScreenLocked] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isBuffering, setIsBuffering] = useState(true);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [controlsActivity, setControlsActivity] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
@@ -375,6 +376,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
         return;
       }
       setIsPlaying(false);
+      setIsBuffering(false);
       setMediaError({ id: source.id, url: source.url });
       videoRef.current?.pause();
     },
@@ -712,6 +714,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     setCurrentTime(isSameVideo ? previousTime : 0);
     setDuration(0);
     setIsVerticalVideo(false);
+    setIsBuffering(true);
     setControlsVisible(true);
     setQuality("auto");
     setLoopVideo(false);
@@ -781,13 +784,13 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     const video = videoRef.current;
     if (!video || !activeVideo) return;
     const hls = hlsRef.current;
-    if (hls && hlsLevels.length > 0) {
+    if (hls) {
       if (nextQuality === "auto") {
         hls.currentLevel = -1;
       } else {
-        const nextLevel = levelForQuality(hlsLevels, nextQuality);
-        if (nextLevel < 0) return;
-        hls.currentLevel = nextLevel;
+        const levels = hlsLevels.length > 0 ? hlsLevels : hls.levels;
+        const nextLevel = levelForQuality(levels, nextQuality);
+        if (nextLevel >= 0) hls.currentLevel = nextLevel;
       }
       setQuality(nextQuality);
       setSettingsMenu("closed");
@@ -797,7 +800,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
 
     const nextUrl = nextQuality === "auto" ? activeVideo.url : activeVideo.qualityUrls?.[nextQuality];
     if (!nextUrl || nextUrl === activeSourceRef.current?.url) {
-      if (nextQuality === "auto" || nextUrl === activeVideo.url) setQuality(nextQuality);
+      setQuality(nextQuality);
       setSettingsMenu("closed");
       markControlsActivity();
       return;
@@ -1018,11 +1021,13 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
 
   const handleVideoPlay = useCallback(() => {
     setIsPlaying(true);
+    setIsBuffering(false);
     setControlsVisible(true);
   }, []);
 
   const handleVideoPause = useCallback(() => {
     setIsPlaying(false);
+    setIsBuffering(false);
     setControlsVisible(true);
   }, []);
 
@@ -1050,13 +1055,17 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     settingsMenu,
   ]);
 
-  const qualityOptions = QUALITY_OPTIONS.map((option) => ({
-    ...option,
-    available:
-      option.id === "auto" ||
-      (hlsLevels.length > 0 && levelForQuality(hlsLevels, option.id as Exclude<QualityId, "auto">) >= 0) ||
-      Boolean(activeVideo?.qualityUrls?.[option.id as Exclude<QualityId, "auto">]),
-  }));
+  const qualityOptions = QUALITY_OPTIONS;
+
+  useEffect(() => {
+    if (quality === "auto" || hlsLevels.length === 0) return;
+    const hls = hlsRef.current;
+    if (!hls) return;
+    const nextLevel = levelForQuality(hlsLevels, quality);
+    if (nextLevel >= 0 && hls.currentLevel !== nextLevel) {
+      hls.currentLevel = nextLevel;
+    }
+  }, [hlsLevels, quality]);
 
   useEffect(() => {
     const attemptNativePictureInPicture = () => {
@@ -1258,7 +1267,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   );
 
   const handlePlayerSurfaceClick = useCallback(
-    (event: ReactMouseEvent<HTMLVideoElement>) => {
+    (event: ReactMouseEvent<HTMLButtonElement>) => {
       if (!isDetailPlayer) return;
       if (Date.now() < suppressSyntheticClickUntilRef.current) return;
       if (screenLocked) {
@@ -1266,7 +1275,10 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
         return;
       }
       const target = event.target;
-      if (target instanceof Element && target.closest("button, input, [role='menu']")) return;
+      if (
+        target instanceof Element &&
+        target.closest("button:not([data-player-surface]), input, [role='menu']")
+      ) return;
       if (settingsMenu !== "closed") {
         setSettingsMenu("closed");
         markControlsActivity();
@@ -1287,14 +1299,17 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   );
 
   const handleTouchStart = useCallback(
-    (event: ReactTouchEvent<HTMLVideoElement>) => {
+    (event: ReactTouchEvent<HTMLButtonElement>) => {
       if (!isDetailPlayer) return;
       if (swipeNavigationRef.current) {
         event.preventDefault();
         return;
       }
       const target = event.target;
-      if (target instanceof Element && target.closest("button, input, [role='menu']")) {
+      if (
+        target instanceof Element &&
+        target.closest("button:not([data-player-surface]), input, [role='menu']")
+      ) {
         touchGestureRef.current = null;
         return;
       }
@@ -1350,7 +1365,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   );
 
   const handleTouchMove = useCallback(
-    (event: ReactTouchEvent<HTMLVideoElement>) => {
+    (event: ReactTouchEvent<HTMLButtonElement>) => {
       if (!isDetailPlayer) return;
       if (isFullscreen && screenLocked) {
         event.preventDefault();
@@ -1447,10 +1462,13 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   );
 
   const handleTouchEnd = useCallback(
-    (event: ReactTouchEvent<HTMLVideoElement>) => {
+    (event: ReactTouchEvent<HTMLButtonElement>) => {
       if (!isDetailPlayer) return;
       const target = event.target;
-      if (target instanceof Element && target.closest("button, input, [role='menu']")) {
+      if (
+        target instanceof Element &&
+        target.closest("button:not([data-player-surface]), input, [role='menu']")
+      ) {
         touchGestureRef.current = null;
         return;
       }
@@ -1739,11 +1757,10 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               onVolumeChange={handleVolumeChange}
               onPlay={handleVideoPlay}
               onPause={handleVideoPause}
-              onClick={showDetailChrome ? handlePlayerSurfaceClick : undefined}
-              onTouchStart={showDetailChrome ? handleTouchStart : undefined}
-              onTouchMove={showDetailChrome ? handleTouchMove : undefined}
-              onTouchEnd={showDetailChrome ? handleTouchEnd : undefined}
-      onTouchCancel={showDetailChrome ? handleTouchCancel : undefined}
+              onLoadStart={() => setIsBuffering(true)}
+              onWaiting={() => setIsBuffering(true)}
+              onStalled={() => setIsBuffering(true)}
+              onCanPlay={() => setIsBuffering(false)}
               className={`video-player-native-controls h-full w-full ${
                 (showDetailChrome && isFullscreen) || displayMode === "fill"
                   ? "object-cover"
@@ -1761,6 +1778,69 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                 touchAction: showDetailChrome ? (isFullscreen ? "none" : "auto") : undefined,
               }}
             />
+
+            {showDetailChrome && !pictureInPicture ? (
+              <button
+                type="button"
+                data-player-surface
+                data-testid="video-playback-surface"
+                aria-label={
+                  screenLocked
+                    ? "Show unlock controls"
+                    : isPlaying
+                      ? "Pause video"
+                      : "Play video"
+                }
+                onClick={handlePlayerSurfaceClick}
+                onTouchStart={handleTouchStart}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
+                onTouchCancel={handleTouchCancel}
+                className="absolute inset-0 z-[30] block w-full cursor-pointer bg-transparent p-0 focus-visible:outline-none"
+                style={{ touchAction: isFullscreen ? "none" : "auto" }}
+              />
+            ) : null}
+
+            {showDetailChrome &&
+            isBuffering &&
+            !(mediaError?.id === activeVideo.id && mediaError.url === activeVideo.url) ? (
+              <div
+                className="pointer-events-none absolute inset-0 z-[35] grid place-items-center"
+                role="status"
+                aria-label="Buffering video"
+              >
+                <span
+                  aria-hidden="true"
+                  className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white/90 shadow-[0_1px_12px_rgba(0,0,0,0.35)]"
+                />
+              </div>
+            ) : null}
+
+            {showDetailChrome &&
+            !pictureInPicture &&
+            !screenLocked &&
+            !isPlaying &&
+            !isBuffering &&
+            !(mediaError?.id === activeVideo.id && mediaError.url === activeVideo.url) ? (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (settingsMenu !== "closed") {
+                    setSettingsMenu("closed");
+                    markControlsActivity();
+                    return;
+                  }
+                  togglePlayPause();
+                }}
+                onTouchStart={(event) => event.stopPropagation()}
+                onTouchEnd={(event) => event.stopPropagation()}
+                aria-label="Play video"
+                className="absolute left-1/2 top-1/2 z-[40] grid h-10 w-10 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-white/20 bg-black/35 text-white shadow-lg backdrop-blur-sm transition hover:bg-black/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+              >
+                <Play className="ml-0.5 h-5 w-5 fill-current" aria-hidden="true" />
+              </button>
+            ) : null}
 
             {mediaError?.id === activeVideo.id && mediaError.url === activeVideo.url ? (
               <div
@@ -2167,9 +2247,8 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                             key={option.id}
                             type="button"
                             role="menuitem"
-                            disabled={!option.available}
                             onClick={() => selectQuality(option.id)}
-                            className="flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-35"
+                            className="flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70"
                           >
                             <span>
                               {option.label}
