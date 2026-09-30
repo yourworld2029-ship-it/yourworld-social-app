@@ -1214,15 +1214,15 @@ html[data-theme="midnight"] {
 
 @keyframes yw-video-seek-arrow {
   0% {
-    opacity: 0.55;
-    transform: scale(0.82) rotate(-24deg);
+    opacity: 0;
+    transform: scale(0.82);
   }
-  58% {
-    opacity: 1;
-    transform: scale(1.08) rotate(10deg);
+  38% {
+    opacity: 0.95;
+    transform: scale(1.08);
   }
   100% {
-    opacity: 0.95;
+    opacity: 0;
     transform: scale(1) rotate(0deg);
   }
 }
@@ -1232,11 +1232,11 @@ html[data-theme="midnight"] {
 }
 
 @utility yw-video-seek-ripple {
-  animation: yw-video-seek-ripple 420ms ease-out 2 both;
+  animation: yw-video-seek-ripple 420ms ease-out 1 both;
 }
 
 @utility yw-video-seek-arrow {
-  animation: yw-video-seek-arrow 420ms ease-out both;
+  animation: yw-video-seek-arrow 500ms ease-out both;
 }
 
 @utility animate-float {

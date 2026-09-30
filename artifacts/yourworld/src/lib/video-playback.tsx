@@ -23,6 +23,8 @@ import { VideoPlayerErrorBoundary } from "@/components/yw/VideoPlayerErrorBounda
 import {
   ArrowLeft,
   Check,
+  ChevronsLeft,
+  ChevronsRight,
   Lock,
   Maximize,
   Minimize,
@@ -31,8 +33,6 @@ import {
   PictureInPicture,
   Play,
   Repeat,
-  RotateCcw,
-  RotateCw,
   Settings2,
   Sun,
   Volume2,
@@ -82,7 +82,7 @@ function levelForQuality(levels: Hls["levels"], quality: Exclude<QualityId, "aut
 
 type GestureFeedback = {
   id: number;
-  kind: "seek" | "volume" | "brightness" | "zoom" | "playback";
+  kind: "seek" | "volume" | "brightness" | "zoom";
   value: number;
   label: string;
 };
@@ -924,15 +924,12 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const togglePlayPause = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
-    if (isDetailPlayer && !screenLocked) {
-      showGestureFeedback("playback", 0, video.paused ? "play" : "pause");
-    }
     if (video.paused) {
       void video.play().catch(() => {});
     } else {
       video.pause();
     }
-  }, [isDetailPlayer, screenLocked, showGestureFeedback]);
+  }, []);
 
   const toggleMute = useCallback(() => {
     const video = videoRef.current;
@@ -1201,11 +1198,19 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       const nextTime = clamp(currentTime + seconds, 0, duration);
       video.currentTime = nextTime;
       setCurrentTime(nextTime);
-      showGestureFeedback("seek", seconds, `${seconds > 0 ? "+" : ""}${seconds}s`);
-      markControlsActivity();
+      showGestureFeedback("seek", seconds, "10s");
     },
-    [isDetailPlayer, isFullscreen, markControlsActivity, screenLocked, showGestureFeedback],
+    [isDetailPlayer, isFullscreen, screenLocked, showGestureFeedback],
   );
+
+  const togglePlayerControls = useCallback(() => {
+    clearControlsHideTimer();
+    if (controlsVisible) {
+      setControlsVisible(false);
+      return;
+    }
+    markControlsActivity();
+  }, [clearControlsHideTimer, controlsVisible, markControlsActivity]);
 
   const settlePlayerSwipe = useCallback(() => {
     const container = containerRef.current;
@@ -1229,14 +1234,14 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       const previousTap = lastTapRef.current;
       if (previousTap && now - previousTap.time < 320 && previousTap.side === side) {
         lastTapRef.current = null;
-        seekBy(side === "right" ? 20 : -20);
+        seekBy(side === "right" ? 10 : -10);
         return;
       }
 
       lastTapRef.current = { time: now, side };
-      togglePlayPause();
+      togglePlayerControls();
     },
-    [seekBy, togglePlayPause],
+    [seekBy, togglePlayerControls],
   );
 
   const handlePlayerSurfaceClick = useCallback(
@@ -1260,7 +1265,14 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
         return;
       }
       const rect = event.currentTarget.getBoundingClientRect();
-      const side: TapSide = event.clientX - rect.left >= rect.width / 2 ? "right" : "left";
+      const normalizedX = clamp((event.clientX - rect.left) / Math.max(rect.width, 1), 0, 1);
+      const side: TapSide | null =
+        normalizedX <= 0.4 ? "left" : normalizedX >= 0.6 ? "right" : null;
+      if (!side) {
+        lastTapRef.current = null;
+        togglePlayerControls();
+        return;
+      }
       registerPlayerTap(side);
     },
     [
@@ -1270,6 +1282,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       revealLockedUnlock,
       screenLocked,
       settingsMenu,
+      togglePlayerControls,
     ],
   );
 
@@ -1685,7 +1698,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                     : {}),
                 }
               : showDetailChrome
-                ? { touchAction: isFullscreen ? "none" : "auto" }
+                ? { touchAction: isFullscreen ? "none" : "manipulation" }
                 : undefined
           }
         >
@@ -1734,7 +1747,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                 ? { width: "100vw", height: "100vh" }
                 : {}),
               ...(showDetailChrome
-                ? { touchAction: isFullscreen ? "none" : "auto" }
+                ? { touchAction: isFullscreen ? "none" : "manipulation" }
                 : {}),
             }}
           >
@@ -1774,7 +1787,11 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                     : "contain",
                 filter: `brightness(${brightness})`,
                 transition: gestureFeedback?.kind === "zoom" ? "none" : "transform 160ms ease-out",
-                touchAction: showDetailChrome ? (isFullscreen ? "none" : "auto") : undefined,
+                touchAction: showDetailChrome
+                  ? isFullscreen
+                    ? "none"
+                    : "manipulation"
+                  : undefined,
               }}
             />
 
@@ -1783,13 +1800,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                 type="button"
                 data-player-surface
                 data-testid="video-playback-surface"
-                aria-label={
-                  screenLocked
-                    ? "Show unlock controls"
-                    : isPlaying
-                      ? "Pause video"
-                      : "Play video"
-                }
+                aria-label={controlsVisible ? "Hide player controls" : "Show player controls"}
                 className="absolute inset-0 z-[30] block w-full cursor-pointer bg-transparent p-0 focus-visible:outline-none"
               />
             ) : null}
@@ -1841,6 +1852,26 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               </div>
             ) : null}
 
+            {showDetailChrome && controlsVisible && !screenLocked ? (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  togglePlayPause();
+                  markControlsActivity();
+                }}
+                onPointerDown={(event) => event.stopPropagation()}
+                className="absolute left-1/2 top-1/2 z-[60] grid h-14 w-14 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-white/25 bg-black/55 text-white shadow-xl backdrop-blur-sm transition hover:scale-105 hover:bg-black/75 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
+                aria-label={isPlaying ? "Pause video" : "Play video"}
+              >
+                {isPlaying ? (
+                  <Pause className="h-6 w-6 fill-current" />
+                ) : (
+                  <Play className="ml-0.5 h-6 w-6 fill-current" />
+                )}
+              </button>
+            ) : null}
+
             {pictureInPicture ? (
               <>
                 <button
@@ -1888,26 +1919,26 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                     controlsVisible ? "pointer-events-auto" : "pointer-events-none"
                   }`}
                 >
-                  <div className="flex items-center justify-between gap-3 text-white">
+                  <div className="flex items-center justify-between gap-2.5 text-white">
                     <span className="text-xs font-medium tabular-nums">
                       {formatTime(currentTime)} / {formatTime(duration)}
                     </span>
-                    <div className="flex items-center gap-1">
+                    <div className="flex shrink-0 items-center gap-0.5">
                       <button
                         type="button"
                         onClick={toggleMute}
-                        className="relative top-1 rounded-full p-2 transition hover:bg-white/15"
+                        className="grid h-8 w-8 place-items-center rounded-full transition hover:bg-white/15"
                         aria-label={isMuted ? "Unmute video" : "Mute video"}
                       >
-                        {isMuted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
+                        {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
                       </button>
                       <button
                         type="button"
                         onClick={toggleFullscreen}
-                        className="relative top-1 rounded-full p-2 transition hover:bg-white/15"
+                        className="grid h-8 w-8 place-items-center rounded-full transition hover:bg-white/15"
                         aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
                       >
-                        {isFullscreen ? <Minimize className="h-5 w-5" /> : <Maximize className="h-5 w-5" />}
+                        {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
                       </button>
                     </div>
                   </div>
@@ -1919,25 +1950,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                     value={Math.min(currentTime, duration || 0)}
                     onChange={handleSeek}
                     aria-label="Seek video"
-                    className="mt-2 h-1 w-full cursor-pointer accent-white"
+                    className="mt-1.5 h-1 w-full cursor-pointer accent-white"
                   />
                 </div>
-              </div>
-            ) : null}
-
-            {showDetailChrome && !screenLocked && gestureFeedback?.kind === "playback" ? (
-              <div className="pointer-events-none absolute inset-0 z-50 grid place-items-center">
-                <span
-                  key={gestureFeedback.id}
-                  aria-hidden="true"
-                  className="yw-video-playback-feedback grid h-14 w-14 place-items-center rounded-full border border-white/15 bg-black/45 text-white/90 shadow-lg backdrop-blur-sm"
-                >
-                  {gestureFeedback.label === "play" ? (
-                    <Play className="ml-0.5 h-6 w-6 fill-current" />
-                  ) : (
-                    <Pause className="h-6 w-6 fill-current" />
-                  )}
-                </span>
               </div>
             ) : null}
 
@@ -1945,37 +1960,36 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               <div className="pointer-events-none absolute inset-0 z-50">
                 <div
                   key={gestureFeedback.id}
-                  className={`absolute inset-y-0 flex w-1/2 items-center justify-center ${
+                  className={`absolute inset-y-0 flex w-2/5 items-center justify-center ${
                     gestureFeedback.value > 0 ? "right-0" : "left-0"
                   }`}
                   role="status"
                   aria-live="polite"
                 >
-                  <span className="relative grid h-24 w-24 place-items-center">
+                  <span className="relative grid h-20 w-20 place-items-center">
                     <span
                       aria-hidden="true"
-                      className="yw-video-seek-ripple absolute inset-0 rounded-full border border-white/45"
+                      className="yw-video-seek-ripple absolute inset-0 rounded-full border border-white/30"
                     />
                     <span
                       aria-hidden="true"
-                      className="yw-video-seek-ripple absolute inset-2 rounded-full border border-white/30"
-                      style={{ animationDelay: "100ms" }}
+                      className="yw-video-seek-ripple absolute inset-2 rounded-full border border-white/20"
+                      style={{ animationDelay: "80ms" }}
                     />
-                    <span className="relative flex flex-col items-center gap-1 rounded-full border border-white/10 bg-black/60 px-4 py-3 text-white shadow-xl backdrop-blur-md">
-                      {gestureFeedback.value > 0 ? (
-                        <RotateCw
-                          aria-hidden="true"
-                          className="yw-video-seek-arrow h-6 w-6"
-                        />
-                      ) : (
-                        <RotateCcw
-                          aria-hidden="true"
-                          className="yw-video-seek-arrow h-6 w-6"
-                        />
-                      )}
-                      <span className="text-sm font-bold tabular-nums">
-                        {gestureFeedback.label}
-                      </span>
+                    {gestureFeedback.value > 0 ? (
+                      <ChevronsRight
+                        aria-hidden="true"
+                        className="yw-video-seek-arrow relative h-7 w-7 text-white/90 drop-shadow"
+                      />
+                    ) : (
+                      <ChevronsLeft
+                        aria-hidden="true"
+                        className="yw-video-seek-arrow relative h-7 w-7 text-white/90 drop-shadow"
+                      />
+                    )}
+                    <span className="sr-only">
+                      Skipped {Math.abs(gestureFeedback.value)} seconds{" "}
+                      {gestureFeedback.value > 0 ? "forward" : "backward"}
                     </span>
                   </span>
                 </div>

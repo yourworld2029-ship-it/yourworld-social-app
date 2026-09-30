@@ -31,7 +31,7 @@ This Replit shell may leave `ANDROID_HOME` unset even when Nix store packages al
 
 **Why:** Gradle needs one coherent SDK directory and Java 21; the default shell may expose neither even when the SDK components are present.
 
-**How to apply:** Before downloading tools, check for the required platform, build-tools, and platform-tools packages in the Nix store. If present, assemble a temporary SDK root with symlinks to their standard subdirectories and run Gradle with `ANDROID_HOME`, `ANDROID_SDK_ROOT`, and a JDK 21 `JAVA_HOME`. If components are absent, install Google's official command-line tools and SDK packages; get explicit user consent before accepting SDK licenses.
+**How to apply:** Before downloading tools, check for the required platform, build-tools, and platform-tools packages in the Nix store. Their payloads may be under each package's `libexec/android-sdk`; link the package's SDK-relative `platforms`, `build-tools`, and `platform-tools` entries into one SDK root. Make `android/local.properties` and `ANDROID_HOME`/`ANDROID_SDK_ROOT` resolve to that same root, then run Gradle with JDK 21. If components are absent, install Google's official command-line tools and SDK packages; get explicit user consent before accepting SDK licenses.
 
 With this Android Gradle setup, `assembleDebug` requested Build Tools 35.0.0 even though the project compiles and targets SDK 36. When composing an SDK root from Nix packages, the `platform-tools` package directory must be linked directly at `$ANDROID_HOME/platform-tools`; placing that link inside a pre-created directory makes package discovery treat it as nested.
 
