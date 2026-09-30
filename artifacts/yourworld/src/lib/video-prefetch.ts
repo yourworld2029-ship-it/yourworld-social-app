@@ -1,8 +1,7 @@
-// A 2 MiB prefix usually covers the first few seconds of a compressed feed
-// video, while remaining bounded for slower connections and smaller devices.
-const PREFETCH_BYTES = 2 * 1024 * 1024;
-const MAX_CONCURRENT_PREFETCHES = 2;
-const MAX_QUEUED_PREFETCHES = 16;
+// Range ends are inclusive: this is exactly one MiB.
+const PREFETCH_BYTES = 1 * 1024 * 1024;
+const MAX_CONCURRENT_PREFETCHES = 1;
+const MAX_QUEUED_PREFETCHES = 1;
 const MAX_SEEN_PREFETCHES = 64;
 const MAX_POSTER_CACHE_ENTRIES = 24;
 const VIDEO_PREFIX_CACHE = "yourworld-video-prefixes-v1";
@@ -15,7 +14,7 @@ type PrefetchJob = {
   controller: AbortController;
 };
 
-const active = new Map<string, Promise<void>>();
+const active = new Map<string, PrefetchJob>();
 const queued: PrefetchJob[] = [];
 const posters = new Map<string, string>();
 const seenPrefetches = new Set<string>();
@@ -120,17 +119,51 @@ function pump() {
   while (activeCount < MAX_CONCURRENT_PREFETCHES && queued.length) {
     const job = queued.shift();
     if (!job) break;
+    if (job.controller.signal.aborted) {
+      if (active.get(job.key) === job) active.delete(job.key);
+      seenPrefetches.delete(job.key);
+      continue;
+    }
     activeCount += 1;
     void fetchPrefetch(job).finally(() => {
       activeCount -= 1;
-      active.delete(job.key);
+      if (active.get(job.key) === job) active.delete(job.key);
       pump();
     });
   }
 }
 
+export async function canPrefetchVideo() {
+  if (typeof window === "undefined" || typeof navigator === "undefined") return false;
+
+  const browserNavigator = navigator as Navigator & {
+    connection?: { effectiveType?: string; saveData?: boolean };
+    getBattery?: () => Promise<{ charging: boolean; level: number }>;
+  };
+  const connection = browserNavigator.connection;
+  if (
+    connection?.saveData ||
+    connection?.effectiveType === "slow-2g" ||
+    connection?.effectiveType === "2g" ||
+    connection?.effectiveType === "3g"
+  ) {
+    return false;
+  }
+
+  // Battery support is inconsistent in embedded browsers. When the charge
+  // state cannot be established, skip opportunistic work rather than guessing.
+  if (typeof browserNavigator.getBattery !== "function") return false;
+  try {
+    const battery = await browserNavigator.getBattery();
+    return battery.charging || (Number.isFinite(battery.level) && battery.level >= 0.2);
+  } catch {
+    return false;
+  }
+}
+
 async function fetchPrefetch({ url, controller }: PrefetchJob) {
   try {
+    if (controller.signal.aborted || !(await canPrefetchVideo())) return;
     const response = await fetch(url, {
       headers: { Range: `bytes=0-${PREFETCH_BYTES - 1}` },
       signal: controller.signal,
@@ -207,27 +240,15 @@ async function fetchPrefetch({ url, controller }: PrefetchJob) {
 }
 
 /** Starts one bounded, deduplicated prefetch for a media URL. */
-export function prefetchVideo(url: string) {
+export async function prefetchVideo(url: string) {
   if (typeof window === "undefined" || !url) return;
-  const connection = (
-    navigator as Navigator & {
-      connection?: { effectiveType?: string; saveData?: boolean };
-    }
-  ).connection;
-  if (
-    connection?.saveData ||
-    connection?.effectiveType === "slow-2g" ||
-    connection?.effectiveType === "2g"
-  ) {
-    return;
-  }
   const key = url ? mediaCacheKey(url) : "";
   if (
     !/^https?:\/\//i.test(url) ||
     /\.m3u8(?:$|[?#])/i.test(url) ||
     active.has(key) ||
     seenPrefetches.has(key) ||
-    queued.length >= MAX_QUEUED_PREFETCHES
+    active.size >= MAX_CONCURRENT_PREFETCHES + MAX_QUEUED_PREFETCHES
   ) {
     return;
   }
@@ -238,11 +259,33 @@ export function prefetchVideo(url: string) {
     seenPrefetches.delete(oldest);
   }
   const controller = new AbortController();
-  const promise = Promise.resolve().then(() => {
-    queued.push({ key, url, controller });
-    pump();
-  });
-  active.set(key, promise);
+  const job = { key, url, controller };
+  active.set(key, job);
+  if (!(await canPrefetchVideo()) || controller.signal.aborted || active.get(key) !== job) {
+    if (active.get(key) === job) active.delete(key);
+    seenPrefetches.delete(key);
+    return;
+  }
+  if (queued.length >= MAX_QUEUED_PREFETCHES) {
+    active.delete(key);
+    seenPrefetches.delete(key);
+    return;
+  }
+  queued.push(job);
+  pump();
+}
+
+export function cancelPendingVideoPrefetches() {
+  for (const job of queued.splice(0)) {
+    job.controller.abort();
+    if (active.get(job.key) === job) active.delete(job.key);
+    seenPrefetches.delete(job.key);
+  }
+  for (const [key, job] of active) {
+    job.controller.abort();
+    active.delete(key);
+    seenPrefetches.delete(key);
+  }
 }
 
 /** Returns a small poster generated during an earlier visit, if available. */

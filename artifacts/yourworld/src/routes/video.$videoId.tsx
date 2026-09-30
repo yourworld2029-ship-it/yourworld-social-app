@@ -1,8 +1,10 @@
 import {
+  Component,
   useCallback,
   useEffect,
   useRef,
   useState,
+  type ErrorInfo,
   type ReactNode,
 } from "react";
 import { createFileRoute, useNavigate, useParams } from "@tanstack/react-router";
@@ -161,6 +163,26 @@ function VideoErrorFallback() {
   );
 }
 
+class VideoDetailErrorBoundary extends Component<
+  { children: ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("Video detail failed to render:", error, info.componentStack);
+  }
+
+  render() {
+    if (this.state.hasError) return <VideoErrorFallback />;
+    return this.props.children;
+  }
+}
+
 function formatUnlockPrice(value: number) {
   if (!Number.isFinite(value)) return "0";
   return Number.isInteger(value)
@@ -265,7 +287,11 @@ function VideoWatchPage() {
     return <VideoErrorFallback />;
   }
 
-  return <VideoWatchContent videoId={cleanId} />;
+  return (
+    <VideoDetailErrorBoundary key={cleanId}>
+      <VideoWatchContent videoId={cleanId} />
+    </VideoDetailErrorBoundary>
+  );
 }
 
 function VideoWatchContent({ videoId }: { videoId: string }) {
@@ -466,9 +492,14 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     },
     enabled: Boolean(creatorId),
   });
+  const safeSubscriberCount = Number.isFinite(subscriberCount)
+    ? Math.max(0, subscriberCount)
+    : 0;
 
   const realComments = usePostComments(videoId);
-  const comments = realComments.comments;
+  const comments = Array.isArray(realComments?.comments)
+    ? realComments.comments.filter((comment) => Boolean(comment && typeof comment === "object"))
+    : [];
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [replyText, setReplyText] = useState("");
   const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
@@ -485,10 +516,12 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
 
   const repliesByParent = new Map<string, typeof comments>();
   comments.forEach((comment) => {
-    if (!comment.parentCommentId) return;
-    const replies = repliesByParent.get(comment.parentCommentId) ?? [];
+    const parentId =
+      typeof comment.parentCommentId === "string" ? comment.parentCommentId : "";
+    if (!parentId) return;
+    const replies = repliesByParent.get(parentId) ?? [];
     replies.push(comment);
-    repliesByParent.set(comment.parentCommentId, replies);
+    repliesByParent.set(parentId, replies);
   });
   const previewComment = comments.find((comment) => !comment.parentCommentId) ?? comments[0];
 
@@ -556,7 +589,10 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     },
     getNextPageParam: (lastPage) => lastPage.nextOffset ?? undefined,
   });
-  const relatedVideos = relatedPages?.pages.flatMap((page) => page.videos) ?? [];
+  const relatedVideos = Array.isArray(relatedPages?.pages)
+    ? relatedPages.pages.flatMap((page) => Array.isArray(page?.videos) ? page.videos : [])
+      .filter((relatedVideo) => Boolean(relatedVideo && typeof relatedVideo === "object"))
+    : [];
   const relatedSentinelRef = useRef<HTMLDivElement>(null);
   const seriesTitle = video?.series_title?.trim() ?? "";
   const { data: seriesCandidates = [] } = useQuery<RecommendedVideo[]>({
@@ -789,7 +825,9 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     setLikeCount(Number(initialCount));
   }, [video?.id, video?.like_count, video?.likes, video?.likes_count]);
 
-  const mediaUrl = video?.media_url || video?.video_url || video?.url || "";
+  const mediaUrl = [video?.media_url, video?.video_url, video?.url].find(
+    (source): source is string => typeof source === "string" && Boolean(source.trim()),
+  )?.trim() ?? "";
   useEffect(() => {
     let cancelled = false;
     setResolvedMediaUrl("");
@@ -1279,7 +1317,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
                  <span className="truncate">{creatorName}</span>
                </p>
               <p className="truncate text-xs text-gray-400">
-                  {subscriberCount.toLocaleString()} followers
+                  {safeSubscriberCount.toLocaleString()} followers
               </p>
             </div>
           </div>

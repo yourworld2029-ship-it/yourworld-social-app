@@ -265,11 +265,11 @@ function HomePage() {
     }
 
     regularVideos.forEach((video, index) => {
-      const prefetchNextVideos = regularVideos
-        .slice(index + 1)
-        .filter((nextVideo) => nextVideo.access === "public")
-        .slice(0, 2)
-        .map(({ mediaUrl, access }) => ({ mediaUrl, access }));
+      const immediateNextVideo = regularVideos[index + 1];
+      const prefetchNextVideos =
+        immediateNextVideo?.access === "public"
+          ? [{ mediaUrl: immediateNextVideo.mediaUrl, access: immediateNextVideo.access }]
+          : [];
       items.push({
         kind: "standard",
         key: `post-${video.id}`,

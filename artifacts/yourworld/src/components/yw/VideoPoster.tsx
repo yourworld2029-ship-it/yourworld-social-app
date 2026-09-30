@@ -12,6 +12,7 @@ type Props = {
   loading?: "lazy" | "eager";
   bucket?: "reels" | "videos";
   posterOnly?: boolean;
+  allowFrameFallback?: boolean;
   showPlayFallback?: boolean;
   onPosterResolved?: (url: string) => void;
 };
@@ -38,6 +39,7 @@ export function VideoPoster({
   loading = "lazy",
   bucket = "videos",
   posterOnly = false,
+  allowFrameFallback = true,
   showPlayFallback = true,
   onPosterResolved,
 }: Props) {
@@ -50,7 +52,8 @@ export function VideoPoster({
   const [shouldLoadFrame, setShouldLoadFrame] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hasThumbnail = Boolean(resolvedThumbnail) && !thumbnailFailed;
-  const needsFrame = !hasThumbnail && (!thumbnailUrl || thumbnailFailed);
+  const needsFrame =
+    allowFrameFallback && !hasThumbnail && (!thumbnailUrl || thumbnailFailed);
 
   useEffect(() => {
     setResolvedThumbnail(null);

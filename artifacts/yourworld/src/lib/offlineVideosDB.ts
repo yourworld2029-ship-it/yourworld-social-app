@@ -20,6 +20,9 @@ export type OfflineVideo = {
   createdAt?: string | null;
   durationSeconds?: number | null;
   posterUrl?: string | null;
+  /** App-private Capacitor paths used by the Android offline library. */
+  localFilePath?: string;
+  thumbnailPath?: string | null;
 };
 
 let databasePromise: Promise<IDBDatabase> | null = null;

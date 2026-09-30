@@ -2,6 +2,10 @@
  * it must be installable before the application bundle has loaded. */
 const VIDEO_PREFIX_CACHE = "yourworld-video-prefixes-v1";
 const PREFIX_TTL_MS = 10 * 60 * 1000;
+const VIDEO_RANGE_CACHE = "yourworld-video-ranges-v1";
+const MAX_CACHED_RANGE_BYTES = 2 * 1024 * 1024;
+const MAX_CACHED_RANGE_ENTRIES = 128;
+const inFlightRanges = new Map();
 
 self.addEventListener("install", (event) => {
   event.waitUntil(self.skipWaiting());
@@ -24,11 +28,103 @@ async function videoPrefixKey(url) {
   return `${self.location.origin}/__yourworld-video-prefix/${hash}`;
 }
 
+async function videoRangeKey(request) {
+  const value = `${request.url}\n${request.headers.get("range") || ""}`;
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  );
+  const hash = Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+  return `${self.location.origin}/__yourworld-video-range/${hash}`;
+}
+
+function isPublicSupabaseVideo(url) {
+  try {
+    return new URL(url).pathname.includes("/storage/v1/object/public/");
+  } catch {
+    return false;
+  }
+}
+
+async function fetchAndCachePublicRange(request) {
+  if (!isPublicSupabaseVideo(request.url) || typeof crypto === "undefined" || !crypto.subtle) {
+    return fetch(request);
+  }
+
+  let key;
+  let cache;
+  try {
+    key = await videoRangeKey(request);
+    cache = await caches.open(VIDEO_RANGE_CACHE);
+    const cached = await cache.match(key);
+    if (cached) return cached;
+  } catch {
+    return fetch(request);
+  }
+
+  const existing = inFlightRanges.get(key);
+  if (existing) return (await existing).clone();
+
+  const pending = (async () => {
+    const response = await fetch(request);
+    if (response.status !== 206 || /no-store/i.test(response.headers.get("cache-control") || "")) {
+      return response;
+    }
+
+    const requested = (request.headers.get("range") || "").match(/^bytes=(\d+)-(\d*)$/i);
+    const actual = response.headers.get("content-range")?.match(/^bytes\s+(\d+)-(\d+)\/(\d+)$/i);
+    const contentLength = Number(response.headers.get("content-length"));
+    if (!requested || !actual || !Number.isSafeInteger(contentLength)) return response;
+
+    const requestedStart = Number(requested[1]);
+    const requestedEnd = requested[2] ? Number(requested[2]) : Number.MAX_SAFE_INTEGER;
+    const actualStart = Number(actual[1]);
+    const actualEnd = Number(actual[2]);
+    const total = Number(actual[3]);
+    if (
+      actualStart !== requestedStart ||
+      !Number.isSafeInteger(requestedStart) ||
+      !Number.isSafeInteger(requestedEnd) ||
+      !Number.isSafeInteger(actualStart) ||
+      !Number.isSafeInteger(actualEnd) ||
+      !Number.isSafeInteger(total) ||
+      actualEnd < actualStart ||
+      actualEnd > requestedEnd ||
+      total <= actualEnd ||
+      contentLength !== actualEnd - actualStart + 1 ||
+      contentLength > MAX_CACHED_RANGE_BYTES
+    ) {
+      return response;
+    }
+
+    try {
+      await cache.put(key, response.clone());
+      const keys = await cache.keys();
+      const overflow = Math.max(0, keys.length - MAX_CACHED_RANGE_ENTRIES);
+      for (const oldest of keys.slice(0, overflow)) {
+        await cache.delete(oldest);
+      }
+    } catch {
+      // Cache quota errors must not affect the active playback response.
+    }
+    return response;
+  })();
+
+  inFlightRanges.set(key, pending);
+  try {
+    return (await pending).clone();
+  } finally {
+    if (inFlightRanges.get(key) === pending) inFlightRanges.delete(key);
+  }
+}
+
 async function serveVideoPrefix(request) {
   try {
     const rangeHeader = request.headers.get("range") || "";
     const match = rangeHeader.match(/^bytes=(\d+)-(\d*)$/i);
-    if (!match) return fetch(request);
+    if (!match) return fetchAndCachePublicRange(request);
 
     const start = Number(match[1]);
     const requestedEnd = match[2] ? Number(match[2]) : Number.MAX_SAFE_INTEGER;
@@ -37,7 +133,7 @@ async function serveVideoPrefix(request) {
       !Number.isSafeInteger(requestedEnd) ||
       requestedEnd < start
     ) {
-      return fetch(request);
+      return fetchAndCachePublicRange(request);
     }
 
     const cache = await caches.open(VIDEO_PREFIX_CACHE);
@@ -46,14 +142,14 @@ async function serveVideoPrefix(request) {
     const expires = Number(cached?.headers.get("X-YW-Prefix-Expires") || 0);
     if (!cached || !Number.isSafeInteger(expires) || expires <= Date.now()) {
       if (cached) await cache.delete(key);
-      return fetch(request);
+      return fetchAndCachePublicRange(request);
     }
 
     const prefix = await cached.blob();
-    if (start >= prefix.size) return fetch(request);
+    if (start >= prefix.size) return fetchAndCachePublicRange(request);
     const end = Math.min(requestedEnd, prefix.size - 1);
     const total = Number(cached.headers.get("X-YW-Prefix-Total") || 0);
-    if (!Number.isSafeInteger(total) || total <= end) return fetch(request);
+    if (!Number.isSafeInteger(total) || total <= end) return fetchAndCachePublicRange(request);
 
     return new Response(
       prefix.slice(start, end + 1, cached.headers.get("Content-Type") || "video/mp4"),
@@ -70,7 +166,7 @@ async function serveVideoPrefix(request) {
     );
   } catch {
     // Cache failures must never interrupt the direct Storage/CDN playback path.
-    return fetch(request);
+    return fetchAndCachePublicRange(request);
   }
 }
 

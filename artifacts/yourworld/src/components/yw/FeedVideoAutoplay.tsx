@@ -12,7 +12,12 @@ import { Volume2, VolumeX } from "lucide-react";
 import Hls from "hls.js";
 import type { LongVideo } from "@/lib/video-data";
 import { resolveMediaUrl } from "@/lib/social-data";
-import { cacheVideoPoster, prefetchVideo } from "@/lib/video-prefetch";
+import {
+  cacheVideoPoster,
+  canPrefetchVideo,
+  cancelPendingVideoPrefetches,
+  prefetchVideo,
+} from "@/lib/video-prefetch";
 import { cn } from "@/lib/utils";
 import {
   VIDEO_POSTER_FALLBACK,
@@ -21,7 +26,6 @@ import {
 
 const FEED_MUTE_STORAGE_KEY = "yourworld.feed-video-muted";
 const NORMAL_VISIBILITY_RATIO = 0.7;
-const WARM_VISIBILITY_RATIO = 0.25;
 const TRAY_VISIBILITY_RATIO = 0.99;
 
 type FeedCandidate = {
@@ -88,6 +92,10 @@ function isHlsUrl(url: string) {
   return /\.m3u8(?:$|[?#])/i.test(url);
 }
 
+function isPageVisible() {
+  return typeof document === "undefined" || document.visibilityState !== "hidden";
+}
+
 function resolveCandidateUrl(candidate: FeedCandidate) {
   if (candidate.resolvedUrl) return Promise.resolve(candidate.resolvedUrl);
   if (!candidate.resolvePromise) {
@@ -126,6 +134,7 @@ export function FeedVideoAutoplayProvider({
   disabledRef.current = disabled;
 
   const releaseActiveVideo = useCallback((candidate: FeedCandidate | null) => {
+    cancelPendingVideoPrefetches();
     hlsRef.current?.destroy();
     hlsRef.current = null;
     releaseVideo(candidate);
@@ -151,7 +160,7 @@ export function FeedVideoAutoplayProvider({
       if (
         !candidate ||
         disabledRef.current ||
-        document.visibilityState === "hidden" ||
+          !isPageVisible() ||
         suppressedCandidateRef.current === candidate.candidateId
       ) {
         return;
@@ -183,26 +192,32 @@ export function FeedVideoAutoplayProvider({
         if (
           activeCandidateRef.current !== candidate ||
           disabledRef.current ||
-          document.visibilityState === "hidden"
+          !isPageVisible()
         ) {
           return;
         }
 
-        if (candidate.access === "public") {
-          for (const nextVideo of candidate.prefetchNextVideos?.slice(0, 2) ?? []) {
-            if (nextVideo.access !== "public") continue;
-            void resolveMediaUrl(nextVideo.mediaUrl)
-              .then((nextUrl) => {
-                if (
-                  nextUrl &&
-                  activeCandidateRef.current === candidate &&
-                  !disabledRef.current
-                ) {
-                  prefetchVideo(nextUrl);
-                }
-              })
-              .catch(() => {});
-          }
+        const nextVideo = candidate.prefetchNextVideos?.[0];
+        if (candidate.access === "public" && nextVideo?.access === "public") {
+          void canPrefetchVideo().then(async (allowed) => {
+            if (
+              !allowed ||
+              activeCandidateRef.current !== candidate ||
+              disabledRef.current ||
+              !isPageVisible()
+            ) return;
+            try {
+              const nextUrl = await resolveMediaUrl(nextVideo.mediaUrl);
+              if (
+                activeCandidateRef.current !== candidate ||
+                disabledRef.current ||
+                !isPageVisible()
+              ) return;
+              await prefetchVideo(nextUrl || nextVideo.mediaUrl);
+            } catch {
+              // The current video remains playable if optional prefetch cannot resolve.
+            }
+          });
         }
 
         if (isHlsUrl(url) && Hls.isSupported()) {
@@ -222,7 +237,7 @@ export function FeedVideoAutoplayProvider({
   );
 
   reconcileRef.current = () => {
-    if (disabledRef.current || document.visibilityState === "hidden") {
+    if (disabledRef.current || !isPageVisible()) {
       clearActiveCandidate();
       return;
     }
@@ -299,9 +314,6 @@ export function FeedVideoAutoplayProvider({
           const candidate = candidateByElementRef.current.get(entry.target);
           if (!candidate) continue;
           candidate.ratio = entry.isIntersecting ? entry.intersectionRatio : 0;
-          if (candidate.ratio >= WARM_VISIBILITY_RATIO) {
-            void resolveCandidateUrl(candidate);
-          }
           if (
             candidate.ratio < candidate.minimumRatio &&
             suppressedCandidateRef.current === candidate.candidateId
@@ -314,14 +326,14 @@ export function FeedVideoAutoplayProvider({
       {
         root: null,
         rootMargin: "0px",
-        threshold: [WARM_VISIBILITY_RATIO, NORMAL_VISIBILITY_RATIO, TRAY_VISIBILITY_RATIO],
+        threshold: [NORMAL_VISIBILITY_RATIO, TRAY_VISIBILITY_RATIO],
       },
     );
     observerRef.current = observer;
     for (const candidate of candidatesRef.current.values()) observer.observe(candidate.element);
 
     const onVisibilityChange = () => {
-      if (document.visibilityState === "hidden") clearActiveCandidate();
+      if (!isPageVisible()) clearActiveCandidate();
       else reconcileRef.current();
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
@@ -436,6 +448,7 @@ export function FeedVideoPreview({
         loading="lazy"
         bucket="videos"
         posterOnly
+        allowFrameFallback={false}
         showPlayFallback={false}
         onPosterResolved={onPosterResolved}
         className="pointer-events-none m-0 select-none p-0 [&_img]:block"
@@ -447,7 +460,7 @@ export function FeedVideoPreview({
         playsInline
         muted={active ? muted : true}
         loop
-        preload="metadata"
+        preload="none"
         aria-label={video.title}
         onLoadedData={() => {
           setVideoReady(true);

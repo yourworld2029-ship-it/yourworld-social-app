@@ -14,6 +14,14 @@ import {
   type OfflineVideo,
 } from "@/lib/offlineVideosDB";
 import {
+  getNativeFileUrl,
+  getNativeOfflineVideo,
+  isAndroidNativeDownloads,
+  listNativeOfflineVideos,
+  removeNativeOfflineVideo,
+  saveNativeOfflineVideo,
+} from "@/lib/native-offline-downloads";
+import {
   attachmentMediaUrl,
   fetchVideoBlob,
   sanitizeDownloadName,
@@ -183,6 +191,8 @@ export type DownloadedVideo = DownloadedVideoMetadata & {
   videoBlob?: Blob;
   downloadedAt: string;
   cacheKey?: string;
+  localFilePath?: string;
+  thumbnailPath?: string | null;
 };
 
 type LegacyCachedDownload = Partial<DownloadedVideoMetadata> & {
@@ -210,6 +220,8 @@ export function toDownloadedVideo(record: OfflineVideo): DownloadedVideo {
     sizeBytes: record.sizeBytes,
     videoBlob: record.videoBlob,
     downloadedAt: record.downloadedAt,
+    localFilePath: record.localFilePath,
+    thumbnailPath: record.thumbnailPath,
   };
 }
 
@@ -438,25 +450,107 @@ async function removeLegacyDownloadCopies(record: DownloadedVideo) {
 }
 
 export async function listDownloadedVideos(ownerId: string) {
+  if (isAndroidNativeDownloads()) {
+    await migrateIndexedDbDownloadsToNative(ownerId);
+    const records = await listNativeOfflineVideos(ownerId);
+    return Promise.all(
+      records.map(async (record) => {
+        const downloaded = toDownloadedVideo(record);
+        if (record.thumbnailPath) {
+          try {
+            const localThumbnailUrl = await getNativeFileUrl(record.thumbnailPath);
+            return {
+              ...downloaded,
+              thumbnailUrl: localThumbnailUrl,
+              posterUrl: localThumbnailUrl,
+            };
+          } catch {
+            // Retain the stored remote thumbnail URL as a display fallback.
+          }
+        }
+        return downloaded;
+      }),
+    );
+  }
+
   const records = await getAllOfflineVideos();
   return records
     .filter((record) => record.ownerId === ownerId)
     .map(toDownloadedVideo);
 }
 
+async function migrateIndexedDbDownloadsToNative(ownerId: string) {
+  let records: OfflineVideo[];
+  try {
+    records = await getAllOfflineVideos();
+  } catch (error) {
+    console.error("Could not inspect existing browser offline downloads for migration:", error);
+    return;
+  }
+
+  const nativeRecords = await listNativeOfflineVideos(ownerId);
+  const migratedIds = new Set(nativeRecords.map((record) => record.id));
+  for (const record of records) {
+    const id = String(record.id);
+    if (record.ownerId !== ownerId || !record.videoBlob || migratedIds.has(id)) continue;
+    try {
+      await saveNativeOfflineVideo(record, record.videoBlob);
+      migratedIds.add(id);
+    } catch (error) {
+      // Keep the IndexedDB source untouched so a failed copy can be retried later.
+      console.error(`Could not migrate offline video ${id} to app-private storage:`, error);
+    }
+  }
+}
+
 export async function getDownloadedVideo(id: string, ownerId?: string) {
+  if (isAndroidNativeDownloads()) {
+    if (ownerId) await migrateIndexedDbDownloadsToNative(ownerId);
+    const result = await getNativeOfflineVideo(id, ownerId);
+    if (!result) return null;
+    const downloaded = toDownloadedVideo(result);
+    if (result.thumbnailPath) {
+      try {
+        const localThumbnailUrl = await getNativeFileUrl(result.thumbnailPath);
+        downloaded.thumbnailUrl = localThumbnailUrl;
+        downloaded.posterUrl = localThumbnailUrl;
+      } catch {
+        // Preserve the saved remote thumbnail fallback if the local file is missing.
+      }
+    }
+    return downloaded;
+  }
+
   const result = await getOfflineVideoById(id);
   if (!result || (ownerId && result.ownerId !== ownerId)) return null;
   return toDownloadedVideo(result);
 }
 
 export async function removeDownloadedVideo(record: DownloadedVideo) {
+  if (isAndroidNativeDownloads()) {
+    await removeNativeOfflineVideo(record.id, record.ownerId);
+    try {
+      await removeLegacyDownloadCopies(record);
+      await deleteOfflineVideo(record.id);
+    } catch (error) {
+      console.error("Could not remove a legacy offline-download copy:", error);
+    }
+    notifyDownloadedVideoLibrary(record.ownerId);
+    return;
+  }
+
   await removeLegacyDownloadCopies(record);
   await deleteOfflineVideo(record.id);
   notifyDownloadedVideoLibrary(record.ownerId);
 }
 
 export async function getDownloadedVideoUrl(record: DownloadedVideo) {
+  if (isAndroidNativeDownloads()) {
+    const storedVideo = await getNativeOfflineVideo(record.id, record.ownerId);
+    if (!storedVideo?.localFilePath) return null;
+    return getNativeFileUrl(storedVideo.localFilePath);
+  }
+
   const storedVideo = await getOfflineVideoById(record.id);
   if (!storedVideo) return null;
   if (!storedVideo.videoBlob) return null;
@@ -469,7 +563,7 @@ export async function saveDownloadedVideo(
   quality: DownloadQuality = metadata.quality,
 ) {
   const thumbnailUrl = metadata.thumbnailUrl ?? metadata.posterUrl ?? "";
-  await saveOfflineVideo({
+  const record: OfflineVideo = {
     id: `${metadata.ownerId}:${metadata.mediaId}:${quality}`,
     title: metadata.title,
     author: metadata.creatorName,
@@ -487,7 +581,13 @@ export async function saveDownloadedVideo(
     createdAt: metadata.createdAt,
     durationSeconds: metadata.durationSeconds,
     posterUrl: metadata.posterUrl ?? thumbnailUrl,
-  });
+  };
+
+  if (isAndroidNativeDownloads()) {
+    await saveNativeOfflineVideo(record, videoBlob);
+  } else {
+    await saveOfflineVideo(record);
+  }
   notifyDownloadedVideoLibrary(metadata.ownerId);
 }
 

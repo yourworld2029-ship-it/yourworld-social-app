@@ -8,6 +8,12 @@ project(':capacitor-app').projectDir = new File('../../../node_modules/.pnpm/@ca
 include ':capacitor-app-launcher'
 project(':capacitor-app-launcher').projectDir = new File('../../../node_modules/.pnpm/@capacitor+app-launcher@8.0.1_@capacitor+core@8.5.2/node_modules/@capacitor/app-launcher/android')
 
+include ':capacitor-filesystem'
+project(':capacitor-filesystem').projectDir = new File('../../../node_modules/.pnpm/@capacitor+filesystem@8.1.3_@capacitor+core@8.5.2/node_modules/@capacitor/filesystem/android')
+
+include ':capacitor-preferences'
+project(':capacitor-preferences').projectDir = new File('../../../node_modules/.pnpm/@capacitor+preferences@8.0.1_@capacitor+core@8.5.2/node_modules/@capacitor/preferences/android')
+
 include ':capacitor-status-bar'
 project(':capacitor-status-bar').projectDir = new File('../../../node_modules/.pnpm/@capacitor+status-bar@8.0.3_@capacitor+core@8.5.2/node_modules/@capacitor/status-bar/android')
 

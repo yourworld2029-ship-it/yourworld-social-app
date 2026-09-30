@@ -28,3 +28,17 @@ mtime_ms = 1790614327308
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/9aeb611b-b160-448f-a12c-321653e136fd/61ea3d0a-2c86-48ea-a9b9-51d7917253d2"
 storage_version_token = "1790614407691682"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "aTegsiXlj7CBK9Pcu9QZh"
+uri = "file://artifacts/yourworld/public/downloads/yourworld-20260930T031452Z-v2.apk"
+type = "unspecified"
+title = "YourWorld Android APK"
+description = "Verified Android build 20260930T031452Z for package com.yourworld.app. APK signature and archive integrity checks passed."
+logical_id = "b04b9615-dbc0-4561-b448-f5b8e865110d"
+content_hash = "sha256:ac67f088eed31cf912902cdca63b163ef4527177c2841034be0923e03482a2f9"
+size = 11952717
+mtime_ms = 1790738093047
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/b04b9615-dbc0-4561-b448-f5b8e865110d/0a69848b-8ea1-4c00-9521-1caa12280200"
+storage_version_token = "1790738203587849"
+content_type = "application/octet-stream"
