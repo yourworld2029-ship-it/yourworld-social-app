@@ -419,7 +419,6 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const seekActivityRef = useRef(false);
   const touchGestureRef = useRef<TouchGesture | null>(null);
   const lastTapRef = useRef<{ time: number; side: TapSide } | null>(null);
-  const playerTapTimerRef = useRef<number | null>(null);
   const suppressSyntheticClickUntilRef = useRef(0);
   const feedbackTimerRef = useRef<number | null>(null);
   const gestureFeedbackIdRef = useRef(0);
@@ -436,18 +435,8 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const swipeTransformCleanupTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (playerTapTimerRef.current !== null) {
-      window.clearTimeout(playerTapTimerRef.current);
-      playerTapTimerRef.current = null;
-    }
     lastTapRef.current = null;
     suppressSyntheticClickUntilRef.current = 0;
-    return () => {
-      if (playerTapTimerRef.current !== null) {
-        window.clearTimeout(playerTapTimerRef.current);
-        playerTapTimerRef.current = null;
-      }
-    };
   }, [activeVideo?.id]);
 
   useEffect(() => {
@@ -1239,46 +1228,32 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       const now = Date.now();
       const previousTap = lastTapRef.current;
       if (previousTap && now - previousTap.time < 320 && previousTap.side === side) {
-        if (playerTapTimerRef.current !== null) {
-          window.clearTimeout(playerTapTimerRef.current);
-          playerTapTimerRef.current = null;
-        }
         lastTapRef.current = null;
         seekBy(side === "right" ? 20 : -20);
-        return true;
-      }
-
-      if (playerTapTimerRef.current !== null) {
-        window.clearTimeout(playerTapTimerRef.current);
-        playerTapTimerRef.current = null;
-        lastTapRef.current = null;
-        togglePlayPause();
+        return;
       }
 
       lastTapRef.current = { time: now, side };
-      playerTapTimerRef.current = window.setTimeout(() => {
-        playerTapTimerRef.current = null;
-        lastTapRef.current = null;
-        togglePlayPause();
-      }, 320);
-      return false;
+      togglePlayPause();
     },
     [seekBy, togglePlayPause],
   );
 
   const handlePlayerSurfaceClick = useCallback(
-    (event: ReactMouseEvent<HTMLButtonElement>) => {
+    (event: ReactMouseEvent<HTMLDivElement>) => {
       if (!isDetailPlayer) return;
       if (Date.now() < suppressSyntheticClickUntilRef.current) return;
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        target.closest(
+          "button:not([data-player-surface]), input, [role='menu'], [role='alert']",
+        )
+      ) return;
       if (screenLocked) {
         revealLockedUnlock();
         return;
       }
-      const target = event.target;
-      if (
-        target instanceof Element &&
-        target.closest("button:not([data-player-surface]), input, [role='menu']")
-      ) return;
       if (settingsMenu !== "closed") {
         setSettingsMenu("closed");
         markControlsActivity();
@@ -1299,7 +1274,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   );
 
   const handleTouchStart = useCallback(
-    (event: ReactTouchEvent<HTMLButtonElement>) => {
+    (event: ReactTouchEvent<HTMLDivElement>) => {
       if (!isDetailPlayer) return;
       if (swipeNavigationRef.current) {
         event.preventDefault();
@@ -1308,7 +1283,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       const target = event.target;
       if (
         target instanceof Element &&
-        target.closest("button:not([data-player-surface]), input, [role='menu']")
+        target.closest(
+          "button:not([data-player-surface]), input, [role='menu'], [role='alert']",
+        )
       ) {
         touchGestureRef.current = null;
         return;
@@ -1365,7 +1342,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   );
 
   const handleTouchMove = useCallback(
-    (event: ReactTouchEvent<HTMLButtonElement>) => {
+    (event: ReactTouchEvent<HTMLDivElement>) => {
       if (!isDetailPlayer) return;
       if (isFullscreen && screenLocked) {
         event.preventDefault();
@@ -1462,17 +1439,18 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   );
 
   const handleTouchEnd = useCallback(
-    (event: ReactTouchEvent<HTMLButtonElement>) => {
+    (event: ReactTouchEvent<HTMLDivElement>) => {
       if (!isDetailPlayer) return;
       const target = event.target;
       if (
         target instanceof Element &&
-        target.closest("button:not([data-player-surface]), input, [role='menu']")
+        target.closest(
+          "button:not([data-player-surface]), input, [role='menu'], [role='alert']",
+        )
       ) {
         touchGestureRef.current = null;
         return;
       }
-      suppressSyntheticClickUntilRef.current = Date.now() + 500;
       if (isFullscreen && screenLocked) {
         event.preventDefault();
         revealLockedUnlock();
@@ -1483,6 +1461,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       touchGestureRef.current = null;
       if (!gesture) return;
       if (gesture.swipeAxis) {
+        suppressSyntheticClickUntilRef.current = Date.now() + 500;
         const finalTouch = event.changedTouches.item(0);
         const deltaX = finalTouch ? finalTouch.clientX - gesture.originX : 0;
         const deltaY = finalTouch ? finalTouch.clientY - gesture.originY : 0;
@@ -1531,9 +1510,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
         event.preventDefault();
         return;
       }
-      if (gesture.moved) return;
-      const side: TapSide = gesture.startX >= gesture.width / 2 ? "right" : "left";
-      if (registerPlayerTap(side)) event.preventDefault();
+      if (gesture.moved) {
+        suppressSyntheticClickUntilRef.current = Date.now() + 500;
+      }
     },
     [
       activeVideo,
@@ -1541,7 +1520,6 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       isFullscreen,
       isVerticalVideo,
       navigate,
-      registerPlayerTap,
       revealLockedUnlock,
       screenLocked,
       settlePlayerSwipe,
@@ -1735,9 +1713,30 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
             onClick={
               pictureInPicture
                 ? openFromFloatingPlayer
-                : undefined
+                : showDetailChrome
+                  ? handlePlayerSurfaceClick
+                  : undefined
             }
-            style={showDetailChrome && isFullscreen ? { width: "100vw", height: "100vh" } : undefined}
+            onTouchStart={
+              showDetailChrome && !pictureInPicture ? handleTouchStart : undefined
+            }
+            onTouchMove={
+              showDetailChrome && !pictureInPicture ? handleTouchMove : undefined
+            }
+            onTouchEnd={
+              showDetailChrome && !pictureInPicture ? handleTouchEnd : undefined
+            }
+            onTouchCancel={
+              showDetailChrome && !pictureInPicture ? handleTouchCancel : undefined
+            }
+            style={{
+              ...(showDetailChrome && isFullscreen
+                ? { width: "100vw", height: "100vh" }
+                : {}),
+              ...(showDetailChrome
+                ? { touchAction: isFullscreen ? "none" : "auto" }
+                : {}),
+            }}
           >
             <video
               ref={videoRef}
@@ -1791,13 +1790,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                       ? "Pause video"
                       : "Play video"
                 }
-                onClick={handlePlayerSurfaceClick}
-                onTouchStart={handleTouchStart}
-                onTouchMove={handleTouchMove}
-                onTouchEnd={handleTouchEnd}
-                onTouchCancel={handleTouchCancel}
                 className="absolute inset-0 z-[30] block w-full cursor-pointer bg-transparent p-0 focus-visible:outline-none"
-                style={{ touchAction: isFullscreen ? "none" : "auto" }}
               />
             ) : null}
 
@@ -1811,42 +1804,15 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               >
                 <span
                   aria-hidden="true"
-                  className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white/90 shadow-[0_1px_12px_rgba(0,0,0,0.35)]"
+                  className="pointer-events-none h-6 w-6 animate-spin rounded-full border-2 border-white/25 border-t-white/90"
                 />
               </div>
-            ) : null}
-
-            {showDetailChrome &&
-            !pictureInPicture &&
-            !screenLocked &&
-            !isPlaying &&
-            !isBuffering &&
-            !(mediaError?.id === activeVideo.id && mediaError.url === activeVideo.url) ? (
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  if (settingsMenu !== "closed") {
-                    setSettingsMenu("closed");
-                    markControlsActivity();
-                    return;
-                  }
-                  togglePlayPause();
-                }}
-                onTouchStart={(event) => event.stopPropagation()}
-                onTouchEnd={(event) => event.stopPropagation()}
-                aria-label="Play video"
-                className="absolute left-1/2 top-1/2 z-[40] grid h-10 w-10 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-white/20 bg-black/35 text-white shadow-lg backdrop-blur-sm transition hover:bg-black/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
-              >
-                <Play className="ml-0.5 h-5 w-5 fill-current" aria-hidden="true" />
-              </button>
             ) : null}
 
             {mediaError?.id === activeVideo.id && mediaError.url === activeVideo.url ? (
               <div
                 className="absolute inset-0 z-[85] grid place-items-center bg-black/95 px-5 text-center text-white"
                 role="alert"
-                onClick={(event) => event.stopPropagation()}
               >
                 <div className="flex max-w-xs flex-col items-center gap-3">
                   <p className="text-sm font-semibold">This video could not be played.</p>
@@ -2064,8 +2030,6 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                   lockedUnlockVisible ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
                 }`}
                 aria-label="Unlock player controls"
-                onTouchStart={(event) => event.stopPropagation()}
-                onTouchEnd={(event) => event.stopPropagation()}
               >
                 <Lock className="h-4 w-4" />
               </button>
@@ -2085,8 +2049,6 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                   controlsVisible ? "opacity-100" : "pointer-events-none opacity-0"
                 }`}
                 aria-label="Go back"
-                onTouchStart={(event) => event.stopPropagation()}
-                onTouchEnd={(event) => event.stopPropagation()}
               >
                 <ArrowLeft className="h-5 w-5" />
               </button>
@@ -2100,9 +2062,6 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                   controlsVisible ? "opacity-100" : "pointer-events-none opacity-0"
                 }`}
                 aria-label="Lock player controls"
-                onTouchStart={(event) => event.stopPropagation()}
-                onTouchEnd={(event) => event.stopPropagation()}
-                onDoubleClick={(event) => event.stopPropagation()}
               >
                 <Lock className="h-5 w-5" />
               </button>
@@ -2143,8 +2102,6 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                   }`}
                   aria-label="Player settings"
                   aria-expanded={settingsMenu !== "closed"}
-                  onTouchStart={(event) => event.stopPropagation()}
-                  onTouchEnd={(event) => event.stopPropagation()}
                 >
                   <MoreVertical className="h-5 w-5" />
                 </button>
@@ -2153,9 +2110,6 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                   <div
                     role="menu"
                     className="absolute bottom-20 right-3 z-[70] w-52 overflow-hidden rounded-xl border border-white/15 bg-black/85 p-1.5 text-white shadow-2xl backdrop-blur-xl"
-                    onClick={(event) => event.stopPropagation()}
-                    onTouchStart={(event) => event.stopPropagation()}
-                    onTouchEnd={(event) => event.stopPropagation()}
                   >
                     {settingsMenu === "root" ? (
                       <>

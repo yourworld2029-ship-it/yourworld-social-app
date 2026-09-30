@@ -243,7 +243,15 @@ html[data-theme="midnight"] {
   .video-player-native-controls::-webkit-media-controls-start-playback-button,
   .video-player-native-controls::-webkit-media-controls-overlay-play-button {
     display: none !important;
-    -webkit-appearance: none;
+    visibility: hidden !important;
+    width: 0 !important;
+    height: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: none !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    -webkit-appearance: none !important;
   }
 
   .video-upload-preview::-webkit-media-controls-overlay-play-button {

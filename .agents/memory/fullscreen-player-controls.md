@@ -3,11 +3,11 @@ name: Fullscreen player controls
 description: Durable constraints for fullscreen video controls, gestures, and lock overlays.
 ---
 
-Player lock state, volume/brightness/pinch gestures, and their HUDs should remain fullscreen-only. Basic detail-player taps are an exception: a single tap toggles playback, while a same-side double tap seeks 20 seconds backward or forward in inline and fullscreen playback.
+Player lock state, volume/brightness/pinch gestures, and their HUDs should remain fullscreen-only. Detail-player clicks must toggle immediately through one viewport handler; do not debounce the first click to detect a double tap. A same-side second click may seek 20 seconds without delaying the first toggle. Touch-end is for gestures, not playback toggles.
 
-**Why:** Detail playback needs the requested basic tap controls without exposing fullscreen adjustment gestures in the inline player.
+**Why:** Delayed single-tap handling and a separate touch-end toggle can make Android playback feel unresponsive or toggle twice.
 
-**How to apply:** Keep tap detection active on the detail player in both modes, but gate lock controls, multi-touch/vertical adjustments, and their HUDs to fullscreen. Keep each conditional control wrapper self-contained and render only the unlock affordance while locked.
+**How to apply:** Route clicks once at the viewport, exclude interactive controls, and suppress the synthetic click only after a moved gesture. Keep lock controls, multi-touch/vertical adjustments, and their HUDs fullscreen-only. Keep each conditional control wrapper self-contained and render only the unlock affordance while locked.
 
 Fullscreen state should follow the actual fullscreen element, not viewport dimensions. On Android, await Capacitor's native orientation lock after fullscreen entry; landscape videos must lock to landscape. Always unlock on every exit path.
 
@@ -21,7 +21,7 @@ On every fullscreen exit path, restore the saved page scroll after unlocking ori
 
 **How to apply:** Capture `scrollY` when entering, then restore it after fullscreen state and orientation have settled on button exit, external exit, or route exit. Do not pause the video as part of fullscreen teardown.
 
-On the video detail route, keep the 16:9 player in the page layout above a dedicated scrollable content area with a 24px top gap. Route basic taps and fullscreen gestures through a transparent accessible hit target above the video and below visible controls, rather than depending on native video hit-testing.
+On the video detail route, keep the 16:9 player in the page layout above a dedicated scrollable content area with a 24px top gap. Route viewport clicks and fullscreen gestures through the parent and a transparent accessible hit target above the video and below visible controls, rather than depending on native video hit-testing.
 
 **Why:** A fixed overlay and a separate spacer can drift out of alignment and cover the title as content scrolls; on Android, the native video surface can also swallow touch and click events.
 
