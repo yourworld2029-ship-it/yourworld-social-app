@@ -1456,6 +1456,17 @@ body,
   -webkit-overflow-scrolling: touch;
 }
 
+.yw-video-player-route .yw-app-scroll-container {
+  position: relative !important;
+  inset: auto !important;
+  width: 100%;
+  height: auto !important;
+  min-height: 100%;
+  overflow: visible !important;
+  overscroll-behavior: auto;
+  -webkit-overflow-scrolling: auto;
+}
+
 .yw-protected-canvas {
   display: block;
   pointer-events: none;

@@ -86,3 +86,9 @@ Capacitor's `server.url` overrides the local `webDir` as the WebView's page sour
 **Why:** `cap sync` can copy current JavaScript and CSS into Android assets while the installed app still loads an older remote deployment.
 
 **How to apply:** Remove `server.url` from the release config, sync the fresh web output, and verify the packaged Capacitor config has no remote URL and the APK contains the same entry HTML and referenced JS/CSS as the web build.
+
+In this Replit workspace, Gradle's debug keystore may be under the workspace config directory rather than `$HOME/.android`.
+
+**Why:** Assuming the default home-directory location can falsely suggest the existing signing key is missing; generating a replacement certificate breaks update-install continuity.
+
+**How to apply:** Locate the existing debug keystore without inspecting or exporting its private contents, compare its certificate fingerprint with the installed/downloaded APK, and use it only when a release-format APK must retain that signing identity. Keep this temporary signing step out of committed Gradle configuration.

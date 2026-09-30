@@ -294,6 +294,113 @@ function VideoWatchPage() {
   );
 }
 
+function VideoDetailsFallback({ loading }: { loading: boolean }) {
+  return (
+    <section
+      aria-label="Video details"
+      aria-busy={loading}
+      className="relative z-10 w-full space-y-3 text-white"
+      data-testid="video-detail-metadata"
+    >
+      <div className="space-y-1">
+        <h1 className="line-clamp-2 text-lg font-bold leading-tight text-white sm:text-xl">
+          {loading ? "Loading video details…" : "Video unavailable"}
+        </h1>
+        <p className="text-xs text-gray-400">
+          {loading ? "— views • Loading date…" : "0 views • Date unavailable"}
+        </p>
+      </div>
+
+      <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <Avatar className="h-10 w-10 border border-white/10">
+            <AvatarFallback className="bg-pink-600 font-bold text-white">C</AvatarFallback>
+          </Avatar>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-white">
+              {loading ? "Loading creator…" : "Creator"}
+            </p>
+            <p className="truncate text-xs text-gray-400">
+              {loading ? "— followers" : "0 followers"}
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          disabled
+          className="shrink-0 rounded-full bg-pink-600 px-4 py-2 text-xs font-semibold text-white opacity-70"
+        >
+          Follow
+        </button>
+      </div>
+
+      <div className="grid w-full grid-cols-4 gap-1 border-b border-white/10 pb-3">
+        <button
+          type="button"
+          disabled
+          aria-label="Like video"
+          className="inline-flex h-9 items-center justify-center gap-1 rounded-full border border-white/10 bg-white/10 text-[10px] font-semibold text-white opacity-70"
+        >
+          <ThumbsUp className="h-3.5 w-3.5" /> Like
+        </button>
+        <button
+          type="button"
+          disabled
+          aria-label="Dislike video"
+          className="inline-flex h-9 items-center justify-center gap-1 rounded-full border border-white/10 bg-white/10 text-[10px] font-semibold text-white opacity-70"
+        >
+          <ThumbsDown className="h-3.5 w-3.5" /> Dislike
+        </button>
+        <button
+          type="button"
+          disabled
+          aria-label="Share video"
+          className="inline-flex h-9 items-center justify-center gap-1 rounded-full border border-white/10 bg-white/10 text-[10px] font-semibold text-white opacity-70"
+        >
+          <Share2 className="h-3.5 w-3.5" /> Share
+        </button>
+        <button
+          type="button"
+          disabled
+          aria-label="Download video"
+          className="inline-flex h-9 items-center justify-center gap-1 rounded-full border border-white/10 bg-white/10 text-[10px] font-semibold text-white opacity-70"
+        >
+          <Download className="h-3.5 w-3.5" /> Download
+        </button>
+      </div>
+
+      <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-3">
+        <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-gray-500">
+          Description
+        </p>
+        <p className="text-xs leading-relaxed text-gray-300">
+          {loading
+            ? "The video description will appear when details finish loading."
+            : "No description is available."}
+        </p>
+      </div>
+    </section>
+  );
+}
+
+function VideoCommentsFallback({ loading }: { loading: boolean }) {
+  return (
+    <section
+      aria-label="Comments"
+      className="rounded-2xl border border-white/10 bg-white/[0.045] p-3"
+      data-testid="video-comments-fallback"
+    >
+      <div className="flex items-center gap-2">
+        <MessageCircle className="h-4 w-4 text-pink-300" />
+        <h2 className="text-sm font-semibold text-white">Comments</h2>
+      </div>
+      <p className="mt-2 text-xs text-gray-500">
+        {loading ? "Loading comments…" : "Comments are unavailable for this video."}
+      </p>
+    </section>
+  );
+}
+
 function VideoWatchContent({ videoId }: { videoId: string }) {
   const navigate = useNavigate();
   const { focusComments } = Route.useSearch();
@@ -423,6 +530,17 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     },
     retry: 1,
   });
+
+  useEffect(() => {
+    if (focusComments) return;
+    const resetDetailScroll = () => {
+      document.querySelector<HTMLElement>(".yw-video-detail-scroll")?.scrollTo(0, 0);
+      document.querySelector<HTMLElement>(".yw-app-scroll-container")?.scrollTo(0, 0);
+    };
+    resetDetailScroll();
+    const frame = window.requestAnimationFrame(resetDetailScroll);
+    return () => window.cancelAnimationFrame(frame);
+  }, [focusComments, videoId]);
 
   useEffect(() => {
     if (isLoading) return;
@@ -1067,25 +1185,39 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-black text-white">
-        <div className="mb-4 h-10 w-10 animate-spin rounded-full border-4 border-pink-500 border-t-transparent" />
-        <p className="text-sm text-gray-400">Loading video...</p>
+      <div className="min-h-screen bg-black pb-24 text-white">
+        <VideoPlaybackSlot />
+        <div className="mx-auto flex w-full max-w-lg flex-col gap-3 px-3 py-3 sm:px-4 sm:py-4">
+          <VideoDetailsFallback loading />
+          <VideoCommentsFallback loading />
+          <p className="text-center text-xs text-gray-400" role="status">
+            Loading video…
+          </p>
+        </div>
       </div>
     );
   }
 
   if (isError || !video) {
-    return <VideoErrorFallback />;
+    return (
+      <div className="min-h-screen bg-black pb-24 text-white">
+        <VideoPlaybackSlot />
+        <div className="mx-auto flex w-full max-w-lg flex-col gap-3 px-3 py-3 sm:px-4 sm:py-4">
+          <VideoDetailsFallback loading={false} />
+          <VideoCommentsFallback loading={false} />
+          <VideoErrorFallback />
+        </div>
+      </div>
+    );
   }
 
-  const creatorUsername = video.user?.username || "user";
+  const creatorUsername = video.user?.username || "creator";
   const creatorName =
     video.user?.full_name ||
     video.user?.display_name ||
-    creatorUsername ||
     "Creator";
-  const viewCount = video.views_count || video.views || 0;
-  const timeAgo = safeTimeAgo(video.created_at);
+  const viewCount = video.views_count ?? video.views ?? 0;
+  const timeAgo = safeTimeAgo(video.created_at) || "Recently";
   const currentAvatar =
     typeof user?.user_metadata?.avatar_url === "string"
       ? user.user_metadata.avatar_url
@@ -1225,71 +1357,17 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
       ) : null}
 
       <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-3 px-3 py-3 sm:gap-4 sm:px-4 sm:py-4">
-        {seriesTitle && (
-          <section
-            aria-label={`Next episodes in ${seriesTitle}`}
-            className="border-b border-white/10 pb-4"
-          >
-            <div className="mb-3 flex items-baseline justify-between gap-3">
-              <h2 className="text-base font-bold text-white">Next Episodes / Parts</h2>
-              <p className="truncate text-xs text-gray-400">{seriesTitle}</p>
-            </div>
-            {nextSeriesEpisodes.length ? (
-              <div className="no-scrollbar flex gap-3 overflow-x-auto pb-1">
-                {nextSeriesEpisodes.map((episode) => {
-                  const episodeTitle = episode.title || episode.caption || "Untitled Video";
-                  const episodeMedia =
-                    episode.media_url || episode.video_url || episode.url || "";
-                  const portrait =
-                    typeof episode.original_height === "number" &&
-                    typeof episode.original_width === "number" &&
-                    episode.original_height > episode.original_width;
-                  return (
-                    <button
-                      key={episode.id}
-                      type="button"
-                      onClick={() =>
-                        void navigate({
-                          to: "/video/$videoId",
-                          params: { videoId: episode.id },
-                        })
-                      }
-                      className="group w-44 shrink-0 text-left sm:w-52"
-                    >
-                      <div
-                        className={`relative mb-2 overflow-hidden rounded-xl bg-zinc-900 ${
-                          portrait ? "aspect-[9/16] w-24" : "aspect-video w-full"
-                        }`}
-                      >
-                        <VideoPoster
-                          thumbnailUrl={episode.thumbnail_url}
-                          mediaUrl={episodeMedia}
-                          alt={episodeTitle}
-                        />
-                      </div>
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-pink-300">
-                        {episode.episode_number || "Next part"}
-                      </p>
-                      <h3 className="mt-1 line-clamp-2 text-sm font-semibold text-white group-hover:text-pink-300">
-                        {episodeTitle}
-                      </h3>
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
-              <p className="text-xs text-gray-400">No later parts yet.</p>
-            )}
-          </section>
-        )}
-
+        <section
+          aria-label="Video details"
+          className="relative z-10 flex w-full flex-col gap-3 text-white"
+          data-testid="video-detail-metadata"
+        >
         <div className="space-y-1">
           <h1 className="line-clamp-2 text-lg font-bold leading-tight text-white sm:text-xl">
             {video.title || video.caption || "Untitled Video"}
           </h1>
           <p className="text-xs text-gray-400">
-            {viewCount ? `${viewCount} views • ` : ""}
-            {timeAgo}
+            {viewCount.toLocaleString()} views • {timeAgo}
           </p>
         </div>
 
@@ -1326,26 +1404,26 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
             </div>
           </div>
 
-           {!isCreator && (
-             <Button
-               className="shrink-0 rounded-full bg-pink-600 px-3 text-xs text-white hover:bg-pink-700"
-               onClick={(event) => {
-                 event.stopPropagation();
-                 void handleSubscribe();
-               }}
-               size="sm"
-             >
-               {subscribed ? (
-                 <Check className="mr-1.5 h-3.5 w-3.5" />
-               ) : (
-                 <UserPlus className="mr-1.5 h-3.5 w-3.5" />
-               )}
-               {subscribed ? "Following" : "Follow"}
-             </Button>
-           )}
+           <Button
+             className="shrink-0 rounded-full bg-pink-600 px-3 text-xs text-white hover:bg-pink-700 disabled:opacity-60"
+             disabled={!creatorId || isCreator}
+             onClick={(event) => {
+               event.stopPropagation();
+               void handleSubscribe();
+             }}
+             size="sm"
+             aria-label={isCreator ? "Your channel" : subscribed ? "Following creator" : "Follow creator"}
+           >
+             {isCreator ? null : subscribed ? (
+               <Check className="mr-1.5 h-3.5 w-3.5" />
+             ) : (
+               <UserPlus className="mr-1.5 h-3.5 w-3.5" />
+             )}
+             {isCreator ? "Your channel" : subscribed ? "Following" : "Follow"}
+           </Button>
         </div>
 
-          <div className="grid w-full grid-cols-5 gap-1 border-b border-white/10 pb-3">
+          <div className="grid w-full grid-cols-4 gap-1 border-b border-white/10 pb-3">
             <button
               type="button"
               onClick={handleLike}
@@ -1427,6 +1505,65 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
             </button>
           ) : null}
         </div>
+        </section>
+
+        {seriesTitle && (
+          <section
+            aria-label={`Next episodes in ${seriesTitle}`}
+            className="border-b border-white/10 pb-4"
+          >
+            <div className="mb-3 flex items-baseline justify-between gap-3">
+              <h2 className="text-base font-bold text-white">Next Episodes / Parts</h2>
+              <p className="truncate text-xs text-gray-400">{seriesTitle}</p>
+            </div>
+            {nextSeriesEpisodes.length ? (
+              <div className="no-scrollbar flex gap-3 overflow-x-auto pb-1">
+                {nextSeriesEpisodes.map((episode) => {
+                  const episodeTitle = episode.title || episode.caption || "Untitled Video";
+                  const episodeMedia =
+                    episode.media_url || episode.video_url || episode.url || "";
+                  const portrait =
+                    typeof episode.original_height === "number" &&
+                    typeof episode.original_width === "number" &&
+                    episode.original_height > episode.original_width;
+                  return (
+                    <button
+                      key={episode.id}
+                      type="button"
+                      onClick={() =>
+                        void navigate({
+                          to: "/video/$videoId",
+                          params: { videoId: episode.id },
+                        })
+                      }
+                      className="group w-44 shrink-0 text-left sm:w-52"
+                    >
+                      <div
+                        className={`relative mb-2 overflow-hidden rounded-xl bg-zinc-900 ${
+                          portrait ? "aspect-[9/16] w-24" : "aspect-video w-full"
+                        }`}
+                      >
+                        <VideoPoster
+                          thumbnailUrl={episode.thumbnail_url}
+                          mediaUrl={episodeMedia}
+                          alt={episodeTitle}
+                        />
+                      </div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-pink-300">
+                        {episode.episode_number || "Next part"}
+                      </p>
+                      <h3 className="mt-1 line-clamp-2 text-sm font-semibold text-white group-hover:text-pink-300">
+                        {episodeTitle}
+                      </h3>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-xs text-gray-400">No later parts yet.</p>
+            )}
+          </section>
+        )}
 
         <div ref={commentsRef} id="comments" tabIndex={-1}>
           <button

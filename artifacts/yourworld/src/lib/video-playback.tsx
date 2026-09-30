@@ -1647,7 +1647,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       <div
         className={
           isPlayerRoute
-            ? `relative flex h-[100dvh] flex-col ${isFullscreen ? "overflow-visible" : "overflow-hidden"}`
+            ? `yw-video-player-route relative flex h-[100dvh] flex-col ${isFullscreen ? "overflow-visible" : "overflow-hidden"}`
             : "relative min-h-screen"
         }
       >
