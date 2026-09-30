@@ -73,7 +73,7 @@ import {
   removeDownloadedVideo,
   subscribeDownloadedVideoLibrary,
   downloadAudioOnly,
-  downloadWatermarkedVideoInBackground,
+  downloadVideoForOfflineInBackground,
   sanitizeDownloadName,
   type DownloadedVideo,
   type DownloadedVideoMetadata,
@@ -461,20 +461,26 @@ function ProfilePage() {
       if (choice === "mp3") {
         await downloadAudioOnly(mediaUrl, baseName, reportProgress);
       } else {
-        await downloadWatermarkedVideoInBackground(
+        const downloadMode = await downloadVideoForOfflineInBackground(
           mediaUrl,
           baseName,
           creatorUsername,
           reportProgress,
           metadata,
         );
+        toast.success(
+          downloadMode === "native-original"
+            ? post.kind === "reel"
+              ? "Saved Reel for offline viewing"
+              : "Saved video for offline viewing"
+            : post.kind === "reel"
+              ? "Saved Reel with YourWorld watermark"
+              : "Saved video with YourWorld watermark",
+        );
+        return;
       }
       toast.success(
-        choice === "mp3"
-          ? "Download saved"
-          : post.kind === "reel"
-            ? "Saved Reel with YourWorld watermark"
-            : "Saved video with YourWorld watermark",
+        "Download saved",
       );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Couldn't download this media");

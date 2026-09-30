@@ -12,6 +12,7 @@ const MAX_THUMBNAIL_BYTES = 4 * 1024 * 1024;
 export type NativeOfflineVideo = OfflineVideo & {
   id: string;
   localFilePath: string;
+  localFileUri?: string;
   thumbnailPath: string | null;
 };
 
@@ -35,6 +36,7 @@ function isNativeRecord(value: unknown): value is NativeOfflineVideo {
     typeof record.ownerId === "string" &&
     typeof record.title === "string" &&
     typeof record.localFilePath === "string" &&
+    (record.localFileUri === undefined || typeof record.localFileUri === "string") &&
     (record.thumbnailPath === null || typeof record.thumbnailPath === "string") &&
     typeof record.downloadedAt === "string" &&
     Number.isFinite(record.sizeBytes)
@@ -118,6 +120,29 @@ function safeExtension(mimeType: string, fallback: string) {
   return extension;
 }
 
+function videoExtensionFromUrl(sourceUrl: string) {
+  const pathname = new URL(sourceUrl).pathname;
+  const extension = pathname.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase();
+  return extension && ["mp4", "m4v", "mov", "webm", "3gp", "mkv"].includes(extension)
+    ? extension
+    : "mp4";
+}
+
+function assertDirectVideoUrl(sourceUrl: string) {
+  let url: URL;
+  try {
+    url = new URL(sourceUrl);
+  } catch {
+    throw new Error("This video has an invalid download URL.");
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw new Error("This video must have a valid HTTP download URL.");
+  }
+  if (/\.m3u8$/i.test(url.pathname)) {
+    throw new Error("This Android download uses an HLS playlist, which is not supported for offline saving yet.");
+  }
+}
+
 function toBase64(bytes: Uint8Array) {
   let binary = "";
   const step = 0x8000;
@@ -176,7 +201,7 @@ async function removeFile(path?: string | null) {
   }
 }
 
-async function createUniquePaths(record: OfflineVideo) {
+async function createUniquePaths(record: OfflineVideo, sourceUrl?: string) {
   const ownerHash = await shortHash(record.ownerId ?? "unknown-owner");
   const id = String(record.id);
   const idHash = await shortHash(id);
@@ -184,7 +209,9 @@ async function createUniquePaths(record: OfflineVideo) {
     globalThis.crypto?.randomUUID?.() ??
     `${Date.now()}-${fileSequence++}`;
   const directory = `${ROOT_DIRECTORY}/${ownerHash}`;
-  const videoExtension = safeExtension(record.videoBlob?.type ?? "", "mp4");
+  const videoExtension = sourceUrl
+    ? videoExtensionFromUrl(sourceUrl)
+    : safeExtension(record.videoBlob?.type ?? "", "mp4");
   return {
     localFilePath: `${directory}/${idHash}-${suffix}.${videoExtension}`,
     thumbnailPath: `${directory}/${idHash}-${suffix}-thumbnail`,
@@ -275,6 +302,84 @@ export async function saveNativeOfflineVideo(
   }
 }
 
+export async function downloadNativeOfflineVideoFromUrl(
+  record: OfflineVideo,
+  sourceUrl: string,
+  onProgress?: (bytesTransferred: number, totalBytes: number) => void,
+) {
+  if (!isAndroidNativeDownloads()) {
+    throw new Error("Native streaming downloads are only available on Android.");
+  }
+  if (!record.ownerId) throw new Error("An owner is required to save an offline video.");
+  assertDirectVideoUrl(sourceUrl);
+
+  const normalizedRecord = { ...record, id: String(record.id) };
+  const paths = await createUniquePaths(normalizedRecord, sourceUrl);
+  let thumbnailPath: string | null = null;
+  const listener = await Filesystem.addListener("progress", (progress) => {
+    if (progress.url === sourceUrl) {
+      onProgress?.(progress.bytes, progress.contentLength);
+    }
+  });
+
+  try {
+    await ensureParentDirectory(paths.localFilePath);
+    await Filesystem.downloadFile({
+      url: sourceUrl,
+      path: paths.localFilePath,
+      directory: Directory.Data,
+      progress: true,
+    });
+
+    const savedFile = await Filesystem.stat({
+      path: paths.localFilePath,
+      directory: Directory.Data,
+    });
+    if (!Number.isFinite(savedFile.size) || savedFile.size <= 0) {
+      throw new Error("The downloaded offline video is empty.");
+    }
+    const { uri } = await Filesystem.getUri({
+      path: paths.localFilePath,
+      directory: Directory.Data,
+    });
+
+    const savedRecord: OfflineVideo = {
+      ...normalizedRecord,
+      sizeBytes: savedFile.size,
+      downloadedAt: normalizedRecord.downloadedAt || new Date().toISOString(),
+    };
+    thumbnailPath = await saveThumbnail(savedRecord, paths.thumbnailPath);
+    const { videoBlob: _videoBlob, ...metadata } = savedRecord;
+    void _videoBlob;
+    const nativeRecord: NativeOfflineVideo = {
+      ...metadata,
+      id: String(savedRecord.id),
+      localFilePath: paths.localFilePath,
+      localFileUri: uri,
+      thumbnailPath,
+    };
+
+    const previous = await updateRegistry((current) => ({
+      entries: [...current.filter((entry) => entry.id !== nativeRecord.id), nativeRecord],
+      result: current.find((entry) => entry.id === nativeRecord.id) ?? null,
+    }));
+
+    if (previous?.localFilePath !== nativeRecord.localFilePath) {
+      await removeFile(previous?.localFilePath);
+    }
+    if (previous?.thumbnailPath && previous.thumbnailPath !== thumbnailPath) {
+      await removeFile(previous.thumbnailPath);
+    }
+    return nativeRecord;
+  } catch (error) {
+    await removeFile(paths.localFilePath);
+    await removeFile(thumbnailPath);
+    throw error;
+  } finally {
+    await listener.remove().catch(() => undefined);
+  }
+}
+
 export async function removeNativeOfflineVideo(id: string, ownerId?: string) {
   const removed = await updateRegistry((current) => {
     const record = current.find(
@@ -293,7 +398,9 @@ export async function removeNativeOfflineVideo(id: string, ownerId?: string) {
   ]);
 }
 
-export async function getNativeFileUrl(path: string) {
-  const { uri } = await Filesystem.getUri({ path, directory: Directory.Data });
+export async function getNativeFileUrl(path: string, storedUri?: string) {
+  const uri =
+    storedUri ??
+    (await Filesystem.getUri({ path, directory: Directory.Data })).uri;
   return Capacitor.convertFileSrc(uri);
 }

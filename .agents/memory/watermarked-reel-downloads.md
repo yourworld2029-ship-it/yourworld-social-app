@@ -3,8 +3,8 @@ name: Watermarked video downloads
 description: Preserves creator attribution across Reel and long-video download surfaces.
 ---
 
-Reel and long-video downloads use the same creator-watermarked export. Burn the creator attribution into rendered frames and preserve source audio. If the browser or Android WebView cannot render, record, or read the source for canvas export, fail visibly rather than returning unwatermarked bytes.
+Web downloads for Reels and long videos use the same creator-watermarked export. Burn the creator attribution into rendered frames and preserve source audio. On Android, offline-library downloads are the explicit exception: stream the selected source URL directly to app-private storage without browser fetch, Blob, or base64 handling for video bytes. Do not register `.m3u8` playlists as playable offline videos; fail visibly until playlist downloads are supported.
 
-**Why:** The user explicitly requested horizontal and vertical video downloads to use the working Reels download pipeline, including its watermark and audio behavior.
+**Why:** The user requested watermarked web downloads but selected original-file streaming for Android offline copies, with those copies appearing in Profile > Downloads.
 
-**How to apply:** Route Reels and long-video downloads through the same watermarked export after selecting the source quality. Validate watermark visibility, audio, and clear unsupported-source errors on a real Android WebView before treating the feature as device-verified.
+**How to apply:** Keep web Reels and long-video downloads on the watermarked pipeline after quality selection. For Android offline saves, use native streaming and verify the completed file size before registering its path and metadata. Test on a real Android device before calling playback and offline availability device-verified.

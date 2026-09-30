@@ -19,6 +19,7 @@ import {
   isAndroidNativeDownloads,
   listNativeOfflineVideos,
   removeNativeOfflineVideo,
+  downloadNativeOfflineVideoFromUrl,
   saveNativeOfflineVideo,
 } from "@/lib/native-offline-downloads";
 import {
@@ -29,6 +30,7 @@ import {
 import { toast } from "sonner";
 
 export { fetchVideoBlob, sanitizeDownloadName } from "@/lib/video-download-transport";
+export { isAndroidNativeDownloads };
 
 const activeVideoDownloads = new Map<string, Promise<void>>();
 const downloadTaskListeners = new Set<() => void>();
@@ -192,6 +194,7 @@ export type DownloadedVideo = DownloadedVideoMetadata & {
   downloadedAt: string;
   cacheKey?: string;
   localFilePath?: string;
+  localFileUri?: string;
   thumbnailPath?: string | null;
 };
 
@@ -222,6 +225,7 @@ export function toDownloadedVideo(record: OfflineVideo): DownloadedVideo {
     downloadedAt: record.downloadedAt,
     localFilePath: record.localFilePath,
     thumbnailPath: record.thumbnailPath,
+    localFileUri: record.localFileUri,
   };
 }
 
@@ -548,7 +552,7 @@ export async function getDownloadedVideoUrl(record: DownloadedVideo) {
   if (isAndroidNativeDownloads()) {
     const storedVideo = await getNativeOfflineVideo(record.id, record.ownerId);
     if (!storedVideo?.localFilePath) return null;
-    return getNativeFileUrl(storedVideo.localFilePath);
+    return getNativeFileUrl(storedVideo.localFilePath, storedVideo.localFileUri);
   }
 
   const storedVideo = await getOfflineVideoById(record.id);
@@ -562,14 +566,30 @@ export async function saveDownloadedVideo(
   videoBlob: Blob,
   quality: DownloadQuality = metadata.quality,
 ) {
+  const record = createOfflineVideoRecord(metadata, quality, videoBlob.size, videoBlob);
+
+  if (isAndroidNativeDownloads()) {
+    await saveNativeOfflineVideo(record, videoBlob);
+  } else {
+    await saveOfflineVideo(record);
+  }
+  notifyDownloadedVideoLibrary(metadata.ownerId);
+}
+
+function createOfflineVideoRecord(
+  metadata: DownloadedVideoMetadata,
+  quality: DownloadQuality,
+  sizeBytes: number,
+  videoBlob?: Blob,
+): OfflineVideo {
   const thumbnailUrl = metadata.thumbnailUrl ?? metadata.posterUrl ?? "";
-  const record: OfflineVideo = {
+  return {
     id: `${metadata.ownerId}:${metadata.mediaId}:${quality}`,
     title: metadata.title,
     author: metadata.creatorName,
     thumbnailUrl,
     quality,
-    sizeBytes: videoBlob.size,
+    sizeBytes,
     videoBlob,
     downloadedAt: new Date().toISOString(),
     ownerId: metadata.ownerId,
@@ -582,13 +602,6 @@ export async function saveDownloadedVideo(
     durationSeconds: metadata.durationSeconds,
     posterUrl: metadata.posterUrl ?? thumbnailUrl,
   };
-
-  if (isAndroidNativeDownloads()) {
-    await saveNativeOfflineVideo(record, videoBlob);
-  } else {
-    await saveOfflineVideo(record);
-  }
-  notifyDownloadedVideoLibrary(metadata.ownerId);
 }
 
 function triggerBlobDownload(blob: Blob, fileName: string) {
@@ -734,6 +747,92 @@ export async function downloadWatermarkedVideoInBackground(
 
   activeVideoDownloads.set(key, task);
   return task;
+}
+
+/**
+ * Saves the original selected source directly to app-private storage on Android.
+ * Web continues to use the creator-watermarked export path.
+ */
+export async function downloadVideoForOfflineInBackground(
+  src: string,
+  fileNameBase: string,
+  creatorUsername: string,
+  onProgress?: (percent: number) => void,
+  metadata?: DownloadedVideoMetadata,
+): Promise<"native-original" | "watermarked"> {
+  if (!isAndroidNativeDownloads()) {
+    await downloadWatermarkedVideoInBackground(
+      src,
+      fileNameBase,
+      creatorUsername,
+      onProgress,
+      metadata,
+    );
+    return "watermarked";
+  }
+  if (!metadata) {
+    throw new Error("Video details are required to save an Android offline download.");
+  }
+
+  const key = `${src}|native-offline|${fileNameBase}|${metadata.ownerId}|${metadata.mediaId}|${metadata.quality}`;
+  const existing = activeVideoDownloads.get(key);
+  if (existing) {
+    await existing;
+    return "native-original";
+  }
+
+  const task = (async () => {
+    const title = metadata.title || fileNameBase;
+    updateDownloadTask(key, title, 0);
+    try {
+      const record = createOfflineVideoRecord(metadata, metadata.quality, 0);
+      const startedAt = performance.now();
+      let sampledAt = startedAt;
+      let sampledBytes = 0;
+      let bytesPerSecond = 0;
+      let lastPublishedAt = 0;
+
+      await downloadNativeOfflineVideoFromUrl(record, src, (bytesTransferred, totalBytes) => {
+        const now = performance.now();
+        const elapsed = now - sampledAt;
+        if (elapsed >= 350) {
+          bytesPerSecond = Math.max(
+            0,
+            ((bytesTransferred - sampledBytes) * 1000) / elapsed,
+          );
+          sampledAt = now;
+          sampledBytes = bytesTransferred;
+        }
+        const percent =
+          totalBytes > 0
+            ? Math.min(99, (bytesTransferred / totalBytes) * 100)
+            : getDownloadTasksSnapshot().find((item) => item.id === key)?.percent ?? 0;
+        if (now - lastPublishedAt >= 250 || percent >= 99) {
+          lastPublishedAt = now;
+          updateDownloadTask(key, title, percent, {
+            bytesTransferred,
+            totalBytes: totalBytes > 0 ? totalBytes : undefined,
+            bytesPerSecond,
+          });
+        }
+        onProgress?.(percent);
+      });
+
+      notifyDownloadedVideoLibrary(metadata.ownerId);
+      onProgress?.(100);
+      updateDownloadTask(key, title, 100);
+      window.setTimeout(() => removeDownloadTask(key), 400);
+    } catch (error) {
+      removeDownloadTask(key);
+      throw error;
+    } finally {
+      activeVideoDownloads.delete(key);
+    }
+  })();
+
+  activeVideoDownloads.set(key, task);
+  await task;
+  return "native-original";
 }
 
 export function reelWatermarkText(creatorUsername: string) {

@@ -30,9 +30,10 @@ import { formatCount, type Reel, type User } from "@/lib/yw-data";
 import { getLocalMedia, resolveMediaUrl, timeAgo, useSocialPosts } from "@/lib/social-data";
 import { useDoubleTapLike, useYw } from "@/lib/yw-store";
 import {
-  downloadWatermarkedVideoInBackground,
+  downloadVideoForOfflineInBackground,
   downloadAudioOnly,
   downloadWithWatermark,
+  isAndroidNativeDownloads,
   reelWatermarkText,
   sanitizeDownloadName,
 } from "@/lib/yw-download";
@@ -946,7 +947,11 @@ function ReelItem({
     const creatorUsername = author?.username?.trim().replace(/^@+/, "") || "user";
     const toastId = toast.loading(
       isVideo
-        ? choice === "mp3" ? "Preparing MP3 audio…" : "Preparing watermarked Reel…"
+        ? choice === "mp3"
+          ? "Preparing MP3 audio…"
+          : isAndroidNativeDownloads()
+            ? "Saving original Reel for offline viewing…"
+            : "Preparing watermarked Reel…"
         : "Preparing image download…",
     );
     try {
@@ -983,7 +988,7 @@ function ReelItem({
             toast.loading(`Preparing MP3 audio... ${percent}%`, { id: toastId });
           });
         } else {
-          await downloadWatermarkedVideoInBackground(
+          const downloadMode = await downloadVideoForOfflineInBackground(
             playableUrl,
             baseName,
             creatorUsername,
@@ -992,17 +997,31 @@ function ReelItem({
             },
             downloadMetadata,
           );
+          trackEvent("reel_downloaded", {
+            surface: "reels_feed",
+            media_type: "video",
+            download_type:
+              downloadMode === "native-original"
+                ? "native_offline_original"
+                : "watermarked_video",
+            download_quality: choice || "original",
+          });
+          toast.success(
+            downloadMode === "native-original"
+              ? "Saved Reel for offline viewing"
+              : "Saved Reel with YourWorld watermark",
+            { id: toastId },
+          );
+          return;
         }
         trackEvent("reel_downloaded", {
           surface: "reels_feed",
           media_type: "video",
-          download_type: choice === "mp3" ? "audio" : "watermarked_video",
+          download_type: "audio",
           download_quality: choice || "original",
         });
         toast.success(
-          choice === "mp3"
-            ? "Saved to your device"
-            : "Saved Reel with YourWorld watermark",
+          "Saved to your device",
           { id: toastId },
         );
       } else {
