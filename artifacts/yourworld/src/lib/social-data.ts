@@ -2366,16 +2366,17 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
   }, [me]);
 
   const markThreadRead = useCallback(async () => {
-    if (!me || !pair) return { error: null };
+    if (!me || !pair) return { error: null, firstUnreadMessageId: null };
     const peerId = pair.find((participantId) => participantId !== me);
-    if (!peerId) return { error: null };
+    if (!peerId) return { error: null, firstUnreadMessageId: null };
 
     const unreadIds: string[] = [];
+    let firstUnreadMessageId: string | null = null;
     const pageSize = 500;
     for (let offset = 0; ; offset += pageSize) {
       const { data, error: queryError } = await supabase
         .from("messages" as never)
-        .select("id,auto_delete_mode,metadata,is_viewed" as never)
+        .select("id,auto_delete_mode,metadata,is_viewed,is_system_message" as never)
         .eq("sender_id" as never, peerId)
         .eq("receiver_id" as never, me)
         .eq("is_read" as never, false)
@@ -2386,7 +2387,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
         if (typeof window !== "undefined") {
           window.dispatchEvent(new CustomEvent("yw:chat-read-failed", { detail: { threadId } }));
         }
-        return { error: queryError.message };
+        return { error: queryError.message, firstUnreadMessageId };
       }
 
       const batch = (data ?? []) as unknown as Array<{
@@ -2394,7 +2395,12 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
         auto_delete_mode?: string | null;
         metadata?: Record<string, unknown> | null;
         is_viewed?: boolean;
+        is_system_message?: boolean;
       }>;
+      if (!firstUnreadMessageId) {
+        firstUnreadMessageId =
+          batch.find((row) => row.is_system_message !== true)?.id ?? null;
+      }
       for (const row of batch) {
         const viewOnceNotOpened =
           row.auto_delete_mode === "after_view" &&
@@ -2409,8 +2415,61 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     if (result.error && typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("yw:chat-read-failed", { detail: { threadId } }));
     }
-    return result;
+    return { ...result, firstUnreadMessageId };
   }, [me, pair, markRead, threadId]);
+
+  const removeThreadMessagesLocally = useCallback((
+    threadIdAtExit: string,
+    pairAtExit: ReturnType<typeof dmThreadPair>,
+    messageIds: ReadonlySet<string>,
+  ) => {
+    if (!messageIds.size) return;
+
+    const cachedRows = normalizeCachedThreadRows(
+      loadCachedThreadSync<unknown>(`social:${threadIdAtExit}`) ??
+        cacheGet<unknown>(`thread:${threadIdAtExit}`) ??
+        [],
+      pairAtExit,
+    );
+    const retainedRows = cachedRows.filter((message) => !messageIds.has(message.id));
+    cacheSet(`thread:${threadIdAtExit}`, retainedRows);
+    saveCachedThread(`social:${threadIdAtExit}`, retainedRows);
+
+    if (messagesThreadIdRef.current === threadIdAtExit) {
+      const retainedMessages = messagesRef.current.filter((message) => !messageIds.has(message.id));
+      messagesRef.current = retainedMessages;
+      setMessages(retainedMessages);
+    }
+  }, []);
+
+  const removeViewedMessagesFromLocalState = useCallback((
+    threadIdAtExit: string,
+    pairAtExit: ReturnType<typeof dmThreadPair>,
+    userIdAtExit: string,
+  ) => {
+    const cachedRows = normalizeCachedThreadRows(
+      loadCachedThreadSync<unknown>(`social:${threadIdAtExit}`) ??
+        cacheGet<unknown>(`thread:${threadIdAtExit}`) ??
+        [],
+      pairAtExit,
+    );
+    const localRows =
+      messagesThreadIdRef.current === threadIdAtExit ? messagesRef.current : [];
+    const viewedIds = new Set(
+      [...cachedRows, ...localRows]
+        .filter(
+          (message) =>
+            message.receiver_id === userIdAtExit &&
+            message.auto_delete_mode === "after_view" &&
+            message.is_viewed === true &&
+            message.is_system_message !== true &&
+            message.metadata?.view_once !== true &&
+            message.metadata?.view_once !== "true",
+        )
+        .map((message) => message.id),
+    );
+    removeThreadMessagesLocally(threadIdAtExit, pairAtExit, viewedIds);
+  }, [removeThreadMessagesLocally]);
 
   const flushViewedMessagesOnExit = useCallback(async (
     conversationIdAtExit: string,
@@ -2423,20 +2482,11 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       });
       const deletedIds = new Set(result.deletedMessageIds);
       if (!deletedIds.size) return;
-
-      const cachedRows = normalizeCachedThreadRows(
-        loadCachedThreadSync<unknown>(`social:${threadIdAtExit}`) ??
-          cacheGet<unknown>(`thread:${threadIdAtExit}`) ??
-          [],
-        pairAtExit,
-      );
-      const retainedRows = cachedRows.filter((message) => !deletedIds.has(message.id));
-      cacheSet(`thread:${threadIdAtExit}`, retainedRows);
-      saveCachedThread(`social:${threadIdAtExit}`, retainedRows);
+      removeThreadMessagesLocally(threadIdAtExit, pairAtExit, deletedIds);
     } catch (cause) {
       console.warn("[social-chat] Vanish Mode exit cleanup failed", cause);
     }
-  }, []);
+  }, [removeThreadMessagesLocally]);
 
   useEffect(() => {
     if (!conversationId || !me || !pair) return;
@@ -2451,6 +2501,9 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       const timer = setTimeout(() => {
         exitCleanupTimersRef.current.delete(cleanupKey);
         void (async () => {
+          // Remove locally known viewed Vanish Mode rows before any network
+          // work so a fast reopen cannot hydrate them from the chat cache.
+          removeViewedMessagesFromLocalState(threadId, pair, me);
           // Flush the chat's existing read-on-open behavior first, so a read
           // request still in flight cannot race the permanent delete.
           try {
@@ -2458,6 +2511,8 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
           } catch (cause) {
             console.warn("[social-chat] read receipt flush on exit failed", cause);
           }
+          // The read flush can mark additional loaded rows as viewed.
+          removeViewedMessagesFromLocalState(threadId, pair, me);
           await flushViewedMessagesOnExit(conversationId, threadId, pair);
         })();
       }, 0);
@@ -2470,6 +2525,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     threadId,
     markThreadRead,
     flushViewedMessagesOnExit,
+    removeViewedMessagesFromLocalState,
   ]);
 
   const consumeViewOnce = useCallback(async (id: string) => {

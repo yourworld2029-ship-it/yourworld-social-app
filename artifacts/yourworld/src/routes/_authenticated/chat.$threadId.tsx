@@ -693,6 +693,8 @@ function NativeChatThreadPage() {
     hasMore,
     loadOlder,
   } = useThreadMessages(threadId, { staleTime: Infinity });
+  const initialUnreadMessageRef = useRef<{ threadId: string; messageId: string | null } | null>(null);
+  const [initialUnreadReadyKey, setInitialUnreadReadyKey] = useState<string | null>(null);
   const openViewOnce = useCallback(async (message: Message) => {
     if (
       !message.viewOnce ||
@@ -936,9 +938,24 @@ function NativeChatThreadPage() {
     });
   };
 
+  useEffect(() => {
+    if (!currentUserId || initialUnreadMessageRef.current?.threadId === threadId) return;
+    const firstUnread = dbMessages.find(
+      (message) =>
+        message.receiver_id === currentUserId &&
+        message.sender_id !== currentUserId &&
+        message.is_read !== true &&
+        message.is_system_message !== true,
+    );
+    if (firstUnread) {
+      initialUnreadMessageRef.current = { threadId, messageId: firstUnread.id };
+    }
+  }, [dbMessages, currentUserId, threadId]);
+
   // Read receipts: any visible incoming message is marked read.
   useEffect(() => {
-    if (!currentUserId) return;
+    const readyKey = currentUserId ? `${threadId}:${currentUserId}` : null;
+    if (!currentUserId || initialUnreadReadyKey !== readyKey) return;
     const unread = dbMessages
       .filter(
         (m) =>
@@ -959,18 +976,37 @@ function NativeChatThreadPage() {
           console.warn("[social-chat] marking messages read failed", cause);
         });
     }
-  }, [dbMessages, currentUserId, markRead]);
+  }, [dbMessages, currentUserId, initialUnreadReadyKey, markRead, threadId]);
 
   useEffect(() => {
     window.dispatchEvent(
       new CustomEvent("yw:chat-thread-opened", { detail: { threadId } }),
     );
-    void Promise.resolve()
-      .then(() => markThreadRead())
+    if (!currentUserId) return;
+
+    let active = true;
+    const readyKey = `${threadId}:${currentUserId}`;
+    void markThreadRead()
+      .then((result) => {
+        if (!active) return;
+        initialUnreadMessageRef.current = {
+          threadId,
+          messageId: result.firstUnreadMessageId ?? null,
+        };
+        setInitialUnreadReadyKey(readyKey);
+      })
       .catch((cause) => {
+        if (!active) return;
         console.warn("[social-chat] marking thread read failed", cause);
+        if (initialUnreadMessageRef.current?.threadId !== threadId) {
+          initialUnreadMessageRef.current = { threadId, messageId: null };
+        }
+        setInitialUnreadReadyKey(readyKey);
       });
-  }, [threadId, markThreadRead]);
+    return () => {
+      active = false;
+    };
+  }, [threadId, currentUserId, markThreadRead]);
 
   useEffect(() => {
     if (!currentUserId) return;
@@ -1388,10 +1424,12 @@ function NativeChatThreadPage() {
   const EMOJIS = ["👍", "❤️", "😂", "🔥", "😍", "🥰", "😘", "💋", "💕", "💖", "💗", "💓", "💞", "💝", "💘", "🥺", "👏", "🎉", "😢"];
 
   const didFirstScroll = useRef(false);
+  const didInitialThreadScroll = useRef(false);
   const lastMessageKeyRef = useRef<string | null>(null);
   const lastScrollThreadIdRef = useRef(threadId);
   const pendingScrollFrameRef = useRef<number | null>(null);
-  const scrollToLatest = useCallback(() => {
+  const initialUnreadLoadCursorRef = useRef<string | null>(null);
+  const scrollToLatest = useCallback((messageId: string | null = null, initial = false) => {
     if (pendingScrollFrameRef.current !== null) {
       window.cancelAnimationFrame(pendingScrollFrameRef.current);
     }
@@ -1402,11 +1440,32 @@ function NativeChatThreadPage() {
         const container = scrollRef.current;
         if (!target?.isConnected || !container?.isConnected) return;
         try {
+          let unreadElement: HTMLElement | null = null;
+          if (messageId) {
+            for (const element of container.querySelectorAll<HTMLElement>("[data-chat-message-id]")) {
+              if (element.dataset.chatMessageId === messageId) {
+                unreadElement = element;
+                break;
+              }
+            }
+          }
+          const top = unreadElement
+            ? Math.max(
+                0,
+                container.scrollTop +
+                  unreadElement.getBoundingClientRect().top -
+                  container.getBoundingClientRect().top,
+              )
+            : container.scrollHeight;
           container.scrollTo({
-            top: container.scrollHeight,
-            behavior: didFirstScroll.current ? "smooth" : "auto",
+            top,
+            behavior: initial ? "auto" : didFirstScroll.current ? "smooth" : "auto",
           });
           didFirstScroll.current = true;
+          if (initial) {
+            didInitialThreadScroll.current = true;
+            initialUnreadMessageRef.current = null;
+          }
         } catch (cause) {
           console.warn("[chat] auto-scroll failed", cause);
         }
@@ -1427,10 +1486,58 @@ function NativeChatThreadPage() {
   useEffect(() => {
     const threadChanged = lastScrollThreadIdRef.current !== threadId;
     if (threadChanged) {
+      if (pendingScrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(pendingScrollFrameRef.current);
+        pendingScrollFrameRef.current = null;
+      }
       lastScrollThreadIdRef.current = threadId;
       lastMessageKeyRef.current = null;
       didFirstScroll.current = false;
+      didInitialThreadScroll.current = false;
+      initialUnreadMessageRef.current = null;
+      initialUnreadLoadCursorRef.current = null;
       keepScrollRef.current = null;
+    }
+
+    const newest = messages[messages.length - 1];
+    const nextKey = newest ? `${newest.id}:${newest.ts}` : null;
+    const isNewMessage = nextKey !== null && nextKey !== lastMessageKeyRef.current;
+    lastMessageKeyRef.current = nextKey;
+
+    if (!didInitialThreadScroll.current) {
+      const readyKey = currentUserId ? `${threadId}:${currentUserId}` : null;
+      if (
+        messagesLoading ||
+        !readyKey ||
+        initialUnreadReadyKey !== readyKey ||
+        loadingMore
+      ) {
+        if (pendingScrollFrameRef.current !== null) {
+          window.cancelAnimationFrame(pendingScrollFrameRef.current);
+          pendingScrollFrameRef.current = null;
+        }
+        return;
+      }
+
+      const targetMessageId =
+        initialUnreadMessageRef.current?.threadId === threadId
+          ? initialUnreadMessageRef.current.messageId
+          : null;
+      const targetIsLoaded =
+        !targetMessageId || messages.some((message) => message.id === targetMessageId);
+      if (targetMessageId && !targetIsLoaded && hasMore && messages.length > 0) {
+        const oldestLoadedId = messages[0]?.id ?? "";
+        const cursor = `${threadId}:${oldestLoadedId}`;
+        if (initialUnreadLoadCursorRef.current !== cursor) {
+          initialUnreadLoadCursorRef.current = cursor;
+          keepScrollRef.current = null;
+          void loadOlder();
+          return;
+        }
+      }
+      keepScrollRef.current = null;
+      scrollToLatest(targetIsLoaded ? targetMessageId : null, true);
+      return;
     }
 
     // Older pages prepend above — keep the reader anchored instead of jumping down.
@@ -1443,15 +1550,20 @@ function NativeChatThreadPage() {
       }
       return;
     }
-    const newest = messages[messages.length - 1];
-    const nextKey = newest ? `${newest.id}:${newest.ts}` : null;
-    const isInitialLoad = lastMessageKeyRef.current === null && nextKey !== null;
-    const isNewMessage = nextKey !== null && nextKey !== lastMessageKeyRef.current;
-    lastMessageKeyRef.current = nextKey;
-    if (threadChanged || isInitialLoad || isNewMessage) {
-      if (nextKey !== null) scrollToLatest();
+    if (threadChanged || isNewMessage) {
+      scrollToLatest();
     }
-  }, [messages, scrollToLatest, threadId]);
+  }, [
+    currentUserId,
+    hasMore,
+    initialUnreadReadyKey,
+    loadOlder,
+    loadingMore,
+    messages,
+    messagesLoading,
+    scrollToLatest,
+    threadId,
+  ]);
 
   const onScrollMessages = () => {
     const el = scrollRef.current;
@@ -2111,6 +2223,7 @@ function NativeChatThreadPage() {
           )
         ) : (
           <div
+            data-chat-message-id={m.id}
             onPointerDown={(event) => startMessageGesture(m, event)}
             onPointerMove={moveMessageGesture}
             onPointerUp={() => endMessageGesture(m)}
@@ -2406,7 +2519,7 @@ function NativeChatThreadPage() {
                   setMessage(e.target.value);
                   setTyping(e.target.value.trim().length > 0);
                 }}
-                onFocus={scrollToLatest}
+                onFocus={() => scrollToLatest()}
                 onBlur={() => setTyping(false)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
