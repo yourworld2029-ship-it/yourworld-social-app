@@ -42,31 +42,3 @@ mtime_ms = 1790738093047
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/b04b9615-dbc0-4561-b448-f5b8e865110d/0a69848b-8ea1-4c00-9521-1caa12280200"
 storage_version_token = "1790738203587849"
 content_type = "application/octet-stream"
-
-[[outputs]]
-id = "s276h5qiy4ZpWT5jxMART"
-uri = "file://artifacts/yourworld/public/downloads/yourworld-20260930T064935Z-v2.apk"
-type = "unspecified"
-title = "YourWorld Android APK"
-description = "Verified v2-signed APK, build 20260930T064935Z. SHA-256: 9f6e1547fb030519ce6e019136bcaa3af387529721794cccd3fd2df72f7ed6bf."
-logical_id = "65f80337-b4ea-4b73-b703-919c72cfcb5c"
-content_hash = "sha256:9f6e1547fb030519ce6e019136bcaa3af387529721794cccd3fd2df72f7ed6bf"
-size = 11952717
-mtime_ms = 1790750976002
-storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/65f80337-b4ea-4b73-b703-919c72cfcb5c/df7e6b04-21b3-4d6f-8940-0278a489a9d3"
-storage_version_token = "1790751087871425"
-content_type = "application/octet-stream"
-
-[[outputs]]
-id = "UZo058qSOzUMqaO5ljvzE"
-uri = "file://artifacts/yourworld/public/downloads/yourworld-20260930T112522Z-v2.apk"
-type = "unspecified"
-title = "YourWorld Android Release APK"
-description = "Fresh Gradle assembleRelease build, signed and verified (v2/v3). Build 20260930T112522Z; package com.yourworld.app; SHA-256: ede5b282a43ba45c1c2e3bbd6e327bb3c7309ddccb069cf5a105f66223c16cdf."
-logical_id = "d909d3bb-9733-4aeb-8ad3-c033275d383f"
-content_hash = "sha256:ede5b282a43ba45c1c2e3bbd6e327bb3c7309ddccb069cf5a105f66223c16cdf"
-size = 6168615
-mtime_ms = 1790767524211
-storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/d909d3bb-9733-4aeb-8ad3-c033275d383f/085de426-7f13-44db-a5b5-b4457eec37e4"
-storage_version_token = "1790767535818501"
-content_type = "application/octet-stream"

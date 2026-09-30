@@ -4,8 +4,6 @@ import android.content.Intent;
 import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
-import android.view.View;
-import android.view.ViewParent;
 import android.view.WindowManager;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -43,7 +41,7 @@ public class MainActivity extends BridgeActivity {
 
         WebView webView = getBridge() != null ? getBridge().getWebView() : null;
         if (webView != null) {
-            applySystemBarInsets(getInsetsTarget(webView));
+            applyWebViewInsets(webView);
             webView.getSettings().setCacheMode(WebSettings.LOAD_DEFAULT);
             webView.getSettings().setDomStorageEnabled(true);
         }
@@ -57,7 +55,7 @@ public class MainActivity extends BridgeActivity {
 
         WebView webView = getBridge() != null ? getBridge().getWebView() : null;
         if (webView != null) {
-            ViewCompat.requestApplyInsets(getInsetsTarget(webView));
+            ViewCompat.requestApplyInsets(webView);
             webView.evaluateJavascript(
                     "window.dispatchEvent(new Event('yw-app-resume'));",
                     null
@@ -156,24 +154,19 @@ public class MainActivity extends BridgeActivity {
         controller.show(WindowInsetsCompat.Type.statusBars());
     }
 
-    private View getInsetsTarget(WebView webView) {
-        ViewParent parent = webView.getParent();
-        return parent instanceof View ? (View) parent : webView;
-    }
+    private void applyWebViewInsets(WebView webView) {
+        final int initialLeft = webView.getPaddingLeft();
+        final int initialTop = webView.getPaddingTop();
+        final int initialRight = webView.getPaddingRight();
+        final int initialBottom = webView.getPaddingBottom();
 
-    private void applySystemBarInsets(View rootLayout) {
-        final int initialLeft = rootLayout.getPaddingLeft();
-        final int initialTop = rootLayout.getPaddingTop();
-        final int initialRight = rootLayout.getPaddingRight();
-        final int initialBottom = rootLayout.getPaddingBottom();
-
-        ViewCompat.setOnApplyWindowInsetsListener(rootLayout, (view, windowInsets) -> {
+        ViewCompat.setOnApplyWindowInsetsListener(webView, (view, windowInsets) -> {
             Insets safeInsets = windowInsets.getInsets(
                     WindowInsetsCompat.Type.statusBars()
                             | WindowInsetsCompat.Type.navigationBars()
                             | WindowInsetsCompat.Type.displayCutout()
             );
-            // Keep the WebView's parent content area clear of native system bars.
+            // Keep WebView content clear of native status, navigation, and display-cutout areas.
             view.setPadding(
                     initialLeft + safeInsets.left,
                     initialTop + safeInsets.top,
@@ -182,6 +175,6 @@ public class MainActivity extends BridgeActivity {
             );
             return windowInsets;
         });
-        ViewCompat.requestApplyInsets(rootLayout);
+        ViewCompat.requestApplyInsets(webView);
     }
 }

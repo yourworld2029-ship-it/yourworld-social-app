@@ -1148,9 +1148,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
             { ...downloadMetadata, quality: choice as VideoQualityTier },
          );
           toast.success(
-            downloadMode === "already-downloaded"
-              ? "Already saved in Profile > Downloads"
-              : downloadMode === "native-original"
+            downloadMode === "native-original"
               ? "Saved video for offline viewing"
               : "Saved video with YourWorld watermark",
           );

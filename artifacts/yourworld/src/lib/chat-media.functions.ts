@@ -275,6 +275,7 @@ export const deleteViewedSocialMessagesOnExit = createServerFn({ method: "POST" 
           );
         }
         return query
+          .eq("receiver_id" as never, context.userId)
           .eq("auto_delete_mode" as never, "after_view")
           .eq("is_viewed" as never, true)
           .range(from, to) as never;
