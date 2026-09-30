@@ -112,7 +112,6 @@ function socialObject(
   kind: "image" | "audio",
 ): StorageObject | null {
   if (isSharedMomentReference(row)) return null;
-  const metadata = row.metadata ?? {};
   const expectedBucket = kind === "audio" ? "voice_notes" : "messages";
   const rawUrl = kind === "audio" ? row.voice_note_url : row.media_url;
   const declaredBucket = row.metadata?.media_bucket;
