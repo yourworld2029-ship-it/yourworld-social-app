@@ -38,8 +38,26 @@ async function copyPublicAssets(sourceDir, targetDir, isRoot = false) {
   }
 }
 
+async function copyLatestAndroidApkToWebOutput() {
+  const downloadsDir = join(publicDir, "downloads");
+  const entries = await readdir(downloadsDir, { withFileTypes: true });
+  const latestApk = entries
+    .filter((entry) => entry.isFile() && /^yourworld-\d{8}T\d{6}Z-v\d+(?:-[a-z0-9-]+)?\.apk$/i.test(entry.name))
+    .map((entry) => entry.name)
+    .sort()
+    .at(-1);
+
+  if (!latestApk) return;
+
+  const targetDir = join(webPublicDir, "downloads");
+  await mkdir(targetDir, { recursive: true });
+  await copyFile(join(downloadsDir, latestApk), join(targetDir, latestApk));
+  console.info(`[web] staged Android APK download ${latestApk}`);
+}
+
 await rm(join(webPublicDir, "index.html"), { force: true });
 await removeApkFiles(webPublicDir);
+await copyLatestAndroidApkToWebOutput();
 await copyPublicAssets(publicDir, capacitorDir, true);
 
 const capacitorHtmlPath = join(capacitorDir, "index.html");
