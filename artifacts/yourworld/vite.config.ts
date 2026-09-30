@@ -37,6 +37,9 @@ export default defineConfig(({ command }) => {
       ...(command === "build" ? [nitro({ defaultPreset: "node-server" })] : []),
       react(),
     ],
+    esbuild: {
+      pure: ["console.log"],
+    },
     define: {
       "import.meta.env.VITE_SUPABASE_URL": JSON.stringify(supabaseUrl),
       "import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY": JSON.stringify(supabasePublishableKey),
@@ -52,6 +55,7 @@ export default defineConfig(({ command }) => {
       tsconfigPaths: true,
     },
     build: {
+      minify: "esbuild",
       chunkSizeWarningLimit: 650,
     },
   };
