@@ -10,14 +10,15 @@ test("Reel watermark text uses the creator handle exactly once", () => {
   assert.equal(reelWatermarkText(""), "YourWorld • @user");
 });
 
-test("video download streams the full response when the server ignores Range", async () => {
+test("video download uses one full GET without requesting a byte range", async () => {
   let requestCount = 0;
   const fakeFetch = async (
     _input: RequestInfo | URL,
     init?: RequestInit,
   ): Promise<Response> => {
     requestCount += 1;
-    assert.equal(new Headers(init?.headers).get("Range"), "bytes=0-4194303");
+    assert.equal(init?.method, "GET");
+    assert.equal(new Headers(init?.headers).get("Range"), null);
     return new Response(sourceBytes, {
       status: 200,
       headers: { "Content-Type": "video/mp4" },
@@ -38,46 +39,21 @@ test("video download streams the full response when the server ignores Range", a
   }
 });
 
-test("video downloads reassemble parallel byte ranges in order", async () => {
-  const source = new Uint8Array(8 * 1024 * 1024 + 257);
-  for (let index = 0; index < source.length; index += 1) {
-    source[index] = index % 251;
-  }
-  const requestedRanges: string[] = [];
-  let activeRequests = 0;
-  let maxActiveRequests = 0;
-
+test("video download rejects a partial response instead of saving incomplete bytes", async () => {
   mock.method(
     globalThis,
     "fetch",
-    async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-      const rangeHeader = new Headers(init?.headers).get("Range");
-      assert.ok(rangeHeader);
-      requestedRanges.push(rangeHeader);
-      const match = rangeHeader.match(/^bytes=(\d+)-(\d+)$/);
-      assert.ok(match);
-      const start = Number(match[1]);
-      const end = Number(match[2]);
-      activeRequests += 1;
-      maxActiveRequests = Math.max(maxActiveRequests, activeRequests);
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      activeRequests -= 1;
-      return new Response(source.slice(start, end + 1), {
+    async (): Promise<Response> =>
+      new Response(sourceBytes, {
         status: 206,
-        headers: {
-          "Content-Range": `bytes ${start}-${end}/${source.length}`,
-          "Content-Type": "video/mp4",
-        },
-      });
-    },
+        headers: { "Content-Range": "bytes 0-99/1000" },
+      }),
   );
-
   try {
-    const blob = await fetchVideoBlob("https://media.example/video.mp4");
-    assert.equal(blob.size, source.length);
-    assert.deepEqual(new Uint8Array(await blob.arrayBuffer()), source);
-    assert.equal(requestedRanges.length, 3);
-    assert.ok(maxActiveRequests >= 2, "range chunks should download concurrently");
+    await assert.rejects(
+      fetchVideoBlob("https://media.example/video.mp4"),
+      /partial response/,
+    );
   } finally {
     mock.restoreAll();
   }

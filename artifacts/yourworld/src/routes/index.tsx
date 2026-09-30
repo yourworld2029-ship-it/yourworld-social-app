@@ -139,10 +139,7 @@ function HomePage() {
       ),
     [uploadTasks, user?.id],
   );
-  const {
-    streams: liveStreams,
-    error: liveStreamsError,
-  } = useActiveLiveStreams();
+  const { streams: liveStreams } = useActiveLiveStreams();
   const { count: alertCount } = useAlertsCount();
   React.useEffect(() => setHydrated(true), []);
 
@@ -407,12 +404,6 @@ function HomePage() {
           </div>
         ))}
       </div>
-      {liveStreamsError && (
-        <p className="border-b border-neutral-900/60 bg-black px-4 pb-2 text-center text-[11px] text-rose-300/80" role="status">
-          Live status is temporarily unavailable.
-        </p>
-      )}
-
       {/* Main Long Video Feed */}
       <FeedVideoAutoplayProvider disabled={Boolean(activeVideo)}>
         {({ activeVideoId }) => (
