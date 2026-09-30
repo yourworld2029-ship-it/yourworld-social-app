@@ -469,13 +469,15 @@ function ProfilePage() {
           metadata,
         );
         toast.success(
-          downloadMode === "native-original"
-            ? post.kind === "reel"
-              ? "Saved Reel for offline viewing"
-              : "Saved video for offline viewing"
-            : post.kind === "reel"
-              ? "Saved Reel with YourWorld watermark"
-              : "Saved video with YourWorld watermark",
+          downloadMode === "already-downloaded"
+            ? "Already saved in Downloads"
+            : downloadMode === "native-original"
+              ? post.kind === "reel"
+                ? "Saved Reel for offline viewing"
+                : "Saved video for offline viewing"
+              : post.kind === "reel"
+                ? "Saved Reel with YourWorld watermark"
+                : "Saved video with YourWorld watermark",
         );
         return;
       }

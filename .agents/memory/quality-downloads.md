@@ -21,11 +21,11 @@ Offline library surfaces must pair cached video bytes with an IndexedDB metadata
 
 **How to apply:** Write metadata only after the selected video bytes are cached, resolve playback from the cache record, and delete both the cache entry and metadata row together.
 
-Offline downloads are user-retained media, not a temporary cache: keep web copies in persistent IndexedDB and Android copies in app-private files with recoverable metadata. Never expire or purge them automatically; a manual delete must remove the media and every registry or recovery record. Temporary playback-range caches remain separate.
+Offline downloads are user-retained media, not a temporary cache: keep web copies in persistent IndexedDB and Android copies in app-private Directory.Data with a persistent Preferences registry. Never clear registry entries or delete files on restart, logout, session expiry, failed attempts, or replacement; only the user's explicit Profile > Downloads Delete action may remove a saved file. Use the registry's exact per-download ID to avoid duplicates. Temporary playback-range caches remain separate.
 
 **Why:** Users expect downloaded videos to remain playable offline until they choose to delete them; cache eviction or stale native snapshots can otherwise make files disappear from the library or reappear after deletion.
 
-**How to apply:** Keep persistence requests ahead of IndexedDB use, restore Android entries from native transfer metadata, and make explicit deletion clear IndexedDB, legacy copies, native files, and native snapshots without adding a TTL.
+**How to apply:** Keep persistence requests ahead of IndexedDB use, restore Android entries from native transfer metadata, preserve app-private files and registry state across lifecycle changes, and make explicit deletion clear IndexedDB, legacy copies, native files, and native snapshots without adding a TTL.
 
 Reel playback metadata may use a `poster` field for the media source, so download catalog metadata must use the explicit thumbnail reference instead of assuming `poster` is an image.
 

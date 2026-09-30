@@ -22,6 +22,8 @@ export type OfflineVideo = {
   posterUrl?: string | null;
   /** App-private Capacitor paths used by the Android offline library. */
   localFilePath?: string;
+  fileUri?: string;
+  /** Legacy alias retained for download records created before fileUri. */
   localFileUri?: string;
   thumbnailPath?: string | null;
 };

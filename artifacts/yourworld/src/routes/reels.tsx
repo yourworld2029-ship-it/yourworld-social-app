@@ -997,19 +997,23 @@ function ReelItem({
             },
             downloadMetadata,
           );
-          trackEvent("reel_downloaded", {
-            surface: "reels_feed",
-            media_type: "video",
-            download_type:
-              downloadMode === "native-original"
-                ? "native_offline_original"
-                : "watermarked_video",
-            download_quality: choice || "original",
-          });
+          if (downloadMode !== "already-downloaded") {
+            trackEvent("reel_downloaded", {
+              surface: "reels_feed",
+              media_type: "video",
+              download_type:
+                downloadMode === "native-original"
+                  ? "native_offline_original"
+                  : "watermarked_video",
+              download_quality: choice || "original",
+            });
+          }
           toast.success(
-            downloadMode === "native-original"
-              ? "Saved Reel for offline viewing"
-              : "Saved Reel with YourWorld watermark",
+            downloadMode === "already-downloaded"
+              ? "Already saved in Profile > Downloads"
+              : downloadMode === "native-original"
+                ? "Saved Reel for offline viewing"
+                : "Saved Reel with YourWorld watermark",
             { id: toastId },
           );
           return;
