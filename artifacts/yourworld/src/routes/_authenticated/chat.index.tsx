@@ -209,7 +209,7 @@ function NativeChatListPage() {
         }
       } catch (cause) {
         if (!isCurrent()) return;
-        // Keep any locally cached conversations visible during a transient refresh failure.
+        setThreads([]);
         setLoadError(cause instanceof Error ? cause.message : "Couldn't load your chats.");
       }
     }

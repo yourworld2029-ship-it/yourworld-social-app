@@ -47,40 +47,12 @@ content_type = "application/octet-stream"
 id = "s276h5qiy4ZpWT5jxMART"
 uri = "file://artifacts/yourworld/public/downloads/yourworld-20260930T064935Z-v2.apk"
 type = "unspecified"
-title = "YourWorld Android APK — 2026-09-30 build"
-description = "Latest built APK (11,952,717 bytes). SHA-256: 9f6e1547fb030519ce6e019136bcaa3af387529721794cccd3fd2df72f7ed6bf"
+title = "YourWorld Android APK"
+description = "Verified v2-signed APK, build 20260930T064935Z. SHA-256: 9f6e1547fb030519ce6e019136bcaa3af387529721794cccd3fd2df72f7ed6bf."
 logical_id = "65f80337-b4ea-4b73-b703-919c72cfcb5c"
 content_hash = "sha256:9f6e1547fb030519ce6e019136bcaa3af387529721794cccd3fd2df72f7ed6bf"
 size = 11952717
 mtime_ms = 1790750976002
-storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/65f80337-b4ea-4b73-b703-919c72cfcb5c/4d54e37b-5991-44fc-aa71-80002b4f7788"
-storage_version_token = "1790752022871438"
-content_type = "application/octet-stream"
-
-[[outputs]]
-id = "BtZiAFhV6dTtrx_HFcjuE"
-uri = "file://artifacts/yourworld/public/downloads/yourworld-20260930T075240Z-v2.apk"
-type = "unspecified"
-title = "YourWorld Android APK — September 30, 2026"
-description = "Fresh clean Gradle debug build, versionCode 2. APK signature verified; required camera and microphone permissions confirmed."
-logical_id = "f6531903-2d9f-4ac0-8109-6f63853fa550"
-content_hash = "sha256:54cd248c68635bee98734a9c67bcc7257a99fd392f049b7f443911626e8d6720"
-size = 7392785
-mtime_ms = 1790754760466
-storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/f6531903-2d9f-4ac0-8109-6f63853fa550/78ea82c4-5609-4ab2-b997-929220e611d6"
-storage_version_token = "1790755155405811"
-content_type = "application/octet-stream"
-
-[[outputs]]
-id = "SZaQm7z7Y9MbA3jHv6L5J"
-uri = "file://artifacts/yourworld/public/downloads/yourworld-20260930T103809Z-v2.apk"
-type = "unspecified"
-title = "YourWorld Android APK — Build 20260930T103809Z"
-description = "Fresh debug-signed APK. SHA-256: 1f3e5a4a01a32e286d9d05625dee1c5f4e2c4ebc7685cf74b371db2df7ceb3c5."
-logical_id = "6005a1e5-5332-41ee-bb67-c81dc5da1d7a"
-content_hash = "sha256:1f3e5a4a01a32e286d9d05625dee1c5f4e2c4ebc7685cf74b371db2df7ceb3c5"
-size = 7395037
-mtime_ms = 1790764689830
-storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/6005a1e5-5332-41ee-bb67-c81dc5da1d7a/3fbc7f80-b93f-45a4-b1c6-40ad87cc1938"
-storage_version_token = "1790764795401425"
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/65f80337-b4ea-4b73-b703-919c72cfcb5c/df7e6b04-21b3-4d6f-8940-0278a489a9d3"
+storage_version_token = "1790751087871425"
 content_type = "application/octet-stream"
