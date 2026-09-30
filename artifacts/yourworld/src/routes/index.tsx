@@ -24,6 +24,7 @@ import {
   getUnfinishedVideoResumes,
   useVideoResumeEntries,
 } from "@/lib/video-resume";
+import { getAppScrollContainer } from "@/lib/app-scroll-container";
 
 type FeedItem =
   | {
@@ -57,6 +58,36 @@ function isVerticalLongVideo(video: LongVideo) {
     title.includes("#reel")
   );
 }
+
+const FeedTopBar = React.memo(function FeedTopBar({
+  alertCount,
+}: {
+  alertCount: number;
+}) {
+  return (
+    <header className="feed-header sticky top-0 z-50 flex items-center justify-between border-b border-neutral-900 bg-black px-4 pb-3 pt-[calc(env(safe-area-inset-top,24px)_+_0.75rem)]">
+      <Link to="/" className="flex min-w-0 items-center gap-2">
+        <img src={ywLogo} alt="YourWorld" className="h-8 w-auto object-contain" />
+        <span className="font-bold text-xl tracking-tight bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-500 bg-clip-text text-transparent">
+          YourWorld
+        </span>
+      </Link>
+      <div className="flex items-center gap-3">
+        <Link to="/search" className="p-2 rounded-full hover:bg-neutral-900 text-neutral-200 transition-colors">
+          <Search className="w-[22px] h-[22px]" strokeWidth={1.8} />
+        </Link>
+        <Link to="/notifications" className="relative p-2 rounded-full hover:bg-neutral-900 text-neutral-200 transition-colors">
+          <Heart className="w-[22px] h-[22px]" strokeWidth={1.8} />
+          {alertCount > 0 && (
+            <span className="absolute top-1 right-1 w-4 h-4 bg-pink-600 text-[10px] font-bold rounded-full flex items-center justify-center text-white">
+              {alertCount > 9 ? "9+" : alertCount}
+            </span>
+          )}
+        </Link>
+      </div>
+    </header>
+  );
+});
 
 export const Route = createFileRoute("/")({
   component: HomePage,
@@ -145,13 +176,18 @@ function HomePage() {
 
   React.useEffect(() => {
     if (!hasNextPage || isFetchingNextPage) return;
+    const scrollContainer = getAppScrollContainer();
+    if (!scrollContainer) return;
     const onScroll = () => {
-      if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 900) {
+      if (
+        scrollContainer.scrollTop + scrollContainer.clientHeight >=
+        scrollContainer.scrollHeight - 900
+      ) {
         void loadMore();
       }
     };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    scrollContainer.addEventListener("scroll", onScroll, { passive: true });
+    return () => scrollContainer.removeEventListener("scroll", onScroll);
   }, [hasNextPage, isFetchingNextPage, loadMore]);
 
   // Keep the fullscreen swipe queue in sync with the feed.
@@ -285,28 +321,7 @@ function HomePage() {
 
   return (
     <div className="min-h-screen bg-black text-white pb-24">
-      {/* Header */}
-      <header className="feed-header sticky top-0 z-50 flex items-center justify-between border-b border-neutral-900 bg-black px-4 pb-3 pt-[calc(env(safe-area-inset-top,24px)_+_0.75rem)]">
-        <Link to="/" className="flex min-w-0 items-center gap-2">
-          <img src={ywLogo} alt="YourWorld" className="h-8 w-auto object-contain" />
-          <span className="font-bold text-xl tracking-tight bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-500 bg-clip-text text-transparent">
-            YourWorld
-          </span>
-        </Link>
-        <div className="flex items-center gap-3">
-          <Link to="/search" className="p-2 rounded-full hover:bg-neutral-900 text-neutral-200 transition-colors">
-            <Search className="w-[22px] h-[22px]" strokeWidth={1.8} />
-          </Link>
-          <Link to="/notifications" className="relative p-2 rounded-full hover:bg-neutral-900 text-neutral-200 transition-colors">
-            <Heart className="w-[22px] h-[22px]" strokeWidth={1.8} />
-            {alertCount > 0 && (
-              <span className="absolute top-1 right-1 w-4 h-4 bg-pink-600 text-[10px] font-bold rounded-full flex items-center justify-center text-white">
-                {alertCount > 9 ? "9+" : alertCount}
-              </span>
-            )}
-          </Link>
-        </div>
-      </header>
+      <FeedTopBar alertCount={alertCount} />
 
       {/* Stories / Moments Tray */}
       <div className="flex items-center gap-3 px-4 py-3 overflow-x-auto no-scrollbar border-b border-neutral-900/60 bg-black">

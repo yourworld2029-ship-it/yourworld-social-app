@@ -1,5 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
 import { createRouter, Link } from "@tanstack/react-router";
+import { APP_SCROLL_RESTORATION_ID } from "@/lib/app-scroll-container";
 import { routeTree } from "./routeTree.gen";
 
 function DefaultErrorComponent({ error }: { error: Error }) {
@@ -70,6 +71,9 @@ export const getRouter = () => {
     defaultNotFoundComponent: DefaultNotFoundComponent,
     context: { queryClient },
     scrollRestoration: true,
+    scrollToTopSelectors: [
+      `[data-scroll-restoration-id="${APP_SCROLL_RESTORATION_ID}"]`,
+    ],
     defaultPreload: "intent",
     defaultPreloadDelay: 30,
     defaultPreloadStaleTime: 0,

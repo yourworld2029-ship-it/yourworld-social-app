@@ -8,6 +8,7 @@ import {
   type RefCallback,
 } from "react";
 import { getFeedWindowIndices } from "@/lib/feed-windowing";
+import { getAppScrollContainer } from "@/lib/app-scroll-container";
 
 type FeedWindowItem = { key: string };
 
@@ -50,12 +51,15 @@ export function VirtualizedFeedWindow<T extends FeedWindowItem>({
     if (previousHeight !== undefined && Math.abs(previousHeight - nextHeight) < 2) return;
 
     heights.current.set(key, nextHeight);
+    const scrollContainer = getAppScrollContainer();
     if (
       adjustScroll &&
       previousHeight !== undefined &&
-      element.getBoundingClientRect().bottom <= 0
+      element.getBoundingClientRect().bottom <=
+        (scrollContainer?.getBoundingClientRect().top ?? 0)
     ) {
-      window.scrollBy(0, nextHeight - previousHeight);
+      if (scrollContainer) scrollContainer.scrollBy(0, nextHeight - previousHeight);
+      else window.scrollBy(0, nextHeight - previousHeight);
     }
     setHeightVersion((version) => version + 1);
   }, []);
@@ -80,6 +84,9 @@ export function VirtualizedFeedWindow<T extends FeedWindowItem>({
   }, []);
 
   useEffect(() => {
+    const scrollContainer = getAppScrollContainer();
+    const viewportTop = scrollContainer?.getBoundingClientRect().top ?? 0;
+    const viewportHeight = scrollContainer?.clientHeight ?? window.innerHeight;
     const liveKeys = new Set(items.map((item) => item.key));
     for (const key of heights.current.keys()) {
       if (!liveKeys.has(key)) heights.current.delete(key);
@@ -88,7 +95,7 @@ export function VirtualizedFeedWindow<T extends FeedWindowItem>({
       if (!liveKeys.has(key)) rowCallbacks.current.delete(key);
     }
 
-    const viewportCenter = window.innerHeight / 2;
+    const viewportCenter = viewportTop + viewportHeight / 2;
     let closestKey: string | null = null;
     let closestDistance = Number.POSITIVE_INFINITY;
 
@@ -125,7 +132,7 @@ export function VirtualizedFeedWindow<T extends FeedWindowItem>({
     let intersectionObserver: IntersectionObserver | null = null;
     const centralRows = new Map<string, DOMRectReadOnly>();
     const chooseCenter = () => {
-      const centerY = window.innerHeight / 2;
+      const centerY = viewportTop + viewportHeight / 2;
       let nearestKey: string | null = null;
       let nearestDistance = Number.POSITIVE_INFINITY;
       for (const [key, rect] of centralRows) {
@@ -152,14 +159,16 @@ export function VirtualizedFeedWindow<T extends FeedWindowItem>({
           }
           chooseCenter();
         },
-        { rootMargin: "-42% 0px -42% 0px", threshold: 0 },
+        { root: scrollContainer, rootMargin: "-42% 0px -42% 0px", threshold: 0 },
       );
       for (const element of rowElements.current.values()) intersectionObserver.observe(element);
     } else {
       let frame = 0;
       const updateCenter = () => {
         frame = 0;
-        const centerY = window.innerHeight / 2;
+        const centerY =
+          (scrollContainer?.getBoundingClientRect().top ?? 0) +
+          (scrollContainer?.clientHeight ?? window.innerHeight) / 2;
         let nearestKey: string | null = null;
         let nearestDistance = Number.POSITIVE_INFINITY;
         for (const [key, element] of rowElements.current) {
@@ -179,11 +188,13 @@ export function VirtualizedFeedWindow<T extends FeedWindowItem>({
         if (frame) return;
         frame = window.requestAnimationFrame(updateCenter);
       };
-      window.addEventListener("scroll", onScroll, { passive: true });
+      scrollContainer?.addEventListener("scroll", onScroll, { passive: true });
+      if (!scrollContainer) window.addEventListener("scroll", onScroll, { passive: true });
       window.addEventListener("resize", onScroll, { passive: true });
       updateCenter();
       return () => {
-        window.removeEventListener("scroll", onScroll);
+        scrollContainer?.removeEventListener("scroll", onScroll);
+        if (!scrollContainer) window.removeEventListener("scroll", onScroll);
         window.removeEventListener("resize", onScroll);
         if (frame) window.cancelAnimationFrame(frame);
         resizeObserver.current?.disconnect();

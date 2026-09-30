@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Link, useLocation } from "@tanstack/react-router";
 import { Home, Film, MessageSquare, User, Plus } from "lucide-react";
 import { useUnreadMessageCount } from "@/lib/social-data";
@@ -6,7 +7,7 @@ interface BottomNavProps {
   onOpenCreate?: () => void;
 }
 
-export function BottomNav({ onOpenCreate }: BottomNavProps) {
+export const BottomNav = memo(function BottomNav({ onOpenCreate }: BottomNavProps) {
   const location = useLocation();
   const unreadMessages = useUnreadMessageCount();
 
@@ -63,4 +64,4 @@ export function BottomNav({ onOpenCreate }: BottomNavProps) {
       </div>
     </div>
   );
-}
+});

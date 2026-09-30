@@ -16,6 +16,7 @@ import { useLocation, useNavigate } from "@tanstack/react-router";
 import { Capacitor, registerPlugin } from "@capacitor/core";
 import { ScreenOrientation } from "@capacitor/screen-orientation";
 import { StatusBar } from "@capacitor/status-bar";
+import { getAppScrollContainer } from "@/lib/app-scroll-container";
 import type { VideoQualityTier } from "@/lib/video-quality";
 import { getAdjacentVideo } from "@/lib/video-queue";
 import { resolveMediaUrl } from "@/lib/social-data";
@@ -618,7 +619,11 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     if (scrollY === null) return;
     fullscreenScrollYRef.current = null;
     window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => window.scrollTo(0, scrollY));
+      window.requestAnimationFrame(() => {
+        const scrollContainer = getAppScrollContainer();
+        if (scrollContainer) scrollContainer.scrollTo(0, scrollY);
+        else window.scrollTo(0, scrollY);
+      });
     });
   }, []);
 
@@ -959,7 +964,8 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       if (!primaryTarget) return;
       const requestId = fullscreenRequestIdRef.current + 1;
       fullscreenRequestIdRef.current = requestId;
-      fullscreenScrollYRef.current = window.scrollY;
+      fullscreenScrollYRef.current =
+        getAppScrollContainer()?.scrollTop ?? window.scrollY;
       const fallbackTarget = container && video ? video : null;
       void requestPlayerFullscreen(primaryTarget)
         .then((enteredFullscreen) =>

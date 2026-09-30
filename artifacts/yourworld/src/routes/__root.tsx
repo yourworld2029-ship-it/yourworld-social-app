@@ -8,7 +8,7 @@ import {
   Scripts,
   useNavigate,
 } from "@tanstack/react-router";
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Capacitor } from "@capacitor/core";
 import { App } from "@capacitor/app";
@@ -33,6 +33,7 @@ import { EarningsCreditWatcher } from "@/lib/earnings-credit";
 import { SafeProvider } from "@/lib/safe-provider";
 import { AdaptiveMediaController } from "@/lib/adaptive-performance";
 import { VideoPlaybackProvider } from "@/lib/video-playback";
+import { APP_SCROLL_RESTORATION_ID } from "@/lib/app-scroll-container";
 
 function NotFoundComponent() {
   return (
@@ -193,6 +194,7 @@ function RootComponent() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const [createOpen, setCreateOpen] = useState(false);
+  const openCreate = useCallback(() => setCreateOpen(true), []);
   const [isPlatformResolved, setIsPlatformResolved] = useState(false);
   const [isNativeApp, setIsNativeApp] = useState(false);
   const isWatchPreview = pathname.startsWith("/watch/");
@@ -331,10 +333,17 @@ function RootComponent() {
                                        {!isWatchPreview && <DownloadBanner />}
                                       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
                                       <AuthGate>
-                                        <div className={cn("mx-auto min-h-screen w-full", isWatchPreview ? "max-w-5xl" : wideProfileLayout ? "max-w-4xl" : "max-w-lg", hideNav ? "" : "pb-20")}>
+                                        <div
+                                          className={cn(
+                                            "yw-app-scroll-container mx-auto w-full overflow-x-hidden overflow-y-auto overscroll-y-contain",
+                                            isWatchPreview ? "max-w-5xl" : wideProfileLayout ? "max-w-4xl" : "max-w-lg",
+                                            hideNav ? "" : "pb-20",
+                                          )}
+                                          data-scroll-restoration-id={APP_SCROLL_RESTORATION_ID}
+                                        >
                                           <Outlet />
                                         </div>
-                                        {!hideNav && <BottomNav onOpenCreate={() => setCreateOpen(true)} />}
+                                        {!hideNav && <BottomNav onOpenCreate={openCreate} />}
                                         <CreateSheet isOpen={createOpen} onClose={() => setCreateOpen(false)} />
                                       </AuthGate>
                                     </VideoPlaybackProvider>
