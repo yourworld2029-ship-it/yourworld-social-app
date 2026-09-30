@@ -96,8 +96,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       {
         name: "viewport",
-        content:
-          "width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content",
+        content: "width=device-width, initial-scale=1.0, viewport-fit=cover",
       },
       { title: "YourWorld — Share your world" },
       {
@@ -331,7 +330,7 @@ function RootComponent() {
                                        {!isWatchPreview && <DownloadBanner />}
                                       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
                                       <AuthGate>
-                                        <div className={cn("mx-auto min-h-screen w-full", isWatchPreview ? "max-w-5xl" : wideProfileLayout ? "max-w-4xl" : "max-w-lg", hideNav ? "" : "pb-20")}>
+                                        <div className={cn("mx-auto min-h-[100dvh] w-full", isWatchPreview ? "max-w-5xl" : wideProfileLayout ? "max-w-4xl" : "max-w-lg", hideNav ? "" : "pb-20")}>
                                           <Outlet />
                                         </div>
                                         {!hideNav && <BottomNav onOpenCreate={() => setCreateOpen(true)} />}

@@ -1282,7 +1282,9 @@ html[data-theme="midnight"] {
 }
 
 .bottom-nav-safe-area {
-  padding-bottom: max(env(safe-area-inset-bottom, 0px), 24px) !important;
+  bottom: 0;
+  box-sizing: border-box;
+  padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
 }
 
 .active-call-dock {

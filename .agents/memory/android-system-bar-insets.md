@@ -3,11 +3,11 @@ name: Android system-bar insets
 description: Handle Android 15+ edge-to-edge requirements in the Capacitor WebView.
 ---
 
-When the Android app targets SDK 35 or higher, Android 15+ enforces edge-to-edge drawing even when the status bar is visible. Disabling fullscreen and showing the status bar do not, by themselves, guarantee that WebView content starts below the status bar and display cutout. Apply native status-bar and display-cutout insets to the WebView on those Android versions; older versions can use the normal decor-fits-system-windows behavior.
+When the Android app targets SDK 35 or higher, Android 15+ enforces edge-to-edge drawing even when system bars are visible. Disabling fullscreen and showing the status bar do not, by themselves, keep app content clear of the 3-button navigation bar. Apply status-bar, navigation-bar, and display-cutout insets as padding on Capacitor's root layout around the WebView so the WebView viewport itself ends above the system bars. Keep the inset listener responsive to mode changes and preserve IME inset dispatch.
 
-**Why:** The app targets a modern SDK, where status bars can be visible and still overlay edge-to-edge content.
+**Why:** The WebView can report a full-height viewport when its own padding is changed, leaving fixed bottom navigation underneath Android's software buttons on devices using 3-button navigation.
 
-**How to apply:** Check `targetSdk` before treating a top cutout as a CSS-only issue. Keep status-bar visibility/icon contrast explicit and preserve native WebView insets.
+**How to apply:** Keep edge-to-edge bars explicit and non-translucent, apply bar insets to the root BridgeLayout, set the viewport to `viewport-fit=cover`, and use a small CSS safe-area floor for bottom navigation. Use `100dvh` for the app shell so it follows the inset-adjusted visible viewport.
 
 Fresh Replit shells may not include the Android SDK, even when a previous APK build succeeded. The managed system-dependency installer may not expose `androidenv.androidPkgs.androidsdk`; a composed Nix SDK is a viable fallback, but Gradle's requested Build Tools versions must be included because the Nix SDK output is read-only.
 
