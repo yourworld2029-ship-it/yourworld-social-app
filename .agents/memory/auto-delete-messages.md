@@ -9,11 +9,11 @@ Social Chat auto-delete is one setting on the shared conversation, with each new
 
 **How to apply:** Keep Social Chat values `off`, `after_view`, `3_hours`, and `24_hours`; normalize legacy `6_hours` to `3_hours`, anchor timed expiry to `created_at`, exclude system messages, and do not change Orbit retention.
 
-Normal `after_view` messages, including text and non-View-Once media, remain available while the chat stays open. On chat exit, an authenticated recipient-scoped RPC hard-deletes viewed Vanish Mode rows; owned chat media is removed first, while validated shared Moment assets remain intact. Explicit View Once media keeps its separate five-second expiry after it is opened.
+Normal `after_view` messages, including text and non-View-Once media, remain available while the chat stays open. On exit by either authenticated participant, a participant-checked RPC hard-deletes all viewed Vanish Mode rows in that conversation; owned chat media is removed first, while validated shared Moment assets remain intact. Explicit View Once media keeps its separate five-second expiry after it is opened.
 
-**Why:** A timed five-second expiry makes Vanish Mode disappear while the recipient is still in the conversation and fails the chat-exit lifecycle.
+**Why:** Recipient-only cleanup leaves viewed messages sent by the exiting participant behind in Supabase and the peer's cache; normal Vanish messages should disappear from both sides when either participant leaves.
 
-**How to apply:** Keep read/view triggers, local render guards, exit cleanup, and realtime DELETE delivery aligned. Do not route Social changes through Orbit; Postgres Changes publishes `messages` deletes to the peer screen.
+**How to apply:** Keep read/view triggers, local render guards, either-participant exit cleanup, and realtime DELETE delivery aligned. Reconcile cached normal Vanish IDs against Supabase on thread load, even if a delete event arrived while the thread was not mounted. Do not route Social changes through Orbit; Postgres Changes publishes `messages` deletes to the peer screen.
 
 Timed Social text rows need a server-side scheduled sweep so they are removed when no chat is mounted. Timed media rows must continue through the existing storage-aware cleanup job.
 

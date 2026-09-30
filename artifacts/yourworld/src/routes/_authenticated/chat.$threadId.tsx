@@ -1391,6 +1391,12 @@ function NativeChatThreadPage() {
   const lastMessageKeyRef = useRef<string | null>(null);
   const lastScrollThreadIdRef = useRef(threadId);
   const pendingScrollFrameRef = useRef<number | null>(null);
+  const initialScrollTargetRef = useRef<{
+    threadId: string;
+    unreadMessageId: string | null;
+  } | null>(null);
+  const unreadDividerRef = useRef<HTMLDivElement>(null);
+  const [firstUnreadDividerId, setFirstUnreadDividerId] = useState<string | null>(null);
   const scrollToLatest = useCallback(() => {
     if (pendingScrollFrameRef.current !== null) {
       window.cancelAnimationFrame(pendingScrollFrameRef.current);
@@ -1431,6 +1437,8 @@ function NativeChatThreadPage() {
       lastMessageKeyRef.current = null;
       didFirstScroll.current = false;
       keepScrollRef.current = null;
+      initialScrollTargetRef.current = null;
+      setFirstUnreadDividerId(null);
     }
 
     // Older pages prepend above — keep the reader anchored instead of jumping down.
@@ -1443,15 +1451,53 @@ function NativeChatThreadPage() {
       }
       return;
     }
+
+    if (messagesLoading || loadingMore) return;
+
     const newest = messages[messages.length - 1];
     const nextKey = newest ? `${newest.id}:${newest.ts}` : null;
-    const isInitialLoad = lastMessageKeyRef.current === null && nextKey !== null;
+    if (!didFirstScroll.current) {
+      if (initialScrollTargetRef.current?.threadId !== threadId) {
+        const firstUnread = messages.find(
+          (chatMessage) =>
+            chatMessage.sender === "them" &&
+            !chatMessage.read &&
+            !chatMessage.system,
+        );
+        const unreadMessageId = firstUnread?.id ?? null;
+        initialScrollTargetRef.current = { threadId, unreadMessageId };
+        lastMessageKeyRef.current = nextKey;
+        setFirstUnreadDividerId(unreadMessageId);
+      }
+
+      const unreadMessageId =
+        initialScrollTargetRef.current?.threadId === threadId
+          ? initialScrollTargetRef.current.unreadMessageId
+          : null;
+      if (pendingScrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(pendingScrollFrameRef.current);
+      }
+      pendingScrollFrameRef.current = window.requestAnimationFrame(() => {
+        pendingScrollFrameRef.current = window.requestAnimationFrame(() => {
+          pendingScrollFrameRef.current = null;
+          const container = scrollRef.current;
+          if (!container?.isConnected) return;
+          const divider = unreadMessageId ? unreadDividerRef.current : null;
+          if (divider?.isConnected) {
+            divider.scrollIntoView({ behavior: "smooth", block: "start" });
+          } else {
+            container.scrollTop = container.scrollHeight;
+          }
+          didFirstScroll.current = true;
+        });
+      });
+      return;
+    }
+
     const isNewMessage = nextKey !== null && nextKey !== lastMessageKeyRef.current;
     lastMessageKeyRef.current = nextKey;
-    if (threadChanged || isInitialLoad || isNewMessage) {
-      if (nextKey !== null) scrollToLatest();
-    }
-  }, [messages, scrollToLatest, threadId]);
+    if (isNewMessage) scrollToLatest();
+  }, [loadingMore, messages, messagesLoading, scrollToLatest, threadId]);
 
   const onScrollMessages = () => {
     const el = scrollRef.current;
@@ -2098,6 +2144,18 @@ function NativeChatThreadPage() {
         )}
         {messages.map((m) => (
           <ChatMessageErrorBoundary key={`${threadId}:${m.id}`}>
+          {m.id === firstUnreadDividerId ? (
+            <div
+              ref={unreadDividerRef}
+              role="separator"
+              aria-label="First unread message"
+              className="flex scroll-mt-3 items-center gap-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-purple-300"
+            >
+              <span className="h-px flex-1 bg-purple-500/40" />
+              <span>Unread messages</span>
+              <span className="h-px flex-1 bg-purple-500/40" />
+            </div>
+          ) : null}
           {m.system ? (
           missedCallTypeFromText(m.text) ? (
             <MissedCallPill text={m.text} timestamp={m.ts} now={relativeNow} />

@@ -1497,6 +1497,22 @@ function maintainChatBroadcastSubscription(
   };
 }
 
+const pendingSocialExitCleanupTimers = new Map<
+  string,
+  ReturnType<typeof setTimeout>
+>();
+
+function isNonViewOnceVanishMessage(message: DbMessage) {
+  const isViewOnce =
+    message.metadata?.view_once === true ||
+    message.metadata?.view_once === "true";
+  return (
+    message.auto_delete_mode === "after_view" &&
+    message.is_system_message !== true &&
+    !isViewOnce
+  );
+}
+
 /** Live public.messages records for the canonical two-person route id. */
 export function useThreadMessages(threadId: string, _opts: { staleTime?: number } = {}) {
   const pair = useMemo(() => dmThreadPair(threadId), [threadId]);
@@ -1532,7 +1548,6 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
   const deletionChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const clearGenerationRef = useRef(0);
   const afterViewTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
-  const exitCleanupTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   useEffect(() => {
     if (messagesThreadId !== threadId || threadIdRef.current !== threadId) return;
     messagesRef.current = messages;
@@ -1553,7 +1568,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     setMessagesThreadId(threadId);
     messagesRef.current = cachedRows;
     setMessages(cachedRows);
-    setLoading(false);
+    setLoading(true);
     setLoadingMore(false);
     loadingMoreLockRef.current = null;
     setHasMore(true);
@@ -1658,6 +1673,56 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       throw cause;
     }
   }, [pair]);
+  const reconcileMissingViewedVanishRows = useCallback(async (requestThreadId: string) => {
+    if (
+      threadIdRef.current !== requestThreadId ||
+      messagesThreadIdRef.current !== requestThreadId
+    ) {
+      return;
+    }
+    const candidateIds = [
+      ...new Set(
+        messagesRef.current
+          .filter(isNonViewOnceVanishMessage)
+          .map((message) => message.id),
+      ),
+    ];
+    if (!candidateIds.length) return;
+
+    try {
+      const { data, error: queryError } = await supabase
+        .from("messages" as never)
+        .select("id" as never)
+        .in("id" as never, candidateIds as never);
+      if (queryError) {
+        console.warn("[social-chat] viewed Vanish cache reconciliation failed", queryError);
+        return;
+      }
+      if (
+        threadIdRef.current !== requestThreadId ||
+        messagesThreadIdRef.current !== requestThreadId
+      ) {
+        return;
+      }
+
+      const existingIds = new Set(
+        ((data ?? []) as unknown as { id: string }[]).map((row) => row.id),
+      );
+      const deletedIds = new Set(candidateIds.filter((id) => !existingIds.has(id)));
+      if (!deletedIds.size) return;
+
+      messagesRef.current = messagesRef.current.filter(
+        (message) => !deletedIds.has(message.id),
+      );
+      setMessages((previous) =>
+        previous.filter((message) => !deletedIds.has(message.id)),
+      );
+      cacheSet(`thread:${requestThreadId}`, messagesRef.current);
+      saveCachedThread(`social:${requestThreadId}`, messagesRef.current);
+    } catch (cause) {
+      console.warn("[social-chat] viewed Vanish cache reconciliation threw", cause);
+    }
+  }, []);
   const load = useCallback(async (conversationIdOverride?: string | null) => {
     const requestThreadId = threadId;
     if (!pair) {
@@ -1669,6 +1734,8 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       const rows = await queryRows(undefined, conversationIdOverride);
       if (threadIdRef.current !== requestThreadId || messagesThreadIdRef.current !== requestThreadId) return;
       if (rows === null) return;
+      await reconcileMissingViewedVanishRows(requestThreadId);
+      if (threadIdRef.current !== requestThreadId || messagesThreadIdRef.current !== requestThreadId) return;
       if (generation !== clearGenerationRef.current) return;
       merge(rows);
       setHasMore(rows.length >= PAGE_SIZE);
@@ -1681,7 +1748,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     finally {
       if (threadIdRef.current === requestThreadId) setLoading(false);
     }
-  }, [pair, queryRows, merge, threadId]);
+  }, [pair, queryRows, merge, reconcileMissingViewedVanishRows, threadId]);
   const loadOlder = useCallback(async () => {
     if (
       loadingMoreLockRef.current ||
@@ -1799,7 +1866,6 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
               if (typeof row.id !== "string" || !row.id.trim()) return;
               const rowId = row.id;
               if (eventType === "DELETE") {
-                if (!messagesRef.current.some((message) => message.id === rowId)) return;
                 clearGenerationRef.current += 1;
                 messagesRef.current = messagesRef.current.filter((message) => message.id !== rowId);
                 setMessages(messagesRef.current);
@@ -1958,10 +2024,14 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       }
       if (data !== true) return false;
       const now = Date.now();
-      setMessages((prev) => prev.filter((message) =>
+      const retained = messagesRef.current.filter((message) =>
         message.id !== id &&
         (!message.expires_at || Date.parse(message.expires_at) > now),
-      ));
+      );
+      messagesRef.current = retained;
+      setMessages(retained);
+      cacheSet(`thread:${threadId}`, retained);
+      saveCachedThread(`social:${threadId}`, retained);
       return true;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not delete the viewed message.");
@@ -1999,8 +2069,11 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       if (
         message.receiver_id !== me ||
         message.auto_delete_mode !== "after_view" ||
+        !(
+          message.metadata?.view_once === true ||
+          message.metadata?.view_once === "true"
+        ) ||
         !message.is_viewed ||
-        (message.metadata?.view_once !== true && message.metadata?.view_once !== "true") ||
         message.is_deleted ||
         afterViewTimersRef.current.has(message.id)
       ) {
@@ -2067,7 +2140,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       []
     ).filter((row) => !isCaptureAlertMessage(row));
   }, [messages, messagesThreadId, threadId]);
-  const visibleLoading = messagesThreadId === threadId ? loading : false;
+  const visibleLoading = messagesThreadId === threadId ? loading : true;
   const visibleLoadingMore = messagesThreadId === threadId ? loadingMore : false;
   const visibleHasMore = messagesThreadId === threadId ? hasMore : false;
 
@@ -2430,9 +2503,17 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
           [],
         pairAtExit,
       );
-      const retainedRows = cachedRows.filter((message) => !deletedIds.has(message.id));
+      const retainedRows = cachedRows.filter(
+        (message) => !deletedIds.has(message.id),
+      );
       cacheSet(`thread:${threadIdAtExit}`, retainedRows);
       saveCachedThread(`social:${threadIdAtExit}`, retainedRows);
+      if (threadIdRef.current === threadIdAtExit) {
+        messagesRef.current = messagesRef.current.filter(
+          (message) => !deletedIds.has(message.id),
+        );
+        setMessages(messagesRef.current);
+      }
     } catch (cause) {
       console.warn("[social-chat] Vanish Mode exit cleanup failed", cause);
     }
@@ -2441,15 +2522,16 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
   useEffect(() => {
     if (!conversationId || !me || !pair) return;
     const cleanupKey = `${threadId}:${conversationId}:${me}`;
-    const pending = exitCleanupTimersRef.current.get(cleanupKey);
+    const pending = pendingSocialExitCleanupTimers.get(cleanupKey);
     if (pending) {
       clearTimeout(pending);
-      exitCleanupTimersRef.current.delete(cleanupKey);
+      pendingSocialExitCleanupTimers.delete(cleanupKey);
     }
 
     return () => {
       const timer = setTimeout(() => {
-        exitCleanupTimersRef.current.delete(cleanupKey);
+        if (pendingSocialExitCleanupTimers.get(cleanupKey) !== timer) return;
+        pendingSocialExitCleanupTimers.delete(cleanupKey);
         void (async () => {
           // Flush the chat's existing read-on-open behavior first, so a read
           // request still in flight cannot race the permanent delete.
@@ -2461,7 +2543,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
           await flushViewedMessagesOnExit(conversationId, threadId, pair);
         })();
       }, 0);
-      exitCleanupTimersRef.current.set(cleanupKey, timer);
+      pendingSocialExitCleanupTimers.set(cleanupKey, timer);
     };
   }, [
     conversationId,
