@@ -15,6 +15,7 @@ type ChatMediaRow = {
   voice_note_url: string | null;
   metadata: Record<string, unknown> | null;
   auto_delete_mode: string | null;
+  is_read: boolean | null;
   is_viewed: boolean | null;
   is_system_message?: boolean | null;
   expires_at: string | null;
@@ -261,7 +262,7 @@ export const deleteViewedSocialMessagesOnExit = createServerFn({ method: "POST" 
     }
 
     const selectColumns =
-      "id,sender_id,receiver_id,conversation_id,media_url,voice_note_url,metadata,auto_delete_mode,is_viewed,is_system_message,expires_at";
+      "id,sender_id,receiver_id,conversation_id,media_url,voice_note_url,metadata,auto_delete_mode,is_read,is_viewed,is_system_message,expires_at";
     const loadViewedRows = (conversationOnly: boolean) =>
       fetchAllPages<ChatMediaRow>((from, to) => {
         let query = context.supabase
@@ -275,9 +276,8 @@ export const deleteViewedSocialMessagesOnExit = createServerFn({ method: "POST" 
           );
         }
         return query
-          .eq("receiver_id" as never, context.userId)
           .eq("auto_delete_mode" as never, "after_view")
-          .eq("is_viewed" as never, true)
+          .or("is_read.eq.true,is_viewed.eq.true" as never)
           .range(from, to) as never;
       });
 
@@ -290,6 +290,7 @@ export const deleteViewedSocialMessagesOnExit = createServerFn({ method: "POST" 
     ].filter(
       (row) =>
         row.is_system_message !== true &&
+        (row.is_read === true || row.is_viewed === true) &&
         row.metadata?.view_once !== true &&
         row.metadata?.view_once !== "true",
     );

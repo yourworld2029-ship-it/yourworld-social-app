@@ -32,6 +32,8 @@ type SocialRow = {
   metadata: Record<string, unknown> | null;
   is_deleted: boolean | null;
   expires_at: string | null;
+  created_at: string;
+  auto_delete_mode: string | null;
 };
 
 type DirectRow = {
@@ -167,23 +169,59 @@ async function deleteRow(table: string, id: string) {
 }
 
 async function loadSocialCandidates(now: string) {
-  const [expired, deleted] = await Promise.all([
+  const fiveHoursAgo = new Date(Date.parse(now) - 5 * 60 * 60 * 1000).toISOString();
+  const twentyFourHoursAgo = new Date(
+    Date.parse(now) - 24 * 60 * 60 * 1000,
+  ).toISOString();
+  const selectFields =
+    "id,sender_id,receiver_id,media_url,voice_note_url,metadata,is_deleted,expires_at,created_at,auto_delete_mode";
+  const [fiveHour, twentyFourHour, viewOnce, legacyExpiry, deleted] = await Promise.all([
     admin
       .from("messages")
-      .select("id,sender_id,receiver_id,media_url,voice_note_url,metadata,is_deleted,expires_at")
+      .select(selectFields)
+      .eq("auto_delete_mode", "5_hours")
+      .lte("created_at", fiveHoursAgo)
+      .limit(BATCH_SIZE),
+    admin
+      .from("messages")
+      .select(selectFields)
+      .eq("auto_delete_mode", "24_hours")
+      .lte("created_at", twentyFourHoursAgo)
+      .limit(BATCH_SIZE),
+    admin
+      .from("messages")
+      .select(selectFields)
+      .eq("auto_delete_mode", "after_view")
+      .eq("metadata->>view_once", "true")
       .not("expires_at", "is", null)
       .lte("expires_at", now)
       .limit(BATCH_SIZE),
     admin
       .from("messages")
-      .select("id,sender_id,receiver_id,media_url,voice_note_url,metadata,is_deleted,expires_at")
+      .select(selectFields)
+      .or("auto_delete_mode.is.null,auto_delete_mode.eq.off")
+      .not("expires_at", "is", null)
+      .lte("expires_at", now)
+      .limit(BATCH_SIZE),
+    admin
+      .from("messages")
+      .select(selectFields)
       .eq("is_deleted", true)
       .limit(BATCH_SIZE),
   ]);
-  if (expired.error) throw expired.error;
+  if (fiveHour.error) throw fiveHour.error;
+  if (twentyFourHour.error) throw twentyFourHour.error;
+  if (viewOnce.error) throw viewOnce.error;
+  if (legacyExpiry.error) throw legacyExpiry.error;
   if (deleted.error) throw deleted.error;
   const rows = new Map<string, SocialRow>();
-  for (const row of [...(expired.data ?? []), ...(deleted.data ?? [])] as SocialRow[]) {
+  for (const row of [
+    ...(fiveHour.data ?? []),
+    ...(twentyFourHour.data ?? []),
+    ...(viewOnce.data ?? []),
+    ...(legacyExpiry.data ?? []),
+    ...(deleted.data ?? []),
+  ] as SocialRow[]) {
     rows.set(row.id, row);
   }
   return [...rows.values()].slice(0, BATCH_SIZE);

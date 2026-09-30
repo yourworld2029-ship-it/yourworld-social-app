@@ -37,6 +37,7 @@ import {
   AFTER_VIEW_DELAY_MS,
   afterViewExpiresAt,
   expiresAtForAutoDelete,
+  isAutoDeleteExpired,
   normalizeAutoDeleteSetting,
   type AutoDeleteSetting,
 } from "@/lib/auto-delete";
@@ -764,6 +765,7 @@ const isRenderablePublicMessage = (
   value: unknown,
   viewerId: string | null,
   now = Date.now(),
+  hideConsumedAfterView = false,
 ): value is PublicMessageRow => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const row = value as Partial<PublicMessageRow>;
@@ -799,7 +801,32 @@ const isRenderablePublicMessage = (
   if (viewerId && row.sender_id !== viewerId && row.receiver_id !== viewerId) {
     return false;
   }
-  if (row.expires_at !== undefined && row.expires_at !== null) {
+  const mode = normalizeAutoDeleteSetting(
+    row.auto_delete_mode ?? row.auto_delete_setting,
+  );
+  const metadata = asRecord(row.metadata);
+  const viewOnce = metadata?.view_once === true || metadata?.view_once === "true";
+  if (
+    mode === "after_view" &&
+    !viewOnce &&
+    hideConsumedAfterView &&
+    (row.is_read === true || row.is_viewed === true)
+  ) {
+    return false;
+  }
+  if (mode === "after_view" && viewOnce && row.is_viewed === true) {
+    const viewedAt = typeof row.viewed_at === "string" ? Date.parse(row.viewed_at) : NaN;
+    const expiresAt = Number.isFinite(viewedAt)
+      ? viewedAt + AFTER_VIEW_DELAY_MS
+      : typeof row.expires_at === "string"
+        ? Date.parse(row.expires_at)
+        : NaN;
+    if (Number.isFinite(expiresAt) && expiresAt <= now) return false;
+  }
+  const isTimedMode = mode === "5_hours" || mode === "24_hours";
+  const isOrdinaryVanish = mode === "after_view" && !viewOnce;
+  if (isTimedMode && isAutoDeleteExpired(mode, row.created_at, now)) return false;
+  if (!isTimedMode && !isOrdinaryVanish && row.expires_at !== null && row.expires_at !== undefined) {
     if (
       typeof row.expires_at !== "string" ||
       !Number.isFinite(Date.parse(row.expires_at)) ||
@@ -819,7 +846,7 @@ function normalizeCachedThreadRows(
 ): DbMessage[] {
   if (!Array.isArray(value) || !pair) return [];
   return value.flatMap((candidate) => {
-    if (!isRenderablePublicMessage(candidate, viewerId)) return [];
+    if (!isRenderablePublicMessage(candidate, viewerId, Date.now(), true)) return [];
     const row = candidate;
     const belongsToPair =
       (row.sender_id === pair[0] && row.receiver_id === pair[1]) ||
@@ -1589,12 +1616,17 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
 
   const belongs = useCallback((row: PublicMessageRow) => !!pair &&
     ((row.sender_id === pair[0] && row.receiver_id === pair[1]) || (row.sender_id === pair[1] && row.receiver_id === pair[0])), [pair]);
-  const merge = useCallback((rows: PublicMessageRow[]) => setMessages((prev) => {
+  const merge = useCallback((rows: PublicMessageRow[], hideConsumedAfterView = false) => setMessages((prev) => {
     if (threadIdRef.current !== threadId || messagesThreadIdRef.current !== threadId) return prev;
     const next = new Map(prev.map((m) => [m.id, m]));
     rows
       .filter(belongs)
-      .filter((row) => isRenderablePublicMessage(row, meRef.current))
+      .filter((row) => isRenderablePublicMessage(
+        row,
+        meRef.current,
+        Date.now(),
+        hideConsumedAfterView,
+      ))
       .map(toDbMessage)
       .forEach((m) => next.set(m.id, m));
     return [...next.values()].sort((a, b) => a.created_at.localeCompare(b.created_at));
@@ -1602,11 +1634,9 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
   const queryRows = useCallback(async (before?: string, conversationIdOverride?: string | null) => {
     if (!pair) return [] as PublicMessageRow[];
     try {
-      const now = new Date().toISOString();
       const targetConversationId =
         conversationIdOverride === undefined ? conversationIdRef.current : conversationIdOverride;
       const fetchRows = async (
-        withExpiryFilter: boolean,
         withDeletedFilter: boolean,
         useConversationIndex: boolean,
       ) => {
@@ -1618,32 +1648,33 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
             `and(sender_id.eq.${pair[0]},receiver_id.eq.${pair[1]}),and(sender_id.eq.${pair[1]},receiver_id.eq.${pair[0]})`,
           );
         }
-        if (withExpiryFilter) query = query.or(`expires_at.is.null,expires_at.gt.${now}`);
+        // Expiry is always derived from created_at (or viewed_at for View Once);
+        // expires_at is a server compatibility field and must not be trusted.
         if (withDeletedFilter) query = query.eq("is_deleted", false);
         query = query.order("created_at", { ascending: false }).limit(PAGE_SIZE);
         if (before) query = query.lt("created_at", before);
         return await query;
       };
 
-      let result = await fetchRows(true, true, Boolean(targetConversationId));
+      let result = await fetchRows(true, Boolean(targetConversationId));
       if (result.error && isMissingAutoDeleteColumn(result.error)) {
         // Older schemas can still serve messages safely; renderability checks
         // below continue to protect the client when these fields are absent.
-        result = await fetchRows(false, false, Boolean(targetConversationId));
+        result = await fetchRows(false, Boolean(targetConversationId));
       }
       if (
         targetConversationId &&
         result.error &&
         /conversation_id|schema cache|does not exist/i.test(result.error.message)
       ) {
-        result = await fetchRows(false, false, false);
+        result = await fetchRows(false, false);
       }
       if (targetConversationId && !result.error && !(result.data?.length)) {
         // Older rows without a conversation link still remain reachable by the
         // indexed sender/receiver pair query.
-        const fallback = await fetchRows(true, true, false);
+        const fallback = await fetchRows(true, false);
         if (fallback.error && isMissingAutoDeleteColumn(fallback.error)) {
-          result = await fetchRows(false, false, false);
+          result = await fetchRows(false, false);
         } else if (!fallback.error && fallback.data?.length) {
           result = fallback;
         }
@@ -1658,7 +1689,10 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       throw cause;
     }
   }, [pair]);
-  const load = useCallback(async (conversationIdOverride?: string | null) => {
+  const load = useCallback(async (
+    conversationIdOverride?: string | null,
+    hideConsumedAfterView = false,
+  ) => {
     const requestThreadId = threadId;
     if (!pair) {
       if (threadIdRef.current === requestThreadId) setLoading(false);
@@ -1670,7 +1704,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       if (threadIdRef.current !== requestThreadId || messagesThreadIdRef.current !== requestThreadId) return;
       if (rows === null) return;
       if (generation !== clearGenerationRef.current) return;
-      merge(rows);
+       merge(rows, hideConsumedAfterView);
       setHasMore(rows.length >= PAGE_SIZE);
       setError(null);
     } catch (cause) {
@@ -1700,7 +1734,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       if (threadIdRef.current !== requestThreadId || messagesThreadIdRef.current !== requestThreadId) return;
       if (rows === null) return;
       if (generation !== clearGenerationRef.current) return;
-      merge(rows);
+       merge(rows);
       setHasMore(rows.length >= PAGE_SIZE);
       setError(null);
     } catch (cause) {
@@ -1738,11 +1772,40 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
           const id = conversation?.id ?? null;
           conversationIdRef.current = id;
           setConversationState({ threadId, id });
-          void load(id);
+          // Clear viewed Vanish rows on entry before hydrating either cache or
+          // the server response. This is intentionally the authenticated
+          // Social Chat cleanup path, not a client-side delete shortcut.
+          if (id) {
+            try {
+              const cleanup = await deleteViewedSocialMessagesOnExit({
+                data: { conversationId: id },
+              });
+              const deletedIds = new Set(cleanup.deletedMessageIds);
+              if (deletedIds.size) {
+                const cachedRows = normalizeCachedThreadRows(
+                  loadCachedThreadSync<unknown>(`social:${threadId}`) ??
+                    cacheGet<unknown>(`thread:${threadId}`) ??
+                    [],
+                  pair,
+                ).filter((message) => !deletedIds.has(message.id));
+                cacheSet(`thread:${threadId}`, cachedRows);
+                saveCachedThread(`social:${threadId}`, cachedRows);
+                if (messagesThreadIdRef.current === threadId) {
+                  messagesRef.current = messagesRef.current.filter(
+                    (message) => !deletedIds.has(message.id),
+                  );
+                  setMessages(messagesRef.current);
+               }
+             }
+            } catch (cause) {
+              console.warn("[social-chat] entry Vanish cleanup failed", cause);
+           }
+          }
+          void load(id, true);
         } else {
           conversationIdRef.current = null;
           setConversationState({ threadId, id: null });
-          void load(null);
+           void load(null, true);
         }
       } catch (cause) {
         console.error("[social-chat] session/bootstrap failed", cause);
@@ -1957,11 +2020,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
         return false;
       }
       if (data !== true) return false;
-      const now = Date.now();
-      setMessages((prev) => prev.filter((message) =>
-        message.id !== id &&
-        (!message.expires_at || Date.parse(message.expires_at) > now),
-      ));
+      setMessages((prev) => prev.filter((message) => message.id !== id));
       return true;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not delete the viewed message.");
@@ -2007,9 +2066,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
         return;
       }
       const viewedAt = message.viewed_at ? Date.parse(message.viewed_at) : Date.now();
-      const expiresAt = message.expires_at
-        ? Date.parse(message.expires_at)
-        : viewedAt + AFTER_VIEW_DELAY_MS;
+      const expiresAt = viewedAt + AFTER_VIEW_DELAY_MS;
       const delay = Math.max(0, expiresAt - Date.now());
       const requestThreadId = threadId;
       const scheduleRetry = () => {
@@ -2061,12 +2118,14 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
 
   const visibleMessages = useMemo(() => {
     if (messagesThreadId === threadId) return messages;
-    return (
-      loadCachedThreadSync<DbMessage>(`social:${threadId}`) ??
-      cacheGet<DbMessage[]>(`thread:${threadId}`) ??
-      []
-    ).filter((row) => !isCaptureAlertMessage(row));
-  }, [messages, messagesThreadId, threadId]);
+    return normalizeCachedThreadRows(
+      loadCachedThreadSync<unknown>(`social:${threadId}`) ??
+        cacheGet<unknown>(`thread:${threadId}`) ??
+        [],
+      pair,
+      me,
+    );
+  }, [messages, messagesThreadId, threadId, pair, me]);
   const visibleLoading = messagesThreadId === threadId ? loading : false;
   const visibleLoadingMore = messagesThreadId === threadId ? loadingMore : false;
   const visibleHasMore = messagesThreadId === threadId ? hasMore : false;
@@ -2114,7 +2173,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       created_at: createdAt,
       auto_delete_setting: initialMode,
       auto_delete_mode: initialMode,
-      expires_at: expiresAtForAutoDelete(initialMode),
+      expires_at: expiresAtForAutoDelete(initialMode, Date.parse(createdAt)),
       is_deleted: false,
       is_viewed: false,
       viewed_at: null,
@@ -2445,7 +2504,6 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
   const removeViewedMessagesFromLocalState = useCallback((
     threadIdAtExit: string,
     pairAtExit: ReturnType<typeof dmThreadPair>,
-    userIdAtExit: string,
   ) => {
     const cachedRows = normalizeCachedThreadRows(
       loadCachedThreadSync<unknown>(`social:${threadIdAtExit}`) ??
@@ -2459,9 +2517,8 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       [...cachedRows, ...localRows]
         .filter(
           (message) =>
-            message.receiver_id === userIdAtExit &&
             message.auto_delete_mode === "after_view" &&
-            message.is_viewed === true &&
+            (message.is_read === true || message.is_viewed === true) &&
             message.is_system_message !== true &&
             message.metadata?.view_once !== true &&
             message.metadata?.view_once !== "true",
@@ -2501,9 +2558,9 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       const timer = setTimeout(() => {
         exitCleanupTimersRef.current.delete(cleanupKey);
         void (async () => {
-          // Remove locally known viewed Vanish Mode rows before any network
+          // Remove locally known read/viewed Vanish Mode rows before any network
           // work so a fast reopen cannot hydrate them from the chat cache.
-          removeViewedMessagesFromLocalState(threadId, pair, me);
+          removeViewedMessagesFromLocalState(threadId, pair);
           // Flush the chat's existing read-on-open behavior first, so a read
           // request still in flight cannot race the permanent delete.
           try {
@@ -2512,7 +2569,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
             console.warn("[social-chat] read receipt flush on exit failed", cause);
           }
           // The read flush can mark additional loaded rows as viewed.
-          removeViewedMessagesFromLocalState(threadId, pair, me);
+          removeViewedMessagesFromLocalState(threadId, pair);
           await flushViewedMessagesOnExit(conversationId, threadId, pair);
         })();
       }, 0);
