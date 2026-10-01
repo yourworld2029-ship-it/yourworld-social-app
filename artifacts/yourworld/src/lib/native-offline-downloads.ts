@@ -1,11 +1,13 @@
 import { Capacitor } from "@capacitor/core";
-import { Directory, Filesystem } from "@capacitor/filesystem";
+import { Directory, Encoding, Filesystem } from "@capacitor/filesystem";
 import { Preferences } from "@capacitor/preferences";
 import type { OfflineVideo } from "@/lib/offlineVideosDB";
 
 const REGISTRY_KEY = "yourworld.offline-videos.registry.v1";
 const REGISTRY_VERSION = 1;
 const ROOT_DIRECTORY = "offline-videos";
+const REGISTRY_FILE_NAME = "registry.json";
+const REGISTRY_FILE_PATH = `${ROOT_DIRECTORY}/${REGISTRY_FILE_NAME}`;
 const WRITE_CHUNK_BYTES = 1024 * 1024;
 const MAX_THUMBNAIL_BYTES = 4 * 1024 * 1024;
 
@@ -28,6 +30,14 @@ export function isAndroidNativeDownloads() {
   return Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
 }
 
+async function ensureOfflineDirectory() {
+  await Filesystem.mkdir({
+    path: ROOT_DIRECTORY,
+    directory: Directory.Data,
+    recursive: true,
+  });
+}
+
 function isNativeRecord(value: unknown): value is NativeOfflineVideo {
   if (!value || typeof value !== "object") return false;
   const record = value as Partial<NativeOfflineVideo>;
@@ -43,10 +53,7 @@ function isNativeRecord(value: unknown): value is NativeOfflineVideo {
   );
 }
 
-async function readRegistry() {
-  const { value } = await Preferences.get({ key: REGISTRY_KEY });
-  if (!value) return [] as NativeOfflineVideo[];
-
+function parseRegistry(value: string) {
   let parsed: unknown;
   try {
     parsed = JSON.parse(value);
@@ -74,14 +81,83 @@ async function readRegistry() {
   return envelope.entries;
 }
 
+async function readDirectoryRegistry() {
+  await ensureOfflineDirectory();
+  const { files } = await Filesystem.readdir({
+    path: ROOT_DIRECTORY,
+    directory: Directory.Data,
+  });
+  if (!files.some((file) => file.name === REGISTRY_FILE_NAME && file.type === "file")) {
+    return null;
+  }
+
+  const { data } = await Filesystem.readFile({
+    path: REGISTRY_FILE_PATH,
+    directory: Directory.Data,
+    encoding: Encoding.UTF8,
+  });
+  if (typeof data !== "string") {
+    throw new Error("The saved offline-download registry is not text.");
+  }
+  return parseRegistry(data);
+}
+
+async function readLegacyPreferencesRegistry() {
+  const { value } = await Preferences.get({ key: REGISTRY_KEY });
+  return value ? parseRegistry(value) : null;
+}
+
+async function writeRegistry(entries: NativeOfflineVideo[]) {
+  const value = JSON.stringify({ version: REGISTRY_VERSION, entries });
+  await ensureOfflineDirectory();
+  await Filesystem.writeFile({
+    path: REGISTRY_FILE_PATH,
+    data: value,
+    directory: Directory.Data,
+    encoding: Encoding.UTF8,
+  });
+
+  // Retain a mirror for older app builds; the permanent Directory.Data file is authoritative.
+  await Preferences.set({ key: REGISTRY_KEY, value }).catch((error) => {
+    console.warn("[downloads] could not update the legacy native registry mirror", error);
+  });
+}
+
+async function readRegistry() {
+  let directoryError: unknown;
+  try {
+    const entries = await readDirectoryRegistry();
+    if (entries) return entries;
+  } catch (error) {
+    directoryError = error;
+  }
+
+  let legacyEntries: NativeOfflineVideo[] | null;
+  try {
+    legacyEntries = await readLegacyPreferencesRegistry();
+  } catch (error) {
+    if (directoryError) throw directoryError;
+    throw error;
+  }
+  if (legacyEntries) {
+    try {
+      await writeRegistry(legacyEntries);
+    } catch (error) {
+      console.warn("[downloads] could not migrate the legacy native registry to app data", error);
+    }
+    return legacyEntries;
+  }
+  if (directoryError) throw directoryError;
+  return [];
+}
+
 function updateRegistry<T>(
   update: (current: NativeOfflineVideo[]) => { entries: NativeOfflineVideo[]; result: T },
 ) {
   const operation = registryQueue.then(async () => {
     const current = await readRegistry();
     const { entries, result } = update(current);
-    const envelope: RegistryEnvelope = { version: REGISTRY_VERSION, entries };
-    await Preferences.set({ key: REGISTRY_KEY, value: JSON.stringify(envelope) });
+    await writeRegistry(entries);
     return result;
   });
   registryQueue = operation.then(
@@ -153,6 +229,7 @@ function toBase64(bytes: Uint8Array) {
 }
 
 async function ensureParentDirectory(path: string) {
+  await ensureOfflineDirectory();
   const separator = path.lastIndexOf("/");
   if (separator <= 0) return;
   await Filesystem.mkdir({

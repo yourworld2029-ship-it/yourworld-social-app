@@ -126,3 +126,17 @@ mtime_ms = 1790789569287
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/848896c5-9481-4c64-822e-809d4b8f897a/0e089797-c016-4a91-82db-9f6bc616358b"
 storage_version_token = "1790789656478300"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "Hhpv-Ph-_fo544HExUx_6"
+uri = "file://artifacts/yourworld/public/downloads/yourworld-20261001T015856Z-v7.apk"
+type = "unspecified"
+title = "YourWorld Android APK 1.0.6"
+description = "Signed update APK, versionCode 7. Verified with the existing YourWorld signing certificate. SHA-256: d1a5ee205f15034b407747ee28da78b7585fc3054b313f20cf963818739cb5d2."
+logical_id = "c5b6ef86-a05c-49c3-9369-ddd9c2761836"
+content_hash = "sha256:d1a5ee205f15034b407747ee28da78b7585fc3054b313f20cf963818739cb5d2"
+size = 6324611
+mtime_ms = 1790819936096
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/c5b6ef86-a05c-49c3-9369-ddd9c2761836/c15460e8-bc51-43e7-bd9c-c35dfe6e47ae"
+storage_version_token = "1790820146223629"
+content_type = "application/octet-stream"
