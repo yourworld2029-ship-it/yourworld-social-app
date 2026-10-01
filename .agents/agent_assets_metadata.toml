@@ -182,3 +182,17 @@ mtime_ms = 1790836966815
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/121b02b0-8270-4a67-b008-48e321e09751/d18433c4-1053-4c8c-9cbd-8b5f71c68676"
 storage_version_token = "1790837061305174"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "DRmKiGplgzHbw_vuM5b2m"
+uri = "file://artifacts/yourworld/public/downloads/yourworld-20261001T065528Z-v15-release-debug-signed.apk"
+type = "unspecified"
+title = "YourWorld Android Release APK — v1.0.14"
+description = "Quality-sheet update, versionCode 15. Release APK signed with the existing certificate; signature verified and /download-apk serves this exact file."
+logical_id = "d8de6ea0-027d-4182-9bd5-c3dd749f0494"
+content_hash = "sha256:c9cb0cfc34d881f2c07355fe475115b8de482e7c7d42390a738e188b7a216100"
+size = 6320501
+mtime_ms = 1790837729047
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/d8de6ea0-027d-4182-9bd5-c3dd749f0494/b7d2eef6-a10a-47e1-8edf-5182b52a08cd"
+storage_version_token = "1790837777841874"
+content_type = "application/octet-stream"

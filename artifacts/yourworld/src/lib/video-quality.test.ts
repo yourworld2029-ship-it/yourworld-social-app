@@ -59,7 +59,8 @@ test("requested download qualities are offered only when an actual quality media
 test("quality sizes are duration-based estimates while original source sizes are exact", () => {
   assert.equal(estimateDownloadSizeMb(60, "360p"), 6);
   assert.equal(formatDownloadSizeMb(20), "≈ 20 MB");
-  assert.equal(formatDownloadSizeMb(6.41, true), "6.4 MB");
+  assert.equal(formatDownloadSizeMb(6.41, true), "6.41 MB");
+  assert.equal(formatDownloadSizeMb(1_200, true), "1,200 MB");
 });
 
 test("estimates quality sizes from the source file when duration is missing", () => {

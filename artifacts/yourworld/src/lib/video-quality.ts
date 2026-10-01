@@ -147,8 +147,8 @@ export function formatDownloadSizeMb(sizeMb: number | null, exact = false) {
   if (sizeMb == null || !Number.isFinite(sizeMb) || sizeMb <= 0) {
     return "Size unavailable";
   }
-  const formatted = sizeMb >= 1_000
-    ? `${(sizeMb / 1_000).toFixed(1)} GB`
-    : `${sizeMb >= 10 ? Math.round(sizeMb) : sizeMb.toFixed(1)} MB`;
-  return exact ? formatted : `≈ ${formatted}`;
+  const formatted = exact
+    ? Number(sizeMb.toFixed(sizeMb >= 1 ? 2 : 3)).toLocaleString("en-US")
+    : (sizeMb >= 10 ? Math.round(sizeMb) : sizeMb.toFixed(1)).toLocaleString("en-US");
+  return exact ? `${formatted} MB` : `≈ ${formatted} MB`;
 }
