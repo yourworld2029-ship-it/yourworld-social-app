@@ -10,6 +10,10 @@ body,
   background-color: #000000 !important;
   color-scheme: dark;
   min-height: 100%;
+  overscroll-behavior-y: none;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  transform: translateZ(0);
 }
 
 .yw-video-detail-scroll {
