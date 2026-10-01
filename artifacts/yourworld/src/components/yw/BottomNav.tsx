@@ -10,6 +10,14 @@ interface BottomNavProps {
 export const BottomNav = memo(function BottomNav({ onOpenCreate }: BottomNavProps) {
   const location = useLocation();
   const unreadMessages = useUnreadMessageCount();
+  const isRouteActive = (route: string) =>
+    location.pathname === route || location.pathname.startsWith(`${route}/`);
+  const itemClass = (active: boolean) =>
+    `flex min-w-0 flex-1 items-center justify-center rounded-lg py-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+      active
+        ? "text-foreground"
+        : "text-muted-foreground hover:text-foreground"
+    }`;
 
   // Hide bottom nav completely when on /create route
   if (location.pathname === "/create") {
@@ -17,54 +25,66 @@ export const BottomNav = memo(function BottomNav({ onOpenCreate }: BottomNavProp
   }
 
   return (
-    <div className="bottom-nav-safe-area fixed inset-x-0 bottom-0 z-40 isolate w-full border-t border-border/70 bg-background/90 px-1.5 pt-2 backdrop-blur-xl">
-      <div className="mx-auto flex w-full max-w-md items-center justify-around">
-        <Link to="/" className="flex min-w-0 flex-1 flex-col items-center justify-center gap-1 text-[10px] text-muted-foreground hover:text-foreground">
-          <Home className="size-[clamp(1.125rem,5vw,1.25rem)] shrink-0" />
-          <span className="max-w-full truncate whitespace-nowrap leading-none">Home</span>
+    <nav
+      aria-label="Main navigation"
+      className="bottom-nav-safe-area fixed inset-x-0 bottom-0 z-40 isolate w-full border-t border-border/70 bg-background/95 px-1.5 pt-2 backdrop-blur-xl"
+    >
+      <div className="mx-auto flex h-12 w-full max-w-md items-center justify-around">
+        <Link
+          to="/"
+          aria-label="Home"
+          aria-current={isRouteActive("/") ? "page" : undefined}
+          className={itemClass(isRouteActive("/"))}
+        >
+          <Home className="size-6 max-h-6 max-w-6 shrink-0" aria-hidden="true" />
         </Link>
 
         <Link
           to="/reels"
           search={{ reelId: undefined, userId: undefined, initialVideoId: undefined, returnTo: undefined }}
-          className="flex min-w-0 flex-1 flex-col items-center justify-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+          aria-label="Video"
+          aria-current={isRouteActive("/reels") ? "page" : undefined}
+          className={itemClass(isRouteActive("/reels"))}
         >
-          <Film className="size-[clamp(1.125rem,5vw,1.25rem)] shrink-0" />
-          <span className="max-w-full truncate whitespace-nowrap leading-none">Video</span>
+          <Film className="size-6 max-h-6 max-w-6 shrink-0" aria-hidden="true" />
         </Link>
 
         <button
           type="button"
           onClick={() => onOpenCreate?.()}
           aria-label="Open create menu"
-          className="flex min-w-0 flex-1 items-center justify-center text-white"
+          className={`${itemClass(false)} text-foreground`}
         >
-          <span className="-translate-y-1 grid size-[clamp(2.625rem,13vw,3rem)] shrink-0 place-items-center rounded-full bg-gradient-to-tr from-pink-500 via-purple-500 to-amber-400 shadow-lg transition active:scale-95">
-            <Plus className="size-[clamp(1.25rem,6vw,1.5rem)] stroke-[3]" />
+          <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-border transition active:scale-95">
+            <Plus className="size-6 max-h-6 max-w-6 shrink-0" aria-hidden="true" />
           </span>
         </button>
 
         <Link
           to="/chat"
           aria-label={unreadMessages > 0 ? `Chat, ${unreadMessages} unread` : "Chat"}
-          className="flex min-w-0 flex-1 flex-col items-center justify-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+          aria-current={isRouteActive("/chat") ? "page" : undefined}
+          className={itemClass(isRouteActive("/chat"))}
         >
-          <span className="relative">
-            <MessageSquare className="size-[clamp(1.125rem,5vw,1.25rem)] shrink-0" />
+          <span className="relative grid place-items-center">
+            <MessageSquare className="size-6 max-h-6 max-w-6 shrink-0" aria-hidden="true" />
             {unreadMessages > 0 ? (
-              <span className="absolute -right-2 -top-2 min-w-4 rounded-full bg-pink-600 px-1 text-center text-[9px] font-bold leading-4 text-white">
+              <span className="absolute -right-2 -top-1 min-w-4 rounded-full bg-pink-600 px-1 text-center text-[9px] font-bold leading-4 text-white">
                 {unreadMessages > 99 ? "99+" : unreadMessages}
               </span>
             ) : null}
           </span>
-          <span className="max-w-full truncate whitespace-nowrap leading-none">Chat</span>
         </Link>
 
-        <Link to="/profile" className="flex min-w-0 flex-1 flex-col items-center justify-center gap-1 text-[10px] text-muted-foreground hover:text-foreground">
-          <User className="size-[clamp(1.125rem,5vw,1.25rem)] shrink-0" />
-          <span className="max-w-full truncate whitespace-nowrap leading-none">Profile</span>
+        <Link
+          to="/profile"
+          aria-label="Profile"
+          aria-current={isRouteActive("/profile") ? "page" : undefined}
+          className={itemClass(isRouteActive("/profile"))}
+        >
+          <User className="size-6 max-h-6 max-w-6 shrink-0" aria-hidden="true" />
         </Link>
       </div>
-    </div>
+    </nav>
   );
 });

@@ -1284,7 +1284,7 @@ html[data-theme="midnight"] {
 }
 
 .bottom-nav-safe-area {
-  padding-bottom: max(env(safe-area-inset-bottom, 0px), 24px) !important;
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 0.5rem) !important;
 }
 
 .active-call-dock {
@@ -1489,9 +1489,12 @@ nav.top-nav,
 }
 
 .profile-header,
-.feed-header,
 .settings-header {
   padding-top: max(env(safe-area-inset-top, 0px), 28px) !important;
+}
+
+.feed-header {
+  padding-top: calc(env(safe-area-inset-top, 0px) + 0.5rem) !important;
 }
 
 @media (orientation: portrait) {

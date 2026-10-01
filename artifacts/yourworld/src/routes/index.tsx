@@ -68,21 +68,33 @@ const FeedTopBar = React.memo(function FeedTopBar({
   alertCount: number;
 }) {
   return (
-    <header className="feed-header sticky top-0 z-50 flex items-center justify-between border-b border-neutral-900 bg-black px-4 pb-3 pt-[calc(env(safe-area-inset-top,24px)_+_0.75rem)]">
-      <Link to="/" className="flex min-w-0 items-center gap-2">
-        <img src={ywLogo} alt="YourWorld" className="h-8 w-auto object-contain" />
-        <span className="font-bold text-xl tracking-tight bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-500 bg-clip-text text-transparent">
+    <header className="feed-header sticky top-0 z-50 flex min-h-14 items-center justify-between gap-3 border-b border-neutral-900 bg-black px-4 pb-2">
+      <Link
+        to="/"
+        aria-label="YourWorld home"
+        className="flex min-w-0 items-center gap-2"
+      >
+        <img src={ywLogo} alt="" className="h-7 w-auto shrink-0 object-contain" />
+        <span className="truncate bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-500 bg-clip-text text-[21px] font-semibold tracking-tight text-transparent">
           YourWorld
         </span>
       </Link>
-      <div className="flex items-center gap-3">
-        <Link to="/search" className="p-2 rounded-full hover:bg-neutral-900 text-neutral-200 transition-colors">
-          <Search className="w-[22px] h-[22px]" strokeWidth={1.8} />
+      <div className="flex shrink-0 items-center gap-1">
+        <Link
+          to="/search"
+          aria-label="Search"
+          className="grid size-10 place-items-center rounded-full text-neutral-200 transition-colors hover:bg-neutral-900"
+        >
+          <Search className="size-6 max-h-6 max-w-6" strokeWidth={1.8} aria-hidden="true" />
         </Link>
-        <Link to="/notifications" className="relative p-2 rounded-full hover:bg-neutral-900 text-neutral-200 transition-colors">
-          <Heart className="w-[22px] h-[22px]" strokeWidth={1.8} />
+        <Link
+          to="/notifications"
+          aria-label={alertCount > 0 ? `Notifications, ${alertCount} unread` : "Notifications"}
+          className="relative grid size-10 place-items-center rounded-full text-neutral-200 transition-colors hover:bg-neutral-900"
+        >
+          <Heart className="size-6 max-h-6 max-w-6" strokeWidth={1.8} aria-hidden="true" />
           {alertCount > 0 && (
-            <span className="absolute top-1 right-1 w-4 h-4 bg-pink-600 text-[10px] font-bold rounded-full flex items-center justify-center text-white">
+            <span className="absolute right-0.5 top-0.5 flex size-4 items-center justify-center rounded-full bg-pink-600 text-[10px] font-bold text-white">
               {alertCount > 9 ? "9+" : alertCount}
             </span>
           )}
