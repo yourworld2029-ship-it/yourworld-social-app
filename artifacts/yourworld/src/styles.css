@@ -1446,8 +1446,10 @@ body,
   width: 100%;
   height: 100%;
   min-height: 0;
-  overflow: hidden;
-  overscroll-behavior: none;
+  overflow-x: hidden;
+  overflow-y: hidden;
+  overscroll-behavior-x: none;
+  overscroll-behavior-y: none;
   background-color: #000000;
 }
 
