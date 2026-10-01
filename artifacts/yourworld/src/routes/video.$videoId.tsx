@@ -2,6 +2,8 @@ import {
   Component,
   useCallback,
   useEffect,
+  memo,
+  useMemo,
   useRef,
   useState,
   type ErrorInfo,
@@ -64,6 +66,7 @@ import {
 import { qualityTierFromMetadata, type VideoQualityTier } from "@/lib/video-quality";
 import {
   useVideoPlayback,
+  useVideoPlaybackProgress,
   VideoPlaybackSlot,
   type QualityUrls,
 } from "@/lib/video-playback";
@@ -401,6 +404,800 @@ function VideoCommentsFallback({ loading }: { loading: boolean }) {
   );
 }
 
+type NextEpisodeCountdownProps = {
+  episodeTitle: string;
+  isPlaying: boolean;
+  onPlay: () => void;
+  onCancel: () => void;
+};
+
+const NextEpisodeCountdown = memo(function NextEpisodeCountdown({
+  episodeTitle,
+  isPlaying,
+  onPlay,
+  onCancel,
+}: NextEpisodeCountdownProps) {
+  const { currentTime, duration } = useVideoPlaybackProgress();
+  const seconds = duration > 0 ? Math.max(0, Math.ceil(duration - currentTime)) : 0;
+  if (!isPlaying || seconds <= 0 || seconds > 5) return null;
+
+  return (
+    <section
+      className="fixed inset-x-4 bottom-28 z-[100] mx-auto flex max-w-lg items-center justify-between gap-3 rounded-2xl border border-white/10 bg-[#101116]/95 p-4 text-white shadow-2xl backdrop-blur-xl"
+      aria-live="polite"
+      data-testid="panel-next-episode-countdown"
+    >
+      <div className="min-w-0">
+        <p className="text-xs font-semibold uppercase tracking-wide text-fuchsia-200">
+          Next episode in {seconds}
+        </p>
+        <p className="mt-1 truncate text-sm font-semibold text-white">
+          {episodeTitle}
+        </p>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <button
+          type="button"
+          onClick={onPlay}
+          className="rounded-full bg-fuchsia-300 px-4 py-2 text-xs font-bold text-black hover:bg-fuchsia-200"
+          data-testid="button-play-next-episode"
+        >
+          Play Now
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold text-zinc-200 hover:bg-white/10"
+          data-testid="button-cancel-next-episode"
+        >
+          Cancel
+        </button>
+      </div>
+    </section>
+  );
+});
+
+type CreatorBarProps = {
+  creatorId: string;
+  creatorName: string;
+  creatorUsername: string;
+  avatarUrl?: string | null;
+  subscriberCount: number;
+  isCreator: boolean;
+  subscribed: boolean;
+  onOpenCreator: () => void;
+  onFollow: () => void;
+};
+
+const CreatorBar = memo(function CreatorBar({
+  creatorId,
+  creatorName,
+  creatorUsername,
+  avatarUrl,
+  subscriberCount,
+  isCreator,
+  subscribed,
+  onOpenCreator,
+  onFollow,
+}: CreatorBarProps) {
+  return (
+    <div
+      data-testid="video-creator-bar"
+      className="flex items-center justify-between gap-3 border-b border-white/10 pb-3"
+    >
+      <div
+        className="flex min-w-0 cursor-pointer items-center gap-3 transition-opacity hover:opacity-80"
+        onClick={onOpenCreator}
+        role="link"
+        tabIndex={creatorId ? 0 : -1}
+        onKeyDown={(event) => {
+          if (creatorId && (event.key === "Enter" || event.key === " ")) {
+            event.preventDefault();
+            onOpenCreator();
+          }
+        }}
+      >
+        <Avatar className="h-10 w-10 border border-white/10">
+          <AvatarImage src={avatarUrl || undefined} />
+          <AvatarFallback className="bg-pink-600 font-bold text-white">
+            {creatorUsername.charAt(0).toUpperCase() || "U"}
+          </AvatarFallback>
+        </Avatar>
+        <div className="min-w-0">
+          <p className="flex items-center gap-1 truncate text-sm font-semibold text-white">
+            <span className="truncate">{creatorName}</span>
+          </p>
+          <p className="truncate text-xs text-gray-400">
+            {subscriberCount.toLocaleString()} followers
+          </p>
+        </div>
+      </div>
+      <Button
+        className="shrink-0 rounded-full bg-pink-600 px-3 text-xs text-white hover:bg-pink-700 disabled:opacity-60"
+        disabled={!creatorId || isCreator}
+        onClick={(event) => {
+          event.stopPropagation();
+          onFollow();
+        }}
+        size="sm"
+        aria-label={isCreator ? "Your channel" : subscribed ? "Following creator" : "Follow creator"}
+        data-testid="button-follow-creator"
+      >
+        {isCreator ? null : subscribed ? (
+          <Check className="mr-1.5 h-3.5 w-3.5" />
+        ) : (
+          <UserPlus className="mr-1.5 h-3.5 w-3.5" />
+        )}
+        {isCreator ? "Your channel" : subscribed ? "Following" : "Follow"}
+      </Button>
+    </div>
+  );
+});
+
+type ActionRowProps = {
+  videoId: string;
+  title: string;
+  mediaUrl?: string | null;
+  thumbnailUrl?: string | null;
+  durationSeconds?: number | null;
+  sourceQualityTier?: VideoQualityTier;
+  qualityMediaUrls?: QualityUrls | null;
+  sourceMediaUrl: string;
+  liked: boolean;
+  disliked: boolean;
+  onLike: () => void;
+  onDislike: () => void;
+  onDownload: (
+    choice: DownloadChoice,
+    reportProgress?: (percent: number) => void,
+  ) => Promise<void>;
+};
+
+const ActionRow = memo(function ActionRow({
+  videoId,
+  title,
+  mediaUrl,
+  thumbnailUrl,
+  durationSeconds,
+  sourceQualityTier,
+  qualityMediaUrls,
+  sourceMediaUrl,
+  liked,
+  disliked,
+  onLike,
+  onDislike,
+  onDownload,
+}: ActionRowProps) {
+  const [downloadOpen, setDownloadOpen] = useState(false);
+  return (
+    <>
+      <div
+        data-testid="video-action-row"
+        className="grid w-full grid-cols-4 gap-1 border-b border-white/10 pb-3"
+      >
+        <button
+          type="button"
+          onClick={onLike}
+          aria-label="Like video"
+          aria-pressed={liked}
+          data-testid="button-like-video"
+          className={`inline-flex h-9 w-full min-w-0 items-center justify-center gap-0.5 rounded-full border border-white/10 bg-white/10 px-1 text-[9px] font-semibold tracking-tight shadow-sm backdrop-blur-md transition-all hover:bg-white/20 sm:text-[10px] ${
+            liked ? "text-pink-300" : "text-white"
+          }`}
+        >
+          <ThumbsUp className="h-3.5 w-3.5 shrink-0" fill={liked ? "currentColor" : "none"} />
+          <span>Like</span>
+        </button>
+        <button
+          type="button"
+          onClick={onDislike}
+          aria-label="Dislike video"
+          aria-pressed={disliked}
+          data-testid="button-dislike-video"
+          className={`inline-flex h-9 w-full min-w-0 items-center justify-center gap-0.5 rounded-full border border-white/10 bg-white/10 px-1 text-[9px] font-semibold tracking-tight shadow-sm backdrop-blur-md transition-all hover:bg-white/20 sm:text-[10px] ${
+            disliked ? "text-pink-300" : "text-white"
+          }`}
+        >
+          <ThumbsDown className="h-3.5 w-3.5 shrink-0" fill={disliked ? "currentColor" : "none"} />
+          <span>Dislike</span>
+        </button>
+        <ShareSheet
+          title={title}
+          url={buildWatchShareUrl(videoId, "video")}
+          media={mediaUrl ?? undefined}
+          mediaKind="video"
+          contentId={videoId}
+          contentKind="video"
+          thumbnailUrl={thumbnailUrl ?? null}
+          thumbnailBucket="videos"
+        >
+          <button
+            type="button"
+            aria-label="Share video"
+            data-testid="button-share-video"
+            className="inline-flex h-9 w-full min-w-0 items-center justify-center gap-0.5 rounded-full border border-white/10 bg-white/10 px-1 text-[9px] font-semibold tracking-tight text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20 sm:text-[10px]"
+          >
+            <Share2 className="h-3.5 w-3.5 shrink-0" />
+            <span>Share</span>
+          </button>
+        </ShareSheet>
+        <button
+          type="button"
+          onClick={() => setDownloadOpen(true)}
+          aria-label="Download video"
+          data-testid="button-download-video"
+          className="inline-flex h-9 w-full min-w-0 items-center justify-center gap-0.5 rounded-full border border-white/10 bg-white/10 px-1 text-[9px] font-semibold tracking-tight text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20 sm:text-[10px]"
+        >
+          <Download className="h-3.5 w-3.5 shrink-0" />
+          <span>Download</span>
+        </button>
+      </div>
+      <DownloadSheet
+        open={downloadOpen}
+        onOpenChange={setDownloadOpen}
+        title={title}
+        durationSeconds={durationSeconds}
+        sourceQualityTier={sourceQualityTier}
+        qualityMediaUrls={qualityMediaUrls ?? undefined}
+        sourceMediaUrl={sourceMediaUrl}
+        mediaBucket="videos"
+        onDownload={onDownload}
+      />
+    </>
+  );
+});
+
+type DescriptionBoxProps = {
+  description: string;
+  expanded: boolean;
+  onToggle: () => void;
+};
+
+const DescriptionBox = memo(function DescriptionBox({
+  description,
+  expanded,
+  onToggle,
+}: DescriptionBoxProps) {
+  return (
+    <div data-testid="video-description-box" className="rounded-2xl border border-white/10 bg-white/[0.045] p-3">
+      <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-gray-500">
+        Description
+      </p>
+      <p className={`text-xs leading-relaxed text-gray-300 ${expanded ? "" : "line-clamp-3"}`}>
+        {description}
+      </p>
+      {description.length > 180 ? (
+        <button
+          type="button"
+          onClick={onToggle}
+          className="mt-2 text-xs font-semibold text-white"
+          data-testid="button-toggle-video-description"
+        >
+          {expanded ? "Show less" : "Show more"}
+        </button>
+      ) : null}
+    </div>
+  );
+});
+
+const CommentsSection = memo(function CommentsSection({
+  videoId,
+  focusComments,
+}: {
+  videoId: string;
+  focusComments: boolean;
+}) {
+  const { user, requestAuthAction } = useAuth();
+  const realComments = usePostComments(videoId);
+  const comments = useMemo(
+    () =>
+      Array.isArray(realComments?.comments)
+        ? realComments.comments.filter(
+            (comment) => Boolean(comment && typeof comment === "object"),
+          )
+        : [],
+    [realComments?.comments],
+  );
+  const [replyingTo, setReplyingTo] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState("");
+  const [commentText, setCommentText] = useState("");
+  const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const commentsRef = useRef<HTMLDivElement>(null);
+  const currentAvatar =
+    typeof user?.user_metadata?.avatar_url === "string"
+      ? user.user_metadata.avatar_url
+      : undefined;
+
+  useEffect(() => {
+    if (!focusComments || realComments.loading) return;
+    setCommentsOpen(true);
+    const frame = requestAnimationFrame(() => {
+      commentsRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
+      commentsRef.current?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focusComments, realComments.loading, videoId]);
+
+  const repliesByParent = useMemo(() => {
+    const replies = new Map<string, typeof comments>();
+    comments.forEach((comment) => {
+      const parentId =
+        typeof comment.parentCommentId === "string" ? comment.parentCommentId : "";
+      if (!parentId) return;
+      const list = replies.get(parentId) ?? [];
+      list.push(comment);
+      replies.set(parentId, list);
+    });
+    return replies;
+  }, [comments]);
+  const previewComment = useMemo(
+    () => comments.find((comment) => !comment.parentCommentId) ?? comments[0],
+    [comments],
+  );
+
+  useResumeAuthAction("video-comment", videoId, async (action) => {
+    const text = action.payload?.text ?? "";
+    if (!text.trim()) return;
+    setCommentsOpen(true);
+    const ok = await realComments.send(text);
+    if (!ok) {
+      setCommentText(text);
+      toast.error("Comment could not be posted");
+    }
+  });
+  useResumeAuthAction("video-reply", videoId, async (action) => {
+    const text = action.payload?.text ?? "";
+    const parentId = action.payload?.parentId;
+    if (!text.trim() || !parentId) return;
+    setCommentsOpen(true);
+    const ok = await realComments.sendReply(text, parentId);
+    if (!ok) {
+      setReplyingTo(parentId);
+      setReplyText(text);
+      toast.error("Reply could not be posted");
+    } else {
+      setReplyingTo(null);
+      setExpandedThreads((current) => new Set(current).add(parentId));
+    }
+  });
+  useResumeAuthAction("comment-like", videoId, async (action) => {
+    const commentId = action.payload?.parentId;
+    if (!commentId) return;
+    const ok = await realComments.toggleLike(commentId);
+    if (!ok) toast.error("Couldn't update comment like");
+  });
+
+  const submitComment = () => {
+    if (!commentText.trim()) return;
+    const text = commentText;
+    if (!user) {
+      requestAuthAction({
+        type: "video-comment",
+        targetId: videoId,
+        payload: { text },
+      });
+      return;
+    }
+    setCommentText("");
+    void realComments.send(text).then((ok) => {
+      if (!ok) {
+        setCommentText(text);
+        toast.error("Failed to post comment");
+      } else {
+        toast.success("Comment added");
+      }
+    });
+  };
+
+  const submitReply = () => {
+    if (!replyingTo || !replyText.trim()) return;
+    const text = replyText;
+    const parentId = replyingTo;
+    if (!user) {
+      requestAuthAction({
+        type: "video-reply",
+        targetId: videoId,
+        payload: { text, parentId },
+      });
+      return;
+    }
+    setReplyText("");
+    void realComments.sendReply(text, parentId).then((ok) => {
+      if (!ok) {
+        setReplyText(text);
+        toast.error("Failed to post reply");
+      } else {
+        setReplyingTo(null);
+        setExpandedThreads((current) => new Set(current).add(parentId));
+      }
+    });
+  };
+
+  const toggleCommentLike = (commentId: string) => {
+    if (!user) {
+      requestAuthAction({
+        type: "comment-like",
+        targetId: videoId,
+        payload: { parentId: commentId },
+      });
+      return;
+    }
+    void realComments.toggleLike(commentId).then((ok) => {
+      if (!ok) toast.error("Couldn't update comment like");
+    });
+  };
+
+  const renderComment = (comment: (typeof comments)[number], depth = 0): ReactNode => {
+    const username = comment.username || "user";
+    const replies = repliesByParent.get(comment.id) ?? [];
+    const expanded = expandedThreads.has(comment.id);
+    return (
+      <div key={comment.id} className="space-y-2" style={{ marginLeft: Math.min(depth, 3) * 18 }}>
+        <div className="flex items-start gap-3">
+          <Avatar className="mt-0.5 h-7 w-7 shrink-0">
+            <AvatarImage src={comment.avatarUrl || undefined} />
+            <AvatarFallback className="bg-gray-700 text-xs text-white">
+              {username.charAt(0).toUpperCase() || "U"}
+            </AvatarFallback>
+          </Avatar>
+          <div className="min-w-0 flex-1 text-xs">
+            <div className="mb-0.5 flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1 font-semibold text-gray-300">
+                <span>{comment.displayName || username}</span>
+              </span>
+              <span className="text-[10px] text-gray-500">{safeTimeAgo(comment.createdAt)}</span>
+            </div>
+            <p className="text-gray-100">{comment.body}</p>
+            <div className="mt-2 flex items-center gap-3 text-[11px] text-gray-500">
+              <button
+                type="button"
+                onClick={() => toggleCommentLike(comment.id)}
+                className={`inline-flex items-center gap-1 transition-colors ${comment.likedByMe ? "font-semibold text-rose-400" : "hover:text-white"}`}
+                aria-label={comment.likedByMe ? "Unlike comment" : "Like comment"}
+              >
+                <Heart className="h-3.5 w-3.5" fill={comment.likedByMe ? "currentColor" : "none"} />
+                {comment.likesCount > 0 ? comment.likesCount : "Like"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setReplyingTo(comment.id);
+                  setReplyText(`@${username} `);
+                  setExpandedThreads((current) => new Set(current).add(comment.id));
+                }}
+                className="inline-flex items-center gap-1 hover:text-white"
+              >
+                <Reply className="h-3.5 w-3.5" /> Reply
+              </button>
+              {replies.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setExpandedThreads((current) => {
+                      const next = new Set(current);
+                      if (next.has(comment.id)) next.delete(comment.id);
+                      else next.add(comment.id);
+                      return next;
+                    })
+                  }
+                  className="inline-flex items-center gap-1 font-semibold text-pink-300"
+                >
+                  {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                  {expanded ? "Hide" : "View"} {replies.length} {replies.length === 1 ? "reply" : "replies"}
+                </button>
+              ) : null}
+              {comment.userId === user?.id ? (
+                <button
+                  type="button"
+                  onClick={() => void realComments.remove(comment.id)}
+                  className="inline-flex items-center gap-1 hover:text-red-300"
+                  aria-label="Delete comment"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
+            </div>
+            {replyingTo === comment.id ? (
+              <div className="mt-2 flex gap-2">
+                <Input
+                  autoFocus
+                  value={replyText}
+                  onChange={(event) => setReplyText(event.target.value)}
+                  onKeyDown={(event) => event.key === "Enter" && submitReply()}
+                  placeholder="Write a reply..."
+                  className="h-9 rounded-full border-white/10 bg-white/5 text-xs text-white"
+                />
+                <Button type="button" size="sm" onClick={submitReply} className="h-9 rounded-full bg-pink-600 px-3 text-white">
+                  <Send className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            ) : null}
+          </div>
+        </div>
+        {expanded && replies.length > 0 ? (
+          <div className="space-y-3 border-l border-white/10 pl-2">
+            {replies.map((reply) => renderComment(reply, depth + 1))}
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+
+  return (
+    <div ref={commentsRef} id="comments" tabIndex={-1} data-testid="video-comments-section">
+      {!commentsOpen ? (
+        <button
+          type="button"
+          onClick={() => setCommentsOpen(true)}
+          className="w-full rounded-2xl border border-white/10 bg-white/[0.045] p-3 text-left transition-colors hover:bg-white/[0.07]"
+          aria-label="Open comments"
+          data-testid="button-open-comments"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <MessageCircle className="h-4 w-4 text-pink-300" />
+              <span className="text-sm font-semibold text-white">Comments</span>
+              <span className="text-xs text-gray-400">({comments.length})</span>
+            </div>
+            <ChevronRight className="h-4 w-4 text-gray-500" />
+          </div>
+          {previewComment ? (
+            <div className="mt-3 flex items-start gap-2.5">
+              <Avatar className="h-7 w-7 shrink-0">
+                <AvatarImage src={previewComment.avatarUrl || undefined} />
+                <AvatarFallback className="bg-gray-700 text-[10px] text-white">
+                  {(previewComment.username || "U").charAt(0).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+              <p className="line-clamp-2 min-w-0 text-xs leading-relaxed text-gray-300">
+                <span className="mr-1 font-semibold text-gray-200">
+                  {previewComment.displayName || previewComment.username || "user"}
+                </span>
+                {previewComment.body}
+              </p>
+            </div>
+          ) : (
+            <p className="mt-2 text-xs text-gray-500">
+              {realComments.loading ? "Loading comments…" : "No comments yet. Be the first."}
+            </p>
+          )}
+        </button>
+      ) : null}
+
+      <Drawer open={commentsOpen} onOpenChange={setCommentsOpen}>
+        <DrawerContent className="h-[88vh] max-h-[760px] border-white/10 bg-zinc-950 p-0 text-white">
+          <DrawerHeader className="border-b border-white/10 px-4 pb-3 pt-5 text-left">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <DrawerTitle className="text-base text-white">
+                  Comments <span className="text-sm font-normal text-gray-400">({comments.length})</span>
+                </DrawerTitle>
+                <p className="mt-1 text-xs text-gray-500">Join the conversation</p>
+              </div>
+              <DrawerClose asChild>
+                <button
+                  type="button"
+                  className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-gray-300 transition-colors hover:bg-white/15 hover:text-white"
+                  aria-label="Close comments"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </DrawerClose>
+            </div>
+          </DrawerHeader>
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+            {realComments.loading ? (
+              <p className="py-8 text-center text-xs text-gray-500">Loading comments…</p>
+            ) : comments.length ? (
+              <div className="space-y-4">
+                {comments
+                  .filter((comment) => !comment.parentCommentId)
+                  .map((comment) => renderComment(comment))}
+              </div>
+            ) : (
+              <p className="py-8 text-center text-xs text-gray-500">No comments yet. Be the first.</p>
+            )}
+          </div>
+
+          <div className="border-t border-white/10 bg-zinc-950/95 px-4 py-3 backdrop-blur-xl">
+            <div className="flex gap-2">
+              <Avatar className="mt-1 h-9 w-9 shrink-0">
+                <AvatarImage src={currentAvatar} />
+                <AvatarFallback className="bg-pink-600 text-xs text-white">
+                  {user?.email?.charAt(0).toUpperCase() || "U"}
+                </AvatarFallback>
+              </Avatar>
+              <Input
+                value={commentText}
+                onChange={(event) => setCommentText(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && commentText.trim()) submitComment();
+                }}
+                placeholder={user ? "Add a comment..." : "Join to comment"}
+                className="h-10 rounded-full border-white/10 bg-white/5 text-xs text-white placeholder:text-gray-500"
+                data-testid="input-video-comment"
+              />
+              <Button
+                type="button"
+                disabled={!commentText.trim()}
+                onClick={submitComment}
+                size="sm"
+                className="h-10 rounded-full bg-pink-600 px-4 text-white hover:bg-pink-700"
+              >
+                <Send className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </DrawerContent>
+      </Drawer>
+    </div>
+  );
+});
+
+const RecommendedList = memo(function RecommendedList({
+  seriesTitle,
+  nextSeriesEpisodes,
+  relatedVideos,
+  hasNextPage,
+  isFetchingNextPage,
+  fetchNextPage,
+}: {
+  seriesTitle: string;
+  nextSeriesEpisodes: RecommendedVideo[];
+  relatedVideos: RecommendedVideo[];
+  hasNextPage: boolean;
+  isFetchingNextPage: boolean;
+  fetchNextPage: () => Promise<unknown>;
+}) {
+  const navigate = useNavigate();
+  const relatedSentinelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const sentinel = relatedSentinelRef.current;
+    if (!sentinel || !hasNextPage) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting && !isFetchingNextPage) void fetchNextPage();
+      },
+      { rootMargin: "600px 0px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
+
+  return (
+    <>
+      {seriesTitle ? (
+        <section
+          aria-label={`Next episodes in ${seriesTitle}`}
+          className="border-b border-white/10 pb-4"
+        >
+          <div className="mb-3 flex items-baseline justify-between gap-3">
+            <h2 className="text-base font-bold text-white">Next Episodes / Parts</h2>
+            <p className="truncate text-xs text-gray-400">{seriesTitle}</p>
+          </div>
+          {nextSeriesEpisodes.length ? (
+            <div className="no-scrollbar flex gap-3 overflow-x-auto pb-1">
+              {nextSeriesEpisodes.map((episode) => {
+                const episodeTitle = episode.title || episode.caption || "Untitled Video";
+                const episodeMedia =
+                  episode.media_url || episode.video_url || episode.url || "";
+                const portrait =
+                  typeof episode.original_height === "number" &&
+                  typeof episode.original_width === "number" &&
+                  episode.original_height > episode.original_width;
+                return (
+                  <button
+                    key={episode.id}
+                    type="button"
+                    onClick={() =>
+                      void navigate({
+                        to: "/video/$videoId",
+                        params: { videoId: episode.id },
+                      })
+                    }
+                    className="group w-44 shrink-0 text-left sm:w-52"
+                  >
+                    <div
+                      className={`relative mb-2 overflow-hidden rounded-xl bg-zinc-900 ${
+                        portrait ? "aspect-[9/16] w-24" : "aspect-video w-full"
+                      }`}
+                    >
+                      <VideoPoster
+                        thumbnailUrl={episode.thumbnail_url}
+                        mediaUrl={episodeMedia}
+                        alt={episodeTitle}
+                      />
+                    </div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-pink-300">
+                      {episode.episode_number || "Next part"}
+                    </p>
+                    <h3 className="mt-1 line-clamp-2 text-sm font-semibold text-white group-hover:text-pink-300">
+                      {episodeTitle}
+                    </h3>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-xs text-gray-400">No later parts yet.</p>
+          )}
+        </section>
+      ) : null}
+
+      {relatedVideos.length ? (
+        <section className="border-t border-white/10 pt-5">
+          <h2 className="mb-3 text-base font-bold text-white">Next videos</h2>
+          <div className="space-y-4">
+            {relatedVideos.map((related) => {
+              const relatedTitle = related.title || related.caption || "Untitled Video";
+              const relatedCreator =
+                related.user?.full_name ||
+                related.user?.display_name ||
+                related.user?.username ||
+                "Creator";
+              const relatedMedia =
+                related.media_url || related.video_url || related.url || "";
+              return (
+                <button
+                  key={related.id}
+                  type="button"
+                  onClick={() => {
+                    if (!related.id) return;
+                    void navigate({
+                      to: "/video/$videoId",
+                      params: { videoId: String(related.id) },
+                    });
+                  }}
+                  className="group flex w-full gap-3 text-left"
+                >
+                  <div className="relative aspect-video w-40 shrink-0 overflow-hidden rounded-xl bg-zinc-900 sm:w-56">
+                    <VideoPoster
+                      thumbnailUrl={related.thumbnail_url}
+                      mediaUrl={relatedMedia}
+                      alt={relatedTitle}
+                    />
+                    {related.duration_seconds ? (
+                      <span className="absolute bottom-2 right-2 rounded bg-black/80 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                        {formatDuration(related.duration_seconds)}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="min-w-0 pt-0.5">
+                    <h3 className="line-clamp-2 text-sm font-semibold text-white group-hover:text-pink-300">
+                      {relatedTitle}
+                    </h3>
+                    <p className="mt-1 flex items-center gap-1 line-clamp-2 text-xs text-gray-400">
+                      <span className="truncate">{relatedCreator}</span>
+                      <span>· {formatViews(Number(related.views_count || related.views || 0))}</span>
+                    </p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          <div
+            ref={relatedSentinelRef}
+            className="flex min-h-12 items-center justify-center pt-4"
+            aria-live="polite"
+          >
+            {isFetchingNextPage ? (
+              <span
+                className="h-5 w-5 animate-spin rounded-full border-2 border-pink-500 border-t-transparent"
+                aria-label="Loading more videos"
+              />
+            ) : hasNextPage ? null : (
+              <span className="text-xs text-gray-500">You’ve reached the end.</span>
+            )}
+          </div>
+        </section>
+      ) : null}
+    </>
+  );
+});
+
 function VideoWatchContent({ videoId }: { videoId: string }) {
   const navigate = useNavigate();
   const { focusComments } = Route.useSearch();
@@ -412,18 +1209,12 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     closeVideo,
     setTimeUpdateHandler,
     setEndedHandler,
-    currentTime: playerCurrentTime,
-    duration: playerDuration,
     isPlaying,
     videoRef,
   } = useVideoPlayback();
   const queryClient = useQueryClient();
-  const commentsRef = useRef<HTMLDivElement>(null);
-  const [commentText, setCommentText] = useState("");
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const [disliked, setDisliked] = useState(false);
-  const [downloadOpen, setDownloadOpen] = useState(false);
-  const [, setLikeCount] = useState(0);
   const [resolvedMediaUrl, setResolvedMediaUrl] = useState<string>("");
   const playedSecondsRef = useRef(0);
   const lastVideoTimeRef = useRef<number | null>(null);
@@ -614,35 +1405,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     ? Math.max(0, subscriberCount)
     : 0;
 
-  const realComments = usePostComments(videoId);
-  const comments = Array.isArray(realComments?.comments)
-    ? realComments.comments.filter((comment) => Boolean(comment && typeof comment === "object"))
-    : [];
-  const [replyingTo, setReplyingTo] = useState<string | null>(null);
-  const [replyText, setReplyText] = useState("");
-  const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
-  const [commentsOpen, setCommentsOpen] = useState(false);
-
-  useEffect(() => {
-    if (!focusComments || !video || realComments.loading) return;
-    setCommentsOpen(true);
-    requestAnimationFrame(() => {
-      commentsRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
-      commentsRef.current?.focus({ preventScroll: true });
-    });
-  }, [focusComments, realComments.loading, video]);
-
-  const repliesByParent = new Map<string, typeof comments>();
-  comments.forEach((comment) => {
-    const parentId =
-      typeof comment.parentCommentId === "string" ? comment.parentCommentId : "";
-    if (!parentId) return;
-    const replies = repliesByParent.get(parentId) ?? [];
-    replies.push(comment);
-    repliesByParent.set(parentId, replies);
-  });
-  const previewComment = comments.find((comment) => !comment.parentCommentId) ?? comments[0];
-
   const {
     data: relatedPages,
     fetchNextPage,
@@ -707,11 +1469,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     },
     getNextPageParam: (lastPage) => lastPage.nextOffset ?? undefined,
   });
-  const relatedVideos = Array.isArray(relatedPages?.pages)
-    ? relatedPages.pages.flatMap((page) => Array.isArray(page?.videos) ? page.videos : [])
-      .filter((relatedVideo) => Boolean(relatedVideo && typeof relatedVideo === "object"))
-    : [];
-  const relatedSentinelRef = useRef<HTMLDivElement>(null);
   const seriesTitle = video?.series_title?.trim() ?? "";
   const { data: seriesCandidates = [] } = useQuery<RecommendedVideo[]>({
     queryKey: ["video-series", seriesTitle],
@@ -737,9 +1494,22 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
       );
     },
   });
-  const nextSeriesEpisodes = sortSeriesEpisodes(seriesCandidates).filter((episode) =>
-    isNextSeriesEpisode(video?.episode_number, episode.episode_number),
+  const nextSeriesEpisodes = useMemo(
+    () =>
+      sortSeriesEpisodes(seriesCandidates).filter((episode) =>
+        isNextSeriesEpisode(video?.episode_number, episode.episode_number),
+      ),
+    [seriesCandidates, video?.episode_number],
   );
+  const relatedVideos = useMemo(() => {
+    const nextEpisodeIds = new Set(nextSeriesEpisodes.map((episode) => episode.id));
+    return Array.isArray(relatedPages?.pages)
+      ? relatedPages.pages
+          .flatMap((page) => Array.isArray(page?.videos) ? page.videos : [])
+          .filter((relatedVideo) => Boolean(relatedVideo && typeof relatedVideo === "object"))
+          .filter((relatedVideo) => !nextEpisodeIds.has(relatedVideo.id))
+      : [];
+  }, [nextSeriesEpisodes, relatedPages?.pages]);
   const nextEpisode = nextSeriesEpisodes[0];
   const nextEpisodeId = nextEpisode?.id;
   const [nextEpisodeCancelled, setNextEpisodeCancelled] = useState(false);
@@ -758,6 +1528,11 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     });
   }, [navigate, nextEpisodeId]);
 
+  const cancelNextEpisode = useCallback(() => {
+    nextEpisodeCancelledRef.current = true;
+    setNextEpisodeCancelled(true);
+  }, []);
+
   const handleEpisodeEnded = useCallback(() => {
     if (!nextEpisodeCancelledRef.current) playNextEpisode();
   }, [playNextEpisode]);
@@ -767,75 +1542,17 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     return () => setEndedHandler(null);
   }, [handleEpisodeEnded, nextEpisodeId, setEndedHandler]);
 
-  const countdownSeconds = playerDuration > 0
-    ? Math.max(0, Math.ceil(playerDuration - playerCurrentTime))
-    : 0;
-  const showNextEpisodeCountdown = Boolean(
-    nextEpisode &&
-    !nextEpisodeCancelled &&
-    isPlaying &&
-    countdownSeconds > 0 &&
-    countdownSeconds <= 5,
-  );
-
-  useResumeAuthAction("video-like", videoId, () => {
+  const resumeLike = useCallback(() => {
     setDisliked(false);
-    setLikeCount((count) =>
-      Math.max(0, count + (liked[videoId] ? -1 : 1)),
-    );
     void toggleLike(videoId);
-  });
-  useResumeAuthAction("follow-user", creatorId, () => {
+  }, [toggleLike, videoId]);
+  const resumeFollow = useCallback(() => {
     void toggleFollow(creatorId);
-  });
-  useResumeAuthAction("video-comment", videoId, async (action) => {
-    const text = action.payload?.text ?? "";
-    if (!text.trim()) return;
-    setCommentsOpen(true);
-    const ok = await realComments.send(text);
-    if (!ok) {
-      setCommentText(text);
-      toast.error("Comment could not be posted");
-    }
-  });
-  useResumeAuthAction("video-reply", videoId, async (action) => {
-    const text = action.payload?.text ?? "";
-    const parentId = action.payload?.parentId;
-    if (!text.trim() || !parentId) return;
-    setCommentsOpen(true);
-    const ok = await realComments.sendReply(text, parentId);
-    if (!ok) {
-      setReplyingTo(parentId);
-      setReplyText(text);
-      toast.error("Reply could not be posted");
-    } else {
-      setReplyingTo(null);
-      setExpandedThreads((current) => new Set(current).add(parentId));
-    }
-  });
-  useResumeAuthAction("comment-like", videoId, async (action) => {
-    const commentId = action.payload?.parentId;
-    if (!commentId) return;
-    const ok = await realComments.toggleLike(commentId);
-    if (!ok) toast.error("Couldn't update comment like");
-  });
+  }, [creatorId, toggleFollow]);
+  useResumeAuthAction("video-like", videoId, resumeLike);
+  useResumeAuthAction("follow-user", creatorId, resumeFollow);
 
-  useEffect(() => {
-    const sentinel = relatedSentinelRef.current;
-    if (!sentinel || !hasNextPage) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry?.isIntersecting && !isFetchingNextPage) {
-          void fetchNextPage();
-        }
-      },
-      { rootMargin: "600px 0px" },
-    );
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
-
-  const handleSubscribe = async () => {
+  const handleSubscribe = useCallback(async () => {
     if (!user?.id) {
       requestAuthAction({ type: "follow-user", targetId: creatorId });
       return;
@@ -849,7 +1566,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     if (!changed) return;
     void queryClient.invalidateQueries({ queryKey: ["video-subscriber-count", creatorId] });
     toast.success(wasSubscribed ? "Unfollowed" : "Followed");
-  };
+  }, [creatorId, queryClient, requestAuthAction, subscribed, toggleFollow, user?.id]);
 
   const viewRecordedRef = useRef(false);
   useEffect(() => {
@@ -938,11 +1655,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     [persistResumeAt, queryClient, user?.id, videoId],
   );
 
-  useEffect(() => {
-    const initialCount = video?.likes_count ?? video?.like_count ?? video?.likes ?? 0;
-    setLikeCount(Number(initialCount));
-  }, [video?.id, video?.like_count, video?.likes, video?.likes_count]);
-
   const mediaUrl = [video?.media_url, video?.video_url, video?.url].find(
     (source): source is string => typeof source === "string" && Boolean(source.trim()),
   )?.trim() ?? "";
@@ -1006,186 +1718,36 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     };
   }, [handleVideoTimeUpdate, persistResumeAt, setTimeUpdateHandler, videoRef]);
 
-  const submitComment = () => {
-    if (!commentText.trim()) return;
-    const text = commentText;
-    if (!user) {
-      requestAuthAction({
-        type: "video-comment",
-        targetId: videoId,
-        payload: { text },
-      });
-      return;
+  const openCreator = useCallback(() => {
+    if (creatorId) {
+      void navigate({ to: "/u/$userId", params: { userId: creatorId } });
     }
-    setCommentText("");
-    void realComments.send(text).then((ok) => {
-      if (!ok) {
-        setCommentText(text);
-        toast.error("Failed to post comment");
-      } else {
-        toast.success("Comment added");
-      }
-    });
-  };
+  }, [creatorId, navigate]);
+  const toggleDescription = useCallback(() => {
+    setDescriptionExpanded((expanded) => !expanded);
+  }, []);
 
-  const submitReply = () => {
-    if (!replyingTo || !replyText.trim()) return;
-    const text = replyText;
-    const parentId = replyingTo;
-    if (!user) {
-      requestAuthAction({
-        type: "video-reply",
-        targetId: videoId,
-        payload: { text, parentId },
-      });
-      return;
-    }
-    setReplyText("");
-    void realComments.sendReply(text, parentId).then((ok) => {
-      if (!ok) {
-        setReplyText(text);
-        toast.error("Failed to post reply");
-      } else {
-        setReplyingTo(null);
-        setExpandedThreads((current) => new Set(current).add(parentId));
-      }
-    });
-  };
-
-  const toggleCommentLike = (commentId: string) => {
-    if (!user) {
-      requestAuthAction({
-        type: "comment-like",
-        targetId: videoId,
-        payload: { parentId: commentId },
-      });
-      return;
-    }
-    void realComments.toggleLike(commentId).then((ok) => {
-      if (!ok) toast.error("Couldn't update comment like");
-    });
-  };
-
-  const renderComment = (comment: (typeof comments)[number], depth = 0): ReactNode => {
-    const username = comment.username || "user";
-    const replies = repliesByParent.get(comment.id) ?? [];
-    const expanded = expandedThreads.has(comment.id);
-    return (
-      <div key={comment.id} className="space-y-2" style={{ marginLeft: Math.min(depth, 3) * 18 }}>
-        <div className="flex items-start gap-3">
-          <Avatar className="mt-0.5 h-7 w-7 shrink-0">
-            <AvatarImage src={comment.avatarUrl || undefined} />
-            <AvatarFallback className="bg-gray-700 text-xs text-white">
-              {username.charAt(0).toUpperCase() || "U"}
-            </AvatarFallback>
-          </Avatar>
-          <div className="min-w-0 flex-1 text-xs">
-            <div className="mb-0.5 flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-1 font-semibold text-gray-300">
-                <span>{comment.displayName || username}</span>
-              </span>
-              <span className="text-[10px] text-gray-500">{safeTimeAgo(comment.createdAt)}</span>
-            </div>
-            <p className="text-gray-100">{comment.body}</p>
-            <div className="mt-2 flex items-center gap-3 text-[11px] text-gray-500">
-              <button
-                type="button"
-                onClick={() => toggleCommentLike(comment.id)}
-                className={`inline-flex items-center gap-1 transition-colors ${comment.likedByMe ? "font-semibold text-rose-400" : "hover:text-white"}`}
-                aria-label={comment.likedByMe ? "Unlike comment" : "Like comment"}
-              >
-                <Heart className="h-3.5 w-3.5" fill={comment.likedByMe ? "currentColor" : "none"} />
-                {comment.likesCount > 0 ? comment.likesCount : "Like"}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setReplyingTo(comment.id);
-                  setReplyText(`@${username} `);
-                  setExpandedThreads((current) => new Set(current).add(comment.id));
-                }}
-                className="inline-flex items-center gap-1 hover:text-white"
-              >
-                <Reply className="h-3.5 w-3.5" /> Reply
-              </button>
-              {replies.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    setExpandedThreads((current) => {
-                      const next = new Set(current);
-                      if (next.has(comment.id)) next.delete(comment.id);
-                      else next.add(comment.id);
-                      return next;
-                    })
-                  }
-                  className="inline-flex items-center gap-1 font-semibold text-pink-300"
-                >
-                  {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                  {expanded ? "Hide" : "View"} {replies.length} {replies.length === 1 ? "reply" : "replies"}
-                </button>
-              )}
-              {comment.userId === user?.id && (
-                <button
-                  type="button"
-                  onClick={() => void realComments.remove(comment.id)}
-                  className="inline-flex items-center gap-1 hover:text-red-300"
-                  aria-label="Delete comment"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              )}
-            </div>
-            {replyingTo === comment.id && (
-              <div className="mt-2 flex gap-2">
-                <Input
-                  autoFocus
-                  value={replyText}
-                  onChange={(event) => setReplyText(event.target.value)}
-                  onKeyDown={(event) => event.key === "Enter" && submitReply()}
-                  placeholder="Write a reply..."
-                  className="h-9 rounded-full border-white/10 bg-white/5 text-xs text-white"
-                />
-                <Button type="button" size="sm" onClick={submitReply} className="h-9 rounded-full bg-pink-600 px-3 text-white">
-                  <Send className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            )}
-          </div>
-        </div>
-        {expanded && replies.length > 0 ? (
-          <div className="space-y-3 border-l border-white/10 pl-2">{replies.map((reply) => renderComment(reply, depth + 1))}</div>
-        ) : null}
-      </div>
-    );
-  };
-
-  const handleLike = () => {
+  const handleLike = useCallback(() => {
     if (!user) {
       requestAuthAction({ type: "video-like", targetId: videoId });
       return;
     }
-    const wasLiked = Boolean(liked[videoId]);
     setDisliked(false);
-    setLikeCount((count) => Math.max(0, count + (wasLiked ? -1 : 1)));
-    toggleLike(videoId);
-  };
+    void toggleLike(videoId);
+  }, [requestAuthAction, toggleLike, user, videoId]);
 
-  const handleDislike = () => {
+  const handleDislike = useCallback(() => {
     if (!user) {
       toast.error("Sign in to react to videos");
       return;
     }
     setDisliked((value) => !value);
-    if (liked[videoId]) {
-      toggleLike(videoId);
-      setLikeCount((count) => Math.max(0, count - 1));
-    }
-  };
+    if (liked[videoId]) void toggleLike(videoId);
+  }, [liked, toggleLike, user, videoId]);
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-black pb-24 text-white">
+      <div className="min-h-screen bg-black text-white">
         <VideoPlaybackSlot />
         <div className="mx-auto flex w-full max-w-lg flex-col gap-3 px-3 py-3 sm:px-4 sm:py-4">
           <VideoDetailsFallback loading />
@@ -1200,7 +1762,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
 
   if (isError || !video) {
     return (
-      <div className="min-h-screen bg-black pb-24 text-white">
+      <div className="min-h-screen bg-black text-white">
         <VideoPlaybackSlot />
         <div className="mx-auto flex w-full max-w-lg flex-col gap-3 px-3 py-3 sm:px-4 sm:py-4">
           <VideoDetailsFallback loading={false} />
@@ -1218,10 +1780,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     "Creator";
   const viewCount = video.views_count ?? video.views ?? 0;
   const timeAgo = safeTimeAgo(video.created_at) || "Recently";
-  const currentAvatar =
-    typeof user?.user_metadata?.avatar_url === "string"
-      ? user.user_metadata.avatar_url
-      : undefined;
   const description = video.caption || "No description provided.";
   const sourceQualityTier =
     qualityTierFromMetadata(
@@ -1304,7 +1862,7 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   };
 
   return (
-    <div className="min-h-screen bg-black text-white pb-24">
+    <div className="min-h-screen bg-black text-white">
       {isLocked || checkingAccess ? (
         <LockedVideoPlayer
           video={video}
@@ -1318,42 +1876,14 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
         <VideoPlaybackSlot />
       )}
 
-      {showNextEpisodeCountdown ? (
-        <section
-          className="fixed inset-x-4 bottom-28 z-[100] mx-auto flex max-w-lg items-center justify-between gap-3 rounded-2xl border border-white/10 bg-[#101116]/95 p-4 text-white shadow-2xl backdrop-blur-xl"
-          aria-live="polite"
-          data-testid="panel-next-episode-countdown"
-        >
-          <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-wide text-fuchsia-200">
-              Next episode in {countdownSeconds}
-            </p>
-            <p className="mt-1 truncate text-sm font-semibold text-white">
-              {nextEpisode?.title || nextEpisode?.caption || "Next episode"}
-            </p>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <button
-              type="button"
-              onClick={playNextEpisode}
-              className="rounded-full bg-fuchsia-300 px-4 py-2 text-xs font-bold text-black hover:bg-fuchsia-200"
-              data-testid="button-play-next-episode"
-            >
-              Play Now
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                nextEpisodeCancelledRef.current = true;
-                setNextEpisodeCancelled(true);
-              }}
-              className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold text-zinc-200 hover:bg-white/10"
-              data-testid="button-cancel-next-episode"
-            >
-              Cancel
-            </button>
-          </div>
-        </section>
+      {nextEpisode && !nextEpisodeCancelled ? (
+        <NextEpisodeCountdown
+          key={nextEpisodeId}
+          episodeTitle={nextEpisode.title || nextEpisode.caption || "Next episode"}
+          isPlaying={isPlaying}
+          onPlay={playNextEpisode}
+          onCancel={cancelNextEpisode}
+        />
       ) : null}
 
       <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-3 px-3 py-3 sm:gap-4 sm:px-4 sm:py-4">
@@ -1371,366 +1901,49 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
           </p>
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-3">
-          <div
-            className="flex min-w-0 cursor-pointer items-center gap-3 transition-opacity hover:opacity-80"
-            onClick={() => {
-              if (creatorId) {
-                void navigate({ to: "/u/$userId", params: { userId: creatorId } });
-              }
-            }}
-            role="link"
-            tabIndex={creatorId ? 0 : -1}
-            onKeyDown={(event) => {
-              if (creatorId && (event.key === "Enter" || event.key === " ")) {
-                event.preventDefault();
-                void navigate({ to: "/u/$userId", params: { userId: creatorId } });
-              }
-            }}
-          >
-            <Avatar className="h-10 w-10 border border-white/10">
-              <AvatarImage src={video.user?.avatar_url || undefined} />
-              <AvatarFallback className="bg-pink-600 font-bold text-white">
-                {creatorUsername.charAt(0).toUpperCase() || "U"}
-              </AvatarFallback>
-            </Avatar>
-            <div className="min-w-0">
-               <p className="flex items-center gap-1 truncate text-sm font-semibold text-white">
-                 <span className="truncate">{creatorName}</span>
-               </p>
-              <p className="truncate text-xs text-gray-400">
-                  {safeSubscriberCount.toLocaleString()} followers
-              </p>
-            </div>
-          </div>
-
-           <Button
-             className="shrink-0 rounded-full bg-pink-600 px-3 text-xs text-white hover:bg-pink-700 disabled:opacity-60"
-             disabled={!creatorId || isCreator}
-             onClick={(event) => {
-               event.stopPropagation();
-               void handleSubscribe();
-             }}
-             size="sm"
-             aria-label={isCreator ? "Your channel" : subscribed ? "Following creator" : "Follow creator"}
-           >
-             {isCreator ? null : subscribed ? (
-               <Check className="mr-1.5 h-3.5 w-3.5" />
-             ) : (
-               <UserPlus className="mr-1.5 h-3.5 w-3.5" />
-             )}
-             {isCreator ? "Your channel" : subscribed ? "Following" : "Follow"}
-           </Button>
-        </div>
-
-          <div className="grid w-full grid-cols-4 gap-1 border-b border-white/10 pb-3">
-            <button
-              type="button"
-              onClick={handleLike}
-              aria-label="Like video"
-              aria-pressed={Boolean(liked[videoId])}
-              className={`inline-flex h-9 w-full min-w-0 items-center justify-center gap-0.5 rounded-full border border-white/10 bg-white/10 px-1 text-[9px] font-semibold tracking-tight shadow-sm backdrop-blur-md transition-all hover:bg-white/20 sm:text-[10px] ${
-                liked[videoId] ? "text-pink-300" : "text-white"
-              }`}
-            >
-              <ThumbsUp className="h-3.5 w-3.5 shrink-0" fill={liked[videoId] ? "currentColor" : "none"} />
-              <span>Like</span>
-            </button>
-            <button
-              type="button"
-              onClick={handleDislike}
-              aria-label="Dislike video"
-              aria-pressed={disliked}
-              className={`inline-flex h-9 w-full min-w-0 items-center justify-center gap-0.5 rounded-full border border-white/10 bg-white/10 px-1 text-[9px] font-semibold tracking-tight shadow-sm backdrop-blur-md transition-all hover:bg-white/20 sm:text-[10px] ${
-                disliked ? "text-pink-300" : "text-white"
-              }`}
-            >
-              <ThumbsDown className="h-3.5 w-3.5 shrink-0" fill={disliked ? "currentColor" : "none"} />
-              <span>Dislike</span>
-            </button>
-            <ShareSheet
-              title={video.title || video.caption || "YourWorld video"}
-              url={buildWatchShareUrl(videoId, "video")}
-              media={video.media_url ?? video.video_url ?? video.url ?? undefined}
-              mediaKind="video"
-              contentId={videoId}
-              contentKind="video"
-              thumbnailUrl={video.thumbnail_url ?? null}
-              thumbnailBucket="videos"
-            >
-              <button
-                type="button"
-                aria-label="Share video"
-                className="inline-flex h-9 w-full min-w-0 items-center justify-center gap-0.5 rounded-full border border-white/10 bg-white/10 px-1 text-[9px] font-semibold tracking-tight text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20 sm:text-[10px]"
-              >
-                <Share2 className="h-3.5 w-3.5 shrink-0" />
-                <span>Share</span>
-              </button>
-            </ShareSheet>
-            <button
-              type="button"
-              onClick={() => setDownloadOpen(true)}
-              aria-label="Download video"
-              className="inline-flex h-9 w-full min-w-0 items-center justify-center gap-0.5 rounded-full border border-white/10 bg-white/10 px-1 text-[9px] font-semibold tracking-tight text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20 sm:text-[10px]"
-            >
-              <Download className="h-3.5 w-3.5 shrink-0" />
-              <span>Download</span>
-            </button>
-          </div>
-
-         <DownloadSheet
-           open={downloadOpen}
-           onOpenChange={setDownloadOpen}
-           title={video.title || video.caption || "YourWorld video"}
-           durationSeconds={video.duration_seconds}
-           sourceQualityTier={sourceQualityTier}
-           qualityMediaUrls={video.qualityUrls ?? video.quality_urls ?? undefined}
-            sourceMediaUrl={playableMediaUrl}
-           mediaBucket="videos"
-           onDownload={downloadSelected}
-         />
-
-        <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-3">
-          <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-gray-500">Description</p>
-          <p className={`text-xs leading-relaxed text-gray-300 ${descriptionExpanded ? "" : "line-clamp-3"}`}>
-            {description}
-          </p>
-          {description.length > 180 ? (
-            <button
-              type="button"
-              onClick={() => setDescriptionExpanded((expanded) => !expanded)}
-              className="mt-2 text-xs font-semibold text-white"
-            >
-              {descriptionExpanded ? "Show less" : "Show more"}
-            </button>
-          ) : null}
-        </div>
+        <CreatorBar
+          creatorId={creatorId}
+          creatorName={creatorName}
+          creatorUsername={creatorUsername}
+          avatarUrl={video.user?.avatar_url}
+          subscriberCount={safeSubscriberCount}
+          isCreator={isCreator}
+          subscribed={subscribed}
+          onOpenCreator={openCreator}
+          onFollow={handleSubscribe}
+        />
+        <ActionRow
+          videoId={videoId}
+          title={video.title || video.caption || "YourWorld video"}
+          mediaUrl={video.media_url ?? video.video_url ?? video.url}
+          thumbnailUrl={video.thumbnail_url}
+          durationSeconds={video.duration_seconds}
+          sourceQualityTier={sourceQualityTier ?? undefined}
+          qualityMediaUrls={video.qualityUrls ?? video.quality_urls}
+          sourceMediaUrl={playableMediaUrl}
+          liked={Boolean(liked[videoId])}
+          disliked={disliked}
+          onLike={handleLike}
+          onDislike={handleDislike}
+          onDownload={downloadSelected}
+        />
+        <DescriptionBox
+          description={description}
+          expanded={descriptionExpanded}
+          onToggle={toggleDescription}
+        />
         </section>
 
-        {seriesTitle && (
-          <section
-            aria-label={`Next episodes in ${seriesTitle}`}
-            className="border-b border-white/10 pb-4"
-          >
-            <div className="mb-3 flex items-baseline justify-between gap-3">
-              <h2 className="text-base font-bold text-white">Next Episodes / Parts</h2>
-              <p className="truncate text-xs text-gray-400">{seriesTitle}</p>
-            </div>
-            {nextSeriesEpisodes.length ? (
-              <div className="no-scrollbar flex gap-3 overflow-x-auto pb-1">
-                {nextSeriesEpisodes.map((episode) => {
-                  const episodeTitle = episode.title || episode.caption || "Untitled Video";
-                  const episodeMedia =
-                    episode.media_url || episode.video_url || episode.url || "";
-                  const portrait =
-                    typeof episode.original_height === "number" &&
-                    typeof episode.original_width === "number" &&
-                    episode.original_height > episode.original_width;
-                  return (
-                    <button
-                      key={episode.id}
-                      type="button"
-                      onClick={() =>
-                        void navigate({
-                          to: "/video/$videoId",
-                          params: { videoId: episode.id },
-                        })
-                      }
-                      className="group w-44 shrink-0 text-left sm:w-52"
-                    >
-                      <div
-                        className={`relative mb-2 overflow-hidden rounded-xl bg-zinc-900 ${
-                          portrait ? "aspect-[9/16] w-24" : "aspect-video w-full"
-                        }`}
-                      >
-                        <VideoPoster
-                          thumbnailUrl={episode.thumbnail_url}
-                          mediaUrl={episodeMedia}
-                          alt={episodeTitle}
-                        />
-                      </div>
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-pink-300">
-                        {episode.episode_number || "Next part"}
-                      </p>
-                      <h3 className="mt-1 line-clamp-2 text-sm font-semibold text-white group-hover:text-pink-300">
-                        {episodeTitle}
-                      </h3>
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
-              <p className="text-xs text-gray-400">No later parts yet.</p>
-            )}
-          </section>
-        )}
+        <CommentsSection videoId={videoId} focusComments={Boolean(focusComments)} />
 
-        <div ref={commentsRef} id="comments" tabIndex={-1}>
-          <button
-            type="button"
-            onClick={() => setCommentsOpen(true)}
-            className="w-full rounded-2xl border border-white/10 bg-white/[0.045] p-3 text-left transition-colors hover:bg-white/[0.07]"
-            aria-label="Open comments"
-          >
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <MessageCircle className="h-4 w-4 text-pink-300" />
-                <span className="text-sm font-semibold text-white">Comments</span>
-                <span className="text-xs text-gray-400">({comments.length})</span>
-              </div>
-              <ChevronRight className="h-4 w-4 text-gray-500" />
-            </div>
-            {previewComment ? (
-              <div className="mt-3 flex items-start gap-2.5">
-                <Avatar className="h-7 w-7 shrink-0">
-                  <AvatarImage src={previewComment.avatarUrl || undefined} />
-                  <AvatarFallback className="bg-gray-700 text-[10px] text-white">
-                    {(previewComment.username || "U").charAt(0).toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
-                <p className="line-clamp-2 min-w-0 text-xs leading-relaxed text-gray-300">
-                  <span className="mr-1 font-semibold text-gray-200">
-                      {previewComment.displayName || previewComment.username || "user"}
-                  </span>
-                  {previewComment.body}
-                </p>
-              </div>
-            ) : (
-              <p className="mt-2 text-xs text-gray-500">
-                {realComments.loading ? "Loading comments…" : "No comments yet. Be the first."}
-              </p>
-            )}
-          </button>
-
-          <Drawer open={commentsOpen} onOpenChange={setCommentsOpen}>
-            <DrawerContent className="h-[88vh] max-h-[760px] border-white/10 bg-zinc-950 p-0 text-white">
-              <DrawerHeader className="border-b border-white/10 px-4 pb-3 pt-5 text-left">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <DrawerTitle className="text-base text-white">
-                      Comments <span className="text-sm font-normal text-gray-400">({comments.length})</span>
-                    </DrawerTitle>
-                    <p className="mt-1 text-xs text-gray-500">Join the conversation</p>
-                  </div>
-                  <DrawerClose
-                    asChild
-                  >
-                    <button
-                      type="button"
-                      className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-gray-300 transition-colors hover:bg-white/15 hover:text-white"
-                      aria-label="Close comments"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </DrawerClose>
-                </div>
-              </DrawerHeader>
-
-              <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-                {realComments.loading ? (
-                  <p className="py-8 text-center text-xs text-gray-500">Loading comments…</p>
-                ) : comments.length ? (
-                  <div className="space-y-4">
-                    {comments
-                      .filter((comment) => !comment.parentCommentId)
-                      .map((comment) => renderComment(comment))}
-                  </div>
-                ) : (
-                  <p className="py-8 text-center text-xs text-gray-500">No comments yet. Be the first.</p>
-                )}
-              </div>
-
-              <div className="border-t border-white/10 bg-zinc-950/95 px-4 py-3 backdrop-blur-xl">
-                <div className="flex gap-2">
-                  <Avatar className="mt-1 h-9 w-9 shrink-0">
-                    <AvatarImage src={currentAvatar} />
-                    <AvatarFallback className="bg-pink-600 text-xs text-white">
-                      {user?.email?.charAt(0).toUpperCase() || "U"}
-                    </AvatarFallback>
-                  </Avatar>
-                  <Input
-                    value={commentText}
-                    onChange={(event) => setCommentText(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" && commentText.trim()) submitComment();
-                    }}
-                    placeholder={user ? "Add a comment..." : "Join to comment"}
-                    className="h-10 rounded-full border-white/10 bg-white/5 text-xs text-white placeholder:text-gray-500"
-                  />
-                  <Button
-                    type="button"
-                    disabled={!commentText.trim()}
-                    onClick={submitComment}
-                    size="sm"
-                    className="h-10 rounded-full bg-pink-600 px-4 text-white hover:bg-pink-700"
-                  >
-                    <Send className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            </DrawerContent>
-          </Drawer>
-        </div>
-
-        {relatedVideos.length ? (
-          <section className="border-t border-white/10 pt-5">
-            <h2 className="mb-3 text-base font-bold text-white">Next videos</h2>
-            <div className="space-y-4">
-              {relatedVideos.map((related) => {
-                const relatedTitle = related.title || related.caption || "Untitled Video";
-                const relatedCreator =
-                  related.user?.full_name ||
-                  related.user?.display_name ||
-                  related.user?.username ||
-                  "Creator";
-                const relatedMedia = related.media_url || related.video_url || related.url || "";
-                return (
-                  <button
-                    key={related.id}
-                    type="button"
-                    onClick={() => {
-                      if (!related.id) return;
-                      void navigate({
-                        to: "/video/$videoId",
-                        params: { videoId: String(related.id) },
-                      });
-                    }}
-                    className="group flex w-full gap-3 text-left"
-                  >
-                    <div className="relative aspect-video w-40 shrink-0 overflow-hidden rounded-xl bg-zinc-900 sm:w-56">
-                      <VideoPoster
-                        thumbnailUrl={related.thumbnail_url}
-                        mediaUrl={relatedMedia}
-                        alt={relatedTitle}
-                      />
-                      {related.duration_seconds ? (
-                        <span className="absolute bottom-2 right-2 rounded bg-black/80 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                          {formatDuration(related.duration_seconds)}
-                        </span>
-                      ) : null}
-                    </div>
-                    <div className="min-w-0 pt-0.5">
-                      <h3 className="line-clamp-2 text-sm font-semibold text-white group-hover:text-pink-300">
-                        {relatedTitle}
-                      </h3>
-                       <p className="mt-1 flex items-center gap-1 line-clamp-2 text-xs text-gray-400">
-                         <span className="truncate">{relatedCreator}</span>
-                         <span>· {formatViews(Number(related.views_count || related.views || 0))}</span>
-                      </p>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-            <div ref={relatedSentinelRef} className="flex min-h-12 items-center justify-center pt-4" aria-live="polite">
-              {isFetchingNextPage ? (
-                <span className="h-5 w-5 animate-spin rounded-full border-2 border-pink-500 border-t-transparent" aria-label="Loading more videos" />
-              ) : hasNextPage ? null : (
-                <span className="text-xs text-gray-500">You’ve reached the end.</span>
-              )}
-            </div>
-          </section>
-        ) : null}
+        <RecommendedList
+          seriesTitle={seriesTitle}
+          nextSeriesEpisodes={nextSeriesEpisodes}
+          relatedVideos={relatedVideos}
+          hasNextPage={Boolean(hasNextPage)}
+          isFetchingNextPage={isFetchingNextPage}
+          fetchNextPage={() => fetchNextPage()}
+        />
       </div>
     </div>
   );

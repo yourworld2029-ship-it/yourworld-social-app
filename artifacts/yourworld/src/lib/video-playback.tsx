@@ -3,9 +3,11 @@ import {
   useCallback,
   useContext,
   useEffect,
+  memo,
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -21,6 +23,10 @@ import type { VideoQualityTier } from "@/lib/video-quality";
 import { getAdjacentVideo } from "@/lib/video-queue";
 import { resolveMediaUrl } from "@/lib/social-data";
 import { VideoPlayerErrorBoundary } from "@/components/yw/VideoPlayerErrorBoundary";
+import {
+  createVideoPlaybackProgressStore,
+  type VideoPlaybackProgressStore,
+} from "@/lib/video-playback-progress";
 import {
   ArrowLeft,
   Check,
@@ -160,8 +166,6 @@ type VideoPlaybackContextValue = {
   activeVideo: PersistentVideo | null;
   isDetailPlayer: boolean;
   isVerticalVideo: boolean;
-  currentTime: number;
-  duration: number;
   isPlaying: boolean;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   activateVideo: (video: PersistentVideo) => void;
@@ -173,6 +177,8 @@ type VideoPlaybackContextValue = {
 };
 
 const VideoPlaybackContext = createContext<VideoPlaybackContextValue | null>(null);
+const VideoPlaybackProgressContext =
+  createContext<VideoPlaybackProgressStore | null>(null);
 
 const PLAYER_SWIPE_TRANSITION_MS = 130;
 const PLAYER_SWIPE_TRANSITION =
@@ -327,6 +333,19 @@ function setAndroidPlayerSystemBars(immersive: boolean) {
 export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const progressStoreRef = useRef<VideoPlaybackProgressStore | null>(null);
+  if (!progressStoreRef.current) {
+    progressStoreRef.current = createVideoPlaybackProgressStore();
+  }
+  const progressStore = progressStoreRef.current;
+  const setCurrentTime = useCallback(
+    (currentTime: number) => progressStore.setCurrentTime(currentTime),
+    [progressStore],
+  );
+  const setDuration = useCallback(
+    (duration: number) => progressStore.setDuration(duration),
+    [progressStore],
+  );
   const [activeVideo, setActiveVideo] = useState<PersistentVideo | null>(null);
   const [mediaError, setMediaError] = useState<{ id: string; url: string } | null>(null);
   const [playbackRetryKey, setPlaybackRetryKey] = useState(0);
@@ -338,8 +357,6 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const [isBuffering, setIsBuffering] = useState(true);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [controlsActivity, setControlsActivity] = useState(0);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [gestureFeedback, setGestureFeedback] = useState<GestureFeedback | null>(null);
   const [lockedUnlockVisible, setLockedUnlockVisible] = useState(false);
@@ -539,7 +556,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       }
       return video;
     });
-  }, []);
+  }, [setCurrentTime]);
 
   const setTimeUpdateHandler = useCallback(
     (handler: ((currentTime: number, duration: number, wasSeeking: boolean) => void) | null) => {
@@ -580,7 +597,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     setLoopVideo(false);
     setHlsLevels([]);
     setActiveHlsHeight(null);
-  }, []);
+  }, [setCurrentTime, setDuration]);
 
   const retryPlayback = useCallback(() => {
     if (!activeVideo) return;
@@ -757,6 +774,8 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     activeVideoUrl,
     playbackRetryKey,
     reportMediaError,
+    setCurrentTime,
+    setDuration,
   ]);
 
   useEffect(
@@ -951,7 +970,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     video.currentTime = nextTime;
     setCurrentTime(nextTime);
     markControlsActivity();
-  }, [markControlsActivity]);
+  }, [markControlsActivity, setCurrentTime]);
 
   const toggleFullscreen = useCallback(() => {
     const fullscreenElement = getPlayerFullscreenElement();
@@ -1206,7 +1225,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       setCurrentTime(nextTime);
       showGestureFeedback("seek", seconds, "10s");
     },
-    [isDetailPlayer, isFullscreen, screenLocked, showGestureFeedback],
+    [isDetailPlayer, isFullscreen, screenLocked, setCurrentTime, showGestureFeedback],
   );
 
   const togglePlayerControls = useCallback(() => {
@@ -1555,14 +1574,18 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     const video = event.currentTarget;
     const wasSeeking = video.seeking || seekActivityRef.current;
     seekActivityRef.current = false;
-    setCurrentTime(video.currentTime);
-    if (Number.isFinite(video.duration)) setDuration(video.duration);
+    progressStore.setProgress(
+      video.currentTime,
+      Number.isFinite(video.duration)
+        ? video.duration
+        : progressStore.getSnapshot().duration,
+    );
     timeUpdateHandlerRef.current?.(
       video.currentTime,
       Number.isFinite(video.duration) ? video.duration : 0,
       wasSeeking,
     );
-  }, []);
+  }, [progressStore]);
 
   const handleVideoSeeking = useCallback(() => {
     seekActivityRef.current = true;
@@ -1576,14 +1599,18 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     const video = event.currentTarget;
     const isVertical = video.videoHeight > video.videoWidth;
     setIsVerticalVideo(isVertical);
-    if (Number.isFinite(video.duration)) setDuration(video.duration);
-    setCurrentTime(Number.isFinite(video.currentTime) ? video.currentTime : 0);
+    progressStore.setProgress(
+      Number.isFinite(video.currentTime) ? video.currentTime : 0,
+      Number.isFinite(video.duration)
+        ? video.duration
+        : progressStore.getSnapshot().duration,
+    );
     setIsMuted(video.muted);
     const fullscreenElement = getPlayerFullscreenElement();
     if (fullscreenElement === containerRef.current || fullscreenElement === videoRef.current) {
       void lockPlayerOrientation(isVertical ? "portrait" : "landscape");
     }
-  }, []);
+  }, [progressStore]);
 
   const handleVolumeChange = useCallback((event: React.SyntheticEvent<HTMLVideoElement>) => {
     const video = event.currentTarget;
@@ -1619,8 +1646,6 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       activeVideo,
       isDetailPlayer,
       isVerticalVideo,
-      currentTime,
-      duration,
       isPlaying,
       videoRef,
       activateVideo,
@@ -1632,8 +1657,6 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       activeVideo,
       activateVideo,
       closeVideo,
-      currentTime,
-      duration,
       isDetailPlayer,
       isVerticalVideo,
       isPlaying,
@@ -1644,13 +1667,14 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
 
   return (
     <VideoPlaybackContext.Provider value={contextValue}>
-      <div
-        className={
-          isPlayerRoute
-            ? `yw-video-player-route relative flex h-[100dvh] flex-col ${isFullscreen ? "overflow-visible" : "overflow-hidden"}`
-            : "relative min-h-screen"
-        }
-      >
+      <VideoPlaybackProgressContext.Provider value={progressStore}>
+        <div
+          className={
+            isPlayerRoute
+              ? `yw-video-player-route relative flex h-[100dvh] flex-col ${isFullscreen ? "overflow-visible" : "overflow-hidden"}`
+              : "relative min-h-screen"
+          }
+        >
         <div
           className={
             isPlayerRoute
@@ -1914,53 +1938,16 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               </>
             ) : null}
 
-            {showDetailChrome && !screenLocked ? (
-              <div
-                className={`pointer-events-none absolute inset-x-0 bottom-0 z-40 transition-opacity duration-200 ${
-                  controlsVisible ? "opacity-100" : "opacity-0"
-                }`}
-              >
-                <div
-                  className={`bg-gradient-to-t from-black/90 via-black/45 to-transparent px-3 pb-2 pt-12 ${
-                    controlsVisible ? "pointer-events-auto" : "pointer-events-none"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2.5 text-white">
-                    <span className="text-xs font-medium tabular-nums">
-                      {formatTime(currentTime)} / {formatTime(duration)}
-                    </span>
-                    <div className="flex shrink-0 items-center gap-0.5">
-                      <button
-                        type="button"
-                        onClick={toggleMute}
-                        className="grid h-8 w-8 place-items-center rounded-full transition hover:bg-white/15"
-                        aria-label={isMuted ? "Unmute video" : "Mute video"}
-                      >
-                        {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={toggleFullscreen}
-                        className="grid h-8 w-8 place-items-center rounded-full transition hover:bg-white/15"
-                        aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-                      >
-                        {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
-                      </button>
-                    </div>
-                  </div>
-                  <input
-                    type="range"
-                    min={0}
-                    max={Math.max(duration, 1)}
-                    step={0.1}
-                    value={Math.min(currentTime, duration || 0)}
-                    onChange={handleSeek}
-                    aria-label="Seek video"
-                    className="mt-1.5 h-1 w-full cursor-pointer accent-white"
-                  />
-                </div>
-              </div>
-            ) : null}
+            <PlaybackTimeline
+              showDetailChrome={showDetailChrome}
+              screenLocked={screenLocked}
+              controlsVisible={controlsVisible}
+              isMuted={isMuted}
+              isFullscreen={isFullscreen}
+              onToggleMute={toggleMute}
+              onToggleFullscreen={toggleFullscreen}
+              onSeek={handleSeek}
+            />
 
             {showDetailChrome && !screenLocked && gestureFeedback?.kind === "seek" ? (
               <div className="pointer-events-none absolute inset-0 z-50">
@@ -2252,7 +2239,8 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
           </VideoPlayerErrorBoundary>
           </div>
         ) : null}
-      </div>
+        </div>
+      </VideoPlaybackProgressContext.Provider>
     </VideoPlaybackContext.Provider>
   );
 }
@@ -2264,6 +2252,89 @@ export function useVideoPlayback() {
   }
   return context;
 }
+
+export function useVideoPlaybackProgress() {
+  const store = useContext(VideoPlaybackProgressContext);
+  if (!store) {
+    throw new Error("useVideoPlaybackProgress must be used inside VideoPlaybackProvider");
+  }
+  return useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+}
+
+type PlaybackTimelineProps = {
+  showDetailChrome: boolean;
+  screenLocked: boolean;
+  controlsVisible: boolean;
+  isMuted: boolean;
+  isFullscreen: boolean;
+  onToggleMute: () => void;
+  onToggleFullscreen: () => void;
+  onSeek: (event: React.ChangeEvent<HTMLInputElement>) => void;
+};
+
+const PlaybackTimeline = memo(function PlaybackTimeline({
+  showDetailChrome,
+  screenLocked,
+  controlsVisible,
+  isMuted,
+  isFullscreen,
+  onToggleMute,
+  onToggleFullscreen,
+  onSeek,
+}: PlaybackTimelineProps) {
+  const { currentTime, duration } = useVideoPlaybackProgress();
+  if (!showDetailChrome || screenLocked) return null;
+
+  return (
+    <div
+      data-testid="video-player-timeline"
+      className={`pointer-events-none absolute inset-x-0 bottom-0 z-40 transition-opacity duration-200 ${
+        controlsVisible ? "opacity-100" : "opacity-0"
+      }`}
+    >
+      <div
+        className={`bg-gradient-to-t from-black/90 via-black/45 to-transparent px-3 pb-2 pt-12 ${
+          controlsVisible ? "pointer-events-auto" : "pointer-events-none"
+        }`}
+      >
+        <div className="flex items-center justify-between gap-2.5 text-white">
+          <span className="text-xs font-medium tabular-nums">
+            {formatTime(currentTime)} / {formatTime(duration)}
+          </span>
+          <div className="flex shrink-0 items-center gap-0.5">
+            <button
+              type="button"
+              onClick={onToggleMute}
+              className="grid h-8 w-8 place-items-center rounded-full transition hover:bg-white/15"
+              aria-label={isMuted ? "Unmute video" : "Mute video"}
+            >
+              {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+            </button>
+            <button
+              type="button"
+              onClick={onToggleFullscreen}
+              className="grid h-8 w-8 place-items-center rounded-full transition hover:bg-white/15"
+              aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+            >
+              {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
+            </button>
+          </div>
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={Math.max(duration, 1)}
+          step={0.1}
+          value={Math.min(currentTime, duration || 0)}
+          onChange={onSeek}
+          aria-label="Seek video"
+          data-testid="input-video-seek"
+          className="mt-1.5 h-1 w-full cursor-pointer accent-white"
+        />
+      </div>
+    </div>
+  );
+});
 
 export function VideoPlaybackSlot({
   className = "",

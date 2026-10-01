@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const androidDir = path.join(appDir, "android");
-const apkPath = path.join(androidDir, "app/build/outputs/apk/debug/app-debug.apk");
+const apkPath = path.join(androidDir, "app/build/outputs/apk/release/app-release.apk");
 const publicDownloadsDir = path.join(appDir, "public/downloads");
 
 function run(command, args, cwd, env) {
@@ -114,7 +114,7 @@ async function main() {
   const java21Env = findJava21Environment();
   await run("pnpm", ["run", "build"], appDir, java21Env);
   await run("pnpm", ["exec", "cap", "sync", "android"], appDir, java21Env);
-  await run("./gradlew", ["assembleDebug"], androidDir, java21Env);
+  await run("./gradlew", ["assembleRelease"], androidDir, java21Env);
 
   const sdkRoot = await getSdkRoot();
   const aapt = await findAndroidTool(sdkRoot, "aapt");
@@ -134,7 +134,7 @@ async function main() {
   const timestamp = new Date().toISOString()
     .replace(/[-:]/g, "")
     .replace(/\.\d{3}Z$/, "Z");
-  const filename = `yourworld-${timestamp}-v${versionCode}.apk`;
+  const filename = `yourworld-${timestamp}-v${versionCode}-release-debug-signed.apk`;
   const outputPath = path.join(publicDownloadsDir, filename);
   await mkdir(publicDownloadsDir, { recursive: true });
   await copyFile(apkPath, outputPath);

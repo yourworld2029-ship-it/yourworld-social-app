@@ -17,7 +17,7 @@ export const BottomNav = memo(function BottomNav({ onOpenCreate }: BottomNavProp
   }
 
   return (
-    <div className="bottom-nav-safe-area fixed bottom-0 left-0 right-0 z-40 border-t border-border/70 bg-background/90 px-4 pt-2 backdrop-blur-xl">
+    <div className="bottom-nav-safe-area fixed bottom-0 left-0 right-0 z-40 isolate pointer-events-auto border-t border-border/70 bg-background/90 px-4 pt-2 backdrop-blur-xl">
       <div className="max-w-md mx-auto flex items-center justify-around">
         <Link to="/" className="flex flex-col items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground">
           <Home className="w-5 h-5" />

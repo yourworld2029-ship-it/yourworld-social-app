@@ -154,3 +154,31 @@ mtime_ms = 1790822735743
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/0cf2d997-5365-44cb-ba50-8b884748dccf/f8e7f3d8-8d7c-4dd9-a876-d288c0fc9753"
 storage_version_token = "1790822931458355"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "hY1bXN5JZ5mh10FLXpZ3c"
+uri = "file://artifacts/yourworld/public/downloads/yourworld-20261001T063035Z-v14.apk"
+type = "unspecified"
+title = "YourWorld Android APK — v1.0.13"
+description = "Update-installable APK, versionCode 14. Built and signature-verified; signer matches the previous v13 APK."
+logical_id = "0da07b0e-c643-4fe1-980b-ada2dbb20956"
+content_hash = "sha256:f885db83facf622102c67dbd867f4cfbf15928e4b67b0d3a58178dfb666bd6b3"
+size = 7608246
+mtime_ms = 1790836235975
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/0da07b0e-c643-4fe1-980b-ada2dbb20956/37081d31-56e8-4189-91dd-db625d2a4d64"
+storage_version_token = "1790836746415188"
+content_type = "application/octet-stream"
+
+[[outputs]]
+id = "6JYzK614NkZgqd9zbQBaq"
+uri = "file://artifacts/yourworld/public/downloads/yourworld-20261001T064246Z-v14-release-debug-signed.apk"
+type = "unspecified"
+title = "YourWorld Android Release APK — v1.0.13"
+description = "Release variant, versionCode 14. Signed with the same certificate as the previous v13 release and verified as an installable update."
+logical_id = "121b02b0-8270-4a67-b008-48e321e09751"
+content_hash = "sha256:cf7219cb05c4f609707bda369a37fff2b6f95c2cc447110481d6b3a0dbfa5889"
+size = 6320385
+mtime_ms = 1790836966815
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/121b02b0-8270-4a67-b008-48e321e09751/d18433c4-1053-4c8c-9cbd-8b5f71c68676"
+storage_version_token = "1790837061305174"
+content_type = "application/octet-stream"
