@@ -101,6 +101,22 @@ export function arePendingVideoUploadSummariesEqual(
   );
 }
 
+export function applyUploadTaskPatch(
+  tasks: UploadTask[],
+  id: string,
+  next: Partial<UploadTask>,
+): UploadTask[] {
+  const current = tasks.find((task) => task.id === id);
+  if (!current) return tasks;
+
+  const changed = (Object.keys(next) as Array<keyof UploadTask>).some(
+    (key) => current[key] !== next[key],
+  );
+  if (!changed) return tasks;
+
+  return tasks.map((task) => (task.id === id ? { ...task, ...next } : task));
+}
+
 export function useUploadTasks() {
   const tasks = useContext(UploadTasksContext);
   if (!tasks) throw new Error("useUploadTasks must be used inside <UploadProvider>");
@@ -149,7 +165,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   );
 
   const patch = useCallback((id: string, next: Partial<UploadTask>) => {
-    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...next } : t)));
+    setTasks((prev) => applyUploadTaskPatch(prev, id, next));
   }, []);
 
   const dismiss = useCallback((id: string) => {
