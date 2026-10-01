@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { access, copyFile, mkdir, readFile, readdir, stat } from "node:fs/promises";
+import { access, copyFile, mkdir, readFile, readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -8,6 +8,7 @@ const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const androidDir = path.join(appDir, "android");
 const apkPath = path.join(androidDir, "app/build/outputs/apk/release/app-release.apk");
 const publicDownloadsDir = path.join(appDir, "public/downloads");
+const stagedApkPattern = /^yourworld-\d{8}T\d{6}Z-v\d+(?:-[a-z0-9-]+)?\.apk$/i;
 
 function run(command, args, cwd, env) {
   return new Promise((resolve, reject) => {
@@ -106,6 +107,25 @@ function runTool(command, args) {
   return `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
 }
 
+async function pruneStagedApks() {
+  const entries = await readdir(publicDownloadsDir, { withFileTypes: true });
+  const stagedApks = entries
+    .filter((entry) => entry.isFile() && stagedApkPattern.test(entry.name))
+    .map((entry) => entry.name)
+    .sort((a, b) => b.localeCompare(a));
+  const retainedApks = new Set(stagedApks.slice(0, 3));
+  let removedCount = 0;
+
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".apk")) continue;
+    if (retainedApks.has(entry.name)) continue;
+    await rm(path.join(publicDownloadsDir, entry.name));
+    removedCount += 1;
+  }
+
+  console.log(`[apk] retained ${Math.min(stagedApks.length, 3)} staged APKs; removed ${removedCount} older or unversioned APKs`);
+}
+
 async function main() {
   const gradleFile = await readFile(path.join(androidDir, "app/build.gradle"), "utf8");
   const versionCode = gradleFile.match(/versionCode\s+(\d+)/)?.[1];
@@ -142,6 +162,7 @@ async function main() {
   const hash = createHash("sha256").update(await readFile(outputPath)).digest("hex");
   console.log(`Verified APK: ${outputPath}`);
   console.log(`Build ID: ${timestamp}; versionCode: ${versionCode}; sha256: ${hash}`);
+  await pruneStagedApks();
 }
 
 main().catch((error) => {
