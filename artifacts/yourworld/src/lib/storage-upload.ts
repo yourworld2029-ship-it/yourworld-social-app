@@ -143,16 +143,12 @@ export async function uploadWithProgress(
       console.error(`Video processing failed for ${bucket}/${path}: ${message}`);
       return { url: null, storagePath: null, error: message };
     }
-    if (
-      typeof responseData?.path !== "string" ||
-      responseData.contentType !== "video/mp4" ||
-      responseData.faststart !== true
-    ) {
-      const error = "The video processor returned an invalid response.";
-      console.error(`Video processing failed for ${bucket}/${path}: ${error}`);
-      return { url: null, storagePath: null, error };
+    if (typeof responseData?.path === "string" && responseData.path) {
+      finalPath = responseData.path;
+    } else {
+      console.warn("Transcode skipped or incomplete, using original upload path:", path);
+      finalPath = path;
     }
-    finalPath = responseData.path;
   }
 
   const { data: signed, error: signError } = await supabase.storage
