@@ -16,9 +16,11 @@ import {
   Eye,
   Trash2,
   Archive,
+  Bookmark,
   MapPin,
   ChevronUp,
   Plus,
+  Share2,
 } from "lucide-react";
 import { downloadMomentMedia, downloadOriginalMomentMedia } from "@/lib/yw-download";
 import { toast } from "sonner";
@@ -97,6 +99,7 @@ function MomentViewRoute() {
   const [paused, setPaused] = useState(false);
   const [muted, setMuted] = useState(false);
   const [liked, setLiked] = useState(false);
+  const [bookmarked, setBookmarked] = useState(false);
   const [reply, setReply] = useState("");
   const [replying, setReplying] = useState(false);
   const [replyFocused, setReplyFocused] = useState(false);
@@ -166,6 +169,11 @@ function MomentViewRoute() {
   useEffect(() => {
     if (!current) return;
     setLiked(false);
+    try {
+      setBookmarked(localStorage.getItem(`yw-saved-moment:${current.id}`) === "true");
+    } catch {
+      setBookmarked(false);
+    }
     setProgress(0);
     setShowViewers(false);
     registerView(current.id);
@@ -346,6 +354,44 @@ function MomentViewRoute() {
       });
   }, [current]);
 
+  const toggleBookmark = useCallback(() => {
+    if (!current) return;
+    const next = !bookmarked;
+    setBookmarked(next);
+    try {
+      if (next) localStorage.setItem(`yw-saved-moment:${current.id}`, "true");
+      else localStorage.removeItem(`yw-saved-moment:${current.id}`);
+      toast.success(next ? "Moment bookmarked" : "Bookmark removed");
+    } catch {
+      setBookmarked(!next);
+      toast.error("Couldn't save this bookmark on this device.");
+    }
+  }, [bookmarked, current]);
+
+  const shareMoment = useCallback(async () => {
+    if (!current) return;
+    if (current.allowSharing === false) {
+      toast.error("Sharing is turned off for this Moment.");
+      return;
+    }
+    const url = `${window.location.origin}/moment/${encodeURIComponent(String(current.id))}`;
+    const title = current.text.trim() || `${current.author?.name || "YourWorld"}'s Moment`;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title, text: title, url });
+        return;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("Moment link copied");
+    } catch {
+      toast.error("Couldn't share this Moment.");
+    }
+  }, [current]);
+
   if (!current) return null;
 
   const filter = aiFilterCss(current.ai, current.effect);
@@ -355,7 +401,8 @@ function MomentViewRoute() {
 
   return (
     <div
-      className="fixed inset-0 z-[99999] flex items-center justify-center bg-black select-none"
+      data-testid="moment-viewer-overlay"
+      className="fixed inset-0 z-[99999] isolate flex items-center justify-center bg-black select-none"
       onTouchStart={(e) => {
         const t = e.touches[0];
         if (t) touchStart.current = { x: t.clientX, y: t.clientY };
@@ -659,10 +706,10 @@ function MomentViewRoute() {
         {!current.mine ? (
           <div
             ref={replyBarRef}
-            style={{ bottom: "max(env(safe-area-inset-bottom, 0px), 0px)" }}
+            data-testid="moment-action-bar"
+            style={{ bottom: 0 }}
             className={cn(
-              "absolute inset-x-3 z-[10002] flex items-center gap-2 transition-[opacity,transform] duration-200",
-              paused && !replyFocused ? "pointer-events-none opacity-0" : "opacity-100",
+              "pointer-events-auto absolute inset-x-3 z-[10010] flex items-center gap-2 bg-gradient-to-t from-black/80 via-black/45 to-transparent pb-[max(env(safe-area-inset-bottom,0px),16px)] pt-3 transition-transform duration-200",
             )}
           >
             {current.allowReplies === false ? (
@@ -706,7 +753,7 @@ function MomentViewRoute() {
                     e.currentTarget.form?.requestSubmit();
                   }
                 }}
-                placeholder="Send a reply"
+                placeholder="Send a reply..."
                 className="min-w-0 flex-1 bg-transparent text-sm text-white placeholder:text-white/50 focus:outline-none"
               />
               <button
@@ -723,17 +770,40 @@ function MomentViewRoute() {
             {current.allowReactions === false ? null : (
             <button
               type="button"
-              aria-label="Like"
+              aria-label={`Like, ${likeCount} likes`}
+              aria-pressed={liked}
               onClick={() => {
                 const next = !liked;
                 setLiked(next);
                 registerView(current.id, next);
               }}
-              className="rounded-full border border-white/25 bg-white/10 p-2.5 text-white shadow-lg shadow-black/10 backdrop-blur-xl transition-transform duration-150 active:scale-90"
+              className="flex shrink-0 items-center gap-1.5 rounded-full border border-white/25 bg-white/10 px-3 py-2.5 text-white shadow-lg shadow-black/10 backdrop-blur-xl transition-transform duration-150 active:scale-90"
             >
               <Heart className={cn("h-5 w-5", liked && "fill-red-500 text-red-500")} />
+              <span className="min-w-3 text-xs font-semibold tabular-nums">{likeCount}</span>
             </button>
             )}
+            <button
+              type="button"
+              aria-label={bookmarked ? "Remove Moment bookmark" : "Bookmark Moment"}
+              aria-pressed={bookmarked}
+              onClick={toggleBookmark}
+              className="pointer-events-auto shrink-0 rounded-full border border-white/25 bg-white/10 p-2.5 text-white shadow-lg shadow-black/10 backdrop-blur-xl transition-transform duration-150 active:scale-90"
+            >
+              <Bookmark className={cn("h-5 w-5", bookmarked && "fill-white")} />
+            </button>
+            <button
+              type="button"
+              aria-label={current.allowSharing === false ? "Sharing disabled by creator" : "Share Moment"}
+              aria-disabled={current.allowSharing === false}
+              onClick={() => void shareMoment()}
+              className={cn(
+                "pointer-events-auto shrink-0 rounded-full border border-white/25 bg-white/10 p-2.5 text-white shadow-lg shadow-black/10 backdrop-blur-xl transition-transform duration-150 active:scale-90",
+                current.allowSharing === false && "opacity-50",
+              )}
+            >
+              <Share2 className="h-5 w-5" />
+            </button>
             {current.allowDownload && current.media ? (
               <button
                 type="button"

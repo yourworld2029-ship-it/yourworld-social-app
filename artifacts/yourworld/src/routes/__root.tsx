@@ -199,9 +199,14 @@ function RootComponent() {
   const [isNativeApp, setIsNativeApp] = useState(false);
   const isWatchPreview = pathname.startsWith("/watch/");
   const isChatConversation = pathname.startsWith("/chat/");
+  const isMomentViewer =
+    pathname.startsWith("/moment/") &&
+    pathname !== "/moment/" &&
+    pathname !== "/moment/create";
   const hideNav =
     isWatchPreview ||
     isChatConversation ||
+    isMomentViewer ||
     pathname.startsWith("/auth") ||
     pathname.startsWith("/verify-2fa") ||
     pathname.startsWith("/create") ||

@@ -92,3 +92,9 @@ In this Replit workspace, Gradle's debug keystore may be under the workspace con
 **Why:** Assuming the default home-directory location can falsely suggest the existing signing key is missing; generating a replacement certificate breaks update-install continuity.
 
 **How to apply:** Locate the existing debug keystore without inspecting or exporting its private contents, compare its certificate fingerprint with the installed/downloaded APK, and use it only when a release-format APK must retain that signing identity. Keep this temporary signing step out of committed Gradle configuration.
+
+The public APK endpoint accepts only the canonical timestamp/version filename; a suffixed release filename can be staged by the web build but ignored by the download route.
+
+**Why:** The static asset staging and API download route use different filename filters, so a newly built APK with a descriptive suffix can leave `/download-apk` serving an older build.
+
+**How to apply:** Copy the signed installer to `yourworld-<timestamp>-v<versionCode>.apk`, then verify the download endpoint's build header before delivering the link.
