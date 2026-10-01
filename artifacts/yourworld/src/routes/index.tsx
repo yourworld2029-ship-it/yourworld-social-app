@@ -1,6 +1,8 @@
 import React from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
+import { FeedVideoShelfPreview } from "@/components/yw/FeedVideoShelfPreview";
+import { FeedVideoTray } from "@/components/yw/FeedVideoTray";
 import { LongVideoCard } from "@/components/yw/LongVideoCard";
 import {
   FeedVideoAutoplayProvider,
@@ -27,14 +29,21 @@ import {
 } from "@/lib/video-resume";
 import { getAppScrollContainer } from "@/lib/app-scroll-container";
 
-type FeedItem = {
-  kind: "standard";
-  key: string;
-  video: LongVideo;
-  prefetchNextVideos: Array<Pick<LongVideo, "mediaUrl" | "access">>;
-};
+type FeedItem =
+  | {
+      kind: "standard";
+      key: string;
+      video: LongVideo;
+      prefetchNextVideos: Array<Pick<LongVideo, "mediaUrl" | "access">>;
+    }
+  | {
+      kind: "vertical-shelf";
+      key: string;
+      videos: LongVideo[];
+    };
 
 function estimateFeedItemHeight(item: FeedItem) {
+  if (item.kind === "vertical-shelf") return 260;
   return item.video.orientation === "portrait" ? 920 : 660;
 }
 
@@ -185,11 +194,27 @@ const HomeVideoFeed = React.memo(function HomeVideoFeed({
   pendingVideoUploadCount,
   ownerId,
 }: HomeVideoFeedProps) {
+  const navigate = useNavigate();
   const onDeleted = React.useCallback(() => {
     void reload();
   }, [reload]);
   const renderFeedItem = React.useCallback(
     (item: FeedItem) => {
+      if (item.kind === "vertical-shelf") {
+        return (
+          <FeedVideoTray
+            videos={item.videos}
+            renderPreview={(video) => <FeedVideoShelfPreview video={video} />}
+            onOpenVideo={(video) => {
+              void navigate({
+                to: "/video/$videoId",
+                params: { videoId: video.id },
+              });
+            }}
+          />
+        );
+      }
+
       return (
         <LongVideoCard
           key={item.key}
@@ -210,6 +235,7 @@ const HomeVideoFeed = React.memo(function HomeVideoFeed({
     [
       countView,
       currentUserId,
+      navigate,
       onDeleted,
       resumeEntry,
       toggleLike,
@@ -424,24 +450,14 @@ function HomePage() {
   }, [resumeVideo, videos]);
   const feedItems = React.useMemo<FeedItem[]>(() => {
     const items: FeedItem[] = [];
-    const appendVideos = (list: LongVideo[], forcePortrait = false) => {
-      list.forEach((video, index) => {
-        const immediateNextVideo = list[index + 1];
-        const prefetchNextVideos =
-          immediateNextVideo?.access === "public"
-            ? [{ mediaUrl: immediateNextVideo.mediaUrl, access: immediateNextVideo.access }]
-            : [];
-        items.push({
-          kind: "standard",
-          key: `post-${video.id}`,
-          video: forcePortrait ? { ...video, orientation: "portrait" } : video,
-          prefetchNextVideos,
-        });
-      });
-    };
-
     if (regularVideos.length === 0) {
-      appendVideos(verticalVideos, true);
+      if (verticalVideos.length > 0) {
+        items.push({
+          kind: "vertical-shelf",
+          key: "vertical-video-shelf",
+          videos: verticalVideos,
+        });
+      }
     } else {
       regularVideos.forEach((video, index) => {
         const immediateNextVideo = regularVideos[index + 1];
@@ -461,7 +477,11 @@ function HomePage() {
           verticalVideos.length > 0 &&
           regularVideoCount === Math.min(2, regularVideos.length)
         ) {
-          appendVideos(verticalVideos, true);
+          items.push({
+            kind: "vertical-shelf",
+            key: "vertical-video-shelf",
+            videos: verticalVideos,
+          });
         }
       });
     }
