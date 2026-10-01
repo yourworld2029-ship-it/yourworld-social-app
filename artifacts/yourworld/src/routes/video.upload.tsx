@@ -12,7 +12,7 @@ import {
   formatDuration,
   publishLongVideo,
 } from "@/lib/video-data";
-import { useUploads } from "@/lib/upload-progress";
+import { useUploadActions } from "@/lib/upload-progress";
 import { useAuth } from "@/lib/auth-store";
 import { trackEvent } from "@/lib/analytics";
 import { historyBackOr } from "@/lib/navigation";
@@ -49,7 +49,7 @@ const MAX_VIDEO_BYTES = 209_715_200;
 function VideoUploadPage() {
 
   const navigate = useNavigate();
-  const { startUpload, updatePreviewThumbnail } = useUploads();
+  const { startUpload, updatePreviewThumbnail } = useUploadActions();
   const { user } = useAuth();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const selectedFileRef = useRef<File | null>(null);

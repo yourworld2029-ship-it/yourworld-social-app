@@ -65,12 +65,60 @@ type Ctx = {
   dismiss: (id: string) => void;
 };
 
-const UploadCtx = createContext<Ctx | null>(null);
+type UploadActions = Omit<Ctx, "tasks">;
+export type PendingVideoUploadSummary = ReadonlyArray<{
+  id: string;
+  ownerId: string | null;
+}>;
 
-export function useUploads() {
-  const ctx = useContext(UploadCtx);
-  if (!ctx) throw new Error("useUploads must be used inside <UploadProvider>");
-  return ctx;
+const UploadTasksContext = createContext<UploadTask[] | null>(null);
+const UploadActionsContext = createContext<UploadActions | null>(null);
+const PendingVideoUploadSummaryContext =
+  createContext<PendingVideoUploadSummary>([]);
+
+export function selectPendingVideoUploadSummary(
+  tasks: readonly UploadTask[],
+): PendingVideoUploadSummary {
+  return tasks
+    .filter(
+      (task) =>
+        task.kind === "video" &&
+        (task.status === "uploading" || task.status === "processing"),
+    )
+    .map((task) => ({ id: task.id, ownerId: task.ownerId ?? null }));
+}
+
+export function arePendingVideoUploadSummariesEqual(
+  left: PendingVideoUploadSummary,
+  right: PendingVideoUploadSummary,
+) {
+  return (
+    left.length === right.length &&
+    left.every(
+      (item, index) =>
+        item.id === right[index]?.id && item.ownerId === right[index]?.ownerId,
+    )
+  );
+}
+
+export function useUploadTasks() {
+  const tasks = useContext(UploadTasksContext);
+  if (!tasks) throw new Error("useUploadTasks must be used inside <UploadProvider>");
+  return tasks;
+}
+
+export function useUploadActions() {
+  const actions = useContext(UploadActionsContext);
+  if (!actions) throw new Error("useUploadActions must be used inside <UploadProvider>");
+  return actions;
+}
+
+export function usePendingVideoUploadCount(ownerId?: string | null) {
+  const pendingUploads = useContext(PendingVideoUploadSummaryContext);
+  return useMemo(
+    () => ownerId ? pendingUploads.filter((task) => task.ownerId === ownerId).length : 0,
+    [ownerId, pendingUploads],
+  );
 }
 
 export function UploadProvider({ children }: { children: ReactNode }) {
@@ -78,6 +126,16 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const liveTaskIds = useRef(new Set<string>());
   const previewObjectUrls = useRef(new Map<string, string>());
+  const pendingVideoSummaryRef = useRef<PendingVideoUploadSummary>([]);
+
+  const pendingVideoSummary = useMemo(() => {
+    const next = selectPendingVideoUploadSummary(tasks);
+    if (arePendingVideoUploadSummariesEqual(pendingVideoSummaryRef.current, next)) {
+      return pendingVideoSummaryRef.current;
+    }
+    pendingVideoSummaryRef.current = next;
+    return next;
+  }, [tasks]);
 
   useEffect(
     () => () => {
@@ -185,16 +243,20 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("beforeunload", handler);
   }, [active]);
 
-  const value = useMemo(
-    () => ({ tasks, startUpload, updatePreviewThumbnail, dismiss }),
-    [tasks, startUpload, updatePreviewThumbnail, dismiss],
+  const actions = useMemo(
+    () => ({ startUpload, updatePreviewThumbnail, dismiss }),
+    [startUpload, updatePreviewThumbnail, dismiss],
   );
 
   return (
-    <UploadCtx.Provider value={value}>
-      {children}
-      <UploadProgressStack />
-    </UploadCtx.Provider>
+    <UploadActionsContext.Provider value={actions}>
+      <UploadTasksContext.Provider value={tasks}>
+        <PendingVideoUploadSummaryContext.Provider value={pendingVideoSummary}>
+          {children}
+          <UploadProgressStack />
+        </PendingVideoUploadSummaryContext.Provider>
+      </UploadTasksContext.Provider>
+    </UploadActionsContext.Provider>
   );
 }
 
@@ -206,7 +268,8 @@ const TITLE: Record<UploadKind, string> = {
 };
 
 function UploadProgressStack() {
-  const { tasks, dismiss } = useUploads();
+  const tasks = useUploadTasks();
+  const { dismiss } = useUploadActions();
   if (!tasks.length) return null;
 
   return (

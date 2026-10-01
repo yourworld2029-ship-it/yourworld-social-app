@@ -19,7 +19,10 @@ import { useActiveLiveStreams } from "@/lib/live-data";
 import ywLogo from "@/assets/yw-logo.png";
 import { ProfileAvatar } from "@/components/yw/ProfileAvatar";
 import { useVideoPlayback } from "@/lib/video-playback";
-import { useUploads } from "@/lib/upload-progress";
+import {
+  usePendingVideoUploadCount,
+  useUploadTasks,
+} from "@/lib/upload-progress";
 import {
   getUnfinishedVideoResumes,
   useVideoResumeEntries,
@@ -115,6 +118,173 @@ function MomentAvatar({
   return <ProfileAvatar user={{ full_name: fullName, username, avatar_url: src }} />;
 }
 
+const PendingVideoUploadCards = React.memo(function PendingVideoUploadCards({
+  ownerId,
+}: {
+  ownerId?: string;
+}) {
+  const tasks = useUploadTasks();
+  const pendingVideoUploads = React.useMemo(
+    () =>
+      ownerId
+        ? tasks.filter(
+            (task) =>
+              task.kind === "video" &&
+              task.ownerId === ownerId &&
+              (task.status === "uploading" || task.status === "processing"),
+          )
+        : [],
+    [ownerId, tasks],
+  );
+
+  return (
+    <>
+      {pendingVideoUploads.map((task) => (
+        <PendingLongVideoUploadCard key={task.id} task={task} />
+      ))}
+    </>
+  );
+});
+
+type LongVideoQuery = ReturnType<typeof useLongVideos>;
+type VideoResumeEntry = ReturnType<typeof getUnfinishedVideoResumes>[number];
+
+type HomeVideoFeedProps = Pick<
+  LongVideoQuery,
+  "currentUserId" | "countView" | "toggleLike" | "reload" | "isFetchingNextPage"
+> & {
+  feedItems: FeedItem[];
+  verticalVideos: LongVideo[];
+  feedAutoplayDisabled: boolean;
+  hydrated: boolean;
+  loading: boolean;
+  videos: LongVideo[];
+  resumeEntry: VideoResumeEntry | null;
+  pendingVideoUploadCount: number;
+  ownerId?: string;
+};
+
+const HomeVideoFeed = React.memo(function HomeVideoFeed({
+  feedItems,
+  verticalVideos,
+  feedAutoplayDisabled,
+  hydrated,
+  loading,
+  videos,
+  currentUserId,
+  countView,
+  toggleLike,
+  reload,
+  isFetchingNextPage,
+  resumeEntry,
+  pendingVideoUploadCount,
+  ownerId,
+}: HomeVideoFeedProps) {
+  const navigate = useNavigate();
+  const openVideo = React.useCallback(
+    (video: LongVideo) => {
+      void navigate({
+        to: "/video/$videoId",
+        params: { videoId: video.id },
+      });
+    },
+    [navigate],
+  );
+  const onDeleted = React.useCallback(() => {
+    void reload();
+  }, [reload]);
+  const renderFeedItem = React.useCallback(
+    (item: FeedItem) => {
+      if (item.kind === "tray") {
+        return (
+          <FeedVideoTray
+            key={item.key}
+            videos={verticalVideos}
+            renderPreview={(video) => (
+              <FeedVideoShelfPreview
+                video={video}
+                className="pointer-events-none"
+              />
+            )}
+            onOpenVideo={openVideo}
+          />
+        );
+      }
+
+      return (
+        <LongVideoCard
+          key={item.key}
+          video={item.video}
+          prefetchNextVideos={item.prefetchNextVideos}
+          currentUserId={currentUserId}
+          initialResumeTime={
+            item.video.id === resumeEntry?.id
+              ? resumeEntry.currentTime
+              : undefined
+          }
+          onView={countView}
+          onLike={toggleLike}
+          onDeleted={onDeleted}
+        />
+      );
+    },
+    [
+      countView,
+      currentUserId,
+      onDeleted,
+      openVideo,
+      resumeEntry,
+      toggleLike,
+      verticalVideos,
+    ],
+  );
+
+  return (
+    <FeedVideoAutoplayProvider disabled={feedAutoplayDisabled}>
+      {({ activeVideoId }) => {
+        const pinnedKey = activeVideoId
+          ? feedItems.find(
+              (item) =>
+                item.kind === "standard" && item.video.id === activeVideoId,
+            )?.key ??
+            (verticalVideos.some((video) => video.id === activeVideoId)
+              ? "feed-video-tray"
+              : null)
+          : null;
+
+        return (
+          <main className="feed-post-list flex flex-col gap-[10px] max-w-lg mx-auto px-2 sm:px-4 pt-0 pb-4">
+            <PendingVideoUploadCards ownerId={ownerId} />
+            {!hydrated || loading ? (
+              pendingVideoUploadCount === 0 ? (
+                <div className="text-center py-12 text-neutral-500 text-sm">
+                  Loading feed...
+                </div>
+              ) : null
+            ) : videos.length === 0 && !resumeEntry && pendingVideoUploadCount === 0 ? (
+              <div className="text-center py-12 text-neutral-500 text-sm">
+                No videos yet. Be the first to share!
+              </div>
+            ) : (
+              <VirtualizedFeedWindow
+                items={feedItems}
+                pinnedKey={pinnedKey}
+                estimateHeight={estimateFeedItemHeight}
+                renderItem={renderFeedItem}
+              />
+            )}
+            {isFetchingNextPage ? (
+              <p className="py-3 text-center text-xs text-neutral-500">
+                Loading more videos…
+              </p>
+            ) : null}
+          </main>
+        );
+      }}
+    </FeedVideoAutoplayProvider>
+  );
+});
+
 function HomePage() {
   const navigate = useNavigate();
   const { activeVideo } = useVideoPlayback();
@@ -131,7 +301,6 @@ function HomePage() {
     hasNextPage,
     isFetchingNextPage,
   } = useLongVideos();
-  const { tasks: uploadTasks } = useUploads();
   const resumeCandidates = React.useMemo(
     () => getUnfinishedVideoResumes(resumeEntries),
     [resumeEntries],
@@ -160,16 +329,7 @@ function HomePage() {
     resumeCandidates.find((entry) => entry.id === resumeVideo?.id) ?? null;
   const { moments } = useMoments();
   const { user } = useAuth();
-  const pendingVideoUploads = React.useMemo(
-    () =>
-      uploadTasks.filter(
-        (task) =>
-          task.kind === "video" &&
-          task.ownerId === user?.id &&
-          (task.status === "uploading" || task.status === "processing"),
-      ),
-    [uploadTasks, user?.id],
-  );
+  const pendingVideoUploadCount = usePendingVideoUploadCount(user?.id);
   const { streams: liveStreams } = useActiveLiveStreams();
   const { count: alertCount } = useAlertsCount();
   React.useEffect(() => setHydrated(true), []);
@@ -420,84 +580,22 @@ function HomePage() {
         ))}
       </div>
       {/* Main Long Video Feed */}
-      <FeedVideoAutoplayProvider disabled={Boolean(activeVideo)}>
-        {({ activeVideoId }) => (
-          <main className="feed-post-list flex flex-col gap-[10px] max-w-lg mx-auto px-2 sm:px-4 pt-0 pb-4">
-            {pendingVideoUploads.map((task) => (
-              <PendingLongVideoUploadCard key={task.id} task={task} />
-            ))}
-            {!hydrated || loading ? (
-              pendingVideoUploads.length === 0 ? (
-                <div className="text-center py-12 text-neutral-500 text-sm">Loading feed...</div>
-              ) : null
-            ) : videos.length === 0 && !resumeVideo && pendingVideoUploads.length === 0 ? (
-              <div className="text-center py-12 text-neutral-500 text-sm">
-                No videos yet. Be the first to share!
-              </div>
-            ) : (
-              <VirtualizedFeedWindow
-                items={feedItems}
-                pinnedKey={
-                  activeVideoId
-                    ? feedItems.find(
-                        (item) =>
-                          item.kind === "standard" && item.video.id === activeVideoId,
-                      )?.key ??
-                      (verticalVideos.some((video) => video.id === activeVideoId)
-                        ? "feed-video-tray"
-                        : null)
-                    : null
-                }
-                estimateHeight={estimateFeedItemHeight}
-                renderItem={(item) => {
-                if (item.kind === "tray") {
-                  return (
-                    <FeedVideoTray
-                      key={item.key}
-                      videos={verticalVideos}
-                      renderPreview={(video) => (
-                        <FeedVideoShelfPreview
-                          video={video}
-                          className="pointer-events-none"
-                        />
-                      )}
-                      onOpenVideo={(video) => {
-                        void navigate({
-                          to: "/video/$videoId",
-                          params: { videoId: video.id },
-                        });
-                      }}
-                    />
-                  );
-                }
-
-                return (
-                  <LongVideoCard
-                    key={item.key}
-                    video={item.video}
-                    prefetchNextVideos={item.prefetchNextVideos}
-                    currentUserId={currentUserId}
-                    initialResumeTime={
-                      item.video.id === resumeEntry?.id
-                        ? resumeEntry.currentTime
-                        : undefined
-                    }
-                    onView={countView}
-                    onLike={toggleLike}
-                    onDeleted={() => reload()}
-                  />
-                );
-                }}
-              />
-            )}
-            {isFetchingNextPage ? (
-              <p className="py-3 text-center text-xs text-neutral-500">
-                Loading more videos…
-              </p>
-            ) : null}
-          </main>
-        )}
-      </FeedVideoAutoplayProvider>
+      <HomeVideoFeed
+        feedItems={feedItems}
+        verticalVideos={verticalVideos}
+        feedAutoplayDisabled={Boolean(activeVideo)}
+        hydrated={hydrated}
+        loading={loading}
+        videos={videos}
+        currentUserId={currentUserId}
+        countView={countView}
+        toggleLike={toggleLike}
+        reload={reload}
+        isFetchingNextPage={isFetchingNextPage}
+        resumeEntry={resumeEntry}
+        pendingVideoUploadCount={pendingVideoUploadCount}
+        ownerId={user?.id}
+      />
     </div>
   );
 }

@@ -17,49 +17,52 @@ export const BottomNav = memo(function BottomNav({ onOpenCreate }: BottomNavProp
   }
 
   return (
-    <div className="bottom-nav-safe-area fixed bottom-0 left-0 right-0 z-40 isolate pointer-events-auto border-t border-border/70 bg-background/90 px-4 pt-2 backdrop-blur-xl">
-      <div className="max-w-md mx-auto flex items-center justify-around">
-        <Link to="/" className="flex flex-col items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground">
-          <Home className="w-5 h-5" />
-          <span>Home</span>
+    <div className="bottom-nav-safe-area fixed inset-x-0 bottom-0 z-40 isolate w-full border-t border-border/70 bg-background/90 px-1.5 pt-2 backdrop-blur-xl">
+      <div className="mx-auto flex w-full max-w-md items-center justify-around">
+        <Link to="/" className="flex min-w-0 flex-1 flex-col items-center justify-center gap-1 text-[10px] text-muted-foreground hover:text-foreground">
+          <Home className="size-[clamp(1.125rem,5vw,1.25rem)] shrink-0" />
+          <span className="max-w-full truncate whitespace-nowrap leading-none">Home</span>
         </Link>
 
         <Link
           to="/reels"
           search={{ reelId: undefined, userId: undefined, initialVideoId: undefined, returnTo: undefined }}
-          className="flex flex-col items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+          className="flex min-w-0 flex-1 flex-col items-center justify-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
         >
-          <Film className="w-5 h-5" />
-          <span>Video</span>
+          <Film className="size-[clamp(1.125rem,5vw,1.25rem)] shrink-0" />
+          <span className="max-w-full truncate whitespace-nowrap leading-none">Video</span>
         </Link>
 
         <button
+          type="button"
           onClick={() => onOpenCreate?.()}
           aria-label="Open create menu"
-          className="w-12 h-12 -mt-5 bg-gradient-to-tr from-pink-500 via-purple-500 to-amber-400 text-white rounded-full flex items-center justify-center shadow-lg active:scale-95 transition"
+          className="flex min-w-0 flex-1 items-center justify-center text-white"
         >
-          <Plus className="w-6 h-6 stroke-[3]" />
+          <span className="-translate-y-1 grid size-[clamp(2.625rem,13vw,3rem)] shrink-0 place-items-center rounded-full bg-gradient-to-tr from-pink-500 via-purple-500 to-amber-400 shadow-lg transition active:scale-95">
+            <Plus className="size-[clamp(1.25rem,6vw,1.5rem)] stroke-[3]" />
+          </span>
         </button>
 
         <Link
           to="/chat"
           aria-label={unreadMessages > 0 ? `Chat, ${unreadMessages} unread` : "Chat"}
-          className="flex flex-col items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+          className="flex min-w-0 flex-1 flex-col items-center justify-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
         >
           <span className="relative">
-            <MessageSquare className="w-5 h-5" />
+            <MessageSquare className="size-[clamp(1.125rem,5vw,1.25rem)] shrink-0" />
             {unreadMessages > 0 ? (
               <span className="absolute -right-2 -top-2 min-w-4 rounded-full bg-pink-600 px-1 text-center text-[9px] font-bold leading-4 text-white">
                 {unreadMessages > 99 ? "99+" : unreadMessages}
               </span>
             ) : null}
           </span>
-          <span>Chat</span>
+          <span className="max-w-full truncate whitespace-nowrap leading-none">Chat</span>
         </Link>
 
-        <Link to="/profile" className="flex flex-col items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground">
-          <User className="w-5 h-5" />
-          <span>Profile</span>
+        <Link to="/profile" className="flex min-w-0 flex-1 flex-col items-center justify-center gap-1 text-[10px] text-muted-foreground hover:text-foreground">
+          <User className="size-[clamp(1.125rem,5vw,1.25rem)] shrink-0" />
+          <span className="max-w-full truncate whitespace-nowrap leading-none">Profile</span>
         </Link>
       </div>
     </div>

@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { publishDirectReel } from "@/lib/social-data";
-import { useUploads } from "@/lib/upload-progress";
+import { useUploadActions } from "@/lib/upload-progress";
 import { Switch } from "@/components/ui/switch";
 
 const MIN_REEL_SECONDS = 5;
@@ -38,7 +38,7 @@ export const Route = createFileRoute("/create")({
 
 function DirectReelUploadPage() {
   const navigate = useNavigate();
-  const { startUpload } = useUploads();
+  const { startUpload } = useUploadActions();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [file, setFile] = useState<File | null>(null);

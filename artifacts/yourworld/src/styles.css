@@ -1481,18 +1481,6 @@ header,
 .top-header,
 nav.top-nav,
 .chat-header,
-.video-header,
-.bottom-nav-safe-area {
-  transform: translateZ(0);
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-  will-change: transform;
-}
-
-header,
-.top-header,
-nav.top-nav,
-.chat-header,
 .video-header {
   padding-top: max(env(safe-area-inset-top, 0px), 36px) !important;
   min-height: 70px !important;

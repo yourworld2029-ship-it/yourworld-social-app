@@ -1,7 +1,12 @@
+import { memo } from "react";
 import { Loader2, UploadCloud } from "lucide-react";
 import type { UploadTask } from "@/lib/upload-progress";
 
-export function PendingLongVideoUploadCard({ task }: { task: UploadTask }) {
+export const PendingLongVideoUploadCard = memo(function PendingLongVideoUploadCard({
+  task,
+}: {
+  task: UploadTask;
+}) {
   const progress = Math.max(0, Math.min(100, Math.round(task.progress)));
   const status = task.status === "processing" ? "Preparing video" : "Uploading video";
 
@@ -54,4 +59,4 @@ export function PendingLongVideoUploadCard({ task }: { task: UploadTask }) {
       </div>
     </article>
   );
-}
+});

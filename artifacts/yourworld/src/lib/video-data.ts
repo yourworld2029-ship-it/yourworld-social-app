@@ -808,6 +808,8 @@ export function useLongVideos() {
     },
     [me, updateVideos, videos],
   );
+  const reload = useCallback(() => feedQuery.refetch(), [feedQuery.refetch]);
+  const loadMore = useCallback(() => feedQuery.fetchNextPage(), [feedQuery.fetchNextPage]);
 
   return {
     videos,
@@ -815,8 +817,8 @@ export function useLongVideos() {
     currentUserId: me,
     countView,
     toggleLike,
-    reload: () => feedQuery.refetch(),
-    loadMore: () => feedQuery.fetchNextPage(),
+    reload,
+    loadMore,
     hasNextPage: feedQuery.hasNextPage,
     isFetchingNextPage: feedQuery.isFetchingNextPage,
   };

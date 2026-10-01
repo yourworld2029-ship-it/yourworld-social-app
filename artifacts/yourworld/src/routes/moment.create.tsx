@@ -54,7 +54,7 @@ import {
   useNavigate,
 } from "@tanstack/react-router";
 import { useMoments } from "@/lib/moment-context";
-import { useUploads } from "@/lib/upload-progress";
+import { useUploadActions } from "@/lib/upload-progress";
 import { splitMomentIntoParts } from "@/lib/moment-parts";
 import { adaptiveCameraCaptureAttempts } from "@/lib/adaptive-performance";
 import { useAuth } from "@/lib/auth-store";
@@ -199,7 +199,7 @@ const FILTERS: Record<
 function MomentCreatePage() {
   const navigate = useNavigate();
   const { addMoment } = useMoments();
-  const { startUpload } = useUploads();
+  const { startUpload } = useUploadActions();
   const { user } = useAuth();
 
   // =====================================================
