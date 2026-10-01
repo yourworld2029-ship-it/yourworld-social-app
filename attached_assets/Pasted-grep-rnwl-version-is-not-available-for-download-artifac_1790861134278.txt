@@ -1,0 +1,1 @@
+grep -rnwl "version is not available for download" artifacts/ libs/ src/ 2>/dev/null
