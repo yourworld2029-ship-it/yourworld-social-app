@@ -1402,7 +1402,7 @@ export function useUnreadMessageCount() {
       if (channel) cleanupChatRealtimeChannel(channel, "unread listener cleanup");
       channel = null;
     };
-  }, [reload]);
+  }, [reload, visibleUnreadCount]);
 
   return count;
 }
@@ -2109,7 +2109,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       const timer = setTimeout(() => void runCleanup(), delay);
       afterViewTimersRef.current.set(message.id, timer);
     });
-  }, [messages, me, conversationId, deleteAfterView, purgeViewedMedia]);
+  }, [messages, me, conversationId, threadId, deleteAfterView, purgeViewedMedia]);
 
   useEffect(() => () => {
     afterViewTimersRef.current.forEach((timer) => clearTimeout(timer));
@@ -2546,17 +2546,18 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
   }, [removeThreadMessagesLocally]);
 
   useEffect(() => {
+    const exitCleanupTimers = exitCleanupTimersRef.current;
     if (!conversationId || !me || !pair) return;
     const cleanupKey = `${threadId}:${conversationId}:${me}`;
-    const pending = exitCleanupTimersRef.current.get(cleanupKey);
+    const pending = exitCleanupTimers.get(cleanupKey);
     if (pending) {
       clearTimeout(pending);
-      exitCleanupTimersRef.current.delete(cleanupKey);
+      exitCleanupTimers.delete(cleanupKey);
     }
 
     return () => {
       const timer = setTimeout(() => {
-        exitCleanupTimersRef.current.delete(cleanupKey);
+        exitCleanupTimers.delete(cleanupKey);
         void (async () => {
           // Remove locally known read/viewed Vanish Mode rows before any network
           // work so a fast reopen cannot hydrate them from the chat cache.
@@ -2573,7 +2574,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
           await flushViewedMessagesOnExit(conversationId, threadId, pair);
         })();
       }, 0);
-      exitCleanupTimersRef.current.set(cleanupKey, timer);
+      exitCleanupTimers.set(cleanupKey, timer);
     };
   }, [
     conversationId,
@@ -2639,6 +2640,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     remove,
     clearForEveryone,
     markRead,
+    markThreadRead,
     consumeViewOnce,
     purgeViewedMedia,
     error,

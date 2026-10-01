@@ -194,12 +194,15 @@ export function useSecretChats(query: string, queryRevision = 0) {
     };
   }, [query, queryRevision, locked]);
 
-  const revealed =
-    verifiedQuery?.query === query &&
-    verifiedQuery.queryRevision === queryRevision &&
-    isValidSecretCode(query)
-      ? verifiedQuery.peerIds
-      : [];
+  const revealed = useMemo(
+    () =>
+      verifiedQuery?.query === query &&
+      verifiedQuery.queryRevision === queryRevision &&
+      isValidSecretCode(query)
+        ? verifiedQuery.peerIds
+        : [],
+    [verifiedQuery, query, queryRevision],
+  );
   const lockedIds = useMemo(() => locked.map((l) => l.peerId), [locked]);
 
   /** True when this chat must stay out of the list/search results. */

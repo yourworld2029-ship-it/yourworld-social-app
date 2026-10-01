@@ -32,7 +32,7 @@ function VerifyTwoFactorPage() {
       toast.error("Your 2FA verification session is missing an email address");
       void navigate({ to: "/auth", search: { redirect }, replace: true });
     }
-  }, [email, navigate]);
+  }, [email, navigate, redirect]);
 
   useEffect(() => {
     if (cooldown <= 0) return;

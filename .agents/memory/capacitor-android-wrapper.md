@@ -63,11 +63,11 @@ In September 2026, the Replit system-dependency installer rejected `androidenv.a
 
 **How to apply:** Prefer the supported Android CLI when available. Otherwise, get the current revision-specific archive URL and checksum from Google's Android Studio page, verify the checksum, then install the exact platform and build-tools versions Gradle requests. Avoid guessing or pinning generic download URLs.
 
-Express routes that serve the packaged APK should resolve its path from `import.meta.url`, not `process.cwd()`, because workflow and deployment working directories can differ.
+The APK download route resolves the web artifact's public directory relative to `import.meta.url` and chooses the latest timestamped APK from `public/downloads`. Its filename matcher accepts both the canonical name and the build helper's `-release-debug-signed` suffix.
 
-**Why:** A cwd-relative route returned 404 in the running API workflow even though the APK existed in the web artifact.
+**Why:** CWD-relative paths and filename filters that lag the build helper can make `/download-apk` return 404 or serve an older installer.
 
-**How to apply:** Use the compiled server module directory to resolve `../../yourworld/public/yourworld-debug.apk`, then verify both the API port and the root proxy.
+**How to apply:** Keep the route matcher aligned with the APK build helper, then verify `/download-apk` and its `X-APK-Build` header after each fresh build.
 
 Capacitor sync copies public APK downloads into the native app's WebView assets unless Android asset packaging excludes them.
 
@@ -92,9 +92,3 @@ In this Replit workspace, Gradle's debug keystore may be under the workspace con
 **Why:** Assuming the default home-directory location can falsely suggest the existing signing key is missing; generating a replacement certificate breaks update-install continuity.
 
 **How to apply:** Locate the existing debug keystore without inspecting or exporting its private contents, compare its certificate fingerprint with the installed/downloaded APK, and use it only when a release-format APK must retain that signing identity. Keep this temporary signing step out of committed Gradle configuration.
-
-The public APK endpoint accepts only the canonical timestamp/version filename; a suffixed release filename can be staged by the web build but ignored by the download route.
-
-**Why:** The static asset staging and API download route use different filename filters, so a newly built APK with a descriptive suffix can leave `/download-apk` serving an older build.
-
-**How to apply:** Copy the signed installer to `yourworld-<timestamp>-v<versionCode>.apk`, then verify the download endpoint's build header before delivering the link.
