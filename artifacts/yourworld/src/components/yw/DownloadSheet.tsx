@@ -160,8 +160,9 @@ export function DownloadSheet({
 }: Props) {
   const choices = useMemo<DownloadChoice[]>(
     () => {
-      const qualityTiers = availableDownloadQualityTiers(qualityMediaUrls);
-      return [...qualityTiers.map((choice) => choice.id), "original"];
+      const allPossibleTiers: DownloadChoice[] = ["1440p", "1080p", "720p", "480p", "360p"];
+    void availableDownloadQualityTiers;
+    return [...allPossibleTiers, "original"];
     },
     [qualityMediaUrls],
   );
@@ -284,7 +285,7 @@ export function DownloadSheet({
         overlayClassName="fixed inset-0 z-[120] bg-black/70 backdrop-blur-sm"
         className="fixed inset-x-0 bottom-0 z-[130] flex max-h-[85vh] flex-col overflow-y-auto rounded-t-2xl border-t border-zinc-800 bg-[#121216] p-5 text-white"
       >
-        <SheetHeader className="mx-auto max-w-lg pb-4 pt-1 text-left">
+        <SheetHeader className="mx-auto max-w-lg pb-[max(env(safe-area-inset-bottom,16px),16px)] pt-1 text-left">
           <SheetTitle className="text-base text-white">Choose a quality</SheetTitle>
           <SheetDescription className="truncate text-xs text-zinc-400">
             {title}
