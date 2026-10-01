@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/sheet";
 import {
   availableDownloadQualityTiers,
+  downloadFileSizeBytesFromHeaders,
   type DownloadQualityUrls,
   estimateDownloadSizeMb,
   estimateDownloadSizeMbFromSourceFile,
@@ -57,11 +58,11 @@ function positiveDuration(value: number | null | undefined) {
 }
 
 function contentLengthFromResponse(response: Response) {
-  const contentRange = response.headers.get("content-range") ?? "";
-  const total = Number(contentRange.match(/\/(\d+)$/)?.[1]);
-  if (Number.isFinite(total) && total > 0) return total;
-  const contentLength = Number(response.headers.get("content-length"));
-  return Number.isFinite(contentLength) && contentLength > 0 ? contentLength : null;
+  return downloadFileSizeBytesFromHeaders(
+    response.status,
+    response.headers.get("content-range"),
+    response.headers.get("content-length"),
+  );
 }
 
 async function readSourceFileSize(sourceMediaUrl: string, signal: AbortSignal) {

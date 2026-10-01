@@ -106,6 +106,30 @@ export function availableDownloadQualityTiers(
   );
 }
 
+export function requireDownloadVariantUrl(
+  tier: VideoQualityTier,
+  qualityUrls?: DownloadQualityUrls | null,
+) {
+  const url = qualityUrls?.[tier]?.trim();
+  if (!url) {
+    throw new Error(`The ${tier} version is not available for download.`);
+  }
+  return url;
+}
+
+export function downloadFileSizeBytesFromHeaders(
+  status: number,
+  contentRange: string | null,
+  contentLength: string | null,
+) {
+  const total = Number(contentRange?.match(/\/(\d+)$/)?.[1]);
+  if (Number.isFinite(total) && total > 0) return total;
+  if (status === 206) return null;
+
+  const length = Number(contentLength);
+  return Number.isFinite(length) && length > 0 ? length : null;
+}
+
 export function estimateDownloadSizeMb(
   durationSeconds: number | null | undefined,
   tier: VideoQualityTier | "mp3" | "original",

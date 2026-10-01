@@ -83,6 +83,7 @@ import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadShee
 import {
   qualityTierFromDimensions,
   qualityTierFromSourceMetadata,
+  requireDownloadVariantUrl,
   type DownloadQualityUrls,
   type VideoQualityTier,
 } from "@/lib/video-quality";
@@ -437,7 +438,7 @@ function ProfilePage() {
         post.kind === "reel" ? STORAGE_BUCKETS.reels : STORAGE_BUCKETS.videos;
       const selectedQualityPath =
         choice !== "original" && choice !== "mp3"
-          ? downloadQualityUrls?.[choice]
+          ? requireDownloadVariantUrl(choice, downloadQualityUrls)
           : undefined;
       const mediaUrl = selectedQualityPath
         ? await resolveMediaUrl(selectedQualityPath, mediaBucket)

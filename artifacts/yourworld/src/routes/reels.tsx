@@ -43,6 +43,7 @@ import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadShee
 import {
   qualityTierFromDimensions,
   qualityTierFromSourceMetadata,
+  requireDownloadVariantUrl,
   type VideoQualityTier,
 } from "@/lib/video-quality";
 import { trackEvent } from "@/lib/analytics";
@@ -958,12 +959,13 @@ function ReelItem({
       if (isVideo) {
         const selectedQualityUrl =
           choice && choice !== "original" && choice !== "mp3"
-            ? reel.qualityUrls?.[choice]
+            ? requireDownloadVariantUrl(choice, reel.qualityUrls)
             : undefined;
         const playableUrl = selectedQualityUrl
           ? getLocalMedia(selectedQualityUrl) ??
             await resolveMediaUrl(selectedQualityUrl, mediaBucket ?? "reels")
           : getLocalMedia(source) ?? await resolveMediaUrl(source);
+        if (!playableUrl) throw new Error("This video is unavailable for download");
         const baseName = sanitizeDownloadName(reel.caption, `yw-reel-${reel.id}`);
         const resolvedThumbnailUrl = reel.thumbnailUrl
           ? await resolveMediaUrl(reel.thumbnailUrl, mediaBucket ?? "reels")

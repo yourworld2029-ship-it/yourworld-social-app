@@ -63,7 +63,11 @@ import {
   downloadVideoForOfflineInBackground,
   sanitizeDownloadName,
 } from "@/lib/yw-download";
-import { qualityTierFromMetadata, type VideoQualityTier } from "@/lib/video-quality";
+import {
+  qualityTierFromMetadata,
+  requireDownloadVariantUrl,
+  type VideoQualityTier,
+} from "@/lib/video-quality";
 import {
   useVideoPlayback,
   useVideoPlaybackProgress,
@@ -1658,6 +1662,8 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   const mediaUrl = [video?.media_url, video?.video_url, video?.url].find(
     (source): source is string => typeof source === "string" && Boolean(source.trim()),
   )?.trim() ?? "";
+  const latestDownloadVideoRef = useRef(video);
+  latestDownloadVideoRef.current = video;
   useEffect(() => {
     let cancelled = false;
     setResolvedMediaUrl("");
@@ -1675,27 +1681,43 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
   }, [mediaUrl]);
 
   const playableMediaUrl = resolvedMediaUrl || mediaUrl;
+  const playerTitle = video?.title || video?.caption || "Untitled Video";
+  const playerThumbnailUrl = video?.thumbnail_url;
+  const playerQualityUrls = video?.qualityUrls ?? video?.quality_urls ?? undefined;
+  const isVideoForRoute = video?.id === videoId;
 
   useEffect(() => {
-    if (!video || !playableMediaUrl || checkingAccess || isLocked) {
+    if (!isVideoForRoute || !playableMediaUrl || checkingAccess || isLocked) {
       if (checkingAccess || isLocked) closeVideo();
       return;
     }
-    const requestedResumeTime = consumeVideoResumeRequest(video.id);
+    const requestedResumeTime = consumeVideoResumeRequest(videoId);
     const savedTime = requestedResumeTime ?? (
-      activeVideo?.id === video.id
+      activeVideo?.id === videoId
         ? undefined
-        : getVideoResumeEntry(video.id)?.currentTime
+        : getVideoResumeEntry(videoId)?.currentTime
     );
     activateVideo({
-      id: video.id,
+      id: videoId,
       url: playableMediaUrl,
-      title: video.title || video.caption || "Untitled Video",
-      thumbnailUrl: video.thumbnail_url,
-      qualityUrls: video.qualityUrls ?? video.quality_urls ?? undefined,
+      title: playerTitle,
+      thumbnailUrl: playerThumbnailUrl,
+      qualityUrls: playerQualityUrls,
       initialTime: savedTime,
     });
-  }, [activeVideo?.id, activateVideo, checkingAccess, closeVideo, isLocked, playableMediaUrl, video]);
+  }, [
+    activeVideo?.id,
+    activateVideo,
+    checkingAccess,
+    closeVideo,
+    isVideoForRoute,
+    isLocked,
+    playableMediaUrl,
+    playerQualityUrls,
+    playerThumbnailUrl,
+    playerTitle,
+    videoId,
+  ]);
 
   useEffect(() => {
     const player = videoRef.current;
@@ -1745,6 +1767,85 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
     if (liked[videoId]) void toggleLike(videoId);
   }, [liked, toggleLike, user, videoId]);
 
+  const downloadSelected = useCallback(async (
+    choice: DownloadChoice,
+    reportProgress?: (percent: number) => void,
+  ) => {
+    const currentVideo = latestDownloadVideoRef.current;
+    if (!currentVideo || currentVideo.id !== videoId || !playableMediaUrl) {
+      throw new Error("This video has no downloadable media");
+    }
+    const toastId = choice === "mp3" ? toast.loading("Preparing MP3 audio… 0%") : undefined;
+    try {
+      const qualityMediaUrls = currentVideo.qualityUrls ?? currentVideo.quality_urls ?? undefined;
+      const selectedQualityUrl =
+        choice !== "original" && choice !== "mp3"
+          ? requireDownloadVariantUrl(choice, qualityMediaUrls)
+          : undefined;
+      const downloadMediaUrl = selectedQualityUrl
+        ? await resolveMediaUrl(selectedQualityUrl, "videos")
+        : playableMediaUrl;
+      if (!downloadMediaUrl) throw new Error("This video has no downloadable media");
+
+      const currentCreatorUsername = currentVideo.user?.username || "creator";
+      const currentCreatorName =
+        currentVideo.user?.full_name ||
+        currentVideo.user?.display_name ||
+        "Creator";
+      const currentCreatorId = currentVideo.user_id || currentVideo.user?.id || null;
+      const currentViewCount = currentVideo.views_count ?? currentVideo.views ?? 0;
+      const baseName = sanitizeDownloadName(
+        currentVideo.title || "yourworld-video",
+        `yourworld-${videoId}`,
+      );
+      const downloadMetadata = {
+        ownerId: user?.id || "anonymous",
+        mediaId: currentVideo.id,
+        title: currentVideo.title || currentVideo.caption || "Untitled Video",
+        creatorName: currentCreatorName,
+        creatorUsername: currentCreatorUsername,
+        creatorId: currentCreatorId,
+        views: Number(currentViewCount),
+        createdAt: currentVideo.created_at || null,
+        durationSeconds: currentVideo.duration_seconds || null,
+        thumbnailUrl: currentVideo.thumbnail_url
+          ? await resolveMediaUrl(currentVideo.thumbnail_url, "videos")
+          : null,
+        quality:
+          choice === "original" || choice === "mp3"
+            ? "original" as const
+            : choice as VideoQualityTier,
+      };
+      if (choice === "mp3") {
+        await downloadAudioOnly(playableMediaUrl, baseName, (percent) => {
+          reportProgress?.(percent);
+          toast.loading(`Preparing MP3 audio... ${percent}%`, { id: toastId });
+        });
+        toast.success("Saved to your device", { id: toastId });
+      } else {
+        const downloadMode = await downloadVideoForOfflineInBackground(
+          downloadMediaUrl,
+          baseName,
+          currentCreatorUsername,
+          (percent) => reportProgress?.(percent),
+          { ...downloadMetadata, quality: choice as VideoQualityTier },
+        );
+        toast.success(
+          downloadMode === "native-original"
+            ? "Saved video for offline viewing"
+            : "Saved video with YourWorld watermark",
+        );
+      }
+    } catch (cause) {
+      console.error("Video download failed:", cause);
+      toast.error(
+        cause instanceof Error ? cause.message : "Couldn't prepare this download",
+        toastId ? { id: toastId } : undefined,
+      );
+      throw cause;
+    }
+  }, [playableMediaUrl, user?.id, videoId]);
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-black text-white">
@@ -1787,71 +1888,6 @@ function VideoWatchContent({ videoId }: { videoId: string }) {
       video.original_width,
       video.original_height,
     ) ?? video.sourceQualityTier;
-
-  const downloadSelected = async (
-    choice: DownloadChoice,
-    reportProgress?: (percent: number) => void,
-  ) => {
-     if (!playableMediaUrl) throw new Error("This video has no downloadable media");
-     const qualityMediaUrls = video.qualityUrls ?? video.quality_urls ?? undefined;
-     const selectedQualityUrl =
-       choice !== "original" && choice !== "mp3"
-         ? qualityMediaUrls?.[choice]
-         : undefined;
-     const downloadMediaUrl = selectedQualityUrl
-       ? await resolveMediaUrl(selectedQualityUrl, "videos")
-       : playableMediaUrl;
-      const toastId = choice === "mp3" ? toast.loading("Preparing MP3 audio… 0%") : undefined;
-    const baseName = sanitizeDownloadName(video.title || "yourworld-video", `yourworld-${videoId}`);
-       const downloadMetadata = {
-         ownerId: user?.id || "anonymous",
-         mediaId: video.id,
-         title: video.title || video.caption || "Untitled Video",
-         creatorName,
-         creatorUsername,
-         creatorId: creatorId || null,
-         views: Number(viewCount),
-         createdAt: video.created_at || null,
-         durationSeconds: video.duration_seconds || null,
-          thumbnailUrl: video.thumbnail_url
-            ? await resolveMediaUrl(video.thumbnail_url, "videos")
-            : null,
-         quality:
-           choice === "original" || choice === "mp3"
-             ? "original" as const
-             : choice as VideoQualityTier,
-       };
-    try {
-      if (choice === "mp3") {
-         await downloadAudioOnly(playableMediaUrl, baseName, (percent) => {
-           reportProgress?.(percent);
-           toast.loading(`Preparing MP3 audio... ${percent}%`, { id: toastId });
-         },
-        );
-         toast.success("Saved to your device", { id: toastId });
-      } else {
-          const downloadMode = await downloadVideoForOfflineInBackground(
-            downloadMediaUrl,
-             baseName,
-             creatorUsername,
-            (percent) => reportProgress?.(percent),
-            { ...downloadMetadata, quality: choice as VideoQualityTier },
-         );
-          toast.success(
-            downloadMode === "native-original"
-              ? "Saved video for offline viewing"
-              : "Saved video with YourWorld watermark",
-          );
-       }
-    } catch (cause) {
-      console.error("Video download failed:", cause);
-      toast.error(
-        cause instanceof Error ? cause.message : "Couldn't prepare this download",
-        toastId ? { id: toastId } : undefined,
-      );
-      throw cause;
-    }
-  };
 
   const handleUnlock = () => {
     if (!user) {

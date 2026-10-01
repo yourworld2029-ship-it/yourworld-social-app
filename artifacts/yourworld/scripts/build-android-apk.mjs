@@ -114,7 +114,7 @@ async function main() {
   const java21Env = findJava21Environment();
   await run("pnpm", ["run", "build"], appDir, java21Env);
   await run("pnpm", ["exec", "cap", "sync", "android"], appDir, java21Env);
-  await run("./gradlew", ["assembleRelease"], androidDir, java21Env);
+  await run("./gradlew", ["clean", "assembleRelease", "--no-build-cache"], androidDir, java21Env);
 
   const sdkRoot = await getSdkRoot();
   const aapt = await findAndroidTool(sdkRoot, "aapt");

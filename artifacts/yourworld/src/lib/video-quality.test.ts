@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   availableDownloadQualityTiers,
+  downloadFileSizeBytesFromHeaders,
   estimateDownloadSizeMb,
   estimateDownloadSizeMbFromSourceFile,
   formatDownloadSizeMb,
   qualityTierFromDimensions,
   qualityTierFromMetadata,
   qualityTierFromSourceMetadata,
+  requireDownloadVariantUrl,
   sourceQualityTierFromDimensions,
 } from "./video-quality";
 
@@ -54,6 +56,25 @@ test("requested download qualities are offered only when an actual quality media
     }).map((tier) => tier.id),
     ["360p", "480p", "720p", "1080p", "1440p"],
   );
+});
+
+test("quality downloads require their own media URL instead of falling back to Original", () => {
+  assert.equal(
+    requireDownloadVariantUrl("720p", {
+      "720p": " https://media.example/720.mp4 ",
+    }),
+    "https://media.example/720.mp4",
+  );
+  assert.throws(
+    () => requireDownloadVariantUrl("720p", { "720p": " " }),
+    /720p version is not available for download/,
+  );
+});
+
+test("range size probes require the total Content-Range size for partial responses", () => {
+  assert.equal(downloadFileSizeBytesFromHeaders(206, "bytes 0-0/1000", "1"), 1000);
+  assert.equal(downloadFileSizeBytesFromHeaders(206, null, "1"), null);
+  assert.equal(downloadFileSizeBytesFromHeaders(200, null, "1000"), 1000);
 });
 
 test("quality sizes are duration-based estimates while original source sizes are exact", () => {
