@@ -16,6 +16,7 @@ const DOWNLOADABLE_QUALITY_TIERS = new Set<VideoQualityTier>([
   "480p",
   "720p",
   "1080p",
+  "1440p",
 ]);
 
 export type StoredSourceQualityTier =

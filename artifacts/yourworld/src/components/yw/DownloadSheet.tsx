@@ -23,9 +23,9 @@ export type DownloadChoice = VideoQualityTier | "mp3" | "original";
 const QUALITY_COPY: Record<VideoQualityTier, { title: string; description: string }> = {
   "4320p": { title: "8K (4320p)", description: "Ultra-high definition video" },
   "2160p": { title: "4K (2160p)", description: "Ultra-high-definition video" },
-  "1440p": { title: "2K (1440p)", description: "Sharp high-definition video" },
-  "1080p": { title: "1080p", description: "Balanced quality and file size" },
-  "720p": { title: "720p", description: "Good quality for everyday viewing" },
+  "1440p": { title: "2K", description: "Sharp high-definition video" },
+  "1080p": { title: "1080p Full HD", description: "Balanced quality and file size" },
+  "720p": { title: "720p HD", description: "Good quality for everyday viewing" },
   "480p": { title: "480p", description: "Standard-definition video" },
   "360p": { title: "360p", description: "Smaller file for slower connections" },
 };

@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   availableDownloadQualityTiers,
+  estimateDownloadSizeMb,
   estimateDownloadSizeMbFromSourceFile,
+  formatDownloadSizeMb,
   qualityTierFromDimensions,
   qualityTierFromMetadata,
   qualityTierFromSourceMetadata,
@@ -30,7 +32,7 @@ test("dimension quality tiers keep their existing values", () => {
   assert.equal(qualityTierFromDimensions(3840, 2160), "2160p");
 });
 
-test("download qualities are offered only when an actual quality media URL exists", () => {
+test("requested download qualities are offered only when an actual quality media URL exists", () => {
   assert.deepEqual(availableDownloadQualityTiers().map((tier) => tier.id), []);
   assert.deepEqual(
     availableDownloadQualityTiers({
@@ -40,8 +42,24 @@ test("download qualities are offered only when an actual quality media URL exist
       "1080p": "https://media.example/1080.mp4",
       "1440p": "https://media.example/2k.mp4",
     }).map((tier) => tier.id),
-    ["360p", "720p", "1080p"],
+    ["360p", "720p", "1080p", "1440p"],
   );
+  assert.deepEqual(
+    availableDownloadQualityTiers({
+      "360p": "https://media.example/360.mp4",
+      "480p": "https://media.example/480.mp4",
+      "720p": "https://media.example/720.mp4",
+      "1080p": "https://media.example/1080.mp4",
+      "1440p": "https://media.example/2k.mp4",
+    }).map((tier) => tier.id),
+    ["360p", "480p", "720p", "1080p", "1440p"],
+  );
+});
+
+test("quality sizes are duration-based estimates while original source sizes are exact", () => {
+  assert.equal(estimateDownloadSizeMb(60, "360p"), 6);
+  assert.equal(formatDownloadSizeMb(20), "≈ 20 MB");
+  assert.equal(formatDownloadSizeMb(6.41, true), "6.4 MB");
 });
 
 test("estimates quality sizes from the source file when duration is missing", () => {
