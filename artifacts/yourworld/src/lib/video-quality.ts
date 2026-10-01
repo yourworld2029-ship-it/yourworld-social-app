@@ -11,6 +11,13 @@ export const VIDEO_QUALITY_TIERS = [
 export type VideoQualityTier = (typeof VIDEO_QUALITY_TIERS)[number]["id"];
 export type DownloadQualityUrls = Partial<Record<VideoQualityTier, string>>;
 
+const DOWNLOADABLE_QUALITY_TIERS = new Set<VideoQualityTier>([
+  "360p",
+  "480p",
+  "720p",
+  "1080p",
+]);
+
 export type StoredSourceQualityTier =
   | VideoQualityTier
   | "2k"
@@ -91,7 +98,11 @@ export function availableVideoQualityTiers(
 export function availableDownloadQualityTiers(
   qualityUrls?: DownloadQualityUrls | null,
 ) {
-  return VIDEO_QUALITY_TIERS.filter((tier) => Boolean(qualityUrls?.[tier.id]?.trim()));
+  return VIDEO_QUALITY_TIERS.filter(
+    (tier) =>
+      DOWNLOADABLE_QUALITY_TIERS.has(tier.id) &&
+      Boolean(qualityUrls?.[tier.id]?.trim()),
+  );
 }
 
 export function estimateDownloadSizeMb(

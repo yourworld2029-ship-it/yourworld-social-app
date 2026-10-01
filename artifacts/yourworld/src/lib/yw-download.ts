@@ -219,7 +219,7 @@ export function toDownloadedVideo(record: OfflineVideo): DownloadedVideo {
     durationSeconds: record.durationSeconds,
     thumbnailUrl: record.thumbnailUrl || null,
     posterUrl: record.posterUrl ?? (record.thumbnailUrl || null),
-    quality: record.quality as DownloadQuality,
+    quality: (record.quality || "original") as DownloadQuality,
     sizeBytes: record.sizeBytes,
     videoBlob: record.videoBlob,
     downloadedAt: record.downloadedAt,

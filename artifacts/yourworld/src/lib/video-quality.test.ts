@@ -36,9 +36,11 @@ test("download qualities are offered only when an actual quality media URL exist
     availableDownloadQualityTiers({
       "360p": "https://media.example/360.mp4",
       "480p": "  ",
+      "720p": "https://media.example/720.mp4",
+      "1080p": "https://media.example/1080.mp4",
       "1440p": "https://media.example/2k.mp4",
     }).map((tier) => tier.id),
-    ["360p", "1440p"],
+    ["360p", "720p", "1080p"],
   );
 });
 

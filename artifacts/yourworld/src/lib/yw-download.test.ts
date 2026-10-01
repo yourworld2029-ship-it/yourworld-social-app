@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mock, test } from "node:test";
 import { nativeOfflinePathsForVideo } from "./native-offline-paths";
-import { fetchVideoBlob, reelWatermarkText } from "./yw-download";
+import { fetchVideoBlob, reelWatermarkText, toDownloadedVideo } from "./yw-download";
 
 const sourceBytes = Uint8Array.from({ length: 100 }, (_, index) => index);
 
@@ -13,13 +13,35 @@ test("Reel watermark text uses the creator handle exactly once", () => {
 
 test("native offline video files use flat, ID-based app data paths", () => {
   assert.deepEqual(nativeOfflinePathsForVideo("video-123"), {
-    localFilePath: "offline_video-123.mp4",
-    thumbnailPath: "offline_video-123-thumbnail",
+    localFilePath: "offline_video-123_original.mp4",
+    thumbnailPath: "offline_video-123_original-thumbnail",
   });
   assert.equal(
-    nativeOfflinePathsForVideo("video/../123").localFilePath,
-    "offline_video%2F%2E%2E%2F123.mp4",
+    nativeOfflinePathsForVideo("video/../123", "720p", "user/1").localFilePath,
+    "offline_video%2F%2E%2E%2F123_720p_user%2F1.mp4",
   );
+  assert.equal(
+    nativeOfflinePathsForVideo("video-123", "360p", "user-1").localFilePath,
+    "offline_video-123_360p_user-1.mp4",
+  );
+});
+
+test("download-library metadata retains the selected quality tag", () => {
+  const downloaded = toDownloadedVideo({
+    id: "owner-1:video-123:720p",
+    ownerId: "owner-1",
+    mediaId: "video-123",
+    title: "Test video",
+    author: "Creator",
+    creatorUsername: "creator",
+    thumbnailUrl: "",
+    quality: "720p",
+    sizeBytes: 1_234_567,
+    downloadedAt: "2026-10-01T04:00:00.000Z",
+  });
+
+  assert.equal(downloaded.quality, "720p");
+  assert.equal(downloaded.mediaId, "video-123");
 });
 
 test("video download uses one full GET without requesting a byte range", async () => {

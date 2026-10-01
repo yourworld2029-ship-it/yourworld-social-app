@@ -24,8 +24,8 @@ const QUALITY_COPY: Record<VideoQualityTier, { title: string; description: strin
   "4320p": { title: "8K (4320p)", description: "Ultra-high definition video" },
   "2160p": { title: "4K (2160p)", description: "Ultra-high-definition video" },
   "1440p": { title: "2K (1440p)", description: "Sharp high-definition video" },
-  "1080p": { title: "1080p Full HD", description: "Balanced quality and file size" },
-  "720p": { title: "720p HD", description: "Good quality for everyday viewing" },
+  "1080p": { title: "1080p", description: "Balanced quality and file size" },
+  "720p": { title: "720p", description: "Good quality for everyday viewing" },
   "480p": { title: "480p", description: "Standard-definition video" },
   "360p": { title: "360p", description: "Smaller file for slower connections" },
 };
@@ -284,11 +284,9 @@ export function DownloadSheet({
         className="fixed inset-x-0 bottom-0 z-[130] flex max-h-[85vh] flex-col overflow-y-auto rounded-t-2xl border-t border-zinc-800 bg-[#121216] p-5 text-white"
       >
         <SheetHeader className="mx-auto max-w-lg pb-4 pt-1 text-left">
-            <SheetTitle className="text-base text-white">
-              {choices.length > 1 ? "Choose a quality" : "Download video"}
-            </SheetTitle>
+          <SheetTitle className="text-base text-white">Choose a quality</SheetTitle>
           <SheetDescription className="truncate text-xs text-zinc-400">
-             {title}
+            {title}
           </SheetDescription>
         </SheetHeader>
 
@@ -321,13 +319,13 @@ export function DownloadSheet({
                  </span>
                  <span className="min-w-0 flex-1">
                    <span className="block text-sm font-semibold">
-                      {isOriginal ? "Download Video (Original Quality)" : quality?.title}
+                      {isOriginal ? "Original" : quality?.title}
                      {!isOriginal && choice === sourceQualityTier && (
                        <span className="ml-2 text-[10px] font-medium text-pink-300">SOURCE</span>
                      )}
                    </span>
                    <span className="mt-0.5 block text-[11px] text-zinc-400">
-                     {isOriginal ? "Original source file" : quality?.description} · {size}
+                      {isOriginal ? "Original source file" : quality?.description} · {size}
                    </span>
                  </span>
                  {isSelected ? (

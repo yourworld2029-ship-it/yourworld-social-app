@@ -373,7 +373,11 @@ export async function saveNativeOfflineVideo(
   if (!videoBlob.size) throw new Error("The offline video file is empty.");
 
   const normalizedRecord = { ...record, id: String(record.id), videoBlob };
-  const paths = nativeOfflinePathsForVideo(normalizedRecord.id);
+  const paths = nativeOfflinePathsForVideo(
+    normalizedRecord.mediaId || normalizedRecord.id,
+    normalizedRecord.quality,
+    normalizedRecord.ownerId,
+  );
   try {
     await writeBlob(paths.localFilePath, videoBlob);
     return await commitNativeOfflineVideo(
@@ -399,7 +403,11 @@ export async function downloadNativeOfflineVideoFromUrl(
   assertDirectVideoUrl(sourceUrl);
 
   const normalizedRecord = { ...record, id: String(record.id) };
-  const paths = nativeOfflinePathsForVideo(normalizedRecord.id);
+  const paths = nativeOfflinePathsForVideo(
+    normalizedRecord.mediaId || normalizedRecord.id,
+    normalizedRecord.quality,
+    normalizedRecord.ownerId,
+  );
   const listener = await Filesystem.addListener("progress", (progress) => {
     if (progress.url === sourceUrl) {
       onProgress?.(progress.bytes, progress.contentLength);
