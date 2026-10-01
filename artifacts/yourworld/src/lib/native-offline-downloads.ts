@@ -30,12 +30,29 @@ export function isAndroidNativeDownloads() {
   return Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
 }
 
+async function mkdirIgnoringExisting(path: string) {
+  try {
+    await Filesystem.mkdir({
+      path,
+      directory: Directory.Data,
+      recursive: true,
+    });
+  } catch (error) {
+    const details =
+      error && typeof error === "object"
+        ? [
+            "message" in error ? String(error.message) : "",
+            "code" in error ? String(error.code) : "",
+          ].join(" ")
+        : String(error);
+    if (!/already exists|EEXIST|DIRECTORY_EXISTS|OS-PLUG-FILE-0010/i.test(details)) {
+      throw error;
+    }
+  }
+}
+
 async function ensureOfflineDirectory() {
-  await Filesystem.mkdir({
-    path: ROOT_DIRECTORY,
-    directory: Directory.Data,
-    recursive: true,
-  });
+  await mkdirIgnoringExisting(ROOT_DIRECTORY);
 }
 
 function isNativeRecord(value: unknown): value is NativeOfflineVideo {
@@ -115,6 +132,7 @@ async function writeRegistry(entries: NativeOfflineVideo[]) {
     data: value,
     directory: Directory.Data,
     encoding: Encoding.UTF8,
+    recursive: true,
   });
 
   // Retain a mirror for older app builds; the permanent Directory.Data file is authoritative.
@@ -232,11 +250,7 @@ async function ensureParentDirectory(path: string) {
   await ensureOfflineDirectory();
   const separator = path.lastIndexOf("/");
   if (separator <= 0) return;
-  await Filesystem.mkdir({
-    path: path.slice(0, separator),
-    directory: Directory.Data,
-    recursive: true,
-  });
+  await mkdirIgnoringExisting(path.slice(0, separator));
 }
 
 async function writeBlob(path: string, blob: Blob) {
@@ -253,6 +267,7 @@ async function writeBlob(path: string, blob: Blob) {
         path,
         data,
         directory: Directory.Data,
+        recursive: true,
       });
     } else {
       await Filesystem.appendFile({
@@ -281,17 +296,17 @@ async function removeFile(path?: string | null) {
 async function createUniquePaths(record: OfflineVideo, sourceUrl?: string) {
   const ownerHash = await shortHash(record.ownerId ?? "unknown-owner");
   const id = String(record.id);
-  const idHash = await shortHash(id);
+  const idDirectory = encodeURIComponent(id).replace(/\./g, "%2E");
   const suffix =
     globalThis.crypto?.randomUUID?.() ??
     `${Date.now()}-${fileSequence++}`;
-  const directory = `${ROOT_DIRECTORY}/${ownerHash}`;
+  const directory = `${ROOT_DIRECTORY}/${ownerHash}/${idDirectory}`;
   const videoExtension = sourceUrl
     ? videoExtensionFromUrl(sourceUrl)
     : safeExtension(record.videoBlob?.type ?? "", "mp4");
   return {
-    localFilePath: `${directory}/${idHash}-${suffix}.${videoExtension}`,
-    thumbnailPath: `${directory}/${idHash}-${suffix}-thumbnail`,
+    localFilePath: `${directory}/${suffix}.${videoExtension}`,
+    thumbnailPath: `${directory}/${suffix}-thumbnail`,
   };
 }
 
@@ -326,6 +341,64 @@ async function saveThumbnail(record: OfflineVideo, path: string) {
   }
 }
 
+async function commitNativeOfflineVideo(
+  record: OfflineVideo,
+  localFilePath: string,
+  thumbnailPath: string,
+  localFileUri?: string,
+) {
+  const { videoBlob: _videoBlob, ...metadata } = record;
+  void _videoBlob;
+  const nativeRecord: NativeOfflineVideo = {
+    ...metadata,
+    id: String(record.id),
+    localFilePath,
+    localFileUri,
+    thumbnailPath: null,
+  };
+
+  const previous = await updateRegistry((current) => ({
+    entries: [...current.filter((entry) => entry.id !== nativeRecord.id), nativeRecord],
+    result: current.find((entry) => entry.id === nativeRecord.id) ?? null,
+  }));
+
+  if (previous?.localFilePath !== nativeRecord.localFilePath) {
+    void removeFile(previous?.localFilePath);
+  }
+  if (previous?.thumbnailPath) void removeFile(previous.thumbnailPath);
+
+  // The video and its index are durable now. Thumbnail fetching must not delay
+  // the Downloads tab from showing the completed video.
+  void saveThumbnail(record, thumbnailPath)
+    .then(async (savedThumbnailPath) => {
+      if (!savedThumbnailPath) return;
+      const indexed = await updateRegistry((current) => {
+        const exists = current.some(
+          (entry) =>
+            entry.id === nativeRecord.id &&
+            entry.localFilePath === nativeRecord.localFilePath,
+        );
+        return {
+          entries: exists
+            ? current.map((entry) =>
+                entry.id === nativeRecord.id &&
+                entry.localFilePath === nativeRecord.localFilePath
+                  ? { ...entry, thumbnailPath: savedThumbnailPath }
+                  : entry,
+              )
+            : current,
+          result: exists,
+        };
+      });
+      if (!indexed) await removeFile(savedThumbnailPath);
+    })
+    .catch((error) => {
+      console.warn("[downloads] could not update the saved thumbnail index", error);
+    });
+
+  return nativeRecord;
+}
+
 export async function listNativeOfflineVideos(ownerId: string) {
   return (await readRegistry())
     .filter((record) => record.ownerId === ownerId)
@@ -347,34 +420,15 @@ export async function saveNativeOfflineVideo(
 
   const normalizedRecord = { ...record, id: String(record.id), videoBlob };
   const paths = await createUniquePaths(normalizedRecord);
-  let thumbnailPath: string | null = null;
   try {
     await writeBlob(paths.localFilePath, videoBlob);
-    thumbnailPath = await saveThumbnail(normalizedRecord, paths.thumbnailPath);
-    const { videoBlob: _videoBlob, ...metadata } = normalizedRecord;
-    void _videoBlob;
-    const nativeRecord: NativeOfflineVideo = {
-      ...metadata,
-      id: String(normalizedRecord.id),
-      localFilePath: paths.localFilePath,
-      thumbnailPath,
-    };
-
-    const previous = await updateRegistry((current) => ({
-      entries: [...current.filter((entry) => entry.id !== nativeRecord.id), nativeRecord],
-      result: current.find((entry) => entry.id === nativeRecord.id) ?? null,
-    }));
-
-    if (previous?.localFilePath !== nativeRecord.localFilePath) {
-      await removeFile(previous?.localFilePath);
-    }
-    if (previous?.thumbnailPath && previous.thumbnailPath !== thumbnailPath) {
-      await removeFile(previous.thumbnailPath);
-    }
-    return nativeRecord;
+    return await commitNativeOfflineVideo(
+      normalizedRecord,
+      paths.localFilePath,
+      paths.thumbnailPath,
+    );
   } catch (error) {
     await removeFile(paths.localFilePath);
-    await removeFile(thumbnailPath);
     throw error;
   }
 }
@@ -392,7 +446,6 @@ export async function downloadNativeOfflineVideoFromUrl(
 
   const normalizedRecord = { ...record, id: String(record.id) };
   const paths = await createUniquePaths(normalizedRecord, sourceUrl);
-  let thumbnailPath: string | null = null;
   const listener = await Filesystem.addListener("progress", (progress) => {
     if (progress.url === sourceUrl) {
       onProgress?.(progress.bytes, progress.contentLength);
@@ -406,6 +459,7 @@ export async function downloadNativeOfflineVideoFromUrl(
       path: paths.localFilePath,
       directory: Directory.Data,
       progress: true,
+      recursive: true,
     });
 
     const savedFile = await Filesystem.stat({
@@ -425,32 +479,14 @@ export async function downloadNativeOfflineVideoFromUrl(
       sizeBytes: savedFile.size,
       downloadedAt: normalizedRecord.downloadedAt || new Date().toISOString(),
     };
-    thumbnailPath = await saveThumbnail(savedRecord, paths.thumbnailPath);
-    const { videoBlob: _videoBlob, ...metadata } = savedRecord;
-    void _videoBlob;
-    const nativeRecord: NativeOfflineVideo = {
-      ...metadata,
-      id: String(savedRecord.id),
-      localFilePath: paths.localFilePath,
-      localFileUri: uri,
-      thumbnailPath,
-    };
-
-    const previous = await updateRegistry((current) => ({
-      entries: [...current.filter((entry) => entry.id !== nativeRecord.id), nativeRecord],
-      result: current.find((entry) => entry.id === nativeRecord.id) ?? null,
-    }));
-
-    if (previous?.localFilePath !== nativeRecord.localFilePath) {
-      await removeFile(previous?.localFilePath);
-    }
-    if (previous?.thumbnailPath && previous.thumbnailPath !== thumbnailPath) {
-      await removeFile(previous.thumbnailPath);
-    }
-    return nativeRecord;
+    return await commitNativeOfflineVideo(
+      savedRecord,
+      paths.localFilePath,
+      paths.thumbnailPath,
+      uri,
+    );
   } catch (error) {
     await removeFile(paths.localFilePath);
-    await removeFile(thumbnailPath);
     throw error;
   } finally {
     await listener.remove().catch(() => undefined);
