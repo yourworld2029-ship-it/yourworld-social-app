@@ -198,7 +198,15 @@ function RootComponent() {
   const [isPlatformResolved, setIsPlatformResolved] = useState(false);
   const [isNativeApp, setIsNativeApp] = useState(false);
   const isWatchPreview = pathname.startsWith("/watch/");
-  const hideNav = isWatchPreview || pathname.startsWith("/auth") || pathname.startsWith("/verify-2fa") || pathname.startsWith("/create") || pathname.startsWith("/moment/create") || pathname.startsWith("/channel/create");
+  const isChatConversation = pathname.startsWith("/chat/");
+  const hideNav =
+    isWatchPreview ||
+    isChatConversation ||
+    pathname.startsWith("/auth") ||
+    pathname.startsWith("/verify-2fa") ||
+    pathname.startsWith("/create") ||
+    pathname.startsWith("/moment/create") ||
+    pathname.startsWith("/channel/create");
   const wideProfileLayout = pathname === "/profile";
 
   useEffect(() => {

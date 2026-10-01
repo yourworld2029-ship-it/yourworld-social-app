@@ -1874,7 +1874,10 @@ function NativeChatThreadPage() {
     }
   };
 
-  if (!chatScreenSecurityReady) {
+  // Do not hold the conversation behind a blank screen while settings load.
+  // If protection is explicitly enabled, keep the content hidden until FLAG_SECURE
+  // has been applied; otherwise show the thread and composer immediately.
+  if (protectChatEnabled && !chatScreenSecurityReady) {
     return (
       <div
         aria-hidden="true"
@@ -1887,13 +1890,15 @@ function NativeChatThreadPage() {
     <>
     <div
       hidden={secretLock && !chatUnlocked}
-      className="fixed inset-0 z-50 flex h-[100dvh] flex-col justify-between overflow-hidden bg-black font-sans text-white"
+      data-testid="chat-screen"
+      className="fixed inset-0 z-50 flex h-[100dvh] max-h-[100dvh] w-screen flex-col overflow-hidden bg-black font-sans text-white"
     >
       <input type="file" ref={fileInputRef} accept="image/*" className="hidden" onChange={handleImageSelect} />
       <input type="file" ref={cameraInputRef} accept="image/*" capture="environment" className="hidden" onChange={handleImageSelect} />
 
       {/* TOP HEADER */}
       <div
+        data-testid="chat-header"
         className="chat-header sticky top-0 z-50 flex min-w-0 shrink-0 items-center gap-2 border-b border-zinc-800/80 bg-zinc-950 px-3 pb-3 pt-[calc(env(safe-area-inset-top,24px)_+_0.75rem)]"
       >
         <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -2179,6 +2184,9 @@ function NativeChatThreadPage() {
 
       <div
         id="chat-messages-container"
+        data-testid="chat-messages"
+        role="log"
+        aria-label="Chat messages"
         ref={scrollRef}
         onScroll={onScrollMessages}
         className="relative min-h-0 flex-1 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] p-4 bg-zinc-950/50"
@@ -2470,7 +2478,11 @@ function NativeChatThreadPage() {
       )}
 
       {/* INPUT BAR */}
-      <div className="sticky bottom-0 z-40 flex shrink-0 flex-col gap-2 border-t border-zinc-800/80 bg-zinc-950 px-3 pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)] pt-3">
+      <div
+        id="chat-input-bar"
+        data-testid="chat-input-bar"
+        className="relative z-40 mt-auto flex shrink-0 flex-col gap-2 border-t border-zinc-800/80 bg-zinc-950 px-3 pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)] pt-3"
+      >
         {replyTo && (
           <div className="flex w-full items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900/80 px-3 py-2">
             <div className="min-w-0 flex-1">
@@ -2504,17 +2516,40 @@ function NativeChatThreadPage() {
           </div>
         ) : (
           <>
-            <button onClick={() => fileInputRef.current?.click()} className="p-2 text-zinc-400 hover:text-white"><ImageIcon size={22} /></button>
-            <button onClick={startRecording} className="p-2 text-zinc-400 hover:text-white"><Mic size={22} /></button>
+            <button
+              type="button"
+              aria-label="Open gallery"
+              title="Gallery"
+              onClick={() => fileInputRef.current?.click()}
+              className="shrink-0 p-2 text-zinc-400 hover:text-white"
+            >
+              <ImageIcon size={22} />
+            </button>
+            <button
+              type="button"
+              aria-label="Record voice note"
+              title="Voice note"
+              onClick={startRecording}
+              className="shrink-0 p-2 text-zinc-400 hover:text-white"
+            >
+              <Mic size={22} />
+            </button>
             
-            <div className="flex-1 relative flex items-center">
-              <button type="button" aria-label="Open camera" className="w-9 h-9 rounded-full bg-blue-600 flex items-center justify-center text-white mr-2 shrink-0" onClick={() => cameraInputRef.current?.click()}>
-  <Camera size={18} />
-</button>
+            <div className="relative flex min-w-0 flex-1 items-center">
+              <button
+                type="button"
+                aria-label="Open camera"
+                title="Camera"
+                className="mr-2 grid h-9 w-9 shrink-0 place-items-center rounded-full bg-blue-600 text-white"
+                onClick={() => cameraInputRef.current?.click()}
+              >
+                <Camera size={18} />
+              </button>
               <input
-                 ref={messageInputRef}
+                ref={messageInputRef}
                 type="text"
                 value={message}
+                aria-label="Message"
                 onChange={(e) => {
                   setMessage(e.target.value);
                   setTyping(e.target.value.trim().length > 0);
@@ -2527,15 +2562,25 @@ function NativeChatThreadPage() {
                     handleSend();
                   }
                 }}
-                placeholder="Message..."
-                className="w-full bg-zinc-900 border border-zinc-800 rounded-full py-2.5 pl-4 pr-10 text-sm text-white focus:outline-none"
+                placeholder="Type a message..."
+                className="w-full min-w-0 rounded-full border border-zinc-800 bg-zinc-900 py-2.5 pl-4 pr-10 text-sm text-white focus:outline-none"
               />
-             <button onClick={() => setShowEmojis(!showEmojis)} className="absolute right-3 text-zinc-400 hover:text-white">
+             <button
+               type="button"
+               aria-label={showEmojis ? "Close emoji picker" : "Open stickers and emoji"}
+               aria-expanded={showEmojis}
+               title="Stickers and emoji"
+               onClick={() => setShowEmojis(!showEmojis)}
+               className="absolute right-3 text-zinc-400 hover:text-white"
+             >
                 <Smile size={18} />
               </button>
             </div>
 
             <button
+              type="button"
+              aria-label="Send message"
+              title="Send message"
               onClick={handleSend}
               className={`p-2.5 rounded-full flex items-center justify-center ${
                 message.trim() ? "bg-gradient-to-r from-pink-500 to-purple-600 text-white" : "bg-zinc-800 text-zinc-500 cursor-not-allowed"
