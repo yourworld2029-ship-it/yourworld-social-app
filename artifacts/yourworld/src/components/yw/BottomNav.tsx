@@ -1,88 +1,69 @@
 import { memo } from "react";
-import { Link, useLocation } from "@tanstack/react-router";
-import { Home, Film, MessageSquare, User, Plus } from "lucide-react";
-import { useUnreadMessageCount } from "@/lib/social-data";
+import { Link, useRouterState } from "@tanstack/react-router";
+import { Home, Film, PlusSquare, MessageSquare, User } from "lucide-react";
 
 interface BottomNavProps {
   onOpenCreate?: () => void;
 }
 
 export const BottomNav = memo(function BottomNav({ onOpenCreate }: BottomNavProps) {
-  const location = useLocation();
-  const unreadMessages = useUnreadMessageCount();
-  const isRouteActive = (route: string) =>
-    location.pathname === route || location.pathname.startsWith(`${route}/`);
-  const itemClass = (active: boolean) =>
-    `flex min-w-0 flex-1 items-center justify-center rounded-lg py-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-      active
-        ? "text-foreground"
-        : "text-muted-foreground hover:text-foreground"
-    }`;
-
-  // Hide bottom nav completely when on /create route
-  if (location.pathname === "/create") {
-    return null;
-  }
+  const routerState = useRouterState();
+  const currentPath = routerState?.location?.pathname || "/";
 
   return (
-    <nav
-      aria-label="Main navigation"
-      className="bottom-nav-safe-area fixed inset-x-0 bottom-0 z-40 isolate w-full border-t border-border/70 bg-background/95 px-1.5 pt-2 backdrop-blur-xl"
+    <nav 
+      aria-label="Main Navigation"
+      className="fixed bottom-0 left-0 right-0 z-50 bg-black/95 backdrop-blur-md border-t border-neutral-900"
+      style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 8px)" }}
     >
-      <div className="mx-auto flex h-12 w-full max-w-md items-center justify-around">
+      <div className="flex w-full items-center justify-around h-14 max-w-md mx-auto px-2">
         <Link
           to="/"
           aria-label="Home"
-          aria-current={isRouteActive("/") ? "page" : undefined}
-          className={itemClass(isRouteActive("/"))}
+          className={`flex-1 flex flex-col items-center justify-center py-1 transition-colors ${
+            currentPath === "/" ? "text-pink-500" : "text-neutral-400 hover:text-neutral-200"
+          }`}
         >
-          <Home className="size-6 max-h-6 max-w-6 shrink-0" aria-hidden="true" />
+          <Home className="size-6 shrink-0 stroke-[1.8]" />
         </Link>
 
         <Link
           to="/reels"
-          search={{ reelId: undefined, userId: undefined, initialVideoId: undefined, returnTo: undefined }}
-          aria-label="Video"
-          aria-current={isRouteActive("/reels") ? "page" : undefined}
-          className={itemClass(isRouteActive("/reels"))}
+          aria-label="Reels"
+          className={`flex-1 flex flex-col items-center justify-center py-1 transition-colors ${
+            currentPath === "/reels" ? "text-pink-500" : "text-neutral-400 hover:text-neutral-200"
+          }`}
         >
-          <Film className="size-6 max-h-6 max-w-6 shrink-0" aria-hidden="true" />
+          <Film className="size-6 shrink-0 stroke-[1.8]" />
         </Link>
 
         <button
           type="button"
-          onClick={() => onOpenCreate?.()}
-          aria-label="Open create menu"
-          className={`${itemClass(false)} text-foreground`}
+          onClick={onOpenCreate}
+          aria-label="Create"
+          className="flex-1 flex flex-col items-center justify-center py-1 text-neutral-400 hover:text-neutral-200 transition-colors"
         >
-          <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-border transition active:scale-95">
-            <Plus className="size-6 max-h-6 max-w-6 shrink-0" aria-hidden="true" />
-          </span>
+          <PlusSquare className="size-6 shrink-0 stroke-[1.8]" />
         </button>
 
         <Link
           to="/chat"
-          aria-label={unreadMessages > 0 ? `Chat, ${unreadMessages} unread` : "Chat"}
-          aria-current={isRouteActive("/chat") ? "page" : undefined}
-          className={itemClass(isRouteActive("/chat"))}
+          aria-label="Chat"
+          className={`flex-1 flex flex-col items-center justify-center py-1 transition-colors ${
+            currentPath === "/chat" ? "text-pink-500" : "text-neutral-400 hover:text-neutral-200"
+          }`}
         >
-          <span className="relative grid place-items-center">
-            <MessageSquare className="size-6 max-h-6 max-w-6 shrink-0" aria-hidden="true" />
-            {unreadMessages > 0 ? (
-              <span className="absolute -right-2 -top-1 min-w-4 rounded-full bg-pink-600 px-1 text-center text-[9px] font-bold leading-4 text-white">
-                {unreadMessages > 99 ? "99+" : unreadMessages}
-              </span>
-            ) : null}
-          </span>
+          <MessageSquare className="size-6 shrink-0 stroke-[1.8]" />
         </Link>
 
         <Link
           to="/profile"
           aria-label="Profile"
-          aria-current={isRouteActive("/profile") ? "page" : undefined}
-          className={itemClass(isRouteActive("/profile"))}
+          className={`flex-1 flex flex-col items-center justify-center py-1 transition-colors ${
+            currentPath === "/profile" ? "text-pink-500" : "text-neutral-400 hover:text-neutral-200"
+          }`}
         >
-          <User className="size-6 max-h-6 max-w-6 shrink-0" aria-hidden="true" />
+          <User className="size-6 shrink-0 stroke-[1.8]" />
         </Link>
       </div>
     </nav>
