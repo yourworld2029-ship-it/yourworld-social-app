@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { mock, test } from "node:test";
+import { nativeOfflinePathsForVideo } from "./native-offline-paths";
 import { fetchVideoBlob, reelWatermarkText } from "./yw-download";
 
 const sourceBytes = Uint8Array.from({ length: 100 }, (_, index) => index);
@@ -8,6 +9,17 @@ test("Reel watermark text uses the creator handle exactly once", () => {
   assert.equal(reelWatermarkText("creator"), "YourWorld • @creator");
   assert.equal(reelWatermarkText("@creator"), "YourWorld • @creator");
   assert.equal(reelWatermarkText(""), "YourWorld • @user");
+});
+
+test("native offline video files use flat, ID-based app data paths", () => {
+  assert.deepEqual(nativeOfflinePathsForVideo("video-123"), {
+    localFilePath: "offline_video-123.mp4",
+    thumbnailPath: "offline_video-123-thumbnail",
+  });
+  assert.equal(
+    nativeOfflinePathsForVideo("video/../123").localFilePath,
+    "offline_video%2F%2E%2E%2F123.mp4",
+  );
 });
 
 test("video download uses one full GET without requesting a byte range", async () => {

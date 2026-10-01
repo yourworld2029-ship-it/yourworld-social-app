@@ -2,6 +2,7 @@ import { Capacitor } from "@capacitor/core";
 import { Directory, Encoding, Filesystem } from "@capacitor/filesystem";
 import { Preferences } from "@capacitor/preferences";
 import type { OfflineVideo } from "@/lib/offlineVideosDB";
+import { nativeOfflinePathsForVideo } from "@/lib/native-offline-paths";
 
 const REGISTRY_KEY = "yourworld.offline-videos.registry.v1";
 const REGISTRY_VERSION = 1;
@@ -24,7 +25,6 @@ type RegistryEnvelope = {
 };
 
 let registryQueue: Promise<void> = Promise.resolve();
-let fileSequence = 0;
 
 export function isAndroidNativeDownloads() {
   return Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
@@ -38,16 +38,13 @@ async function mkdirIgnoringExisting(path: string) {
       recursive: true,
     });
   } catch (error) {
-    const details =
-      error && typeof error === "object"
-        ? [
-            "message" in error ? String(error.message) : "",
-            "code" in error ? String(error.code) : "",
-          ].join(" ")
-        : String(error);
-    if (!/already exists|EEXIST|DIRECTORY_EXISTS|OS-PLUG-FILE-0010/i.test(details)) {
-      throw error;
+    try {
+      await Filesystem.readdir({ path, directory: Directory.Data });
+      return;
+    } catch {
+      // Only treat the error as harmless when the target is an existing directory.
     }
+    throw error;
   }
 }
 
@@ -185,23 +182,6 @@ function updateRegistry<T>(
   return operation;
 }
 
-async function shortHash(value: string) {
-  const bytes = new TextEncoder().encode(value);
-  if (globalThis.crypto?.subtle) {
-    const digest = await crypto.subtle.digest("SHA-256", bytes);
-    return Array.from(new Uint8Array(digest), (byte) =>
-      byte.toString(16).padStart(2, "0"),
-    ).join("");
-  }
-
-  let hash = 2166136261;
-  for (const byte of bytes) {
-    hash ^= byte;
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(16).padStart(8, "0");
-}
-
 function safeExtension(mimeType: string, fallback: string) {
   const subtype = mimeType.split("/")[1]?.split(";")[0]?.toLowerCase() ?? "";
   const extension = subtype
@@ -212,14 +192,6 @@ function safeExtension(mimeType: string, fallback: string) {
   if (extension === "quicktime" || extension === "x-m4v") return "mp4";
   if (extension === "jpeg") return "jpg";
   return extension;
-}
-
-function videoExtensionFromUrl(sourceUrl: string) {
-  const pathname = new URL(sourceUrl).pathname;
-  const extension = pathname.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase();
-  return extension && ["mp4", "m4v", "mov", "webm", "3gp", "mkv"].includes(extension)
-    ? extension
-    : "mp4";
 }
 
 function assertDirectVideoUrl(sourceUrl: string) {
@@ -247,7 +219,6 @@ function toBase64(bytes: Uint8Array) {
 }
 
 async function ensureParentDirectory(path: string) {
-  await ensureOfflineDirectory();
   const separator = path.lastIndexOf("/");
   if (separator <= 0) return;
   await mkdirIgnoringExisting(path.slice(0, separator));
@@ -291,23 +262,6 @@ async function removeFile(path?: string | null) {
   } catch {
     // A missing file must not make an explicit library removal fail.
   }
-}
-
-async function createUniquePaths(record: OfflineVideo, sourceUrl?: string) {
-  const ownerHash = await shortHash(record.ownerId ?? "unknown-owner");
-  const id = String(record.id);
-  const idDirectory = encodeURIComponent(id).replace(/\./g, "%2E");
-  const suffix =
-    globalThis.crypto?.randomUUID?.() ??
-    `${Date.now()}-${fileSequence++}`;
-  const directory = `${ROOT_DIRECTORY}/${ownerHash}/${idDirectory}`;
-  const videoExtension = sourceUrl
-    ? videoExtensionFromUrl(sourceUrl)
-    : safeExtension(record.videoBlob?.type ?? "", "mp4");
-  return {
-    localFilePath: `${directory}/${suffix}.${videoExtension}`,
-    thumbnailPath: `${directory}/${suffix}-thumbnail`,
-  };
 }
 
 async function saveThumbnail(record: OfflineVideo, path: string) {
@@ -419,7 +373,7 @@ export async function saveNativeOfflineVideo(
   if (!videoBlob.size) throw new Error("The offline video file is empty.");
 
   const normalizedRecord = { ...record, id: String(record.id), videoBlob };
-  const paths = await createUniquePaths(normalizedRecord);
+  const paths = nativeOfflinePathsForVideo(normalizedRecord.id);
   try {
     await writeBlob(paths.localFilePath, videoBlob);
     return await commitNativeOfflineVideo(
@@ -445,7 +399,7 @@ export async function downloadNativeOfflineVideoFromUrl(
   assertDirectVideoUrl(sourceUrl);
 
   const normalizedRecord = { ...record, id: String(record.id) };
-  const paths = await createUniquePaths(normalizedRecord, sourceUrl);
+  const paths = nativeOfflinePathsForVideo(normalizedRecord.id);
   const listener = await Filesystem.addListener("progress", (progress) => {
     if (progress.url === sourceUrl) {
       onProgress?.(progress.bytes, progress.contentLength);

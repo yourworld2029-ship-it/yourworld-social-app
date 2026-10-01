@@ -159,16 +159,17 @@ export function DownloadSheet({
 }: Props) {
   const choices = useMemo<DownloadChoice[]>(
     () => {
-      const qualityTiers = availableDownloadQualityTiers(
-        sourceQualityTier,
-        qualityMediaUrls,
-      );
+      const qualityTiers = availableDownloadQualityTiers(qualityMediaUrls);
       return [...qualityTiers.map((choice) => choice.id), "original"];
     },
-    [qualityMediaUrls, sourceQualityTier],
+    [qualityMediaUrls],
   );
+  const preferredChoice: DownloadChoice =
+    sourceQualityTier && choices.includes(sourceQualityTier)
+      ? sourceQualityTier
+      : "original";
   const [selected, setSelected] = useState<DownloadChoice>(
-    sourceQualityTier ?? "original",
+    preferredChoice,
   );
   const [resolvedFileSizes, setResolvedFileSizes] = useState<
     Partial<Record<DownloadChoice, number>>
@@ -179,18 +180,15 @@ export function DownloadSheet({
 
   useEffect(() => {
     if (open) {
-      setSelected(sourceQualityTier ?? "original");
+      setSelected(preferredChoice);
     }
-  }, [open, sourceQualityTier]);
+  }, [open, preferredChoice]);
 
   useEffect(() => {
     const providedSize = positiveByteSize(sourceFileSizeBytes);
     setResolvedFileSizes(
       providedSize
-        ? {
-            original: providedSize,
-            ...(sourceQualityTier ? { [sourceQualityTier]: providedSize } : {}),
-          }
+        ? { original: providedSize }
         : {},
     );
     setResolvedDurationSeconds(positiveDuration(durationSeconds));
@@ -208,8 +206,7 @@ export function DownloadSheet({
         choice === "original"
           ? sourceMediaUrl
           : choice !== "mp3"
-            ? qualityMediaUrls?.[choice] ??
-              (choice === sourceQualityTier ? sourceMediaUrl : undefined)
+            ? qualityMediaUrls?.[choice]
             : undefined;
       return url ? [{ choice, url }] : [];
     });
@@ -248,17 +245,13 @@ export function DownloadSheet({
     const providedSourceSize = positiveByteSize(sourceFileSizeBytes);
     const exactSize =
       resolvedFileSizes[choice] ??
-      ((choice === "original" || choice === sourceQualityTier) ? providedSourceSize : null);
+      (choice === "original" ? providedSourceSize : null);
     if (exactSize) {
       return formatDownloadSizeMb(exactSize / 1_000_000, true);
     }
 
     if (choice === "original") {
-      return formatDownloadSizeMb(
-        sourceQualityTier
-          ? estimateDownloadSizeMb(resolvedDurationSeconds, sourceQualityTier)
-          : null,
-      );
+      return formatDownloadSizeMb(null);
     }
     if (choice === "mp3") {
       return formatDownloadSizeMb(estimateDownloadSizeMb(resolvedDurationSeconds, "mp3"));
@@ -291,7 +284,9 @@ export function DownloadSheet({
         className="fixed inset-x-0 bottom-0 z-[130] flex max-h-[85vh] flex-col overflow-y-auto rounded-t-2xl border-t border-zinc-800 bg-[#121216] p-5 text-white"
       >
         <SheetHeader className="mx-auto max-w-lg pb-4 pt-1 text-left">
-            <SheetTitle className="text-base text-white">Choose a quality</SheetTitle>
+            <SheetTitle className="text-base text-white">
+              {choices.length > 1 ? "Choose a quality" : "Download video"}
+            </SheetTitle>
           <SheetDescription className="truncate text-xs text-zinc-400">
              {title}
           </SheetDescription>
@@ -326,7 +321,7 @@ export function DownloadSheet({
                  </span>
                  <span className="min-w-0 flex-1">
                    <span className="block text-sm font-semibold">
-                     {isOriginal ? "Original Video File (Source Quality)" : quality?.title}
+                      {isOriginal ? "Download Video (Original Quality)" : quality?.title}
                      {!isOriginal && choice === sourceQualityTier && (
                        <span className="ml-2 text-[10px] font-medium text-pink-300">SOURCE</span>
                      )}
@@ -350,7 +345,11 @@ export function DownloadSheet({
             className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-white py-3 text-sm font-bold text-black transition-transform active:scale-[0.98] disabled:opacity-50"
           >
              <Download size={17} />
-             Download
+              {selected === "original"
+                ? "Download Video (Original Quality)"
+                : selected === "mp3"
+                  ? "Download MP3"
+                  : `Download ${selected}`}
           </button>
         </div>
       </SheetContent>

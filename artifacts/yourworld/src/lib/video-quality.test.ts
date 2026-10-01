@@ -30,12 +30,15 @@ test("dimension quality tiers keep their existing values", () => {
   assert.equal(qualityTierFromDimensions(3840, 2160), "2160p");
 });
 
-test("2K downloads are offered for a 2K source or an explicit 2K stream", () => {
-  assert.ok(availableDownloadQualityTiers("1440p").some((tier) => tier.id === "1440p"));
-  assert.ok(!availableDownloadQualityTiers("2160p").some((tier) => tier.id === "1440p"));
-  assert.ok(
-    availableDownloadQualityTiers("1080p", { "1440p": "https://media.example/2k.mp4" })
-      .some((tier) => tier.id === "1440p"),
+test("download qualities are offered only when an actual quality media URL exists", () => {
+  assert.deepEqual(availableDownloadQualityTiers().map((tier) => tier.id), []);
+  assert.deepEqual(
+    availableDownloadQualityTiers({
+      "360p": "https://media.example/360.mp4",
+      "480p": "  ",
+      "1440p": "https://media.example/2k.mp4",
+    }).map((tier) => tier.id),
+    ["360p", "1440p"],
   );
 });
 

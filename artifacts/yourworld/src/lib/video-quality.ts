@@ -89,19 +89,9 @@ export function availableVideoQualityTiers(
 }
 
 export function availableDownloadQualityTiers(
-  sourceTier: VideoQualityTier | null | undefined,
   qualityUrls?: DownloadQualityUrls | null,
 ) {
-  const tiers = availableVideoQualityTiers(sourceTier);
-  const has2kSource = sourceTier === "1440p";
-  const has2kStream = Boolean(qualityUrls?.["1440p"]?.trim());
-  if ((has2kSource || has2kStream) && !tiers.some((tier) => tier.id === "1440p")) {
-    const twoKTier = VIDEO_QUALITY_TIERS.find((tier) => tier.id === "1440p");
-    if (twoKTier) tiers.push(twoKTier);
-  }
-  return tiers.filter(
-    (tier) => tier.id !== "1440p" || has2kSource || has2kStream,
-  );
+  return VIDEO_QUALITY_TIERS.filter((tier) => Boolean(qualityUrls?.[tier.id]?.trim()));
 }
 
 export function estimateDownloadSizeMb(

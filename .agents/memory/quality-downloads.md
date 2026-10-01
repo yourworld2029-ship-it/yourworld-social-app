@@ -3,11 +3,11 @@ name: Quality-specific downloads
 description: Constraints and fallback behavior for source-quality downloads and browser-side exports.
 ---
 
-Quality-aware downloads should preserve the existing full-file path for the original source tier and only process smaller tiers after the viewer explicitly chooses them. Uploads without stored dimensions need an original-file fallback rather than being treated as a known 480p source.
+Download quality options must be backed by real quality-specific media URLs. Source dimensions and bitrate estimates do not prove a transcode exists: without a variant URL, expose only original quality and show its verified size or “Size unavailable.” When a variant URL exists, route the selection to that exact URL instead of silently falling back to the original. Uploads without stored dimensions need an original-file fallback rather than being treated as a known 480p source.
 
-**Why:** Private Supabase media already has a reliable signed-URL and service-worker download flow, while the web client cannot guarantee server-side transcoding or MP3 encoding on every device.
+**Why:** The native offline downloader persisted the original bytes even when the picker estimated a smaller tier, misleading users about the resulting quality and file size. Private Supabase media already has a reliable signed-URL and service-worker download flow, while the web client cannot guarantee server-side transcoding or MP3 encoding on every device.
 
-**How to apply:** Keep source quality metadata optional for legacy rows, derive tiers from native dimensions for new uploads, estimate sizes from duration and bitrate, and treat browser export capability as a runtime constraint.
+**How to apply:** Derive downloadable tiers from non-empty quality-specific URLs. Resolve size from the selected URL when possible; only estimate sizes for actual variant assets, never for an original-file option. Keep source quality metadata optional for legacy rows and treat browser export capability as a runtime constraint.
 
 Keep quality/audio labels and selection behavior in the shared download sheet; route-specific code should only resolve the media URL and dispatch the selected choice.
 
