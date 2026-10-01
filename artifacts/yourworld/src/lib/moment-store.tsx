@@ -89,6 +89,8 @@ export type MyMoment = {
   location?: string;
   mentions: string[];
   privacy: MomentPrivacy;
+  /** Explicit recipients for a Close Friends Moment; stored in the existing payload JSON. */
+  recipientUserIds?: string[];
   /** hours until the Moment expires */
   duration: number;
   effect: MomentEffect;
@@ -263,6 +265,9 @@ function postRowToMoment(row: Record<string, unknown>): DbMoment {
     typeof row.duration === "number" && Number.isFinite(row.duration) && row.duration > 0
       ? row.duration
       : 24;
+  const recipientUserIds = Array.isArray(row.viewer_user_ids)
+    ? row.viewer_user_ids.filter((id): id is string => typeof id === "string")
+    : [];
   return {
     id: String(row.id),
     user_id: String(row.user_id),
@@ -271,7 +276,7 @@ function postRowToMoment(row: Record<string, unknown>): DbMoment {
     media_type: typeof row.media_type === "string" ? row.media_type : null,
     text: typeof row.caption === "string" ? row.caption : "",
     text_bg: "",
-    payload: null,
+    payload: recipientUserIds.length ? { recipientUserIds } : null,
     privacy: typeof row.audience === "string" ? row.audience : "everyone",
     duration: durationHours,
     allow_download: row.allow_download !== false,
@@ -354,6 +359,9 @@ function rowToMoment(
       ? p.mentions.filter((mention): mention is string => typeof mention === "string")
       : [],
     privacy,
+    recipientUserIds: Array.isArray(p.recipientUserIds)
+      ? p.recipientUserIds.filter((id): id is string => typeof id === "string")
+      : undefined,
     duration: Number.isFinite(row.duration) && row.duration > 0 ? row.duration : 24,
     effect:
       p.effect === "boomerang" ||
@@ -404,6 +412,9 @@ function payloadOf(m: NewMoment) {
     allowSharing: m.allowSharing ?? true,
     showLocation: m.showLocation ?? true,
     saveToArchive: m.saveToArchive ?? true,
+    ...(m.recipientUserIds?.length
+      ? { recipientUserIds: m.recipientUserIds }
+      : {}),
     durationHours: m.duration,
   };
 }
@@ -633,14 +644,29 @@ export function MomentProvider({ children }: { children: ReactNode }) {
       const list = usesPostsFallback
         ? (rows ?? []).map((row) => postRowToMoment(row as Record<string, unknown>))
         : ((rows ?? []) as DbMoment[]);
-      if (!list.length) {
+      const visibleList = list.filter((row) => {
+        const payload = row.payload;
+        if (!payload || !Object.prototype.hasOwnProperty.call(payload, "recipientUserIds")) {
+          return true;
+        }
+        const recipients = payload.recipientUserIds;
+        if (
+          !Array.isArray(recipients) ||
+          recipients.length === 0 ||
+          !recipients.every((id): id is string => typeof id === "string")
+        ) {
+          return row.user_id === uid;
+        }
+        return row.user_id === uid || recipients.includes(uid);
+      });
+      if (!visibleList.length) {
         setMoments([]);
         setLoading(false);
         return;
       }
 
-      const ids = list.map((r) => r.id);
-      const authorIds = [...new Set(list.map((r) => r.user_id))];
+      const ids = visibleList.map((r) => r.id);
+      const authorIds = [...new Set(visibleList.map((r) => r.user_id))];
 
       const [viewsResult, repliesResult, likesResult, profilesResult, uniqueViewsResult] = await Promise.all([
         usesPostsFallback
@@ -698,7 +724,7 @@ export function MomentProvider({ children }: { children: ReactNode }) {
         ),
       );
 
-      const mapped = list.map((row) =>
+      const mapped = visibleList.map((row) =>
         rowToMoment(
           row,
           [
@@ -998,6 +1024,7 @@ export function MomentProvider({ children }: { children: ReactNode }) {
                   media_type: m.mediaType ?? (m.kind === "video" ? "video" : "image"),
                   caption: m.text ?? "",
                   audience: m.privacy,
+                  viewer_user_ids: m.recipientUserIds ?? [],
                   duration_seconds: hours,
                   allow_download: m.allowDownload,
                   audio: musicUrl ?? null,

@@ -58,8 +58,8 @@ import { useUploads } from "@/lib/upload-progress";
 import { splitMomentIntoParts } from "@/lib/moment-parts";
 import { adaptiveCameraCaptureAttempts } from "@/lib/adaptive-performance";
 import { useAuth } from "@/lib/auth-store";
+import { useFollowList } from "@/lib/follow-data";
 import { ProfileAvatar } from "@/components/yw/ProfileAvatar";
-import { downloadMedia } from "@/lib/yw-download";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/moment/create")({
@@ -703,19 +703,39 @@ function MomentCreatePage() {
   const [audience, setAudience] =
     useState<Audience>("everyone");
 
+  const [selectedCloseFriendIds, setSelectedCloseFriendIds] =
+    useState<string[]>([]);
+  const [pendingCloseFriendIds, setPendingCloseFriendIds] =
+    useState<string[]>([]);
+  const [showCloseFriendsPicker, setShowCloseFriendsPicker] =
+    useState(false);
+  const {
+    users: closeFriendOptions,
+    loading: closeFriendsLoading,
+    error: closeFriendsError,
+  } = useFollowList(user?.id ?? null, "followers", showCloseFriendsPicker);
+
+  const openCloseFriendsPicker = () => {
+    setAudience("close_friends");
+    setPendingCloseFriendIds(selectedCloseFriendIds);
+    setShowCloseFriendsPicker(true);
+  };
+
+  const saveCloseFriendSelection = () => {
+    const currentFollowerIds = new Set(closeFriendOptions.map((person) => person.id));
+    setSelectedCloseFriendIds(
+      pendingCloseFriendIds.filter((id) => currentFollowerIds.has(id)),
+    );
+    setShowCloseFriendsPicker(false);
+  };
+
   const [duration, setDuration] =
     useState<12 | 24 | 48>(24);
 
   const [allowPoll, setAllowPoll] =
     useState(false);
 
-  const [screenshotAlert, setScreenshotAlert] =
-    useState(true);
-
   const [allowDownloads, setAllowDownloads] =
-    useState(true);
-
-  const [saveToGallery, setSaveToGallery] =
     useState(true);
 
   const [saveToArchive, setSaveToArchive] =
@@ -2252,6 +2272,12 @@ function MomentCreatePage() {
 
   const handlePublish = async () => {
     if (!mediaUrl) return;
+    if (audience === "close_friends" && selectedCloseFriendIds.length === 0) {
+      setPendingCloseFriendIds([]);
+      setShowCloseFriendsPicker(true);
+      toast.error("Choose at least one follower before sharing with Close Friends.");
+      return;
+    }
     const publishMediaUrl =
       renderedMediaUrl
         ? renderedMediaUrl
@@ -2333,9 +2359,14 @@ function MomentCreatePage() {
 
       allowPoll,
 
-      screenshotAlert,
+      screenshotAlert: false,
 
       allowDownloads,
+
+      recipientUserIds:
+        audience === "close_friends"
+          ? selectedCloseFriendIds
+          : undefined,
 
       saveToArchive,
 
@@ -2426,6 +2457,10 @@ function MomentCreatePage() {
             : undefined),
 
         mentions: [],
+        recipientUserIds:
+          audience === "close_friends"
+            ? selectedCloseFriendIds
+            : undefined,
         allowReactions,
         allowReplies,
         allowSharing,
@@ -2443,7 +2478,7 @@ function MomentCreatePage() {
         ai: {},
         allowDownload:
           allowDownloads,
-        screenshotAlert,
+        screenshotAlert: false,
             poll: null,
             onUploadProgress: (percent: number) => {
               const overall = ((index + Math.max(0, Math.min(100, percent) / 100)) / newMoments.length) * 100;
@@ -2453,21 +2488,6 @@ function MomentCreatePage() {
           if (result?.error) return { error: result.error };
         }
 
-        if (saveToGallery && publishMediaUrl) {
-          try {
-            await downloadMedia(
-              publishMediaUrl,
-              `yourworld-moment-${Date.now()}.${isVideo ? "mp4" : "jpg"}`,
-            );
-            toast.success("Saved to gallery!");
-          } catch (error) {
-            toast.error(
-              error instanceof Error
-                ? `Moment posted, but ${error.message.toLowerCase()}`
-                : "Moment posted, but it could not be saved to your gallery.",
-            );
-          }
-        }
         return { error: null };
       }
     ).then(({ error: publishError }) => {
@@ -4087,12 +4107,12 @@ function MomentCreatePage() {
             }
             icon={<Star />}
             title="Close Friends"
-            subtitle="Your green-list"
-            onClick={() =>
-              setAudience(
-                "close_friends"
-              )
+            subtitle={
+              selectedCloseFriendIds.length
+                ? `${selectedCloseFriendIds.length} selected`
+                : "Choose people"
             }
+            onClick={openCloseFriendsPicker}
           />
 
           <AudienceButton
@@ -4110,6 +4130,15 @@ function MomentCreatePage() {
             }
           />
         </div>
+
+        {audience === "close_friends" && selectedCloseFriendIds.length === 0 ? (
+          <p
+            data-testid="text-close-friends-required"
+            className="mb-2 text-xs text-amber-300"
+          >
+            Select at least one follower to share with Close Friends.
+          </p>
+        ) : null}
 
         {/* DURATION */}
 
@@ -4169,32 +4198,6 @@ function MomentCreatePage() {
             checked={allowReplies}
             onChange={() =>
               setAllowReplies(
-                (v) => !v
-              )
-            }
-          />
-
-          <SettingRow
-            icon={<Zap />}
-            title="Screenshot alert"
-            subtitle="Best-effort detection"
-            checked={
-              screenshotAlert
-            }
-            onChange={() =>
-              setScreenshotAlert(
-                (v) => !v
-              )
-            }
-          />
-
-          <SettingRow
-            icon={<Download />}
-            title="Save to device gallery"
-            subtitle="Save a local copy when posted"
-            checked={saveToGallery}
-            onChange={() =>
-              setSaveToGallery(
                 (v) => !v
               )
             }
@@ -4262,18 +4265,9 @@ function MomentCreatePage() {
         <div className="mt-2 flex items-center gap-2">
           <button
             onClick={
-              handleDownload
-            }
-            aria-label="Save to gallery"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/[0.06] transition active:scale-95"
-          >
-            <Download size={18} />
-          </button>
-
-          <button
-            onClick={
               handlePublish
             }
+            data-testid="button-share-moment"
             className="flex flex-1 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-cyan-400 via-pink-500 to-pink-600 py-2.5 text-sm font-bold"
           >
             Share Moment
@@ -4281,9 +4275,152 @@ function MomentCreatePage() {
           </button>
         </div>
 
-        <p className="mt-1 text-center text-[9px] text-zinc-500">
-          Save to gallery ya seedha share karein
-        </p>
+        {showCloseFriendsPicker ? (
+          <div
+            role="presentation"
+            className="fixed inset-0 z-[10000] flex items-end justify-center bg-black/75 px-3 pb-[max(env(safe-area-inset-bottom),0.75rem)] pt-8"
+            onClick={(event) => {
+              if (event.target === event.currentTarget) {
+                setShowCloseFriendsPicker(false);
+              }
+            }}
+          >
+            <section
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="close-friends-picker-title"
+              data-testid="dialog-close-friends-picker"
+              className="flex max-h-[82dvh] w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-white/10 bg-zinc-950 shadow-2xl"
+            >
+              <header className="flex items-start justify-between gap-4 border-b border-white/10 px-5 py-4">
+                <div>
+                  <h2
+                    id="close-friends-picker-title"
+                    className="text-base font-bold text-white"
+                  >
+                    Choose Close Friends
+                  </h2>
+                  <p className="mt-1 text-xs text-zinc-400">
+                    Only the people you select can view this Moment.
+                  </p>
+                  <p
+                    data-testid="text-close-friends-selected-count"
+                    className="mt-2 text-xs font-semibold text-cyan-300"
+                  >
+                    {pendingCloseFriendIds.length} selected
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Close Close Friends selector"
+                  data-testid="button-close-close-friends-picker"
+                  onClick={() => setShowCloseFriendsPicker(false)}
+                  className="rounded-full p-2 text-zinc-300 transition hover:bg-white/10 active:scale-95"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </header>
+
+              <div className="min-h-0 flex-1 overflow-y-auto px-4 py-2">
+                {closeFriendsLoading ? (
+                  <p
+                    role="status"
+                    data-testid="status-close-friends-loading"
+                    className="flex items-center gap-2 py-8 text-sm text-zinc-400"
+                  >
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    Loading followers…
+                  </p>
+                ) : closeFriendsError ? (
+                  <p
+                    role="alert"
+                    data-testid="error-close-friends"
+                    className="py-8 text-sm text-rose-300"
+                  >
+                    Couldn’t load your followers. Close this list and try again.
+                  </p>
+                ) : closeFriendOptions.length === 0 ? (
+                  <p
+                    data-testid="text-close-friends-empty"
+                    className="py-8 text-center text-sm text-zinc-400"
+                  >
+                    No followers are available to select yet.
+                  </p>
+                ) : (
+                  <div className="space-y-1">
+                    {closeFriendOptions.map((person) => (
+                      <label
+                        key={person.id}
+                        data-testid={`row-close-friend-${person.id}`}
+                        className="flex cursor-pointer items-center gap-3 rounded-2xl px-3 py-3 transition hover:bg-white/[0.06]"
+                      >
+                        <input
+                          type="checkbox"
+                          data-testid={`checkbox-close-friend-${person.id}`}
+                          checked={pendingCloseFriendIds.includes(person.id)}
+                          onChange={(event) => {
+                            setPendingCloseFriendIds((currentIds) =>
+                              event.target.checked
+                                ? [...currentIds, person.id]
+                                : currentIds.filter((id) => id !== person.id),
+                            );
+                          }}
+                          className="h-4 w-4 shrink-0 accent-pink-500"
+                        />
+                        {person.avatar_url ? (
+                          <img
+                            src={person.avatar_url}
+                            alt=""
+                            data-testid={`img-close-friend-${person.id}`}
+                            className="h-10 w-10 rounded-full object-cover"
+                          />
+                        ) : (
+                          <span
+                            aria-hidden="true"
+                            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-sm font-bold text-white"
+                          >
+                            {(person.display_name.trim()[0] ?? "?").toUpperCase()}
+                          </span>
+                        )}
+                        <span className="min-w-0 flex-1">
+                          <span
+                            data-testid={`text-close-friend-name-${person.id}`}
+                            className="block truncate text-sm font-semibold text-white"
+                          >
+                            {person.display_name}
+                          </span>
+                          <span className="block truncate text-xs text-zinc-400">
+                            @{person.username}
+                          </span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <footer className="flex gap-2 border-t border-white/10 px-4 py-4">
+                <button
+                  type="button"
+                  data-testid="button-cancel-close-friends-selection"
+                  onClick={() => setShowCloseFriendsPicker(false)}
+                  className="flex-1 rounded-full border border-white/15 px-4 py-3 text-sm font-semibold text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  data-testid="button-save-close-friends-selection"
+                  disabled={closeFriendsLoading || Boolean(closeFriendsError)}
+                  onClick={saveCloseFriendSelection}
+                  className="flex-1 rounded-full bg-gradient-to-r from-cyan-400 via-pink-500 to-pink-600 px-4 py-3 text-sm font-bold text-white disabled:opacity-50"
+                >
+                  Save selection
+                </button>
+              </footer>
+            </section>
+          </div>
+        ) : null}
       </div>
     </div>
   );

@@ -16,11 +16,9 @@ import {
   Eye,
   Trash2,
   Archive,
-  Bookmark,
   MapPin,
   ChevronUp,
   Plus,
-  Share2,
 } from "lucide-react";
 import { downloadMomentMedia, downloadOriginalMomentMedia } from "@/lib/yw-download";
 import { toast } from "sonner";
@@ -31,6 +29,21 @@ import {
   ProtectedCanvasText,
   ProtectedCanvasVideoMirror,
 } from "@/components/yw/ProtectedCanvasContent";
+
+function releaseMomentMedia(media: HTMLMediaElement | null | undefined) {
+  if (!media) return;
+  media.pause();
+  media.muted = true;
+  const source = media.srcObject as { getTracks?: () => MediaStreamTrack[] } | null;
+  source?.getTracks?.().forEach((track) => track.stop());
+  media.srcObject = null;
+  media.removeAttribute("src");
+  try {
+    media.load();
+  } catch {
+    // Closing the viewer must continue even if a browser rejects a final load reset.
+  }
+}
 
 /** photo / text segment length (ms) */
 const PHOTO_DURATION = 5000;
@@ -99,7 +112,6 @@ function MomentViewRoute() {
   const [paused, setPaused] = useState(false);
   const [muted, setMuted] = useState(false);
   const [liked, setLiked] = useState(false);
-  const [bookmarked, setBookmarked] = useState(false);
   const [reply, setReply] = useState("");
   const [replying, setReplying] = useState(false);
   const [replyFocused, setReplyFocused] = useState(false);
@@ -124,7 +136,11 @@ function MomentViewRoute() {
   }, [selected, items]);
 
   const close = useCallback(
-    () => historyBackOr(() => void navigate({ to: "/" })),
+    () => {
+      releaseMomentMedia(videoRef.current);
+      releaseMomentMedia(musicRef.current);
+      historyBackOr(() => void navigate({ to: "/" }));
+    },
     [navigate],
   );
 
@@ -169,11 +185,6 @@ function MomentViewRoute() {
   useEffect(() => {
     if (!current) return;
     setLiked(false);
-    try {
-      setBookmarked(localStorage.getItem(`yw-saved-moment:${current.id}`) === "true");
-    } catch {
-      setBookmarked(false);
-    }
     setProgress(0);
     setShowViewers(false);
     registerView(current.id);
@@ -250,7 +261,13 @@ function MomentViewRoute() {
     }
     return () => {
       a.pause();
-      a.currentTime = start;
+      if (a.readyState > 0) {
+        try {
+          a.currentTime = start;
+        } catch {
+          // The viewer exit cleanup may already have detached this source.
+        }
+      }
     };
   }, [
     current?.id,
@@ -265,6 +282,16 @@ function MomentViewRoute() {
     replying,
     showViewers,
   ]);
+
+  // Stop and detach each segment's media when it is replaced or the viewer exits.
+  useEffect(() => {
+    const video = videoRef.current;
+    const audio = musicRef.current;
+    return () => {
+      releaseMomentMedia(video);
+      releaseMomentMedia(audio);
+    };
+  }, [current?.id]);
 
   // Keep the reply bar above the mobile virtual keyboard. VisualViewport is
   // supported by modern mobile browsers and does not affect desktop layout.
@@ -352,44 +379,6 @@ function MomentViewRoute() {
       .catch((error) => {
         toast.error(error instanceof Error ? error.message : "Couldn't save this Moment.");
       });
-  }, [current]);
-
-  const toggleBookmark = useCallback(() => {
-    if (!current) return;
-    const next = !bookmarked;
-    setBookmarked(next);
-    try {
-      if (next) localStorage.setItem(`yw-saved-moment:${current.id}`, "true");
-      else localStorage.removeItem(`yw-saved-moment:${current.id}`);
-      toast.success(next ? "Moment bookmarked" : "Bookmark removed");
-    } catch {
-      setBookmarked(!next);
-      toast.error("Couldn't save this bookmark on this device.");
-    }
-  }, [bookmarked, current]);
-
-  const shareMoment = useCallback(async () => {
-    if (!current) return;
-    if (current.allowSharing === false) {
-      toast.error("Sharing is turned off for this Moment.");
-      return;
-    }
-    const url = `${window.location.origin}/moment/${encodeURIComponent(String(current.id))}`;
-    const title = current.text.trim() || `${current.author?.name || "YourWorld"}'s Moment`;
-    if (navigator.share) {
-      try {
-        await navigator.share({ title, text: title, url });
-        return;
-      } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") return;
-      }
-    }
-    try {
-      await navigator.clipboard.writeText(url);
-      toast.success("Moment link copied");
-    } catch {
-      toast.error("Couldn't share this Moment.");
-    }
   }, [current]);
 
   if (!current) return null;
@@ -783,27 +772,6 @@ function MomentViewRoute() {
               <span className="min-w-3 text-xs font-semibold tabular-nums">{likeCount}</span>
             </button>
             )}
-            <button
-              type="button"
-              aria-label={bookmarked ? "Remove Moment bookmark" : "Bookmark Moment"}
-              aria-pressed={bookmarked}
-              onClick={toggleBookmark}
-              className="pointer-events-auto shrink-0 rounded-full border border-white/25 bg-white/10 p-2.5 text-white shadow-lg shadow-black/10 backdrop-blur-xl transition-transform duration-150 active:scale-90"
-            >
-              <Bookmark className={cn("h-5 w-5", bookmarked && "fill-white")} />
-            </button>
-            <button
-              type="button"
-              aria-label={current.allowSharing === false ? "Sharing disabled by creator" : "Share Moment"}
-              aria-disabled={current.allowSharing === false}
-              onClick={() => void shareMoment()}
-              className={cn(
-                "pointer-events-auto shrink-0 rounded-full border border-white/25 bg-white/10 p-2.5 text-white shadow-lg shadow-black/10 backdrop-blur-xl transition-transform duration-150 active:scale-90",
-                current.allowSharing === false && "opacity-50",
-              )}
-            >
-              <Share2 className="h-5 w-5" />
-            </button>
             {current.allowDownload && current.media ? (
               <button
                 type="button"
