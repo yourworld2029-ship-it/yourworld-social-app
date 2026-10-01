@@ -5,8 +5,6 @@ import { LongVideoCard } from "@/components/yw/LongVideoCard";
 import {
   FeedVideoAutoplayProvider,
 } from "@/components/yw/FeedVideoAutoplay";
-import { FeedVideoTray } from "@/components/yw/FeedVideoTray";
-import { FeedVideoShelfPreview } from "@/components/yw/FeedVideoShelfPreview";
 import { VirtualizedFeedWindow } from "@/components/yw/VirtualizedFeedWindow";
 import { PendingLongVideoUploadCard } from "@/components/yw/PendingLongVideoUploadCard";
 import { loadLongVideosByIds, useLongVideos, type LongVideo } from "@/lib/video-data";
@@ -29,17 +27,14 @@ import {
 } from "@/lib/video-resume";
 import { getAppScrollContainer } from "@/lib/app-scroll-container";
 
-type FeedItem =
-  | {
-      kind: "standard";
-      key: string;
-      video: LongVideo;
-      prefetchNextVideos: Array<Pick<LongVideo, "mediaUrl" | "access">>;
-    }
-  | { kind: "tray"; key: string };
+type FeedItem = {
+  kind: "standard";
+  key: string;
+  video: LongVideo;
+  prefetchNextVideos: Array<Pick<LongVideo, "mediaUrl" | "access">>;
+};
 
 function estimateFeedItemHeight(item: FeedItem) {
-  if (item.kind === "tray") return 260;
   return item.video.orientation === "portrait" ? 920 : 660;
 }
 
@@ -166,7 +161,6 @@ type HomeVideoFeedProps = Pick<
   "currentUserId" | "countView" | "toggleLike" | "reload" | "isFetchingNextPage"
 > & {
   feedItems: FeedItem[];
-  verticalVideos: LongVideo[];
   feedAutoplayDisabled: boolean;
   hydrated: boolean;
   loading: boolean;
@@ -178,7 +172,6 @@ type HomeVideoFeedProps = Pick<
 
 const HomeVideoFeed = React.memo(function HomeVideoFeed({
   feedItems,
-  verticalVideos,
   feedAutoplayDisabled,
   hydrated,
   loading,
@@ -192,37 +185,11 @@ const HomeVideoFeed = React.memo(function HomeVideoFeed({
   pendingVideoUploadCount,
   ownerId,
 }: HomeVideoFeedProps) {
-  const navigate = useNavigate();
-  const openVideo = React.useCallback(
-    (video: LongVideo) => {
-      void navigate({
-        to: "/video/$videoId",
-        params: { videoId: video.id },
-      });
-    },
-    [navigate],
-  );
   const onDeleted = React.useCallback(() => {
     void reload();
   }, [reload]);
   const renderFeedItem = React.useCallback(
     (item: FeedItem) => {
-      if (item.kind === "tray") {
-        return (
-          <FeedVideoTray
-            key={item.key}
-            videos={verticalVideos}
-            renderPreview={(video) => (
-              <FeedVideoShelfPreview
-                video={video}
-                className="pointer-events-none"
-              />
-            )}
-            onOpenVideo={openVideo}
-          />
-        );
-      }
-
       return (
         <LongVideoCard
           key={item.key}
@@ -244,10 +211,8 @@ const HomeVideoFeed = React.memo(function HomeVideoFeed({
       countView,
       currentUserId,
       onDeleted,
-      openVideo,
       resumeEntry,
       toggleLike,
-      verticalVideos,
     ],
   );
 
@@ -258,10 +223,7 @@ const HomeVideoFeed = React.memo(function HomeVideoFeed({
           ? feedItems.find(
               (item) =>
                 item.kind === "standard" && item.video.id === activeVideoId,
-            )?.key ??
-            (verticalVideos.some((video) => video.id === activeVideoId)
-              ? "feed-video-tray"
-              : null)
+            )?.key ?? null
           : null;
 
         return (
@@ -462,34 +424,50 @@ function HomePage() {
   }, [resumeVideo, videos]);
   const feedItems = React.useMemo<FeedItem[]>(() => {
     const items: FeedItem[] = [];
-    const shouldShowTray = verticalVideos.length > 0;
-    const trayAfterPostCount = Math.min(2, regularVideos.length);
+    const appendVideos = (list: LongVideo[], forcePortrait = false) => {
+      list.forEach((video, index) => {
+        const immediateNextVideo = list[index + 1];
+        const prefetchNextVideos =
+          immediateNextVideo?.access === "public"
+            ? [{ mediaUrl: immediateNextVideo.mediaUrl, access: immediateNextVideo.access }]
+            : [];
+        items.push({
+          kind: "standard",
+          key: `post-${video.id}`,
+          video: forcePortrait ? { ...video, orientation: "portrait" } : video,
+          prefetchNextVideos,
+        });
+      });
+    };
 
-    if (shouldShowTray && regularVideos.length === 0) {
-      items.push({ kind: "tray", key: "feed-video-tray" });
+    if (regularVideos.length === 0) {
+      appendVideos(verticalVideos, true);
+    } else {
+      regularVideos.forEach((video, index) => {
+        const immediateNextVideo = regularVideos[index + 1];
+        const prefetchNextVideos =
+          immediateNextVideo?.access === "public"
+            ? [{ mediaUrl: immediateNextVideo.mediaUrl, access: immediateNextVideo.access }]
+            : [];
+        items.push({
+          kind: "standard",
+          key: `post-${video.id}`,
+          video,
+          prefetchNextVideos,
+        });
+
+        const regularVideoCount = index + 1;
+        if (
+          verticalVideos.length > 0 &&
+          regularVideoCount === Math.min(2, regularVideos.length)
+        ) {
+          appendVideos(verticalVideos, true);
+        }
+      });
     }
 
-    regularVideos.forEach((video, index) => {
-      const immediateNextVideo = regularVideos[index + 1];
-      const prefetchNextVideos =
-        immediateNextVideo?.access === "public"
-          ? [{ mediaUrl: immediateNextVideo.mediaUrl, access: immediateNextVideo.access }]
-          : [];
-      items.push({
-        kind: "standard",
-        key: `post-${video.id}`,
-        video,
-        prefetchNextVideos,
-      });
-
-      const regularVideoCount = index + 1;
-      if (shouldShowTray && regularVideoCount === trayAfterPostCount) {
-        items.push({ kind: "tray", key: "feed-video-tray" });
-      }
-    });
-
     return items;
-  }, [regularVideos, verticalVideos.length]);
+  }, [regularVideos, verticalVideos]);
 
   return (
     <div className="min-h-screen bg-black text-white pb-24">
@@ -594,7 +572,6 @@ function HomePage() {
       {/* Main Long Video Feed */}
       <HomeVideoFeed
         feedItems={feedItems}
-        verticalVideos={verticalVideos}
         feedAutoplayDisabled={Boolean(activeVideo)}
         hydrated={hydrated}
         loading={loading}

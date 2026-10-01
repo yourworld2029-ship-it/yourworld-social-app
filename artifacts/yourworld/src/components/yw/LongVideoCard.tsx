@@ -283,9 +283,14 @@ export function LongVideoCard({
           className={cn(
             "m-0 w-full overflow-hidden p-0",
             video.orientation === "portrait"
-              ? "relative max-h-[70vh] aspect-[9/16] touch-pan-y bg-gradient-to-br from-zinc-800 via-zinc-900 to-zinc-950"
+              ? "relative mx-auto aspect-[9/16] touch-pan-y bg-gradient-to-br from-zinc-800 via-zinc-900 to-zinc-950"
               : "aspect-[16/9] touch-pan-y feed-post-video-frame",
           )}
+          style={
+            video.orientation === "portrait"
+              ? { width: "min(100%, 39.375vh)" }
+              : undefined
+          }
         >
           <FeedVideoPreview
             video={video}
