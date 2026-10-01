@@ -434,6 +434,17 @@ function ProfilePage() {
     if (!downloadTarget || !userId) return;
     const post = downloadTarget;
     try {
+      if (post.kind === "video") {
+        const existingDownloads = await listDownloadedVideos(userId);
+        const alreadyDownloaded = existingDownloads.some(
+          (item) => item.id === post.id || item.mediaId === post.id,
+        );
+        if (alreadyDownloaded) {
+          toast.info("Video is already downloaded");
+          return;
+        }
+      }
+
       const mediaBucket =
         post.kind === "reel" ? STORAGE_BUCKETS.reels : STORAGE_BUCKETS.videos;
       const selectedQualityPath =
