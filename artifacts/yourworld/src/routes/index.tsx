@@ -25,6 +25,7 @@ import {
 } from "@/lib/upload-progress";
 import {
   getUnfinishedVideoResumes,
+  requestVideoResume,
   useVideoResumeEntries,
 } from "@/lib/video-resume";
 import { getAppScrollContainer } from "@/lib/app-scroll-container";
@@ -206,6 +207,9 @@ const HomeVideoFeed = React.memo(function HomeVideoFeed({
             videos={item.videos}
             renderPreview={(video) => <FeedVideoShelfPreview video={video} />}
             onOpenVideo={(video) => {
+              if (video.id === resumeEntry?.id) {
+                requestVideoResume(video.id, resumeEntry.currentTime);
+              }
               void navigate({
                 to: "/video/$videoId",
                 params: { videoId: video.id },
@@ -445,7 +449,9 @@ function HomePage() {
       (isVerticalLongVideo(video) ? vertical : regular).push(video);
     }
 
-    if (resumeVideo) regular.unshift(resumeVideo);
+    if (resumeVideo) {
+      (isVerticalLongVideo(resumeVideo) ? vertical : regular).unshift(resumeVideo);
+    }
     return { regularVideos: regular, verticalVideos: vertical };
   }, [resumeVideo, videos]);
   const feedItems = React.useMemo<FeedItem[]>(() => {

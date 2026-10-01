@@ -14,3 +14,9 @@ Feed previews use one active player: muted autoplay begins at 70% viewport visib
 **Why:** Instagram-style autoplay should not regress Android responsiveness, and fabricated branded poster art obscures the actual uploaded video content.
 
 **How to apply:** Keep feed media source ownership in the autoplay provider, preserve metadata preload on active players, and lazy-load fallback frame extraction for feed, profile tiles, and Reels. A plain dark loading surface is temporary only; never substitute decorative poster art for the uploaded thumbnail or real frame. Keep offline downloads and creator-watermarked exports on their existing paths.
+
+Homepage portrait discovery must remain a horizontal side-swipe shelf even when its section headings are hidden.
+
+**Why:** The user explicitly rejected replacing the portrait carousel with stacked full-size feed posts. Heading visibility and discovery layout are separate requirements.
+
+**How to apply:** Preserve horizontal grouping when changing feed labels, virtualization, or resume placement; do not promote resumed portrait items into the standard stacked feed.

@@ -28,8 +28,8 @@ export function FeedVideoShelfPreview({
         loading="lazy"
         bucket="videos"
         posterOnly
-        allowFrameFallback={false}
-        showPlayFallback={false}
+        allowFrameFallback
+        showPlayFallback
         className="pointer-events-none select-none"
       />
     </div>

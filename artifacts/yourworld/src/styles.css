@@ -1360,6 +1360,9 @@ html[data-theme="midnight"] {
 }
 
 .feed-video-scroll {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
   gap: 0 !important;
   padding-bottom: 0 !important;
 }
@@ -1368,7 +1371,7 @@ html[data-theme="midnight"] {
   width: 140px !important;
   min-width: 140px !important;
   aspect-ratio: 9 / 16 !important;
-  height: 240px !important;
+  height: auto !important;
   border-radius: 12px !important;
   overflow: hidden !important;
   margin: 0 6px !important;

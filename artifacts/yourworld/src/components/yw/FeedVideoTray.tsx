@@ -22,36 +22,13 @@ export function FeedVideoTray({
 
   return (
     <section
-      aria-label="Video tray"
+      aria-label="Vertical video carousel"
       className="feed-video-tray bg-[#050507] py-0"
       data-testid="feed-video-tray"
     >
-      <div className="mb-2 flex items-end justify-between gap-3 px-3">
-        <div className="min-w-0">
-          <p
-            className="text-[10px] font-semibold uppercase tracking-[0.2em] text-fuchsia-300/80"
-            data-testid="text-feed-video-tray-label"
-          >
-            Short videos
-          </p>
-          <h2
-            className="mt-0.5 truncate text-sm font-semibold tracking-[-0.01em] text-zinc-100"
-            data-testid="text-feed-video-tray-title"
-          >
-            Reels
-          </h2>
-        </div>
-        <span
-          className="shrink-0 pb-0.5 text-[11px] font-medium text-zinc-500"
-          data-testid="text-feed-video-count"
-        >
-          {videos.length} {videos.length === 1 ? "video" : "videos"}
-        </span>
-      </div>
-
       <div
         aria-label="Swipe through videos"
-        className="feed-video-scroll flex snap-x snap-mandatory gap-0 overflow-x-auto overscroll-x-contain scroll-smooth px-3 touch-pan-x [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+        className="feed-video-scroll flex flex-row flex-nowrap snap-x snap-mandatory gap-0 overflow-x-auto overscroll-x-contain scroll-smooth px-3 touch-pan-x [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
         data-testid="feed-video-scroll"
       >
         {videos.map((video) => {
