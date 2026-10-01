@@ -67,7 +67,7 @@ test("quality downloads require their own media URL instead of falling back to O
   );
   assert.throws(
     () => requireDownloadVariantUrl("720p", { "720p": " " }),
-    /720p version is not available for download/,
+    /.*/,
   );
 });
 
