@@ -8,7 +8,6 @@ import {
   FeedVideoAutoplayProvider,
 } from "@/components/yw/FeedVideoAutoplay";
 import { VirtualizedFeedWindow } from "@/components/yw/VirtualizedFeedWindow";
-import { PendingLongVideoUploadCard } from "@/components/yw/PendingLongVideoUploadCard";
 import { loadLongVideosByIds, useLongVideos, type LongVideo } from "@/lib/video-data";
 import { setVideoQueue } from "@/lib/video-queue";
 import { Search, Heart, Plus } from "lucide-react";
@@ -21,7 +20,6 @@ import { ProfileAvatar } from "@/components/yw/ProfileAvatar";
 import { useVideoPlayback } from "@/lib/video-playback";
 import {
   usePendingVideoUploadCount,
-  useUploadTasks,
 } from "@/lib/upload-progress";
 import {
   getUnfinishedVideoResumes,
@@ -137,34 +135,6 @@ function MomentAvatar({
   return <ProfileAvatar user={{ full_name: fullName, username, avatar_url: src }} />;
 }
 
-const PendingVideoUploadCards = React.memo(function PendingVideoUploadCards({
-  ownerId,
-}: {
-  ownerId?: string;
-}) {
-  const tasks = useUploadTasks();
-  const pendingVideoUploads = React.useMemo(
-    () =>
-      ownerId
-        ? tasks.filter(
-            (task) =>
-              task.kind === "video" &&
-              task.ownerId === ownerId &&
-              (task.status === "uploading" || task.status === "processing"),
-          )
-        : [],
-    [ownerId, tasks],
-  );
-
-  return (
-    <>
-      {pendingVideoUploads.map((task) => (
-        <PendingLongVideoUploadCard key={task.id} task={task} />
-      ))}
-    </>
-  );
-});
-
 type LongVideoQuery = ReturnType<typeof useLongVideos>;
 type VideoResumeEntry = ReturnType<typeof getUnfinishedVideoResumes>[number];
 
@@ -179,7 +149,6 @@ type HomeVideoFeedProps = Pick<
   videos: LongVideo[];
   resumeEntry: VideoResumeEntry | null;
   pendingVideoUploadCount: number;
-  ownerId?: string;
 };
 
 const HomeVideoFeed = React.memo(function HomeVideoFeed({
@@ -195,7 +164,6 @@ const HomeVideoFeed = React.memo(function HomeVideoFeed({
   isFetchingNextPage,
   resumeEntry,
   pendingVideoUploadCount,
-  ownerId,
 }: HomeVideoFeedProps) {
   const navigate = useNavigate();
   const onDeleted = React.useCallback(() => {
@@ -260,7 +228,6 @@ const HomeVideoFeed = React.memo(function HomeVideoFeed({
 
         return (
           <main className="feed-post-list flex flex-col gap-[10px] max-w-lg mx-auto px-2 sm:px-4 pt-0 pb-4">
-            <PendingVideoUploadCards ownerId={ownerId} />
             {!hydrated || loading ? (
               pendingVideoUploadCount === 0 ? (
                 <div className="text-center py-12 text-neutral-500 text-sm">
@@ -611,7 +578,6 @@ function HomePage() {
         isFetchingNextPage={isFetchingNextPage}
         resumeEntry={resumeEntry}
         pendingVideoUploadCount={pendingVideoUploadCount}
-        ownerId={user?.id}
       />
     </div>
   );

@@ -51,6 +51,7 @@ function VideoUploadPage() {
   const navigate = useNavigate();
   const { startUpload, updatePreviewThumbnail } = useUploadActions();
   const { user } = useAuth();
+  const pageRef = useRef<HTMLElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const selectedFileRef = useRef<File | null>(null);
   const thumbnailFileRef = useRef<File | null>(null);
@@ -116,6 +117,27 @@ function VideoUploadPage() {
       if (thumb?.startsWith("blob:")) URL.revokeObjectURL(thumb);
     };
   }, [fileUrl, thumb]);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      const focusedElement = document.activeElement;
+      if (
+        focusedElement instanceof HTMLElement &&
+        pageRef.current?.contains(focusedElement) &&
+        (focusedElement instanceof HTMLInputElement ||
+          focusedElement instanceof HTMLTextAreaElement ||
+          focusedElement.isContentEditable)
+      ) {
+        focusedElement.blur();
+      }
+
+      window.scrollTo({ top: 0, behavior: "instant" });
+      document
+        .querySelector<HTMLElement>(".yw-app-scroll-container")
+        ?.scrollTo({ top: 0, behavior: "instant" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
 
   const onMeta = useCallback(() => {
     const v = videoRef.current;
@@ -275,7 +297,7 @@ function VideoUploadPage() {
   };
 
   return (
-    <main className="min-h-screen bg-[#0d0d0f] pb-32 text-white">
+    <main ref={pageRef} className="min-h-screen bg-[#0d0d0f] pb-32 text-white">
       <header className="sticky top-0 z-40 flex items-center gap-3 border-b border-zinc-900 bg-[#0d0d0f]/90 px-4 py-3 backdrop-blur-md">
         <button
           onClick={() => historyBackOr(() => void navigate({ to: "/" }))}

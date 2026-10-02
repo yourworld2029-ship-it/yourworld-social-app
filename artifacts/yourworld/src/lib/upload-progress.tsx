@@ -11,6 +11,10 @@ import {
 import { Link } from "@tanstack/react-router";
 import { CheckCircle2, AlertCircle, X, Loader2, RefreshCw } from "lucide-react";
 import type { ProgressFn } from "@/lib/storage-upload";
+import {
+  startNativeVideoUploadGuard,
+  type NativeVideoUploadGuard,
+} from "@/lib/upload-background";
 
 export type UploadKind = "reel" | "video" | "post" | "moment";
 export type UploadProgressReporter = ProgressFn;
@@ -217,18 +221,25 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         patch(id, { progress: 0, status: "processing", error: null, detail: null, retry: undefined });
 
         let result: { error: string | null };
+        let nativeGuard: NativeVideoUploadGuard | null = null;
         try {
-          result = await runner((p, detail) =>
+          if (meta.kind === "video") {
+            nativeGuard = await startNativeVideoUploadGuard(id, meta.label);
+          }
+          result = await runner((p, detail) => {
             patch(id, {
               progress: p,
               status: detail?.toLowerCase().includes("optim") || p >= 100
                 ? "processing"
                 : "uploading",
               detail: detail ?? null,
-            }),
-          );
+            });
+            nativeGuard?.update(p, detail);
+          });
         } catch (e) {
           result = { error: readableTaskError(e) };
+        } finally {
+          await nativeGuard?.stop();
         }
 
         if (result.error) {

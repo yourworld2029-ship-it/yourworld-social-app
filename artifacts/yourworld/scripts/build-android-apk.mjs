@@ -28,27 +28,42 @@ function run(command, args, cwd, env) {
 function findJava21Environment() {
   const currentVersion = spawnSync("java", ["-version"], { encoding: "utf8" });
   const currentOutput = `${currentVersion.stdout ?? ""}\n${currentVersion.stderr ?? ""}`;
-  if (currentOutput.includes('version "21.')) return process.env;
-
   const java21Bin = process.env.PATH
     ?.split(path.delimiter)
     .find((entry) => /(?:openjdk|jdk)[-_].*21/i.test(entry));
-  if (!java21Bin) {
-    throw new Error("JDK 21 is required; add its bin directory to PATH.");
+
+  if (java21Bin) {
+    const java21Path = path.join(java21Bin, "java");
+    const candidateVersion = spawnSync(java21Path, ["-version"], { encoding: "utf8" });
+    const candidateOutput = `${candidateVersion.stdout ?? ""}\n${candidateVersion.stderr ?? ""}`;
+    if (!candidateOutput.includes('version "21.')) {
+      throw new Error(`The Java executable at ${java21Path} is not JDK 21.`);
+    }
+
+    return {
+      ...process.env,
+      JAVA_HOME: path.dirname(java21Bin),
+      PATH: `${java21Bin}${path.delimiter}${process.env.PATH ?? ""}`,
+    };
   }
 
-  const java21Path = path.join(java21Bin, "java");
-  const candidateVersion = spawnSync(java21Path, ["-version"], { encoding: "utf8" });
-  const candidateOutput = `${candidateVersion.stdout ?? ""}\n${candidateVersion.stderr ?? ""}`;
-  if (!candidateOutput.includes('version "21.')) {
-    throw new Error(`The Java executable at ${java21Path} is not JDK 21.`);
+  if (currentOutput.includes('version "21.')) {
+    const javaCommand = spawnSync("which", ["java"], { encoding: "utf8" }).stdout?.trim();
+    if (!javaCommand) {
+      throw new Error("Could not locate the JDK 21 executable on PATH.");
+    }
+    const resolvedJava = spawnSync("readlink", ["-f", javaCommand], {
+      encoding: "utf8",
+    }).stdout?.trim();
+    const javaBin = path.dirname(resolvedJava || javaCommand);
+    return {
+      ...process.env,
+      JAVA_HOME: path.dirname(javaBin),
+      PATH: `${javaBin}${path.delimiter}${process.env.PATH ?? ""}`,
+    };
   }
 
-  return {
-    ...process.env,
-    JAVA_HOME: path.dirname(java21Bin),
-    PATH: `${java21Bin}${path.delimiter}${process.env.PATH ?? ""}`,
-  };
+  throw new Error("JDK 21 is required; add its bin directory to PATH.");
 }
 
 async function getSdkRoot() {
@@ -126,15 +141,40 @@ async function pruneStagedApks() {
   console.log(`[apk] retained ${Math.min(stagedApks.length, 3)} staged APKs; removed ${removedCount} older or unversioned APKs`);
 }
 
+async function stageApkInWebOutput(apkFilePath) {
+  const webDownloadsDir = path.join(appDir, ".output/public/downloads");
+  await mkdir(webDownloadsDir, { recursive: true });
+  for (const entry of await readdir(webDownloadsDir, { withFileTypes: true })) {
+    if (entry.isFile() && entry.name.toLowerCase().endsWith(".apk")) {
+      await rm(path.join(webDownloadsDir, entry.name));
+    }
+  }
+  const webApkPath = path.join(webDownloadsDir, path.basename(apkFilePath));
+  await copyFile(apkFilePath, webApkPath);
+  console.log(`Staged APK in web output: ${webApkPath}`);
+}
+
 async function main() {
   const gradleFile = await readFile(path.join(androidDir, "app/build.gradle"), "utf8");
   const versionCode = gradleFile.match(/versionCode\s+(\d+)/)?.[1];
   if (!versionCode) throw new Error("Could not read Android versionCode from app/build.gradle.");
 
   const java21Env = findJava21Environment();
+  const javaHome = java21Env.JAVA_HOME;
+  if (!javaHome) throw new Error("Could not determine the JDK 21 home directory.");
+  // This project may pin org.gradle.java.home to an older JDK in gradle.properties.
+  // Override it for this build so Gradle's compiler toolchain also uses JDK 21.
+  const gradleEnv = {
+    ...java21Env,
+    GRADLE_OPTS: [
+      java21Env.GRADLE_OPTS,
+      `-Dorg.gradle.java.home=${javaHome}`,
+      `-Dorg.gradle.java.installations.paths=${javaHome}`,
+    ].filter(Boolean).join(" "),
+  };
   await run("pnpm", ["run", "build"], appDir, java21Env);
   await run("pnpm", ["exec", "cap", "sync", "android"], appDir, java21Env);
-  await run("./gradlew", ["clean", "assembleRelease", "--no-build-cache"], androidDir, java21Env);
+  await run("./gradlew", ["clean", "assembleRelease", "--no-build-cache"], androidDir, gradleEnv);
 
   const sdkRoot = await getSdkRoot();
   const aapt = await findAndroidTool(sdkRoot, "aapt");
@@ -158,6 +198,7 @@ async function main() {
   const outputPath = path.join(publicDownloadsDir, filename);
   await mkdir(publicDownloadsDir, { recursive: true });
   await copyFile(apkPath, outputPath);
+  await stageApkInWebOutput(outputPath);
 
   const hash = createHash("sha256").update(await readFile(outputPath)).digest("hex");
   console.log(`Verified APK: ${outputPath}`);
