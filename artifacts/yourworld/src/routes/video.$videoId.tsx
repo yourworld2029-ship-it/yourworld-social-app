@@ -13,19 +13,26 @@ import { isPlayableMediaUrl } from "@/lib/video-playback-engine";
 import { useVideoPlayback } from "@/lib/video-playback";
 import { consumeVideoResumeRequest } from "@/lib/video-resume";
 import {
+  downloadAudioOnly,
   downloadVideoForOfflineInBackground,
   sanitizeDownloadName,
   type DownloadedVideoMetadata,
 } from "@/lib/yw-download";
 import { useAuth, useResumeAuthAction } from "@/lib/auth-store";
 import { useYw } from "@/lib/yw-store";
-import { buildWatchShareUrl } from "@/lib/watch-links";
+import { resolveMediaUrl } from "@/lib/social-data";
+import {
+  VIDEO_QUALITY_TIERS,
+  type DownloadQualityUrls,
+} from "@/lib/video-quality";
+import type { DownloadChoice } from "@/components/yw/DownloadSheet";
 import { VideoWatchDetails } from "@/components/yw/VideoWatchDetails";
 
 type VideoRouteData = {
   video: LongVideo;
   url: string | null;
   locked: boolean;
+  qualityMediaUrls: DownloadQualityUrls | null;
 };
 
 function isRestrictedAudience(row: Record<string, unknown>) {
@@ -37,6 +44,19 @@ function isRestrictedAudience(row: Record<string, unknown>) {
     .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
     .map((audience) => audience.trim().toLowerCase().replace(/[\s-]+/g, "_"))
     .some((audience) => restrictedAudiences.includes(audience));
+}
+
+function readQualityMediaUrls(row: Record<string, unknown>): DownloadQualityUrls | null {
+  const raw = row.qualityUrls ?? row.quality_urls;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+
+  const source = raw as Record<string, unknown>;
+  const qualityMediaUrls: DownloadQualityUrls = {};
+  for (const { id } of VIDEO_QUALITY_TIERS) {
+    const url = source[id];
+    if (typeof url === "string" && url.trim()) qualityMediaUrls[id] = url.trim();
+  }
+  return Object.keys(qualityMediaUrls).length ? qualityMediaUrls : null;
 }
 
 export const Route = createFileRoute("/video/$videoId")({
@@ -70,7 +90,9 @@ async function loadVideoForPlayback(videoId: string): Promise<VideoRouteData> {
     isRestrictedAudience(row);
 
   if (requiresGrant && !isOwner) {
-    if (!user || isRestrictedAudience(row)) return { video, url: null, locked: true };
+    if (!user || isRestrictedAudience(row)) {
+      return { video, url: null, locked: true, qualityMediaUrls: null };
+    }
     const { data: grant, error: grantError } = await supabase
       .from("video_access_grants")
       .select("expires_at")
@@ -84,14 +106,21 @@ async function loadVideoForPlayback(videoId: string): Promise<VideoRouteData> {
       (grant.expires_at === null ||
         (Number.isFinite(Date.parse(grant.expires_at)) &&
           Date.parse(grant.expires_at) > Date.now()));
-    if (!grantIsActive) return { video, url: null, locked: true };
+    if (!grantIsActive) {
+      return { video, url: null, locked: true, qualityMediaUrls: null };
+    }
   }
 
   const url = await resolveLongVideoUrl(video.mediaUrl);
   if (!url || !isPlayableMediaUrl(url)) {
     throw new Error("The video source is not available.");
   }
-  return { video, url, locked: false };
+  return {
+    video,
+    url,
+    locked: false,
+    qualityMediaUrls: readQualityMediaUrls(row),
+  };
 }
 
 function VideoRouteComponent() {
@@ -101,12 +130,13 @@ function VideoRouteComponent() {
   const { activeVideo, activateVideo, closeVideo, isPlaying } = useVideoPlayback();
   const { videos, countView, loadMore, hasNextPage, isFetchingNextPage } = useLongVideos();
   const { user, requestAuthAction } = useAuth();
-  const { following, saved, toggleFollow, toggleSave } = useYw();
+  const { following, toggleFollow } = useYw();
   const resumeTimeRef = useRef<number | null>(null);
   const scrollRestoreRef = useRef<Array<{ element: HTMLElement; top: number }> | null>(null);
   const loadMoreTargetRef = useRef<HTMLDivElement | null>(null);
   const [lastPlayableData, setLastPlayableData] = useState<VideoRouteData | null>(null);
   const [isLiking, setIsLiking] = useState(false);
+  const [disliked, setDisliked] = useState(false);
   const [likeOverride, setLikeOverride] = useState<{
     videoId: string;
     liked: boolean;
@@ -144,6 +174,7 @@ function VideoRouteComponent() {
 
   useEffect(() => {
     setLikeOverride(null);
+    setDisliked(false);
   }, [videoId]);
 
   useEffect(() => {
@@ -223,7 +254,7 @@ function VideoRouteComponent() {
     scrollRestoreRef.current = null;
   }, [videoId]);
 
-  const handleLike = async () => {
+  const handleLike = async (clearDislike = true) => {
     if (!video || !isCurrentVideo || isLiking) return;
     if (!user?.id) {
       requestAuthAction({ type: "post-like", targetId: video.id });
@@ -232,6 +263,7 @@ function VideoRouteComponent() {
 
     const nextLiked = !liked;
     const nextCount = Math.max(0, likeCount + (nextLiked ? 1 : -1));
+    if (clearDislike) setDisliked(false);
     setLikeOverride({ videoId: video.id, liked: nextLiked, count: nextCount });
     setIsLiking(true);
     try {
@@ -260,6 +292,16 @@ function VideoRouteComponent() {
     void handleLike();
   });
 
+  const handleDislike = () => {
+    if (!video || !isCurrentVideo || isLiking) return;
+    if (!user?.id) {
+      toast.error("Sign in to react to videos");
+      return;
+    }
+    setDisliked((current) => !current);
+    if (liked) void handleLike(false);
+  };
+
   const handleFollow = () => {
     if (!video || !isCurrentVideo || isOwner) return;
     if (!user?.id) {
@@ -273,7 +315,7 @@ function VideoRouteComponent() {
     if (video && !isOwner) void toggleFollow(video.userId);
   });
 
-  const handleDownload = async () => {
+  const handleDownload = async (choice: DownloadChoice) => {
     const data = query.data;
     if (
       !video ||
@@ -295,50 +337,59 @@ function VideoRouteComponent() {
       return;
     }
 
-    const metadata: DownloadedVideoMetadata = {
-      ownerId,
-      mediaId: video.id,
-      title: video.title,
-      creatorName: video.author.name,
-      creatorUsername: video.author.username,
-      creatorId: video.userId,
-      views: video.views,
-      createdAt: video.createdAt,
-      durationSeconds: video.durationSeconds,
-      thumbnailUrl: video.thumbnailUrl,
-      posterUrl: video.thumbnailUrl,
-      quality: "original",
-    };
-    const fileName = sanitizeDownloadName(video.title, `yourworld-video-${video.id}`);
+    const selectedQualityUrl =
+      choice !== "original" && choice !== "mp3"
+        ? data.qualityMediaUrls?.[choice]?.trim()
+        : undefined;
+    if (choice !== "original" && choice !== "mp3" && !selectedQualityUrl) {
+      toast.error(`The ${choice} download is not available for this video.`);
+      return;
+    }
 
     setIsDownloading(true);
     try {
-      const result = await downloadVideoForOfflineInBackground(
-        data.url,
-        fileName,
-        video.author.username,
-        undefined,
-        metadata,
-      );
-      toast.success(
-        result === "native-original"
-          ? "Saved video for offline viewing"
-          : "Saved video with YourWorld watermark",
-      );
+      const downloadUrl = selectedQualityUrl
+        ? await resolveMediaUrl(selectedQualityUrl, "videos")
+        : data.url;
+      if (!downloadUrl) throw new Error("This video has no downloadable media");
+
+      const metadata: DownloadedVideoMetadata = {
+        ownerId,
+        mediaId: video.id,
+        title: video.title,
+        creatorName: video.author.name,
+        creatorUsername: video.author.username,
+        creatorId: video.userId,
+        views: video.views,
+        createdAt: video.createdAt,
+        durationSeconds: video.durationSeconds,
+        thumbnailUrl: video.thumbnailUrl,
+        posterUrl: video.thumbnailUrl,
+        quality: choice === "mp3" ? "original" : choice,
+      };
+      const fileName = sanitizeDownloadName(video.title, `yourworld-video-${video.id}`);
+
+      if (choice === "mp3") {
+        await downloadAudioOnly(data.url, fileName);
+        toast.success("Saved to your device");
+      } else {
+        const result = await downloadVideoForOfflineInBackground(
+          downloadUrl,
+          fileName,
+          video.author.username,
+          undefined,
+          metadata,
+        );
+        toast.success(
+          result === "native-original"
+            ? "Saved video for offline viewing"
+            : "Saved video with YourWorld watermark",
+        );
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Couldn't save this video");
     } finally {
       setIsDownloading(false);
-    }
-  };
-
-  const handleCopyLink = async () => {
-    if (!video || !isCurrentVideo) return;
-    try {
-      await navigator.clipboard.writeText(buildWatchShareUrl(video.id, "video"));
-      toast.success("Video link copied");
-    } catch {
-      toast.error("Could not copy video link");
     }
   };
 
@@ -411,21 +462,19 @@ function VideoRouteComponent() {
       video={video}
       recommendations={recommendations}
       liked={liked}
-      likeCount={likeCount}
+      disliked={disliked}
       following={Boolean(following[video.userId])}
       isOwner={isOwner}
-      isSaved={Boolean(saved[video.id])}
       isSwitching={isSwitching}
       isLiking={isLiking}
       isDownloading={isDownloading}
+      sourceMediaUrl={isCurrentVideo ? query.data?.url ?? null : null}
+      sourceQualityTier={video.sourceQualityTier}
+      qualityMediaUrls={isCurrentVideo ? query.data?.qualityMediaUrls ?? null : null}
       onLike={() => void handleLike()}
+      onDislike={handleDislike}
       onFollow={handleFollow}
-      onDownload={() => void handleDownload()}
-      onCopyLink={() => void handleCopyLink()}
-      onToggleSave={() => toggleSave(video.id)}
-      onOpenCreator={() => {
-        void navigate({ to: "/u/$userId", params: { userId: video.userId } });
-      }}
+      onDownload={handleDownload}
       onSelectVideo={handleSelectVideo}
       recommendationsFooter={
         <div className="pb-3 pt-2 text-center">

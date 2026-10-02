@@ -1,25 +1,19 @@
 import { useEffect, useState, type ReactNode } from "react";
 import {
-  Bookmark,
-  BookmarkCheck,
   Download,
-  Heart,
   MessageCircle,
-  MoreVertical,
   Share2,
+  ThumbsDown,
+  ThumbsUp,
   UserRound,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadSheet";
 import { ShareSheet } from "@/components/yw/ShareSheet";
 import { CommentsSheet } from "@/components/yw/CommentsSheet";
 import { resolveMediaUrl } from "@/lib/social-data";
+import type { DownloadQualityUrls, VideoQualityTier } from "@/lib/video-quality";
 import {
   formatDuration,
   formatViews,
@@ -33,19 +27,19 @@ type Props = {
   video: LongVideo;
   recommendations: LongVideo[];
   liked: boolean;
-  likeCount: number;
+  disliked: boolean;
   following: boolean;
   isOwner: boolean;
-  isSaved: boolean;
   isSwitching: boolean;
   isLiking: boolean;
   isDownloading: boolean;
+  sourceMediaUrl: string | null;
+  sourceQualityTier?: VideoQualityTier | null;
+  qualityMediaUrls?: DownloadQualityUrls | null;
   onLike: () => void;
+  onDislike: () => void;
   onFollow: () => void;
-  onDownload: () => void;
-  onCopyLink: () => void;
-  onToggleSave: () => void;
-  onOpenCreator: () => void;
+  onDownload: (choice: DownloadChoice) => void | Promise<void>;
   onSelectVideo: (video: LongVideo) => void;
   recommendationsFooter?: ReactNode;
 };
@@ -152,23 +146,24 @@ export function VideoWatchDetails({
   video,
   recommendations,
   liked,
-  likeCount,
+  disliked,
   following,
   isOwner,
-  isSaved,
   isSwitching,
   isLiking,
   isDownloading,
+  sourceMediaUrl,
+  sourceQualityTier,
+  qualityMediaUrls,
   onLike,
+  onDislike,
   onFollow,
   onDownload,
-  onCopyLink,
-  onToggleSave,
-  onOpenCreator,
   onSelectVideo,
   recommendationsFooter,
 }: Props) {
   const [commentCount, setCommentCount] = useState(video.commentCount);
+  const [downloadOpen, setDownloadOpen] = useState(false);
   const shareUrl =
     typeof window === "undefined"
       ? undefined
@@ -241,21 +236,39 @@ export function VideoWatchDetails({
           ) : null}
         </div>
 
-        <div className="flex items-stretch gap-2" aria-label="Video actions">
+        <div
+          data-testid="video-action-row"
+          aria-label="Video actions"
+          className="grid w-full grid-cols-4 gap-1 border-b border-white/10 pb-3"
+        >
           <button
             type="button"
-            data-testid="button-video-like"
-            aria-label={`${liked ? "Unlike" : "Like"} video`}
+            data-testid="button-like-video"
+            aria-label="Like video"
             aria-pressed={liked}
             disabled={isSwitching || isLiking}
             onClick={onLike}
-            className="flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-xl bg-white/[0.07] py-2.5 transition hover:bg-white/[0.11] active:scale-[0.98] disabled:opacity-50"
+            className={`inline-flex h-9 w-full min-w-0 items-center justify-center gap-0.5 rounded-full border border-white/10 bg-white/10 px-1 text-[9px] font-semibold tracking-tight shadow-sm backdrop-blur-md transition-all hover:bg-white/20 disabled:opacity-50 sm:text-[10px] ${
+              liked ? "text-pink-300" : "text-white"
+            }`}
           >
-            <span className="flex items-center gap-1.5">
-              <Heart className={`h-[18px] w-[18px] ${liked ? "fill-pink-500 text-pink-500" : "text-white"}`} />
-              <span className="text-xs font-semibold tabular-nums">{formatCount(likeCount)}</span>
-            </span>
-            <span className="text-[10px] text-zinc-300">Like</span>
+            <ThumbsUp className="h-3.5 w-3.5 shrink-0" fill={liked ? "currentColor" : "none"} />
+            <span>Like</span>
+          </button>
+
+          <button
+            type="button"
+            data-testid="button-dislike-video"
+            aria-label="Dislike video"
+            aria-pressed={disliked}
+            disabled={isSwitching || isLiking}
+            onClick={onDislike}
+            className={`inline-flex h-9 w-full min-w-0 items-center justify-center gap-0.5 rounded-full border border-white/10 bg-white/10 px-1 text-[9px] font-semibold tracking-tight shadow-sm backdrop-blur-md transition-all hover:bg-white/20 disabled:opacity-50 sm:text-[10px] ${
+              disliked ? "text-pink-300" : "text-white"
+            }`}
+          >
+            <ThumbsDown className="h-3.5 w-3.5 shrink-0" fill={disliked ? "currentColor" : "none"} />
+            <span>Dislike</span>
           </button>
 
           <ShareSheet
@@ -270,63 +283,44 @@ export function VideoWatchDetails({
           >
             <button
               type="button"
-              data-testid="button-video-share"
+              data-testid="button-share-video"
+              aria-label="Share video"
               disabled={isSwitching}
-              className="flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-xl bg-white/[0.07] py-2.5 transition hover:bg-white/[0.11] active:scale-[0.98] disabled:opacity-50"
+              className="inline-flex h-9 w-full min-w-0 items-center justify-center gap-0.5 rounded-full border border-white/10 bg-white/10 px-1 text-[9px] font-semibold tracking-tight text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20 disabled:opacity-50 sm:text-[10px]"
             >
-              <Share2 className="h-[18px] w-[18px]" aria-hidden="true" />
-              <span className="text-[10px] text-zinc-300">Share</span>
+              <Share2 className="h-3.5 w-3.5 shrink-0" />
+              <span>Share</span>
             </button>
           </ShareSheet>
 
           <button
             type="button"
-            data-testid="button-video-download"
-            disabled={isSwitching || isDownloading}
-            onClick={onDownload}
-            className="flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-xl bg-white/[0.07] py-2.5 transition hover:bg-white/[0.11] active:scale-[0.98] disabled:opacity-50"
+            data-testid="button-download-video"
+            aria-label="Download video"
+            disabled={isSwitching || isDownloading || !sourceMediaUrl}
+            onClick={() => setDownloadOpen(true)}
+            className="inline-flex h-9 w-full min-w-0 items-center justify-center gap-0.5 rounded-full border border-white/10 bg-white/10 px-1 text-[9px] font-semibold tracking-tight text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20 disabled:opacity-50 sm:text-[10px]"
           >
             {isDownloading ? (
-              <span className="h-[18px] w-[18px] animate-spin rounded-full border-2 border-white/25 border-t-white" />
+              <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/25 border-t-white" />
             ) : (
-              <Download className="h-[18px] w-[18px]" />
+              <Download className="h-3.5 w-3.5 shrink-0" />
             )}
-            <span className="text-[10px] text-zinc-300">
-              {isDownloading ? "Saving…" : "Download"}
-            </span>
+            <span>{isDownloading ? "Saving…" : "Download"}</span>
           </button>
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                data-testid="button-video-options"
-                aria-label="More video options"
-                disabled={isSwitching}
-                className="flex w-12 shrink-0 flex-col items-center justify-center gap-1 rounded-xl bg-white/[0.07] py-2.5 transition hover:bg-white/[0.11] disabled:opacity-50"
-              >
-                <MoreVertical className="h-[18px] w-[18px]" />
-                <span className="text-[10px] text-zinc-300">More</span>
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-52">
-              <DropdownMenuItem onClick={onCopyLink}>
-                Copy video link
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={onToggleSave}>
-                {isSaved ? (
-                  <BookmarkCheck className="mr-2 h-4 w-4" />
-                ) : (
-                  <Bookmark className="mr-2 h-4 w-4" />
-                )}
-                {isSaved ? "Remove from saved" : "Save to watch later"}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={onOpenCreator}>
-                Open creator channel
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
         </div>
+
+        <DownloadSheet
+          open={downloadOpen}
+          onOpenChange={setDownloadOpen}
+          title={video.title || "YourWorld video"}
+          durationSeconds={video.durationSeconds}
+          sourceQualityTier={sourceQualityTier ?? undefined}
+          qualityMediaUrls={qualityMediaUrls ?? undefined}
+          sourceMediaUrl={sourceMediaUrl ?? undefined}
+          mediaBucket="videos"
+          onDownload={onDownload}
+        />
       </section>
 
       <section aria-label="Comments" className="mt-4 border-b border-white/[0.08] pb-4">

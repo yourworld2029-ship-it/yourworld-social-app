@@ -111,14 +111,7 @@ export function requireDownloadVariantUrl(
   qualityUrls?: DownloadQualityUrls | null,
 ) {
   const url = qualityUrls?.[tier]?.trim();
-  if (!url) {
-      if (qualityUrls) {
-        for (const val of Object.values(qualityUrls)) {
-          if (typeof val === "string" && val.trim().length > 0) return val.trim();
-        }
-      }
-      return "";
-    }
+  if (!url) throw new Error(`The ${tier} download is not available.`);
   return url;
 }
 

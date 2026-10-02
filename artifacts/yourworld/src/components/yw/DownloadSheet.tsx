@@ -8,7 +8,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import {
-  
+  availableDownloadQualityTiers,
   downloadFileSizeBytesFromHeaders,
   type DownloadQualityUrls,
   estimateDownloadSizeMb,
@@ -158,13 +158,15 @@ export function DownloadSheet({
   mediaBucket = "videos",
   onDownload,
 }: Props) {
-  const ALL_ORDERED_TIERS: VideoQualityTier[] = ["4320p", "2160p", "1440p", "1080p", "720p", "480p", "360p"];
-  const choices = useMemo<DownloadChoice[]>(() => {
-    const raw = (sourceQualityTier || "").toLowerCase();
-    const idx = ALL_ORDERED_TIERS.findIndex(t => t === raw || raw.includes(t));
-    const startIdx = idx >= 0 ? idx : 3;
-    return [...ALL_ORDERED_TIERS.slice(startIdx), "original"];
-  }, [sourceQualityTier]);
+  const choices = useMemo<DownloadChoice[]>(
+    () => [
+      ...availableDownloadQualityTiers(qualityMediaUrls)
+        .map((tier) => tier.id)
+        .reverse(),
+      "original",
+    ],
+    [qualityMediaUrls],
+  );
   const preferredChoice: DownloadChoice =
     sourceQualityTier && choices.includes(sourceQualityTier)
       ? sourceQualityTier
