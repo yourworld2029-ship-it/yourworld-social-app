@@ -36,6 +36,7 @@ import {
   sourceQualityTierFromDimensions,
   type VideoQualityTier,
 } from "@/lib/video-quality";
+import { readVideoDurationSeconds } from "@/lib/video-duration";
 
 const liveLikesTable = () => supabase.from("likes");
 
@@ -639,7 +640,9 @@ async function loadLongVideoPage(
           videoType: metadata.video_type ?? null,
           isReel: metadata.is_reel ?? null,
           postType: metadata.type ?? post.kind ?? null,
-          durationSeconds: post.duration_seconds,
+          durationSeconds: readVideoDurationSeconds(
+            post as unknown as Record<string, unknown>,
+          ),
           originalWidth: typeof metadata.original_width === "number" ? metadata.original_width : null,
           originalHeight: typeof metadata.original_height === "number" ? metadata.original_height : null,
           sourceQualityTier: qualityTierFromSourceMetadata(metadata.source_quality_tier)

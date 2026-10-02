@@ -10,6 +10,7 @@ import {
   timeAgo,
   type LongVideo,
 } from "@/lib/video-data";
+import { formatVideoDuration } from "@/lib/video-duration";
 import { deleteMyPost } from "@/lib/profile-data";
 import { CommentsSheet } from "@/components/yw/CommentsSheet";
 import { ShareSheet } from "@/components/yw/ShareSheet";
@@ -54,21 +55,6 @@ type Props = {
   onDeleted?: (id: string) => void;
   onEdited?: (post: DbPost) => void;
 };
-
-function formatBadgeDuration(seconds: number | null) {
-  if (!Number.isFinite(seconds) || seconds == null || seconds <= 0) return null;
-
-  const totalSeconds = Math.floor(seconds);
-  if (totalSeconds <= 0) return null;
-
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const remainingSeconds = totalSeconds % 60;
-
-  return hours > 0
-    ? `${hours}:${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`
-    : `${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`;
-}
 
 function CreatorAvatar({
   avatarUrl,
@@ -142,24 +128,6 @@ export function LongVideoCard({
   const [commentCount, setCommentCount] = useState(video.commentCount);
   const [liking, setLiking] = useState(false);
   const likingRef = useRef(false);
-  const [durationSeconds, setDurationSeconds] = useState<number | null>(
-    () =>
-      typeof video.durationSeconds === "number" &&
-      Number.isFinite(video.durationSeconds) &&
-      video.durationSeconds > 0
-        ? video.durationSeconds
-        : null,
-  );
-  useEffect(() => {
-    const storedDuration =
-      typeof video.durationSeconds === "number" &&
-      Number.isFinite(video.durationSeconds) &&
-      video.durationSeconds > 0
-        ? video.durationSeconds
-        : null;
-    setDurationSeconds(storedDuration);
-  }, [video.durationSeconds]);
-
   const isMine = currentUserId === video.userId;
   const isFollowing = !!following[video.userId];
   const shareUrl =
@@ -252,7 +220,7 @@ export function LongVideoCard({
 
   const upcoming =
     !!video.scheduledAt && new Date(video.scheduledAt).getTime() > Date.now();
-  const formattedDuration = formatBadgeDuration(durationSeconds);
+  const formattedDuration = formatVideoDuration(video.durationSeconds);
 
   if (hidden) return null;
 
@@ -301,7 +269,10 @@ export function LongVideoCard({
             className="m-0 select-none p-0"
           />
           {formattedDuration && (
-            <span className="pointer-events-none absolute bottom-2 left-2 right-auto rounded-md bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold">
+            <span
+              data-testid={`badge-video-duration-${video.id}`}
+              className="pointer-events-none absolute bottom-2 left-2 right-auto rounded-md bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold"
+            >
               {formattedDuration}
             </span>
           )}

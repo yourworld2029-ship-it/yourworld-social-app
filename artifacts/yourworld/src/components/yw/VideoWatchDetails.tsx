@@ -17,11 +17,11 @@ import { resolveMediaUrl } from "@/lib/social-data";
 import { canAutoplayPublicVideo } from "@/lib/video-playback-engine";
 import type { DownloadQualityUrls, VideoQualityTier } from "@/lib/video-quality";
 import {
-  formatDuration,
   formatViews,
   timeAgo,
   type LongVideo,
 } from "@/lib/video-data";
+import { formatVideoDuration } from "@/lib/video-duration";
 import { formatCount } from "@/lib/yw-data";
 import { buildWatchShareUrl } from "@/lib/watch-links";
 
@@ -102,6 +102,8 @@ function RecommendationRow({
   onSelect: (video: LongVideo) => void;
   priority: boolean;
 }) {
+  const durationLabel = formatVideoDuration(video.durationSeconds);
+
   return (
     <button
       type="button"
@@ -123,9 +125,14 @@ function RecommendationRow({
           showLoadingShimmer={false}
           className="absolute inset-0"
         />
-        <span className="absolute bottom-1.5 right-1.5 rounded bg-black/85 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-white">
-          {formatDuration(video.durationSeconds ?? 0)}
-        </span>
+        {durationLabel ? (
+          <span
+            data-testid={`badge-recommendation-duration-${video.id}`}
+            className="absolute bottom-1.5 right-1.5 rounded bg-black/85 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-white"
+          >
+            {durationLabel}
+          </span>
+        ) : null}
       </span>
       <span className="min-w-0 flex-1 pt-1">
         <span className="line-clamp-2 block text-[14px] font-semibold leading-snug text-white">

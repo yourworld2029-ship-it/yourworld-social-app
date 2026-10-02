@@ -156,8 +156,21 @@ function VideoRouteComponent() {
     query.data?.video.id === videoId && !query.isFetching && !query.data.locked
       ? query.data
       : null;
-  const visibleData = currentData ?? lastPlayableData;
+  const cachedFeedVideo = videos.find((item) => item.id === videoId) ?? null;
+  const lastRouteData =
+    lastPlayableData?.video.id === videoId ? lastPlayableData : null;
+  const cachedRouteData: VideoRouteData | null = cachedFeedVideo
+    ? {
+        video: cachedFeedVideo,
+        url: null,
+        locked: false,
+        qualityMediaUrls: null,
+      }
+    : null;
+  const visibleData =
+    currentData ?? lastRouteData ?? cachedRouteData ?? lastPlayableData;
   const video = visibleData?.video ?? null;
+  const hasResolvedRouteData = Boolean(currentData || lastRouteData);
   const isCurrentVideo = video?.id === videoId && Boolean(currentData);
   const isSwitching = query.isFetching || (!!video && video.id !== videoId);
   const hasLikeOverride = Boolean(video && likeOverride?.videoId === video.id);
@@ -212,6 +225,32 @@ function VideoRouteComponent() {
     });
     resumeTimeRef.current = null;
   }, [activateVideo, query.data, query.isFetching, videoId]);
+
+  useEffect(() => {
+    if (
+      !cachedFeedVideo ||
+      !validVideoId ||
+      hasResolvedRouteData ||
+      query.isError ||
+      query.data?.locked
+    ) {
+      return;
+    }
+
+    activateVideo({
+      id: cachedFeedVideo.id,
+      url: "",
+      title: cachedFeedVideo.title,
+      thumbnailUrl: cachedFeedVideo.thumbnailUrl,
+    });
+  }, [
+    activateVideo,
+    cachedFeedVideo,
+    hasResolvedRouteData,
+    query.data?.locked,
+    query.isError,
+    validVideoId,
+  ]);
 
   useEffect(() => {
     if (!isPlaying || activeVideo?.id !== videoId || !isCurrentVideo) return;
@@ -448,13 +487,33 @@ function VideoRouteComponent() {
 
   if (!video) {
     return (
-      <div className="grid min-h-[50vh] place-items-center bg-[#0b0b0d] px-5 text-center text-white">
-        <div role="status" aria-label="Loading video" className="flex flex-col items-center gap-3">
-          <span
-            aria-hidden="true"
-            className="h-6 w-6 animate-spin rounded-full border-2 border-white/25 border-t-white/90"
-          />
-          <span className="text-sm text-white/65">Loading video and recommendations…</span>
+      <div className="bg-[#0b0b0d] px-3 pb-8 text-white sm:px-4">
+        <div className="mx-auto w-full max-w-lg">
+          <div className="relative aspect-video overflow-hidden rounded-xl bg-zinc-900">
+            <div
+              aria-hidden="true"
+              className="absolute inset-0 animate-pulse bg-gradient-to-br from-zinc-800 via-zinc-950 to-zinc-900"
+            />
+            <div
+              role="status"
+              aria-label="Loading video preview"
+              data-testid="status-video-loading"
+              className="absolute inset-0 grid place-items-center"
+            >
+              <span className="flex items-center gap-2 rounded-full bg-black/50 px-3 py-2 text-xs text-white/80">
+                <span
+                  aria-hidden="true"
+                  className="h-4 w-4 animate-spin rounded-full border-2 border-white/25 border-t-white/90"
+                />
+                Preparing video…
+              </span>
+            </div>
+          </div>
+          <div aria-hidden="true" className="space-y-3 pt-4">
+            <div className="h-4 w-3/4 animate-pulse rounded bg-white/10" />
+            <div className="h-3 w-1/3 animate-pulse rounded bg-white/[0.07]" />
+            <div className="h-12 animate-pulse rounded-xl bg-white/[0.05]" />
+          </div>
         </div>
       </div>
     );

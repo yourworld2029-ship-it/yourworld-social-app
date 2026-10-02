@@ -529,6 +529,12 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const showDetailChrome = isDetailPlayer && !pictureInPicture;
   const needsAndroidPortraitSafeArea =
     isAndroidApp && showDetailChrome && (!isFullscreen || isVerticalVideo);
+  const placeholderPosterUrl =
+    resolvedPoster ??
+    (activeVideo?.thumbnailUrl &&
+    /^(https?:|data:|blob:)/i.test(activeVideo.thumbnailUrl)
+      ? activeVideo.thumbnailUrl
+      : null);
 
   const activateVideo = useCallback((video: PersistentVideo) => {
     const source = activeSourceRef.current;
@@ -548,6 +554,23 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       setCurrentTime(safeTime);
     }
 
+    if (!video.url) {
+      playbackAttemptRef.current += 1;
+      hlsRef.current?.destroy();
+      hlsRef.current = null;
+      if (player) {
+        player.pause();
+        player.removeAttribute("src");
+        player.load();
+      }
+      activeSourceRef.current = null;
+      setMediaError(null);
+      setIsPlaying(false);
+      setIsBuffering(true);
+      setCurrentTime(0);
+      setDuration(0);
+    }
+
     setActiveVideo((current) => {
       if (
         current?.id === video.id &&
@@ -559,7 +582,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       }
       return video;
     });
-  }, [setCurrentTime]);
+  }, [setCurrentTime, setDuration]);
 
   const setTimeUpdateHandler = useCallback(
     (handler: ((currentTime: number, duration: number, wasSeeking: boolean) => void) | null) => {
@@ -1829,6 +1852,31 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                   : undefined,
               }}
             />
+
+            {showDetailChrome && !activeVideo.url ? (
+              <div
+                role="status"
+                aria-label="Loading video preview"
+                data-testid="status-video-player-poster"
+                className="pointer-events-none absolute inset-0 z-[20] grid place-items-center overflow-hidden bg-zinc-950"
+              >
+                {placeholderPosterUrl ? (
+                  <img
+                    src={placeholderPosterUrl}
+                    alt=""
+                    className="absolute inset-0 h-full w-full object-contain"
+                  />
+                ) : (
+                  <div
+                    aria-hidden="true"
+                    className="absolute inset-0 animate-pulse bg-gradient-to-br from-zinc-800 via-zinc-950 to-zinc-900"
+                  />
+                )}
+                <span className="relative rounded-full bg-black/55 px-3 py-1.5 text-xs text-white/80">
+                  Preparing video…
+                </span>
+              </div>
+            ) : null}
 
             {showDetailChrome && !pictureInPicture ? (
               <button
