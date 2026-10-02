@@ -27,6 +27,12 @@ Installing a JDK 21 system dependency may leave the default shell's `java` comma
 
 **How to apply:** Do not infer that JDK 21 is absent from `java -version` alone; use the repository Android build helper or inspect every PATH entry before building directly with Gradle.
 
+A project-level `org.gradle.java.home` can override the JDK 21 selected by the APK helper, leaving Gradle's Java compiler toolchain unable to find JDK 21.
+
+**Why:** `JAVA_HOME` selects Gradle's launcher, but the explicit Gradle property can still pin its daemon and toolchain discovery to another JDK.
+
+**How to apply:** For a one-off release build, set invocation-level `GRADLE_OPTS` with both `-Dorg.gradle.java.home=$JAVA21_HOME` and `-Dorg.gradle.java.installations.paths=$JAVA21_HOME`; avoid replacing a workspace-specific Gradle path just to build once.
+
 This Replit shell may leave `ANDROID_HOME` unset even when Nix store packages already contain the Android platform, build tools, and platform tools. The system-package index may not expose the Nix Android SDK package.
 
 **Why:** Gradle needs one coherent SDK directory and Java 21; the default shell may expose neither even when the SDK components are present.
