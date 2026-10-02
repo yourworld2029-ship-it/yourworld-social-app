@@ -4,6 +4,7 @@ import {
   BookmarkCheck,
   Download,
   Heart,
+  MessageCircle,
   MoreVertical,
   Share2,
   UserRound,
@@ -17,6 +18,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ShareSheet } from "@/components/yw/ShareSheet";
+import { CommentsSheet } from "@/components/yw/CommentsSheet";
 import { resolveMediaUrl } from "@/lib/social-data";
 import {
   formatDuration,
@@ -166,10 +168,16 @@ export function VideoWatchDetails({
   onSelectVideo,
   recommendationsFooter,
 }: Props) {
+  const [commentCount, setCommentCount] = useState(video.commentCount);
   const shareUrl =
     typeof window === "undefined"
       ? undefined
       : buildWatchShareUrl(video.id, "video");
+  const caption = video.caption.trim();
+
+  useEffect(() => {
+    setCommentCount(video.commentCount);
+  }, [video.id, video.commentCount]);
 
   return (
     <main className="min-h-full bg-[#0b0b0d] px-3 pb-8 pt-3 text-white sm:px-4">
@@ -189,6 +197,11 @@ export function VideoWatchDetails({
           <span className="mx-1.5 text-zinc-600" aria-hidden="true">·</span>
           {timeAgo(video.createdAt)}
         </p>
+        {caption && caption.toLowerCase() !== video.title.trim().toLowerCase() ? (
+          <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-zinc-300">
+            {caption}
+          </p>
+        ) : null}
 
         <div className="flex items-center gap-3 border-y border-white/[0.08] py-3">
           <Link
@@ -314,6 +327,31 @@ export function VideoWatchDetails({
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
+      </section>
+
+      <section aria-label="Comments" className="mt-4 border-b border-white/[0.08] pb-4">
+        <CommentsSheet
+          postId={video.id}
+          commentsDisabled={Boolean(video.commentsOff)}
+          onCountChange={setCommentCount}
+        >
+          <button
+            type="button"
+            data-testid="button-video-comments"
+            disabled={isSwitching}
+            className="flex w-full items-center gap-3 rounded-xl bg-white/[0.06] px-3 py-3 text-left transition hover:bg-white/[0.09] disabled:opacity-50"
+          >
+            <MessageCircle className="h-5 w-5 shrink-0 text-zinc-300" aria-hidden="true" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-xs font-semibold text-white">
+                {formatCount(commentCount)} {commentCount === 1 ? "comment" : "comments"}
+              </span>
+              <span className="mt-0.5 block truncate text-xs text-zinc-400">
+                {video.commentsOff ? "Comments are turned off" : "Read and add a comment"}
+              </span>
+            </span>
+          </button>
+        </CommentsSheet>
       </section>
 
       <section aria-labelledby="video-recommendations-title" className="mt-5">

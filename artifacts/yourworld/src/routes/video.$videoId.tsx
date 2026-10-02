@@ -129,14 +129,13 @@ function VideoRouteComponent() {
   const video = visibleData?.video ?? null;
   const isCurrentVideo = video?.id === videoId && Boolean(currentData);
   const isSwitching = query.isFetching || (!!video && video.id !== videoId);
-  const liked =
-    likeOverride?.videoId === video?.id
-      ? likeOverride.liked
-      : Boolean(video?.likedByMe);
-  const likeCount =
-    likeOverride?.videoId === video?.id
-      ? likeOverride.count
-      : Number(video?.likeCount ?? 0);
+  const hasLikeOverride = Boolean(video && likeOverride?.videoId === video.id);
+  const liked = hasLikeOverride
+    ? Boolean(likeOverride?.liked)
+    : Boolean(video?.likedByMe);
+  const likeCount = hasLikeOverride
+    ? Number(likeOverride?.count ?? video?.likeCount ?? 0)
+    : Number(video?.likeCount ?? 0);
   const isOwner = Boolean(video && user?.id === video.userId);
 
   useEffect(() => {
