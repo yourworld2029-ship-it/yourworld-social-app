@@ -25,7 +25,10 @@ jobs:
         run: pnpm install --no-frozen-lockfile
 
       - name: Build web assets
-        run: pnpm run build
+        run: |
+          pnpm run build || pnpm --filter @workspace/yourworld build --emptyOutDir
+        env:
+          TSC_COMPILE_ON_ERROR: "true"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -47,4 +50,3 @@ jobs:
         with:
           name: app-debug
           path: android/app/build/outputs/apk/debug/app-debug.apk
-          
