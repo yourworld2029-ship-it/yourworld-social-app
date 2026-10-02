@@ -180,7 +180,7 @@ export function VideoWatchDetails({
   }, [video.id, video.commentCount]);
 
   return (
-    <main className="min-h-full bg-[#0b0b0d] px-3 pb-8 pt-3 text-white sm:px-4">
+    <main className="min-h-full bg-[#0b0b0d] px-3 pb-8 pt-2 text-white sm:px-4">
       {isSwitching ? (
         <div className="mb-2 flex items-center gap-2 text-xs text-zinc-400" role="status">
           <span className="h-3 w-3 animate-spin rounded-full border border-white/20 border-t-white/80" />
@@ -188,7 +188,7 @@ export function VideoWatchDetails({
         </div>
       ) : null}
 
-      <section aria-label="Video details" className="space-y-3">
+      <section aria-label="Video details" className="space-y-2">
         <h1 className="text-[17px] font-bold leading-snug tracking-[-0.01em]">
           {video.title}
         </h1>
@@ -203,7 +203,7 @@ export function VideoWatchDetails({
           </p>
         ) : null}
 
-        <div className="flex items-center gap-3 border-y border-white/[0.08] py-3">
+        <div className="flex items-center gap-3 border-y border-white/[0.08] py-2">
           <Link
             to="/u/$userId"
             params={{ userId: video.userId }}
@@ -244,7 +244,7 @@ export function VideoWatchDetails({
         <div
           data-testid="video-action-row"
           aria-label="Video actions"
-          className="grid w-full grid-cols-4 gap-1 border-b border-white/10 pb-3"
+          className="grid w-full grid-cols-4 gap-1 border-b border-white/10 pb-2"
         >
           <button
             type="button"
@@ -328,7 +328,7 @@ export function VideoWatchDetails({
         />
       </section>
 
-      <section aria-label="Comments" className="mt-4 border-b border-white/[0.08] pb-4">
+      <section aria-label="Comments" className="mt-2 border-b border-white/[0.08] pb-2">
         <CommentsSheet
           postId={video.id}
           commentsDisabled={Boolean(video.commentsOff)}
@@ -338,7 +338,7 @@ export function VideoWatchDetails({
             type="button"
             data-testid="button-video-comments"
             disabled={isSwitching}
-            className="flex w-full items-center gap-3 rounded-xl bg-white/[0.06] px-3 py-3 text-left transition hover:bg-white/[0.09] disabled:opacity-50"
+            className="flex w-full items-center gap-3 rounded-xl bg-white/[0.06] px-3 py-2 text-left transition hover:bg-white/[0.09] disabled:opacity-50"
           >
             <MessageCircle className="h-5 w-5 shrink-0 text-zinc-300" aria-hidden="true" />
             <span className="min-w-0 flex-1">
@@ -353,7 +353,7 @@ export function VideoWatchDetails({
         </CommentsSheet>
       </section>
 
-      <section aria-labelledby="video-recommendations-title" className="mt-5">
+      <section aria-labelledby="video-recommendations-title" className="mt-3">
         <h2 id="video-recommendations-title" className="mb-2 text-sm font-bold">
           Recommended videos
         </h2>
