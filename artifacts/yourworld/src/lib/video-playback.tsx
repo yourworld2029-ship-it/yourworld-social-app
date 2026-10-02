@@ -523,7 +523,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const downloadDetailPath = getDownloadDetailPath(location.pathname);
   const isDetailPlayer = Boolean(
     activeVideo &&
-      (detailVideoId === activeVideo.id || activeVideo.detailRoute === downloadDetailPath),
+      (detailVideoId !== null || activeVideo.detailRoute === downloadDetailPath),
   );
   const isPlayerRoute = Boolean(detailVideoId || downloadDetailPath);
   const showDetailChrome = isDetailPlayer && !pictureInPicture;
