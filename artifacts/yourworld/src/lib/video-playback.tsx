@@ -15,9 +15,8 @@ import {
   type TouchEvent as ReactTouchEvent,
 } from "react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { Capacitor, registerPlugin } from "@capacitor/core";
+import { Capacitor } from "@capacitor/core";
 import { ScreenOrientation } from "@capacitor/screen-orientation";
-import { StatusBar } from "@capacitor/status-bar";
 import { getAppScrollContainer } from "@/lib/app-scroll-container";
 import type { VideoQualityTier } from "@/lib/video-quality";
 import { getAdjacentVideo } from "@/lib/video-queue";
@@ -289,47 +288,6 @@ function lockPlayerOrientation(requestedOrientation: "portrait" | "landscape") {
   });
 }
 
-type ImmersiveNavigationBarPlugin = {
-  hide: () => Promise<void>;
-  show: () => Promise<void>;
-};
-
-const ImmersiveNavigationBar =
-  registerPlugin<ImmersiveNavigationBarPlugin>("ImmersiveNavigationBar");
-let androidPlayerSystemBarsQueue: Promise<void> = Promise.resolve();
-
-function setAndroidPlayerSystemBars(immersive: boolean) {
-  if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "android") {
-    return Promise.resolve();
-  }
-
-  const updates: Array<{ bar: string; apply: () => Promise<void> }> = immersive
-    ? [
-        { bar: "status", apply: () => StatusBar.hide() },
-        { bar: "navigation", apply: () => ImmersiveNavigationBar.hide() },
-      ]
-    : [
-        { bar: "navigation", apply: () => ImmersiveNavigationBar.show() },
-        { bar: "status", apply: () => StatusBar.show() },
-      ];
-
-  androidPlayerSystemBarsQueue = androidPlayerSystemBarsQueue
-    .catch(() => {})
-    .then(async () => {
-      for (const update of updates) {
-        try {
-          await update.apply();
-        } catch (error) {
-          console.warn(
-            `[video-playback] Could not update Android ${update.bar} bar visibility`,
-            error,
-          );
-        }
-      }
-    });
-  return androidPlayerSystemBarsQueue;
-}
-
 export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -444,7 +402,6 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const lockedUnlockTimerRef = useRef<number | null>(null);
   const fullscreenScrollYRef = useRef<number | null>(null);
   const fullscreenRequestIdRef = useRef(0);
-  const nativeImmersiveModeRef = useRef(false);
   const floatingPositionRef = useRef<FloatingPosition | null>(null);
   const floatingDragRef = useRef<FloatingDrag | null>(null);
   const suppressFloatingClickRef = useRef(false);
@@ -1142,7 +1099,6 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
         fullscreenScrollYRef.current !== null;
       if (playerIsFullscreen) void exitPlayerFullscreen();
       void lockPlayerOrientation("portrait").finally(restoreFullscreenScroll);
-      void setAndroidPlayerSystemBars(false);
     },
     [clearLockedUnlockTimer, restoreFullscreenScroll],
   );
@@ -1173,30 +1129,6 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     };
   }, [finishFullscreenExit, isFullscreen]);
 
-  useEffect(() => {
-    const shouldHideSystemBars =
-      isAndroidApp && isFullscreen && !isVerticalVideo;
-    if (nativeImmersiveModeRef.current === shouldHideSystemBars) return;
-    nativeImmersiveModeRef.current = shouldHideSystemBars;
-    void setAndroidPlayerSystemBars(shouldHideSystemBars);
-  }, [isAndroidApp, isFullscreen, isVerticalVideo]);
-
-  useEffect(() => {
-    if (!isAndroidApp) return;
-    const restoreFullscreenSystemBars = () => {
-      const fullscreenElement = getPlayerFullscreenElement();
-      const playerIsFullscreen =
-        fullscreenElement === containerRef.current ||
-        fullscreenElement === videoRef.current;
-      const shouldHideSystemBars = playerIsFullscreen && !isVerticalVideo;
-      nativeImmersiveModeRef.current = shouldHideSystemBars;
-      void setAndroidPlayerSystemBars(shouldHideSystemBars);
-    };
-    window.addEventListener("yw-app-resume", restoreFullscreenSystemBars);
-    return () => {
-      window.removeEventListener("yw-app-resume", restoreFullscreenSystemBars);
-    };
-  }, [isAndroidApp, isVerticalVideo]);
   const toggleScreenLock = useCallback(() => {
     if (!isFullscreen) return;
     if (screenLocked) {

@@ -20,3 +20,9 @@ Fresh shells may still default to a JDK older than the Android project requires,
 **Why:** Gradle compilation fails with `invalid source release: 21` when it starts under JDK 17.
 
 **How to apply:** Check `java -version` immediately before `assembleDebug`; if needed, select JDK 21 for that invocation.
+
+Keep Android system-bar visibility, overlay mode, color, and contrast fixed at native startup/Capacitor configuration rather than changing them on route or player transitions. In the current Capacitor StatusBar plugin, `DARK` selects light (white) status icons for a dark background.
+
+**Why:** Reapplying status-bar style or toggling system bars changes WebView insets and can flash or reposition the page.
+
+**How to apply:** Use one startup source of truth for system-bar appearance, keep bars visible through navigation and fullscreen playback, and handle safe areas with native WebView insets.

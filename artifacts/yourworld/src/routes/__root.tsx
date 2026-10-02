@@ -12,7 +12,6 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Capacitor } from "@capacitor/core";
 import { App } from "@capacitor/app";
-import { StatusBar, Style } from "@capacitor/status-bar";
 import { cn } from "@/lib/utils";
 import { parseWatchShareUrl } from "@/lib/watch-links";
 
@@ -218,18 +217,6 @@ function RootComponent() {
     const environment = detectCapacitorEnvironment();
     setIsNativeApp(environment.isNative);
     setIsPlatformResolved(true);
-    if (!environment.isAndroid) return;
-
-    void (async () => {
-      try {
-        await StatusBar.setOverlaysWebView({ overlay: false });
-        await StatusBar.setStyle({ style: Style.Light });
-        await StatusBar.setBackgroundColor({ color: "#000000" });
-        await StatusBar.show();
-      } catch (error) {
-        console.error("[nativeStatusBar] configuration failed", error);
-      }
-    })();
   }, []);
 
   useEffect(() => {

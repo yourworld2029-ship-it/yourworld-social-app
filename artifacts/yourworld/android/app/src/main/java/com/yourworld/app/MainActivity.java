@@ -25,7 +25,6 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(PrivacyBridgePlugin.class);
         registerPlugin(CallAudioRoutingPlugin.class);
         registerPlugin(CallPushPlugin.class);
-        registerPlugin(ImmersiveNavigationBarPlugin.class);
         super.onCreate(savedInstanceState);
 
         prepareForIncomingCall(getIntent());
@@ -51,7 +50,6 @@ public class MainActivity extends BridgeActivity {
     public void onResume() {
         super.onResume();
         appForeground = true;
-        configureSystemBars();
 
         WebView webView = getBridge() != null ? getBridge().getWebView() : null;
         if (webView != null) {
@@ -141,6 +139,7 @@ public class MainActivity extends BridgeActivity {
     }
 
     private void configureSystemBars() {
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS);
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
