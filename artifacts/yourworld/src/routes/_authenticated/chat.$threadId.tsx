@@ -55,7 +55,6 @@ import {
   listenForAndroidCaptureEvents,
   useAndroidChatSecureFlag,
 } from "@/lib/native-privacy";
-import { usePeerChatProtectionPresence } from "@/lib/chat-protection-presence";
 import {
   STORAGE_BUCKETS,
   uploadSourceWithProgress,
@@ -1097,20 +1096,12 @@ function NativeChatThreadPage() {
     chatSettingsReady && chatSettingsReadyScopeKey === chatSettingsScopeKey;
   const protectChatEnabled =
     chatSettingsResolvedForThread && settings.protectChatEnabled;
-  const peerProtection = usePeerChatProtectionPresence(
-    conversationId ? `social-chat-protection-${conversationId}` : null,
-    currentUserId,
-    peer.peerId,
-    protectChatEnabled,
-    chatSettingsResolvedForThread,
-  );
   const chatProtectionDecisionReady =
     Boolean(currentUserId && peer.peerId) &&
-    chatSettingsResolvedForThread &&
-    peerProtection.ready;
+    chatSettingsResolvedForThread;
   const chatSecurityScopeKey = JSON.stringify([currentUserId, threadId, conversationId]);
   const chatScreenSecurityReady = useAndroidChatSecureFlag(
-    peerProtection.enabled,
+    protectChatEnabled,
     chatProtectionDecisionReady,
     chatSecurityScopeKey,
   );
