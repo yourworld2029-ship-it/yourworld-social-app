@@ -11,13 +11,21 @@ import {
 import { Volume2, VolumeX } from "lucide-react";
 import Hls from "hls.js";
 import type { LongVideo } from "@/lib/video-data";
-import { resolveMediaUrl } from "@/lib/social-data";
 import {
   cacheVideoPoster,
   canPrefetchVideo,
   cancelPendingVideoPrefetches,
   prefetchVideo,
 } from "@/lib/video-prefetch";
+import {
+  attemptVideoPlay,
+  canAutoplayPublicVideo,
+  isAutoplayPolicyError,
+  isHlsMediaUrl,
+  isPlayableMediaUrl,
+  supportsNativeHls,
+} from "@/lib/video-playback-engine";
+import { resolveLongVideoUrl } from "@/lib/video-data";
 import { cn } from "@/lib/utils";
 import {
   VIDEO_POSTER_FALLBACK,
@@ -42,6 +50,7 @@ type FeedCandidate = {
   ratio: number;
   resolvedUrl?: string;
   resolvePromise?: Promise<string>;
+  onPlaybackFailure?: () => void;
 };
 
 type FeedCandidateRegistration = Omit<FeedCandidate, "order" | "ratio">;
@@ -88,10 +97,6 @@ function releaseVideo(candidate: FeedCandidate | null) {
   candidate.video.load();
 }
 
-function isHlsUrl(url: string) {
-  return /\.m3u8(?:$|[?#])/i.test(url);
-}
-
 function isPageVisible() {
   return typeof document === "undefined" || document.visibilityState !== "hidden";
 }
@@ -99,14 +104,14 @@ function isPageVisible() {
 function resolveCandidateUrl(candidate: FeedCandidate) {
   if (candidate.resolvedUrl) return Promise.resolve(candidate.resolvedUrl);
   if (!candidate.resolvePromise) {
-    candidate.resolvePromise = resolveMediaUrl(candidate.url, "videos")
+    candidate.resolvePromise = resolveLongVideoUrl(candidate.url)
       .then((url) => {
-        candidate.resolvedUrl = url || candidate.url;
+        candidate.resolvedUrl = url || "";
         return candidate.resolvedUrl;
       })
       .catch(() => {
-        candidate.resolvedUrl = candidate.url;
-        return candidate.url;
+        candidate.resolvedUrl = "";
+        return "";
       });
   }
   return candidate.resolvePromise;
@@ -126,6 +131,7 @@ export function FeedVideoAutoplayProvider({
   const candidatesRef = useRef(new Map<string, FeedCandidate>());
   const candidateByElementRef = useRef(new WeakMap<Element, FeedCandidate>());
   const observerRef = useRef<IntersectionObserver | null>(null);
+  const fallbackVisibilityCheckRef = useRef<() => void>(() => {});
   const nextOrderRef = useRef(0);
   const suppressedCandidateRef = useRef<string | null>(null);
   const reconcileRef = useRef<() => void>(() => {});
@@ -174,17 +180,25 @@ export function FeedVideoAutoplayProvider({
       candidate.video.loop = true;
       const playCandidate = () => {
         if (activeCandidateRef.current !== candidate) return;
-        void candidate.video.play().catch(() => {
+        void attemptVideoPlay(candidate.video).catch((error: unknown) => {
+          if (activeCandidateRef.current !== candidate) return;
           if (
-            activeCandidateRef.current !== candidate ||
-            candidate.forceMuted ||
-            mutedRef.current
-          ) return;
-          candidate.video.muted = true;
-          mutedRef.current = true;
-          setMuted(true);
-          saveMuteState(true);
-          void candidate.video.play().catch(() => {});
+            isAutoplayPolicyError(error) &&
+            !candidate.forceMuted &&
+            !mutedRef.current
+          ) {
+            candidate.video.muted = true;
+            mutedRef.current = true;
+            setMuted(true);
+            saveMuteState(true);
+            void attemptVideoPlay(candidate.video).catch(() => {
+              if (activeCandidateRef.current === candidate) {
+                candidate.onPlaybackFailure?.();
+              }
+            });
+            return;
+          }
+          candidate.onPlaybackFailure?.();
         });
       };
 
@@ -194,6 +208,14 @@ export function FeedVideoAutoplayProvider({
           disabledRef.current ||
           !isPageVisible()
         ) {
+          return;
+        }
+        if (!url) {
+          candidate.onPlaybackFailure?.();
+          return;
+        }
+        if (!isPlayableMediaUrl(url)) {
+          candidate.onPlaybackFailure?.();
           return;
         }
 
@@ -207,7 +229,7 @@ export function FeedVideoAutoplayProvider({
               !isPageVisible()
             ) return;
             try {
-              const nextUrl = await resolveMediaUrl(nextVideo.mediaUrl);
+              const nextUrl = await resolveLongVideoUrl(nextVideo.mediaUrl);
               if (
                 activeCandidateRef.current !== candidate ||
                 disabledRef.current ||
@@ -217,19 +239,45 @@ export function FeedVideoAutoplayProvider({
             } catch {
               // The current video remains playable if optional prefetch cannot resolve.
             }
+          }).catch(() => {
+            // Prefetch is optional and must never create an unhandled rejection.
           });
         }
 
-        if (isHlsUrl(url) && Hls.isSupported()) {
-          const hls = new Hls({ enableWorker: true });
-          hlsRef.current = hls;
-          hls.on(Hls.Events.MANIFEST_PARSED, playCandidate);
-          hls.loadSource(url);
-          hls.attachMedia(candidate.video);
+        if (isHlsMediaUrl(url)) {
+          if (Hls.isSupported()) {
+            const hls = new Hls({ enableWorker: true });
+            hlsRef.current = hls;
+            hls.on(Hls.Events.MANIFEST_PARSED, playCandidate);
+            hls.on(Hls.Events.ERROR, (_event, data) => {
+              if (!data.fatal || activeCandidateRef.current !== candidate) return;
+              if (hlsRef.current === hls) hlsRef.current = null;
+              hls.destroy();
+              if (supportsNativeHls(candidate.video)) {
+                candidate.video.src = url;
+                candidate.video.load();
+                playCandidate();
+              } else {
+                candidate.onPlaybackFailure?.();
+              }
+            });
+            hls.loadSource(url);
+            hls.attachMedia(candidate.video);
+          } else if (supportsNativeHls(candidate.video)) {
+            candidate.video.src = url;
+            candidate.video.load();
+            playCandidate();
+          } else {
+            candidate.onPlaybackFailure?.();
+          }
         } else {
           candidate.video.src = url;
           candidate.video.load();
           playCandidate();
+        }
+      }).catch(() => {
+        if (activeCandidateRef.current === candidate) {
+          candidate.onPlaybackFailure?.();
         }
       });
     },
@@ -269,6 +317,7 @@ export function FeedVideoAutoplayProvider({
     candidatesRef.current.set(candidate.candidateId, candidate);
     candidateByElementRef.current.set(candidate.element, candidate);
     observerRef.current?.observe(candidate.element);
+      fallbackVisibilityCheckRef.current();
 
     return () => {
       observerRef.current?.unobserve(candidate.element);
@@ -307,7 +356,55 @@ export function FeedVideoAutoplayProvider({
   }, []);
 
   useEffect(() => {
-    if (typeof IntersectionObserver === "undefined") return;
+    const onVisibilityChange = () => {
+      if (!isPageVisible()) clearActiveCandidate();
+      else reconcileRef.current();
+    };
+
+    if (typeof IntersectionObserver === "undefined") {
+      const checkVisibility = () => {
+        if (typeof window === "undefined") return;
+        const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+        const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+        for (const candidate of candidatesRef.current.values()) {
+          const rect = candidate.element.getBoundingClientRect();
+          const visibleWidth = Math.max(
+            0,
+            Math.min(rect.right, viewportWidth) - Math.max(rect.left, 0),
+          );
+          const visibleHeight = Math.max(
+            0,
+            Math.min(rect.bottom, viewportHeight) - Math.max(rect.top, 0),
+          );
+          const area = rect.width * rect.height;
+          candidate.ratio = area > 0 ? (visibleWidth * visibleHeight) / area : 0;
+          if (
+            candidate.ratio < candidate.minimumRatio &&
+            suppressedCandidateRef.current === candidate.candidateId
+          ) {
+            suppressedCandidateRef.current = null;
+          }
+        }
+        reconcileRef.current();
+      };
+
+      fallbackVisibilityCheckRef.current = checkVisibility;
+      window.addEventListener("scroll", checkVisibility, true);
+      window.addEventListener("resize", checkVisibility);
+      document.addEventListener("visibilitychange", onVisibilityChange);
+      checkVisibility();
+
+      return () => {
+        window.removeEventListener("scroll", checkVisibility, true);
+        window.removeEventListener("resize", checkVisibility);
+        document.removeEventListener("visibilitychange", onVisibilityChange);
+        fallbackVisibilityCheckRef.current = () => {};
+        releaseActiveVideo(activeCandidateRef.current);
+        activeCandidateRef.current = null;
+      };
+    }
+
+    fallbackVisibilityCheckRef.current = () => {};
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
@@ -332,10 +429,6 @@ export function FeedVideoAutoplayProvider({
     observerRef.current = observer;
     for (const candidate of candidatesRef.current.values()) observer.observe(candidate.element);
 
-    const onVisibilityChange = () => {
-      if (!isPageVisible()) clearActiveCandidate();
-      else reconcileRef.current();
-    };
     document.addEventListener("visibilitychange", onVisibilityChange);
 
     return () => {
@@ -343,6 +436,7 @@ export function FeedVideoAutoplayProvider({
       observer.disconnect();
       observerRef.current = null;
       releaseActiveVideo(activeCandidateRef.current);
+      hlsRef.current?.destroy();
       hlsRef.current = null;
       activeCandidateRef.current = null;
     };
@@ -390,27 +484,40 @@ export function FeedVideoPreview({
   prefetchNextVideos,
   className,
   onOpen,
+  interactive = true,
+  allowFrameFallback = false,
+  showPlayFallback = false,
+  previewTestId,
 }: {
   video: LongVideo;
   candidateId: string;
   prefetchNextVideos?: Array<Pick<LongVideo, "mediaUrl" | "access">>;
   className?: string;
   onOpen: () => void;
+  interactive?: boolean;
+  allowFrameFallback?: boolean;
+  showPlayFallback?: boolean;
+  previewTestId?: string;
 }) {
-  const { activeCandidateId, muted, registerCandidate } = useFeedVideoAutoplay();
+  const { activeCandidateId, muted, registerCandidate, stopCandidate } = useFeedVideoAutoplay();
   const previewRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [posterUrl, setPosterUrl] = useState(VIDEO_POSTER_FALLBACK);
   const [videoReady, setVideoReady] = useState(false);
+  const canAutoplay = canAutoplayPublicVideo(video.access, video.price);
   const active = activeCandidateId === candidateId;
   const onPosterResolved = useCallback((url: string) => {
     setPosterUrl(url || VIDEO_POSTER_FALLBACK);
   }, []);
+  const onPlaybackFailure = useCallback(() => {
+    setVideoReady(false);
+    stopCandidate(candidateId);
+  }, [candidateId, stopCandidate]);
 
   useEffect(() => {
     const element = previewRef.current;
     const player = videoRef.current;
-    if (!element || !player || !video.mediaUrl) return;
+    if (!element || !player || !video.mediaUrl || !canAutoplay) return;
 
     return registerCandidate({
       candidateId,
@@ -421,9 +528,12 @@ export function FeedVideoPreview({
       access: video.access,
       prefetchNextVideos,
       minimumRatio: NORMAL_VISIBILITY_RATIO,
+      onPlaybackFailure,
     });
   }, [
     candidateId,
+    canAutoplay,
+    onPlaybackFailure,
     prefetchNextVideos,
     registerCandidate,
     video.access,
@@ -439,17 +549,17 @@ export function FeedVideoPreview({
         className,
       )}
       data-feed-autoplay-candidate={candidateId}
-      data-testid={`feed-autoplay-preview-${video.id}`}
+      data-testid={previewTestId ?? `feed-autoplay-preview-${video.id}`}
     >
       <VideoPoster
         thumbnailUrl={video.thumbnailUrl}
-        mediaUrl={video.mediaUrl}
+        mediaUrl={canAutoplay ? video.mediaUrl : ""}
         alt={video.title}
         loading="lazy"
         bucket="videos"
         posterOnly
-        allowFrameFallback={false}
-        showPlayFallback={false}
+        allowFrameFallback={allowFrameFallback && canAutoplay}
+        showPlayFallback={showPlayFallback}
         onPosterResolved={onPosterResolved}
         className="pointer-events-none m-0 select-none p-0 [&_img]:block"
       />
@@ -460,7 +570,7 @@ export function FeedVideoPreview({
         playsInline
         muted={active ? muted : true}
         loop
-        preload="none"
+        preload="metadata"
         aria-label={video.title}
         onLoadedData={() => {
           setVideoReady(true);
@@ -474,27 +584,30 @@ export function FeedVideoPreview({
         }}
         onError={() => {
           setVideoReady(false);
+          stopCandidate(candidateId);
         }}
         className={cn(
           "absolute inset-0 h-full w-full object-cover transition-opacity duration-150",
+          interactive ? "" : "pointer-events-none",
           active && videoReady ? "opacity-100" : "opacity-0",
           active && videoReady
             ? "[transform:translate3d(0,0,0)] [backface-visibility:hidden] [will-change:transform]"
             : "",
         )}
       />
-      <button
-        type="button"
-        aria-label={`Watch ${video.title}`}
-        data-testid={`button-feed-video-watch-${video.id}`}
-        onClick={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          onOpen();
-        }}
-        className="absolute inset-0 z-10 grid h-full w-full place-items-center bg-transparent text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fuchsia-300"
-      >
-      </button>
+      {interactive ? (
+        <button
+          type="button"
+          aria-label={`Watch ${video.title}`}
+          data-testid={`button-feed-video-watch-${video.id}`}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onOpen();
+          }}
+          className="absolute inset-0 z-10 grid h-full w-full place-items-center bg-transparent text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fuchsia-300"
+        />
+      ) : null}
     </div>
   );
 }

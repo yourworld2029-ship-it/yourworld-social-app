@@ -607,9 +607,23 @@ async function loadLongVideoPage(
           original_height?: number | null;
           source_quality_tier?: string | null;
           type?: string | null;
+          video_access?: string | null;
+          is_paid?: boolean | null;
+          price?: number | null;
           series_title?: string | null;
           episode_number?: string | null;
         };
+        const rawAccess = String(metadata.video_access ?? "").toLowerCase();
+        const hasPaidPrice =
+          typeof metadata.price === "number" && Number.isFinite(metadata.price) && metadata.price > 0;
+        const access =
+          rawAccess === "vip"
+            ? "vip"
+            : rawAccess === "paid" || metadata.is_paid === true || hasPaidPrice
+              ? "paid"
+              : rawAccess === "" || rawAccess === "public"
+                ? "public"
+                : "paid";
         const profile = byId.get(post.user_id);
         const username = profile?.username ?? `user${post.user_id.slice(0, 4)}`;
         const name = profile?.display_name ?? username;
@@ -648,10 +662,7 @@ async function loadLongVideoPage(
           commentCount: (comments ?? []).filter((comment) => comment.post_id === post.id).length,
           likedByMe: !!uid && (likes ?? []).some((like) => like.post_id === post.id && like.user_id === uid),
           commentsOff: !!(post as typeof post & { comments_off?: boolean }).comments_off,
-          access: ((post as typeof post & { video_access?: string }).video_access ?? "public") as
-            | "public"
-            | "vip"
-            | "paid",
+          access,
           price: (post as typeof post & { price?: number | null }).price ?? null,
           seriesTitle: metadata.series_title ?? null,
           episodeNumber: metadata.episode_number ?? null,

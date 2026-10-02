@@ -14,3 +14,9 @@ Paid-video purchases use a service-only, idempotent settlement RPC: derive the c
 **Why:** Payment retries and client-supplied amounts must never create duplicate access or double-credit either side of the 85/15 split.
 
 **How to apply:** Treat the payment provider's verified reference as the idempotency key, validate it against `posts.price`, and keep all balance changes inside the database transaction.
+
+In-app playback must not bypass paid/VIP access checks: only resolve a restricted video's media URL after confirming the creator or an active user-specific access grant. Feed autoplay and poster-frame extraction are limited to public, free videos.
+
+**Why:** A direct video route or an inline preview can bypass the controls shown on a card if it receives a restricted media source before access is confirmed.
+
+**How to apply:** Gate the shared-player activation before URL resolution, and do not register non-public or priced media as feed autoplay candidates.

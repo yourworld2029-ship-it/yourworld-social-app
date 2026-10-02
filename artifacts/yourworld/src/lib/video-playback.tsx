@@ -27,6 +27,13 @@ import {
   type VideoPlaybackProgressStore,
 } from "@/lib/video-playback-progress";
 import {
+  attemptVideoPlay,
+  isAutoplayPolicyError,
+  isHlsMediaUrl,
+  mediaErrorName,
+  supportsNativeHls,
+} from "@/lib/video-playback-engine";
+import {
   ArrowLeft,
   Check,
   ChevronsLeft,
@@ -58,10 +65,6 @@ const QUALITY_OPTIONS = [
 
 export type QualityId = (typeof QUALITY_OPTIONS)[number]["id"];
 export type QualityUrls = Partial<Record<VideoQualityTier, string>>;
-
-function isHlsUrl(url: string) {
-  return /\.m3u8(?:$|[?#])/i.test(url);
-}
 
 function qualityLabel(quality: QualityId, activeHeight?: number | null) {
   if (quality === "auto") {
@@ -370,6 +373,49 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     [reportMediaError],
   );
 
+  const requestPlayback = useCallback(
+    (source: { id: string; url: string }, attempt: number, retryMuted: boolean) => {
+      const video = videoRef.current;
+      if (!video) return;
+
+      const handleRejectedPlay = (error: unknown, mayRetryMuted: boolean) => {
+        if (
+          playbackAttemptRef.current !== attempt ||
+          activeSourceRef.current?.id !== source.id ||
+          activeSourceRef.current.url !== source.url
+        ) {
+          return;
+        }
+
+        if (isAutoplayPolicyError(error)) {
+          if (retryMuted && mayRetryMuted && !video.muted) {
+            video.muted = true;
+            setIsMuted(true);
+            void attemptVideoPlay(video).catch((retryError: unknown) => {
+              handleRejectedPlay(retryError, false);
+            });
+            return;
+          }
+          setIsBuffering(false);
+          setControlsVisible(true);
+          return;
+        }
+
+        if (mediaErrorName(error) === "AbortError") {
+          setIsBuffering(false);
+          return;
+        }
+
+        reportMediaError(source, attempt);
+      };
+
+      void attemptVideoPlay(video).catch((error: unknown) => {
+        handleRejectedPlay(error, true);
+      });
+    },
+    [reportMediaError],
+  );
+
   useEffect(() => {
     let alive = true;
     const thumbnailUrl = activeVideo?.thumbnailUrl;
@@ -673,7 +719,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
         console.error("[video-playback] unable to restore video time", cause);
         reportMediaError({ id: activeVideoId, url: activeVideoUrl }, attempt);
       }
-      if (shouldPlay) void video.play().catch(() => {});
+      if (shouldPlay) {
+        requestPlayback({ id: activeVideoId, url: activeVideoUrl }, attempt, true);
+      }
     };
 
     video.pause();
@@ -690,28 +738,42 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     setActiveHlsHeight(null);
     activeSourceRef.current = { id: activeVideoId, url: activeVideoUrl };
     try {
-      if (isHlsUrl(activeVideoUrl) && Hls.isSupported()) {
-        const hls = new Hls({ enableWorker: true });
-        hlsRef.current = hls;
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          setHlsLevels([...hls.levels]);
-          setActiveHlsHeight(
-            hls.levels[hls.currentLevel]?.height ??
-              hls.levels[hls.levels.length - 1]?.height ??
-              null,
-          );
-        });
-        hls.on(Hls.Events.LEVEL_SWITCHED, (_event, data) => {
-          setActiveHlsHeight(hls.levels[data.level]?.height ?? null);
-        });
-        hls.on(Hls.Events.ERROR, (_event, data) => {
-          if (!data.fatal) return;
-          if (hlsRef.current === hls) hlsRef.current = null;
-          hls.destroy();
+      if (isHlsMediaUrl(activeVideoUrl)) {
+        if (Hls.isSupported()) {
+          const hls = new Hls({ enableWorker: true });
+          hlsRef.current = hls;
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            setHlsLevels([...hls.levels]);
+            setActiveHlsHeight(
+              hls.levels[hls.currentLevel]?.height ??
+                hls.levels[hls.levels.length - 1]?.height ??
+                null,
+            );
+          });
+          hls.on(Hls.Events.LEVEL_SWITCHED, (_event, data) => {
+            setActiveHlsHeight(hls.levels[data.level]?.height ?? null);
+          });
+          hls.on(Hls.Events.ERROR, (_event, data) => {
+            if (!data.fatal) return;
+            if (hlsRef.current === hls) hlsRef.current = null;
+            hls.destroy();
+            if (supportsNativeHls(video)) {
+              video.removeAttribute("src");
+              video.load();
+              video.src = activeVideoUrl;
+              video.load();
+            } else {
+              reportMediaError({ id: activeVideoId, url: activeVideoUrl }, attempt);
+            }
+          });
+          hls.loadSource(activeVideoUrl);
+          hls.attachMedia(video);
+        } else if (supportsNativeHls(video)) {
+          video.src = activeVideoUrl;
+          video.load();
+        } else {
           reportMediaError({ id: activeVideoId, url: activeVideoUrl }, attempt);
-        });
-        hls.loadSource(activeVideoUrl);
-        hls.attachMedia(video);
+        }
       } else {
         video.src = activeVideoUrl;
         video.load();
@@ -731,6 +793,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     activeVideoUrl,
     playbackRetryKey,
     reportMediaError,
+    requestPlayback,
     setCurrentTime,
     setDuration,
   ]);
@@ -780,7 +843,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     const shouldPlay = !video.paused;
     const onMetadata = () => {
       if (Number.isFinite(video.duration)) video.currentTime = Math.min(previousTime, video.duration);
-      if (shouldPlay) void video.play().catch(() => {});
+      if (shouldPlay && activeSourceRef.current) {
+        requestPlayback(activeSourceRef.current, playbackAttemptRef.current, true);
+      }
     };
     video.pause();
     activeSourceRef.current = { id: activeVideo.id, url: nextUrl };
@@ -790,7 +855,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     setQuality(nextQuality);
     setSettingsMenu("closed");
     markControlsActivity();
-  }, [activeVideo, hlsLevels, markControlsActivity]);
+  }, [activeVideo, hlsLevels, markControlsActivity, requestPlayback]);
 
   const togglePictureInPicture = useCallback(() => {
     if (!videoRef.current) return;
@@ -906,11 +971,19 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     const video = videoRef.current;
     if (!video) return;
     if (video.paused) {
-      void video.play().catch(() => {});
+      const source = activeSourceRef.current;
+      if (source) {
+        requestPlayback(source, playbackAttemptRef.current, false);
+      } else {
+        void attemptVideoPlay(video).catch(() => {
+          setIsBuffering(false);
+          setControlsVisible(true);
+        });
+      }
     } else {
       video.pause();
     }
-  }, []);
+  }, [requestPlayback]);
 
   const toggleMute = useCallback(() => {
     const video = videoRef.current;
@@ -1721,7 +1794,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               loop={loopVideo}
               muted={isMuted}
               playsInline
-              preload="none"
+              preload="metadata"
               onLoadedMetadata={handleLoadedMetadata}
               onError={handleNativeMediaError}
               onTimeUpdate={handleTimeUpdate}

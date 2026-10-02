@@ -1,6 +1,7 @@
 import type { LongVideo } from "@/lib/video-data";
-import { cn } from "@/lib/utils";
-import { VideoPoster } from "@/components/yw/VideoPoster";
+import { FeedVideoPreview } from "@/components/yw/FeedVideoAutoplay";
+
+const ignoreOpen = () => {};
 
 /**
  * Keeps tray cards lightweight: their poster is shown until the viewer opens
@@ -14,24 +15,15 @@ export function FeedVideoShelfPreview({
   className?: string;
 }) {
   return (
-    <div
-      className={cn(
-        "relative h-full w-full overflow-hidden bg-gradient-to-br from-zinc-800 via-zinc-900 to-zinc-950",
-        className,
-      )}
-      data-testid={`feed-video-preview-${video.id}`}
-    >
-      <VideoPoster
-        thumbnailUrl={video.thumbnailUrl}
-        mediaUrl={video.mediaUrl}
-        alt={video.title}
-        loading="lazy"
-        bucket="videos"
-        posterOnly
-        allowFrameFallback
-        showPlayFallback
-        className="pointer-events-none select-none"
-      />
-    </div>
+    <FeedVideoPreview
+      video={video}
+      candidateId={`shelf:${video.id}`}
+      onOpen={ignoreOpen}
+      interactive={false}
+      allowFrameFallback
+      showPlayFallback
+      previewTestId={`feed-video-preview-${video.id}`}
+      className={className}
+    />
   );
 }
