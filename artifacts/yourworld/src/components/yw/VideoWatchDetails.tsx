@@ -184,7 +184,7 @@ export function VideoWatchDetails({
       ) : null}
 
       <section aria-label="Video details" className="space-y-2">
-        <h1 className="text-[17px] font-bold leading-snug tracking-[-0.01em]">
+        <h1 className="text-lg font-bold text-white">
           {video.title}
         </h1>
         <p className="text-xs text-zinc-400">

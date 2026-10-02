@@ -10,6 +10,12 @@ export const VIDEO_QUALITY_TIERS = [
 
 export type VideoQualityTier = (typeof VIDEO_QUALITY_TIERS)[number]["id"];
 export type DownloadQualityUrls = Partial<Record<VideoQualityTier, string>>;
+export type VideoDownloadChoice = VideoQualityTier | "original";
+export type ResolvedVideoDownloadSelection = {
+  url: string;
+  actualQuality: VideoQualityTier | "original";
+  usesVariant: boolean;
+};
 
 export const VIDEO_DOWNLOAD_PICKER_TIERS = [
   "1080p",
@@ -17,6 +23,35 @@ export const VIDEO_DOWNLOAD_PICKER_TIERS = [
   "480p",
   "360p",
 ] as const satisfies readonly VideoQualityTier[];
+
+export function resolveVideoDownloadSelection(
+  choice: VideoDownloadChoice,
+  sourceUrl: string | null | undefined,
+  qualityUrls?: DownloadQualityUrls | null,
+  sourceQualityTier?: VideoQualityTier | null,
+): ResolvedVideoDownloadSelection | null {
+  const directSourceUrl = sourceUrl?.trim();
+  if (!directSourceUrl) return null;
+
+  if (choice === "original") {
+    return {
+      url: directSourceUrl,
+      actualQuality: "original",
+      usesVariant: false,
+    };
+  }
+
+  const variantUrl = qualityUrls?.[choice]?.trim();
+  if (variantUrl) {
+    return { url: variantUrl, actualQuality: choice, usesVariant: true };
+  }
+
+  return {
+    url: directSourceUrl,
+    actualQuality: sourceQualityTier ?? "original",
+    usesVariant: false,
+  };
+}
 
 const DOWNLOADABLE_QUALITY_TIERS = new Set<VideoQualityTier>([
   "360p",

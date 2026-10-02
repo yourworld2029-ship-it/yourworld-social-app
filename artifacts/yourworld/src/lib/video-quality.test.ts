@@ -9,6 +9,7 @@ import {
   qualityTierFromDimensions,
   qualityTierFromMetadata,
   qualityTierFromSourceMetadata,
+  resolveVideoDownloadSelection,
   requireDownloadVariantUrl,
   sourceQualityTierFromDimensions,
   VIDEO_DOWNLOAD_PICKER_TIERS,
@@ -78,6 +79,31 @@ test("quality downloads require their own media URL instead of falling back to O
       }),
     /720p/,
   );
+});
+
+test("every picker quality resolves immediately to its variant or the direct source", () => {
+  const sourceUrl = "https://media.example/source.mp4";
+  for (const tier of VIDEO_DOWNLOAD_PICKER_TIERS) {
+    assert.deepEqual(
+      resolveVideoDownloadSelection(tier, sourceUrl, null, "720p"),
+      { url: sourceUrl, actualQuality: "720p", usesVariant: false },
+    );
+  }
+
+  assert.deepEqual(
+    resolveVideoDownloadSelection(
+      "1080p",
+      sourceUrl,
+      { "1080p": " https://media.example/1080.mp4 " },
+      "720p",
+    ),
+    { url: "https://media.example/1080.mp4", actualQuality: "1080p", usesVariant: true },
+  );
+  assert.deepEqual(
+    resolveVideoDownloadSelection("original", sourceUrl, null, "720p"),
+    { url: sourceUrl, actualQuality: "original", usesVariant: false },
+  );
+  assert.equal(resolveVideoDownloadSelection("720p", null, null), null);
 });
 
 test("range size probes require the total Content-Range size for partial responses", () => {

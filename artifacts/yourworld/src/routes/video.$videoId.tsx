@@ -23,6 +23,7 @@ import { useYw } from "@/lib/yw-store";
 import { resolveMediaUrl } from "@/lib/social-data";
 import {
   VIDEO_QUALITY_TIERS,
+  resolveVideoDownloadSelection,
   type DownloadQualityUrls,
 } from "@/lib/video-quality";
 import type { DownloadChoice } from "@/components/yw/DownloadSheet";
@@ -337,20 +338,25 @@ function VideoRouteComponent() {
       return;
     }
 
-    const selectedQualityUrl =
-      choice !== "original" && choice !== "mp3"
-        ? data.qualityMediaUrls?.[choice]?.trim()
-        : undefined;
-    if (choice !== "original" && choice !== "mp3" && !selectedQualityUrl) {
-      toast.error(`The ${choice} download is not available for this video.`);
-      return;
-    }
+    const selection =
+      choice === "mp3"
+        ? null
+        : resolveVideoDownloadSelection(
+            choice,
+            data.url,
+            data.qualityMediaUrls,
+            video.sourceQualityTier,
+          );
 
     setIsDownloading(true);
     try {
-      const downloadUrl = selectedQualityUrl
-        ? await resolveMediaUrl(selectedQualityUrl, "videos")
-        : data.url;
+      if (choice !== "mp3" && !selection) {
+        throw new Error("This video has no downloadable media");
+      }
+      const downloadUrl =
+        choice !== "mp3" && selection?.usesVariant
+          ? await resolveMediaUrl(selection.url, "videos")
+          : selection?.url ?? data.url;
       if (!downloadUrl) throw new Error("This video has no downloadable media");
 
       const metadata: DownloadedVideoMetadata = {
@@ -365,7 +371,7 @@ function VideoRouteComponent() {
         durationSeconds: video.durationSeconds,
         thumbnailUrl: video.thumbnailUrl,
         posterUrl: video.thumbnailUrl,
-        quality: choice === "mp3" ? "original" : choice,
+        quality: choice === "mp3" ? "original" : selection?.actualQuality ?? "original",
       };
       const fileName = sanitizeDownloadName(video.title, `yourworld-video-${video.id}`);
 

@@ -59,11 +59,8 @@ function positiveDuration(value: number | null | undefined) {
 function isDownloadChoiceAvailable(
   choice: DownloadChoice,
   sourceMediaUrl?: string | null,
-  qualityMediaUrls?: DownloadQualityUrls | null,
 ) {
-  if (choice === "original") return Boolean(sourceMediaUrl?.trim());
-  if (choice === "mp3") return false;
-  return Boolean(qualityMediaUrls?.[choice]?.trim());
+  return choice !== "mp3" && Boolean(sourceMediaUrl?.trim());
 }
 
 function contentLengthFromResponse(response: Response) {
@@ -172,11 +169,7 @@ export function DownloadSheet({
     [],
   );
   const preferredChoice: DownloadChoice =
-    VIDEO_DOWNLOAD_PICKER_TIERS.find(
-      (tier) =>
-        tier === sourceQualityTier &&
-        isDownloadChoiceAvailable(tier, sourceMediaUrl, qualityMediaUrls),
-    ) ?? "original";
+    VIDEO_DOWNLOAD_PICKER_TIERS.find((tier) => tier === sourceQualityTier) ?? "original";
   const [selected, setSelected] = useState<DownloadChoice>(
     preferredChoice,
   );
@@ -252,6 +245,15 @@ export function DownloadSheet({
 
   const sizeForChoice = (choice: DownloadChoice) => {
     const providedSourceSize = positiveByteSize(sourceFileSizeBytes);
+    const isSourceFallback =
+      choice !== "original" &&
+      choice !== "mp3" &&
+      !qualityMediaUrls?.[choice]?.trim();
+    if (isSourceFallback) {
+      const sourceSize = resolvedFileSizes.original ?? providedSourceSize;
+      return formatDownloadSizeMb(sourceSize ? sourceSize / 1_000_000 : null, Boolean(sourceSize));
+    }
+
     const exactSize =
       resolvedFileSizes[choice] ??
       (choice === "original" ? providedSourceSize : null);
@@ -280,12 +282,16 @@ export function DownloadSheet({
 
   const submit = () => {
     const choice = selected;
-    if (!isDownloadChoiceAvailable(choice, sourceMediaUrl, qualityMediaUrls)) return;
+    if (!isDownloadChoiceAvailable(choice, sourceMediaUrl)) return;
     onOpenChange(false);
     void Promise.resolve(onDownload(choice)).catch((error) => {
       console.error("[downloads] background download failed", error);
     });
   };
+  const selectedHasVariant =
+    selected !== "original" &&
+    selected !== "mp3" &&
+    Boolean(qualityMediaUrls?.[selected]?.trim());
 
   return (
     <Sheet
@@ -311,11 +317,10 @@ export function DownloadSheet({
           {choices.map((choice) => {
             const isOriginal = choice === "original";
             const isSelected = choice === selected;
-            const isAvailable = isDownloadChoiceAvailable(
-              choice,
-              sourceMediaUrl,
-              qualityMediaUrls,
-            );
+            const isSourceFallback =
+              !isOriginal &&
+              choice !== "mp3" &&
+              !qualityMediaUrls?.[choice]?.trim();
             const quality =
               choice !== "original" && choice !== "mp3" ? QUALITY_COPY[choice] : null;
             const size = sizeForChoice(choice);
@@ -325,13 +330,9 @@ export function DownloadSheet({
                 type="button"
                 role="radio"
                 aria-checked={isSelected}
-                aria-disabled={!isAvailable}
-                disabled={!isAvailable}
-                onClick={() => {
-                  if (isAvailable) setSelected(choice);
-                }}
+                onClick={() => setSelected(choice)}
                 className={cn(
-                  "flex w-full items-center gap-3 rounded-2xl border px-3.5 py-3 text-left shadow-sm transition-all active:scale-[0.99] disabled:cursor-not-allowed disabled:active:scale-100 disabled:opacity-55",
+                  "flex w-full items-center gap-3 rounded-2xl border px-3.5 py-3 text-left shadow-sm transition-all active:scale-[0.99]",
                   isSelected
                     ? "border-pink-500/70 bg-pink-500/10"
                     : "border-zinc-800 bg-zinc-900/70 hover:border-zinc-700 hover:bg-zinc-800",
@@ -348,8 +349,14 @@ export function DownloadSheet({
                     )}
                   </span>
                   <span className="mt-0.5 block text-[11px] text-zinc-400">
-                    {isOriginal ? "Original source file" : quality?.description} · {size}
-                    {!isAvailable ? " · Not available for this video" : ""}
+                    {isOriginal
+                      ? "Original source file"
+                      : isSourceFallback
+                        ? sourceQualityTier
+                          ? `Direct source file · ${sourceQualityTier} source`
+                          : "Direct source file · quality varies"
+                        : quality?.description}{" "}
+                    · {size}
                   </span>
                 </span>
                 {isSelected ? (
@@ -364,7 +371,7 @@ export function DownloadSheet({
           <button
             type="button"
             onClick={() => void submit()}
-            disabled={!isDownloadChoiceAvailable(selected, sourceMediaUrl, qualityMediaUrls)}
+            disabled={!isDownloadChoiceAvailable(selected, sourceMediaUrl)}
             className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-white py-3 text-sm font-bold text-black transition-transform active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Download size={17} />
@@ -372,7 +379,9 @@ export function DownloadSheet({
               ? "Download Video (Original Quality)"
               : selected === "mp3"
                 ? "Download Video"
-                : `Download ${QUALITY_COPY[selected]?.title ?? selected}`}
+                : selectedHasVariant
+                  ? `Download ${QUALITY_COPY[selected]?.title ?? selected}`
+                  : "Download Direct Source"}
           </button>
         </div>
       </SheetContent>

@@ -75,7 +75,6 @@ const FeedTopBar = React.memo(function FeedTopBar({
   return (
     <header
       className="feed-header sticky top-0 z-50 flex min-h-14 items-center justify-between gap-3 border-b border-neutral-900 bg-black px-4 pb-2"
-      style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 8px)" }}
     >
       <Link
         to="/"

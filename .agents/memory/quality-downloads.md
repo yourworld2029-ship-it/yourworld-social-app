@@ -3,11 +3,11 @@ name: Quality-specific downloads
 description: Constraints and fallback behavior for source-quality downloads and browser-side exports.
 ---
 
-Download quality options must be backed by real quality-specific media URLs. Source dimensions and bitrate estimates do not prove a transcode exists: without a variant URL, expose only original quality and show its verified size or “Size unavailable.” When a variant URL exists, route the selection to that exact URL instead of silently falling back to the original. Uploads without stored dimensions need an original-file fallback rather than being treated as a known 480p source.
+When a source URL exists, always let users select 1080p, 720p, 480p, 360p, and Original. Use an exact quality-specific URL when one exists. If it does not, keep the tier selectable but clearly label that it downloads the direct source; record the actual source tier in offline metadata (or Original when unknown) and show the source size or “Size unavailable,” never a smaller-tier estimate.
 
-**Why:** The native offline downloader persisted the original bytes even when the picker estimated a smaller tier, misleading users about the resulting quality and file size. Private Supabase media already has a reliable signed-URL and service-worker download flow, while the web client cannot guarantee server-side transcoding or MP3 encoding on every device.
+**Why:** The product requires every quality choice to remain selectable even when a video has no transcoded variants. Silently calling the source file a different resolution or estimating a smaller download would mislead users.
 
-**How to apply:** Derive downloadable tiers from non-empty quality-specific URLs. Resolve size from the selected URL when possible; only estimate sizes for actual variant assets, never for an original-file option. Keep source quality metadata optional for legacy rows and treat browser export capability as a runtime constraint.
+**How to apply:** Resolve downloads to a matching variant URL when present and otherwise use the authorized direct source URL. Make source fallback visible in the picker, retain the source’s real quality label, and estimate a smaller size only for an actual variant asset. Keep source quality metadata optional for legacy rows.
 
 Keep quality/audio labels and selection behavior in the shared download sheet; route-specific code should only resolve the media URL and dispatch the selected choice.
 
