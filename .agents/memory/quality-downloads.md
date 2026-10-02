@@ -27,6 +27,12 @@ Offline downloads are user-retained media, not a temporary cache: keep web copie
 
 **How to apply:** Keep persistence requests ahead of IndexedDB use, restore Android entries from native transfer metadata, and make explicit deletion clear IndexedDB, legacy copies, native files, and native snapshots without adding a TTL.
 
+The owner-scoped Downloads view must remain usable from local storage while profile data is still loading or unavailable. Sign-out and session refresh may clear in-memory account state, but must not purge or replace saved media; only the user's explicit delete action removes a download.
+
+**Why:** Offline users need to reach their saved library after an app restart even when the remote profile cannot load, and transient auth changes must not destroy device copies.
+
+**How to apply:** Render the Downloads tab from the locally restored authenticated owner and local download registry independently of profile fetch completion. Preserve existing records on refresh failures, and scope every displayed row to the current owner.
+
 Reel playback metadata may use a `poster` field for the media source, so download catalog metadata must use the explicit thumbnail reference instead of assuming `poster` is an image.
 
 **Why:** A video URL is not a valid `<img>` source; older download rows can also have expired or missing remote thumbnails.

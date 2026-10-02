@@ -11,7 +11,12 @@ import {
   qualityTierFromSourceMetadata,
   requireDownloadVariantUrl,
   sourceQualityTierFromDimensions,
+  VIDEO_DOWNLOAD_PICKER_TIERS,
 } from "./video-quality";
+
+test("video download picker tiers are Full HD, High, Medium, and Low in order", () => {
+  assert.deepEqual(VIDEO_DOWNLOAD_PICKER_TIERS, ["1080p", "720p", "480p", "360p"]);
+});
 
 test("stores 1440p and 2160p source dimensions using 2K and 4K aliases", () => {
   assert.equal(sourceQualityTierFromDimensions(2560, 1440), "2k");

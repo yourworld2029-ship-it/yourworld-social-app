@@ -48,11 +48,12 @@ function useResolvedMediaUrl(
   source: string | null | undefined,
   bucket: "avatars" | "videos",
 ) {
-  const [resolved, setResolved] = useState<string | null>(null);
+  const directUrl = source && /^https?:\/\//i.test(source) ? source : null;
+  const [resolved, setResolved] = useState<string | null>(directUrl);
 
   useEffect(() => {
     let active = true;
-    setResolved(null);
+    setResolved(directUrl);
     if (!source) return () => { active = false; };
 
     void resolveMediaUrl(source, bucket)
@@ -66,7 +67,7 @@ function useResolvedMediaUrl(
     return () => {
       active = false;
     };
-  }, [bucket, source]);
+  }, [bucket, directUrl, source]);
 
   return resolved;
 }
@@ -93,9 +94,11 @@ function CreatorAvatar({
 function RecommendationRow({
   video,
   onSelect,
+  priority,
 }: {
   video: LongVideo;
   onSelect: (video: LongVideo) => void;
+  priority: boolean;
 }) {
   const thumbnailUrl = useResolvedMediaUrl(video.thumbnailUrl, "videos");
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
@@ -107,14 +110,16 @@ function RecommendationRow({
       type="button"
       data-testid={`video-recommendation-${video.id}`}
       onClick={() => onSelect(video)}
-      className="group flex w-full items-start gap-3 rounded-xl p-1.5 text-left transition-colors hover:bg-white/[0.06] active:bg-white/[0.1]"
+      className="group flex w-full items-start gap-3 rounded-2xl border border-white/[0.06] bg-white/[0.025] p-2.5 text-left transition-colors hover:border-white/[0.12] hover:bg-white/[0.06] active:bg-white/[0.1]"
     >
-      <span className="relative block aspect-video w-[42%] max-w-[190px] shrink-0 overflow-hidden rounded-lg bg-zinc-900">
+      <span className="relative block aspect-video w-[58%] max-w-[280px] shrink-0 overflow-hidden rounded-xl bg-zinc-900">
         {thumbnailUrl && !thumbnailFailed ? (
           <img
             src={thumbnailUrl}
             alt=""
-            loading="lazy"
+            loading="eager"
+            decoding="async"
+            fetchPriority={priority ? "high" : "auto"}
             onError={() => setThumbnailFailed(true)}
             className="h-full w-full object-cover"
           />
@@ -127,11 +132,11 @@ function RecommendationRow({
           {formatDuration(video.durationSeconds ?? 0)}
         </span>
       </span>
-      <span className="min-w-0 flex-1 pt-0.5">
-        <span className="line-clamp-2 block text-[13px] font-semibold leading-snug text-white">
+      <span className="min-w-0 flex-1 pt-1">
+        <span className="line-clamp-2 block text-[14px] font-semibold leading-snug text-white">
           {video.title}
         </span>
-        <span className="mt-1.5 block truncate text-[11px] text-zinc-400">
+        <span className="mt-2 block truncate text-[12px] text-zinc-400">
           {video.author.name}
         </span>
         <span className="mt-0.5 block truncate text-[11px] text-zinc-500">
@@ -353,9 +358,14 @@ export function VideoWatchDetails({
           Recommended videos
         </h2>
         {recommendations.length > 0 ? (
-          <div className="space-y-1">
-            {recommendations.map((item) => (
-              <RecommendationRow key={item.id} video={item} onSelect={onSelectVideo} />
+          <div className="space-y-2.5">
+            {recommendations.map((item, index) => (
+              <RecommendationRow
+                key={item.id}
+                video={item}
+                onSelect={onSelectVideo}
+                priority={index < 3}
+              />
             ))}
           </div>
         ) : (

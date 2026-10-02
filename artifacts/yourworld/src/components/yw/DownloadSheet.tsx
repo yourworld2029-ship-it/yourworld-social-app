@@ -8,27 +8,26 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import {
-  availableDownloadQualityTiers,
   downloadFileSizeBytesFromHeaders,
   type DownloadQualityUrls,
   estimateDownloadSizeMb,
   estimateDownloadSizeMbFromSourceFile,
   formatDownloadSizeMb,
   type VideoQualityTier,
+  VIDEO_DOWNLOAD_PICKER_TIERS,
 } from "@/lib/video-quality";
 import { resolveMediaUrl } from "@/lib/social-data";
 import { cn } from "@/lib/utils";
 
 export type DownloadChoice = VideoQualityTier | "mp3" | "original";
 
-const QUALITY_COPY: Record<VideoQualityTier, { title: string; description: string }> = {
-  "4320p": { title: "8K (4320p)", description: "Ultra-high definition video" },
-  "2160p": { title: "4K (2160p)", description: "Ultra-high-definition video" },
-  "1440p": { title: "2K", description: "Sharp high-definition video" },
-  "1080p": { title: "1080p Full HD", description: "Balanced quality and file size" },
-  "720p": { title: "720p HD", description: "Good quality for everyday viewing" },
-  "480p": { title: "480p", description: "Standard-definition video" },
-  "360p": { title: "360p", description: "Smaller file for slower connections" },
+const QUALITY_COPY: Partial<
+  Record<VideoQualityTier, { title: string; description: string }>
+> = {
+  "1080p": { title: "Full HD (1080p)", description: "Highest detail for larger screens" },
+  "720p": { title: "High (720p)", description: "Clear HD picture" },
+  "480p": { title: "Medium (480p)", description: "Balanced picture and file size" },
+  "360p": { title: "Low (360p)", description: "Smaller file for slower connections" },
 };
 
 type Props = {
@@ -55,6 +54,16 @@ function positiveByteSize(value: number | null | undefined) {
 function positiveDuration(value: number | null | undefined) {
   const duration = Number(value);
   return Number.isFinite(duration) && duration > 0 ? duration : null;
+}
+
+function isDownloadChoiceAvailable(
+  choice: DownloadChoice,
+  sourceMediaUrl?: string | null,
+  qualityMediaUrls?: DownloadQualityUrls | null,
+) {
+  if (choice === "original") return Boolean(sourceMediaUrl?.trim());
+  if (choice === "mp3") return false;
+  return Boolean(qualityMediaUrls?.[choice]?.trim());
 }
 
 function contentLengthFromResponse(response: Response) {
@@ -159,18 +168,15 @@ export function DownloadSheet({
   onDownload,
 }: Props) {
   const choices = useMemo<DownloadChoice[]>(
-    () => [
-      ...availableDownloadQualityTiers(qualityMediaUrls)
-        .map((tier) => tier.id)
-        .reverse(),
-      "original",
-    ],
-    [qualityMediaUrls],
+    () => [...VIDEO_DOWNLOAD_PICKER_TIERS, "original"],
+    [],
   );
   const preferredChoice: DownloadChoice =
-    sourceQualityTier && choices.includes(sourceQualityTier)
-      ? sourceQualityTier
-      : "original";
+    VIDEO_DOWNLOAD_PICKER_TIERS.find(
+      (tier) =>
+        tier === sourceQualityTier &&
+        isDownloadChoiceAvailable(tier, sourceMediaUrl, qualityMediaUrls),
+    ) ?? "original";
   const [selected, setSelected] = useState<DownloadChoice>(
     preferredChoice,
   );
@@ -262,14 +268,19 @@ export function DownloadSheet({
 
     const sourceSizeBytes =
       resolvedFileSizes.original ?? providedSourceSize;
+    const sourceEstimate = estimateDownloadSizeMbFromSourceFile(
+      sourceSizeBytes,
+      sourceQualityTier,
+      choice,
+    );
     return formatDownloadSizeMb(
-      estimateDownloadSizeMb(resolvedDurationSeconds, choice) ??
-        estimateDownloadSizeMbFromSourceFile(sourceSizeBytes, sourceQualityTier, choice),
+      sourceEstimate ?? estimateDownloadSizeMb(resolvedDurationSeconds, choice),
     );
   };
 
   const submit = () => {
     const choice = selected;
+    if (!isDownloadChoiceAvailable(choice, sourceMediaUrl, qualityMediaUrls)) return;
     onOpenChange(false);
     void Promise.resolve(onDownload(choice)).catch((error) => {
       console.error("[downloads] background download failed", error);
@@ -294,63 +305,74 @@ export function DownloadSheet({
         </SheetHeader>
 
         <div className="mx-auto max-w-lg space-y-2">
-           <p className="px-1 pt-1 text-[11px] font-bold uppercase tracking-[0.16em] text-zinc-400">
-             Video Qualities
-           </p>
-            {choices.map((choice) => {
-             const isOriginal = choice === "original";
-             const isSelected = choice === selected;
-              const quality =
-                choice !== "original" && choice !== "mp3" ? QUALITY_COPY[choice] : null;
-              const size = sizeForChoice(choice);
-             return (
-               <button
-                 key={choice}
-                 type="button"
-                 role="radio"
-                 aria-checked={isSelected}
-                 onClick={() => setSelected(choice)}
-                 className={cn(
-                   "flex w-full items-center gap-3 rounded-2xl border px-3.5 py-3 text-left shadow-sm transition-all active:scale-[0.99]",
-                   isSelected
-                     ? "border-pink-500/70 bg-pink-500/10"
-                     : "border-zinc-800 bg-zinc-900/70 hover:border-zinc-700 hover:bg-zinc-800",
-                 )}
-               >
-                 <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-zinc-800 text-zinc-200">
-                   <Film size={18} />
-                 </span>
-                 <span className="min-w-0 flex-1">
-                   <span className="block text-sm font-semibold">
-                      {isOriginal ? "Original" : quality?.title}
-                     {!isOriginal && choice === sourceQualityTier && (
-                       <span className="ml-2 text-[10px] font-medium text-pink-300">SOURCE</span>
-                     )}
-                   </span>
-                   <span className="mt-0.5 block text-[11px] text-zinc-400">
-                      {isOriginal ? "Original source file" : quality?.description} · {size}
-                   </span>
-                 </span>
-                 {isSelected ? (
-                   <CircleDot size={22} className="shrink-0 text-pink-500" />
-                 ) : (
-                   <Circle size={22} className="shrink-0 text-zinc-600" />
-                 )}
-               </button>
-             );
-           })}
+          <p className="px-1 pt-1 text-[11px] font-bold uppercase tracking-[0.16em] text-zinc-400">
+            Video Qualities
+          </p>
+          {choices.map((choice) => {
+            const isOriginal = choice === "original";
+            const isSelected = choice === selected;
+            const isAvailable = isDownloadChoiceAvailable(
+              choice,
+              sourceMediaUrl,
+              qualityMediaUrls,
+            );
+            const quality =
+              choice !== "original" && choice !== "mp3" ? QUALITY_COPY[choice] : null;
+            const size = sizeForChoice(choice);
+            return (
+              <button
+                key={choice}
+                type="button"
+                role="radio"
+                aria-checked={isSelected}
+                aria-disabled={!isAvailable}
+                disabled={!isAvailable}
+                onClick={() => {
+                  if (isAvailable) setSelected(choice);
+                }}
+                className={cn(
+                  "flex w-full items-center gap-3 rounded-2xl border px-3.5 py-3 text-left shadow-sm transition-all active:scale-[0.99] disabled:cursor-not-allowed disabled:active:scale-100 disabled:opacity-55",
+                  isSelected
+                    ? "border-pink-500/70 bg-pink-500/10"
+                    : "border-zinc-800 bg-zinc-900/70 hover:border-zinc-700 hover:bg-zinc-800",
+                )}
+              >
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-zinc-800 text-zinc-200">
+                  <Film size={18} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold">
+                    {isOriginal ? "Original" : quality?.title}
+                    {!isOriginal && choice === sourceQualityTier && (
+                      <span className="ml-2 text-[10px] font-medium text-pink-300">SOURCE</span>
+                    )}
+                  </span>
+                  <span className="mt-0.5 block text-[11px] text-zinc-400">
+                    {isOriginal ? "Original source file" : quality?.description} · {size}
+                    {!isAvailable ? " · Not available for this video" : ""}
+                  </span>
+                </span>
+                {isSelected ? (
+                  <CircleDot size={22} className="shrink-0 text-pink-500" />
+                ) : (
+                  <Circle size={22} className="shrink-0 text-zinc-600" />
+                )}
+              </button>
+            );
+          })}
 
           <button
             type="button"
             onClick={() => void submit()}
-            className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-white py-3 text-sm font-bold text-black transition-transform active:scale-[0.98] disabled:opacity-50"
+            disabled={!isDownloadChoiceAvailable(selected, sourceMediaUrl, qualityMediaUrls)}
+            className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-white py-3 text-sm font-bold text-black transition-transform active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
           >
-             <Download size={17} />
-              {selected === "original"
-                ? "Download Video (Original Quality)"
-                : selected === "mp3"
-                  ? "Download MP3"
-                  : `Download ${selected}`}
+            <Download size={17} />
+            {selected === "original"
+              ? "Download Video (Original Quality)"
+              : selected === "mp3"
+                ? "Download Video"
+                : `Download ${QUALITY_COPY[selected]?.title ?? selected}`}
           </button>
         </div>
       </SheetContent>

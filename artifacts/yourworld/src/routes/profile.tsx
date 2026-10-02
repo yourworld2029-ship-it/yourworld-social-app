@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
 import {
+  ArrowLeft,
   Settings,
   Link2,
   Heart,
@@ -63,6 +64,7 @@ import { removeDeletedPostFromQueryCaches } from "@/lib/post-deletion";
 import { STORAGE_BUCKETS } from "@/lib/storage-upload";
 import { useFollowCounts } from "@/lib/follow-data";
 import { ProfileTemplate } from "@/components/yw/ProfileTemplate";
+import { DownloadedVideoList } from "@/components/yw/DownloadedVideoList";
 import {
   SPORTS_VERIFICATION_DUPLICATE_MESSAGE,
   submitSportsVerification,
@@ -262,7 +264,10 @@ function ProfilePage() {
       })
       .catch((error) => {
         if (!cancelled && revisionAtLoadStart === downloadsRevisionRef.current) {
-          setDownloads([]);
+          setDownloads((current) =>
+            current.filter((record) => record.ownerId === downloadsOwnerId),
+          );
+          setDownloadsLoadedFor(downloadsOwnerId);
           toast.error(error instanceof Error ? error.message : "Could not load offline videos");
         }
       })
@@ -277,7 +282,6 @@ function ProfilePage() {
   const openDownloadedVideo = async (record: DownloadedVideo) => {
     const url = await getDownloadedVideoUrl(record);
     if (!url) {
-      setDownloads((current) => current.filter((item) => item.id !== record.id));
       toast.error("This download is no longer available on this device");
       return;
     }
@@ -810,6 +814,47 @@ function ProfilePage() {
       setSportsVerificationSubmitting(false);
     }
   };
+
+  if (
+    tab === "downloads" &&
+    downloadsOwnerId &&
+    (loading || userId !== downloadsOwnerId || profile.id !== downloadsOwnerId)
+  ) {
+    return (
+      <main
+        data-testid="offline-profile-downloads"
+        className="min-h-screen bg-background pb-8 text-foreground"
+      >
+        <header className="sticky top-0 z-40 border-b border-border bg-background/90 px-4 py-3 backdrop-blur">
+          <div className="mx-auto flex max-w-3xl items-center gap-3">
+            <button
+              type="button"
+              aria-label="Back to profile"
+              onClick={() => void navigate({ to: "/profile", search: {} })}
+              className="inline-flex h-10 items-center gap-2 rounded-full px-2 text-sm font-medium text-muted-foreground transition hover:bg-secondary hover:text-foreground"
+            >
+              <ArrowLeft className="h-5 w-5" />
+              Profile
+            </button>
+            <div>
+              <h1 className="font-display text-lg font-bold">Downloads</h1>
+              <p className="text-xs text-muted-foreground">Saved on this device</p>
+            </div>
+          </div>
+        </header>
+        <section className="mx-auto max-w-3xl pt-2">
+          <DownloadedVideoList
+            videos={downloads}
+            loading={
+              downloadsLoading || downloadsLoadedFor !== downloadsOwnerId
+            }
+            onOpen={(record) => void openDownloadedVideo(record)}
+            onDelete={deleteDownloadedVideo}
+          />
+        </section>
+      </main>
+    );
+  }
 
   if (loading || (userId !== null && profile.id !== userId)) {
     return (

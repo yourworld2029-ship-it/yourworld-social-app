@@ -11,6 +11,13 @@ export const VIDEO_QUALITY_TIERS = [
 export type VideoQualityTier = (typeof VIDEO_QUALITY_TIERS)[number]["id"];
 export type DownloadQualityUrls = Partial<Record<VideoQualityTier, string>>;
 
+export const VIDEO_DOWNLOAD_PICKER_TIERS = [
+  "1080p",
+  "720p",
+  "480p",
+  "360p",
+] as const satisfies readonly VideoQualityTier[];
+
 const DOWNLOADABLE_QUALITY_TIERS = new Set<VideoQualityTier>([
   "360p",
   "480p",
