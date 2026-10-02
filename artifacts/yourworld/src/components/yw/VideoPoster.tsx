@@ -10,10 +10,12 @@ type Props = {
   alt: string;
   className?: string;
   loading?: "lazy" | "eager";
+  fetchPriority?: "high" | "low" | "auto";
   bucket?: "reels" | "videos";
   posterOnly?: boolean;
   allowFrameFallback?: boolean;
   showPlayFallback?: boolean;
+  showLoadingShimmer?: boolean;
   onPosterResolved?: (url: string) => void;
 };
 
@@ -37,10 +39,12 @@ export function VideoPoster({
   alt,
   className,
   loading = "lazy",
+  fetchPriority = "auto",
   bucket = "videos",
   posterOnly = false,
   allowFrameFallback = true,
   showPlayFallback = true,
+  showLoadingShimmer = true,
   onPosterResolved,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -205,13 +209,16 @@ export function VideoPoster({
         aria-hidden="true"
         className={cn(
           "absolute inset-0 bg-[linear-gradient(110deg,#18181b_8%,#27272a_18%,#18181b_33%)] bg-[length:200%_100%] transition-opacity duration-300",
-          showFallback ? "animate-thumbnail-shimmer opacity-100" : "opacity-0",
+          showFallback && showLoadingShimmer
+            ? "animate-thumbnail-shimmer opacity-100"
+            : "opacity-0",
         )}
       />
       <img
         src={posterImage}
         alt={alt}
         loading={loading}
+        fetchPriority={fetchPriority}
         decoding="async"
         onLoad={() => {
           if (posterImage === VIDEO_POSTER_FALLBACK) return;

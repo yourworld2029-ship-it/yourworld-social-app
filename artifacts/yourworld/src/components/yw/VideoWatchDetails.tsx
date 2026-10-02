@@ -9,10 +9,12 @@ import {
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { VideoPoster } from "@/components/yw/VideoPoster";
 import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadSheet";
 import { ShareSheet } from "@/components/yw/ShareSheet";
 import { CommentsSheet } from "@/components/yw/CommentsSheet";
 import { resolveMediaUrl } from "@/lib/social-data";
+import { canAutoplayPublicVideo } from "@/lib/video-playback-engine";
 import type { DownloadQualityUrls, VideoQualityTier } from "@/lib/video-quality";
 import {
   formatDuration,
@@ -100,11 +102,6 @@ function RecommendationRow({
   onSelect: (video: LongVideo) => void;
   priority: boolean;
 }) {
-  const thumbnailUrl = useResolvedMediaUrl(video.thumbnailUrl, "videos");
-  const [thumbnailFailed, setThumbnailFailed] = useState(false);
-
-  useEffect(() => setThumbnailFailed(false), [thumbnailUrl]);
-
   return (
     <button
       type="button"
@@ -113,21 +110,19 @@ function RecommendationRow({
       className="group flex w-full items-start gap-3 rounded-2xl border border-white/[0.06] bg-white/[0.025] p-2.5 text-left transition-colors hover:border-white/[0.12] hover:bg-white/[0.06] active:bg-white/[0.1]"
     >
       <span className="relative block aspect-video w-[58%] max-w-[280px] shrink-0 overflow-hidden rounded-xl bg-zinc-900">
-        {thumbnailUrl && !thumbnailFailed ? (
-          <img
-            src={thumbnailUrl}
-            alt=""
-            loading="eager"
-            decoding="async"
-            fetchPriority={priority ? "high" : "auto"}
-            onError={() => setThumbnailFailed(true)}
-            className="h-full w-full object-cover"
-          />
-        ) : (
-          <span className="absolute inset-0 grid place-items-center bg-gradient-to-br from-zinc-800 to-zinc-950">
-            <span className="h-2 w-2 rounded-full bg-white/40" aria-hidden="true" />
-          </span>
-        )}
+        <VideoPoster
+          thumbnailUrl={video.thumbnailUrl}
+          mediaUrl={video.mediaUrl}
+          alt=""
+          loading="eager"
+          fetchPriority={priority ? "high" : "auto"}
+          bucket="videos"
+          posterOnly
+          allowFrameFallback={canAutoplayPublicVideo(video.access, video.price)}
+          showPlayFallback={false}
+          showLoadingShimmer={false}
+          className="absolute inset-0"
+        />
         <span className="absolute bottom-1.5 right-1.5 rounded bg-black/85 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-white">
           {formatDuration(video.durationSeconds ?? 0)}
         </span>
@@ -180,7 +175,7 @@ export function VideoWatchDetails({
   }, [video.id, video.commentCount]);
 
   return (
-    <main className="min-h-full bg-[#0b0b0d] px-3 pb-8 pt-2 text-white sm:px-4">
+    <main className="min-h-full bg-[#0b0b0d] px-3 pb-8 pt-0 text-white sm:px-4">
       {isSwitching ? (
         <div className="mb-2 flex items-center gap-2 text-xs text-zinc-400" role="status">
           <span className="h-3 w-3 animate-spin rounded-full border border-white/20 border-t-white/80" />

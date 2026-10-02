@@ -15,6 +15,12 @@ Feed previews use one active player: muted autoplay begins at 70% viewport visib
 
 **How to apply:** Keep feed media source ownership in the autoplay provider, preserve metadata preload on active players, and lazy-load fallback frame extraction for feed, profile tiles, and Reels. A plain dark loading surface is temporary only; never substitute decorative poster art for the uploaded thumbnail or real frame. Keep offline downloads and creator-watermarked exports on their existing paths.
 
+Poster-frame extraction is a media read and must not bypass video access checks. If a surface cannot confirm the viewer’s grant, use an uploaded thumbnail or neutral placeholder instead of resolving the protected media URL.
+
+**Why:** A hidden poster-only video request can expose paid or restricted content even when the watch route itself correctly blocks playback.
+
+**How to apply:** Gate media-based poster extraction on the same authorization decision as playback; do not resolve protected source bytes only to draw a thumbnail.
+
 Homepage portrait discovery must remain a horizontal side-swipe shelf even when its section headings are hidden.
 
 **Why:** The user explicitly rejected replacing the portrait carousel with stacked full-size feed posts. Heading visibility and discovery layout are separate requirements.

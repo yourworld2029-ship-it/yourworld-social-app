@@ -297,6 +297,7 @@ export function LongVideoCard({
             candidateId={previewId}
             prefetchNextVideos={prefetchNextVideos}
             onOpen={openVideo}
+            allowFrameFallback
             className="m-0 select-none p-0"
           />
           {formattedDuration && (

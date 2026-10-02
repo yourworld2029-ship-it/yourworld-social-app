@@ -560,6 +560,7 @@ export function FeedVideoPreview({
         posterOnly
         allowFrameFallback={allowFrameFallback && canAutoplay}
         showPlayFallback={showPlayFallback}
+        showLoadingShimmer={false}
         onPosterResolved={onPosterResolved}
         className="pointer-events-none m-0 select-none p-0 [&_img]:block"
       />
