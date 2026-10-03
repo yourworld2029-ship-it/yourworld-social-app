@@ -168,7 +168,7 @@ function VideoUploadPage() {
     );
   }, []);
 
-  const togglePreviewPlayback = () => {
+  const togglePlay = () => {
     const video = videoRef.current;
     if (!video) return;
     if (video.paused) {
@@ -441,6 +441,7 @@ function VideoUploadPage() {
                 preload="metadata"
                 disablePictureInPicture
                 disableRemotePlayback
+                onClick={togglePlay}
                 onPlay={() => setIsPreviewPlaying(true)}
                 onPause={() => setIsPreviewPlaying(false)}
                 onEnded={() => setIsPreviewPlaying(false)}
@@ -448,18 +449,16 @@ function VideoUploadPage() {
               />
               <button
                 type="button"
-                onClick={togglePreviewPlayback}
-                className="absolute inset-0 z-10 flex items-center justify-center text-white transition-opacity duration-300"
+                onClick={togglePlay}
+                className="absolute left-1/2 top-1/2 z-10 flex h-14 w-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/20 bg-black/40 text-white shadow-xl backdrop-blur-md transition-all duration-300 hover:scale-105 hover:bg-black/55 active:scale-95"
                 aria-label={isPreviewPlaying ? "Pause preview" : "Play preview"}
                 aria-pressed={isPreviewPlaying}
               >
-                <span className="flex h-14 w-14 items-center justify-center rounded-full border border-white/20 bg-black/40 text-white shadow-xl backdrop-blur-md transition-all duration-300 hover:scale-105 hover:bg-black/55 active:scale-95">
-                  {isPreviewPlaying ? (
-                    <Pause className="h-5 w-5 fill-current" />
-                  ) : (
-                    <Play className="ml-0.5 h-5 w-5 fill-current" />
-                  )}
-                </span>
+                {isPreviewPlaying ? (
+                  <Pause className="h-5 w-5 fill-current" />
+                ) : (
+                  <Play className="ml-0.5 h-5 w-5 fill-current" />
+                )}
               </button>
             </div>
             <div className="flex items-center justify-between text-[11px] text-zinc-400">
