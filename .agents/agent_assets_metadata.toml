@@ -308,3 +308,17 @@ mtime_ms = 1791044426009
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/5fd08211-8920-46c8-a200-587719493c79/fe38329a-de13-43dc-9a4a-bf8cf7284045"
 storage_version_token = "1791044456780509"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "A_D3OfryzD9EWyOGLL5yP"
+uri = "file://artifacts/yourworld/public/internal-test-downloads/yourworld-v46-internal-test-final-standard-upload.apk"
+type = "unspecified"
+title = "YourWorld standard video upload debug APK"
+description = "Fresh internal debug APK. Gradle assembleDebug and apksigner verification passed. SHA-256: 9b68804d7b4fa0b822b38b5c5bb4f77c3cc290ee7fd8be99ee7dd61653d1a182"
+logical_id = "1b218f80-6cc1-49a5-8b81-92e8a824030f"
+content_hash = "sha256:9b68804d7b4fa0b822b38b5c5bb4f77c3cc290ee7fd8be99ee7dd61653d1a182"
+size = 7815416
+mtime_ms = 1791045353921
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/1b218f80-6cc1-49a5-8b81-92e8a824030f/ffd4aff7-cf92-43d6-a79a-d63c6c8c7581"
+storage_version_token = "1791045378845566"
+content_type = "application/octet-stream"
