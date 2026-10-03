@@ -9,11 +9,11 @@ Playback and user downloads are separate paths: native video elements may use me
 
 **How to apply:** Preserve valid signed media URLs for playback. Keep all download requests as ordinary full GETs, reject unexpected 206 partial responses, and persist complete offline media with owner-scoped metadata. Keep private Moments no-store.
 
-Feed previews use one active player: muted autoplay begins at 70% viewport visibility, and the media source is attached only to the active candidate and released when it leaves focus or is paused. Prefer a resolved uploaded thumbnail; when it is missing or broken, defer muted 0.1-second frame extraction until near view. Profile grids remain non-playing poster tiles, and taps open the watch screen.
+Feed previews use one active player: muted autoplay begins at 70% viewport visibility, and the media source is attached only to the active candidate and released when it leaves focus or is paused. Feed cards and profile Videos/Reels grids must render stored thumbnail URLs directly through lazy `<img>` elements with a lightweight skeleton. Never mount a hidden video or canvas for list-view poster extraction; profile grids are non-playing image tiles, and taps open the watch screen.
 
-**Why:** Instagram-style autoplay should not regress Android responsiveness, and fabricated branded poster art obscures the actual uploaded video content.
+**Why:** Hidden video decoding and canvas sampling in feed/profile lists caused severe memory spikes, black-box freezes, and main-thread stalls. Uploaded thumbnails provide the poster without decoding the source video.
 
-**How to apply:** Keep feed media source ownership in the autoplay provider, preserve metadata preload on active players, and lazy-load fallback frame extraction for feed, profile tiles, and Reels. A plain dark loading surface is temporary only; never substitute decorative poster art for the uploaded thumbnail or real frame. Keep offline downloads and creator-watermarked exports on their existing paths.
+**How to apply:** Keep feed media source ownership in the autoplay provider and preserve metadata preload on the active player, but never attach media for poster extraction. Use the saved thumbnail URL or a static fallback image with native `loading="lazy"`; leave upload-time thumbnail creation, watch-screen playback, offline downloads, and creator-watermarked exports on their separate paths.
 
 Poster-frame extraction is a media read and must not bypass video access checks. If a surface cannot confirm the viewer’s grant, use an uploaded thumbnail or neutral placeholder instead of resolving the protected media URL.
 

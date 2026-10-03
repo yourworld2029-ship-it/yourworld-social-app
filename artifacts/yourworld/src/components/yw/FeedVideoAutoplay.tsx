@@ -12,7 +12,6 @@ import { Volume2, VolumeX } from "lucide-react";
 import Hls from "hls.js";
 import type { LongVideo } from "@/lib/video-data";
 import {
-  cacheVideoPoster,
   canPrefetchVideo,
   cancelPendingVideoPrefetches,
   prefetchVideo,
@@ -28,9 +27,9 @@ import {
 import { resolveLongVideoUrl } from "@/lib/video-data";
 import { cn } from "@/lib/utils";
 import {
+  LazyVideoThumbnail,
   VIDEO_POSTER_FALLBACK,
-  VideoPoster,
-} from "@/components/yw/VideoPoster";
+} from "@/components/yw/LazyVideoThumbnail";
 
 const FEED_MUTE_STORAGE_KEY = "yourworld.feed-video-muted";
 const NORMAL_VISIBILITY_RATIO = 0.7;
@@ -485,7 +484,6 @@ export function FeedVideoPreview({
   className,
   onOpen,
   interactive = true,
-  allowFrameFallback = false,
   showPlayFallback = false,
   previewTestId,
 }: {
@@ -495,20 +493,15 @@ export function FeedVideoPreview({
   className?: string;
   onOpen: () => void;
   interactive?: boolean;
-  allowFrameFallback?: boolean;
   showPlayFallback?: boolean;
   previewTestId?: string;
 }) {
   const { activeCandidateId, muted, registerCandidate, stopCandidate } = useFeedVideoAutoplay();
   const previewRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [posterUrl, setPosterUrl] = useState(VIDEO_POSTER_FALLBACK);
   const [videoReady, setVideoReady] = useState(false);
   const canAutoplay = canAutoplayPublicVideo(video.access, video.price);
   const active = activeCandidateId === candidateId;
-  const onPosterResolved = useCallback((url: string) => {
-    setPosterUrl(url || VIDEO_POSTER_FALLBACK);
-  }, []);
   const onPlaybackFailure = useCallback(() => {
     setVideoReady(false);
     stopCandidate(candidateId);
@@ -551,22 +544,15 @@ export function FeedVideoPreview({
       data-feed-autoplay-candidate={candidateId}
       data-testid={previewTestId ?? `feed-autoplay-preview-${video.id}`}
     >
-      <VideoPoster
+      <LazyVideoThumbnail
         thumbnailUrl={video.thumbnailUrl}
-        mediaUrl={canAutoplay ? video.mediaUrl : ""}
         alt={video.title}
-        loading="lazy"
-        bucket="videos"
-        posterOnly
-        allowFrameFallback={allowFrameFallback && canAutoplay}
         showPlayFallback={showPlayFallback}
-        showLoadingShimmer={false}
-        onPosterResolved={onPosterResolved}
         className="pointer-events-none m-0 select-none p-0 [&_img]:block"
       />
       <video
         ref={videoRef}
-        poster={posterUrl}
+        poster={video.thumbnailUrl || VIDEO_POSTER_FALLBACK}
         crossOrigin="anonymous"
         playsInline
         muted={active ? muted : true}
@@ -575,10 +561,6 @@ export function FeedVideoPreview({
         aria-label={video.title}
         onLoadedData={() => {
           setVideoReady(true);
-          if (!video.thumbnailUrl && videoRef.current) {
-            const generated = cacheVideoPoster(videoRef.current, video.mediaUrl);
-            if (generated) setPosterUrl(generated);
-          }
         }}
         onEmptied={() => {
           setVideoReady(false);

@@ -20,7 +20,6 @@ export function FeedVideoShelfPreview({
       candidateId={`shelf:${video.id}`}
       onOpen={ignoreOpen}
       interactive={false}
-      allowFrameFallback
       showPlayFallback
       previewTestId={`feed-video-preview-${video.id}`}
       className={className}

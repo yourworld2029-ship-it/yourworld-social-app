@@ -22,7 +22,10 @@ import {
   ProtectedCanvasImage,
   ProtectedCanvasVideoMirror,
 } from "@/components/yw/ProtectedCanvasContent";
-import { VIDEO_POSTER_FALLBACK, VideoPoster } from "@/components/yw/VideoPoster";
+import {
+  LazyVideoThumbnail,
+  VIDEO_POSTER_FALLBACK,
+} from "@/components/yw/LazyVideoThumbnail";
 import { ShareSheet } from "@/components/yw/ShareSheet";
 import { CommentsSheet } from "@/components/yw/CommentsSheet";
 import { useAuth, useResumeAuthAction } from "@/lib/auth-store";
@@ -345,13 +348,9 @@ function ReelsList() {
                 onDeleted={() => removePost(reel.id)}
               />
             ) : (
-              <VideoPoster
+              <LazyVideoThumbnail
                 thumbnailUrl={thumbnailUrl ?? (mediaType?.toLowerCase().startsWith("video") ? null : mediaUrl)}
-                mediaUrl={mediaUrl}
                 alt=""
-                loading="lazy"
-                bucket={mediaBucket}
-                posterOnly
                 showPlayFallback={false}
                 className="absolute inset-0"
               />

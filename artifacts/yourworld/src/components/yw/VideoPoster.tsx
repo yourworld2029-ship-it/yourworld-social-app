@@ -3,6 +3,7 @@ import { Play } from "lucide-react";
 import { resolveMediaUrl } from "@/lib/social-data";
 import { cn } from "@/lib/utils";
 import { cacheVideoPoster, getVideoPoster } from "@/lib/video-prefetch";
+import { VIDEO_POSTER_FALLBACK } from "@/components/yw/LazyVideoThumbnail";
 
 type Props = {
   thumbnailUrl?: string | null;
@@ -22,12 +23,6 @@ type Props = {
 function firstFrameUrl(url: string) {
   return `${url.split("#", 1)[0]}#t=1`;
 }
-
-const FALLBACK_VIDEO_POSTER_SVG =
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 9"><rect width="16" height="9" fill="#09090b"/></svg>';
-
-export const VIDEO_POSTER_FALLBACK =
-  `data:image/svg+xml;charset=utf-8,${encodeURIComponent(FALLBACK_VIDEO_POSTER_SVG)}`;
 
 /**
  * Shows stored thumbnails first, then captures a real one-second video frame when

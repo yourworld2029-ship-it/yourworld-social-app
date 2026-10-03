@@ -19,7 +19,7 @@ import {
   type SportsProfileInfo,
 } from "@/components/yw/SportsProfile";
 import { SportsIdentityBadge } from "@/components/yw/SportsIdentityBadge";
-import { VideoPoster } from "@/components/yw/VideoPoster";
+import { LazyVideoThumbnail } from "@/components/yw/LazyVideoThumbnail";
 import { ProfilePhotoViewer } from "@/components/yw/ProfilePhotoViewer";
 import type { DbPost } from "@/lib/social-data";
 import type { FollowCounts } from "@/lib/follow-data";
@@ -501,17 +501,17 @@ function MediaGrid({
       {items.map((it, i) => (
         <li key={`${it.post?.id ?? it.src}-${i}`} data-testid={`card-profile-media-${it.post?.id ?? i}`} className="media-frame relative overflow-hidden rounded-lg bg-secondary" style={{ aspectRatio: it.ratio ?? 1 }}>
           {it.post?.kind === "video" || it.post?.kind === "reel" || it.type?.startsWith("video") ? (
-              <VideoPoster
-                mediaUrl={it.mediaUrl ?? it.src}
+              <LazyVideoThumbnail
                 thumbnailUrl={it.thumbnail ?? it.post?.thumbnail_url}
                 alt=""
-                loading="lazy"
-                bucket={it.post?.kind === "reel" ? "reels" : "videos"}
-                posterOnly
                 className="h-full w-full object-cover"
               />
           ) : (
-            <img src={it.src} alt="" loading="lazy" className="h-full w-full object-cover" />
+            <LazyVideoThumbnail
+              thumbnailUrl={it.src}
+              alt=""
+              className="h-full w-full object-cover"
+            />
           )}
           {it.post?.kind === "reel" ? (
             <span className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
