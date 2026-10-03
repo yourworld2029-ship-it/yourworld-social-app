@@ -350,3 +350,17 @@ mtime_ms = 1791053652235
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/9152e1af-3681-4ee1-8f8c-8d9b23e07271/9c1f57d7-de94-4952-89a6-a7e3dbd619cc"
 storage_version_token = "1791053663811285"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "GnWsAB1UN8Z-xEpfSwT6M"
+uri = "file://artifacts/yourworld/android/app/build/outputs/apk/debug/YourWorld-Reels-v4.apk"
+type = "unspecified"
+title = "YourWorld-Reels-v4.apk"
+description = "Verified Android debug APK with the requested Reels-only adjustments."
+logical_id = "57442374-9ac4-4a21-80d8-c25105b8b273"
+content_hash = "sha256:486005dfb87ff15ecc2e4d26f23ccb16ba178d4f2949d8d0b36a5bb5fa44153b"
+size = 7636565
+mtime_ms = 1791054690112
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/57442374-9ac4-4a21-80d8-c25105b8b273/bddc3dbb-99ca-4a50-b74e-ccdca9812460"
+storage_version_token = "1791054735600816"
+content_type = "application/octet-stream"

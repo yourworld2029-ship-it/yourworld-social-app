@@ -153,6 +153,7 @@ function ReelsList() {
   const scoped = Boolean(userId);
   const initialId = initialVideoId || reelId;
    const [active, setActive] = useState(-1);
+  const [reelsMuted, setReelsMuted] = useState(false);
   const nodes = useRef<(HTMLElement | null)[]>([]);
   const longVideoTarget = useQuery({
     queryKey: ["reel-target-long-video", initialId],
@@ -383,6 +384,8 @@ function ReelsList() {
                 reel={reel}
                 currentUserId={currentUserId}
                 active
+                muted={reelsMuted}
+                onMutedChange={setReelsMuted}
                 author={author}
                 likedByMe={likedByMe}
                 mediaUrl={mediaUrl}
@@ -730,6 +733,8 @@ function ReelItem({
   reel,
   currentUserId,
   active,
+  muted,
+  onMutedChange,
   author,
   likedByMe,
   mediaUrl,
@@ -751,6 +756,8 @@ function ReelItem({
   reel: Reel;
   currentUserId?: string | null;
   active: boolean;
+  muted: boolean;
+  onMutedChange: (muted: boolean) => void;
   author?: User;
   likedByMe?: boolean;
   mediaUrl?: string;
@@ -778,8 +785,6 @@ function ReelItem({
   });
   const [expanded, setExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [muted, setMuted] = useState(true);
-  useEffect(() => { if (!active) setMuted(true); }, [active]);
   const lastTap = useRef(0);
   const isLiked = !!likedByMe;
   const [liking, setLiking] = useState(false);
@@ -1086,7 +1091,7 @@ function ReelItem({
     video.muted = false;
     video.defaultMuted = false;
     video.volume = 1;
-    setMuted(false);
+    onMutedChange(false);
     if (active && !paused) {
       void video.play()
         .then(() => trackEvent("reel_sound_enabled", { surface: "reels_feed" }))
@@ -1096,13 +1101,13 @@ function ReelItem({
     } else {
       trackEvent("reel_sound_enabled", { surface: "reels_feed" });
     }
-  }, [active, mediaRef, paused]);
+  }, [active, mediaRef, onMutedChange, paused]);
 
   const toggleAudio = () => {
     const video = mediaRef.current instanceof HTMLVideoElement ? mediaRef.current : null;
     if (!muted) {
       if (video) video.muted = true;
-      setMuted(true);
+      onMutedChange(true);
       return;
     }
     enableAudio();
@@ -1338,7 +1343,7 @@ function ReelItem({
         <Heart className="pointer-events-none absolute left-1/2 top-1/2 h-28 w-28 -translate-x-1/2 -translate-y-1/2 animate-burst fill-primary text-primary" />
       )}
 
-      <div className="absolute inset-x-0 top-0 flex items-center justify-between px-4 pt-4">
+      <div className="absolute inset-x-0 top-0 flex items-center justify-between px-4 pt-[calc(env(safe-area-inset-top,24px)_+_1rem)]">
         <div className="flex min-w-0 items-center gap-2">
           {scoped && onBack ? (
             <button
@@ -1413,7 +1418,7 @@ function ReelItem({
         </p>
       </div>
 
-      <div className="absolute bottom-14 right-2 flex flex-col items-center gap-2.5">
+      <div className="absolute bottom-14 right-3 flex flex-col items-center gap-3">
         <Action
           onClick={() => void handleLike()}
             label={hideLikeCount ? "Likes hidden" : formatCount(reel.likes)}
