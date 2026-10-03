@@ -50,6 +50,7 @@ export type OfflineVideoDownloadOptions = {
   fallbackUrls?: string[];
   targetQuality?: VideoQualityTier;
   transcodeSource?: boolean;
+  androidSingleGet?: boolean;
 };
 
 const LEGACY_DOWNLOAD_DB_NAME = "yourworld-downloads-v1";
@@ -814,7 +815,7 @@ export async function downloadVideoForOfflineInBackground(
     throw new Error("Video details are required to save an Android offline download.");
   }
 
-  const key = `${src}|native-offline|${fileNameBase}|${metadata.ownerId}|${metadata.mediaId}|${metadata.quality}|${options.targetQuality ?? "original"}`;
+  const key = `${src}|native-offline|${fileNameBase}|${metadata.ownerId}|${metadata.mediaId}|${metadata.quality}|${options.targetQuality ?? "original"}|${options.androidSingleGet ? "single-get" : "default"}`;
   const existing = activeVideoDownloads.get(key);
   if (existing) {
     await existing;
@@ -858,7 +859,7 @@ export async function downloadVideoForOfflineInBackground(
           });
         }
         onProgress?.(percent);
-      }, options.fallbackUrls);
+      }, options.fallbackUrls, { singleGet: options.androidSingleGet });
 
       notifyDownloadedVideoLibrary();
       onProgress?.(100);

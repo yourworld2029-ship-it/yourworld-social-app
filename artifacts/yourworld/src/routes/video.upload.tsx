@@ -110,6 +110,8 @@ function VideoUploadPage() {
       toast.error("Videos must be under 200 MB.");
       return;
     }
+    // Keep the selected file as a Blob URL so the media element can seek and
+    // buffer it locally without copying an entire long video into memory.
     const url = URL.createObjectURL(file);
     if (fileUrl) URL.revokeObjectURL(fileUrl);
     if (thumb?.startsWith("blob:")) URL.revokeObjectURL(thumb);
@@ -124,11 +126,14 @@ function VideoUploadPage() {
   };
 
   useEffect(() => {
-    return () => {
-      if (fileUrl?.startsWith("blob:")) URL.revokeObjectURL(fileUrl);
-      if (thumb?.startsWith("blob:")) URL.revokeObjectURL(thumb);
-    };
-  }, [fileUrl, thumb]);
+    if (!fileUrl?.startsWith("blob:")) return;
+    return () => URL.revokeObjectURL(fileUrl);
+  }, [fileUrl]);
+
+  useEffect(() => {
+    if (!thumb?.startsWith("blob:")) return;
+    return () => URL.revokeObjectURL(thumb);
+  }, [thumb]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -433,7 +438,7 @@ function VideoUploadPage() {
                 muted
                 loop
                 playsInline
-                preload="auto"
+                preload="metadata"
                 disablePictureInPicture
                 disableRemotePlayback
                 onPlay={() => setIsPreviewPlaying(true)}
@@ -446,6 +451,7 @@ function VideoUploadPage() {
                 onClick={togglePreviewPlayback}
                 className="absolute inset-0 z-10 flex items-center justify-center text-white transition-opacity duration-300"
                 aria-label={isPreviewPlaying ? "Pause preview" : "Play preview"}
+                aria-pressed={isPreviewPlaying}
               >
                 <span className="flex h-14 w-14 items-center justify-center rounded-full border border-white/20 bg-black/40 text-white shadow-xl backdrop-blur-md transition-all duration-300 hover:scale-105 hover:bg-black/55 active:scale-95">
                   {isPreviewPlaying ? (

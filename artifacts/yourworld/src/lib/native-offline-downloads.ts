@@ -22,6 +22,7 @@ type NativeOfflineMediaDownloadPlugin = {
     path: string;
     transferId: string;
     title: string;
+    singleGet?: boolean;
   }): Promise<{ sizeBytes: number }>;
   addListener(
     eventName: "progress",
@@ -452,10 +453,13 @@ export async function downloadNativeOfflineVideoFromUrl(
   sourceUrl: string,
   onProgress?: (bytesTransferred: number, totalBytes: number) => void,
   fallbackUrls: string[] = [],
+  options: { singleGet?: boolean } = {},
 ) {
   let lastError: unknown;
   for (const url of [...new Set([sourceUrl, ...fallbackUrls])]) {
-    try { return await downloadSingleNativeOfflineVideo(record, url, onProgress); }
+    try {
+      return await downloadSingleNativeOfflineVideo(record, url, onProgress, options);
+    }
     catch (error) { lastError = error; }
   }
   throw lastError instanceof Error ? lastError : new Error("Download failed. Check your connection and retry.");
@@ -465,6 +469,7 @@ async function downloadSingleNativeOfflineVideo(
   record: OfflineVideo,
   sourceUrl: string,
   onProgress?: (bytesTransferred: number, totalBytes: number) => void,
+  options: { singleGet?: boolean } = {},
 ) {
   if (!isAndroidNativeDownloads()) {
     throw new Error("Native streaming downloads are only available on Android.");
@@ -532,6 +537,7 @@ async function downloadSingleNativeOfflineVideo(
         path: paths.localFilePath,
         transferId,
         title: normalizedRecord.title || "Video",
+        singleGet: options.singleGet,
       });
       exactDownloadSize = Number(result.sizeBytes);
     }

@@ -476,6 +476,7 @@ function VideoRouteComponent() {
             transcodeSource:
               choice !== "original" &&
               !selection?.usesVariant,
+            androidSingleGet: true,
           },
         );
         toast.success(

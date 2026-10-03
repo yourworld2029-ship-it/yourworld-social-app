@@ -107,6 +107,7 @@ public class OfflineMediaDownloadPlugin extends Plugin {
         String sourceUrl = call.getString("url");
         String relativePath = call.getString("path");
         String transferId = call.getString("transferId");
+        boolean singleGet = Boolean.TRUE.equals(call.getBoolean("singleGet"));
         if (sourceUrl == null || relativePath == null || transferId == null) {
             call.reject("The video URL, file path, and transfer ID are required.");
             return;
@@ -132,7 +133,7 @@ public class OfflineMediaDownloadPlugin extends Plugin {
         executor.execute(() -> {
             try {
                 File target = resolveTarget(relativePath);
-                long size = downloadToFile(sourceUrl, target, transferId);
+                long size = downloadToFile(sourceUrl, target, transferId, singleGet);
                 JSObject result = new JSObject();
                 result.put("sizeBytes", size);
                 call.resolve(result);
@@ -167,10 +168,17 @@ public class OfflineMediaDownloadPlugin extends Plugin {
         return target;
     }
 
-    private long downloadToFile(String sourceUrl, File target, String transferId) throws Exception {
+    private long downloadToFile(
+            String sourceUrl,
+            File target,
+            String transferId,
+            boolean singleGet
+    ) throws Exception {
         File temporary = new File(target.getParentFile(), target.getName() + ".download");
         deleteQuietly(temporary);
-        Long totalBytes = probeRangeSupport(sourceUrl);
+        // Long Video downloads opt into one ordinary full GET. This avoids
+        // signed-URL expiry and partial-response failures during parallel ranges.
+        Long totalBytes = singleGet ? null : probeRangeSupport(sourceUrl);
         if (totalBytes != null && totalBytes > 0) {
             List<File> parts = new ArrayList<>();
             try {
