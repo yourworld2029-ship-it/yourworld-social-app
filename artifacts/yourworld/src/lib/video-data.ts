@@ -20,6 +20,7 @@ import {
   uploadWithProgress,
   type ProgressFn,
 } from "@/lib/storage-upload";
+import { readableUploadError } from "@/lib/storage-upload-request";
 import { optimizeVideoBlob } from "@/lib/video-compression";
 import { generateVideoThumbnail, sampleVideoFrames } from "@/lib/video-frames";
 import {
@@ -239,19 +240,20 @@ async function uploadToStorage(
   onProgress?: ProgressFn,
   requireSignedURLs = false,
 ): Promise<{
-  url: string;
-  storagePath: string;
+  url: string | null;
+  storagePath: string | null;
   width: number | null;
   height: number | null;
   streamUid: string | null;
   durationSeconds: number | null;
-} | null> {
+  error: string | null;
+}> {
+  let width: number | null = null;
+  let height: number | null = null;
   try {
     const blob = typeof source === "string"
       ? await (await fetch(source)).blob()
       : source;
-    let width: number | null = null;
-    let height: number | null = null;
     const uploadBlob = blob.type.startsWith("video/")
       ? await optimizeVideoBlob(blob, (percent, detail) =>
           onProgress?.(Math.round(percent * 0.45), detail),
@@ -268,6 +270,7 @@ async function uploadToStorage(
       storagePath,
       streamUid,
       durationSeconds,
+      error,
     } = await uploadWithProgress(
       STORAGE_BUCKETS.videos,
       path,
@@ -282,12 +285,30 @@ async function uploadToStorage(
         requireSignedURLs,
       },
     );
-    return url && storagePath
-      ? { url, storagePath, width, height, streamUid: streamUid ?? null, durationSeconds: durationSeconds ?? null }
-      : null;
+    return {
+      url,
+      storagePath,
+      width,
+      height,
+      streamUid: streamUid ?? null,
+      durationSeconds: durationSeconds ?? null,
+      error:
+        error ??
+        (!url || !storagePath
+          ? "The video upload did not return a playable media URL."
+          : null),
+    };
   } catch (error) {
     console.error("Video storage upload failed", error);
-    return null;
+    return {
+      url: null,
+      storagePath: null,
+      width,
+      height,
+      streamUid: null,
+      durationSeconds: null,
+      error: readableUploadError(error),
+    };
   }
 }
 
@@ -408,7 +429,7 @@ export async function publishLongVideo(opts: {
       opts.onProgress?.(Math.min(97, Math.round(p * 0.97))),
       (opts.access ?? "public") !== "public",
     );
-    if (!up) {
+    if (up.error || !up.url || !up.storagePath) {
       if (thumbnailUploadPromise) {
         void thumbnailUploadPromise
           .then(async ({ storagePath }) => {
@@ -420,7 +441,7 @@ export async function publishLongVideo(opts: {
           })
           .catch((error) => console.warn("Could not clean up an orphan video thumbnail", error));
       }
-      return { error: "Video upload failed. Please try again." };
+      return { error: up.error ?? "Video upload failed. Please try again." };
     }
     mediaUrl = up.url;
     uploadedSourcePath = up.storagePath;

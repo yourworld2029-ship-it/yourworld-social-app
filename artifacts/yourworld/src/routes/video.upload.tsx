@@ -151,6 +151,37 @@ function VideoUploadPage() {
     );
   }, []);
 
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !fileUrl) return;
+
+    let active = true;
+    const handleMetadata = () => {
+      if (active) onMeta();
+    };
+    const handleLoadedData = () => {
+      if (!active) return;
+      const poster = cacheVideoPoster(video, fileUrl);
+      if (poster) setPreviewFrame(poster);
+    };
+
+    // Attach listeners before assigning the Blob URL. Fast local files can
+    // dispatch loadedmetadata before declarative React handlers are ready.
+    video.addEventListener("loadedmetadata", handleMetadata);
+    video.addEventListener("loadeddata", handleLoadedData);
+    video.src = fileUrl;
+    video.load();
+
+    return () => {
+      active = false;
+      video.removeEventListener("loadedmetadata", handleMetadata);
+      video.removeEventListener("loadeddata", handleLoadedData);
+      video.pause();
+      video.removeAttribute("src");
+      video.load();
+    };
+  }, [fileUrl, onMeta]);
+
   /** Grabs the current preview frame as a custom thumbnail. */
   const grabFrame = () => {
     const v = videoRef.current;
@@ -374,27 +405,16 @@ function VideoUploadPage() {
               <video
                 key={fileUrl}
                 ref={videoRef}
-                src={fileUrl}
                 poster={thumb ?? previewFrame ?? undefined}
-                controls
+                autoPlay
+                muted
+                loop
                 playsInline
                 preload="auto"
-                onLoadedMetadata={onMeta}
-                onLoadedData={() => {
-                  const video = videoRef.current;
-                  if (!video || !fileUrl) return;
-                  const previewUrl = fileUrl;
-                  window.setTimeout(() => {
-                    if (
-                      videoRef.current !== video ||
-                      video.getAttribute("src") !== previewUrl
-                    ) {
-                      return;
-                    }
-                    const poster = cacheVideoPoster(video, previewUrl);
-                    if (poster) setPreviewFrame(poster);
-                  }, 0);
-                }}
+                controlsList="nodownload noplaybackrate nofullscreen"
+                disablePictureInPicture
+                disableRemotePlayback
+                onContextMenu={(event) => event.preventDefault()}
                 className="video-upload-preview h-full w-full object-contain"
               />
             </div>

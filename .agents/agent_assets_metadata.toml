@@ -280,3 +280,17 @@ mtime_ms = 1791028853983
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/ccae67ee-244a-4c2c-b1a8-68ce5bfef614/760250b1-e47f-42c8-afb2-704e89b5a70b"
 storage_version_token = "1791028926231004"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "yv1jY3J0v69-JVIWAbaLW"
+uri = "file://artifacts/yourworld/public/internal-test-downloads/yourworld-v46-internal-test-debug-uploadfix.apk"
+type = "unspecified"
+title = "YourWorld internal Android debug APK"
+description = "Fresh debug-signed APK with the standard video-upload preview and TUS/CORS fixes. SHA-256: fc6d0b86ddfbd9a82085958406d72396b3ab7e63553e83b6ff444937ad21aeb7"
+logical_id = "22dba979-5cf6-404a-b295-dd0feffec2c4"
+content_hash = "sha256:fc6d0b86ddfbd9a82085958406d72396b3ab7e63553e83b6ff444937ad21aeb7"
+size = 7815445
+mtime_ms = 1791042677096
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/22dba979-5cf6-404a-b295-dd0feffec2c4/d5b5ba61-0d65-49e3-9565-7f7b084e9cdb"
+storage_version_token = "1791042774342485"
+content_type = "application/octet-stream"

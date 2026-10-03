@@ -709,6 +709,8 @@ router.options("/media/cloudflare-tus-upload", (_req, res): void => {
       "Tus-Version": "1.0.0",
       "Tus-Extension": "creation,termination",
       "Tus-Max-Size": String(MAX_VIDEO_BYTES),
+      "Access-Control-Expose-Headers":
+        "Location, Stream-Media-Id, Tus-Resumable, Tus-Version, Tus-Extension, Tus-Max-Size, Upload-Offset",
       "Access-Control-Allow-Methods": "OPTIONS, POST",
       "Access-Control-Allow-Headers":
         "Authorization, Content-Type, Tus-Resumable, Upload-Length, Upload-Metadata",
@@ -849,6 +851,8 @@ router.post("/media/cloudflare-tus-upload", async (req, res): Promise<void> => {
         Location: location,
         "Stream-Media-Id": streamUid,
         "Tus-Resumable": "1.0.0",
+        "Access-Control-Expose-Headers":
+          "Location, Stream-Media-Id, Tus-Resumable, Tus-Version, Tus-Extension, Tus-Max-Size, Upload-Offset",
         "Cache-Control": "no-store",
       })
       .end();

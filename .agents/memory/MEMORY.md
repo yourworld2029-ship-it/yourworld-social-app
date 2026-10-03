@@ -52,5 +52,5 @@
 - [Managed Realtime table ownership](realtime-system-table-ownership.md) — do not alter Supabase-managed Realtime tables or publication through the project migration connection.
 - [Supabase media upload transport](direct-supabase-uploads.md) — use direct Storage for small files and sequential resumable TUS for large browser uploads.
 - [Cloudflare Stream downloads](cloudflare-stream-downloads.md) — prefer Cloudflare MP4, active playback, then storage; keep quality labels honest and preserve access denials.
-- [Native media API routing](native-media-api-routing.md) — packaged WebView API requests need the hosted origin; the asset server may return HTML with HTTP 200.
+- [Native media API routing](native-media-api-routing.md) — packaged WebView requests need the hosted origin; TUS responses must expose the continuation and media-ID headers.
 - [Browser media fixtures](browser-media-fixtures.md) — automated Chromium may reject valid AVC; use VP8 fixtures to verify browser flows without changing Android encoding.
