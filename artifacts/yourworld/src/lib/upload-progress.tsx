@@ -311,7 +311,7 @@ function UploadProgressStack() {
           <div className="flex items-center gap-3 px-3 py-2.5">
             <div className="h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-zinc-900">
               {t.thumbnail ? (
-                <img src={t.thumbnail} alt="" className="h-full w-full object-cover" />
+            <img src={t.thumbnail} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
               ) : (
                 <div className="grid h-full w-full place-items-center text-zinc-500">
                   <Loader2 size={16} className="animate-spin" />

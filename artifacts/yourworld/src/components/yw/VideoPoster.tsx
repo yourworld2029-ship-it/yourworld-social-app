@@ -4,6 +4,7 @@ import { resolveMediaUrl } from "@/lib/social-data";
 import { cn } from "@/lib/utils";
 import { cacheVideoPoster, getVideoPoster } from "@/lib/video-prefetch";
 import { VIDEO_POSTER_FALLBACK } from "@/components/yw/LazyVideoThumbnail";
+import { useScreenImage } from "@/lib/screen-image";
 
 type Props = {
   thumbnailUrl?: string | null;
@@ -25,8 +26,8 @@ function firstFrameUrl(url: string) {
 }
 
 /**
- * Shows stored thumbnails first, then captures a real one-second video frame when
- * a thumbnail is missing or unavailable. Extraction is deferred until near view.
+  * Shows screen-sized thumbnails. Optional frame extraction is reserved for
+  * authorized detail surfaces, never feed/profile list cards.
  */
 export function VideoPoster({
   thumbnailUrl,
@@ -159,6 +160,13 @@ export function VideoPoster({
   }, [posterOnly, resolvedMedia, thumbnailFailed, thumbnailUrl]);
 
   const posterImage = hasThumbnail ? resolvedThumbnail! : VIDEO_POSTER_FALLBACK;
+  const image = useScreenImage(posterImage, loading === "eager");
+  useEffect(() => {
+    if (image.error) {
+      setThumbnailFailed(true);
+      setThumbnailReady(false);
+    }
+  }, [image.error]);
   const source =
     needsFrame && shouldLoadFrame && resolvedMedia ? firstFrameUrl(resolvedMedia) : "";
   const showFallback = !thumbnailReady && !mediaReady;
@@ -193,7 +201,7 @@ export function VideoPoster({
 
   return (
     <div
-      ref={containerRef}
+      ref={(node) => { containerRef.current = node; image.ref.current = node; }}
       className={cn(
         "relative h-full w-full overflow-hidden bg-gradient-to-br from-zinc-800 via-zinc-900 to-zinc-950",
         className,
@@ -209,13 +217,13 @@ export function VideoPoster({
         )}
       />
       <img
-        src={posterImage}
+        src={image.source || VIDEO_POSTER_FALLBACK}
         alt={alt}
-        loading={loading}
+        loading="lazy"
         fetchPriority={fetchPriority}
         decoding="async"
         onLoad={() => {
-          if (posterImage === VIDEO_POSTER_FALLBACK) return;
+          if (!image.source || image.source === VIDEO_POSTER_FALLBACK) return;
           setThumbnailReady(true);
           setThumbnailFailed(false);
         }}

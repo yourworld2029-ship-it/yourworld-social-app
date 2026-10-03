@@ -54,6 +54,7 @@ function CommentAvatar({ user, url }: { user: User; url?: string | null }) {
         alt={`@${user.username} avatar`}
         className="h-[34px] w-[34px] shrink-0 rounded-full object-cover"
         loading="lazy"
+        decoding="async"
       />
     );
   }

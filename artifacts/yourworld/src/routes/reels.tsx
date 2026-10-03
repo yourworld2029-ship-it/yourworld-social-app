@@ -42,6 +42,8 @@ import {
   type DownloadedVideoMetadata,
 } from "@/lib/yw-download";
 import { cn } from "@/lib/utils";
+import { releaseListVideo } from "@/lib/media-release";
+import { useScreenImage } from "@/lib/screen-image";
 import { toast } from "sonner";
 import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadSheet";
 import {
@@ -119,7 +121,7 @@ function ReelsPage() {
   return (
     <main
       id="yw-reels-scroller"
-      className="no-scrollbar h-[calc(100dvh-4.75rem)] snap-y snap-mandatory overflow-y-scroll overscroll-y-contain bg-background [-webkit-overflow-scrolling:touch] [scroll-snap-stop:always] [scroll-behavior:smooth]"
+      className="yw-media-scroll-surface no-scrollbar h-[calc(100dvh-4.75rem)] snap-y snap-mandatory overflow-y-scroll overscroll-y-contain bg-background [-webkit-overflow-scrolling:touch] [scroll-snap-stop:always] [scroll-behavior:smooth]"
       aria-label="Reels"
     >
       <ReelsList />
@@ -133,7 +135,7 @@ function ReelsList() {
   const { toggleFollow } = useYw();
   const scoped = Boolean(userId);
   const initialId = initialVideoId || reelId;
-  const [active, setActive] = useState(0);
+   const [active, setActive] = useState(-1);
   const nodes = useRef<(HTMLElement | null)[]>([]);
   const longVideoTarget = useQuery({
     queryKey: ["reel-target-long-video", initialId],
@@ -247,26 +249,40 @@ function ReelsList() {
     if (!initialId || loading) return;
     const targetIndex = dbReels.findIndex((reel) => reel.id === initialId);
     if (targetIndex < 0) return;
-    setActive(targetIndex);
     requestAnimationFrame(() => {
       nodes.current[targetIndex]?.scrollIntoView({ block: "start", behavior: "auto" });
     });
   }, [dbReels, initialId, loading]);
 
   useEffect(() => {
+    const scroller = document.getElementById("yw-reels-scroller");
+    const ratios = new Map<number, number>();
+    const selectVisible = () => {
+      let bestIndex = -1;
+      let bestRatio = 0.5;
+      if (document.visibilityState !== "hidden") {
+        for (const [index, ratio] of ratios) {
+          if (ratio > bestRatio) { bestIndex = index; bestRatio = ratio; }
+        }
+      }
+      setActive(bestIndex);
+    };
     const io = new IntersectionObserver(
       (entries) => {
-        let best: { i: number; ratio: number } | null = null;
         for (const e of entries) {
           const i = Number((e.target as HTMLElement).dataset.index);
-          if (!best || e.intersectionRatio > best.ratio) best = { i, ratio: e.intersectionRatio };
+          ratios.set(i, e.isIntersecting ? e.intersectionRatio : 0);
         }
-        if (best && best.ratio > 0.5) setActive(best.i);
+        selectVisible();
       },
-      { threshold: [0, 0.5, 0.75, 1] },
+      { root: scroller, threshold: [0, 0.5, 0.75, 1] },
     );
     nodes.current.forEach((n) => n && io.observe(n));
-    return () => io.disconnect();
+    document.addEventListener("visibilitychange", selectVisible);
+    return () => {
+      io.disconnect();
+      document.removeEventListener("visibilitychange", selectVisible);
+    };
   }, [items.length]);
 
   useEffect(() => {
@@ -325,8 +341,7 @@ function ReelsList() {
           className="relative h-[calc(100dvh-4.75rem)] w-full snap-start snap-always overflow-hidden [contain:layout_paint_size] [content-visibility:auto]"
         >
           {/* Only the active reel mounts its player and interaction controls. */}
-          {Math.abs(i - active) <= 1 ? (
-            i === active ? (
+          {i === active ? (
               <ReelItem
                 reel={reel}
                 currentUserId={currentUserId}
@@ -357,8 +372,7 @@ function ReelsList() {
                 bucket="thumbnails"
                 className="absolute inset-0"
               />
-            )
-          ) : null}
+            )}
         </section>
       ))}
     </>
@@ -415,6 +429,8 @@ function ReelMedia({
   const [asImage, setAsImage] = useState(!type.startsWith("video"));
   const [posterSrc, setPosterSrc] = useState<string | null>(null);
   const [mediaFailed, setMediaFailed] = useState(false);
+  const image = useScreenImage(asImage ? (mediaFailed && posterSrc ? posterSrc : src) : null);
+  const posterImage = useScreenImage(posterSrc);
   const tried = useRef<Set<string>>(new Set());
   const retryGeneration = useRef(0);
 
@@ -434,6 +450,8 @@ function ReelMedia({
     let alive = true;
     void resolveMediaUrl(posterUrl, bucket).then((resolved) => {
       if (alive) setPosterSrc(resolved || posterUrl);
+    }).catch(() => {
+      if (alive) setPosterSrc(posterUrl);
     });
     return () => {
       alive = false;
@@ -473,9 +491,8 @@ function ReelMedia({
   const setVideoRef = useCallback((element: HTMLVideoElement | null) => {
     const previous = videoRef.current;
     if (!element && previous) {
-      previous.pause();
-      previous.removeAttribute("src");
-      previous.load();
+      releaseListVideo(previous);
+      retryGeneration.current += 1;
     }
     videoRef.current = element;
     mediaRef.current = element;
@@ -522,11 +539,12 @@ function ReelMedia({
     }
     return (
       <ProtectedCanvasImage
-        src={mediaFailed && posterSrc ? posterSrc : src}
+        src={image.source || VIDEO_POSTER_FALLBACK}
         alt={alt}
         onError={handleError}
         onCanvasReady={(canvas) => {
           mediaRef.current = canvas;
+          image.ref.current = canvas;
         }}
         className={className}
       />
@@ -534,11 +552,11 @@ function ReelMedia({
   }
 
   return (
-    <div className="relative h-full w-full">
+    <div ref={(node) => { posterImage.ref.current = node; }} className="relative h-full w-full">
       <video
         ref={setVideoRef}
         src={posterSrc ? src : firstFrameUrl(src)}
-        poster={posterSrc ?? VIDEO_POSTER_FALLBACK}
+        poster={posterImage.source ?? VIDEO_POSTER_FALLBACK}
         playsInline
         muted={muted || !active}
         preload="metadata"
@@ -551,6 +569,7 @@ function ReelMedia({
       />
       <ProtectedCanvasVideoMirror
         videoRef={videoRef}
+        screenBounded
         className={`absolute inset-0 ${className}`}
       />
     </div>

@@ -26,6 +26,8 @@ import {
 } from "@/lib/video-playback-engine";
 import { resolveLongVideoUrl } from "@/lib/video-data";
 import { cn } from "@/lib/utils";
+import { releaseListVideo } from "@/lib/media-release";
+import { getAdaptivePerformanceSnapshot } from "@/lib/adaptive-performance";
 import {
   LazyVideoThumbnail,
   VIDEO_POSTER_FALLBACK,
@@ -39,7 +41,7 @@ type FeedCandidate = {
   candidateId: string;
   videoId: string;
   element: HTMLDivElement;
-  video: HTMLVideoElement;
+  video: HTMLVideoElement | null;
   url: string;
   access?: LongVideo["access"];
   prefetchNextVideos?: Array<Pick<LongVideo, "mediaUrl" | "access">>;
@@ -59,6 +61,7 @@ export type FeedVideoAutoplayControls = {
   activeVideoId: string | null;
   muted: boolean;
   registerCandidate: (candidate: FeedCandidateRegistration) => () => void;
+  attachVideo: (candidateId: string, player: HTMLVideoElement | null) => void;
   stopCandidate: (candidateId: string) => void;
   toggleMute: () => void;
 };
@@ -89,11 +92,7 @@ function saveMuteState(muted: boolean) {
 }
 
 function releaseVideo(candidate: FeedCandidate | null) {
-  if (!candidate) return;
-  candidate.video.pause();
-  candidate.video.preload = "metadata";
-  candidate.video.removeAttribute("src");
-  candidate.video.load();
+  releaseListVideo(candidate?.video ?? null);
 }
 
 function isPageVisible() {
@@ -152,45 +151,29 @@ export function FeedVideoAutoplayProvider({
     setActiveVideoId(null);
   }, [releaseActiveVideo]);
 
-  const activateCandidate = useCallback(
-    (candidate: FeedCandidate | null) => {
-      const current = activeCandidateRef.current;
-      if (current?.candidateId === candidate?.candidateId) return;
-
-      releaseActiveVideo(current);
-      activeCandidateRef.current = null;
-      setActiveCandidateId(candidate?.candidateId ?? null);
-      setActiveVideoId(null);
-
-      if (
-        !candidate ||
-        disabledRef.current ||
-          !isPageVisible() ||
-        suppressedCandidateRef.current === candidate.candidateId
-      ) {
-        return;
-      }
-
-      activeCandidateRef.current = candidate;
-      setActiveVideoId(candidate.videoId);
-      candidate.video.muted = candidate.forceMuted ? true : mutedRef.current;
-      candidate.video.playsInline = true;
-      candidate.video.preload = "auto";
-      candidate.video.loop = true;
+  const startCandidate = useCallback(
+    (candidate: FeedCandidate) => {
+      const player = candidate.video;
+      if (!player || activeCandidateRef.current !== candidate ||
+          disabledRef.current || !isPageVisible()) return;
+      player.muted = candidate.forceMuted ? true : mutedRef.current;
+      player.playsInline = true;
+      player.preload = "metadata";
+      player.loop = true;
       const playCandidate = () => {
-        if (activeCandidateRef.current !== candidate) return;
-        void attemptVideoPlay(candidate.video).catch((error: unknown) => {
-          if (activeCandidateRef.current !== candidate) return;
+        if (activeCandidateRef.current !== candidate || candidate.video !== player) return;
+        void attemptVideoPlay(player).catch((error: unknown) => {
+          if (activeCandidateRef.current !== candidate || candidate.video !== player) return;
           if (
             isAutoplayPolicyError(error) &&
             !candidate.forceMuted &&
             !mutedRef.current
           ) {
-            candidate.video.muted = true;
+            player.muted = true;
             mutedRef.current = true;
             setMuted(true);
             saveMuteState(true);
-            void attemptVideoPlay(candidate.video).catch(() => {
+            void attemptVideoPlay(player).catch(() => {
               if (activeCandidateRef.current === candidate) {
                 candidate.onPlaybackFailure?.();
               }
@@ -204,6 +187,7 @@ export function FeedVideoAutoplayProvider({
       void resolveCandidateUrl(candidate).then((url) => {
         if (
           activeCandidateRef.current !== candidate ||
+          candidate.video !== player ||
           disabledRef.current ||
           !isPageVisible()
         ) {
@@ -219,7 +203,10 @@ export function FeedVideoAutoplayProvider({
         }
 
         const nextVideo = candidate.prefetchNextVideos?.[0];
-        if (candidate.access === "public" && nextVideo?.access === "public") {
+        const performance = getAdaptivePerformanceSnapshot();
+        if (performance.deviceCapability !== "constrained" &&
+            performance.networkQuality === "fast" &&
+            candidate.access === "public" && nextVideo?.access === "public") {
           void canPrefetchVideo().then(async (allowed) => {
             if (
               !allowed ||
@@ -245,33 +232,39 @@ export function FeedVideoAutoplayProvider({
 
         if (isHlsMediaUrl(url)) {
           if (Hls.isSupported()) {
-            const hls = new Hls({ enableWorker: true });
+            const hls = new Hls({
+              enableWorker: true,
+              maxBufferLength: 10,
+              maxMaxBufferLength: 20,
+              backBufferLength: 0,
+              maxBufferSize: 8 * 1024 * 1024,
+            });
             hlsRef.current = hls;
             hls.on(Hls.Events.MANIFEST_PARSED, playCandidate);
             hls.on(Hls.Events.ERROR, (_event, data) => {
-              if (!data.fatal || activeCandidateRef.current !== candidate) return;
+              if (!data.fatal || activeCandidateRef.current !== candidate || candidate.video !== player) return;
               if (hlsRef.current === hls) hlsRef.current = null;
               hls.destroy();
-              if (supportsNativeHls(candidate.video)) {
-                candidate.video.src = url;
-                candidate.video.load();
+              if (supportsNativeHls(player)) {
+                player.src = url;
+                player.load();
                 playCandidate();
               } else {
                 candidate.onPlaybackFailure?.();
               }
             });
             hls.loadSource(url);
-            hls.attachMedia(candidate.video);
-          } else if (supportsNativeHls(candidate.video)) {
-            candidate.video.src = url;
-            candidate.video.load();
+            hls.attachMedia(player);
+          } else if (supportsNativeHls(player)) {
+            player.src = url;
+            player.load();
             playCandidate();
           } else {
             candidate.onPlaybackFailure?.();
           }
         } else {
-          candidate.video.src = url;
-          candidate.video.load();
+          player.src = url;
+          player.load();
           playCandidate();
         }
       }).catch(() => {
@@ -280,8 +273,29 @@ export function FeedVideoAutoplayProvider({
         }
       });
     },
-    [releaseActiveVideo],
+    [],
   );
+
+  const activateCandidate = useCallback((candidate: FeedCandidate | null) => {
+    if (activeCandidateRef.current?.candidateId === candidate?.candidateId) return;
+    releaseActiveVideo(activeCandidateRef.current);
+    activeCandidateRef.current = null;
+    const allowed = candidate && !disabledRef.current && isPageVisible() &&
+      suppressedCandidateRef.current !== candidate.candidateId;
+    setActiveCandidateId(allowed ? candidate.candidateId : null);
+    setActiveVideoId(allowed ? candidate.videoId : null);
+    if (!allowed) return;
+    activeCandidateRef.current = candidate;
+    startCandidate(candidate);
+  }, [releaseActiveVideo, startCandidate]);
+
+  const attachVideo = useCallback((candidateId: string, player: HTMLVideoElement | null) => {
+    const candidate = candidatesRef.current.get(candidateId);
+    if (!candidate || candidate.video === player) return;
+    releaseListVideo(candidate.video);
+    candidate.video = player;
+    if (player && activeCandidateRef.current === candidate) startCandidate(candidate);
+  }, [startCandidate]);
 
   reconcileRef.current = () => {
     if (disabledRef.current || !isPageVisible()) {
@@ -347,7 +361,7 @@ export function FeedVideoAutoplayProvider({
     mutedRef.current = nextMuted;
     setMuted(nextMuted);
     saveMuteState(nextMuted);
-    if (activeCandidateRef.current) {
+    if (activeCandidateRef.current?.video) {
       activeCandidateRef.current.video.muted = activeCandidateRef.current.forceMuted
         ? true
         : nextMuted;
@@ -456,10 +470,11 @@ export function FeedVideoAutoplayProvider({
       activeVideoId,
       muted,
       registerCandidate,
+      attachVideo,
       stopCandidate,
       toggleMute,
     }),
-    [activeCandidateId, activeVideoId, muted, registerCandidate, stopCandidate, toggleMute],
+    [activeCandidateId, activeVideoId, muted, registerCandidate, attachVideo, stopCandidate, toggleMute],
   );
 
   return (
@@ -496,7 +511,7 @@ export function FeedVideoPreview({
   showPlayFallback?: boolean;
   previewTestId?: string;
 }) {
-  const { activeCandidateId, muted, registerCandidate, stopCandidate } = useFeedVideoAutoplay();
+  const { activeCandidateId, muted, registerCandidate, attachVideo, stopCandidate } = useFeedVideoAutoplay();
   const previewRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [videoReady, setVideoReady] = useState(false);
@@ -506,17 +521,22 @@ export function FeedVideoPreview({
     setVideoReady(false);
     stopCandidate(candidateId);
   }, [candidateId, stopCandidate]);
+  const setVideoRef = useCallback((player: HTMLVideoElement | null) => {
+    if (!player) releaseListVideo(videoRef.current);
+    else setVideoReady(false);
+    videoRef.current = player;
+    attachVideo(candidateId, player);
+  }, [attachVideo, candidateId]);
 
   useEffect(() => {
     const element = previewRef.current;
-    const player = videoRef.current;
-    if (!element || !player || !video.mediaUrl || !canAutoplay) return;
+    if (!element || !video.mediaUrl || !canAutoplay) return;
 
     return registerCandidate({
       candidateId,
       videoId: video.id,
       element,
-      video: player,
+      video: videoRef.current,
       url: video.mediaUrl,
       access: video.access,
       prefetchNextVideos,
@@ -552,9 +572,9 @@ export function FeedVideoPreview({
         bucket="thumbnails"
         className="pointer-events-none m-0 select-none p-0 [&_img]:block"
       />
-      <video
-        ref={videoRef}
-        poster={video.thumbnailUrl || VIDEO_POSTER_FALLBACK}
+      {active && canAutoplay ? <video
+        ref={setVideoRef}
+        poster={VIDEO_POSTER_FALLBACK}
         crossOrigin="anonymous"
         playsInline
         muted={active ? muted : true}
@@ -579,7 +599,7 @@ export function FeedVideoPreview({
             ? "[transform:translate3d(0,0,0)] [backface-visibility:hidden] [will-change:transform]"
             : "",
         )}
-      />
+      /> : null}
       {interactive ? (
         <button
           type="button"

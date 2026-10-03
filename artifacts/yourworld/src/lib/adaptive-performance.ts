@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 
 export type NetworkQuality = "fast" | "normal" | "weak" | "offline";
 export type DeviceCapability = "capable" | "constrained";
@@ -48,17 +48,19 @@ function connectionInfo(): NetworkInformationLike | null {
   return (navigator as Navigator & { connection?: NetworkInformationLike }).connection ?? null;
 }
 
+export function classifyDeviceCapability(memory: number, cores: number): DeviceCapability {
+  // deviceMemory is rounded (a 3 GB phone may report 4 GB).
+  const knownMemory = Number.isFinite(memory) && memory > 0;
+  if ((knownMemory && memory <= 4) ||
+      (!knownMemory && Number.isFinite(cores) && cores > 0 && cores <= 4)) return "constrained";
+  return "capable";
+}
+
 function deviceCapability(): DeviceCapability {
   if (typeof navigator === "undefined") return "capable";
   const memory = Number((navigator as Navigator & { deviceMemory?: number }).deviceMemory);
   const cores = Number(navigator.hardwareConcurrency);
-  const hasSmallScreen = typeof window !== "undefined" && Math.min(window.innerWidth, window.innerHeight) <= 360;
-  if ((Number.isFinite(memory) && memory > 0 && memory <= 2) ||
-      (Number.isFinite(cores) && cores > 0 && cores <= 4 && memory <= 4) ||
-      hasSmallScreen) {
-    return "constrained";
-  }
-  return "capable";
+  return classifyDeviceCapability(memory, cores);
 }
 
 export function classifyNetworkQuality(input: {
@@ -243,6 +245,11 @@ export function adaptiveCameraCaptureAttempts(
 
 function AdaptiveMediaController() {
   const performance = useAdaptivePerformance();
+  const performanceRef = useRef(performance);
+  performanceRef.current = performance;
+  useEffect(() => {
+    document.documentElement.dataset.deviceCapability = performance.deviceCapability;
+  }, [performance.deviceCapability]);
 
   useEffect(() => {
     const videos = new Set<HTMLVideoElement>();
@@ -259,7 +266,7 @@ function AdaptiveMediaController() {
             const isVisible = entry.isIntersecting && entry.intersectionRatio > 0.15;
             visible.set(video, isVisible);
             if (!isVisible && !video.paused && !video.srcObject) video.pause();
-            syncVideo(video, performance, isVisible);
+             syncVideo(video, performanceRef.current, isVisible);
           });
         }, { threshold: [0, 0.15, 0.5] })
       : null;
@@ -276,7 +283,7 @@ function AdaptiveMediaController() {
     };
     const observeVideo = (video: HTMLVideoElement) => {
       if (videos.has(video)) {
-        syncVideo(video, performance, visible.get(video) ?? true);
+        syncVideo(video, performanceRef.current, visible.get(video) ?? true);
         return;
       }
       videos.add(video);
@@ -297,16 +304,37 @@ function AdaptiveMediaController() {
       video.addEventListener("stalled", waiting);
       video.addEventListener("playing", playing);
       io?.observe(video);
-      syncVideo(video, performance);
+      syncVideo(video, performanceRef.current);
     };
-    const scan = () => document.querySelectorAll("video").forEach((video) => observeVideo(video));
+    const forgetVideo = (video: HTMLVideoElement) => {
+      const handler = handlers.get(video);
+      if (handler) {
+        video.removeEventListener("play", handler.play);
+        video.removeEventListener("waiting", handler.waiting);
+        video.removeEventListener("stalled", handler.waiting);
+        video.removeEventListener("playing", handler.playing);
+      }
+      io?.unobserve(video);
+      handlers.delete(video);
+      videos.delete(video);
+    };
+    let scanFrame = 0;
+    const scan = () => {
+      scanFrame = 0;
+      // Removed list players must not stay retained by the monitor's Set/Map.
+      videos.forEach((video) => { if (!video.isConnected) forgetVideo(video); });
+      document.querySelectorAll("video").forEach(observeVideo);
+    };
     scan();
     const mutation = typeof MutationObserver !== "undefined"
-      ? new MutationObserver(scan)
+      ? new MutationObserver(() => {
+          if (!scanFrame) scanFrame = requestAnimationFrame(scan);
+        })
       : null;
     mutation?.observe(document.body, { childList: true, subtree: true });
     return () => {
       mutation?.disconnect();
+      cancelAnimationFrame(scanFrame);
       io?.disconnect();
       handlers.forEach((handler, video) => {
         video.removeEventListener("play", handler.play);
@@ -316,7 +344,7 @@ function AdaptiveMediaController() {
       });
       videos.clear();
     };
-  }, [performance]);
+  }, []);
 
   return null;
 }

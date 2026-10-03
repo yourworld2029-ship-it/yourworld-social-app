@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Play } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { resolveMediaUrl } from "@/lib/social-data";
+import { useScreenImage } from "@/lib/screen-image";
 
 const FALLBACK_VIDEO_POSTER_SVG =
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 9"><defs><linearGradient id="poster" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#27272a"/><stop offset="1" stop-color="#09090b"/></linearGradient></defs><rect width="16" height="9" fill="url(#poster)"/></svg>';
@@ -56,12 +57,15 @@ export function LazyVideoThumbnail({
       : null
     : rawSource;
   const baseSource = resolvedSource || VIDEO_POSTER_FALLBACK;
-  const source = failedSource === baseSource ? VIDEO_POSTER_FALLBACK : baseSource;
+  const image = useScreenImage(baseSource);
+  const source = failedSource === baseSource || image.error
+    ? VIDEO_POSTER_FALLBACK : image.source || VIDEO_POSTER_FALLBACK;
   const isFallback = source === VIDEO_POSTER_FALLBACK;
   const loaded = loadedSource === source;
 
   return (
     <div
+      ref={(node) => { image.ref.current = node; }}
       className={cn(
         "relative h-full w-full overflow-hidden bg-gradient-to-br from-zinc-800 via-zinc-900 to-zinc-950",
         className,

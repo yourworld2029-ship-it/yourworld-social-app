@@ -208,6 +208,7 @@ function NotificationsPage() {
                             alt=""
                             className="h-full w-full object-cover"
                             loading="lazy"
+                            decoding="async"
                           />
                           {!n.read && (
                             <span className="absolute right-0.5 top-0.5 h-2.5 w-2.5 rounded-full bg-primary ring-2 ring-background" />

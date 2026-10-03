@@ -200,6 +200,7 @@ function DownloadedVideoThumbnail({ video }: { video: DownloadedVideo }) {
           src={imageSource}
           alt=""
           loading="lazy"
+          decoding="async"
           onError={handleImageError}
           className="w-full h-full object-cover rounded-md"
         />

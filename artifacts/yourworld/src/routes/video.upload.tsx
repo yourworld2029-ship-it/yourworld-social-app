@@ -461,7 +461,7 @@ function VideoUploadPage() {
               }`}
             >
               {thumb ? (
-                <img src={thumb} alt="Custom video thumbnail" className="h-full w-full object-cover" />
+                <img src={thumb} alt="Custom video thumbnail" loading="lazy" decoding="async" className="h-full w-full object-cover" />
               ) : (
                 <div className="grid h-full w-full place-items-center text-zinc-600">
                   <ImageIcon size={20} />

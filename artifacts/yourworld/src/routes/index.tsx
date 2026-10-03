@@ -465,7 +465,7 @@ function HomePage() {
   }, [regularVideos, verticalVideos]);
 
   return (
-    <div className="min-h-screen bg-black text-white pb-24">
+    <div className="yw-media-scroll-surface min-h-screen bg-black text-white pb-24">
       <FeedTopBar alertCount={alertCount} />
 
       {/* Stories / Moments Tray */}

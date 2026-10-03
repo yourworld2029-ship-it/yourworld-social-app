@@ -45,6 +45,8 @@ export function ProfilePhotoViewer({
           <img
             src={src}
             alt={alt}
+            loading="lazy"
+            decoding="async"
             data-testid={testId}
             className={cn("block h-full w-full object-cover", imageClassName)}
             onError={onImageError}

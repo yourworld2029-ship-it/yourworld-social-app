@@ -33,6 +33,8 @@ export function ProfileAvatar({ user }: { user?: ProfileAvatarUser | null }) {
     <img
       src={imgUrl}
       alt=""
+      loading="lazy"
+      decoding="async"
       data-testid="profile-avatar"
       className="block h-full w-full rounded-full object-cover"
       onError={(event) => {

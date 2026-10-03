@@ -224,3 +224,17 @@ mtime_ms = 1791005339195
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/ad666fca-22d0-4350-bf49-b97c03fb6bff/eec1865e-0a8c-484c-829f-2af1000d3cf5"
 storage_version_token = "1791005449134369"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "ctVPkrwEMcBWLg_0Ijzlp"
+uri = "file://artifacts/yourworld/public/downloads/yourworld-20261003T055444Z-v38-release-debug-signed.apk"
+type = "unspecified"
+title = "YourWorld Android APK v38"
+description = "Signed release APK using the project's existing debug signing configuration. Version code 38, version name 1.0.37. Low-memory video lifecycle and screen-bounded thumbnails included. SHA-256: cdf18e7f3ace32e2b9b7880965de07eb6e5da592525094be26e0fd28f6bc5b2f."
+logical_id = "690ea260-0591-4072-8c34-c192f196b3c9"
+content_hash = "sha256:cdf18e7f3ace32e2b9b7880965de07eb6e5da592525094be26e0fd28f6bc5b2f"
+size = 6312026
+mtime_ms = 1791006884905
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/690ea260-0591-4072-8c34-c192f196b3c9/5070144c-9ec3-47f8-8d55-321e3a70c533"
+storage_version_token = "1791006940709637"
+content_type = "application/octet-stream"

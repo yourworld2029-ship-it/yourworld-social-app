@@ -1868,6 +1868,8 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                   <img
                     src={placeholderPosterUrl}
                     alt=""
+                    loading="lazy"
+                    decoding="async"
                     className="absolute inset-0 h-full w-full object-contain"
                   />
                 ) : (

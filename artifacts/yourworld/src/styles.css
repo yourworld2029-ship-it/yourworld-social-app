@@ -1467,6 +1467,41 @@ body,
   overflow-y: auto;
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
+  will-change: transform;
+  transform: translateZ(0);
+}
+
+#yw-reels-scroller,
+.feed-video-tray {
+  will-change: transform;
+  -webkit-overflow-scrolling: touch;
+  transform: translateZ(0);
+}
+
+/* Low-memory devices keep dimensions/colors, but avoid expensive filter layers. */
+html[data-device-capability="constrained"] .yw-media-scroll-surface :is(
+  [class*="backdrop-blur"], .header-lux, .surface-card, .surface-glass, .glass
+) {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+html[data-device-capability="constrained"] .yw-media-scroll-surface :is(
+  [class*="drop-shadow"], [class*="sports-identity-badge"], [style*="drop-shadow"]
+) {
+  filter: none !important;
+}
+
+html[data-device-capability="constrained"] .yw-media-scroll-surface :is(
+  [class*="shadow-2xl"], [class*="shadow-xl"], [class*="shadow-["], .surface-card
+) {
+  box-shadow: none !important;
+}
+
+html[data-device-capability="constrained"] .yw-media-scroll-surface :is(
+  .live-avatar-ring, .animate-thumbnail-shimmer, .animate-kenburns
+) {
+  animation: none !important;
 }
 
 .yw-video-player-route .yw-app-scroll-container {

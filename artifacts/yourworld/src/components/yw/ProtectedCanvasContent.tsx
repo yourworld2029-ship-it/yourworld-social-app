@@ -7,6 +7,7 @@ import {
   type RefObject,
 } from "react";
 import { extractExternalTextLinks } from "@/lib/chat-links";
+import { screenImageBounds } from "@/lib/screen-image";
 
 type WrappedTextLine = {
   text: string;
@@ -461,10 +462,12 @@ export function ProtectedCanvasVideoMirror({
   videoRef,
   className = "",
   style,
+  screenBounded = false,
 }: {
   videoRef: RefObject<HTMLVideoElement | null>;
   className?: string;
   style?: CSSProperties;
+  screenBounded?: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -475,11 +478,20 @@ export function ProtectedCanvasVideoMirror({
     if (!video || !canvas || !context) return;
 
     let frame = 0;
+    let videoFrame = 0;
+    const cancelDraw = () => {
+      cancelAnimationFrame(frame);
+      if (videoFrame) video.cancelVideoFrameCallback(videoFrame);
+      frame = videoFrame = 0;
+    };
     const draw = () => {
+      frame = videoFrame = 0;
       if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+        const bounds = screenBounded ? screenImageBounds() : { width: 1600, height: 1600 };
         const scale = Math.min(
           1,
-          1600 / Math.max(video.videoWidth || 1, video.videoHeight || 1),
+          bounds.width / (video.videoWidth || 320),
+          bounds.height / (video.videoHeight || 180),
         );
         const width = Math.max(1, Math.round((video.videoWidth || 320) * scale));
         const height = Math.max(1, Math.round((video.videoHeight || 180) * scale));
@@ -489,10 +501,14 @@ export function ProtectedCanvasVideoMirror({
         }
         context.drawImage(video, 0, 0, width, height);
       }
-      if (!video.paused && !video.ended) frame = requestAnimationFrame(draw);
+      if (!video.paused && !video.ended) {
+        if (screenBounded && typeof video.requestVideoFrameCallback === "function") {
+          videoFrame = video.requestVideoFrameCallback(draw);
+        } else frame = requestAnimationFrame(draw);
+      }
     };
     const drawContinuously = () => {
-      cancelAnimationFrame(frame);
+      cancelDraw();
       draw();
     };
 
@@ -503,13 +519,14 @@ export function ProtectedCanvasVideoMirror({
     drawContinuously();
 
     return () => {
-      cancelAnimationFrame(frame);
+      cancelDraw();
+      if (screenBounded) canvas.width = canvas.height = 0;
       video.removeEventListener("play", drawContinuously);
       video.removeEventListener("loadeddata", drawContinuously);
       video.removeEventListener("seeked", drawContinuously);
       video.removeEventListener("pause", drawContinuously);
     };
-  }, [videoRef]);
+  }, [videoRef, screenBounded]);
 
   return (
     <canvas

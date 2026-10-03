@@ -251,7 +251,7 @@ export function ProfileTemplate({
       {profile.cover_url ? (
         coverSrc ? (
           <div className="relative h-24 overflow-hidden sm:h-32">
-            <img src={coverSrc} alt="" className="h-full w-full scale-105 object-cover opacity-60" />
+            <img src={coverSrc} alt="" loading="lazy" decoding="async" className="h-full w-full scale-105 object-cover opacity-60" />
             <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-background/25 to-background" />
             <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded-full border border-white/10 bg-black/35 px-2.5 py-1 text-[9px] font-semibold uppercase tracking-[0.22em] text-white/70 backdrop-blur-md sm:left-4">
               <span className="h-1.5 w-1.5 rounded-full bg-amber-300" />
