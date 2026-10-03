@@ -19,6 +19,7 @@ import {
   saveOfflineVideo,
   type OfflineVideo,
 } from "@/lib/offlineVideosDB";
+import { writeDeviceOfflineVideosIndex } from "@/lib/device-offline-videos";
 import {
   getNativeFileUrl,
   getNativeOfflineVideo,
@@ -40,7 +41,7 @@ export { isAndroidNativeDownloads };
 
 const activeVideoDownloads = new Map<string, Promise<void>>();
 const downloadTaskListeners = new Set<() => void>();
-const downloadedVideoLibraryListeners = new Set<(ownerId: string) => void>();
+const downloadedVideoLibraryListeners = new Set<() => void>();
 const downloadTasks = new Map<string, DownloadTask>();
 let downloadTaskSnapshot: DownloadTask[] = [];
 
@@ -68,7 +69,7 @@ export function subscribeDownloadTasks(listener: () => void) {
   return () => downloadTaskListeners.delete(listener);
 }
 
-export function subscribeDownloadedVideoLibrary(listener: (ownerId: string) => void) {
+export function subscribeDownloadedVideoLibrary(listener: () => void) {
   downloadedVideoLibraryListeners.add(listener);
   return () => {
     downloadedVideoLibraryListeners.delete(listener);
@@ -107,8 +108,18 @@ function removeDownloadTask(id: string) {
   publishDownloadTasks();
 }
 
-function notifyDownloadedVideoLibrary(ownerId: string) {
-  downloadedVideoLibraryListeners.forEach((listener) => listener(ownerId));
+function notifyDownloadedVideoLibrary() {
+  void (async () => {
+    try {
+      const records = isAndroidNativeDownloads()
+        ? await listNativeOfflineVideos()
+        : await getAllOfflineVideos();
+      writeDeviceOfflineVideosIndex(records);
+    } catch (error) {
+      console.warn("[downloads] could not refresh the device offline-video index", error);
+    }
+    downloadedVideoLibraryListeners.forEach((listener) => listener());
+  })();
 }
 
 type DownloadWorkerMessage =
@@ -324,8 +335,8 @@ function readLegacyDownloadRecords() {
  * into the current IndexedDB store. The legacy records and cache entries are
  * deliberately retained so this compatibility path never destroys old media.
  */
-export async function migrateLegacyDownloadedVideos(ownerId: string) {
-  if (!ownerId || typeof caches === "undefined") return;
+export async function migrateLegacyDownloadedVideos() {
+  if (typeof caches === "undefined") return;
 
   try {
     const records = await readLegacyDownloadRecords();
@@ -337,7 +348,6 @@ export async function migrateLegacyDownloadedVideos(ownerId: string) {
 
     for (const record of records) {
       if (
-        record.ownerId !== ownerId ||
         typeof record.id !== "string" ||
         typeof record.mediaId !== "string" ||
         typeof record.cacheKey !== "string" ||
@@ -463,10 +473,11 @@ async function removeLegacyDownloadCopies(record: DownloadedVideo) {
   });
 }
 
-export async function listDownloadedVideos(ownerId: string) {
+export async function listDownloadedVideos() {
   if (isAndroidNativeDownloads()) {
-    await migrateIndexedDbDownloadsToNative(ownerId);
-    const records = await listNativeOfflineVideos(ownerId);
+    await migrateIndexedDbDownloadsToNative();
+    const records = await listNativeOfflineVideos();
+    writeDeviceOfflineVideosIndex(records);
     return Promise.all(
       records.map(async (record) => {
         const downloaded = toDownloadedVideo(record);
@@ -488,12 +499,11 @@ export async function listDownloadedVideos(ownerId: string) {
   }
 
   const records = await getAllOfflineVideos();
-  return records
-    .filter((record) => record.ownerId === ownerId)
-    .map(toDownloadedVideo);
+  writeDeviceOfflineVideosIndex(records);
+  return records.map(toDownloadedVideo);
 }
 
-async function migrateIndexedDbDownloadsToNative(ownerId: string) {
+async function migrateIndexedDbDownloadsToNative() {
   let records: OfflineVideo[];
   try {
     records = await getAllOfflineVideos();
@@ -502,11 +512,11 @@ async function migrateIndexedDbDownloadsToNative(ownerId: string) {
     return;
   }
 
-  const nativeRecords = await listNativeOfflineVideos(ownerId);
+  const nativeRecords = await listNativeOfflineVideos();
   const migratedIds = new Set(nativeRecords.map((record) => record.id));
   for (const record of records) {
     const id = String(record.id);
-    if (record.ownerId !== ownerId || !record.videoBlob || migratedIds.has(id)) continue;
+    if (!record.ownerId || !record.videoBlob || migratedIds.has(id)) continue;
     try {
       await saveNativeOfflineVideo(record, record.videoBlob);
       migratedIds.add(id);
@@ -517,10 +527,10 @@ async function migrateIndexedDbDownloadsToNative(ownerId: string) {
   }
 }
 
-export async function getDownloadedVideo(id: string, ownerId?: string) {
+export async function getDownloadedVideo(id: string) {
   if (isAndroidNativeDownloads()) {
-    if (ownerId) await migrateIndexedDbDownloadsToNative(ownerId);
-    const result = await getNativeOfflineVideo(id, ownerId);
+    await migrateIndexedDbDownloadsToNative();
+    const result = await getNativeOfflineVideo(id);
     if (!result) return null;
     const downloaded = toDownloadedVideo(result);
     if (result.thumbnailPath) {
@@ -536,7 +546,7 @@ export async function getDownloadedVideo(id: string, ownerId?: string) {
   }
 
   const result = await getOfflineVideoById(id);
-  if (!result || (ownerId && result.ownerId !== ownerId)) return null;
+  if (!result) return null;
   return toDownloadedVideo(result);
 }
 
@@ -549,18 +559,18 @@ export async function removeDownloadedVideo(record: DownloadedVideo) {
     } catch (error) {
       console.error("Could not remove a legacy offline-download copy:", error);
     }
-    notifyDownloadedVideoLibrary(record.ownerId);
+    notifyDownloadedVideoLibrary();
     return;
   }
 
   await removeLegacyDownloadCopies(record);
   await deleteOfflineVideo(record.id);
-  notifyDownloadedVideoLibrary(record.ownerId);
+  notifyDownloadedVideoLibrary();
 }
 
 export async function getDownloadedVideoUrl(record: DownloadedVideo) {
   if (isAndroidNativeDownloads()) {
-    const storedVideo = await getNativeOfflineVideo(record.id, record.ownerId);
+    const storedVideo = await getNativeOfflineVideo(record.id);
     if (!storedVideo?.localFilePath) return null;
     return getNativeFileUrl(storedVideo.localFilePath, storedVideo.localFileUri);
   }
@@ -583,7 +593,7 @@ export async function saveDownloadedVideo(
   } else {
     await saveOfflineVideo(record);
   }
-  notifyDownloadedVideoLibrary(metadata.ownerId);
+  notifyDownloadedVideoLibrary();
 }
 
 function createOfflineVideoRecord(
@@ -838,7 +848,7 @@ export async function downloadVideoForOfflineInBackground(
           rendered.blob,
           convertedMetadata.quality,
         );
-        notifyDownloadedVideoLibrary(metadata.ownerId);
+        notifyDownloadedVideoLibrary();
         onProgress?.(100);
         updateDownloadTask(key, title, 100);
         window.setTimeout(() => removeDownloadTask(key), 400);
@@ -878,7 +888,7 @@ export async function downloadVideoForOfflineInBackground(
         onProgress?.(percent);
       });
 
-      notifyDownloadedVideoLibrary(metadata.ownerId);
+      notifyDownloadedVideoLibrary();
       onProgress?.(100);
       updateDownloadTask(key, title, 100);
       window.setTimeout(() => removeDownloadTask(key), 400);

@@ -15,11 +15,11 @@ Keep quality/audio labels and selection behavior in the shared download sheet; r
 
 **How to apply:** When adding a new download entry point, pass its source tier, duration, title, and download callback into the shared sheet instead of rebuilding the option list.
 
-Offline library surfaces must pair cached video bytes with an IndexedDB metadata record scoped to the downloading user. CacheStorage alone can play a file but cannot populate a reliable Downloads list or support safe deletion.
+The Downloads tab is a device-wide library: never filter its rows by the signed-in user's ID. Keep the metadata index under the stable `device_offline_videos` key, with video bytes in IndexedDB or Android app-private storage.
 
-**Why:** Browser downloads previously had no searchable catalog, and signed-in users sharing a device must not see another account's offline records.
+**Why:** the user explicitly requires downloaded media to remain visible across logout, account changes, and auth-token removal on the same device.
 
-**How to apply:** Write metadata only after the selected video bytes are cached, resolve playback from the cache record, and delete both the cache entry and metadata row together.
+**How to apply:** list every saved device record regardless of current auth state, update the device index after saves/deletes, and keep sign-out/account cleanup away from that key and the media stores.
 
 Offline downloads are user-retained media, not a temporary cache: keep web copies in persistent IndexedDB and Android copies in app-private files with recoverable metadata. Never expire or purge them automatically; a manual delete must remove the media and every registry or recovery record. Temporary playback-range caches remain separate.
 
@@ -27,11 +27,11 @@ Offline downloads are user-retained media, not a temporary cache: keep web copie
 
 **How to apply:** Keep persistence requests ahead of IndexedDB use, restore Android entries from native transfer metadata, and make explicit deletion clear IndexedDB, legacy copies, native files, and native snapshots without adding a TTL.
 
-The owner-scoped Downloads view must remain usable from local storage while profile data is still loading or unavailable. Sign-out and session refresh may clear in-memory account state, but must not purge or replace saved media; only the user's explicit delete action removes a download.
+The device-scoped Downloads view must remain usable while auth/profile state is loading or unavailable. Sign-out and session refresh may clear in-memory account state, but must not purge or replace saved media; only an explicit download-delete action removes a download.
 
 **Why:** Offline users need to reach their saved library after an app restart even when the remote profile cannot load, and transient auth changes must not destroy device copies.
 
-**How to apply:** Render the Downloads tab from the locally restored authenticated owner and local download registry independently of profile fetch completion. Preserve existing records on refresh failures, and scope every displayed row to the current owner.
+**How to apply:** Render the Downloads tab directly from the persistent device library independently of profile fetch completion. Preserve existing records on refresh failures and never narrow the list when the current user changes.
 
 Reel playback metadata may use a `poster` field for the media source, so download catalog metadata must use the explicit thumbnail reference instead of assuming `poster` is an image.
 

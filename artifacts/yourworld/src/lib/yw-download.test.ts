@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { mock, test } from "node:test";
 import { nativeOfflinePathsForVideo } from "./native-offline-paths";
+import {
+  DEVICE_OFFLINE_VIDEOS_STORAGE_KEY,
+  readDeviceOfflineVideosIndex,
+  writeDeviceOfflineVideosIndex,
+} from "./device-offline-videos";
 import { fetchVideoBlob, reelWatermarkText, toDownloadedVideo } from "./yw-download";
 
 const sourceBytes = Uint8Array.from({ length: 100 }, (_, index) => index);
@@ -46,6 +51,64 @@ test("download-library metadata retains the selected quality tag", () => {
 
   assert.equal(downloaded.quality, "720p");
   assert.equal(downloaded.mediaId, "video-123");
+});
+
+test("device download metadata survives deleting an auth token", () => {
+  const values = new Map<string, string>();
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    },
+  });
+
+  try {
+    writeDeviceOfflineVideosIndex([
+      {
+        id: "account-a:video-1:original",
+        ownerId: "account-a",
+        mediaId: "video-1",
+        title: "First saved video",
+        author: "Creator A",
+        thumbnailUrl: "",
+        quality: "original",
+        sizeBytes: 4,
+        videoBlob: new Blob(["video-bytes"]),
+        downloadedAt: "2026-10-03T00:00:00.000Z",
+      },
+      {
+        id: "account-b:video-2:720p",
+        ownerId: "account-b",
+        mediaId: "video-2",
+        title: "Second saved video",
+        author: "Creator B",
+        thumbnailUrl: "",
+        quality: "720p",
+        sizeBytes: 8,
+        downloadedAt: "2026-10-03T00:01:00.000Z",
+      },
+    ]);
+
+    assert.deepEqual(
+      readDeviceOfflineVideosIndex().map((record) => record.ownerId),
+      ["account-a", "account-b"],
+    );
+    assert.equal(values.has(DEVICE_OFFLINE_VIDEOS_STORAGE_KEY), true);
+    assert.equal(
+      JSON.parse(values.get(DEVICE_OFFLINE_VIDEOS_STORAGE_KEY) ?? "[]")[0].videoBlob,
+      undefined,
+    );
+
+    values.set("supabase.auth.token", "session");
+    values.delete("supabase.auth.token");
+    assert.equal(readDeviceOfflineVideosIndex().length, 2);
+  } finally {
+    if (previous) Object.defineProperty(globalThis, "localStorage", previous);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+  }
 });
 
 test("video download uses one full GET without requesting a byte range", async () => {

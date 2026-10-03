@@ -366,16 +366,13 @@ async function commitNativeOfflineVideo(
   return nativeRecord;
 }
 
-export async function listNativeOfflineVideos(ownerId: string) {
+export async function listNativeOfflineVideos() {
   return (await readRegistry())
-    .filter((record) => record.ownerId === ownerId)
     .sort((a, b) => b.downloadedAt.localeCompare(a.downloadedAt));
 }
 
-export async function getNativeOfflineVideo(id: string, ownerId?: string) {
-  const record = (await readRegistry()).find((candidate) => candidate.id === id);
-  if (!record || (ownerId && record.ownerId !== ownerId)) return null;
-  return record;
+export async function getNativeOfflineVideo(id: string) {
+  return (await readRegistry()).find((candidate) => candidate.id === id) ?? null;
 }
 
 export async function saveNativeOfflineVideo(

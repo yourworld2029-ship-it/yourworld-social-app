@@ -34,7 +34,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { useAuth } from "@/lib/auth-store";
 import { EditProfileSheet, type ProfileEdit } from "@/components/yw/EditProfileSheet";
 import {
   useMyProfile,
@@ -135,9 +134,10 @@ export const Route = createFileRoute("/profile")({
   component: ProfilePage,
 });
 
+const DOWNLOADS_DEVICE_SCOPE = "device";
+
 function ProfilePage() {
   const queryClient = useQueryClient();
-  const { user: authUser } = useAuth();
   const {
     profile,
     avatarSrc,
@@ -157,7 +157,6 @@ function ProfilePage() {
   const navigate = useNavigate();
   const { connections, tab } = Route.useSearch();
   const { activateVideo } = useVideoPlayback();
-  const downloadsOwnerId = authUser?.id ?? null;
   const [downloads, setDownloads] = useState<DownloadedVideo[]>([]);
   const [downloadsLoading, setDownloadsLoading] = useState(false);
   const [downloadsLoadedFor, setDownloadsLoadedFor] = useState<string | null>(null);
@@ -211,7 +210,6 @@ function ProfilePage() {
     const { data } = supabase.auth.onAuthStateChange((event) => {
       if (event !== "SIGNED_IN" && event !== "SIGNED_OUT") return;
       downloadsRevisionRef.current += 1;
-      setDownloads([]);
       setDownloadsLoading(false);
       setDownloadsLoadedFor(null);
       setDownloadsAuthRevision((revision) => revision + 1);
@@ -220,16 +218,14 @@ function ProfilePage() {
   }, []);
 
   useEffect(() => {
-    if (!downloadsOwnerId) return;
     let subscribed = true;
-    const unsubscribe = subscribeDownloadedVideoLibrary((ownerId) => {
-      if (ownerId !== downloadsOwnerId) return;
+    const unsubscribe = subscribeDownloadedVideoLibrary(() => {
       const revision = ++downloadsRevisionRef.current;
-      void listDownloadedVideos(downloadsOwnerId)
+      void listDownloadedVideos()
         .then((records) => {
           if (!subscribed || revision !== downloadsRevisionRef.current) return;
           setDownloads(records);
-          setDownloadsLoadedFor(downloadsOwnerId);
+          setDownloadsLoadedFor(DOWNLOADS_DEVICE_SCOPE);
         })
         .catch((error) => {
           if (subscribed && revision === downloadsRevisionRef.current) {
@@ -241,34 +237,24 @@ function ProfilePage() {
       subscribed = false;
       unsubscribe();
     };
-  }, [downloadsOwnerId]);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
-    if (!downloadsOwnerId) {
-      downloadsRevisionRef.current += 1;
-      setDownloads([]);
-      setDownloadsLoading(false);
-      setDownloadsLoadedFor(null);
-      return;
-    }
-    if (tab !== "downloads" || downloadsLoadedFor === downloadsOwnerId) return;
+    if (tab !== "downloads" || downloadsLoadedFor === DOWNLOADS_DEVICE_SCOPE) return;
     const revisionAtLoadStart = downloadsRevisionRef.current;
     setDownloadsLoading(true);
-    void migrateLegacyDownloadedVideos(downloadsOwnerId)
-      .then(() => listDownloadedVideos(downloadsOwnerId))
+    void migrateLegacyDownloadedVideos()
+      .then(() => listDownloadedVideos())
       .then((records) => {
         if (!cancelled && revisionAtLoadStart === downloadsRevisionRef.current) {
           setDownloads(records);
-          setDownloadsLoadedFor(downloadsOwnerId);
+          setDownloadsLoadedFor(DOWNLOADS_DEVICE_SCOPE);
         }
       })
       .catch((error) => {
         if (!cancelled && revisionAtLoadStart === downloadsRevisionRef.current) {
-          setDownloads((current) =>
-            current.filter((record) => record.ownerId === downloadsOwnerId),
-          );
-          setDownloadsLoadedFor(downloadsOwnerId);
+          setDownloadsLoadedFor(DOWNLOADS_DEVICE_SCOPE);
           toast.error(error instanceof Error ? error.message : "Could not load offline videos");
         }
       })
@@ -278,7 +264,7 @@ function ProfilePage() {
     return () => {
       cancelled = true;
     };
-  }, [downloadsAuthRevision, downloadsLoadedFor, downloadsOwnerId, tab]);
+  }, [downloadsAuthRevision, downloadsLoadedFor, tab]);
 
   const openDownloadedVideo = async (record: DownloadedVideo) => {
     const url = await getDownloadedVideoUrl(record);
@@ -440,7 +426,7 @@ function ProfilePage() {
     const post = downloadTarget;
     try {
       if (post.kind === "video") {
-        const existingDownloads = await listDownloadedVideos(userId);
+        const existingDownloads = await listDownloadedVideos();
         const desiredQuality =
           choice === "original" || choice === "mp3"
             ? "original"
@@ -838,11 +824,7 @@ function ProfilePage() {
     }
   };
 
-  if (
-    tab === "downloads" &&
-    downloadsOwnerId &&
-    (loading || userId !== downloadsOwnerId || profile.id !== downloadsOwnerId)
-  ) {
+  if (tab === "downloads") {
     return (
       <main
         data-testid="offline-profile-downloads"
@@ -869,7 +851,7 @@ function ProfilePage() {
           <DownloadedVideoList
             videos={downloads}
             loading={
-              downloadsLoading || downloadsLoadedFor !== downloadsOwnerId
+              downloadsLoading || downloadsLoadedFor !== DOWNLOADS_DEVICE_SCOPE
             }
             onOpen={(record) => void openDownloadedVideo(record)}
             onDelete={deleteDownloadedVideo}

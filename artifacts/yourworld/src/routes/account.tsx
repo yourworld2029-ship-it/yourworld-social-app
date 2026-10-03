@@ -808,17 +808,6 @@ function AccountPage() {
       await queryClient.cancelQueries();
       queryClient.clear();
       await signOut("local");
-      try {
-        // This is explicit account deletion cleanup, not ordinary logout.
-        const savedDownloads = localStorage.getItem("yw_offline_media_index_v1");
-        localStorage.clear();
-        if (savedDownloads !== null) {
-          localStorage.setItem("yw_offline_media_index_v1", savedDownloads);
-        }
-        sessionStorage.clear();
-      } catch (storageError) {
-        console.warn("[account] local browser storage could not be cleared", storageError);
-      }
       toast.success("Your account has been deleted");
       navigate({ to: "/auth", search: { redirect: undefined }, replace: true });
     } catch (error) {

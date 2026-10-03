@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { createFileRoute, useNavigate, useParams } from "@tanstack/react-router";
 import { AlertCircle, CheckCircle2, Download } from "lucide-react";
 import { VideoPlaybackSlot, useVideoPlayback } from "@/lib/video-playback";
-import { useAuth } from "@/lib/auth-store";
 import {
   getDownloadedVideo,
   getDownloadedVideoUrl,
@@ -17,7 +16,6 @@ export const Route = createFileRoute("/downloads/$downloadId")({
 function DownloadedVideoPage() {
   const navigate = useNavigate();
   const params = useParams({ strict: false });
-  const { user } = useAuth();
   const { activeVideo, activateVideo } = useVideoPlayback();
   const [record, setRecord] = useState<DownloadedVideo | null>(null);
   const [loading, setLoading] = useState(true);
@@ -33,7 +31,7 @@ function DownloadedVideoPage() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    void getDownloadedVideo(downloadId, user?.id)
+    void getDownloadedVideo(downloadId)
       .then(async (nextRecord) => {
         if (cancelled) return;
         if (!nextRecord) {
@@ -63,7 +61,7 @@ function DownloadedVideoPage() {
     return () => {
       cancelled = true;
     };
-  }, [activateVideo, activeVideo?.id, downloadId, user?.id]);
+  }, [activateVideo, activeVideo?.id, downloadId]);
 
   useEffect(() => {
     if (!loading && !record) {
