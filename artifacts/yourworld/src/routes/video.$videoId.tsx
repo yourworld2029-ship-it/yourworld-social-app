@@ -424,9 +424,16 @@ function VideoRouteComponent() {
           video.author.username,
           undefined,
           metadata,
+          {
+            targetQuality:
+              choice !== "original" ? choice : undefined,
+            transcodeSource:
+              choice !== "original" &&
+              !selection?.usesVariant,
+          },
         );
         toast.success(
-          result === "native-original"
+          result === "native-offline"
             ? "Saved video for offline viewing"
             : "Saved video with YourWorld watermark",
         );

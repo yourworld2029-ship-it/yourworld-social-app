@@ -8,6 +8,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import {
+  capQualityTierToSource,
   downloadFileSizeBytesFromHeaders,
   type DownloadQualityUrls,
   estimateDownloadSizeMb,
@@ -204,10 +205,16 @@ export function DownloadSheet({
     }
 
     const sizeCandidates = choices.flatMap((choice) => {
+      const variantTierIsUsable =
+        choice === "original" ||
+        choice === "mp3" ||
+        !sourceQualityTier ||
+        capQualityTierToSource(choice, sourceQualityTier) === choice;
       const url =
         choice === "original"
           ? sourceMediaUrl
           : choice !== "mp3"
+            && variantTierIsUsable
             ? qualityMediaUrls?.[choice]
             : undefined;
       return url ? [{ choice, url }] : [];
@@ -245,16 +252,17 @@ export function DownloadSheet({
 
   const sizeForChoice = (choice: DownloadChoice) => {
     const providedSourceSize = positiveByteSize(sourceFileSizeBytes);
+    const effectiveTier =
+      choice !== "original" && choice !== "mp3"
+        ? capQualityTierToSource(choice, sourceQualityTier)
+        : null;
     const isSourceFallback =
       choice !== "original" &&
       choice !== "mp3" &&
-      !qualityMediaUrls?.[choice]?.trim();
-    if (isSourceFallback) {
-      const sourceSize = resolvedFileSizes.original ?? providedSourceSize;
-      return formatDownloadSizeMb(sourceSize ? sourceSize / 1_000_000 : null, Boolean(sourceSize));
-    }
-
-    const exactSize =
+      (!qualityMediaUrls?.[choice]?.trim() || effectiveTier !== choice);
+    const exactSize = isSourceFallback
+      ? null
+      :
       resolvedFileSizes[choice] ??
       (choice === "original" ? providedSourceSize : null);
     if (exactSize) {
@@ -267,16 +275,17 @@ export function DownloadSheet({
     if (choice === "mp3") {
       return formatDownloadSizeMb(estimateDownloadSizeMb(resolvedDurationSeconds, "mp3"));
     }
+    if (!effectiveTier) return formatDownloadSizeMb(null);
 
     const sourceSizeBytes =
       resolvedFileSizes.original ?? providedSourceSize;
     const sourceEstimate = estimateDownloadSizeMbFromSourceFile(
       sourceSizeBytes,
       sourceQualityTier,
-      choice,
+      effectiveTier,
     );
     return formatDownloadSizeMb(
-      sourceEstimate ?? estimateDownloadSizeMb(resolvedDurationSeconds, choice),
+      sourceEstimate ?? estimateDownloadSizeMb(resolvedDurationSeconds, effectiveTier),
     );
   };
 
@@ -288,11 +297,6 @@ export function DownloadSheet({
       console.error("[downloads] background download failed", error);
     });
   };
-  const selectedHasVariant =
-    selected !== "original" &&
-    selected !== "mp3" &&
-    Boolean(qualityMediaUrls?.[selected]?.trim());
-
   return (
     <Sheet
       open={open}
@@ -320,7 +324,14 @@ export function DownloadSheet({
             const isSourceFallback =
               !isOriginal &&
               choice !== "mp3" &&
-              !qualityMediaUrls?.[choice]?.trim();
+              (!qualityMediaUrls?.[choice]?.trim() ||
+                (sourceQualityTier !== null &&
+                  sourceQualityTier !== undefined &&
+                  capQualityTierToSource(choice, sourceQualityTier) !== choice));
+            const effectiveTier =
+              choice !== "original" && choice !== "mp3"
+                ? capQualityTierToSource(choice, sourceQualityTier)
+                : null;
             const quality =
               choice !== "original" && choice !== "mp3" ? QUALITY_COPY[choice] : null;
             const size = sizeForChoice(choice);
@@ -353,8 +364,8 @@ export function DownloadSheet({
                       ? "Original source file"
                       : isSourceFallback
                         ? sourceQualityTier
-                          ? `Direct source file · ${sourceQualityTier} source`
-                          : "Direct source file · quality varies"
+                          ? `Encoded from ${sourceQualityTier} source · up to ${effectiveTier}`
+                          : `Creates an encoded ${choice} copy · estimated size`
                         : quality?.description}{" "}
                     · {size}
                   </span>
@@ -379,9 +390,7 @@ export function DownloadSheet({
               ? "Download Video (Original Quality)"
               : selected === "mp3"
                 ? "Download Video"
-                : selectedHasVariant
-                  ? `Download ${QUALITY_COPY[selected]?.title ?? selected}`
-                  : "Download Direct Source"}
+                  : `Download ${QUALITY_COPY[selected]?.title ?? selected}`}
           </button>
         </div>
       </SheetContent>

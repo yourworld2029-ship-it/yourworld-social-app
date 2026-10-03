@@ -194,6 +194,14 @@ function safeExtension(mimeType: string, fallback: string) {
   return extension;
 }
 
+function versionedOfflinePaths(paths: { localFilePath: string; thumbnailPath: string }) {
+  const version = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+  return {
+    localFilePath: paths.localFilePath.replace(/(\.[^.]+)$/, `-${version}$1`),
+    thumbnailPath: `${paths.thumbnailPath}-${version}`,
+  };
+}
+
 function assertDirectVideoUrl(sourceUrl: string) {
   let url: URL;
   try {
@@ -311,15 +319,20 @@ async function commitNativeOfflineVideo(
     thumbnailPath: null,
   };
 
-  const previous = await updateRegistry((current) => ({
-    entries: [...current.filter((entry) => entry.id !== nativeRecord.id), nativeRecord],
-    result: current.find((entry) => entry.id === nativeRecord.id) ?? null,
-  }));
-
-  if (previous?.localFilePath !== nativeRecord.localFilePath) {
-    void removeFile(previous?.localFilePath);
+  const commitResult = await updateRegistry((current) => {
+    const existing = current.find((entry) => entry.id === nativeRecord.id);
+    if (existing) {
+      return { entries: current, result: { record: existing, inserted: false } };
+    }
+    return {
+      entries: [...current, nativeRecord],
+      result: { record: nativeRecord, inserted: true },
+    };
+  });
+  if (!commitResult.inserted) {
+    await removeFile(localFilePath);
+    return commitResult.record;
   }
-  if (previous?.thumbnailPath) void removeFile(previous.thumbnailPath);
 
   // The video and its index are durable now. Thumbnail fetching must not delay
   // the Downloads tab from showing the completed video.
@@ -373,11 +386,13 @@ export async function saveNativeOfflineVideo(
   if (!videoBlob.size) throw new Error("The offline video file is empty.");
 
   const normalizedRecord = { ...record, id: String(record.id), videoBlob };
-  const paths = nativeOfflinePathsForVideo(
+  const basePaths = nativeOfflinePathsForVideo(
     normalizedRecord.mediaId || normalizedRecord.id,
     normalizedRecord.quality,
     normalizedRecord.ownerId,
+    videoBlob.type || "video/mp4",
   );
+  const paths = versionedOfflinePaths(basePaths);
   try {
     await writeBlob(paths.localFilePath, videoBlob);
     return await commitNativeOfflineVideo(
@@ -403,11 +418,11 @@ export async function downloadNativeOfflineVideoFromUrl(
   assertDirectVideoUrl(sourceUrl);
 
   const normalizedRecord = { ...record, id: String(record.id) };
-  const paths = nativeOfflinePathsForVideo(
+  const paths = versionedOfflinePaths(nativeOfflinePathsForVideo(
     normalizedRecord.mediaId || normalizedRecord.id,
     normalizedRecord.quality,
     normalizedRecord.ownerId,
-  );
+  ));
   const listener = await Filesystem.addListener("progress", (progress) => {
     if (progress.url === sourceUrl) {
       onProgress?.(progress.bytes, progress.contentLength);

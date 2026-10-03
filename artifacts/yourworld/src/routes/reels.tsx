@@ -39,6 +39,7 @@ import {
   isAndroidNativeDownloads,
   reelWatermarkText,
   sanitizeDownloadName,
+  type DownloadedVideoMetadata,
 } from "@/lib/yw-download";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -46,7 +47,7 @@ import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadShee
 import {
   qualityTierFromDimensions,
   qualityTierFromSourceMetadata,
-  requireDownloadVariantUrl,
+  resolveVideoDownloadSelection,
   type VideoQualityTier,
 } from "@/lib/video-quality";
 import { trackEvent } from "@/lib/analytics";
@@ -939,6 +940,10 @@ function ReelItem({
   ) => {
     if (!user) return;
     const isVideo = mediaType?.startsWith("video") && Boolean(mediaUrl);
+    if (isVideo && !currentUserId) {
+      toast.error("Sign in to save videos for offline viewing.");
+      return;
+    }
     if (isVideo && !choice) {
       setDownloadOpen(true);
       return;
@@ -950,27 +955,33 @@ function ReelItem({
         ? choice === "mp3"
           ? "Preparing MP3 audio…"
           : isAndroidNativeDownloads()
-            ? "Saving original Reel for offline viewing…"
+            ? "Saving Reel for offline viewing…"
             : "Preparing watermarked Reel…"
         : "Preparing image download…",
     );
     try {
       if (isVideo) {
-        const selectedQualityUrl =
-          choice && choice !== "original" && choice !== "mp3"
-            ? requireDownloadVariantUrl(choice, reel.qualityUrls)
-            : undefined;
-        const playableUrl = selectedQualityUrl
-          ? getLocalMedia(selectedQualityUrl) ??
-            await resolveMediaUrl(selectedQualityUrl, mediaBucket ?? "reels")
-          : getLocalMedia(source) ?? await resolveMediaUrl(source);
+        const selectedTier: VideoQualityTier | undefined =
+          choice && choice !== "original" && choice !== "mp3" ? choice : undefined;
+        const selection = selectedTier
+          ? resolveVideoDownloadSelection(
+              selectedTier,
+              source,
+              reel.qualityUrls,
+              reel.sourceQualityTier,
+            )
+          : null;
+        const selectedUrl = selection?.usesVariant ? selection.url : source;
+        const playableUrl =
+          getLocalMedia(selectedUrl) ??
+          await resolveMediaUrl(selectedUrl, mediaBucket ?? "reels");
         if (!playableUrl) throw new Error("This video is unavailable for download");
         const baseName = sanitizeDownloadName(reel.caption, `yw-reel-${reel.id}`);
         const resolvedThumbnailUrl = reel.thumbnailUrl
           ? await resolveMediaUrl(reel.thumbnailUrl, mediaBucket ?? "reels")
           : null;
-        const downloadMetadata = {
-          ownerId: currentUserId || "anonymous",
+        const downloadMetadata: DownloadedVideoMetadata = {
+          ownerId: currentUserId!,
           mediaId: reel.id,
           title: reel.caption || "Untitled Moment",
           creatorName: author?.name ?? "YourWorld athlete",
@@ -981,7 +992,7 @@ function ReelItem({
           durationSeconds: reel.durationSeconds,
           thumbnailUrl: resolvedThumbnailUrl,
           posterUrl: resolvedThumbnailUrl,
-          quality: choice === "original" ? "original" as const : choice as VideoQualityTier,
+          quality: selectedTier ?? "original",
         };
         if (choice === "mp3") {
           await downloadAudioOnly(playableUrl, baseName, (percent) => {
@@ -997,18 +1008,22 @@ function ReelItem({
               reportProgress?.(percent);
             },
             downloadMetadata,
+            {
+              targetQuality: selectedTier,
+              transcodeSource: Boolean(selectedTier && !selection?.usesVariant),
+            },
           );
           trackEvent("reel_downloaded", {
             surface: "reels_feed",
             media_type: "video",
             download_type:
-              downloadMode === "native-original"
-                ? "native_offline_original"
+              downloadMode === "native-offline"
+                ? "native_offline_video"
                 : "watermarked_video",
             download_quality: choice || "original",
           });
           toast.success(
-            downloadMode === "native-original"
+            downloadMode === "native-offline"
               ? "Saved Reel for offline viewing"
               : "Saved Reel with YourWorld watermark",
             { id: toastId },

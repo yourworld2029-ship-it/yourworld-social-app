@@ -935,6 +935,8 @@ export async function publishReel(opts: {
 
   let mediaUrl = opts.fileUrl;
   let sourceBlob: Blob | null = opts.file ?? null;
+  let uploadedWidth = opts.originalWidth ?? null;
+  let uploadedHeight = opts.originalHeight ?? null;
 
   // Blob/object URLs must be uploaded to storage first.
   if (/^(blob:|data:)/.test(opts.fileUrl)) {
@@ -944,6 +946,10 @@ export async function publishReel(opts: {
       const uploadBlob = await optimizeVideoBlob(
         blob,
         (percent, detail) => opts.onProgress?.(Math.round(percent * 0.45), detail),
+        (dimensions) => {
+          uploadedWidth = dimensions.width;
+          uploadedHeight = dimensions.height;
+        },
       );
       const ext = uploadBlob.type.includes("webm") ? "webm" : "mp4";
       const path = `${uid}/${Date.now()}.${ext}`;
@@ -1000,16 +1006,16 @@ export async function publishReel(opts: {
     tagged_user_ids: opts.taggedUserIds ?? [],
     viewer_user_ids: opts.viewerUserIds ?? [],
     duration_seconds: opts.durationSeconds ? Math.round(opts.durationSeconds) : null,
-    original_width: opts.originalWidth ?? null,
-    original_height: opts.originalHeight ?? null,
-    source_quality_tier: sourceQualityTierFromDimensions(opts.originalWidth, opts.originalHeight),
+    original_width: uploadedWidth,
+    original_height: uploadedHeight,
+    source_quality_tier: sourceQualityTierFromDimensions(uploadedWidth, uploadedHeight),
   }, { kind: "type" });
   if (error) console.error("Reel database insert failed", error);
   else rememberLocalMedia(mediaUrl, opts.fileUrl);
   return { error: error?.message ?? null };
 }
 
-/** Uploads the original reel file without client-side re-encoding or rendering. */
+/** Uploads a safely optimized Reel when local video encoding is supported. */
 export async function publishDirectReel(opts: {
   file: File;
   title: string;
@@ -1037,14 +1043,29 @@ export async function publishDirectReel(opts: {
     return { error: MAX_REEL_DURATION_MESSAGE };
   }
 
-  const extension = opts.file.name.split(".").pop()?.toLowerCase() || "mp4";
+  let uploadedWidth = opts.originalWidth ?? null;
+  let uploadedHeight = opts.originalHeight ?? null;
+  const uploadBlob = await optimizeVideoBlob(
+    opts.file,
+    (percent, detail) => opts.onProgress?.(Math.round(percent * 0.12), detail),
+    (dimensions) => {
+      uploadedWidth = dimensions.width;
+      uploadedHeight = dimensions.height;
+    },
+  );
+  const uploadType = uploadBlob.type || opts.file.type || "video/mp4";
+  const extension =
+    uploadType.split("/")[1]?.split(";")[0]?.toLowerCase() ||
+    opts.file.name.split(".").pop()?.toLowerCase() ||
+    "mp4";
   const path = `${uid}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${extension}`;
   const { url: mediaUrl, error: uploadError } = await uploadWithProgress(
     STORAGE_BUCKETS.reels,
     path,
-    opts.file,
-    opts.file.type || "video/mp4",
-    (percent, detail) => opts.onProgress?.(Math.min(88, Math.round(percent * 0.88)), detail),
+    uploadBlob,
+    uploadType,
+    (percent, detail) =>
+      opts.onProgress?.(Math.min(88, 12 + Math.round(percent * 0.76)), detail),
     IMMUTABLE_MEDIA_CACHE_CONTROL,
   );
   if (uploadError || !mediaUrl) {
@@ -1094,11 +1115,11 @@ export async function publishDirectReel(opts: {
       tagged_user_ids: [],
       viewer_user_ids: [],
       duration_seconds: Math.round(opts.durationSeconds),
-      original_width: opts.originalWidth ?? null,
-      original_height: opts.originalHeight ?? null,
+      original_width: uploadedWidth,
+      original_height: uploadedHeight,
       source_quality_tier: sourceQualityTierFromDimensions(
-        opts.originalWidth,
-        opts.originalHeight,
+        uploadedWidth,
+        uploadedHeight,
       ),
     },
     { kind: "type" },

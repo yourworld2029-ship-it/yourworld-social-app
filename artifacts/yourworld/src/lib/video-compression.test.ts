@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { selectSupportedRecorderMimeType } from "./video-compression";
+import {
+  outputSizeForQuality,
+  qualityTierForOutput,
+  selectSupportedRecorderMimeType,
+} from "./video-compression";
 
 test("prefers compatible MP4 recording and falls back to AV1 or WebM", () => {
   assert.equal(
@@ -16,4 +20,17 @@ test("prefers compatible MP4 recording and falls back to AV1 or WebM", () => {
     'video/webm;codecs="vp9,opus"',
   );
   assert.equal(selectSupportedRecorderMimeType(() => false), null);
+});
+
+test("quality conversion downsizes without upscaling the source", () => {
+  assert.deepEqual(
+    outputSizeForQuality({ width: 1920, height: 1080, duration: 60 }, "720p"),
+    { width: 1280, height: 720 },
+  );
+  assert.deepEqual(
+    outputSizeForQuality({ width: 640, height: 360, duration: 60 }, "1080p"),
+    { width: 640, height: 360 },
+  );
+  assert.equal(qualityTierForOutput(640, 360, "1080p"), "360p");
+  assert.equal(qualityTierForOutput(3840, 2160, "1080p"), "1080p");
 });

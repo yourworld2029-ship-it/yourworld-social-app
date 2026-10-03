@@ -83,9 +83,10 @@ import {
 } from "@/lib/yw-download";
 import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadSheet";
 import {
+  capQualityTierToSource,
   qualityTierFromDimensions,
   qualityTierFromSourceMetadata,
-  requireDownloadVariantUrl,
+  resolveVideoDownloadSelection,
   type DownloadQualityUrls,
   type VideoQualityTier,
 } from "@/lib/video-quality";
@@ -440,8 +441,12 @@ function ProfilePage() {
     try {
       if (post.kind === "video") {
         const existingDownloads = await listDownloadedVideos(userId);
+        const desiredQuality =
+          choice === "original" || choice === "mp3"
+            ? "original"
+            : capQualityTierToSource(choice, downloadSourceQualityTier);
         const alreadyDownloaded = existingDownloads.some(
-          (item) => item.id === post.id || item.mediaId === post.id,
+          (item) => item.mediaId === post.id && item.quality === desiredQuality,
         );
         if (alreadyDownloaded) {
           toast.info("Video is already downloaded");
@@ -451,14 +456,25 @@ function ProfilePage() {
 
       const mediaBucket =
         post.kind === "reel" ? STORAGE_BUCKETS.reels : STORAGE_BUCKETS.videos;
-      const selectedQualityPath =
+      const sourceMediaUrl =
+        downloadSourceUrl ?? (await resolveMediaUrl(post.media_url, mediaBucket));
+      const selection =
         choice !== "original" && choice !== "mp3"
-          ? requireDownloadVariantUrl(choice, downloadQualityUrls)
-          : undefined;
-      const mediaUrl = selectedQualityPath
-        ? await resolveMediaUrl(selectedQualityPath, mediaBucket)
-        : downloadSourceUrl ?? (await resolveMediaUrl(post.media_url, mediaBucket));
+          ? resolveVideoDownloadSelection(
+              choice,
+              sourceMediaUrl,
+              downloadQualityUrls,
+              downloadSourceQualityTier,
+            )
+          : null;
+      const mediaUrl =
+        selection?.usesVariant
+          ? await resolveMediaUrl(selection.url, mediaBucket)
+          : sourceMediaUrl;
       if (!mediaUrl) throw new Error("This media file is unavailable");
+      if (choice !== "original" && choice !== "mp3" && !selection) {
+        throw new Error("This media file is unavailable");
+      }
 
       const creatorName = profile.display_name || "YourWorld creator";
       const creatorUsername = profile.username || "creator";
@@ -500,9 +516,16 @@ function ProfilePage() {
           creatorUsername,
           reportProgress,
           metadata,
+          {
+            targetQuality:
+              choice !== "original" ? choice : undefined,
+            transcodeSource:
+              choice !== "original" &&
+              !selection?.usesVariant,
+          },
         );
         toast.success(
-          downloadMode === "native-original"
+          downloadMode === "native-offline"
             ? post.kind === "reel"
               ? "Saved Reel for offline viewing"
               : "Saved video for offline viewing"

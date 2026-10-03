@@ -1,9 +1,12 @@
 import type { ProgressFn } from "@/lib/storage-upload";
+import {
+  VIDEO_QUALITY_TIERS,
+  qualityTierFromDimensions,
+  type VideoQualityTier,
+} from "@/lib/video-quality";
 
-const OPTIMIZING_LABEL = "Optimizing Video for Ultra-Fast Upload...";
-const MAX_PRESERVED_DIMENSION = 3_840;
-const HEAVY_SOURCE_MAX_DIMENSION = 2_560;
-const LARGE_RECORDING_BYTES = 64 * 1024 * 1024;
+const OPTIMIZING_LABEL = "Preparing optimized video...";
+const UPLOAD_MAX_TIER: VideoQualityTier = "1080p";
 
 const RECORDER_MIME_CANDIDATES = [
   'video/mp4;codecs="avc1.640028"',
@@ -84,35 +87,51 @@ function even(value: number) {
   return Math.max(2, Math.floor(value / 2) * 2);
 }
 
-function outputSize(metadata: VideoMetadata, maxDimension = MAX_PRESERVED_DIMENSION) {
-  const scale = Math.min(
-    1,
-    maxDimension / Math.max(metadata.width, metadata.height),
-  );
+function outputSize(metadata: VideoMetadata, maxShortSide: number) {
+  const scale = Math.min(1, maxShortSide / Math.min(metadata.width, metadata.height));
   return {
     width: even(metadata.width * scale),
     height: even(metadata.height * scale),
   };
 }
 
-function targetBitrates(metadata: VideoMetadata) {
-  const maxDimension = Math.max(metadata.width, metadata.height);
+function tierIndex(tier: VideoQualityTier) {
+  return VIDEO_QUALITY_TIERS.findIndex((candidate) => candidate.id === tier);
+}
+
+export function qualityTierForOutput(
+  width: number,
+  height: number,
+  target: VideoQualityTier,
+) {
+  const sourceTier = qualityTierFromDimensions(width, height);
+  if (!sourceTier) return null;
+  return tierIndex(sourceTier) < tierIndex(target) ? sourceTier : target;
+}
+
+export function outputSizeForQuality(
+  metadata: VideoMetadata,
+  tier: VideoQualityTier,
+) {
+  const definition = VIDEO_QUALITY_TIERS.find((candidate) => candidate.id === tier);
+  if (!definition) throw new Error("Unsupported video quality");
+  return outputSize(metadata, definition.shortSide);
+}
+
+function targetBitrates(tier: VideoQualityTier) {
   const videoBitsPerSecond =
-    maxDimension <= 1_920
-      ? 8_000_000
-      : maxDimension <= 2_560
-        ? 16_000_000
-        : 35_000_000;
+    VIDEO_QUALITY_TIERS.find((candidate) => candidate.id === tier)?.bitrate ?? 5_000_000;
   return {
     videoBitsPerSecond,
-    audioBitsPerSecond: 192_000,
-    totalBitsPerSecond: videoBitsPerSecond + 192_000,
+    audioBitsPerSecond: 128_000,
+    totalBitsPerSecond: videoBitsPerSecond + 128_000,
   };
 }
 
 function encodeVideo(
   sourceUrl: string,
   metadata: VideoMetadata,
+  tier: VideoQualityTier,
   mimeType: string,
   bitrateFactor: number,
   size: { width: number; height: number },
@@ -134,7 +153,7 @@ function encodeVideo(
     canvas.width = size.width;
     canvas.height = size.height;
     const canvasContext = canvas.getContext("2d", { alpha: false });
-    const captureStream = canvas.captureStream?.(60);
+    const captureStream = canvas.captureStream?.(30);
     const sourceStream = (video as HTMLVideoElement & {
       captureStream?: () => MediaStream;
     }).captureStream?.();
@@ -156,7 +175,7 @@ function encodeVideo(
       return;
     }
 
-    const target = targetBitrates(metadata);
+    const target = targetBitrates(tier);
     const audioBitsPerSecond = Math.floor(target.audioBitsPerSecond * bitrateFactor);
     const videoBitsPerSecond = Math.floor(target.videoBitsPerSecond * bitrateFactor);
     let tracks: MediaStreamTrack[] = [];
@@ -241,8 +260,7 @@ function encodeVideo(
 /**
  * Best-effort adaptive compression. It only re-encodes a source when its
  * measured bitrate is materially above a resolution-appropriate target.
- * 1080p and 2K sources keep their native dimensions. Large 4K+ recordings
- * can be reduced to 2.5K; exceptionally large sources are capped at 4K.
+ * Uploads are capped at 1080p; lower-resolution sources are never upscaled.
  *
  * This is never an upload-size gate. If metadata, codecs, or device resources
  * are unavailable, the original Blob is returned for direct Storage upload.
@@ -250,32 +268,36 @@ function encodeVideo(
 export async function optimizeVideoBlob(
   source: Blob,
   onProgress?: ProgressFn,
+  onOutputDimensions?: (dimensions: { width: number; height: number }) => void,
 ): Promise<Blob> {
   if (!source.type.startsWith("video/")) return source;
-  const sourceUrl = URL.createObjectURL(source);
   let metadata: VideoMetadata | null = null;
+  let sourceUrl: string | null = null;
   try {
+    sourceUrl = URL.createObjectURL(source);
     metadata = await readVideoMetadata(sourceUrl);
+  } catch (error) {
+    console.warn("Video metadata optimization unavailable; uploading the original source.", error);
+    return source;
   } finally {
-    URL.revokeObjectURL(sourceUrl);
+    if (sourceUrl) URL.revokeObjectURL(sourceUrl);
   }
   if (!metadata) return source;
+  onOutputDimensions?.({ width: metadata.width, height: metadata.height });
 
   const sourceBitsPerSecond = (source.size * 8) / metadata.duration;
-  const sourceMaxDimension = Math.max(metadata.width, metadata.height);
-  const shouldDownscale =
-    sourceMaxDimension > HEAVY_SOURCE_MAX_DIMENSION &&
-    source.size >= LARGE_RECORDING_BYTES;
-  const targetSize = outputSize(
-    metadata,
-    shouldDownscale ? HEAVY_SOURCE_MAX_DIMENSION : MAX_PRESERVED_DIMENSION,
-  );
+  const sourceTier = qualityTierFromDimensions(metadata.width, metadata.height);
+  if (!sourceTier) return source;
+  const targetTier = qualityTierForOutput(metadata.width, metadata.height, UPLOAD_MAX_TIER);
+  if (!targetTier) return source;
+  const targetSize = outputSizeForQuality(metadata, targetTier);
   const outputMetadata = { ...metadata, ...targetSize };
-  const target = targetBitrates(outputMetadata);
+  const target = targetBitrates(targetTier);
+  const shouldDownscale = targetSize.width < metadata.width || targetSize.height < metadata.height;
   const shouldCompress =
-    sourceMaxDimension > MAX_PRESERVED_DIMENSION ||
-    sourceBitsPerSecond > target.totalBitsPerSecond * 1.15 ||
-    shouldDownscale;
+    shouldDownscale ||
+    sourceTier !== targetTier ||
+    sourceBitsPerSecond > target.totalBitsPerSecond * 1.15;
   if (!shouldCompress) return source;
 
   const mimeType = supportedMimeType();
@@ -283,25 +305,80 @@ export async function optimizeVideoBlob(
 
   const encodeUrl = URL.createObjectURL(source);
   try {
-    const factors = [1, 0.82, 0.68];
-    for (const factor of factors) {
-      const optimized = await encodeVideo(
-        encodeUrl,
-        outputMetadata,
-        mimeType,
-        factor,
-        targetSize,
-        (percent) => onProgress?.(percent, `${OPTIMIZING_LABEL} ${percent}%`),
-      );
-      if (optimized.size < source.size * 0.9) {
-        onProgress?.(100, `${OPTIMIZING_LABEL} 100%`);
-        return optimized;
-      }
-    }
-    return source;
+    const optimized = await encodeVideo(
+      encodeUrl,
+      outputMetadata,
+      targetTier,
+      mimeType,
+      1,
+      targetSize,
+      (percent) => onProgress?.(percent, `${OPTIMIZING_LABEL} ${percent}%`),
+    );
+    if (optimized.size >= source.size * 0.9) return source;
+    onOutputDimensions?.(targetSize);
+    onProgress?.(100, `${OPTIMIZING_LABEL} 100%`);
+    return optimized;
   } catch (error) {
     console.warn("Adaptive video compression unavailable; uploading the original source.", error);
     return source;
+  } finally {
+    URL.revokeObjectURL(encodeUrl);
+  }
+}
+
+export async function transcodeVideoBlobToQuality(
+  source: Blob,
+  requestedTier: VideoQualityTier,
+  onProgress?: ProgressFn,
+): Promise<{ blob: Blob; quality: VideoQualityTier }> {
+  if (!source.type.startsWith("video/")) {
+    throw new Error("The selected file is not a video.");
+  }
+  const sourceUrl = URL.createObjectURL(source);
+  let metadata: VideoMetadata | null;
+  try {
+    metadata = await readVideoMetadata(sourceUrl);
+  } finally {
+    URL.revokeObjectURL(sourceUrl);
+  }
+  if (!metadata) throw new Error("Video dimensions could not be read for quality conversion.");
+
+  const actualTier = qualityTierForOutput(
+    metadata.width,
+    metadata.height,
+    requestedTier,
+  );
+  if (!actualTier) throw new Error("Video dimensions could not be read for quality conversion.");
+  const target = VIDEO_QUALITY_TIERS.find((candidate) => candidate.id === actualTier);
+  if (!target) throw new Error("Unsupported video quality");
+  const size = outputSizeForQuality(metadata, actualTier);
+  const targetBits = targetBitrates(actualTier);
+  const sourceBitsPerSecond = (source.size * 8) / metadata.duration;
+  const needsResize = size.width < metadata.width || size.height < metadata.height;
+  if (!needsResize && sourceBitsPerSecond <= targetBits.totalBitsPerSecond * 1.15) {
+    onProgress?.(100, `Using source video (${actualTier})`);
+    return { blob: source, quality: actualTier };
+  }
+
+  const mimeType = supportedMimeType();
+  if (!mimeType) {
+    throw new Error("This device cannot encode a video at the selected quality.");
+  }
+
+  const encodeUrl = URL.createObjectURL(source);
+  try {
+    const blob = await encodeVideo(
+      encodeUrl,
+      { ...metadata, ...size },
+      actualTier,
+      mimeType,
+      1,
+      size,
+      (percent) => onProgress?.(percent, `Preparing ${actualTier} video · ${percent}%`),
+    );
+    if (!blob.size) throw new Error("Video quality conversion produced an empty file.");
+    onProgress?.(100, `Prepared ${actualTier} video`);
+    return { blob, quality: actualTier };
   } finally {
     URL.revokeObjectURL(encodeUrl);
   }

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   availableDownloadQualityTiers,
+  capQualityTierToSource,
   downloadFileSizeBytesFromHeaders,
   estimateDownloadSizeMb,
   estimateDownloadSizeMbFromSourceFile,
@@ -38,6 +39,12 @@ test("normalizes stored 2K and 4K aliases for existing download tiers", () => {
 test("dimension quality tiers keep their existing values", () => {
   assert.equal(qualityTierFromDimensions(2560, 1440), "1440p");
   assert.equal(qualityTierFromDimensions(3840, 2160), "2160p");
+});
+
+test("download quality is capped at the source tier when the source is smaller", () => {
+  assert.equal(capQualityTierToSource("1080p", "720p"), "720p");
+  assert.equal(capQualityTierToSource("480p", "720p"), "480p");
+  assert.equal(capQualityTierToSource("480p", null), "480p");
 });
 
 test("requested download qualities are offered only when an actual quality media URL exists", () => {
@@ -97,7 +104,16 @@ test("every picker quality resolves immediately to its variant or the direct sou
       { "1080p": " https://media.example/1080.mp4 " },
       "720p",
     ),
-    { url: "https://media.example/1080.mp4", actualQuality: "1080p", usesVariant: true },
+    { url: sourceUrl, actualQuality: "720p", usesVariant: false },
+  );
+  assert.deepEqual(
+    resolveVideoDownloadSelection(
+      "720p",
+      sourceUrl,
+      { "720p": "https://media.example/720.mp4" },
+      "1080p",
+    ),
+    { url: "https://media.example/720.mp4", actualQuality: "720p", usesVariant: true },
   );
   assert.deepEqual(
     resolveVideoDownloadSelection("original", sourceUrl, null, "720p"),

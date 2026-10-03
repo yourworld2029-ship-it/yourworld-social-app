@@ -43,6 +43,14 @@ export function resolveVideoDownloadSelection(
 
   const variantUrl = qualityUrls?.[choice]?.trim();
   if (variantUrl) {
+    const actualQuality = capQualityTierToSource(choice, sourceQualityTier);
+    if (actualQuality !== choice) {
+      return {
+        url: directSourceUrl,
+        actualQuality,
+        usesVariant: false,
+      };
+    }
     return { url: variantUrl, actualQuality: choice, usesVariant: true };
   }
 
@@ -126,6 +134,16 @@ export function qualityTierLabel(tier: VideoQualityTier | null | undefined) {
   return VIDEO_QUALITY_TIERS.find((candidate) => candidate.id === tier)?.label ?? "Unknown";
 }
 
+export function capQualityTierToSource(
+  targetTier: VideoQualityTier,
+  sourceTier: VideoQualityTier | null | undefined,
+) {
+  if (!sourceTier) return targetTier;
+  const sourceIndex = VIDEO_QUALITY_TIERS.findIndex((candidate) => candidate.id === sourceTier);
+  const targetIndex = VIDEO_QUALITY_TIERS.findIndex((candidate) => candidate.id === targetTier);
+  return sourceIndex < targetIndex ? sourceTier : targetTier;
+}
+
 export function isVideoQualityTier(value: string | null | undefined): value is VideoQualityTier {
   return VIDEO_QUALITY_TIERS.some((candidate) => candidate.id === value);
 }
@@ -196,7 +214,8 @@ export function estimateDownloadSizeMbFromSourceFile(
   if (targetTier === "original") return sizeBytes / 1_000_000;
 
   const sourceDefinition = VIDEO_QUALITY_TIERS.find((candidate) => candidate.id === sourceTier);
-  const targetDefinition = VIDEO_QUALITY_TIERS.find((candidate) => candidate.id === targetTier);
+  const effectiveTier = capQualityTierToSource(targetTier, sourceTier);
+  const targetDefinition = VIDEO_QUALITY_TIERS.find((candidate) => candidate.id === effectiveTier);
   if (!sourceDefinition || !targetDefinition) return null;
 
   const audioBitrate = 128_000;

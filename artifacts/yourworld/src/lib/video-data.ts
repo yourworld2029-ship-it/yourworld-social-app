@@ -236,14 +236,20 @@ async function uploadToStorage(
   ext: string,
   fallbackType: string,
   onProgress?: ProgressFn,
-): Promise<string | null> {
+): Promise<{ url: string; width: number | null; height: number | null } | null> {
   try {
     const blob = typeof source === "string"
       ? await (await fetch(source)).blob()
       : source;
+    let width: number | null = null;
+    let height: number | null = null;
     const uploadBlob = blob.type.startsWith("video/")
       ? await optimizeVideoBlob(blob, (percent, detail) =>
           onProgress?.(Math.round(percent * 0.45), detail),
+          (dimensions) => {
+            width = dimensions.width;
+            height = dimensions.height;
+          },
         )
       : blob;
     const outputExt = uploadBlob.type.includes("webm") ? "webm" : ext;
@@ -258,7 +264,7 @@ async function uploadToStorage(
       ),
       IMMUTABLE_MEDIA_CACHE_CONTROL,
     );
-    return url;
+    return url ? { url, width, height } : null;
   } catch (error) {
     console.error("Video storage upload failed", error);
     return null;
@@ -382,6 +388,8 @@ export async function publishLongVideo(opts: {
   }
 
   let mediaUrl = opts.fileUrl;
+  let uploadedWidth = opts.originalWidth ?? null;
+  let uploadedHeight = opts.originalHeight ?? null;
   if (/^(blob:|data:)/.test(mediaUrl)) {
     // Reserve the last few percent for thumbnail, moderation, and database work.
     const up = await uploadToStorage(opts.file ?? mediaUrl, uid, "mp4", "video/mp4", (p) =>
@@ -401,7 +409,9 @@ export async function publishLongVideo(opts: {
       }
       return { error: "Video upload failed. Please try again." };
     }
-    mediaUrl = up;
+    mediaUrl = up.url;
+    uploadedWidth = up.width ?? uploadedWidth;
+    uploadedHeight = up.height ?? uploadedHeight;
   }
 
   if (thumbnailUploadPromise) {
@@ -469,9 +479,9 @@ export async function publishLongVideo(opts: {
         thumbnail_url: thumb,
         orientation: opts.orientation,
         duration_seconds: opts.durationSeconds ? Math.round(opts.durationSeconds) : null,
-        original_width: opts.originalWidth ?? null,
-        original_height: opts.originalHeight ?? null,
-        source_quality_tier: sourceQualityTierFromDimensions(opts.originalWidth, opts.originalHeight),
+        original_width: uploadedWidth,
+        original_height: uploadedHeight,
+        source_quality_tier: sourceQualityTierFromDimensions(uploadedWidth, uploadedHeight),
         scheduled_at: opts.scheduledAt ?? null,
         video_access: opts.access ?? "public",
         price: opts.price ?? null,

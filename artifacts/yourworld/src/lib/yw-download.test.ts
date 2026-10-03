@@ -24,6 +24,10 @@ test("native offline video files use flat, ID-based app data paths", () => {
     nativeOfflinePathsForVideo("video-123", "360p", "user-1").localFilePath,
     "offline_video-123_360p_user-1.mp4",
   );
+  assert.equal(
+    nativeOfflinePathsForVideo("video-123", "720p", "user-1", "video/webm").localFilePath,
+    "offline_video-123_720p_user-1.webm",
+  );
 });
 
 test("download-library metadata retains the selected quality tag", () => {

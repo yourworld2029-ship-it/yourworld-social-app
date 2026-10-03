@@ -7,6 +7,12 @@ import {
   type VideoQualityTier,
 } from "@/lib/video-quality";
 import {
+  outputSizeForQuality,
+  qualityTierForOutput,
+  selectSupportedRecorderMimeType,
+  type VideoMetadata,
+} from "@/lib/video-compression";
+import {
   deleteOfflineVideo,
   getAllOfflineVideos,
   getOfflineVideoById,
@@ -39,6 +45,10 @@ const downloadTasks = new Map<string, DownloadTask>();
 let downloadTaskSnapshot: DownloadTask[] = [];
 
 export type DownloadQuality = VideoQualityTier | "original";
+export type OfflineVideoDownloadOptions = {
+  targetQuality?: VideoQualityTier;
+  transcodeSource?: boolean;
+};
 
 const LEGACY_DOWNLOAD_DB_NAME = "yourworld-downloads-v1";
 const LEGACY_DOWNLOAD_STORE_NAME = "videos";
@@ -700,9 +710,10 @@ export async function downloadWatermarkedVideoInBackground(
   creatorUsername: string,
   onProgress?: (percent: number) => void,
   metadata?: DownloadedVideoMetadata,
+  targetQuality?: VideoQualityTier,
 ) {
   const watermark = reelWatermarkText(creatorUsername);
-  const key = `${src}|watermarked-video|${fileNameBase}|${watermark}`;
+  const key = `${src}|watermarked-video|${fileNameBase}|${watermark}|${targetQuality ?? "original"}`;
   const existing = activeVideoDownloads.get(key);
   if (existing) return existing;
 
@@ -714,22 +725,36 @@ export async function downloadWatermarkedVideoInBackground(
         src,
         `${sanitizeDownloadName(fileNameBase, "yourworld-video")}.mp4`,
         (percent) => {
-          updateDownloadTask(key, title, percent);
-          onProgress?.(percent);
+          const phasePercent = Math.round(percent * 0.5);
+          updateDownloadTask(key, title, phasePercent);
+          onProgress?.(phasePercent);
         },
       );
       const sourceUrl = URL.createObjectURL(sourceBlob);
-      let blob: Blob;
+      let rendered: { blob: Blob; quality: VideoQualityTier | null };
       try {
-        blob = await renderWatermarkedVideo(sourceUrl, watermark, (percent) => {
-          updateDownloadTask(key, title, percent);
-          onProgress?.(percent);
-        });
+        rendered = await renderWatermarkedVideo(
+          sourceUrl,
+          watermark,
+          (percent) => {
+            updateDownloadTask(key, title, percent);
+            onProgress?.(percent);
+          },
+          targetQuality,
+        );
       } finally {
         URL.revokeObjectURL(sourceUrl);
       }
+      const { blob } = rendered;
       if (!blob.size) throw new Error("Watermarked video export produced an empty file");
-      if (metadata) await saveDownloadedVideo(metadata, blob);
+      if (metadata) {
+        const actualQuality = rendered.quality ?? metadata.quality;
+        await saveDownloadedVideo(
+          { ...metadata, quality: actualQuality },
+          blob,
+          actualQuality,
+        );
+      }
       const extension = extensionForMime(blob.type || "video/webm", "webm");
       triggerBlobDownload(
         blob,
@@ -750,8 +775,9 @@ export async function downloadWatermarkedVideoInBackground(
 }
 
 /**
- * Saves the original selected source directly to app-private storage on Android.
- * Web continues to use the creator-watermarked export path.
+ * Android streams original/variant files to app-private storage, and locally
+ * renders only when the user selected a tier without a matching source variant.
+ * Web saves the creator-watermarked export.
  */
 export async function downloadVideoForOfflineInBackground(
   src: string,
@@ -759,7 +785,8 @@ export async function downloadVideoForOfflineInBackground(
   creatorUsername: string,
   onProgress?: (percent: number) => void,
   metadata?: DownloadedVideoMetadata,
-): Promise<"native-original" | "watermarked"> {
+  options: OfflineVideoDownloadOptions = {},
+): Promise<"native-offline" | "watermarked"> {
   if (!isAndroidNativeDownloads()) {
     await downloadWatermarkedVideoInBackground(
       src,
@@ -767,6 +794,7 @@ export async function downloadVideoForOfflineInBackground(
       creatorUsername,
       onProgress,
       metadata,
+      options.targetQuality,
     );
     return "watermarked";
   }
@@ -774,17 +802,49 @@ export async function downloadVideoForOfflineInBackground(
     throw new Error("Video details are required to save an Android offline download.");
   }
 
-  const key = `${src}|native-offline|${fileNameBase}|${metadata.ownerId}|${metadata.mediaId}|${metadata.quality}`;
+  const key = `${src}|native-offline|${fileNameBase}|${metadata.ownerId}|${metadata.mediaId}|${metadata.quality}|${options.targetQuality ?? "original"}`;
   const existing = activeVideoDownloads.get(key);
   if (existing) {
     await existing;
-    return "native-original";
+    return "native-offline";
   }
 
   const task = (async () => {
     const title = metadata.title || fileNameBase;
     updateDownloadTask(key, title, 0);
     try {
+      if (options.transcodeSource) {
+        if (!options.targetQuality) {
+          throw new Error("The selected download quality is unavailable.");
+        }
+        const rendered = await renderWatermarkedVideo(
+          src,
+          "",
+          (percent) => {
+            updateDownloadTask(key, title, percent);
+            onProgress?.(percent);
+          },
+          options.targetQuality,
+        );
+        if (!rendered.blob.size) {
+          throw new Error("Video quality conversion produced an empty file.");
+        }
+        const convertedMetadata = {
+          ...metadata,
+          quality: rendered.quality ?? options.targetQuality,
+        };
+        await saveDownloadedVideo(
+          convertedMetadata,
+          rendered.blob,
+          convertedMetadata.quality,
+        );
+        notifyDownloadedVideoLibrary(metadata.ownerId);
+        onProgress?.(100);
+        updateDownloadTask(key, title, 100);
+        window.setTimeout(() => removeDownloadTask(key), 400);
+        return;
+      }
+
       const record = createOfflineVideoRecord(metadata, metadata.quality, 0);
       const startedAt = performance.now();
       let sampledAt = startedAt;
@@ -832,7 +892,7 @@ export async function downloadVideoForOfflineInBackground(
 
   activeVideoDownloads.set(key, task);
   await task;
-  return "native-original";
+  return "native-offline";
 }
 
 export function reelWatermarkText(creatorUsername: string) {
@@ -843,12 +903,18 @@ async function renderWatermarkedVideo(
   src: string,
   watermark: string,
   onProgress?: (percent: number) => void,
+  targetQuality?: VideoQualityTier,
 ) {
+  const exportLabel = watermark
+    ? "watermarked video"
+    : targetQuality
+      ? `${targetQuality} video`
+      : "video";
   if (typeof MediaRecorder === "undefined") {
-    throw new Error("This browser cannot create a watermarked video download");
+    throw new Error(`This browser cannot encode this ${exportLabel} download.`);
   }
   if (typeof HTMLCanvasElement.prototype.captureStream !== "function") {
-    throw new Error("This browser cannot render a watermarked video download");
+    throw new Error(`This browser cannot render this ${exportLabel} download.`);
   }
   const Ctx = audioContextConstructor();
   if (!Ctx) throw new Error("This browser cannot preserve audio during video export");
@@ -858,7 +924,7 @@ async function renderWatermarkedVideo(
     await new Promise<void>((resolve, reject) => {
       const timeout = window.setTimeout(() => {
         cleanup();
-        reject(new Error("The video did not load a frame for watermarking"));
+        reject(new Error("The video did not load a frame for export."));
       }, 15_000);
       const cleanup = () => {
         window.clearTimeout(timeout);
@@ -871,7 +937,7 @@ async function renderWatermarkedVideo(
       };
       const onError = () => {
         cleanup();
-        reject(new Error("The video could not be decoded for watermarking"));
+        reject(new Error("The video could not be decoded for export."));
       };
       video.addEventListener("loadeddata", onLoaded, { once: true });
       video.addEventListener("error", onError, { once: true });
@@ -879,8 +945,19 @@ async function renderWatermarkedVideo(
   }
   const audioContext = new Ctx();
   const canvas = document.createElement("canvas");
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
+  const sourceMetadata: VideoMetadata = {
+    width: video.videoWidth,
+    height: video.videoHeight,
+    duration: video.duration,
+  };
+  const actualQuality = targetQuality
+    ? qualityTierForOutput(video.videoWidth, video.videoHeight, targetQuality)
+    : null;
+  const outputSize = actualQuality
+    ? outputSizeForQuality(sourceMetadata, actualQuality)
+    : { width: video.videoWidth, height: video.videoHeight };
+  canvas.width = outputSize.width;
+  canvas.height = outputSize.height;
   if (!canvas.width || !canvas.height) {
     await audioContext.close().catch(() => {});
     throw new Error("The video dimensions are unavailable");
@@ -889,13 +966,14 @@ async function renderWatermarkedVideo(
   const context = canvas.getContext("2d");
   if (!context) {
     await audioContext.close().catch(() => {});
-    throw new Error("Canvas is unavailable for the watermarked download");
+    throw new Error("Canvas is unavailable for video export.");
   }
 
   const fontSize = Math.max(14, Math.round(canvas.height * 0.016));
   const padding = Math.max(10, Math.round(fontSize * 0.8));
   const drawFrame = () => {
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    if (!watermark) return;
     context.save();
     context.globalAlpha = 0.72;
     context.font = `600 ${fontSize}px system-ui, sans-serif`;
@@ -930,33 +1008,42 @@ async function renderWatermarkedVideo(
     for (const track of audioDestination.stream.getAudioTracks()) {
       stream.addTrack(track);
     }
-    const mime = recorderMime(false);
+    const mime =
+      selectSupportedRecorderMimeType((candidate) =>
+        MediaRecorder.isTypeSupported(candidate),
+      ) ?? "";
+    const targetBitrate = actualQuality
+      ? VIDEO_QUALITY_TIERS.find((candidate) => candidate.id === actualQuality)?.bitrate
+      : undefined;
     recorder = new MediaRecorder(
       stream,
       mime
         ? {
             mimeType: mime,
-            videoBitsPerSecond: Math.min(
-              18_000_000,
-              Math.max(2_500_000, Math.round(canvas.width * canvas.height * 1.2)),
-            ),
+            videoBitsPerSecond:
+              targetBitrate ??
+              Math.min(
+                18_000_000,
+                Math.max(2_500_000, Math.round(canvas.width * canvas.height * 1.2)),
+              ),
+            audioBitsPerSecond: 128_000,
           }
         : undefined,
     );
 
-    const recorded = new Promise<Blob>((resolve, reject) => {
+    const recorded = new Promise<{ blob: Blob; quality: VideoQualityTier | null }>((resolve, reject) => {
       rejectRecording = reject;
       const chunks: BlobPart[] = [];
       recorder!.ondataavailable = (event) => {
         if (event.data.size) chunks.push(event.data);
       };
-      recorder!.onerror = () => reject(new Error("Watermarked video export failed"));
+      recorder!.onerror = () => reject(new Error("Video export failed."));
       recorder!.onstop = () => {
         const blob = new Blob(chunks, {
           type: recorder!.mimeType || mime || "video/webm",
         });
-        if (blob.size) resolve(blob);
-        else reject(new Error("Watermarked video export produced an empty file"));
+        if (blob.size) resolve({ blob, quality: actualQuality });
+        else reject(new Error("Video export produced an empty file."));
       };
     });
 
@@ -989,7 +1076,7 @@ async function renderWatermarkedVideo(
     } catch {
       if (recorder.state !== "inactive") recorder.stop();
       await recorded.catch(() => {});
-      throw new Error("This browser blocked playback needed to watermark the video");
+      throw new Error("This browser blocked playback needed to export the video.");
     }
     drawNextFrame();
     const result = await recorded;
@@ -1001,10 +1088,10 @@ async function renderWatermarkedVideo(
   } catch (error) {
     if (recorder && recorder.state !== "inactive") recorder.stop();
     if (error instanceof DOMException && error.name === "SecurityError") {
-      throw new Error("This video cannot be watermarked because its source blocks canvas export");
+      throw new Error("This video cannot be exported because its source blocks canvas access.");
     }
     if (error instanceof DOMException && error.name === "NotSupportedError") {
-      throw new Error("This browser does not support the video format needed for a watermarked download");
+      throw new Error("This browser does not support the video format needed for export.");
     }
     throw error;
   } finally {
@@ -1021,7 +1108,7 @@ async function renderWatermarkedVideo(
 function recorderMime(audioOnly: boolean) {
   const candidates = audioOnly
     ? ["audio/mpeg", "audio/webm;codecs=opus", "audio/webm", "audio/mp4"]
-    : ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/mp4"];
+    : [];
   return candidates.find((mime) => MediaRecorder.isTypeSupported?.(mime)) ?? "";
 }
 
@@ -1073,6 +1160,7 @@ export async function downloadVideoAtQuality(
     metadata?.creatorUsername || "user",
     onProgress,
     metadata ? { ...metadata, quality } : undefined,
+    quality,
   );
 }
 
