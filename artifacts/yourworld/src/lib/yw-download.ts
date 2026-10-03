@@ -47,6 +47,7 @@ let downloadTaskSnapshot: DownloadTask[] = [];
 
 export type DownloadQuality = VideoQualityTier | "original";
 export type OfflineVideoDownloadOptions = {
+  fallbackUrls?: string[];
   targetQuality?: VideoQualityTier;
   transcodeSource?: boolean;
 };
@@ -731,7 +732,7 @@ export async function downloadWatermarkedVideoInBackground(
     const title = metadata?.title || fileNameBase;
     updateDownloadTask(key, title, 0);
     try {
-      const sourceBlob = await fetchVideoBlobInWorker(
+      const sourceBlob = /\.m3u8(?:$|\?)/i.test(src) ? null : await fetchVideoBlobInWorker(
         src,
         `${sanitizeDownloadName(fileNameBase, "yourworld-video")}.mp4`,
         (percent) => {
@@ -740,7 +741,7 @@ export async function downloadWatermarkedVideoInBackground(
           onProgress?.(phasePercent);
         },
       );
-      const sourceUrl = URL.createObjectURL(sourceBlob);
+      const sourceUrl = sourceBlob ? URL.createObjectURL(sourceBlob) : src;
       let rendered: { blob: Blob; quality: VideoQualityTier | null };
       try {
         rendered = await renderWatermarkedVideo(
@@ -753,7 +754,7 @@ export async function downloadWatermarkedVideoInBackground(
           targetQuality,
         );
       } finally {
-        URL.revokeObjectURL(sourceUrl);
+        if (sourceBlob) URL.revokeObjectURL(sourceUrl);
       }
       const { blob } = rendered;
       if (!blob.size) throw new Error("Watermarked video export produced an empty file");
@@ -785,8 +786,8 @@ export async function downloadWatermarkedVideoInBackground(
 }
 
 /**
- * Android streams original/variant files to app-private storage, and locally
- * renders only when the user selected a tier without a matching source variant.
+ * Android saves original/variant files or complete VOD playlists to private
+ * storage without spawning a WebView encoder.
  * Web saves the creator-watermarked export.
  */
 export async function downloadVideoForOfflineInBackground(
@@ -798,15 +799,16 @@ export async function downloadVideoForOfflineInBackground(
   options: OfflineVideoDownloadOptions = {},
 ): Promise<"native-offline" | "watermarked"> {
   if (!isAndroidNativeDownloads()) {
-    await downloadWatermarkedVideoInBackground(
-      src,
-      fileNameBase,
-      creatorUsername,
-      onProgress,
-      metadata,
-      options.targetQuality,
-    );
-    return "watermarked";
+    let lastError: unknown;
+    for (const url of [...new Set([src, ...(options.fallbackUrls ?? [])])]) {
+      try {
+        await downloadWatermarkedVideoInBackground(
+          url, fileNameBase, creatorUsername, onProgress, metadata, options.targetQuality,
+        );
+        return "watermarked";
+      } catch (error) { lastError = error; }
+    }
+    throw lastError instanceof Error ? lastError : new Error("Download failed. Check your connection and retry.");
   }
   if (!metadata) {
     throw new Error("Video details are required to save an Android offline download.");
@@ -823,38 +825,8 @@ export async function downloadVideoForOfflineInBackground(
     const title = metadata.title || fileNameBase;
     updateDownloadTask(key, title, 0);
     try {
-      if (options.transcodeSource) {
-        if (!options.targetQuality) {
-          throw new Error("The selected download quality is unavailable.");
-        }
-        const rendered = await renderWatermarkedVideo(
-          src,
-          "",
-          (percent) => {
-            updateDownloadTask(key, title, percent);
-            onProgress?.(percent);
-          },
-          options.targetQuality,
-        );
-        if (!rendered.blob.size) {
-          throw new Error("Video quality conversion produced an empty file.");
-        }
-        const convertedMetadata = {
-          ...metadata,
-          quality: rendered.quality ?? options.targetQuality,
-        };
-        await saveDownloadedVideo(
-          convertedMetadata,
-          rendered.blob,
-          convertedMetadata.quality,
-        );
-        notifyDownloadedVideoLibrary();
-        onProgress?.(100);
-        updateDownloadTask(key, title, 100);
-        window.setTimeout(() => removeDownloadTask(key), 400);
-        return;
-      }
-
+      // Android saves the real source/variant without spawning a WebView
+      // encoder. Missing variants retain their honest actual-quality label.
       const record = createOfflineVideoRecord(metadata, metadata.quality, 0);
       const startedAt = performance.now();
       let sampledAt = startedAt;
@@ -886,7 +858,7 @@ export async function downloadVideoForOfflineInBackground(
           });
         }
         onProgress?.(percent);
-      });
+      }, options.fallbackUrls);
 
       notifyDownloadedVideoLibrary();
       onProgress?.(100);
@@ -1108,9 +1080,7 @@ async function renderWatermarkedVideo(
     if (animationFrame) window.cancelAnimationFrame(animationFrame);
     stream?.getTracks().forEach((track) => track.stop());
     audioSource?.disconnect();
-    video.pause();
-    video.removeAttribute("src");
-    video.load();
+    releaseExportVideo(video);
     await audioContext.close().catch(() => {});
   }
 }
@@ -1129,18 +1099,55 @@ function extensionForMime(mime: string, fallback: "mp4" | "mp3" | "webm") {
   return fallback;
 }
 
+const exportVideoStreams = new WeakMap<HTMLVideoElement, { destroy(): void }>();
+
+function releaseExportVideo(video: HTMLVideoElement) {
+  exportVideoStreams.get(video)?.destroy();
+  exportVideoStreams.delete(video);
+  video.pause();
+  video.removeAttribute("src");
+  video.load();
+}
+
 async function loadVideoForExport(src: string) {
   const video = document.createElement("video");
   video.crossOrigin = "anonymous";
   video.playsInline = true;
   video.preload = "auto";
-  video.src = src;
-  await new Promise<void>((resolve, reject) => {
-    video.addEventListener("loadedmetadata", () => resolve(), { once: true });
-    video.addEventListener("error", () => reject(new Error("The video could not be read")), { once: true });
-    video.load();
-  });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => finish(new Error("The download source took too long to load.")), 25_000);
+      const loaded = () => finish();
+      const failed = () => finish(new Error("The video could not be read"));
+      const finish = (error?: Error) => {
+        clearTimeout(timeout);
+        video.removeEventListener("loadedmetadata", loaded);
+        video.removeEventListener("error", failed);
+        if (error) reject(error); else resolve();
+      };
+      video.addEventListener("loadedmetadata", loaded);
+      video.addEventListener("error", failed);
+      void (async () => {
+        if (/\.m3u8(?:$|\?)/i.test(src) && !video.canPlayType("application/vnd.apple.mpegurl")) {
+          const { default: Hls } = await import("hls.js");
+          if (!Hls.isSupported()) throw new Error("This browser cannot export this video stream.");
+          const hls = new Hls({ maxBufferLength: 3, maxMaxBufferLength: 6, startLevel: -1 });
+          exportVideoStreams.set(video, hls);
+          hls.on(Hls.Events.ERROR, (_event, data) => { if (data.fatal) finish(new Error("The video stream could not be read.")); });
+          hls.loadSource(src);
+          hls.attachMedia(video);
+        } else {
+          video.src = src;
+          video.load();
+        }
+      })().catch((error) => finish(error instanceof Error ? error : new Error("The video could not be read.")));
+    });
+  } catch (error) {
+    releaseExportVideo(video);
+    throw error;
+  }
   if (!video.duration || !Number.isFinite(video.duration)) {
+    releaseExportVideo(video);
     throw new Error("The video duration is unavailable");
   }
   return video;
@@ -1185,12 +1192,13 @@ export async function downloadAudioOnly(
   }
   const video = await loadVideoForExport(src);
   const Ctx = audioContextConstructor();
-  if (!Ctx) throw new Error("This browser cannot export audio");
+  if (!Ctx) { releaseExportVideo(video); throw new Error("This browser cannot export audio"); }
   const audioContext = new Ctx();
   const destination = audioContext.createMediaStreamDestination();
   try {
     audioContext.createMediaElementSource(video).connect(destination);
   } catch {
+    releaseExportVideo(video);
     await audioContext.close().catch(() => {});
     throw new Error("This source cannot be exported as audio");
   }
@@ -1217,12 +1225,18 @@ export async function downloadAudioOnly(
   video.addEventListener("timeupdate", update);
   video.addEventListener("ended", stop, { once: true });
   await audioContext.resume().catch(() => {});
-  recorder.start(250);
-  await video.play();
-  const blob = await result.finally(() => {
-    video.pause();
+  let blob: Blob;
+  try {
+    recorder.start(250);
+    await video.play();
+    blob = await result;
+  } finally {
+    video.removeEventListener("timeupdate", update);
+    video.removeEventListener("ended", stop);
+    if (recorder.state !== "inactive") recorder.stop();
+    releaseExportVideo(video);
     void audioContext.close().catch(() => {});
-  });
+  }
   onProgress?.(100);
   triggerBlobDownload(
     blob,

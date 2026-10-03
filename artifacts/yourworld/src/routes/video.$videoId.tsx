@@ -431,6 +431,7 @@ function VideoRouteComponent() {
           | "1080p"
           | "1440p"
           | "2160p",
+        { url: downloadUrl, streamId: video.cloudflareStreamId, sourceUrl: data.url, bucket: "videos" },
       );
       downloadUrl = offlineSource.url;
       downloadedQuality = offlineSource.actualQuality as DownloadedVideoMetadata["quality"];
@@ -463,6 +464,7 @@ function VideoRouteComponent() {
           undefined,
           metadata,
           {
+            fallbackUrls: offlineSource.fallbackUrls,
             targetQuality:
               choice !== "original" ? choice : undefined,
             transcodeSource:

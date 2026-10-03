@@ -3,8 +3,8 @@ name: Cloudflare Stream downloads
 description: Cloudflare Stream download availability and preserving accurate quality choices.
 ---
 
-Cloudflare Stream exposes a single generated `default.mp4`, not separate resolution-specific download files. Use it only when its effective tier matches the requested download tier; otherwise return the owner's authorized Supabase source or exact variant. Never invent Cloudflare quality-specific URLs.
+Cloudflare Stream exposes one generated `default.mp4`, not resolution-specific MP4 files. YourWorld's download fallback priority is Cloudflare ID/default MP4, then the active playback URL, then signed/direct Supabase storage. This priority takes precedence over matching a requested quality tier. Keep the saved quality label honest; never invent Cloudflare quality-specific URLs.
 
-**Why:** The documented Stream download API does not provide independent 1080p, 720p, and 480p MP4 URLs, so pretending it does can label the wrong file as a requested quality.
+**Why:** The user explicitly asked for this fallback order so a playable video is not rejected merely because retained-source metadata is absent. Stream does not expose independent per-tier download URLs.
 
-**How to apply:** Keep the original Supabase source path for authorized offline downloads, and use Stream's `default.mp4` only when source metadata proves the tier is accurate.
+**How to apply:** Prefer an authorized download-enabled signed Cloudflare URL over an unsigned default URL when available. Preserve active and retained storage sources as fallbacks, and never bypass explicit access or creator download denials.

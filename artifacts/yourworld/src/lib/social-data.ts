@@ -84,6 +84,7 @@ export type DbPost = {
   cover_image?: string | null;
   duration_seconds?: number | null;
   cloudflare_stream_uid?: string | null;
+  cloudflare_stream_id?: string | null;
   original_width?: number | null;
   original_height?: number | null;
   source_quality_tier?: string | null;

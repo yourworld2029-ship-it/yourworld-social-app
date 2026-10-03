@@ -1,4 +1,4 @@
-const CLOUDFLARE_STREAM_HOSTS = ["videodelivery.net"];
+const CLOUDFLARE_STREAM_HOSTS = ["videodelivery.net", "cloudflarestream.com"];
 
 export function cloudflareStreamUidFromUrl(value: string | null | undefined) {
   if (!value) return null;
@@ -26,9 +26,18 @@ export function cloudflareStreamUidFromUrl(value: string | null | undefined) {
   }
 }
 
-export function cloudflareStreamPosterUrl(value: string | null | undefined) {
-  const uid = cloudflareStreamUidFromUrl(value);
+export function cloudflareStreamPosterUrl(value: string | null | undefined, streamId?: string | null) {
+  const uid = validStreamId(streamId) ?? cloudflareStreamUidFromUrl(value);
   return uid
     ? `https://videodelivery.net/${uid}/thumbnails/thumbnail.jpg?time=1s`
     : null;
+}
+
+function validStreamId(value?: string | null) {
+  return value && /^[a-zA-Z0-9_-]{8,128}$/.test(value) ? value : null;
+}
+
+export function cloudflareStreamDownloadUrl(value?: string | null, streamId?: string | null) {
+  const uid = validStreamId(streamId) ?? cloudflareStreamUidFromUrl(value);
+  return uid ? `https://videodelivery.net/${uid}/downloads/default.mp4` : null;
 }

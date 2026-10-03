@@ -528,6 +528,7 @@ function videoSourceObject(row: VideoPostRow, quality: string) {
 
   const sourceObject =
     parseVideoStorageObject(row.video_url, row) ??
+    parseVideoStorageObject(row.source_url, row) ??
     parseVideoStorageObject(row.media_url, row) ??
     parseVideoStorageObject(row.url, row);
   return sourceObject
@@ -652,7 +653,7 @@ async function getCloudflareDefaultDownloadUrl(
   const readDownloads = async () => {
     const response = await fetch(baseUrl, {
       headers,
-      signal: AbortSignal.timeout(20_000),
+      signal: AbortSignal.timeout(4000),
     });
     const payload: unknown = await response.json().catch(() => null);
     const result =
@@ -664,14 +665,15 @@ async function getCloudflareDefaultDownloadUrl(
       result?.default && typeof result.default === "object"
         ? (result.default as Record<string, unknown>)
         : null;
-    if (!response.ok || download?.status !== "ready" || typeof download.url !== "string") {
+    if (!response.ok || download?.status !== "ready") {
       return null;
     }
     try {
-      const url = new URL(download.url);
+      const url = new URL(typeof download.url === "string"
+        ? download.url : `https://videodelivery.net/${streamUid}/downloads/default.mp4`);
       if (
         url.protocol !== "https:" ||
-        (url.hostname !== "cloudflarestream.com" &&
+        (url.hostname !== "videodelivery.net" && url.hostname !== "cloudflarestream.com" &&
           !url.hostname.endsWith(".cloudflarestream.com")) ||
         !url.pathname.includes(`/${streamUid}/downloads/default.mp4`)
       ) {
@@ -691,7 +693,14 @@ async function getCloudflareDefaultDownloadUrl(
     headers,
     signal: AbortSignal.timeout(20_000),
   }).catch(() => null);
-  return readDownloads();
+  // Generation is asynchronous. Re-reading immediately used to fail every
+  // first download, even though the stream was already playing.
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    const ready = await readDownloads();
+    if (ready) return ready;
+  }
+  return null;
 }
 
 router.options("/media/cloudflare-tus-upload", (_req, res): void => {
@@ -1028,29 +1037,26 @@ router.post("/media/offline-source", async (req, res): Promise<void> => {
   }
   const requestedQuality = parsed.data.quality ?? "original";
   const source = videoSourceObject(authorized.row, requestedQuality);
-  if (!source) {
-    res.status(404).json({ error: "The retained video source is unavailable." });
-    return;
-  }
   try {
-    const streamUid = streamUidFromManifest(authorized.row.media_url);
-    const defaultStreamQuality = cloudflareDefaultQuality(source.actualQuality);
+    const explicitUid = authorized.row.cloudflare_stream_id ?? authorized.row.cloudflare_stream_uid;
+    const streamUid = typeof explicitUid === "string" && /^[a-zA-Z0-9_-]{8,128}$/.test(explicitUid)
+      ? explicitUid : streamUidFromManifest(authorized.row.hls_url ?? authorized.row.media_url);
+    const defaultStreamQuality = cloudflareDefaultQuality(sourceQuality(authorized.row)) ?? "original";
     const cloudflare = cloudflareConfig();
     if (
       streamUid &&
-      cloudflare &&
-      requestedQuality !== "original" &&
-      requestedQuality === defaultStreamQuality &&
-      !hasQualitySpecificSource(authorized.row, requestedQuality)
+      cloudflare
     ) {
       const streamDownloadUrl = await getCloudflareDefaultDownloadUrl(
         cloudflare.accountId,
         cloudflare.apiToken,
         streamUid,
-      );
+      ).catch(() => null);
       if (streamDownloadUrl) {
         let downloadableUrl = streamDownloadUrl;
-        if (isRestrictedAudience(authorized.row)) {
+        // Always mint a download-enabled token after authorization. A stream
+        // may require signed URLs even when its post audience is public.
+        {
           const tokenResponse = await fetch(
             `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(
               cloudflare.accountId,
@@ -1102,6 +1108,19 @@ router.post("/media/offline-source", async (req, res): Promise<void> => {
       }
     }
 
+    if (!source) {
+      const directSource = [authorized.row.video_url, authorized.row.source_url,
+        authorized.row.media_url, authorized.row.hls_url, authorized.row.url]
+        .find((value): value is string => typeof value === "string" && /^https?:\/\//i.test(value));
+      if (directSource) {
+        res.status(200).json(GetVideoOfflineSourceResponse.parse({
+          url: directSource, actualQuality: sourceQuality(authorized.row),
+        }));
+        return;
+      }
+      res.status(404).json({ error: "This record has no saved media reference. Refresh the video and retry." });
+      return;
+    }
     const url = await signStorageObject(
       authorized.config.url,
       authorized.config.serviceRoleKey,

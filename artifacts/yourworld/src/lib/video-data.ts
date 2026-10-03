@@ -65,6 +65,7 @@ export type LongVideo = {
   caption: string;
   mediaUrl: string;
   thumbnailUrl: string | null;
+  cloudflareStreamId?: string | null;
   orientation: "landscape" | "portrait";
   aspectRatio?: string | null;
   videoType?: string | null;
@@ -671,7 +672,8 @@ async function loadLongVideoPage(
           title: post.title || post.caption || "Untitled video",
           caption: post.caption ?? "",
           mediaUrl: post.media_url,
-          thumbnailUrl: cloudflarePoster ?? post.thumbnail_url,
+          cloudflareStreamId: post.cloudflare_stream_id ?? post.cloudflare_stream_uid ?? null,
+          thumbnailUrl: post.thumbnail_url ?? cloudflarePoster,
           orientation: post.orientation === "portrait" ? "portrait" : "landscape",
           aspectRatio: metadata.aspect_ratio ?? null,
           videoType: metadata.video_type ?? null,

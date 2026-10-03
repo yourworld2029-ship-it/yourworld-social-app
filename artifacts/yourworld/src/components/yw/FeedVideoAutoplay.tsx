@@ -570,8 +570,12 @@ export function FeedVideoPreview({
       data-testid={previewTestId ?? `feed-autoplay-preview-${video.id}`}
     >
       <LazyVideoThumbnail
-        thumbnailUrl={posterUrl}
+        thumbnailUrl={video.thumbnailUrl}
+        mediaUrl={video.access === "public" ? video.mediaUrl : undefined}
+        streamId={video.access === "public" ? video.cloudflareStreamId : undefined}
         alt={video.title}
+        authorName={video.author.name}
+        authorAvatarUrl={video.author.avatarUrl}
         showPlayFallback={showPlayFallback}
         showFallbackIcon
         bucket="thumbnails"

@@ -93,7 +93,7 @@ function CreatorAvatar({
   );
 }
 
-function RecommendationRow({
+export function RecommendationRow({
   video,
   onSelect,
   priority,
@@ -115,7 +115,10 @@ function RecommendationRow({
         <VideoPoster
           thumbnailUrl={video.thumbnailUrl}
           mediaUrl={video.mediaUrl}
-          alt=""
+          streamId={video.access === "public" ? video.cloudflareStreamId : undefined}
+          alt={video.title}
+          authorName={video.author.name}
+          authorAvatarUrl={video.author.avatarUrl}
           loading="eager"
           fetchPriority={priority ? "high" : "auto"}
           bucket="videos"

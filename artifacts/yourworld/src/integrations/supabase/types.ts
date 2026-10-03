@@ -533,6 +533,10 @@ export type Database = {
       }
       posts: {
         Row: {
+          cloudflare_stream_id: string | null
+          cloudflare_stream_uid: string | null
+          hls_url: string | null
+          source_url: string | null
           allow_download: boolean
           caption: string | null
           comments_count: number | null
@@ -555,6 +559,10 @@ export type Database = {
           views_count: number | null
         }
         Insert: {
+          cloudflare_stream_id?: string | null
+          cloudflare_stream_uid?: string | null
+          hls_url?: string | null
+          source_url?: string | null
           allow_download?: boolean
           caption?: string | null
           comments_count?: number | null
@@ -577,6 +585,10 @@ export type Database = {
           views_count?: number | null
         }
         Update: {
+          cloudflare_stream_id?: string | null
+          cloudflare_stream_uid?: string | null
+          hls_url?: string | null
+          source_url?: string | null
           allow_download?: boolean
           caption?: string | null
           comments_count?: number | null

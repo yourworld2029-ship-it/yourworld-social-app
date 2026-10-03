@@ -35,6 +35,7 @@ import {
 } from "@/components/yw/ProtectedCanvasContent";
 import {
   LazyVideoThumbnail,
+  VideoThumbnailFallback,
   VIDEO_POSTER_FALLBACK,
 } from "@/components/yw/LazyVideoThumbnail";
 import { ShareSheet } from "@/components/yw/ShareSheet";
@@ -231,6 +232,8 @@ function ReelsList() {
       commentCount: p.commentCount,
       shares: 0,
       allowDownload: p.allow_download,
+      cloudflareStreamId: p.cloudflare_stream_id ?? p.cloudflare_stream_uid,
+      authorAvatarUrl: p.authorAvatarUrl,
       originalWidth: (p as typeof p & { original_width?: number | null }).original_width,
       originalHeight: (p as typeof p & { original_height?: number | null }).original_height,
       sourceQualityTier: (() => {
@@ -249,7 +252,7 @@ function ReelsList() {
       createdAt: p.created_at,
       thumbnailUrl:
         (p as typeof p & { audience?: string | null }).audience === "everyone"
-        ? cloudflareStreamPosterUrl(p.media_url) ?? p.thumbnail_url ?? null
+        ? p.thumbnail_url ?? cloudflareStreamPosterUrl(p.media_url, p.cloudflare_stream_id ?? p.cloudflare_stream_uid) ?? null
         : p.thumbnail_url ?? null,
     } satisfies Reel,
     author: p.author,
@@ -259,7 +262,7 @@ function ReelsList() {
     mediaBucket: (p.kind === "reel" ? "reels" : "videos") as "reels" | "videos",
       thumbnailUrl:
         (p as typeof p & { audience?: string | null }).audience === "everyone"
-        ? cloudflareStreamPosterUrl(p.media_url) ?? p.thumbnail_url ?? null
+        ? p.thumbnail_url ?? cloudflareStreamPosterUrl(p.media_url, p.cloudflare_stream_id ?? p.cloudflare_stream_uid) ?? null
         : p.thumbnail_url ?? null,
   }));
 
@@ -418,11 +421,13 @@ function formatTime(value: number) {
  * Supabase URL, then with a local blob URL from this session, then fall back
  * to an image.
  */
-function ReelMedia({
+export function ReelMedia({
   postId,
   url,
   type,
   alt,
+  authorName,
+  authorAvatarUrl,
   posterUrl,
   active,
   muted,
@@ -437,6 +442,8 @@ function ReelMedia({
   url: string;
   type: string;
   alt: string;
+  authorName?: string | null;
+  authorAvatarUrl?: string | null;
   posterUrl?: string | null;
   active: boolean;
   muted: boolean;
@@ -451,13 +458,9 @@ function ReelMedia({
   const [asImage, setAsImage] = useState(!type.startsWith("video"));
   const [posterSrc, setPosterSrc] = useState<string | null>(null);
   const [generatedPoster, setGeneratedPoster] = useState<string | null>(null);
-  const [posterFailed, setPosterFailed] = useState(false);
   const [frameReady, setFrameReady] = useState(false);
   const [mediaFailed, setMediaFailed] = useState(false);
   const image = useScreenImage(asImage ? (mediaFailed && posterSrc ? posterSrc : src) : null);
-  const posterImage = useScreenImage(
-    posterFailed && generatedPoster ? generatedPoster : posterSrc ?? generatedPoster,
-  );
   const tried = useRef<Set<string>>(new Set());
   const retryGeneration = useRef(0);
 
@@ -467,7 +470,6 @@ function ReelMedia({
     setSrc(url);
     setAsImage(!type.startsWith("video"));
     setMediaFailed(false);
-    setPosterFailed(false);
     setFrameReady(false);
   }, [url, type]);
 
@@ -491,10 +493,6 @@ function ReelMedia({
       alive = false;
     };
   }, [bucket, posterUrl]);
-
-  useEffect(() => {
-    setPosterFailed(false);
-  }, [posterUrl]);
 
   const handleError = useCallback(() => {
     tried.current.add(src);
@@ -648,7 +646,7 @@ function ReelMedia({
           }}
           aria-label={alt}
           className="flex h-full w-full items-center justify-center bg-gradient-to-br from-zinc-800 via-zinc-900 to-zinc-950"
-        />
+        ><VideoThumbnailFallback title={alt} authorName={authorName} authorAvatarUrl={authorAvatarUrl} /></div>
       );
     }
     return (
@@ -666,12 +664,12 @@ function ReelMedia({
   }
 
   return (
-    <div ref={(node) => { posterImage.ref.current = node; }} className="relative h-full w-full">
+    <div className="relative h-full w-full">
       <video
         ref={setVideoRef}
         src={active && !isHlsManifest ? src : undefined}
         crossOrigin="anonymous"
-        poster={posterImage.source ?? VIDEO_POSTER_FALLBACK}
+        poster={posterSrc ?? generatedPoster ?? VIDEO_POSTER_FALLBACK}
         playsInline
         muted={muted || !active}
         preload="metadata"
@@ -692,12 +690,13 @@ function ReelMedia({
         screenBounded
         className={`absolute inset-0 ${className}`}
       />
-      <img
-        src={posterImage.source || VIDEO_POSTER_FALLBACK}
-        alt=""
-        aria-hidden="true"
-        onError={() => setPosterFailed(true)}
-        className={`pointer-events-none absolute inset-0 z-20 h-full w-full object-cover transition-opacity duration-150 ${
+      <LazyVideoThumbnail
+        thumbnailUrl={posterSrc}
+        mediaUrl={url}
+        alt={alt}
+        authorName={authorName}
+        authorAvatarUrl={authorAvatarUrl}
+        className={`pointer-events-none absolute inset-0 z-20 h-full w-full transition-opacity duration-150 ${
           active && frameReady ? "opacity-0" : "opacity-100"
         }`}
       />
@@ -1117,6 +1116,7 @@ function ReelItem({
         const offlineSource = await resolveAuthorizedOfflineSource(
           reel.id,
           requestedQuality,
+          { url: mediaUrl!, streamId: reel.cloudflareStreamId, bucket: mediaBucket ?? "reels" },
         );
         const playableUrl = offlineSource.url;
         const baseName = sanitizeDownloadName(reel.caption, `yw-reel-${reel.id}`);
@@ -1135,7 +1135,7 @@ function ReelItem({
           durationSeconds: reel.durationSeconds,
           thumbnailUrl: resolvedThumbnailUrl,
           posterUrl: resolvedThumbnailUrl,
-          quality: (selectedTier ?? offlineSource.actualQuality) as DownloadedVideoMetadata["quality"],
+          quality: offlineSource.actualQuality as DownloadedVideoMetadata["quality"],
         };
         if (choice === "mp3") {
           await downloadAudioOnly(playableUrl, baseName, (percent) => {
@@ -1153,6 +1153,7 @@ function ReelItem({
             downloadMetadata,
             {
               targetQuality: selectedTier,
+              fallbackUrls: offlineSource.fallbackUrls,
               transcodeSource: Boolean(
                 selectedTier && offlineSource.actualQuality !== selectedTier,
               ),
@@ -1267,6 +1268,8 @@ function ReelItem({
           url={mediaUrl ?? reel.poster}
           type={mediaType ?? "image"}
           alt={reel.caption}
+          authorName={author?.name}
+          authorAvatarUrl={reel.authorAvatarUrl}
           posterUrl={thumbnailUrl}
           bucket={mediaBucket}
           active={active}

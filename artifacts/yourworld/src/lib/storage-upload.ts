@@ -1,3 +1,4 @@
+import { mediaApiUrl } from "@/lib/media-api-url";
 import { supabase } from "@/integrations/supabase/client";
 import { getAdaptivePerformanceSnapshot } from "@/lib/adaptive-performance";
 import {
@@ -142,7 +143,7 @@ export async function uploadWithProgress(
     onProgress?.(needsCloudflareStream ? 48 : 97, "Preparing video for playback");
     let response: Response;
     try {
-      response = await fetch("/api/media/transcode", {
+      response = await fetch(mediaApiUrl("/api/media/transcode"), {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -215,7 +216,7 @@ export async function uploadWithProgress(
 
     let assetResponse: Response;
     try {
-      assetResponse = await fetch("/api/media/cloudflare-stream-asset", {
+      assetResponse = await fetch(mediaApiUrl("/api/media/cloudflare-stream-asset"), {
         method: "POST",
         headers: {
           Authorization: `Bearer ${currentToken}`,

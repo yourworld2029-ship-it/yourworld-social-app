@@ -143,6 +143,8 @@ export type Reel = {
   durationSeconds?: number | null;
   createdAt?: string;
   thumbnailUrl?: string | null;
+  cloudflareStreamId?: string | null;
+  authorAvatarUrl?: string | null;
 };
 
 export const reels: Reel[] = [

@@ -1,4 +1,12 @@
 import { supabase } from "@/integrations/supabase/client";
+import { mediaApiUrl } from "@/lib/media-api-url";
+import { cloudflareStreamDownloadUrl } from "@/lib/cloudflare-stream-media";
+import { resolveMediaUrl } from "@/lib/social-data";
+import { orderedOfflineSources } from "@/lib/offline-source-order";
+
+class MediaRequestError extends Error {
+  constructor(message: string, readonly status: number) { super(message); }
+}
 
 export type AuthorizedOfflineQuality =
   | "original"
@@ -27,18 +35,20 @@ async function postAuthorizedMediaRequest(
   const accessToken = data.session?.access_token;
   if (!accessToken) throw new Error("Sign in to access this video.");
 
-  const response = await fetch(path, {
+  const response = await fetch(mediaApiUrl(path), {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(20_000),
   });
   const payload: unknown = await response.json().catch(() => null);
   if (!response.ok) {
-    throw new Error(
+    throw new MediaRequestError(
       errorFromPayload(payload, "Secure video media is temporarily unavailable."),
+      response.status,
     );
   }
   if (
@@ -47,7 +57,7 @@ async function postAuthorizedMediaRequest(
     !("url" in payload) ||
     typeof payload.url !== "string"
   ) {
-    throw new Error("The video source is unavailable.");
+    throw new MediaRequestError("The download service returned an incomplete response.", 502);
   }
   return payload as Record<string, unknown> & { url: string };
 }
@@ -69,11 +79,31 @@ export async function resolveAuthorizedPlaybackUrl(
 export async function resolveAuthorizedOfflineSource(
   postId: string,
   quality: AuthorizedOfflineQuality = "original",
+  activeSource?: { url: string; streamId?: string | null; bucket?: "videos" | "reels"; sourceUrl?: string | null },
 ) {
-  const payload = await postAuthorizedMediaRequest("/api/media/offline-source", {
-    postId,
-    quality,
+  const resolveReference = async (reference?: string | null) => {
+    if (!reference) return null;
+    if (/^https?:\/\//i.test(reference)) return reference;
+    return resolveMediaUrl(reference, activeSource?.bucket ?? "videos").catch(() => null);
+  };
+  const sources = async (authorizedUrl?: string) => orderedOfflineSources({
+    authorizedUrl,
+    cloudflareUrl: cloudflareStreamDownloadUrl(activeSource?.url, activeSource?.streamId),
+    activeUrl: await resolveReference(activeSource?.url),
+    storageUrl: await resolveReference(activeSource?.sourceUrl),
   });
+  let payload: Record<string, unknown> & { url: string };
+  try {
+    payload = await postAuthorizedMediaRequest("/api/media/offline-source", { postId, quality });
+  } catch (error) {
+    // A service/version/transport failure must not discard an already-authorized
+    // playing source. Explicit access/creator denials remain authoritative.
+    if (error instanceof MediaRequestError && [401, 402, 403].includes(error.status)) throw error;
+    if (!activeSource?.url) throw error;
+    const urls = await sources();
+    if (!urls.length) throw error;
+    return { url: urls[0], actualQuality: "original" as const, fallbackUrls: urls.slice(1) };
+  }
   const actualQuality =
     payload.actualQuality === "360p" ||
     payload.actualQuality === "480p" ||
@@ -83,5 +113,10 @@ export async function resolveAuthorizedOfflineSource(
     payload.actualQuality === "2160p"
       ? payload.actualQuality
       : "original";
-  return { url: payload.url, actualQuality };
+  const urls = await sources(payload.url);
+  return {
+    url: urls[0] ?? payload.url,
+    actualQuality: urls[0] === payload.url ? actualQuality : "original" as const,
+    fallbackUrls: urls.slice(1),
+  };
 }

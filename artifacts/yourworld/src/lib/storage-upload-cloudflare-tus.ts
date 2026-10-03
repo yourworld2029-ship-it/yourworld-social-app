@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { readableUploadError } from "@/lib/storage-upload-request";
+import { mediaApiUrl } from "@/lib/media-api-url";
 
 const CLOUDFLARE_TUS_ENDPOINT = "/api/media/cloudflare-tus-upload";
 const CLOUDFLARE_TUS_CHUNK_SIZE = 5 * 1024 * 1024;
@@ -17,7 +18,7 @@ export async function uploadCloudflareStreamWithTus(options: {
   }
 
   const { Upload } = await import("tus-js-client");
-  const endpoint = new URL(CLOUDFLARE_TUS_ENDPOINT, window.location.origin).toString();
+  const endpoint = new URL(mediaApiUrl(CLOUDFLARE_TUS_ENDPOINT), window.location.origin).toString();
   const filename = options.path.split("/").pop() || "video";
 
   return new Promise((resolve) => {
@@ -55,7 +56,7 @@ export async function uploadCloudflareStreamWithTus(options: {
           return;
         }
         if (
-          requestUrl.origin !== window.location.origin ||
+          requestUrl.origin !== new URL(endpoint).origin ||
           request.getMethod().toUpperCase() === "OPTIONS"
         ) {
           return;

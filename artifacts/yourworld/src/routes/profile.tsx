@@ -88,7 +88,6 @@ import {
   qualityTierFromSourceMetadata,
   resolveVideoDownloadSelection,
   type DownloadQualityUrls,
-  type VideoQualityTier,
 } from "@/lib/video-quality";
 import { useVideoPlayback } from "@/lib/video-playback";
 import { supabase } from "@/integrations/supabase/client";
@@ -468,6 +467,8 @@ function ProfilePage() {
           | "1080p"
           | "1440p"
           | "2160p",
+        { url: selection?.url ?? sourceMediaUrl, sourceUrl: sourceMediaUrl,
+          streamId: post.cloudflare_stream_id ?? post.cloudflare_stream_uid, bucket: mediaBucket },
       );
       const mediaUrl = offlineSource.url;
 
@@ -478,9 +479,7 @@ function ProfilePage() {
         ? await resolveMediaUrl(post.thumbnail_url, STORAGE_BUCKETS.videos)
         : null;
       const quality: DownloadedVideoMetadata["quality"] =
-        choice === "original" || choice === "mp3"
-          ? "original"
-          : (choice as VideoQualityTier);
+        offlineSource.actualQuality as DownloadedVideoMetadata["quality"];
       const metadata = {
         ownerId: userId,
         mediaId: post.id,
@@ -512,6 +511,7 @@ function ProfilePage() {
           reportProgress,
           metadata,
           {
+            fallbackUrls: offlineSource.fallbackUrls,
             targetQuality:
               choice !== "original" ? choice : undefined,
             transcodeSource:

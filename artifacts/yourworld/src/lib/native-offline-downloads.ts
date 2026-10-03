@@ -1,8 +1,9 @@
-import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
+import { Capacitor, type PluginListenerHandle } from "@capacitor/core";
 import { Directory, Encoding, Filesystem } from "@capacitor/filesystem";
 import { Preferences } from "@capacitor/preferences";
 import type { OfflineVideo } from "@/lib/offlineVideosDB";
 import { nativeOfflinePathsForVideo } from "@/lib/native-offline-paths";
+import { downloadOfflineHls } from "@/lib/offline-hls";
 
 const REGISTRY_KEY = "yourworld.offline-videos.registry.v1";
 const REGISTRY_VERSION = 1;
@@ -11,29 +12,6 @@ const REGISTRY_FILE_NAME = "registry.json";
 const REGISTRY_FILE_PATH = `${ROOT_DIRECTORY}/${REGISTRY_FILE_NAME}`;
 const WRITE_CHUNK_BYTES = 1024 * 1024;
 const MAX_THUMBNAIL_BYTES = 4 * 1024 * 1024;
-
-type NativeDownloadProgress = {
-  transferId: string;
-  bytesTransferred: number;
-  totalBytes: number;
-  stage: "ranges" | "fallback" | "full-get" | "complete";
-};
-
-type NativeOfflineDownloadPlugin = {
-  download(options: {
-    url: string;
-    path: string;
-    transferId: string;
-  }): Promise<{ sizeBytes: number }>;
-  addListener(
-    eventName: "progress",
-    listener: (event: NativeDownloadProgress) => void,
-  ): Promise<PluginListenerHandle>;
-};
-
-const NativeOfflineDownload = registerPlugin<NativeOfflineDownloadPlugin>(
-  "OfflineMediaDownload",
-);
 
 export type NativeOfflineVideo = OfflineVideo & {
   id: string;
@@ -235,9 +213,6 @@ function assertDirectVideoUrl(sourceUrl: string) {
   if (url.protocol !== "https:" && url.protocol !== "http:") {
     throw new Error("This video must have a valid HTTP download URL.");
   }
-  if (/\.m3u8$/i.test(url.pathname)) {
-    throw new Error("This Android download uses an HLS playlist, which is not supported for offline saving yet.");
-  }
 }
 
 function toBase64(bytes: Uint8Array) {
@@ -292,6 +267,9 @@ async function removeFile(path?: string | null) {
     await Filesystem.deleteFile({ path, directory: Directory.Data });
   } catch {
     // A missing file must not make an explicit library removal fail.
+  }
+  if (path.endsWith(".m3u8")) {
+    await Filesystem.rmdir({ path: `${path}.assets`, directory: Directory.Data, recursive: true }).catch(() => undefined);
   }
 }
 
@@ -430,6 +408,20 @@ export async function downloadNativeOfflineVideoFromUrl(
   record: OfflineVideo,
   sourceUrl: string,
   onProgress?: (bytesTransferred: number, totalBytes: number) => void,
+  fallbackUrls: string[] = [],
+) {
+  let lastError: unknown;
+  for (const url of [...new Set([sourceUrl, ...fallbackUrls])]) {
+    try { return await downloadSingleNativeOfflineVideo(record, url, onProgress); }
+    catch (error) { lastError = error; }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Download failed. Check your connection and retry.");
+}
+
+async function downloadSingleNativeOfflineVideo(
+  record: OfflineVideo,
+  sourceUrl: string,
+  onProgress?: (bytesTransferred: number, totalBytes: number) => void,
 ) {
   if (!isAndroidNativeDownloads()) {
     throw new Error("Native streaming downloads are only available on Android.");
@@ -443,30 +435,36 @@ export async function downloadNativeOfflineVideoFromUrl(
     normalizedRecord.quality,
     normalizedRecord.ownerId,
   ));
-  const transferId = `offline-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-  let nativeListener: PluginListenerHandle | null = null;
+  const isHls = /\.m3u8$/i.test(new URL(sourceUrl).pathname);
+  if (isHls) paths.localFilePath = paths.localFilePath.replace(/\.mp4$/, ".m3u8");
   let filesystemListener: PluginListenerHandle | null = null;
-  let lastBytesTransferred = 0;
 
   try {
     await ensureParentDirectory(paths.localFilePath);
-    try {
-      nativeListener = await NativeOfflineDownload.addListener("progress", (progress) => {
-        if (progress.transferId !== transferId) return;
-        if (progress.stage === "fallback") lastBytesTransferred = 0;
-        else lastBytesTransferred = Math.max(lastBytesTransferred, progress.bytesTransferred);
-        onProgress?.(lastBytesTransferred, progress.totalBytes);
-      });
-      await NativeOfflineDownload.download({
-        url: sourceUrl,
-        path: paths.localFilePath,
-        transferId,
-      });
-    } catch (nativeError) {
-      console.warn("Native range download failed; retrying as one file request.", nativeError);
-      await nativeListener?.remove().catch(() => undefined);
-      nativeListener = null;
-      await removeFile(paths.localFilePath);
+    let totalHlsBytes: number | null = null;
+    if (isHls) {
+      const scratch = `${paths.localFilePath}.manifest-tmp`;
+      totalHlsBytes = await downloadOfflineHls(sourceUrl, paths.localFilePath, {
+        readText: async (url) => {
+          try {
+            await Filesystem.downloadFile({ url, path: scratch, directory: Directory.Data, recursive: true });
+            const info = await Filesystem.stat({ path: scratch, directory: Directory.Data });
+            if (info.size > 256 * 1024) throw new Error("The video playlist is too large.");
+            const content = await Filesystem.readFile({ path: scratch, directory: Directory.Data, encoding: Encoding.UTF8 });
+            if (typeof content.data !== "string") throw new Error("The video playlist could not be read.");
+            return content.data;
+          } finally { await removeFile(scratch); }
+        },
+        save: async (url, path) => {
+          await Filesystem.downloadFile({ url, path, directory: Directory.Data, recursive: true });
+          return (await Filesystem.stat({ path, directory: Directory.Data })).size;
+        },
+        writeText: async (path, data) => {
+          await Filesystem.writeFile({ path, data, directory: Directory.Data, encoding: Encoding.UTF8, recursive: true });
+        },
+        removeDirectory: async (path) => { await Filesystem.rmdir({ path, directory: Directory.Data, recursive: true }); },
+      }, onProgress);
+    } else {
       filesystemListener = await Filesystem.addListener("progress", (progress) => {
         if (progress.url === sourceUrl) {
           onProgress?.(progress.bytes, progress.contentLength);
@@ -495,7 +493,7 @@ export async function downloadNativeOfflineVideoFromUrl(
 
     const savedRecord: OfflineVideo = {
       ...normalizedRecord,
-      sizeBytes: savedFile.size,
+      sizeBytes: totalHlsBytes ?? savedFile.size,
       downloadedAt: normalizedRecord.downloadedAt || new Date().toISOString(),
     };
     return await commitNativeOfflineVideo(
@@ -508,7 +506,6 @@ export async function downloadNativeOfflineVideoFromUrl(
     await removeFile(paths.localFilePath);
     throw error;
   } finally {
-    await nativeListener?.remove().catch(() => undefined);
     await filesystemListener?.remove().catch(() => undefined);
   }
 }

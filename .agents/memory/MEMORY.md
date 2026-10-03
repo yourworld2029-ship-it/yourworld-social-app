@@ -50,4 +50,5 @@
 - [Android capture protection](android-capture-protection.md) — keep FLAG_SECURE off globally; only an active chat’s explicit protection toggle may enable it, with cleanup on exit.
 - [Managed Realtime table ownership](realtime-system-table-ownership.md) — do not alter Supabase-managed Realtime tables or publication through the project migration connection.
 - [Supabase media upload transport](direct-supabase-uploads.md) — use direct Storage for small files and sequential resumable TUS for large browser uploads.
-- [Cloudflare Stream downloads](cloudflare-stream-downloads.md) — use `default.mp4` only when its effective quality matches; preserve authorized source variants otherwise.
+- [Cloudflare Stream downloads](cloudflare-stream-downloads.md) — prefer Cloudflare MP4, active playback, then storage; keep quality labels honest and preserve access denials.
+- [Native media API routing](native-media-api-routing.md) — packaged WebView API requests need the hosted origin; the asset server may return HTML with HTTP 200.
