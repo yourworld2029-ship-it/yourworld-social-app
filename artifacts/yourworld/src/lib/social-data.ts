@@ -40,7 +40,10 @@ import {
   afterViewExpiresAt,
   expiresAtForAutoDelete,
   isAutoDeleteExpired,
+  normalizeChatAutoDeleteSetting,
   normalizeAutoDeleteSetting,
+  vanishDelaySeconds,
+  vanishDelaySecondsFromMetadata,
   type AutoDeleteSetting,
 } from "@/lib/auto-delete";
 import {
@@ -818,13 +821,20 @@ const isRenderablePublicMessage = (
   );
   const metadata = asRecord(row.metadata);
   const viewOnce = metadata?.view_once === true || metadata?.view_once === "true";
+  const vanishDelay = vanishDelaySecondsFromMetadata(metadata);
+  const isTimedVanish = mode === "after_view" && !viewOnce && vanishDelay > 0;
   if (
     mode === "after_view" &&
     !viewOnce &&
+    !isTimedVanish &&
     hideConsumedAfterView &&
     (row.is_read === true || row.is_viewed === true)
   ) {
     return false;
+  }
+  if (isTimedVanish && row.is_viewed === true) {
+    const viewedAt = typeof row.viewed_at === "string" ? Date.parse(row.viewed_at) : NaN;
+    if (Number.isFinite(viewedAt) && viewedAt + vanishDelay * 1000 <= now) return false;
   }
   if (mode === "after_view" && viewOnce && row.is_viewed === true) {
     const viewedAt = typeof row.viewed_at === "string" ? Date.parse(row.viewed_at) : NaN;
@@ -2267,18 +2277,26 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
   useEffect(() => {
     if (!me) return;
     messages.forEach((message) => {
+      const isViewOnce =
+        message.metadata?.view_once === true || message.metadata?.view_once === "true";
+      const vanishDelay = vanishDelaySecondsFromMetadata(message.metadata);
       if (
         message.receiver_id !== me ||
         message.auto_delete_mode !== "after_view" ||
         !message.is_viewed ||
-        (message.metadata?.view_once !== true && message.metadata?.view_once !== "true") ||
+        (!isViewOnce && vanishDelay === 0) ||
         message.is_deleted ||
         afterViewTimersRef.current.has(message.id)
       ) {
         return;
       }
       const viewedAt = message.viewed_at ? Date.parse(message.viewed_at) : Date.now();
-      const expiresAt = viewedAt + AFTER_VIEW_DELAY_MS;
+      const storedExpiresAt = message.expires_at ? Date.parse(message.expires_at) : NaN;
+      const expiresAt = isViewOnce
+        ? viewedAt + AFTER_VIEW_DELAY_MS
+        : Number.isFinite(storedExpiresAt)
+          ? storedExpiresAt
+          : viewedAt + vanishDelay * 1000;
       const delay = Math.max(0, expiresAt - Date.now());
       const requestThreadId = threadId;
       const scheduleRetry = () => {
@@ -2361,16 +2379,22 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       messagesThreadIdRef.current === requestThreadId;
     const receiverId = pair.find((id) => id !== me)!;
     const expiringMedia = Boolean(payload.expiringMedia || payload.viewOnce);
-    const initialMode = payload.isSystemMessage
+    const initialSetting = payload.isSystemMessage
       ? "off"
       : expiringMedia
         ? "after_view"
         : payload.autoDeleteMode ?? payload.autoDeleteSetting ?? "off";
-    const metadata = {
-      ...(payload.metadata ?? {}),
-      ...(expiringMedia ? { expiring_media: true } : {}),
-      ...(payload.viewOnce ? { view_once: true } : {}),
+    const initialMode = normalizeAutoDeleteSetting(initialSetting);
+    const makeMetadata = (setting: unknown) => {
+      const next: Record<string, unknown> = { ...(payload.metadata ?? {}) };
+      delete next.vanish_delay_seconds;
+      if (expiringMedia) next.expiring_media = true;
+      if (payload.viewOnce) next.view_once = true;
+      const delay = payload.isSystemMessage || expiringMedia ? 0 : vanishDelaySeconds(setting);
+      if (delay > 0) next.vanish_delay_seconds = delay;
+      return next;
     };
+    let metadata = makeMetadata(initialSetting);
     const createdAt = new Date().toISOString();
     const tempId = `tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const optimistic = toDbMessage({
@@ -2429,18 +2453,23 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       }
 
       const conversation = conversationResult.data as unknown as ConversationRow;
-      const requestedMode =
-        payload.autoDeleteMode ??
+      const requestedSetting = payload.isSystemMessage
+        ? "off"
+        : expiringMedia
+          ? "after_view"
+          : payload.autoDeleteMode ??
         payload.autoDeleteSetting ??
-        normalizeAutoDeleteSetting(conversation.auto_delete_setting);
+        normalizeChatAutoDeleteSetting(conversation.auto_delete_setting);
       const autoDeleteMode = payload.isSystemMessage
         ? "off"
         : expiringMedia
           ? "after_view"
-          : requestedMode;
+          : normalizeAutoDeleteSetting(requestedSetting);
+      metadata = makeMetadata(requestedSetting);
       const expiresAt = expiresAtForAutoDelete(autoDeleteMode);
       const readyOptimistic = {
         ...optimistic,
+        metadata,
         auto_delete_setting: autoDeleteMode,
         auto_delete_mode: autoDeleteMode,
         expires_at: expiresAt,
@@ -2733,7 +2762,8 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
             (message.is_read === true || message.is_viewed === true) &&
             message.is_system_message !== true &&
             message.metadata?.view_once !== true &&
-            message.metadata?.view_once !== "true",
+            message.metadata?.view_once !== "true" &&
+            vanishDelaySecondsFromMetadata(message.metadata) === 0,
         )
         .map((message) => message.id),
     );

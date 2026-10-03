@@ -50,7 +50,14 @@ import {
 } from "@/lib/secret-chats";
 import { PinDialog } from "@/components/yw/PinDialog";
 import { toast } from "sonner";
-import { AUTO_DELETE_OPTIONS, autoDeleteLabel } from "@/lib/auto-delete";
+import {
+  AUTO_DELETE_OPTIONS,
+  VANISH_TIMER_OPTIONS,
+  autoDeleteLabel,
+  formatVanishCountdown,
+  normalizeAutoDeleteSetting,
+  vanishDelaySecondsFromMetadata,
+} from "@/lib/auto-delete";
 import { historyBackOr } from "@/lib/navigation";
 import {
   listenForAndroidCaptureEvents,
@@ -829,6 +836,13 @@ function NativeChatThreadPage() {
             : null;
         const expiresAt =
           typeof m?.expires_at === "string" ? Date.parse(m.expires_at) : Number.NaN;
+        const vanishDelay = vanishDelaySecondsFromMetadata(metadata);
+        const viewedAt =
+          typeof m?.viewed_at === "string" ? Date.parse(m.viewed_at) : Number.NaN;
+        const vanishExpiresAt =
+          vanishDelay > 0 && Number.isFinite(viewedAt)
+            ? viewedAt + vanishDelay * 1000
+            : Number.NaN;
         return [
           {
             id,
@@ -849,8 +863,8 @@ function NativeChatThreadPage() {
             deletingAt:
               m?.auto_delete_mode === "after_view" &&
               m?.is_viewed === true &&
-              Number.isFinite(expiresAt)
-                ? expiresAt
+              (Number.isFinite(vanishExpiresAt) || Number.isFinite(expiresAt))
+                ? Number.isFinite(vanishExpiresAt) ? vanishExpiresAt : expiresAt
                 : undefined,
             viewOnce: metadata?.view_once === true,
             opened: m?.is_viewed === true,
@@ -907,8 +921,9 @@ function NativeChatThreadPage() {
         (m) =>
           !(m.system && /^secret\s+lock\s+(?:enabled|disabled)$/i.test(m.text?.trim() ?? "")),
       )
+      .filter((m) => !m.deletingAt || m.deletingAt > countdownNow)
       .sort((a, b) => a.ts - b.ts);
-  }, [dbMessages, localMessages, hiddenIds, currentUserId]);
+  }, [dbMessages, localMessages, hiddenIds, currentUserId, countdownNow]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setRelativeNow(Date.now()), 30_000);
@@ -919,7 +934,8 @@ function NativeChatThreadPage() {
     if (!dbMessages.some((m) =>
       m.auto_delete_mode === "after_view" &&
       m.is_viewed &&
-      Boolean(m.expires_at),
+      (Boolean(m.expires_at) ||
+        (vanishDelaySecondsFromMetadata(m.metadata) > 0 && Boolean(m.viewed_at))),
     )) {
       return;
     }
@@ -1165,6 +1181,7 @@ function NativeChatThreadPage() {
   const [pinMode, setPinMode] = useState<"set" | "remove" | null>(null);
   const [pinError, setPinError] = useState<string | null>(null);
   const [autoDeleteOpen, setAutoDeleteOpen] = useState(false);
+  const [vanishPickerOpen, setVanishPickerOpen] = useState(false);
 
   const toggleSecretLock = () => {
     if (!peer.peerId) {
@@ -2055,6 +2072,7 @@ function NativeChatThreadPage() {
                 setShowOptionsMenu(false);
               }} />
               <MenuItem icon={<Clock size={16} className="text-zinc-400" />} label={settings.autoDeleteSetting === "off" ? "Auto Delete Messages" : `Auto Delete: ${autoDeleteLabel(settings.autoDeleteSetting)}`} state={settings.autoDeleteSetting !== "off"} onClick={() => {
+                setVanishPickerOpen(normalizeAutoDeleteSetting(settings.autoDeleteSetting) === "after_view");
                 setAutoDeleteOpen(true);
                 setShowOptionsMenu(false);
               }} />
@@ -2117,25 +2135,86 @@ function NativeChatThreadPage() {
         <div className="fixed inset-0 z-[130] grid place-items-center bg-black/70 px-6" onClick={() => setAutoDeleteOpen(false)}>
           <div onClick={(e) => e.stopPropagation()} className="w-full max-w-xs space-y-1 rounded-2xl border border-zinc-800 bg-zinc-900 p-4 shadow-2xl">
             <h2 className="px-2 pb-2 text-sm font-bold text-white">Auto-delete messages</h2>
-            {AUTO_DELETE_OPTIONS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => {
-                   void setAutoDeleteSetting(option.value).then((result) => {
-                     if (result.error) toast.error(result.error);
-                     else toast.success(`Auto-delete ${option.label.toLowerCase()}`);
-                   });
-                  setAutoDeleteOpen(false);
-                }}
-                className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm transition-colors hover:bg-zinc-800 ${
-                  settings.autoDeleteSetting === option.value ? "font-bold text-purple-300" : "text-zinc-200"
-                }`}
-              >
-                {option.label}
-                {settings.autoDeleteSetting === option.value && <CheckCheck size={16} />}
-              </button>
-            ))}
+            {AUTO_DELETE_OPTIONS.map((option) => {
+              const isAfterView = option.value === "after_view";
+              const selected = isAfterView
+                ? normalizeAutoDeleteSetting(settings.autoDeleteSetting) === "after_view"
+                : settings.autoDeleteSetting === option.value;
+              return (
+                <React.Fragment key={option.value}>
+                  <button
+                    type="button"
+                    aria-expanded={isAfterView ? vanishPickerOpen : undefined}
+                    aria-controls={isAfterView ? "vanish-timer-options" : undefined}
+                    onClick={() => {
+                      if (isAfterView) {
+                        const alreadySelected =
+                          normalizeAutoDeleteSetting(settings.autoDeleteSetting) === "after_view";
+                        setVanishPickerOpen((expanded) => !alreadySelected || !expanded);
+                        if (!alreadySelected) {
+                          void setAutoDeleteSetting("after_view").then((result) => {
+                            if (result.error) toast.error(result.error);
+                            else toast.success("Auto-delete after view (immediately on exit)");
+                          });
+                        }
+                        return;
+                      }
+                      setVanishPickerOpen(false);
+                      void setAutoDeleteSetting(option.value).then((result) => {
+                        if (result.error) toast.error(result.error);
+                        else toast.success(`Auto-delete ${option.label.toLowerCase()}`);
+                      });
+                      setAutoDeleteOpen(false);
+                    }}
+                    className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm transition-colors hover:bg-zinc-800 ${
+                      selected ? "font-bold text-purple-300" : "text-zinc-200"
+                    }`}
+                  >
+                    {option.label}
+                    <span className="flex items-center gap-2">
+                      {selected && <CheckCheck size={16} />}
+                      {isAfterView && (
+                        <ChevronRight
+                          size={15}
+                          className={`transition-transform ${vanishPickerOpen ? "rotate-90" : ""}`}
+                        />
+                      )}
+                    </span>
+                  </button>
+                  {isAfterView && vanishPickerOpen && (
+                    <div
+                      id="vanish-timer-options"
+                      className="ml-3 space-y-1 border-l border-zinc-700 pl-2"
+                    >
+                      {VANISH_TIMER_OPTIONS.map((timerOption) => (
+                        <button
+                          key={timerOption.value}
+                          type="button"
+                          onClick={() => {
+                            void setAutoDeleteSetting(timerOption.value).then((result) => {
+                              if (result.error) toast.error(result.error);
+                              else toast.success(`Vanish timer: ${timerOption.label.toLowerCase()}`);
+                            });
+                            setAutoDeleteOpen(false);
+                            setVanishPickerOpen(false);
+                          }}
+                          className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs transition-colors hover:bg-zinc-800 ${
+                            settings.autoDeleteSetting === timerOption.value
+                              ? "font-semibold text-purple-300"
+                              : "text-zinc-300"
+                          }`}
+                        >
+                          {timerOption.label}
+                          {settings.autoDeleteSetting === timerOption.value && (
+                            <CheckCheck size={14} />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </React.Fragment>
+              );
+            })}
           </div>
         </div>
       )}
@@ -2401,8 +2480,13 @@ function NativeChatThreadPage() {
             )}
 
             {m.deletingAt && m.deletingAt > countdownNow && (
-              <span className="mt-1 px-1 text-[10px] text-zinc-500">
-                Deleting in {Math.max(1, Math.ceil((m.deletingAt - countdownNow) / 1000))}s
+              <span
+                className="mt-1 inline-flex items-center gap-1 px-1 text-[10px] text-zinc-400"
+                title={`Self-destructs in ${formatVanishCountdown(m.deletingAt - countdownNow)}`}
+                aria-label={`Self-destructs in ${formatVanishCountdown(m.deletingAt - countdownNow)}`}
+              >
+                <span aria-hidden="true">⏱</span>
+                {formatVanishCountdown(m.deletingAt - countdownNow)}
               </span>
             )}
 

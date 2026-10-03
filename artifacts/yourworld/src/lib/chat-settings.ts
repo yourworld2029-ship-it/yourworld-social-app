@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { setUserBlock } from "@/lib/social-data";
 import {
   autoDeleteSeconds,
-  normalizeAutoDeleteSetting,
+  normalizeChatAutoDeleteSetting,
   autoDeleteLabel,
   type AutoDeleteSetting,
 } from "@/lib/auto-delete";
@@ -116,14 +116,14 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
             .eq("id" as never, conversationId)
             .maybeSingle();
           if (!conversationResult.error && conversationResult.data) {
-            conversationSetting = normalizeAutoDeleteSetting(
+            conversationSetting = normalizeChatAutoDeleteSetting(
               (conversationResult.data as { auto_delete_setting?: unknown }).auto_delete_setting,
             );
           }
         }
         if (!alive) return;
         if (preference || conversationSetting) {
-          const preferenceMode = normalizeAutoDeleteSetting(preference?.auto_delete_setting);
+          const preferenceMode = normalizeChatAutoDeleteSetting(preference?.auto_delete_setting);
           const secretPinSalt = preference?.secret_pin_salt ?? DEFAULTS.secretPinSalt;
           const secretPinHash = preference?.secret_pin_hash ?? DEFAULTS.secretPinHash;
           const lockRequested = preference?.is_locked ?? DEFAULTS.secretLock;
@@ -156,7 +156,7 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
           .channel(channelName)
           .on("broadcast", { event: "auto_delete_updated" }, ({ payload }) => {
             const incoming = (payload ?? {}) as { auto_delete_setting?: unknown; new_setting?: unknown };
-            const mode = normalizeAutoDeleteSetting(incoming.auto_delete_setting ?? incoming.new_setting);
+            const mode = normalizeChatAutoDeleteSetting(incoming.auto_delete_setting ?? incoming.new_setting);
             setSettings((current) => ({
               ...current,
               autoDeleteSetting: mode,
@@ -206,10 +206,10 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
                   row.protect_chat_enabled ?? current.protectChatEnabled,
                 muted: row.is_muted ?? current.muted,
                 autoDeleteSetting: row.auto_delete_setting
-                  ? normalizeAutoDeleteSetting(row.auto_delete_setting)
+                  ? normalizeChatAutoDeleteSetting(row.auto_delete_setting)
                   : current.autoDeleteSetting,
                 autoDelete: row.auto_delete_setting
-                  ? autoDeleteSeconds(normalizeAutoDeleteSetting(row.auto_delete_setting))
+                  ? autoDeleteSeconds(normalizeChatAutoDeleteSetting(row.auto_delete_setting))
                   : current.autoDelete,
               };
             });
@@ -241,7 +241,7 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
             "postgres_changes",
             { event: "UPDATE", schema: "public", table: "conversations", filter: `id=eq.${conversationId}` },
             (payload) => {
-              const mode = normalizeAutoDeleteSetting(
+              const mode = normalizeChatAutoDeleteSetting(
                 (payload.new as { auto_delete_setting?: unknown }).auto_delete_setting,
               );
               setSettings((current) => ({

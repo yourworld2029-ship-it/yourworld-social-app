@@ -3,12 +3,17 @@ import assert from "node:assert/strict";
 import {
   AFTER_VIEW_DELAY_MS,
   AUTO_DELETE_OPTIONS,
+  VANISH_TIMER_OPTIONS,
   afterViewExpiresAt,
   autoDeleteExpiresAt,
   autoDeleteLabel,
   autoDeleteSeconds,
+  formatVanishCountdown,
   isAutoDeleteExpired,
+  normalizeChatAutoDeleteSetting,
   normalizeAutoDeleteSetting,
+  vanishDelaySeconds,
+  vanishDelaySecondsFromMetadata,
 } from "./auto-delete";
 
 test("View Once expiry is exactly five seconds after the receiver view time", () => {
@@ -29,6 +34,30 @@ test("selector exposes only the current four auto-delete modes", () => {
       ["24_hours", "24 Hours"],
     ],
   );
+});
+
+test("Vanish sub-timers preserve the immediate-on-exit default and selected delays", () => {
+  assert.deepEqual(
+    VANISH_TIMER_OPTIONS.map(({ value, label, delaySeconds }) => [value, label, delaySeconds]),
+    [
+      ["after_view", "Immediately on Exit", 0],
+      ["after_view_15s", "15 Seconds", 15],
+      ["after_view_1m", "1 Minute", 60],
+      ["after_view_10m", "10 Minutes", 600],
+    ],
+  );
+  assert.equal(normalizeChatAutoDeleteSetting("after_view_1m"), "after_view_1m");
+  assert.equal(normalizeAutoDeleteSetting("after_view_1m"), "after_view");
+  assert.equal(vanishDelaySeconds("after_view"), 0);
+  assert.equal(vanishDelaySeconds("after_view_15s"), 15);
+  assert.equal(vanishDelaySeconds("after_view_1m"), 60);
+  assert.equal(vanishDelaySeconds("after_view_10m"), 600);
+  assert.equal(vanishDelaySecondsFromMetadata({ vanish_delay_seconds: "60" }), 60);
+  assert.equal(vanishDelaySecondsFromMetadata({ vanish_delay_seconds: 999 }), 0);
+  assert.equal(formatVanishCountdown(14_100), "15s");
+  assert.equal(formatVanishCountdown(60_000), "1:00");
+  assert.equal(formatVanishCountdown(600_000), "10:00");
+  assert.equal(formatVanishCountdown(-1), "0s");
 });
 
 test("timed settings expire from their selected duration and legacy values become five hours", () => {

@@ -322,3 +322,17 @@ mtime_ms = 1791045353921
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/1b218f80-6cc1-49a5-8b81-92e8a824030f/ffd4aff7-cf92-43d6-a79a-d63c6c8c7581"
 storage_version_token = "1791045378845566"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "4bU4PDThRMta_QofN3jMS"
+uri = "file://artifacts/yourworld/android/app/build/outputs/apk/debug/app-debug.apk"
+type = "unspecified"
+title = "YourWorld Vanish Timers — Debug APK"
+description = "Android debug APK built with the requested Gradle assembleDebug task."
+logical_id = "5f20feb5-b00f-4aef-b15f-8a18f5833344"
+content_hash = "sha256:8346f08e0783746441a96d79696bec11e146ed7b6d9b6ee195c022ae1d63324f"
+size = 7815448
+mtime_ms = 1791047527705
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/5f20feb5-b00f-4aef-b15f-8a18f5833344/8f1e761e-711d-4b1e-a724-3f58348c64ce"
+storage_version_token = "1791047682354708"
+content_type = "application/octet-stream"

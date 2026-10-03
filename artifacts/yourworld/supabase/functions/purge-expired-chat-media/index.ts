@@ -175,7 +175,7 @@ async function loadSocialCandidates(now: string) {
   ).toISOString();
   const selectFields =
     "id,sender_id,receiver_id,media_url,voice_note_url,metadata,is_deleted,expires_at,created_at,auto_delete_mode";
-  const [fiveHour, twentyFourHour, viewOnce, legacyExpiry, deleted] = await Promise.all([
+  const [fiveHour, twentyFourHour, viewOnce, timedVanish, legacyExpiry, deleted] = await Promise.all([
     admin
       .from("messages")
       .select(selectFields)
@@ -193,6 +193,14 @@ async function loadSocialCandidates(now: string) {
       .select(selectFields)
       .eq("auto_delete_mode", "after_view")
       .eq("metadata->>view_once", "true")
+      .not("expires_at", "is", null)
+      .lte("expires_at", now)
+      .limit(BATCH_SIZE),
+    admin
+      .from("messages")
+      .select(selectFields)
+      .eq("auto_delete_mode", "after_view")
+      .in("metadata->>vanish_delay_seconds", ["15", "60", "600"])
       .not("expires_at", "is", null)
       .lte("expires_at", now)
       .limit(BATCH_SIZE),
@@ -219,6 +227,7 @@ async function loadSocialCandidates(now: string) {
     ...(fiveHour.data ?? []),
     ...(twentyFourHour.data ?? []),
     ...(viewOnce.data ?? []),
+    ...(timedVanish.data ?? []),
     ...(legacyExpiry.data ?? []),
     ...(deleted.data ?? []),
   ] as SocialRow[]) {

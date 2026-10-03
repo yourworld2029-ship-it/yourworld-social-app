@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { vanishDelaySecondsFromMetadata } from "@/lib/auto-delete";
 
 const purgeSocialMediaSchema = z.object({
   messageId: z.string().uuid(),
@@ -292,7 +293,8 @@ export const deleteViewedSocialMessagesOnExit = createServerFn({ method: "POST" 
         row.is_system_message !== true &&
         (row.is_read === true || row.is_viewed === true) &&
         row.metadata?.view_once !== true &&
-        row.metadata?.view_once !== "true",
+        row.metadata?.view_once !== "true" &&
+        vanishDelaySecondsFromMetadata(row.metadata) === 0,
     );
 
     await removeStorageObjects(
