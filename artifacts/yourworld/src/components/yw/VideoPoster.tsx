@@ -18,9 +18,9 @@ type Props = {
   onPosterResolved?: (url: string) => void;
 };
 
-// Shared list fallback never mounts another video decoder. Active playback
-// publishes decoded poster frames to the cache used by LazyVideoThumbnail.
-export function VideoPoster({ posterOnly: _posterOnly, allowFrameFallback: _frame,
+// Honor each surface's access gate; authorized frame reads use the shared slot.
+export function VideoPoster({ posterOnly: _posterOnly, allowFrameFallback = true,
   showLoadingShimmer: _shimmer, ...props }: Props) {
-  return <LazyVideoThumbnail {...props} showPlayFallback={props.showPlayFallback ?? true} />;
+  return <LazyVideoThumbnail {...props} allowFrameCapture={allowFrameFallback}
+    showPlayFallback={props.showPlayFallback ?? true} />;
 }

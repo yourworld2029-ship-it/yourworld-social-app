@@ -1,12 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Play } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { resolveMediaUrl } from "@/lib/social-data";
 import { cloudflareStreamPosterUrl } from "@/lib/cloudflare-stream-media";
 import { getVideoPoster, subscribeVideoPoster } from "@/lib/video-prefetch";
+import { requestVideoFirstFrame } from "@/lib/video-first-frame";
 
-const FALLBACK_VIDEO_POSTER_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 9"><defs><linearGradient id="p"><stop stop-color="#4c1d95"/><stop offset="1" stop-color="#164e63"/></linearGradient></defs><rect width="16" height="9" fill="url(#p)"/></svg>';
-export const VIDEO_POSTER_FALLBACK = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(FALLBACK_VIDEO_POSTER_SVG)}`;
+// No fabricated image is ever supplied as a video's poster.
+export const VIDEO_POSTER_FALLBACK = undefined;
 
 type Props = {
   thumbnailUrl?: string | null;
@@ -22,39 +23,29 @@ type Props = {
   loading?: "lazy" | "eager";
   fetchPriority?: "high" | "low" | "auto";
   onPosterResolved?: (url: string) => void;
+  allowFrameCapture?: boolean;
 };
-
-export function VideoThumbnailFallback({ title, authorName, authorAvatarUrl }: {
-  title: string; authorName?: string | null; authorAvatarUrl?: string | null;
-}) {
-  return <div data-testid="video-thumbnail-fallback" className="absolute inset-0 flex flex-col justify-end gap-2 bg-gradient-to-br from-violet-900 via-slate-800 to-cyan-900 p-4 text-white">
-    <Play aria-hidden="true" className="absolute left-1/2 top-1/2 h-9 w-9 -translate-x-1/2 -translate-y-1/2 text-white/40" />
-    <p className="relative line-clamp-2 text-sm font-semibold leading-tight">{title.trim() || "YourWorld video"}</p>
-    <div className="relative flex items-center gap-2 text-xs text-white/80">
-      <span className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/15">
-        {authorAvatarUrl ? <img src={authorAvatarUrl} alt="" className="h-full w-full object-cover" onError={(event) => { event.currentTarget.hidden = true; }} /> : (authorName || "YW").slice(0, 2).toUpperCase()}
-      </span>
-      <span className="truncate">{authorName || "YourWorld creator"}</span>
-    </div>
-  </div>;
-}
 
 /** Direct image loading avoids fetch/canvas CORS failures on Android WebViews. */
 export function LazyVideoThumbnail({
-  thumbnailUrl, mediaUrl, streamId, alt, authorName, authorAvatarUrl, className,
+  thumbnailUrl, mediaUrl, streamId, alt, className,
   showPlayFallback = false, showFallbackIcon = false, bucket,
-  loading = "lazy", fetchPriority = "auto", onPosterResolved,
+  loading = "lazy", fetchPriority = "auto", onPosterResolved, allowFrameCapture = true,
 }: Props) {
   const [resolved, setResolved] = useState<{ key: string; urls: string[] } | null>(null);
   const [failed, setFailed] = useState<string[]>([]);
   const [loaded, setLoaded] = useState<string | null>(null);
   const [cached, setCached] = useState<string | null>(null);
+  const [inView, setInView] = useState(loading === "eager");
+  const [frameFailed, setFrameFailed] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
   const key = `${bucket}:${thumbnailUrl}:${mediaUrl}:${streamId}`;
   useEffect(() => {
-    setFailed([]); setLoaded(null); setResolved(null);
+    setFailed([]); setLoaded(null); setResolved(null); setFrameFailed(false);
     if (!thumbnailUrl?.trim()) return;
     let alive = true;
     const raw = thumbnailUrl.trim();
+    if (raw.startsWith("data:image/svg+xml")) return;
     // Remote images must not be fetched in JS first. A normal img can render
     // cross-origin images even when fetch/createImageBitmap is denied.
     const remote = /^(https?:|blob:|data:image\/)/i.test(raw);
@@ -72,12 +63,35 @@ export function LazyVideoThumbnail({
     if (!mediaUrl) return;
     return subscribeVideoPoster(mediaUrl, setCached);
   }, [mediaUrl]);
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!element) return;
+    if (typeof IntersectionObserver === "undefined") { setInView(true); return; }
+    let intersecting = false;
+    const update = () => setInView(intersecting && document.visibilityState !== "hidden");
+    const observer = new IntersectionObserver(([entry]) => { intersecting = entry.isIntersecting; update(); },
+      { rootMargin: "150px", threshold: 0 });
+    observer.observe(element);
+    document.addEventListener("visibilitychange", update);
+    return () => { observer.disconnect(); document.removeEventListener("visibilitychange", update); };
+  }, []);
   const primary = resolved?.key === key ? resolved.urls : [];
   const cloudflare = cloudflareStreamPosterUrl(mediaUrl, streamId);
   const source = [...primary, cloudflare, cached].find((url) => !!url && !failed.includes(url)) ?? null;
-  useEffect(() => { onPosterResolved?.(source ?? VIDEO_POSTER_FALLBACK); }, [source, onPosterResolved]);
-  return <div className={cn("relative h-full w-full overflow-hidden bg-violet-950", className)}>
-    <VideoThumbnailFallback title={alt} authorName={authorName} authorAvatarUrl={authorAvatarUrl} />
+  useEffect(() => {
+    if (source || !mediaUrl || !inView || !allowFrameCapture || frameFailed) return;
+    const controller = new AbortController();
+    requestVideoFirstFrame(mediaUrl, controller.signal, (frame) => {
+      if (frame) setCached(frame); else setFrameFailed(true);
+    });
+    return () => controller.abort();
+  }, [source, mediaUrl, inView, allowFrameCapture, frameFailed]);
+  useEffect(() => { if (source) onPosterResolved?.(source); }, [source, onPosterResolved]);
+  return <div ref={containerRef} className={cn("relative h-full w-full overflow-hidden bg-transparent", className)}>
+    {!source && <span data-testid={frameFailed ? "video-frame-error" : "video-frame-loading"} role="status"
+      className="absolute inset-0 grid place-items-center px-3 text-center text-xs text-white/70">
+      {frameFailed || !mediaUrl ? "Video preview unavailable" : "Loading video frame…"}
+    </span>}
     {source ? <img key={source} src={source} alt={alt} loading={loading} decoding="async" fetchPriority={fetchPriority}
       onLoad={() => setLoaded(source)}
       onError={() => { setFailed((previous) => [...previous, source]); setLoaded(null); }}

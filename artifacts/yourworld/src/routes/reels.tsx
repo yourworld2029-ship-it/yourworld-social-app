@@ -12,6 +12,8 @@ import {
   getVideoPoster,
   subscribeVideoPoster,
 } from "@/lib/video-prefetch";
+import { preloadNextVideo } from "@/lib/next-video-preload";
+import { canReadPublicVideoPreview } from "@/lib/video-preview-access";
 import {
   Heart,
   MessageCircle,
@@ -35,7 +37,6 @@ import {
 } from "@/components/yw/ProtectedCanvasContent";
 import {
   LazyVideoThumbnail,
-  VideoThumbnailFallback,
   VIDEO_POSTER_FALLBACK,
 } from "@/components/yw/LazyVideoThumbnail";
 import { ShareSheet } from "@/components/yw/ShareSheet";
@@ -259,6 +260,7 @@ function ReelsList() {
     likedByMe: p.likedByMe,
     mediaUrl: p.media_url,
     mediaType: p.media_type,
+    access: canReadPublicVideoPreview(p) ? "public" : "restricted",
     mediaBucket: (p.kind === "reel" ? "reels" : "videos") as "reels" | "videos",
       thumbnailUrl:
         (p as typeof p & { audience?: string | null }).audience === "everyone"
@@ -267,6 +269,17 @@ function ReelsList() {
   }));
 
   const items = live;
+  const nextMediaUrl = items[active + 1]?.access === "public" &&
+    items[active + 1]?.mediaType?.startsWith("video") ? items[active + 1]?.mediaUrl : null;
+  useEffect(() => {
+    if (active < 0 || !nextMediaUrl) return;
+    let alive = true;
+    let dispose: (() => void) | undefined;
+    void resolveMediaUrl(nextMediaUrl, "reels").then((url) => {
+      if (alive && url) dispose = preloadNextVideo(url, nextMediaUrl);
+    }).catch(() => undefined);
+    return () => { alive = false; dispose?.(); };
+  }, [active, nextMediaUrl]);
 
   useEffect(() => {
     if (!initialId || loading) return;
@@ -354,7 +367,7 @@ function ReelsList() {
 
   return (
     <>
-      {items.map(({ reel, author, likedByMe, mediaUrl, mediaType, mediaBucket, thumbnailUrl }, i) => (
+      {items.map(({ reel, author, likedByMe, mediaUrl, mediaType, mediaBucket, thumbnailUrl, access }, i) => (
         <section
           key={reel.id}
           data-index={i}
@@ -375,6 +388,7 @@ function ReelsList() {
                 mediaType={mediaType}
                 mediaBucket={mediaBucket}
                 thumbnailUrl={thumbnailUrl}
+                allowFrameCapture={access === "public"}
                 scoped={scoped}
                 onBack={handleBack}
                 commentsDisabled={!!dbReels[i]?.comments_off}
@@ -389,6 +403,7 @@ function ReelsList() {
             ) : (
               <LazyVideoThumbnail
                 thumbnailUrl={thumbnailUrl ?? (mediaType?.toLowerCase().startsWith("video") ? null : mediaUrl)}
+                mediaUrl={access === "public" && mediaType?.toLowerCase().startsWith("video") ? mediaUrl : undefined}
                 alt=""
                 showPlayFallback={false}
                 showFallbackIcon={mediaType?.toLowerCase().startsWith("video")}
@@ -437,6 +452,7 @@ export function ReelMedia({
   onTimeUpdate,
   onEnded,
   bucket = "reels",
+  allowFrameCapture = true,
 }: {
   postId: string;
   url: string;
@@ -453,6 +469,7 @@ export function ReelMedia({
   onTimeUpdate?: (event: React.SyntheticEvent<HTMLVideoElement>) => void;
   onEnded?: (event: React.SyntheticEvent<HTMLVideoElement>) => void;
   bucket?: "reels" | "videos";
+  allowFrameCapture?: boolean;
 }) {
   const [src, setSrc] = useState(url);
   const [asImage, setAsImage] = useState(!type.startsWith("video"));
@@ -645,13 +662,16 @@ export function ReelMedia({
             mediaRef.current = el;
           }}
           aria-label={alt}
-          className="flex h-full w-full items-center justify-center bg-gradient-to-br from-zinc-800 via-zinc-900 to-zinc-950"
-        ><VideoThumbnailFallback title={alt} authorName={authorName} authorAvatarUrl={authorAvatarUrl} /></div>
+          className="h-full w-full"
+        ><LazyVideoThumbnail mediaUrl={allowFrameCapture ? url : undefined}
+          thumbnailUrl={posterSrc ?? generatedPoster} bucket={bucket} alt={alt} /></div>
       );
     }
+    if (!image.source) return <LazyVideoThumbnail mediaUrl={mediaFailed && allowFrameCapture ? url : undefined}
+      thumbnailUrl={posterSrc} bucket={bucket} alt={alt} />;
     return (
       <ProtectedCanvasImage
-        src={image.source || VIDEO_POSTER_FALLBACK}
+        src={image.source}
         alt={alt}
         onError={handleError}
         onCanvasReady={(canvas) => {
@@ -693,10 +713,11 @@ export function ReelMedia({
       <LazyVideoThumbnail
         thumbnailUrl={posterSrc}
         mediaUrl={url}
+        allowFrameCapture={!active && allowFrameCapture}
         alt={alt}
         authorName={authorName}
         authorAvatarUrl={authorAvatarUrl}
-        className={`pointer-events-none absolute inset-0 z-20 h-full w-full transition-opacity duration-150 ${
+        className={`pointer-events-none absolute inset-0 z-20 h-full w-full ${
           active && frameReady ? "opacity-0" : "opacity-100"
         }`}
       />
@@ -714,6 +735,7 @@ function ReelItem({
   mediaType,
   mediaBucket,
   thumbnailUrl,
+  allowFrameCapture = true,
   scoped = false,
   onBack,
   commentsDisabled = false,
@@ -734,6 +756,7 @@ function ReelItem({
   mediaType?: string;
   mediaBucket?: "reels" | "videos";
   thumbnailUrl?: string | null;
+  allowFrameCapture?: boolean;
   scoped?: boolean;
   onBack?: () => void;
   commentsDisabled?: boolean;
@@ -754,7 +777,8 @@ function ReelItem({
   });
   const [expanded, setExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [muted, setMuted] = useState(false);
+  const [muted, setMuted] = useState(true);
+  useEffect(() => { if (!active) setMuted(true); }, [active]);
   const lastTap = useRef(0);
   const isLiked = !!likedByMe;
   const [liking, setLiking] = useState(false);
@@ -1271,6 +1295,7 @@ function ReelItem({
           authorName={author?.name}
           authorAvatarUrl={reel.authorAvatarUrl}
           posterUrl={thumbnailUrl}
+          allowFrameCapture={allowFrameCapture}
           bucket={mediaBucket}
           active={active}
           muted={muted}

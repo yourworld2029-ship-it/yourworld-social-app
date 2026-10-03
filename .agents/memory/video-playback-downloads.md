@@ -9,13 +9,13 @@ Playback and user downloads are separate paths: native video elements may use me
 
 **How to apply:** Preserve valid signed media URLs for playback. Keep all download requests as ordinary full GETs, reject unexpected 206 partial responses, and persist complete offline media with owner-scoped metadata. Keep private Moments no-store.
 
-Feed previews use one active player: muted autoplay begins at 70% viewport visibility. Only that candidate may mount a video element; departing players must clear their sources and flush their buffers before removal. Feed cards and profile Videos/Reels grids use stored thumbnail URLs through lazy `<img>` elements with a static fallback. Never mount a hidden video or canvas for list-view poster extraction; profile grids are non-playing image tiles, and taps open the watch screen.
+The user requires the centered Feed/Reels video to start muted without an artificial autoplay delay, with one active player and at most one auxiliary decoder. Departing players must release their sources. Feed, Reels, and Profile Grid must show authentic video images, not purple/cyan gradients, title/author dummy cards, or fabricated SVG posters.
 
-**Why:** Hidden video decoding and canvas sampling in feed/profile lists caused severe memory spikes, black-box freezes, and main-thread stalls. Uploaded thumbnails provide the poster without decoding the source video.
+**Why:** The user explicitly rejected static thumbnail substitutes while retaining the strict decoder limit for low-memory Android phones.
 
-**How to apply:** Keep feed media source ownership in the autoplay provider and preserve metadata preload on the active player, but never attach media for poster extraction. Use the saved thumbnail URL or a static fallback image with native `loading="lazy"`; leave upload-time thumbnail creation, watch-screen playback, offline downloads, and creator-watermarked exports on their separate paths.
+**How to apply:** Use a stored real thumbnail, Cloudflare's first-second image at height 720, or an authorized metadata/0.1-second frame read. Serialize missing-frame reads through the same auxiliary budget used by next-video preloading; never allocate a probe per card. Profile tiles remain non-playing images. Preserve the separate offline-download and creator-watermark paths.
 
-Poster-frame extraction is a media read and must not bypass video access checks. If a surface cannot confirm the viewer’s grant, use an uploaded thumbnail or neutral placeholder instead of resolving the protected media URL.
+Poster-frame extraction is a media read and must not bypass video access checks. If a surface cannot confirm the viewer’s grant, use an existing real thumbnail or explicitly report an unavailable preview instead of resolving protected source bytes or inventing a replacement image.
 
 **Why:** A hidden poster-only video request can expose paid or restricted content even when the watch route itself correctly blocks playback.
 

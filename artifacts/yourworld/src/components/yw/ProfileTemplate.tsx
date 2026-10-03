@@ -20,6 +20,7 @@ import {
 } from "@/components/yw/SportsProfile";
 import { SportsIdentityBadge } from "@/components/yw/SportsIdentityBadge";
 import { LazyVideoThumbnail } from "@/components/yw/LazyVideoThumbnail";
+import { canReadPublicVideoPreview } from "@/lib/video-preview-access";
 import { ProfilePhotoViewer } from "@/components/yw/ProfilePhotoViewer";
 import type { DbPost } from "@/lib/social-data";
 import type { FollowCounts } from "@/lib/follow-data";
@@ -480,7 +481,7 @@ function Stat({ label, value, onClick }: { label: string; value: string; onClick
   );
 }
 
-function MediaGrid({
+export function MediaGrid({
   items,
   onOpen,
   onManage,
@@ -503,7 +504,9 @@ function MediaGrid({
           {it.post?.kind === "video" || it.post?.kind === "reel" || it.type?.startsWith("video") ? (
               <LazyVideoThumbnail
                 thumbnailUrl={it.thumbnail ?? it.post?.thumbnail_url}
-                alt=""
+                mediaUrl={canReadPublicVideoPreview(it.post) ? it.mediaUrl ?? it.post?.media_url ?? it.src : undefined}
+                streamId={it.post?.cloudflare_stream_id ?? it.post?.cloudflare_stream_uid}
+                alt={it.post?.caption ?? "Video preview"}
                 showFallbackIcon
                 bucket="thumbnails"
                 className="h-full w-full object-cover"

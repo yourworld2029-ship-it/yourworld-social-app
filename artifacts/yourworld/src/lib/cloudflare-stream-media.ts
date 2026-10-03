@@ -29,7 +29,7 @@ export function cloudflareStreamUidFromUrl(value: string | null | undefined) {
 export function cloudflareStreamPosterUrl(value: string | null | undefined, streamId?: string | null) {
   const uid = validStreamId(streamId) ?? cloudflareStreamUidFromUrl(value);
   return uid
-    ? `https://videodelivery.net/${uid}/thumbnails/thumbnail.jpg?time=1s`
+    ? `https://videodelivery.net/${uid}/thumbnails/thumbnail.jpg?time=1s&height=720`
     : null;
 }
 

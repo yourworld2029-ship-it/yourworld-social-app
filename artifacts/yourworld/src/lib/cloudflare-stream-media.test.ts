@@ -15,7 +15,7 @@ test("Cloudflare Stream poster uses the first-second thumbnail", () => {
   const manifest = "https://videodelivery.net/Abcd1234Efgh5678/manifest/video.m3u8";
   assert.equal(
     cloudflareStreamPosterUrl(manifest),
-    "https://videodelivery.net/Abcd1234Efgh5678/thumbnails/thumbnail.jpg?time=1s",
+    "https://videodelivery.net/Abcd1234Efgh5678/thumbnails/thumbnail.jpg?time=1s&height=720",
   );
   assert.equal(cloudflareStreamUidFromUrl(manifest), "Abcd1234Efgh5678");
 });

@@ -15,11 +15,11 @@ The feed autoplay provider is a separate owner that can activate at most one fee
 
 **How to apply:** Preserve the route-level disabled gate whenever changing either the shared player or feed autoplay lifecycle.
 
-Inactive Reel cells must detach non-HLS media sources. Canvas poster fallback should reuse frames from active playback and the shared poster cache rather than mounting extra hidden video probes in list cards.
+Inactive Reel cells must detach their media sources. Reuse decoded frames and real poster images; if a thumbnail is missing, serialize authorized first-frame reads rather than mounting a hidden probe in every card.
 
 **Why:** Hidden decoders can exceed the two-player budget on low-memory Android devices, even when their video elements are visually hidden.
 
-**How to apply:** Keep offscreen Reel sources detached, render a Cloudflare thumbnail or poster fallback, and cache frames only from an already-active player.
+**How to apply:** Keep offscreen Reel sources detached. Missing-poster reads and next-video preloading must share one auxiliary slot so they cannot become a third decoder alongside active playback.
 
 Keep high-frequency current-time and duration updates out of the broad playback context. Store them in a provider-scoped progress store and let only time-sensitive UI subscribe.
 

@@ -7,7 +7,7 @@
 - [Reel editor performance](reel-editor-performance.md) — keep thumbnail generation source-keyed and off the trim-drag hot path; use worker encoding with a local fallback.
 - [Video frame capture event order](video-frame-capture-event-order.md) — attach metadata and seek listeners before setting a local video source or seeking, or fast Blob playback may outrun thumbnail extraction.
 - [Unique interaction counting](unique-interaction-counting.md) — use one database-enforced key per user/content/type and an atomic insert-before-increment RPC for views.
-- [Video playback and downloads](video-playback-downloads.md) — feed sources attach only to the 70%-visible active player; keep posters/fallbacks and offline downloads separate.
+- [Video playback and downloads](video-playback-downloads.md) — centered autoplay starts muted; authentic posters share a two-decoder budget and must not bypass access checks.
 - [Video source retention](video-source-retention.md) — never publish HLS video without persisting the owner-scoped MP4 path needed for authorized downloads and deletion.
 - [Low-memory media policy](low-memory-media.md) — target 2–3 GB Android phones conservatively; screen-sized display buffers are disposable, unlike offline downloads.
 - [Persistent video player](persistent-video-player.md) — keep one active feed source, release inactive Reel sources, and reuse active frames for poster fallbacks.
@@ -52,3 +52,4 @@
 - [Supabase media upload transport](direct-supabase-uploads.md) — use direct Storage for small files and sequential resumable TUS for large browser uploads.
 - [Cloudflare Stream downloads](cloudflare-stream-downloads.md) — prefer Cloudflare MP4, active playback, then storage; keep quality labels honest and preserve access denials.
 - [Native media API routing](native-media-api-routing.md) — packaged WebView API requests need the hosted origin; the asset server may return HTML with HTTP 200.
+- [Browser media fixtures](browser-media-fixtures.md) — automated Chromium may reject valid AVC; use VP8 fixtures to verify browser flows without changing Android encoding.

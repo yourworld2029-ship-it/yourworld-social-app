@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -17,9 +18,7 @@ import {
 import type { LongVideo } from "@/lib/video-data";
 import {
   cacheVideoPoster,
-  canPrefetchVideo,
   cancelPendingVideoPrefetches,
-  prefetchVideo,
 } from "@/lib/video-prefetch";
 import { cloudflareStreamPosterUrl } from "@/lib/cloudflare-stream-media";
 import {
@@ -33,14 +32,15 @@ import {
 import { resolveLongVideoUrl } from "@/lib/video-data";
 import { cn } from "@/lib/utils";
 import { releaseListVideo } from "@/lib/media-release";
-import { getAdaptivePerformanceSnapshot } from "@/lib/adaptive-performance";
+import { preloadNextVideo } from "@/lib/next-video-preload";
+import { centeredCandidate } from "@/lib/feed-center-selection";
 import {
   LazyVideoThumbnail,
   VIDEO_POSTER_FALLBACK,
 } from "@/components/yw/LazyVideoThumbnail";
 
 const FEED_MUTE_STORAGE_KEY = "yourworld.feed-video-muted";
-const NORMAL_VISIBILITY_RATIO = 0.7;
+const NORMAL_VISIBILITY_RATIO = 0.5;
 const TRAY_VISIBILITY_RATIO = 0.99;
 
 type FeedCandidate = {
@@ -79,16 +79,6 @@ type FeedVideoAutoplayProviderProps = {
 
 const FeedVideoAutoplayContext = createContext<FeedVideoAutoplayControls | null>(null);
 
-function readInitialMuteState() {
-  if (typeof window === "undefined") return true;
-  try {
-    const stored = window.localStorage.getItem(FEED_MUTE_STORAGE_KEY);
-    return stored === null ? true : stored === "true";
-  } catch {
-    return true;
-  }
-}
-
 function saveMuteState(muted: boolean) {
   try {
     window.localStorage.setItem(FEED_MUTE_STORAGE_KEY, String(muted));
@@ -125,7 +115,7 @@ export function FeedVideoAutoplayProvider({
   children,
   disabled = false,
 }: FeedVideoAutoplayProviderProps) {
-  const [muted, setMuted] = useState(readInitialMuteState);
+  const [muted, setMuted] = useState(true);
   const [activeCandidateId, setActiveCandidateId] = useState<string | null>(null);
   const [activeVideoId, setActiveVideoId] = useState<string | null>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -139,11 +129,14 @@ export function FeedVideoAutoplayProvider({
   const nextOrderRef = useRef(0);
   const suppressedCandidateRef = useRef<string | null>(null);
   const reconcileRef = useRef<() => void>(() => {});
+  const preloadRef = useRef<{ key: string; dispose: () => void } | null>(null);
 
   mutedRef.current = muted;
   disabledRef.current = disabled;
 
   const releaseActiveVideo = useCallback((candidate: FeedCandidate | null) => {
+    preloadRef.current?.dispose();
+    preloadRef.current = null;
     cancelPendingVideoPrefetches();
     hlsRef.current?.destroy();
     hlsRef.current = null;
@@ -190,7 +183,7 @@ export function FeedVideoAutoplayProvider({
         });
       };
 
-      void resolveCandidateUrl(candidate).then((url) => {
+      const attachSource = (url: string) => {
         if (
           activeCandidateRef.current !== candidate ||
           candidate.video !== player ||
@@ -206,34 +199,6 @@ export function FeedVideoAutoplayProvider({
         if (!isPlayableMediaUrl(url)) {
           candidate.onPlaybackFailure?.();
           return;
-        }
-
-        const nextVideo = candidate.prefetchNextVideos?.[0];
-        const performance = getAdaptivePerformanceSnapshot();
-        if (performance.deviceCapability !== "constrained" &&
-            performance.networkQuality === "fast" &&
-            candidate.access === "public" && nextVideo?.access === "public") {
-          void canPrefetchVideo().then(async (allowed) => {
-            if (
-              !allowed ||
-              activeCandidateRef.current !== candidate ||
-              disabledRef.current ||
-              !isPageVisible()
-            ) return;
-            try {
-              const nextUrl = await resolveLongVideoUrl(nextVideo.mediaUrl);
-              if (
-                activeCandidateRef.current !== candidate ||
-                disabledRef.current ||
-                !isPageVisible()
-              ) return;
-              await prefetchVideo(nextUrl || nextVideo.mediaUrl, nextVideo.durationSeconds);
-            } catch {
-              // The current video remains playable if optional prefetch cannot resolve.
-            }
-          }).catch(() => {
-            // Prefetch is optional and must never create an unhandled rejection.
-          });
         }
 
         if (isHlsMediaUrl(url)) {
@@ -268,7 +233,15 @@ export function FeedVideoAutoplayProvider({
           player.load();
           playCandidate();
         }
-      }).catch(() => {
+      };
+      // Already-resolved HTTP/blob sources start in this same callback: no timer,
+      // debounce or asynchronous storage lookup is inserted before play().
+      if (candidate.resolvedUrl || (/^(https?:|blob:)/i.test(candidate.url) &&
+          !candidate.url.includes("/storage/v1/object/sign/"))) {
+        attachSource(candidate.resolvedUrl || candidate.url);
+        return;
+      }
+      void resolveCandidateUrl(candidate).then(attachSource).catch(() => {
         if (activeCandidateRef.current === candidate) {
           candidate.onPlaybackFailure?.();
         }
@@ -286,6 +259,8 @@ export function FeedVideoAutoplayProvider({
     setActiveCandidateId(allowed ? candidate.candidateId : null);
     setActiveVideoId(allowed ? candidate.videoId : null);
     if (!allowed) return;
+    mutedRef.current = true;
+    setMuted(true);
     activeCandidateRef.current = candidate;
     startCandidate(candidate);
   }, [releaseActiveVideo, startCandidate]);
@@ -304,22 +279,43 @@ export function FeedVideoAutoplayProvider({
       return;
     }
 
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+    const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+    for (const candidate of candidatesRef.current.values()) {
+      const rect = candidate.element.getBoundingClientRect();
+      const area = rect.width * rect.height;
+      candidate.ratio = area > 0 ? Math.max(0, Math.min(rect.bottom, viewportHeight) - Math.max(rect.top, 0)) *
+        Math.max(0, Math.min(rect.right, viewportWidth) - Math.max(rect.left, 0)) / area : 0;
+      if (candidate.ratio < candidate.minimumRatio && suppressedCandidateRef.current === candidate.candidateId) {
+        suppressedCandidateRef.current = null;
+      }
+    }
     const candidates = [...candidatesRef.current.values()].filter(
       (candidate) =>
         candidate.ratio >= candidate.minimumRatio &&
         candidate.candidateId !== suppressedCandidateRef.current,
     );
-    const current = activeCandidateRef.current;
-    const currentIsVisible = current
-      ? candidatesRef.current.get(current.candidateId) === current &&
-        current.ratio >= current.minimumRatio &&
-        current.candidateId !== suppressedCandidateRef.current
-      : false;
-
-    if (currentIsVisible) return;
-
-    candidates.sort((a, b) => b.ratio - a.ratio || a.order - b.order);
-    activateCandidate(candidates[0] ?? null);
+    const selected = centeredCandidate(candidates, viewportHeight);
+    activateCandidate(selected);
+    if (!selected) return;
+    const registeredNext = [...candidatesRef.current.values()]
+      .filter((candidate) => candidate.order > selected.order && candidate.access === "public")
+      .sort((a, b) => a.order - b.order)[0];
+    const hintedNext = selected.prefetchNextVideos?.find((video) => video.access === "public");
+    const nextUrl = hintedNext?.mediaUrl ?? registeredNext?.url;
+    if (!nextUrl || nextUrl === selected.url) {
+      preloadRef.current?.dispose(); preloadRef.current = null; return;
+    }
+    if (preloadRef.current?.key === nextUrl) return;
+    preloadRef.current?.dispose();
+    const request = { key: nextUrl, dispose: () => {} };
+    preloadRef.current = request;
+    void resolveLongVideoUrl(nextUrl).then((url) => {
+      if (preloadRef.current !== request || disabledRef.current || !isPageVisible() || !url) return;
+      request.dispose = preloadNextVideo(url, nextUrl);
+    }).catch(() => {
+      if (preloadRef.current === request) preloadRef.current = null;
+    });
   };
 
   const registerCandidate = useCallback((registration: FeedCandidateRegistration) => {
@@ -331,7 +327,8 @@ export function FeedVideoAutoplayProvider({
     candidatesRef.current.set(candidate.candidateId, candidate);
     candidateByElementRef.current.set(candidate.element, candidate);
     observerRef.current?.observe(candidate.element);
-      fallbackVisibilityCheckRef.current();
+    fallbackVisibilityCheckRef.current();
+    reconcileRef.current();
 
     return () => {
       observerRef.current?.unobserve(candidate.element);
@@ -437,16 +434,22 @@ export function FeedVideoAutoplayProvider({
       {
         root: null,
         rootMargin: "0px",
-        threshold: [NORMAL_VISIBILITY_RATIO, TRAY_VISIBILITY_RATIO],
+        threshold: [0, 0.25, NORMAL_VISIBILITY_RATIO, 0.7, TRAY_VISIBILITY_RATIO, 1],
       },
     );
     observerRef.current = observer;
     for (const candidate of candidatesRef.current.values()) observer.observe(candidate.element);
 
     document.addEventListener("visibilitychange", onVisibilityChange);
+    const onScroll = () => reconcileRef.current();
+    window.addEventListener("scroll", onScroll, { passive: true, capture: true });
+    window.addEventListener("resize", onScroll);
+    reconcileRef.current();
 
     return () => {
       document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onScroll);
       observer.disconnect();
       observerRef.current = null;
       releaseActiveVideo(activeCandidateRef.current);
@@ -529,7 +532,7 @@ export function FeedVideoPreview({
     attachVideo(candidateId, player);
   }, [attachVideo, candidateId]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = previewRef.current;
     if (!element || !video.mediaUrl || !canAutoplay) return;
 
@@ -563,7 +566,7 @@ export function FeedVideoPreview({
     <div
       ref={previewRef}
       className={cn(
-        "relative h-full w-full overflow-hidden bg-gradient-to-br from-zinc-800 via-zinc-900 to-zinc-950",
+        "relative h-full w-full overflow-hidden",
         className,
       )}
       data-feed-autoplay-candidate={candidateId}
@@ -571,7 +574,7 @@ export function FeedVideoPreview({
     >
       <LazyVideoThumbnail
         thumbnailUrl={video.thumbnailUrl}
-        mediaUrl={video.access === "public" ? video.mediaUrl : undefined}
+        mediaUrl={canAutoplay ? video.mediaUrl : undefined}
         streamId={video.access === "public" ? video.cloudflareStreamId : undefined}
         alt={video.title}
         authorName={video.author.name}
@@ -580,6 +583,7 @@ export function FeedVideoPreview({
         showFallbackIcon
         bucket="thumbnails"
         className="pointer-events-none m-0 select-none p-0 [&_img]:block"
+        allowFrameCapture={!active}
       />
       {active && canAutoplay ? <video
         ref={setVideoRef}
@@ -602,7 +606,7 @@ export function FeedVideoPreview({
           stopCandidate(candidateId);
         }}
         className={cn(
-          "absolute inset-0 h-full w-full object-cover transition-opacity duration-150",
+          "absolute inset-0 h-full w-full object-cover",
           interactive ? "" : "pointer-events-none",
           active && videoReady ? "opacity-100" : "opacity-0",
           active && videoReady

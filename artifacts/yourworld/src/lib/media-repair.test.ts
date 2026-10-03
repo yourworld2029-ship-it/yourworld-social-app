@@ -32,7 +32,7 @@ test("Android media requests use the configured hosted API, never the asset serv
 test("Cloudflare ID aliases produce real default MP4 and one-second thumbnail URLs", () => {
   const id = "0123456789abcdef0123456789abcdef";
   assert.equal(cloudflareStreamDownloadUrl(null, id), `https://videodelivery.net/${id}/downloads/default.mp4`);
-  assert.equal(cloudflareStreamPosterUrl(null, id), `https://videodelivery.net/${id}/thumbnails/thumbnail.jpg?time=1s`);
+  assert.equal(cloudflareStreamPosterUrl(null, id), `https://videodelivery.net/${id}/thumbnails/thumbnail.jpg?time=1s&height=720`);
   assert.equal(cloudflareStreamDownloadUrl(`https://customer-test.cloudflarestream.com/${id}/manifest/video.m3u8`),
     `https://videodelivery.net/${id}/downloads/default.mp4`);
   assert.equal(cloudflareStreamDownloadUrl("https://untrusted.test/video.mp4"), null);

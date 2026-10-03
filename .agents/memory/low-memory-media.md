@@ -7,7 +7,7 @@ YourWorld must target Android phones with 2–3 GB RAM. Treat a reported 4 GB de
 
 **Why:** browser device-memory values are rounded; a 3 GB phone can report 4 GB, and CPU-core count does not represent available decoder/GPU memory.
 
-**How to apply:** use memory-first capability detection, limit live list players, and avoid opportunistic video prefetch on constrained devices.
+**How to apply:** use memory-first capability detection and limit live list players. The user's requested next-video preload must remain metadata-first and share a single auxiliary decoder with missing-poster reads, rather than creating extra players or large speculative buffers.
 
 Screen-sized image object URLs and canvas buffers are temporary display resources. Release them when cards leave the viewport; never clear the offline download library to reduce memory use.
 
