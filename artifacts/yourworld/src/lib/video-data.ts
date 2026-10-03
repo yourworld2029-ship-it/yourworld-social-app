@@ -36,6 +36,7 @@ import {
   type VideoQualityTier,
 } from "@/lib/video-quality";
 import { readVideoDurationSeconds } from "@/lib/video-duration";
+import { cloudflareStreamPosterUrl } from "@/lib/cloudflare-stream-media";
 
 const liveLikesTable = () => supabase.from("likes");
 
@@ -241,6 +242,8 @@ async function uploadToStorage(
   storagePath: string;
   width: number | null;
   height: number | null;
+  streamUid: string | null;
+  durationSeconds: number | null;
 } | null> {
   try {
     const blob = typeof source === "string"
@@ -259,7 +262,12 @@ async function uploadToStorage(
       : blob;
     const outputExt = uploadBlob.type.includes("webm") ? "webm" : ext;
     const path = `${uid}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${outputExt}`;
-    const { url, storagePath } = await uploadWithProgress(
+    const {
+      url,
+      storagePath,
+      streamUid,
+      durationSeconds,
+    } = await uploadWithProgress(
       STORAGE_BUCKETS.videos,
       path,
       uploadBlob,
@@ -273,7 +281,9 @@ async function uploadToStorage(
         requireSignedURLs,
       },
     );
-    return url && storagePath ? { url, storagePath, width, height } : null;
+    return url && storagePath
+      ? { url, storagePath, width, height, streamUid: streamUid ?? null, durationSeconds: durationSeconds ?? null }
+      : null;
   } catch (error) {
     console.error("Video storage upload failed", error);
     return null;
@@ -389,6 +399,8 @@ export async function publishLongVideo(opts: {
   let uploadedSourcePath: string | null = null;
   let uploadedWidth = opts.originalWidth ?? null;
   let uploadedHeight = opts.originalHeight ?? null;
+  let uploadedStreamUid: string | null = null;
+  let uploadedDurationSeconds: number | null = null;
   if (/^(blob:|data:)/.test(mediaUrl)) {
     // Reserve the last few percent for thumbnail, moderation, and database work.
     const up = await uploadToStorage(opts.file ?? mediaUrl, uid, "mp4", "video/mp4", (p) =>
@@ -413,6 +425,8 @@ export async function publishLongVideo(opts: {
     uploadedSourcePath = up.storagePath;
     uploadedWidth = up.width ?? uploadedWidth;
     uploadedHeight = up.height ?? uploadedHeight;
+    uploadedStreamUid = up.streamUid;
+    uploadedDurationSeconds = up.durationSeconds;
   }
 
   if (thumbnailUploadPromise) {
@@ -470,6 +484,7 @@ export async function publishLongVideo(opts: {
         user_id: uid,
         kind: "video",
         media_url: mediaUrl,
+        cloudflare_stream_uid: uploadedStreamUid,
         video_url: uploadedSourcePath
           ? `${STORAGE_BUCKETS.videos}/${uploadedSourcePath}`
           : null,
@@ -479,7 +494,11 @@ export async function publishLongVideo(opts: {
         hashtags: opts.tags ?? [],
         thumbnail_url: thumb,
         orientation: opts.orientation,
-        duration_seconds: opts.durationSeconds ? Math.round(opts.durationSeconds) : null,
+        duration_seconds: uploadedDurationSeconds
+          ? Math.round(uploadedDurationSeconds)
+          : opts.durationSeconds
+            ? Math.round(opts.durationSeconds)
+            : null,
         original_width: uploadedWidth,
         original_height: uploadedHeight,
         source_quality_tier: sourceQualityTierFromDimensions(uploadedWidth, uploadedHeight),
@@ -641,6 +660,8 @@ async function loadLongVideoPage(
               : rawAccess === "" || rawAccess === "public"
                 ? "public"
                 : "paid";
+        const cloudflarePoster =
+          access === "public" ? cloudflareStreamPosterUrl(post.media_url) : null;
         const profile = byId.get(post.user_id);
         const username = profile?.username ?? `user${post.user_id.slice(0, 4)}`;
         const name = profile?.display_name ?? username;
@@ -650,7 +671,7 @@ async function loadLongVideoPage(
           title: post.title || post.caption || "Untitled video",
           caption: post.caption ?? "",
           mediaUrl: post.media_url,
-          thumbnailUrl: post.thumbnail_url,
+          thumbnailUrl: cloudflarePoster ?? post.thumbnail_url,
           orientation: post.orientation === "portrait" ? "portrait" : "landscape",
           aspectRatio: metadata.aspect_ratio ?? null,
           videoType: metadata.video_type ?? null,

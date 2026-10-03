@@ -17,6 +17,8 @@ import {
   GetMediaPlaybackUrlResponse,
   GetVideoOfflineSourceBody,
   GetVideoOfflineSourceResponse,
+  ResolveCloudflareStreamAssetBody,
+  ResolveCloudflareStreamAssetResponse,
   TranscodeVideoBody,
   TranscodeVideoResponse,
 } from "@workspace/api-zod";
@@ -600,6 +602,353 @@ function streamUidFromManifest(value: unknown) {
   }
 }
 
+function parseTusMetadata(value: string | undefined) {
+  if (!value) return null;
+  const metadata: Record<string, string> = {};
+  try {
+    for (const entry of value.split(",")) {
+      const [key, encodedValue = ""] = entry.trim().split(/\s+/, 2);
+      if (!key || !/^[a-zA-Z0-9_-]{1,64}$/.test(key)) return null;
+      metadata[key.toLowerCase()] = Buffer.from(encodedValue, "base64").toString("utf8");
+    }
+  } catch {
+    return null;
+  }
+  return metadata;
+}
+
+function isOwnedStoragePath(userId: string, path: string) {
+  const segments = path.split("/");
+  return (
+    segments.length >= 2 &&
+    segments[0] === userId &&
+    segments.every((segment) => segment && segment !== "." && segment !== "..")
+  );
+}
+
+function hasQualitySpecificSource(row: Record<string, unknown>, quality: string) {
+  const value = row.quality_urls ?? row.qualityUrls;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const specific = (value as Record<string, unknown>)[quality];
+  return typeof specific === "string" || (!!specific && typeof specific === "object");
+}
+
+function cloudflareDefaultQuality(sourceQuality: string) {
+  const match = sourceQuality.match(/^(\d+)p$/);
+  const height = Number(match?.[1]);
+  if (!Number.isSafeInteger(height) || height < 1) return null;
+  return height > 1080 ? "1080p" : sourceQuality;
+}
+
+async function getCloudflareDefaultDownloadUrl(
+  accountId: string,
+  apiToken: string,
+  streamUid: string,
+) {
+  const baseUrl = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(
+    accountId,
+  )}/stream/${encodeURIComponent(streamUid)}/downloads`;
+  const headers = { Authorization: `Bearer ${apiToken}` };
+  const readDownloads = async () => {
+    const response = await fetch(baseUrl, {
+      headers,
+      signal: AbortSignal.timeout(20_000),
+    });
+    const payload: unknown = await response.json().catch(() => null);
+    const result =
+      payload && typeof payload === "object" && "result" in payload &&
+      payload.result && typeof payload.result === "object"
+        ? (payload.result as Record<string, unknown>)
+        : null;
+    const download =
+      result?.default && typeof result.default === "object"
+        ? (result.default as Record<string, unknown>)
+        : null;
+    if (!response.ok || download?.status !== "ready" || typeof download.url !== "string") {
+      return null;
+    }
+    try {
+      const url = new URL(download.url);
+      if (
+        url.protocol !== "https:" ||
+        (url.hostname !== "cloudflarestream.com" &&
+          !url.hostname.endsWith(".cloudflarestream.com")) ||
+        !url.pathname.includes(`/${streamUid}/downloads/default.mp4`)
+      ) {
+        return null;
+      }
+      return url.toString();
+    } catch {
+      return null;
+    }
+  };
+
+  const readyUrl = await readDownloads();
+  if (readyUrl) return readyUrl;
+
+  await fetch(`${baseUrl}/default`, {
+    method: "POST",
+    headers,
+    signal: AbortSignal.timeout(20_000),
+  }).catch(() => null);
+  return readDownloads();
+}
+
+router.options("/media/cloudflare-tus-upload", (_req, res): void => {
+  res
+    .set({
+      "Tus-Version": "1.0.0",
+      "Tus-Extension": "creation,termination",
+      "Tus-Max-Size": String(MAX_VIDEO_BYTES),
+      "Access-Control-Allow-Methods": "OPTIONS, POST",
+      "Access-Control-Allow-Headers":
+        "Authorization, Content-Type, Tus-Resumable, Upload-Length, Upload-Metadata",
+      "Access-Control-Max-Age": "86400",
+    })
+    .status(204)
+    .end();
+});
+
+router.post("/media/cloudflare-tus-upload", async (req, res): Promise<void> => {
+  if (req.get("tus-resumable") !== "1.0.0") {
+    res.status(400).json({ error: "A supported TUS version is required." });
+    return;
+  }
+
+  const uploadLength = Number(req.get("upload-length"));
+  const metadata = parseTusMetadata(req.get("upload-metadata"));
+  const bucket = metadata?.bucketname;
+  const path = metadata?.objectname;
+  const contentType = metadata?.contenttype;
+  const filename = metadata?.name;
+  const requiresSignedUrls = metadata?.requiresignedurls === "true";
+  if (
+    !Number.isSafeInteger(uploadLength) ||
+    uploadLength < 1 ||
+    uploadLength > MAX_VIDEO_BYTES ||
+    !metadata ||
+    (bucket !== "videos" && bucket !== "reels") ||
+    !path ||
+    !contentType?.toLowerCase().startsWith("video/") ||
+    !filename
+  ) {
+    res.status(400).json({ error: "The resumable video upload metadata is invalid." });
+    return;
+  }
+
+  const token = bearerToken(req.get("authorization"));
+  if (!token) {
+    res.status(401).json({ error: "Authentication is required." });
+    return;
+  }
+  const config = storageConfig();
+  const cloudflare = cloudflareConfig();
+  if (!config || !cloudflare) {
+    req.log.error("Cloudflare TUS upload configuration is unavailable");
+    res.status(502).json({ error: "Video upload is temporarily unavailable." });
+    return;
+  }
+
+  let userId: string | null;
+  try {
+    userId = await authenticateUser(config.url, config.publishableKey, token);
+  } catch (error) {
+    req.log.warn({ err: error }, "Supabase could not validate Cloudflare uploader");
+    res.status(502).json({ error: "Could not validate the upload session." });
+    return;
+  }
+  if (!userId) {
+    res.status(401).json({ error: "The upload session is no longer valid." });
+    return;
+  }
+  if (!isOwnedStoragePath(userId, path)) {
+    res.status(403).json({ error: "You can only stream your own uploaded videos." });
+    return;
+  }
+
+  try {
+    // Confirm the owner-scoped Supabase source exists before creating a second copy.
+    await signStorageObject(config.url, config.serviceRoleKey, bucket, path);
+    const requestMetadata: Record<string, string> = {
+      name: filename.slice(0, 200),
+      filetype: contentType.slice(0, 128),
+      requiresignedurls: String(requiresSignedUrls),
+      ownerid: userId,
+      sourcebucket: bucket,
+      sourcepath: path,
+    };
+    const requestOrigin = req.get("origin");
+    if (requestOrigin) {
+      try {
+        const origin = new URL(requestOrigin).origin;
+        if (origin && origin !== "null") {
+          requestMetadata.allowedorigins = JSON.stringify([origin]);
+        }
+      } catch {
+        // A missing or invalid origin is not used as a playback allowlist.
+      }
+    }
+    const uploadMetadata = Object.entries(requestMetadata)
+      .map(([key, value]) => `${key} ${Buffer.from(value, "utf8").toString("base64")}`)
+      .join(",");
+
+    const cloudflareResponse = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(
+        cloudflare.accountId,
+      )}/stream?direct_user=true`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${cloudflare.apiToken}`,
+          "Tus-Resumable": "1.0.0",
+          "Upload-Length": String(uploadLength),
+          "Upload-Metadata": uploadMetadata,
+          "Upload-Creator": userId,
+        },
+        signal: AbortSignal.timeout(20_000),
+      },
+    );
+    const location = cloudflareResponse.headers.get("location");
+    const streamUid = cloudflareResponse.headers.get("stream-media-id");
+    let validLocation = false;
+    try {
+      const uploadUrl = new URL(location ?? "");
+      validLocation =
+        uploadUrl.protocol === "https:" &&
+        uploadUrl.hostname === "upload.videodelivery.net";
+    } catch {
+      validLocation = false;
+    }
+    if (
+      cloudflareResponse.status !== 201 ||
+      !location ||
+      !validLocation ||
+      !streamUid ||
+      !/^[a-zA-Z0-9_-]{8,128}$/.test(streamUid)
+    ) {
+      req.log.warn(
+        { status: cloudflareResponse.status },
+        "Cloudflare did not create a valid TUS upload",
+      );
+      res.status(502).json({ error: "Cloudflare Stream could not create this upload." });
+      return;
+    }
+
+    res
+      .status(201)
+      .set({
+        Location: location,
+        "Stream-Media-Id": streamUid,
+        "Tus-Resumable": "1.0.0",
+        "Cache-Control": "no-store",
+      })
+      .end();
+  } catch (error) {
+    req.log.error({ err: error }, "Could not create Cloudflare TUS upload");
+    res.status(502).json({ error: "Cloudflare Stream could not create this upload." });
+  }
+});
+
+router.post("/media/cloudflare-stream-asset", async (req, res): Promise<void> => {
+  const parsed = ResolveCloudflareStreamAssetBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "A valid Cloudflare Stream video ID is required." });
+    return;
+  }
+  const token = bearerToken(req.get("authorization"));
+  if (!token) {
+    res.status(401).json({ error: "Authentication is required." });
+    return;
+  }
+  const config = storageConfig();
+  const cloudflare = cloudflareConfig();
+  if (!config || !cloudflare) {
+    res.status(502).json({ error: "Cloudflare Stream metadata is unavailable." });
+    return;
+  }
+
+  let userId: string | null;
+  try {
+    userId = await authenticateUser(config.url, config.publishableKey, token);
+  } catch (error) {
+    req.log.warn({ err: error }, "Supabase could not validate Stream asset owner");
+    res.status(502).json({ error: "Could not validate the upload session." });
+    return;
+  }
+  if (!userId) {
+    res.status(401).json({ error: "The upload session is no longer valid." });
+    return;
+  }
+
+  try {
+    const response = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(
+        cloudflare.accountId,
+      )}/stream/${encodeURIComponent(parsed.data.streamUid)}`,
+      {
+        headers: { Authorization: `Bearer ${cloudflare.apiToken}` },
+        signal: AbortSignal.timeout(20_000),
+      },
+    );
+    const payload: unknown = await response.json().catch(() => null);
+    const result =
+      payload && typeof payload === "object" && "result" in payload &&
+      payload.result && typeof payload.result === "object"
+        ? (payload.result as Record<string, unknown>)
+        : null;
+    const meta =
+      result?.meta && typeof result.meta === "object"
+        ? (result.meta as Record<string, unknown>)
+        : {};
+    const sourceBucket = meta.sourcebucket ?? meta.sourceBucket;
+    const sourcePath = meta.sourcepath ?? meta.sourcePath;
+    const ownerId = meta.ownerid ?? meta.ownerId;
+    const creator = result?.creator;
+    const ownerMatches = creator === userId || ownerId === userId;
+    const sourceMatches =
+      (sourceBucket === "videos" || sourceBucket === "reels") &&
+      typeof sourcePath === "string" &&
+      isOwnedStoragePath(userId, sourcePath);
+    if (!response.ok || !result) {
+      req.log.warn({ status: response.status }, "Cloudflare Stream asset lookup failed");
+      res.status(502).json({ error: "Cloudflare Stream metadata is unavailable." });
+      return;
+    }
+    if (!ownerMatches || !sourceMatches) {
+      res.status(403).json({ error: "This Stream asset is not owned by the caller." });
+      return;
+    }
+
+    const streamUid = parsed.data.streamUid;
+    const playback =
+      result.playback && typeof result.playback === "object"
+        ? (result.playback as Record<string, unknown>)
+        : {};
+    const candidatePlaybackUrl = playback.hls;
+    const playbackUrl =
+      typeof candidatePlaybackUrl === "string" &&
+      streamUidFromManifest(candidatePlaybackUrl) === streamUid
+        ? candidatePlaybackUrl
+        : `https://videodelivery.net/${streamUid}/manifest/video.m3u8`;
+    const rawDuration = Number(result.duration);
+    const durationSeconds =
+      Number.isFinite(rawDuration) && rawDuration > 0 ? rawDuration : null;
+    const posterUrl = `https://videodelivery.net/${streamUid}/thumbnails/thumbnail.jpg`;
+
+    res.status(200).json(
+      ResolveCloudflareStreamAssetResponse.parse({
+        streamUid,
+        playbackUrl,
+        posterUrl,
+        durationSeconds,
+      }),
+    );
+  } catch (error) {
+    req.log.error({ err: error }, "Could not resolve Cloudflare Stream metadata");
+    res.status(502).json({ error: "Cloudflare Stream metadata is unavailable." });
+  }
+});
+
 router.post("/media/playback-url", async (req, res): Promise<void> => {
   const parsed = GetMediaPlaybackUrlBody.safeParse(req.body);
   if (!parsed.success) {
@@ -684,6 +1033,75 @@ router.post("/media/offline-source", async (req, res): Promise<void> => {
     return;
   }
   try {
+    const streamUid = streamUidFromManifest(authorized.row.media_url);
+    const defaultStreamQuality = cloudflareDefaultQuality(source.actualQuality);
+    const cloudflare = cloudflareConfig();
+    if (
+      streamUid &&
+      cloudflare &&
+      requestedQuality !== "original" &&
+      requestedQuality === defaultStreamQuality &&
+      !hasQualitySpecificSource(authorized.row, requestedQuality)
+    ) {
+      const streamDownloadUrl = await getCloudflareDefaultDownloadUrl(
+        cloudflare.accountId,
+        cloudflare.apiToken,
+        streamUid,
+      );
+      if (streamDownloadUrl) {
+        let downloadableUrl = streamDownloadUrl;
+        if (isRestrictedAudience(authorized.row)) {
+          const tokenResponse = await fetch(
+            `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(
+              cloudflare.accountId,
+            )}/stream/${encodeURIComponent(streamUid)}/token`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${cloudflare.apiToken}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                exp: Math.floor(Date.now() / 1000) + SIGNED_SOURCE_TTL_SECONDS,
+                downloadable: true,
+              }),
+              signal: AbortSignal.timeout(20_000),
+            },
+          );
+          const tokenPayload: unknown = await tokenResponse.json().catch(() => null);
+          const tokenResult =
+            tokenPayload && typeof tokenPayload === "object" && "result" in tokenPayload &&
+            tokenPayload.result && typeof tokenPayload.result === "object"
+              ? (tokenPayload.result as Record<string, unknown>)
+              : null;
+          const signedToken = typeof tokenResult?.token === "string" ? tokenResult.token : null;
+          if (tokenResponse.ok && signedToken) {
+            const signedUrl = new URL(streamDownloadUrl);
+            signedUrl.pathname = signedUrl.pathname.replace(
+              `/${streamUid}/`,
+              `/${signedToken}/`,
+            );
+            downloadableUrl = signedUrl.toString();
+          } else {
+            req.log.warn(
+              { status: tokenResponse.status },
+              "Cloudflare did not issue a downloadable token",
+            );
+            downloadableUrl = "";
+          }
+        }
+        if (downloadableUrl) {
+          res.status(200).json(
+            GetVideoOfflineSourceResponse.parse({
+              url: downloadableUrl,
+              actualQuality: defaultStreamQuality,
+            }),
+          );
+          return;
+        }
+      }
+    }
+
     const url = await signStorageObject(
       authorized.config.url,
       authorized.config.serviceRoleKey,

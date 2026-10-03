@@ -83,6 +83,7 @@ export type DbPost = {
   thumbnail_url?: string | null;
   cover_image?: string | null;
   duration_seconds?: number | null;
+  cloudflare_stream_uid?: string | null;
   original_width?: number | null;
   original_height?: number | null;
   source_quality_tier?: string | null;
@@ -944,6 +945,8 @@ export async function publishReel(opts: {
 
   let mediaUrl = opts.fileUrl;
   let uploadedSourcePath: string | null = null;
+  let uploadedStreamUid: string | null = null;
+  let uploadedDurationSeconds: number | null = null;
   let sourceBlob: Blob | null = opts.file ?? null;
   let uploadedWidth = opts.originalWidth ?? null;
   let uploadedHeight = opts.originalHeight ?? null;
@@ -988,7 +991,13 @@ export async function publishReel(opts: {
       );
       const ext = uploadBlob.type.includes("webm") ? "webm" : "mp4";
       const path = `${uid}/${Date.now()}.${ext}`;
-      const { url, storagePath, error: upErr } = await uploadWithProgress(
+      const {
+        url,
+        storagePath,
+        streamUid,
+        durationSeconds,
+        error: upErr,
+      } = await uploadWithProgress(
         STORAGE_BUCKETS.reels,
         path,
         uploadBlob,
@@ -1008,6 +1017,8 @@ export async function publishReel(opts: {
       }
       mediaUrl = url;
       uploadedSourcePath = storagePath;
+      uploadedStreamUid = streamUid ?? null;
+      uploadedDurationSeconds = durationSeconds ?? null;
     } catch (e) {
       console.error("Reel upload preparation failed", e);
       return { error: e instanceof Error ? e.message : "Upload failed" };
@@ -1036,6 +1047,7 @@ export async function publishReel(opts: {
     user_id: uid,
     kind: "reel",
     media_url: mediaUrl,
+    cloudflare_stream_uid: uploadedStreamUid,
     video_url: uploadedSourcePath
       ? `${STORAGE_BUCKETS.reels}/${uploadedSourcePath}`
       : null,
@@ -1050,7 +1062,11 @@ export async function publishReel(opts: {
     audience: opts.audience ?? "everyone",
     tagged_user_ids: opts.taggedUserIds ?? [],
     viewer_user_ids: opts.viewerUserIds ?? [],
-    duration_seconds: opts.durationSeconds ? Math.round(opts.durationSeconds) : null,
+    duration_seconds: uploadedDurationSeconds
+      ? Math.round(uploadedDurationSeconds)
+      : opts.durationSeconds
+        ? Math.round(opts.durationSeconds)
+        : null,
     original_width: uploadedWidth,
     original_height: uploadedHeight,
     source_quality_tier: sourceQualityTierFromDimensions(uploadedWidth, uploadedHeight),
@@ -1120,7 +1136,13 @@ export async function publishDirectReel(opts: {
     opts.file.name.split(".").pop()?.toLowerCase() ||
     "mp4";
   const path = `${uid}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${extension}`;
-  const { url: mediaUrl, storagePath, error: uploadError } = await uploadWithProgress(
+  const {
+    url: mediaUrl,
+    storagePath,
+    streamUid,
+    durationSeconds,
+    error: uploadError,
+  } = await uploadWithProgress(
     STORAGE_BUCKETS.reels,
     path,
     uploadBlob,
@@ -1154,6 +1176,7 @@ export async function publishDirectReel(opts: {
       kind: "reel",
       is_reel: true,
       media_url: mediaUrl,
+      cloudflare_stream_uid: streamUid ?? null,
       video_url: `${STORAGE_BUCKETS.reels}/${storagePath}`,
       media_type: "video",
       thumbnail_url: thumbnailUrl,
@@ -1165,7 +1188,7 @@ export async function publishDirectReel(opts: {
       audience: "everyone",
       tagged_user_ids: [],
       viewer_user_ids: [],
-      duration_seconds: Math.round(opts.durationSeconds),
+      duration_seconds: Math.round(durationSeconds ?? opts.durationSeconds),
       original_width: uploadedWidth,
       original_height: uploadedHeight,
       source_quality_tier: sourceQualityTierFromDimensions(
@@ -1208,6 +1231,8 @@ export async function publishPost(opts: {
 
   let mediaUrl = opts.fileUrl;
   let uploadedSourcePath: string | null = null;
+  let uploadedStreamUid: string | null = null;
+  let uploadedDurationSeconds: number | null = null;
   let sourceBlob: Blob | null = opts.file ?? null;
   if (
     opts.mediaType === "video" &&
@@ -1253,7 +1278,13 @@ export async function publishPost(opts: {
       const uploadType = uploadBlob.type || type;
       const ext = uploadType.split("/")[1]?.split(";")[0] || (opts.mediaType === "video" ? "mp4" : "jpg");
       const path = `${uid}/post-${Date.now()}.${ext}`;
-      const { url, storagePath, error: upErr } = await uploadWithProgress(
+      const {
+        url,
+        storagePath,
+        streamUid,
+        durationSeconds,
+        error: upErr,
+      } = await uploadWithProgress(
         STORAGE_BUCKETS.videos,
         path,
         uploadBlob,
@@ -1275,6 +1306,8 @@ export async function publishPost(opts: {
       }
       mediaUrl = url;
       uploadedSourcePath = storagePath ?? null;
+      uploadedStreamUid = streamUid ?? null;
+      uploadedDurationSeconds = durationSeconds ?? null;
     } catch (e) {
       console.error("Post upload preparation failed", e);
       return { error: e instanceof Error ? e.message : "Upload failed" };
@@ -1305,6 +1338,7 @@ export async function publishPost(opts: {
     user_id: uid,
     kind: "post",
     media_url: mediaUrl,
+    cloudflare_stream_uid: uploadedStreamUid,
     video_url: uploadedSourcePath
       ? `${STORAGE_BUCKETS.videos}/${uploadedSourcePath}`
       : null,
@@ -1315,6 +1349,9 @@ export async function publishPost(opts: {
     location: opts.location ?? null,
     allow_download: opts.allowDownload ?? true,
     audience: opts.audience ?? "everyone",
+    duration_seconds: uploadedDurationSeconds != null
+      ? Math.round(uploadedDurationSeconds)
+      : null,
     tagged_user_ids: [],
     viewer_user_ids: [],
   }, { kind: "type" }, uploadedSourcePath ? ["video_url"] : []);

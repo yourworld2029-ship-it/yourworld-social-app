@@ -3,6 +3,7 @@
 const VIDEO_PREFIX_CACHE = "yourworld-video-prefixes-v1";
 const PREFIX_TTL_MS = 10 * 60 * 1000;
 const VIDEO_RANGE_CACHE = "yourworld-video-ranges-v1";
+const VIDEO_HLS_SEGMENT_CACHE = "yourworld-video-hls-prefixes-v1";
 const MAX_CACHED_RANGE_BYTES = 2 * 1024 * 1024;
 const MAX_CACHED_RANGE_ENTRIES = 128;
 const inFlightRanges = new Map();
@@ -170,8 +171,39 @@ async function serveVideoPrefix(request) {
   }
 }
 
+function isCloudflareStreamUrl(url) {
+  try {
+    const hostname = new URL(url).hostname;
+    return hostname === "videodelivery.net" || hostname.endsWith(".cloudflarestream.com");
+  } catch {
+    return false;
+  }
+}
+
+async function serveCachedHlsSegment(request) {
+  try {
+    const cache = await caches.open(VIDEO_HLS_SEGMENT_CACHE);
+    const cached = await cache.match(request.url);
+    const expires = Number(cached?.headers.get("X-YW-Hls-Prefetch-Expires") || 0);
+    if (cached && Number.isSafeInteger(expires) && expires > Date.now()) {
+      return cached;
+    }
+    if (cached) await cache.delete(request.url);
+  } catch {
+    // Cache failures must never interrupt the Cloudflare playback path.
+  }
+  return fetch(request);
+}
+
 self.addEventListener("fetch", (event) => {
   const request = event.request;
+  if (
+    request.method === "GET" &&
+    isCloudflareStreamUrl(request.url)
+  ) {
+    event.respondWith(serveCachedHlsSegment(request));
+    return;
+  }
   // Downloads use destination "", and all non-video requests remain untouched.
   if (request.method !== "GET" || request.destination !== "video" || !request.headers.has("range")) {
     return;

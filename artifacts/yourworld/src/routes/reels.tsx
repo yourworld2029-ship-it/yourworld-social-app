@@ -3,6 +3,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Hls from "hls.js";
 import {
+  bindHlsNetworkAwareLevelCap,
+  createVideoHlsConfig,
+} from "@/lib/video-hls-config";
+import { cloudflareStreamPosterUrl } from "@/lib/cloudflare-stream-media";
+import {
   Heart,
   MessageCircle,
   Send,
@@ -237,14 +242,20 @@ function ReelsList() {
       }).quality_urls ?? undefined,
       durationSeconds: p.duration_seconds,
       createdAt: p.created_at,
-      thumbnailUrl: p.thumbnail_url ?? null,
+      thumbnailUrl:
+        (p as typeof p & { audience?: string | null }).audience === "everyone"
+        ? cloudflareStreamPosterUrl(p.media_url) ?? p.thumbnail_url ?? null
+        : p.thumbnail_url ?? null,
     } satisfies Reel,
     author: p.author,
     likedByMe: p.likedByMe,
     mediaUrl: p.media_url,
     mediaType: p.media_type,
     mediaBucket: (p.kind === "reel" ? "reels" : "videos") as "reels" | "videos",
-      thumbnailUrl: p.thumbnail_url ?? null,
+      thumbnailUrl:
+        (p as typeof p & { audience?: string | null }).audience === "everyone"
+        ? cloudflareStreamPosterUrl(p.media_url) ?? p.thumbnail_url ?? null
+        : p.thumbnail_url ?? null,
   }));
 
   const items = live;
@@ -531,14 +542,9 @@ function ReelMedia({
       const playbackUrl = await resolveAuthorizedPlaybackUrl(postId, src);
       if (!alive) return;
       if (Hls.isSupported()) {
-        hls = new Hls({
-          enableWorker: true,
-          maxBufferLength: 10,
-          maxMaxBufferLength: 20,
-          backBufferLength: 0,
-          maxBufferSize: 8 * 1024 * 1024,
-        });
+        hls = new Hls(createVideoHlsConfig());
         hlsRef.current = hls;
+        bindHlsNetworkAwareLevelCap(hls);
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           if (active && !pausedRef.current) {
             void video.play().catch(() => undefined);

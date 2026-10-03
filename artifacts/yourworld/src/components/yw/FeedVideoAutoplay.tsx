@@ -10,12 +10,17 @@ import {
 } from "react";
 import { Volume2, VolumeX } from "lucide-react";
 import Hls from "hls.js";
+import {
+  bindHlsNetworkAwareLevelCap,
+  createVideoHlsConfig,
+} from "@/lib/video-hls-config";
 import type { LongVideo } from "@/lib/video-data";
 import {
   canPrefetchVideo,
   cancelPendingVideoPrefetches,
   prefetchVideo,
 } from "@/lib/video-prefetch";
+import { cloudflareStreamPosterUrl } from "@/lib/cloudflare-stream-media";
 import {
   attemptVideoPlay,
   canAutoplayPublicVideo,
@@ -44,7 +49,7 @@ type FeedCandidate = {
   video: HTMLVideoElement | null;
   url: string;
   access?: LongVideo["access"];
-  prefetchNextVideos?: Array<Pick<LongVideo, "mediaUrl" | "access">>;
+  prefetchNextVideos?: Array<Pick<LongVideo, "mediaUrl" | "access" | "durationSeconds">>;
   minimumRatio: number;
   forceMuted?: boolean;
   order: number;
@@ -221,7 +226,7 @@ export function FeedVideoAutoplayProvider({
                 disabledRef.current ||
                 !isPageVisible()
               ) return;
-              await prefetchVideo(nextUrl || nextVideo.mediaUrl);
+              await prefetchVideo(nextUrl || nextVideo.mediaUrl, nextVideo.durationSeconds);
             } catch {
               // The current video remains playable if optional prefetch cannot resolve.
             }
@@ -232,14 +237,9 @@ export function FeedVideoAutoplayProvider({
 
         if (isHlsMediaUrl(url)) {
           if (Hls.isSupported()) {
-            const hls = new Hls({
-              enableWorker: true,
-              maxBufferLength: 10,
-              maxMaxBufferLength: 20,
-              backBufferLength: 0,
-              maxBufferSize: 8 * 1024 * 1024,
-            });
+            const hls = new Hls(createVideoHlsConfig());
             hlsRef.current = hls;
+            bindHlsNetworkAwareLevelCap(hls);
             hls.on(Hls.Events.MANIFEST_PARSED, playCandidate);
             hls.on(Hls.Events.ERROR, (_event, data) => {
               if (!data.fatal || activeCandidateRef.current !== candidate || candidate.video !== player) return;
@@ -504,7 +504,7 @@ export function FeedVideoPreview({
 }: {
   video: LongVideo;
   candidateId: string;
-  prefetchNextVideos?: Array<Pick<LongVideo, "mediaUrl" | "access">>;
+  prefetchNextVideos?: Array<Pick<LongVideo, "mediaUrl" | "access" | "durationSeconds">>;
   className?: string;
   onOpen: () => void;
   interactive?: boolean;
@@ -554,6 +554,10 @@ export function FeedVideoPreview({
     video.mediaUrl,
   ]);
 
+  const cloudflarePoster =
+    video.access === "public" ? cloudflareStreamPosterUrl(video.mediaUrl) : null;
+  const posterUrl = cloudflarePoster ?? video.thumbnailUrl;
+
   return (
     <div
       ref={previewRef}
@@ -565,7 +569,7 @@ export function FeedVideoPreview({
       data-testid={previewTestId ?? `feed-autoplay-preview-${video.id}`}
     >
       <LazyVideoThumbnail
-        thumbnailUrl={video.thumbnailUrl}
+        thumbnailUrl={posterUrl}
         alt={video.title}
         showPlayFallback={showPlayFallback}
         showFallbackIcon
@@ -574,7 +578,7 @@ export function FeedVideoPreview({
       />
       {active && canAutoplay ? <video
         ref={setVideoRef}
-        poster={VIDEO_POSTER_FALLBACK}
+        poster={posterUrl ?? VIDEO_POSTER_FALLBACK}
         crossOrigin="anonymous"
         playsInline
         muted={active ? muted : true}

@@ -88,6 +88,129 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+  /media/cloudflare-tus-upload:
+    options:
+      operationId: optionsCloudflareTusUpload
+      tags: [media]
+      summary: Advertise resumable Cloudflare upload support
+      responses:
+        "204":
+          description: TUS creation extension is supported
+          headers:
+            Tus-Version:
+              schema:
+                type: string
+            Tus-Extension:
+              schema:
+                type: string
+    post:
+      operationId: createCloudflareTusUpload
+      tags: [media]
+      summary: Create an owner-bound Cloudflare Stream TUS upload
+      security:
+        - SupabaseBearer: []
+      parameters:
+        - in: header
+          name: Tus-Resumable
+          required: true
+          schema:
+            type: string
+            const: "1.0.0"
+        - in: header
+          name: Upload-Length
+          required: true
+          schema:
+            type: number
+            minimum: 1
+        - in: header
+          name: Upload-Metadata
+          required: true
+          schema:
+            type: string
+      responses:
+        "201":
+          description: One-time TUS upload location created
+          headers:
+            Location:
+              required: true
+              schema:
+                type: string
+            Stream-Media-Id:
+              required: true
+              schema:
+                type: string
+            Tus-Resumable:
+              required: true
+              schema:
+                type: string
+        "400":
+          description: Invalid upload metadata or TUS headers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Upload source is not owned by the caller
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "502":
+          description: Cloudflare Stream could not create an upload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /media/cloudflare-stream-asset:
+    post:
+      operationId: resolveCloudflareStreamAsset
+      tags: [media]
+      summary: Verify an uploaded Stream asset and return playback metadata
+      security:
+        - SupabaseBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CloudflareStreamAssetInput"
+      responses:
+        "200":
+          description: Verified Cloudflare Stream playback metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CloudflareStreamAssetResponse"
+        "400":
+          description: Invalid Stream asset ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Stream asset is not owned by the caller
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "502":
+          description: Cloudflare Stream metadata is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
   /media/playback-url:
     post:
       operationId: getMediaPlaybackUrl
@@ -426,6 +549,34 @@ components:
         - faststart
         - streamUid
         - playbackUrl
+    CloudflareStreamAssetInput:
+      type: object
+      additionalProperties: false
+      properties:
+        streamUid:
+          type: string
+          minLength: 8
+          maxLength: 128
+          pattern: "^[a-zA-Z0-9_-]+$"
+      required:
+        - streamUid
+    CloudflareStreamAssetResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        streamUid:
+          type: string
+        playbackUrl:
+          type: string
+        posterUrl:
+          type: string
+        durationSeconds:
+          type: ["number", "null"]
+      required:
+        - streamUid
+        - playbackUrl
+        - posterUrl
+        - durationSeconds
     VideoPlaybackInput:
       type: object
       additionalProperties: false

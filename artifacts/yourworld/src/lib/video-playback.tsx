@@ -55,6 +55,10 @@ import {
   ZoomIn,
 } from "lucide-react";
 import Hls from "hls.js";
+import {
+  bindHlsNetworkAwareLevelCap,
+  createVideoHlsConfig,
+} from "@/lib/video-hls-config";
 
 const QUALITY_OPTIONS = [
   { id: "auto", label: "Auto", description: "Recommended", shortSide: null },
@@ -767,8 +771,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       video.dataset.ywNativeVideoSupport = detectNativeVideoSupport(video, activeVideoUrl);
       if (isHlsMediaUrl(activeVideoUrl)) {
         if (Hls.isSupported()) {
-          const hls = new Hls({ enableWorker: true });
+          const hls = new Hls(createVideoHlsConfig());
           hlsRef.current = hls;
+          bindHlsNetworkAwareLevelCap(hls);
           hls.on(Hls.Events.MANIFEST_PARSED, () => {
             setHlsLevels([...hls.levels]);
             setActiveHlsHeight(

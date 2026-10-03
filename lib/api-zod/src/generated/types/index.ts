@@ -11,6 +11,8 @@ export * from './callPushInput';
 export * from './callPushRegistrationInput';
 export * from './callPushRegistrationResponse';
 export * from './callPushResponse';
+export * from './cloudflareStreamAssetInput';
+export * from './cloudflareStreamAssetResponse';
 export * from './healthStatus';
 export * from './postPinInput';
 export * from './postPinResponse';

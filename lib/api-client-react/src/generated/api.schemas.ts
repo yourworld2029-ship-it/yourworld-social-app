@@ -39,6 +39,23 @@ export interface VideoTranscodeResponse {
   playbackUrl: string | null;
 }
 
+export interface CloudflareStreamAssetInput {
+  /**
+     * @minLength 8
+     * @maxLength 128
+     * @pattern ^[a-zA-Z0-9_-]+$
+     */
+  streamUid: string;
+}
+
+export interface CloudflareStreamAssetResponse {
+  streamUid: string;
+  playbackUrl: string;
+  posterUrl: string;
+  /** @nullable */
+  durationSeconds: number | null;
+}
+
 export type VideoPlaybackInputQuality = typeof VideoPlaybackInputQuality[keyof typeof VideoPlaybackInputQuality];
 
 

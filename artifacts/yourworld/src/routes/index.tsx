@@ -33,7 +33,7 @@ type FeedItem =
       kind: "standard";
       key: string;
       video: LongVideo;
-      prefetchNextVideos: Array<Pick<LongVideo, "mediaUrl" | "access">>;
+      prefetchNextVideos: Array<Pick<LongVideo, "mediaUrl" | "access" | "durationSeconds">>;
     }
   | {
       kind: "vertical-shelf";
@@ -438,7 +438,11 @@ function HomePage() {
         const immediateNextVideo = regularVideos[index + 1];
         const prefetchNextVideos =
           immediateNextVideo?.access === "public"
-            ? [{ mediaUrl: immediateNextVideo.mediaUrl, access: immediateNextVideo.access }]
+            ? [{
+                mediaUrl: immediateNextVideo.mediaUrl,
+                access: immediateNextVideo.access,
+                durationSeconds: immediateNextVideo.durationSeconds,
+              }]
             : [];
         items.push({
           kind: "standard",

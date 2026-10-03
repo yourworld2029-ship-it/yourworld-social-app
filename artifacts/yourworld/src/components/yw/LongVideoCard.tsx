@@ -47,7 +47,7 @@ import {
 
 type Props = {
   video: LongVideo;
-  prefetchNextVideos?: Array<Pick<LongVideo, "mediaUrl" | "access">>;
+  prefetchNextVideos?: Array<Pick<LongVideo, "mediaUrl" | "access" | "durationSeconds">>;
   onView: (id: string) => void | Promise<unknown>;
   onLike: (id: string) => void | Promise<unknown>;
   currentUserId?: string | null;

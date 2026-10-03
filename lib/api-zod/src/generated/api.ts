@@ -42,6 +42,49 @@ export const TranscodeVideoResponse = zod.object({
 
 
 /**
+ * @summary Advertise resumable Cloudflare upload support
+ */
+export const OptionsCloudflareTusUploadResponse = zod.void()
+
+
+/**
+ * @summary Create an owner-bound Cloudflare Stream TUS upload
+ */
+
+
+
+export const CreateCloudflareTusUploadHeader = zod.object({
+  "Tus-Resumable": zod.literal("1.0.0"),
+  "Upload-Length": zod.number().min(1),
+  "Upload-Metadata": zod.string()
+})
+
+export const CreateCloudflareTusUploadResponse = zod.void()
+
+
+/**
+ * @summary Verify an uploaded Stream asset and return playback metadata
+ */
+export const resolveCloudflareStreamAssetBodyStreamUidMin = 8;
+export const resolveCloudflareStreamAssetBodyStreamUidMax = 128;
+
+
+export const resolveCloudflareStreamAssetBodyStreamUidRegExp = new RegExp('^[a-zA-Z0-9_-]+$');
+
+
+export const ResolveCloudflareStreamAssetBody = zod.object({
+  "streamUid": zod.string().min(resolveCloudflareStreamAssetBodyStreamUidMin).max(resolveCloudflareStreamAssetBodyStreamUidMax).regex(resolveCloudflareStreamAssetBodyStreamUidRegExp)
+})
+
+export const ResolveCloudflareStreamAssetResponse = zod.object({
+  "streamUid": zod.string(),
+  "playbackUrl": zod.string(),
+  "posterUrl": zod.string(),
+  "durationSeconds": zod.number().nullable()
+})
+
+
+/**
  * @summary Resolve a protected Stream video after checking access
  */
 export const getMediaPlaybackUrlBodyPostIdMax = 128;

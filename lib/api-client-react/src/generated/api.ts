@@ -25,6 +25,8 @@ import type {
   CallPushRegistrationInput,
   CallPushRegistrationResponse,
   CallPushResponse,
+  CloudflareStreamAssetInput,
+  CloudflareStreamAssetResponse,
   HealthStatus,
   PostPinInput,
   PostPinResponse,
@@ -210,6 +212,219 @@ export const useTranscodeVideo = <TError = ErrorType<ApiError>,
         TContext
       > => {
       return useMutation(getTranscodeVideoMutationOptions(options));
+    }
+
+export const getOptionsCloudflareTusUploadUrl = () => {
+
+
+
+
+  return `/api/media/cloudflare-tus-upload`
+}
+
+/**
+ * @summary Advertise resumable Cloudflare upload support
+ */
+export const optionsCloudflareTusUpload = async ( options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getOptionsCloudflareTusUploadUrl(),
+  {
+    ...options,
+    method: 'OPTIONS'
+
+
+  }
+);}
+
+
+
+
+
+export const getOptionsCloudflareTusUploadMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof optionsCloudflareTusUpload>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof optionsCloudflareTusUpload>>, TError,void, TContext> => {
+
+const mutationKey = ['optionsCloudflareTusUpload'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof optionsCloudflareTusUpload>>, void> = () => {
+
+
+          return  optionsCloudflareTusUpload(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type OptionsCloudflareTusUploadMutationResult = NonNullable<Awaited<ReturnType<typeof optionsCloudflareTusUpload>>>
+
+    export type OptionsCloudflareTusUploadMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Advertise resumable Cloudflare upload support
+ */
+export const useOptionsCloudflareTusUpload = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof optionsCloudflareTusUpload>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof optionsCloudflareTusUpload>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getOptionsCloudflareTusUploadMutationOptions(options));
+    }
+
+export const getCreateCloudflareTusUploadUrl = () => {
+
+
+
+
+  return `/api/media/cloudflare-tus-upload`
+}
+
+/**
+ * @summary Create an owner-bound Cloudflare Stream TUS upload
+ */
+export const createCloudflareTusUpload = async ( options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getCreateCloudflareTusUploadUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getCreateCloudflareTusUploadMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createCloudflareTusUpload>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createCloudflareTusUpload>>, TError,void, TContext> => {
+
+const mutationKey = ['createCloudflareTusUpload'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createCloudflareTusUpload>>, void> = () => {
+
+
+          return  createCloudflareTusUpload(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateCloudflareTusUploadMutationResult = NonNullable<Awaited<ReturnType<typeof createCloudflareTusUpload>>>
+
+    export type CreateCloudflareTusUploadMutationError = ErrorType<ApiError>
+
+    /**
+ * @summary Create an owner-bound Cloudflare Stream TUS upload
+ */
+export const useCreateCloudflareTusUpload = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createCloudflareTusUpload>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createCloudflareTusUpload>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getCreateCloudflareTusUploadMutationOptions(options));
+    }
+
+export const getResolveCloudflareStreamAssetUrl = () => {
+
+
+
+
+  return `/api/media/cloudflare-stream-asset`
+}
+
+/**
+ * @summary Verify an uploaded Stream asset and return playback metadata
+ */
+export const resolveCloudflareStreamAsset = async (cloudflareStreamAssetInput: CloudflareStreamAssetInput, options?: Parameters<typeof customFetch>[1]): Promise<CloudflareStreamAssetResponse> => {
+
+  return customFetch<CloudflareStreamAssetResponse>(getResolveCloudflareStreamAssetUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(cloudflareStreamAssetInput)
+  }
+);}
+
+
+
+
+
+export const getResolveCloudflareStreamAssetMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resolveCloudflareStreamAsset>>, TError,{data: BodyType<CloudflareStreamAssetInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof resolveCloudflareStreamAsset>>, TError,{data: BodyType<CloudflareStreamAssetInput>}, TContext> => {
+
+const mutationKey = ['resolveCloudflareStreamAsset'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof resolveCloudflareStreamAsset>>, {data: BodyType<CloudflareStreamAssetInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  resolveCloudflareStreamAsset(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ResolveCloudflareStreamAssetMutationResult = NonNullable<Awaited<ReturnType<typeof resolveCloudflareStreamAsset>>>
+    export type ResolveCloudflareStreamAssetMutationBody = BodyType<CloudflareStreamAssetInput>
+    export type ResolveCloudflareStreamAssetMutationError = ErrorType<ApiError>
+
+    /**
+ * @summary Verify an uploaded Stream asset and return playback metadata
+ */
+export const useResolveCloudflareStreamAsset = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resolveCloudflareStreamAsset>>, TError,{data: BodyType<CloudflareStreamAssetInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof resolveCloudflareStreamAsset>>,
+        TError,
+        {data: BodyType<CloudflareStreamAssetInput>},
+        TContext
+      > => {
+      return useMutation(getResolveCloudflareStreamAssetMutationOptions(options));
     }
 
 export const getGetMediaPlaybackUrlUrl = () => {

@@ -4,6 +4,7 @@ import {
   readableUploadError,
   runDirectUploadRequest,
 } from "@/lib/storage-upload-request";
+import { uploadCloudflareStreamWithTus } from "@/lib/storage-upload-cloudflare-tus";
 import { uploadLargeStorageObjectWithTus } from "@/lib/storage-upload-tus";
 import { shouldUseResumableStorageUpload } from "@/lib/storage-upload-tus-utils";
 
@@ -83,7 +84,14 @@ export async function uploadWithProgress(
   onProgress?: ProgressFn,
   cacheControl = "3600",
   options: VideoStreamUploadOptions = {},
-): Promise<{ url: string | null; storagePath: string | null; error: string | null }> {
+): Promise<{
+  url: string | null;
+  storagePath: string | null;
+  error: string | null;
+  streamUid?: string | null;
+  posterUrl?: string | null;
+  durationSeconds?: number | null;
+}> {
   const needsFastStart =
     contentType.toLowerCase().startsWith("video/") && FASTSTART_BUCKETS.has(bucket);
   const needsCloudflareStream =
@@ -110,7 +118,11 @@ export async function uploadWithProgress(
 
   let upload: { error: string | null };
   try {
-    upload = await uploadDirect(bucket, path, blob, contentType, onProgress, cacheControl);
+    const sourceProgress = needsCloudflareStream && onProgress
+      ? (percent: number, detail?: string) =>
+          onProgress(Math.round(percent * 0.45), detail)
+      : onProgress;
+    upload = await uploadDirect(bucket, path, blob, contentType, sourceProgress, cacheControl);
   } catch (error) {
     const message = readableUploadError(error);
     console.error(`Storage upload failed for ${bucket}/${path}: ${message}`, error);
@@ -123,8 +135,11 @@ export async function uploadWithProgress(
 
   let finalPath = path;
   let streamPlaybackUrl: string | null = null;
+  let streamUid: string | null = null;
+  let streamPosterUrl: string | null = null;
+  let streamDurationSeconds: number | null = null;
   if (needsFastStart) {
-    onProgress?.(97, "Preparing video for playback");
+    onProgress?.(needsCloudflareStream ? 48 : 97, "Preparing video for playback");
     let response: Response;
     try {
       response = await fetch("/api/media/transcode", {
@@ -136,7 +151,7 @@ export async function uploadWithProgress(
         body: JSON.stringify({
           bucket,
           path,
-          cloudflareStream: needsCloudflareStream,
+          cloudflareStream: false,
           requireSignedURLs: options.requireSignedURLs ?? true,
         }),
       });
@@ -164,19 +179,80 @@ export async function uploadWithProgress(
       console.warn("Transcode skipped or incomplete, using original upload path:", path);
       finalPath = path;
     }
-    if (needsCloudflareStream && (
-      typeof responseData?.streamUid !== "string" ||
-      typeof responseData?.playbackUrl !== "string"
-    )) {
+  }
+
+  if (needsCloudflareStream) {
+    onProgress?.(65, "Uploading video to Cloudflare Stream");
+    const cloudflareBucket =
+      bucket === STORAGE_BUCKETS.videos ? STORAGE_BUCKETS.videos : STORAGE_BUCKETS.reels;
+    const tusResult = await uploadCloudflareStreamWithTus({
+      bucket: cloudflareBucket,
+      path: finalPath,
+      file: blob,
+      contentType,
+      requireSignedURLs: options.requireSignedURLs ?? true,
+      onProgress: (percent) => onProgress?.(65 + Math.round(percent * 0.28)),
+    });
+    if (tusResult.error || !tusResult.streamUid) {
       return {
         url: null,
         storagePath: null,
-        error: "The video was processed but Cloudflare Stream did not return a playback source.",
+        error: tusResult.error ?? "Cloudflare Stream did not return a video ID.",
       };
     }
-    if (needsCloudflareStream) {
-      streamPlaybackUrl = responseData?.playbackUrl as string;
+
+    onProgress?.(94, "Finalizing Cloudflare playback");
+    const { data: currentSession, error: currentSessionError } =
+      await supabase.auth.getSession();
+    const currentToken = currentSession.session?.access_token;
+    if (currentSessionError || !currentToken) {
+      return {
+        url: null,
+        storagePath: null,
+        error: currentSessionError?.message ?? "Your sign-in expired. Sign in and try again.",
+      };
     }
+
+    let assetResponse: Response;
+    try {
+      assetResponse = await fetch("/api/media/cloudflare-stream-asset", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${currentToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ streamUid: tusResult.streamUid }),
+      });
+    } catch (error) {
+      const message = readableUploadError(error);
+      return {
+        url: null,
+        storagePath: null,
+        error: `The video uploaded, but Cloudflare playback could not be verified: ${message}`,
+      };
+    }
+
+    const assetPayload: unknown = await assetResponse.json().catch(() => null);
+    const asset =
+      assetPayload && typeof assetPayload === "object"
+        ? (assetPayload as Record<string, unknown>)
+        : null;
+    if (!assetResponse.ok || typeof asset?.playbackUrl !== "string") {
+      const message =
+        typeof asset?.error === "string"
+          ? asset.error
+          : `Cloudflare playback verification failed (${assetResponse.status}).`;
+      return { url: null, storagePath: null, error: message };
+    }
+    streamUid = typeof asset.streamUid === "string" ? asset.streamUid : tusResult.streamUid;
+    streamPlaybackUrl = asset.playbackUrl;
+    streamPosterUrl = typeof asset.posterUrl === "string" ? asset.posterUrl : null;
+    streamDurationSeconds =
+      typeof asset.durationSeconds === "number" &&
+      Number.isFinite(asset.durationSeconds) &&
+      asset.durationSeconds > 0
+        ? asset.durationSeconds
+        : null;
   }
 
   let signedUrl: string | null = null;
@@ -203,6 +279,9 @@ export async function uploadWithProgress(
     url: streamPlaybackUrl ?? signedUrl,
     storagePath: finalPath,
     error: null,
+    streamUid,
+    posterUrl: streamPosterUrl,
+    durationSeconds: streamDurationSeconds,
   };
 }
 

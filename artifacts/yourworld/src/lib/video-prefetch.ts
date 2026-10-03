@@ -1,17 +1,24 @@
-// Range ends are inclusive: this is exactly one MiB.
-const PREFETCH_BYTES = 1 * 1024 * 1024;
+import { getHlsNetworkHeightCap } from "@/lib/video-hls-config";
+
+// Prefetch is limited to the next video's initial window and a strict byte cap.
+const PREFETCH_TARGET_SECONDS = 3;
+const MAX_PREFETCH_BYTES = 2 * 1024 * 1024;
 const MAX_CONCURRENT_PREFETCHES = 1;
 const MAX_QUEUED_PREFETCHES = 1;
 const MAX_SEEN_PREFETCHES = 64;
 const MAX_POSTER_CACHE_ENTRIES = 24;
 const VIDEO_PREFIX_CACHE = "yourworld-video-prefixes-v1";
+const HLS_SEGMENT_CACHE = "yourworld-video-hls-prefixes-v1";
 const PREFIX_TTL_MS = 10 * 60 * 1000;
 const MAX_PREFIX_ENTRIES = 4;
+const MAX_HLS_SEGMENT_ENTRIES = 8;
+const MAX_HLS_SEGMENT_BYTES = 2 * 1024 * 1024;
 
 type PrefetchJob = {
   key: string;
   url: string;
   controller: AbortController;
+  durationSeconds?: number | null;
 };
 
 const active = new Map<string, PrefetchJob>();
@@ -150,22 +157,241 @@ export async function canPrefetchVideo() {
     return false;
   }
 
-  // Battery support is inconsistent in embedded browsers. When the charge
-  // state cannot be established, skip opportunistic work rather than guessing.
-  if (typeof browserNavigator.getBattery !== "function") return false;
+  // The feed already limits this work to fast networks and non-constrained
+  // devices. Do not disable the requested prefetch on browsers without Battery API.
+  if (typeof browserNavigator.getBattery !== "function") return true;
   try {
     const battery = await browserNavigator.getBattery();
     return battery.charging || (Number.isFinite(battery.level) && battery.level >= 0.2);
+  } catch {
+    return true;
+  }
+}
+
+type HlsVariant = { url: string; height: number; bandwidth: number };
+
+function cloudflareStreamUrl(url: string) {
+  try {
+    const host = new URL(url).hostname;
+    return host === "videodelivery.net" || host.endsWith(".cloudflarestream.com");
   } catch {
     return false;
   }
 }
 
-async function fetchPrefetch({ url, controller }: PrefetchJob) {
+function findHlsVariant(manifest: string, baseUrl: string, heightCap: number) {
+  const lines = manifest.split(/\r?\n/).map((line) => line.trim());
+  const variants: HlsVariant[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (!line?.startsWith("#EXT-X-STREAM-INF:")) continue;
+    const uri = lines.slice(index + 1).find((candidate) => candidate && !candidate.startsWith("#"));
+    if (!uri) continue;
+    const resolution = line.match(/(?:^|,)RESOLUTION=\d+x(\d+)(?:,|$)/i);
+    const bandwidth = line.match(/(?:^|,)BANDWIDTH=(\d+)(?:,|$)/i);
+    try {
+      variants.push({
+        url: new URL(uri, baseUrl).toString(),
+        height: Number(resolution?.[1] ?? 0),
+        bandwidth: Number(bandwidth?.[1] ?? 0),
+      });
+    } catch {
+      // Ignore invalid playlist URIs.
+    }
+  }
+  if (!variants.length) return null;
+  const withinCap = variants.filter((variant) => variant.height > 0 && variant.height <= heightCap);
+  const candidates = withinCap.length
+    ? withinCap
+    : variants.filter((variant) => variant.height > 0);
+  const sorted = [...(candidates.length ? candidates : variants)].sort((left, right) => {
+    if (left.height && right.height && left.height !== right.height) {
+      return right.height - left.height;
+    }
+    return right.bandwidth - left.bandwidth;
+  });
+  return sorted[0] ?? null;
+}
+
+async function readBoundedBlob(response: Response, maxBytes: number) {
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    await response.body?.cancel().catch(() => {});
+    return null;
+  }
+  const reader = response.body?.getReader();
+  if (!reader) return null;
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (total <= maxBytes) {
+      const next = await reader.read();
+      if (next.done) break;
+      total += next.value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        return null;
+      }
+      chunks.push(next.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new Blob(
+    [merged.buffer as ArrayBuffer],
+    { type: response.headers.get("content-type") || "video/mp2t" },
+  );
+}
+
+async function cacheHlsSegment(url: string, response: Response, blob: Blob) {
+  if (typeof caches === "undefined" || response.type === "opaque") return;
+  const cache = await caches.open(HLS_SEGMENT_CACHE);
+  const now = Date.now();
+  const existing = await cache.keys();
+  await Promise.all(
+    existing.map(async (entry) => {
+      const cached = await cache.match(entry);
+      const expiry = Number(cached?.headers.get("X-YW-Hls-Prefetch-Expires") || 0);
+      if (!cached || !Number.isSafeInteger(expiry) || expiry <= now) {
+        await cache.delete(entry);
+      }
+    }),
+  );
+  const entries = await cache.keys();
+  if (entries.length >= MAX_HLS_SEGMENT_ENTRIES && !(await cache.match(url))) {
+    const oldest = await Promise.all(
+      entries.map(async (entry) => {
+        const cached = await cache.match(entry);
+        return {
+          entry,
+          created: Number(cached?.headers.get("X-YW-Hls-Prefetch-Created") || 0),
+        };
+      }),
+    );
+    oldest.sort((left, right) => left.created - right.created);
+    if (oldest[0]) await cache.delete(oldest[0].entry);
+  }
+  const headers = new Headers(response.headers);
+  headers.delete("Content-Encoding");
+  headers.delete("Content-Range");
+  headers.delete("Accept-Ranges");
+  headers.set("X-YW-Hls-Prefetch-Created", String(now));
+  headers.set("X-YW-Hls-Prefetch-Expires", String(now + PREFIX_TTL_MS));
+  headers.set("Content-Length", String(blob.size));
+  headers.set("Cache-Control", "public, max-age=600");
+  await cache.put(url, new Response(blob, { status: 200, headers }));
+}
+
+async function prefetchHlsStart(url: string, controller: AbortController) {
+  if (
+    !cloudflareStreamUrl(url) ||
+    typeof caches === "undefined" ||
+    !navigator.serviceWorker?.controller
+  ) return;
+  const manifestResponse = await fetch(url, {
+    signal: controller.signal,
+    cache: "no-store",
+  });
+  if (!manifestResponse.ok) return;
+  const manifest = await manifestResponse.text();
+  if (manifest.length > 512 * 1024 || controller.signal.aborted) return;
+
+  let playlistUrl = url;
+  let playlistText = manifest;
+  const variant = findHlsVariant(manifest, url, getHlsNetworkHeightCap());
+  if (variant) {
+    playlistUrl = variant.url;
+    const variantResponse = await fetch(playlistUrl, {
+      signal: controller.signal,
+      cache: "no-store",
+    });
+    if (!variantResponse.ok) return;
+    playlistText = await variantResponse.text();
+    if (playlistText.length > 512 * 1024 || controller.signal.aborted) return;
+  }
+
+  const lines = playlistText.split(/\r?\n/).map((line) => line.trim());
+  const segments: Array<{ url: string; duration: number }> = [];
+  let pendingDuration: number | null = null;
+  for (const line of lines) {
+    if (line.startsWith("#EXTINF:")) {
+      const duration = Number(line.slice("#EXTINF:".length).split(",", 1)[0]);
+      pendingDuration = Number.isFinite(duration) && duration > 0 ? duration : null;
+      continue;
+    }
+    if (!line || line.startsWith("#") || pendingDuration === null) continue;
+    try {
+      segments.push({ url: new URL(line, playlistUrl).toString(), duration: pendingDuration });
+    } catch {
+      // Ignore invalid segment URLs.
+    }
+    pendingDuration = null;
+  }
+
+  const mapUri = playlistText.match(/#EXT-X-MAP:[^\r\n]*URI="([^"]+)"/i)?.[1];
+  const initSegment = mapUri
+    ? [{ url: new URL(mapUri, playlistUrl).toString(), duration: 0 }]
+    : [];
+  const selected: typeof segments = [];
+  let selectedDuration = 0;
+  for (const segment of segments) {
+    if (selected.length > 0 && selectedDuration >= PREFETCH_TARGET_SECONDS) break;
+    selected.push(segment);
+    selectedDuration += segment.duration;
+    if (selected.length >= 2) break;
+  }
+
+  let totalBytes = 0;
+  for (const segment of [...initSegment, ...selected]) {
+    if (controller.signal.aborted || totalBytes >= MAX_HLS_SEGMENT_BYTES) return;
+    const response = await fetch(segment.url, {
+      signal: controller.signal,
+      cache: "no-store",
+    });
+    if (!response.ok || response.type === "opaque") continue;
+    const remaining = MAX_HLS_SEGMENT_BYTES - totalBytes;
+    const blob = await readBoundedBlob(response, remaining);
+    if (!blob || blob.size < 1) continue;
+    await cacheHlsSegment(segment.url, response, blob);
+    totalBytes += blob.size;
+    // HLS segments cannot be time-sliced safely; at most two segments and 2 MiB
+    // are cached to cover the next video's initial playback window.
+  }
+}
+
+async function fetchPrefetch({ url, controller, durationSeconds }: PrefetchJob) {
   try {
     if (controller.signal.aborted || !(await canPrefetchVideo())) return;
+    if (/\.m3u8(?:$|[?#])/i.test(url)) {
+      await prefetchHlsStart(url, controller);
+      return;
+    }
+    let requestedBytes = MAX_PREFETCH_BYTES;
+    const duration = Number(durationSeconds);
+    if (Number.isFinite(duration) && duration > PREFETCH_TARGET_SECONDS) {
+      const probe = await fetch(url, {
+        headers: { Range: "bytes=0-0" },
+        signal: controller.signal,
+        cache: "default",
+      });
+      const probeRange = probe.headers.get("content-range");
+      const probeMatch = probeRange?.match(/^bytes\s+0-0\/(\d+)$/i);
+      const totalBytes = Number(probeMatch?.[1]);
+      await probe.body?.cancel().catch(() => {});
+      if (probe.status !== 206 || !probeMatch || !Number.isSafeInteger(totalBytes)) return;
+      requestedBytes = Math.min(
+        MAX_PREFETCH_BYTES,
+        Math.max(1, Math.ceil((totalBytes * PREFETCH_TARGET_SECONDS) / duration)),
+      );
+    }
     const response = await fetch(url, {
-      headers: { Range: `bytes=0-${PREFETCH_BYTES - 1}` },
+      headers: { Range: `bytes=0-${requestedBytes - 1}` },
       signal: controller.signal,
       cache: "default",
     });
@@ -184,7 +410,7 @@ async function fetchPrefetch({ url, controller }: PrefetchJob) {
       !Number.isSafeInteger(rangeEnd) ||
       !Number.isSafeInteger(rangeTotal) ||
       rangeEnd < 0 ||
-      rangeEnd >= PREFETCH_BYTES ||
+      rangeEnd >= requestedBytes ||
       rangeTotal <= rangeEnd
     ) {
       controller.abort();
@@ -207,10 +433,10 @@ async function fetchPrefetch({ url, controller }: PrefetchJob) {
     const chunks: ArrayBuffer[] = [];
     let total = 0;
     try {
-      while (total < PREFETCH_BYTES) {
+      while (total < requestedBytes) {
         const next = await reader.read();
         if (next.done) break;
-        const remaining = PREFETCH_BYTES - total;
+        const remaining = requestedBytes - total;
         const value = next.value.byteLength > remaining
           ? next.value.subarray(0, remaining)
           : next.value;
@@ -218,7 +444,7 @@ async function fetchPrefetch({ url, controller }: PrefetchJob) {
           value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength),
         );
         total += value.byteLength;
-        if (total >= PREFETCH_BYTES) await reader.cancel();
+        if (total >= requestedBytes) await reader.cancel();
       }
     } finally {
       reader.releaseLock();
@@ -240,12 +466,11 @@ async function fetchPrefetch({ url, controller }: PrefetchJob) {
 }
 
 /** Starts one bounded, deduplicated prefetch for a media URL. */
-export async function prefetchVideo(url: string) {
+export async function prefetchVideo(url: string, durationSeconds?: number | null) {
   if (typeof window === "undefined" || !url) return;
   const key = url ? mediaCacheKey(url) : "";
   if (
     !/^https?:\/\//i.test(url) ||
-    /\.m3u8(?:$|[?#])/i.test(url) ||
     active.has(key) ||
     seenPrefetches.has(key) ||
     active.size >= MAX_CONCURRENT_PREFETCHES + MAX_QUEUED_PREFETCHES
@@ -259,7 +484,7 @@ export async function prefetchVideo(url: string) {
     seenPrefetches.delete(oldest);
   }
   const controller = new AbortController();
-  const job = { key, url, controller };
+  const job = { key, url, controller, durationSeconds };
   active.set(key, job);
   if (!(await canPrefetchVideo()) || controller.signal.aborted || active.get(key) !== job) {
     if (active.get(key) === job) active.delete(key);
