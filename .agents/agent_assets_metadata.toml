@@ -294,3 +294,17 @@ mtime_ms = 1791042677096
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/22dba979-5cf6-404a-b295-dd0feffec2c4/d5b5ba61-0d65-49e3-9565-7f7b084e9cdb"
 storage_version_token = "1791042774342485"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "D8kPO2H5_XOAKH413qt0N"
+uri = "file://artifacts/yourworld/public/internal-test-downloads/yourworld-v46-internal-test-reel-style-preview.apk"
+type = "unspecified"
+title = "YourWorld Reel-style video preview debug APK"
+description = "Fresh internal Android debug build with the standard video upload preview using the Reel-style centered tap-to-play/pause overlay. SHA-256: 3dbe7f3b7f4c0763033b2ea8f8fe28374e83be124200b7dc2f1a51afd30056a5"
+logical_id = "5fd08211-8920-46c8-a200-587719493c79"
+content_hash = "sha256:3dbe7f3b7f4c0763033b2ea8f8fe28374e83be124200b7dc2f1a51afd30056a5"
+size = 7815416
+mtime_ms = 1791044426009
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/5fd08211-8920-46c8-a200-587719493c79/fe38329a-de13-43dc-9a4a-bf8cf7284045"
+storage_version_token = "1791044456780509"
+content_type = "application/octet-stream"
