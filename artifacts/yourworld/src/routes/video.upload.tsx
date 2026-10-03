@@ -1,6 +1,16 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, Upload, Image as ImageIcon, Clock, Loader2, Camera, ChevronDown } from "lucide-react";
+import {
+  ArrowLeft,
+  Camera,
+  ChevronDown,
+  Clock,
+  Image as ImageIcon,
+  Loader2,
+  Pause,
+  Play,
+  Upload,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -60,6 +70,7 @@ function VideoUploadPage() {
 
   const [fileUrl, setFileUrl] = useState<string | null>(null);
   const [previewFrame, setPreviewFrame] = useState<string | null>(null);
+  const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
   const [orientation, setOrientation] = useState<"landscape" | "portrait">("landscape");
   const [duration, setDuration] = useState<number | null>(null);
   const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null);
@@ -106,6 +117,7 @@ function VideoUploadPage() {
     thumbnailFileRef.current = null;
     setFileUrl(url);
     setPreviewFrame(null);
+    setIsPreviewPlaying(false);
     setThumb(null);
     setDuration(null);
     setDimensions(null);
@@ -150,6 +162,16 @@ function VideoUploadPage() {
         : null,
     );
   }, []);
+
+  const togglePreviewPlayback = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (video.paused) {
+      void video.play().catch(() => setIsPreviewPlaying(false));
+    } else {
+      video.pause();
+    }
+  };
 
   useEffect(() => {
     const video = videoRef.current;
@@ -401,6 +423,7 @@ function VideoUploadPage() {
               className={`relative mx-auto w-full overflow-hidden rounded-2xl bg-black ${
                 orientation === "portrait" ? "max-w-[280px] aspect-[9/16]" : "aspect-video"
               }`}
+              onContextMenu={(event) => event.preventDefault()}
             >
               <video
                 key={fileUrl}
@@ -411,12 +434,27 @@ function VideoUploadPage() {
                 loop
                 playsInline
                 preload="auto"
-                controlsList="nodownload noplaybackrate nofullscreen"
                 disablePictureInPicture
                 disableRemotePlayback
-                onContextMenu={(event) => event.preventDefault()}
+                onPlay={() => setIsPreviewPlaying(true)}
+                onPause={() => setIsPreviewPlaying(false)}
+                onEnded={() => setIsPreviewPlaying(false)}
                 className="video-upload-preview h-full w-full object-contain"
               />
+              <button
+                type="button"
+                onClick={togglePreviewPlayback}
+                className="absolute inset-0 z-10 flex items-center justify-center text-white transition-opacity duration-300"
+                aria-label={isPreviewPlaying ? "Pause preview" : "Play preview"}
+              >
+                <span className="flex h-14 w-14 items-center justify-center rounded-full border border-white/20 bg-black/40 text-white shadow-xl backdrop-blur-md transition-all duration-300 hover:scale-105 hover:bg-black/55 active:scale-95">
+                  {isPreviewPlaying ? (
+                    <Pause className="h-5 w-5 fill-current" />
+                  ) : (
+                    <Play className="ml-0.5 h-5 w-5 fill-current" />
+                  )}
+                </span>
+              </button>
             </div>
             <div className="flex items-center justify-between text-[11px] text-zinc-400">
               <span>

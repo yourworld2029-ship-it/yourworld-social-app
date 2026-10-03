@@ -264,6 +264,19 @@ html[data-theme="midnight"] {
     display: none !important;
   }
 
+  .video-upload-preview::-webkit-media-controls,
+  .video-upload-preview::-webkit-media-controls-enclosure,
+  .video-upload-preview::-webkit-media-controls-panel,
+  .video-upload-preview::-webkit-media-controls-play-button,
+  .video-upload-preview::-webkit-media-controls-mute-button,
+  .video-upload-preview::-webkit-media-controls-timeline,
+  .video-upload-preview::-webkit-media-controls-fullscreen-button,
+  .video-upload-preview::-webkit-media-controls-overflow-button {
+    display: none !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+  }
+
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
