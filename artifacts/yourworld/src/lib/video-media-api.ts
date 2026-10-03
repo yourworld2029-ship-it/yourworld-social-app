@@ -79,7 +79,13 @@ export async function resolveAuthorizedPlaybackUrl(
 export async function resolveAuthorizedOfflineSource(
   postId: string,
   quality: AuthorizedOfflineQuality = "original",
-  activeSource?: { url: string; streamId?: string | null; bucket?: "videos" | "reels"; sourceUrl?: string | null },
+  activeSource?: {
+    url: string;
+    qualityUrl?: string | null;
+    streamId?: string | null;
+    bucket?: "videos" | "reels";
+    sourceUrl?: string | null;
+  },
 ) {
   const resolveReference = async (reference?: string | null) => {
     if (!reference) return null;
@@ -96,6 +102,12 @@ export async function resolveAuthorizedOfflineSource(
   try {
     payload = await postAuthorizedMediaRequest("/api/media/offline-source", { postId, quality });
   } catch (error) {
+    if (quality !== "original") {
+      if (error instanceof MediaRequestError && [401, 402, 403].includes(error.status)) throw error;
+      throw new Error(
+        `The exact ${quality} rendition could not be prepared. It was not replaced with another quality.`,
+      );
+    }
     // A service/version/transport failure must not discard an already-authorized
     // playing source. Explicit access/creator denials remain authoritative.
     if (error instanceof MediaRequestError && [401, 402, 403].includes(error.status)) throw error;
@@ -113,6 +125,24 @@ export async function resolveAuthorizedOfflineSource(
     payload.actualQuality === "2160p"
       ? payload.actualQuality
       : "original";
+  if (quality !== "original") {
+    if (activeSource?.qualityUrl) {
+      const variantUrl = await resolveReference(activeSource.qualityUrl);
+      if (!variantUrl) {
+        throw new Error(`The exact ${quality} rendition is unavailable.`);
+      }
+      if (/\.m3u8(?:$|[?#])/i.test(variantUrl)) {
+        throw new Error(`The exact ${quality} rendition is not a downloadable video file.`);
+      }
+      return { url: variantUrl, actualQuality: quality, fallbackUrls: [] as string[] };
+    }
+    if (actualQuality !== quality) {
+      throw new Error(
+        `This video has no exact ${quality} rendition. It was not replaced with another quality.`,
+      );
+    }
+    return { url: payload.url, actualQuality, fallbackUrls: [] as string[] };
+  }
   const urls = await sources(payload.url);
   return {
     url: urls[0] ?? payload.url,

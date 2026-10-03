@@ -78,6 +78,7 @@ function PostCreatePage() {
         label: caption.trim() || (mediaType === "video" ? "New video post" : "New photo post"),
         thumbnail: mediaType === "image" ? fileUrl : null,
         viewTo: "/",
+        isVideo: mediaType === "video",
       },
       (onProgress) =>
         publishPost({

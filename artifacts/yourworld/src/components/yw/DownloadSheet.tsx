@@ -8,17 +8,21 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import {
-  capQualityTierToSource,
   downloadFileSizeBytesFromHeaders,
   type DownloadQualityUrls,
   estimateDownloadSizeMb,
-  estimateDownloadSizeMbFromSourceFile,
   formatDownloadSizeMb,
+  hasExactVideoDownload,
   type VideoQualityTier,
   VIDEO_DOWNLOAD_PICKER_TIERS,
 } from "@/lib/video-quality";
 import { resolveMediaUrl } from "@/lib/social-data";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+import {
+  startNativeOfflineDownloadNotice,
+  stopNativeOfflineDownloadNotice,
+} from "@/lib/native-offline-downloads";
 
 export type DownloadChoice = VideoQualityTier | "mp3" | "original";
 
@@ -37,6 +41,7 @@ type Props = {
   title: string;
   durationSeconds?: number | null;
   sourceQualityTier?: VideoQualityTier | null;
+  cloudflareStreamId?: string | null;
   qualityMediaUrls?: DownloadQualityUrls | null;
   sourceMediaUrl?: string | null;
   sourceFileSizeBytes?: number | null;
@@ -60,8 +65,19 @@ function positiveDuration(value: number | null | undefined) {
 function isDownloadChoiceAvailable(
   choice: DownloadChoice,
   sourceMediaUrl?: string | null,
+  qualityMediaUrls?: DownloadQualityUrls | null,
+  sourceQualityTier?: VideoQualityTier | null,
+  cloudflareStreamId?: string | null,
 ) {
-  return choice !== "mp3" && Boolean(sourceMediaUrl?.trim());
+  if (choice === "mp3") return false;
+  if (choice === "original") return Boolean(sourceMediaUrl?.trim());
+  return hasExactVideoDownload(
+    choice,
+    sourceMediaUrl,
+    qualityMediaUrls,
+    sourceQualityTier,
+    cloudflareStreamId,
+  );
 }
 
 function contentLengthFromResponse(response: Response) {
@@ -74,6 +90,7 @@ function contentLengthFromResponse(response: Response) {
 
 async function readSourceFileSize(sourceMediaUrl: string, signal: AbortSignal) {
   if (!/^https?:\/\//i.test(sourceMediaUrl)) return null;
+  if (/\.m3u8(?:$|[?#])/i.test(sourceMediaUrl)) return null;
   try {
     const response = await fetch(sourceMediaUrl, {
       method: "HEAD",
@@ -159,6 +176,7 @@ export function DownloadSheet({
   title,
   durationSeconds,
   sourceQualityTier,
+  cloudflareStreamId,
   qualityMediaUrls,
   sourceMediaUrl,
   sourceFileSizeBytes,
@@ -205,18 +223,19 @@ export function DownloadSheet({
     }
 
     const sizeCandidates = choices.flatMap((choice) => {
-      const variantTierIsUsable =
-        choice === "original" ||
-        choice === "mp3" ||
-        !sourceQualityTier ||
-        capQualityTierToSource(choice, sourceQualityTier) === choice;
+      if (choice === "mp3") return [];
+      if (choice !== "original" && !isDownloadChoiceAvailable(
+        choice,
+        sourceMediaUrl,
+        qualityMediaUrls,
+        sourceQualityTier,
+        cloudflareStreamId,
+      )) return [];
       const url =
         choice === "original"
           ? sourceMediaUrl
-          : choice !== "mp3"
-            && variantTierIsUsable
-            ? qualityMediaUrls?.[choice]
-            : undefined;
+          : qualityMediaUrls?.[choice]?.trim() ||
+            (choice === sourceQualityTier ? sourceMediaUrl : undefined);
       return url ? [{ choice, url }] : [];
     });
     void Promise.all(
@@ -232,9 +251,10 @@ export function DownloadSheet({
       }),
     ).then((entries) => {
       if (controller.signal.aborted) return;
-      const resolved = Object.fromEntries(
-        entries.filter((entry): entry is readonly [DownloadChoice, number] => entry !== null),
-      );
+      const resolved: Partial<Record<DownloadChoice, number>> = {};
+      for (const entry of entries) {
+        if (entry) resolved[entry[0]] = entry[1];
+      }
       setResolvedFileSizes((current) => ({ ...current, ...resolved }));
     });
 
@@ -245,6 +265,7 @@ export function DownloadSheet({
     mediaBucket,
     open,
     qualityMediaUrls,
+    cloudflareStreamId,
     sourceFileSizeBytes,
     sourceMediaUrl,
     sourceQualityTier,
@@ -252,48 +273,59 @@ export function DownloadSheet({
 
   const sizeForChoice = (choice: DownloadChoice) => {
     const providedSourceSize = positiveByteSize(sourceFileSizeBytes);
-    const effectiveTier =
-      choice !== "original" && choice !== "mp3"
-        ? capQualityTierToSource(choice, sourceQualityTier)
-        : null;
-    const isSourceFallback =
-      choice !== "original" &&
-      choice !== "mp3" &&
-      (!qualityMediaUrls?.[choice]?.trim() || effectiveTier !== choice);
-    const exactSize = isSourceFallback
-      ? null
-      :
+    const exactSize =
       resolvedFileSizes[choice] ??
       (choice === "original" ? providedSourceSize : null);
     if (exactSize) {
       return formatDownloadSizeMb(exactSize / 1_000_000, true);
     }
 
+    if (choice !== "original" && choice !== "mp3" &&
+        !isDownloadChoiceAvailable(
+          choice,
+          sourceMediaUrl,
+          qualityMediaUrls,
+          sourceQualityTier,
+          cloudflareStreamId,
+        )) {
+      return "Exact rendition unavailable";
+    }
     if (choice === "original") {
       return formatDownloadSizeMb(null);
     }
     if (choice === "mp3") {
       return formatDownloadSizeMb(estimateDownloadSizeMb(resolvedDurationSeconds, "mp3"));
     }
-    if (!effectiveTier) return formatDownloadSizeMb(null);
-
-    const sourceSizeBytes =
-      resolvedFileSizes.original ?? providedSourceSize;
-    const sourceEstimate = estimateDownloadSizeMbFromSourceFile(
-      sourceSizeBytes,
-      sourceQualityTier,
-      effectiveTier,
-    );
-    return formatDownloadSizeMb(
-      sourceEstimate ?? estimateDownloadSizeMb(resolvedDurationSeconds, effectiveTier),
-    );
+    return formatDownloadSizeMb(null);
   };
 
   const submit = () => {
     const choice = selected;
-    if (!isDownloadChoiceAvailable(choice, sourceMediaUrl)) return;
+    if (!isDownloadChoiceAvailable(
+      choice,
+      sourceMediaUrl,
+      qualityMediaUrls,
+      sourceQualityTier,
+      cloudflareStreamId,
+    )) return;
     onOpenChange(false);
-    void Promise.resolve(onDownload(choice)).catch((error) => {
+    void (async () => {
+      let transferId: string | null;
+      try {
+        transferId = await startNativeOfflineDownloadNotice(title);
+      } catch (error) {
+        console.error("[downloads] could not start the Android foreground service", error);
+        toast.error(
+          error instanceof Error ? error.message : "Couldn't start the Android download.",
+        );
+        return;
+      }
+      try {
+        await onDownload(choice);
+      } finally {
+        await stopNativeOfflineDownloadNotice(transferId);
+      }
+    })().catch((error) => {
       console.error("[downloads] background download failed", error);
     });
   };
@@ -321,17 +353,13 @@ export function DownloadSheet({
           {choices.map((choice) => {
             const isOriginal = choice === "original";
             const isSelected = choice === selected;
-            const isSourceFallback =
-              !isOriginal &&
-              choice !== "mp3" &&
-              (!qualityMediaUrls?.[choice]?.trim() ||
-                (sourceQualityTier !== null &&
-                  sourceQualityTier !== undefined &&
-                  capQualityTierToSource(choice, sourceQualityTier) !== choice));
-            const effectiveTier =
-              choice !== "original" && choice !== "mp3"
-                ? capQualityTierToSource(choice, sourceQualityTier)
-                : null;
+            const isAvailable = isDownloadChoiceAvailable(
+              choice,
+              sourceMediaUrl,
+              qualityMediaUrls,
+              sourceQualityTier,
+              cloudflareStreamId,
+            );
             const quality =
               choice !== "original" && choice !== "mp3" ? QUALITY_COPY[choice] : null;
             const size = sizeForChoice(choice);
@@ -341,12 +369,15 @@ export function DownloadSheet({
                 type="button"
                 role="radio"
                 aria-checked={isSelected}
-                onClick={() => setSelected(choice)}
+                aria-disabled={!isAvailable}
+                disabled={!isAvailable}
+                onClick={() => isAvailable && setSelected(choice)}
                 className={cn(
                   "flex w-full items-center gap-3 rounded-2xl border px-3.5 py-3 text-left shadow-sm transition-all active:scale-[0.99]",
                   isSelected
                     ? "border-pink-500/70 bg-pink-500/10"
                     : "border-zinc-800 bg-zinc-900/70 hover:border-zinc-700 hover:bg-zinc-800",
+                  !isAvailable && "cursor-not-allowed opacity-45",
                 )}
               >
                 <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-zinc-800 text-zinc-200">
@@ -362,11 +393,9 @@ export function DownloadSheet({
                   <span className="mt-0.5 block text-[11px] text-zinc-400">
                     {isOriginal
                       ? "Original source file"
-                      : isSourceFallback
-                        ? sourceQualityTier
-                          ? `Encoded from ${sourceQualityTier} source · up to ${effectiveTier}`
-                          : `Creates an encoded ${choice} copy · estimated size`
-                        : quality?.description}{" "}
+                      : isAvailable
+                        ? quality?.description
+                        : `Exact ${choice} rendition is unavailable`}{" "}
                     · {size}
                   </span>
                 </span>
@@ -382,7 +411,13 @@ export function DownloadSheet({
           <button
             type="button"
             onClick={() => void submit()}
-            disabled={!isDownloadChoiceAvailable(selected, sourceMediaUrl)}
+            disabled={!isDownloadChoiceAvailable(
+              selected,
+              sourceMediaUrl,
+              qualityMediaUrls,
+              sourceQualityTier,
+              cloudflareStreamId,
+            )}
             className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-white py-3 text-sm font-bold text-black transition-transform active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Download size={17} />

@@ -451,6 +451,7 @@ function ProfilePage() {
               sourceMediaUrl,
               downloadQualityUrls,
               downloadSourceQualityTier,
+              post.cloudflare_stream_id ?? post.cloudflare_stream_uid,
             )
           : null;
       if (!sourceMediaUrl) throw new Error("This media file is unavailable");
@@ -468,6 +469,7 @@ function ProfilePage() {
           | "1440p"
           | "2160p",
         { url: selection?.url ?? sourceMediaUrl, sourceUrl: sourceMediaUrl,
+          qualityUrl: selection?.usesVariant ? selection.url : null,
           streamId: post.cloudflare_stream_id ?? post.cloudflare_stream_uid, bucket: mediaBucket },
       );
       const mediaUrl = offlineSource.url;
@@ -1076,6 +1078,11 @@ function ProfilePage() {
         durationSeconds={downloadTarget?.duration_seconds ?? null}
         sourceQualityTier={downloadSourceQualityTier}
         qualityMediaUrls={downloadQualityUrls}
+        cloudflareStreamId={
+          downloadQualityPost?.cloudflare_stream_id ??
+          downloadQualityPost?.cloudflare_stream_uid ??
+          null
+        }
         sourceMediaUrl={downloadSourceUrl}
         mediaBucket={downloadTarget?.kind === "reel" ? "reels" : "videos"}
         onDownload={downloadManagedMedia}

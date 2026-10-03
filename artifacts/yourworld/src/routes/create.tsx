@@ -150,7 +150,12 @@ function DirectReelUploadPage() {
     // Keep the File and all publish metadata captured by this runner. The
     // global task survives route unmount while the SPA remains open.
     void startUpload(
-      { kind: "reel", label: title.trim() || "New reel", viewTo: "/reels" },
+      {
+        kind: "reel",
+        label: title.trim() || "New reel",
+        viewTo: "/reels",
+        isVideo: true,
+      },
       (onProgress) =>
         publishDirectReel({
           file,

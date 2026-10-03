@@ -8,11 +8,13 @@ type NativeUploadResiliencePlugin = {
     detail?: string;
   }): Promise<void>;
   stop(options: { uploadId: string }): Promise<void>;
+  complete(options: { uploadId: string }): Promise<void>;
 };
 
 export type NativeVideoUploadGuard = {
   update(progress: number, detail?: string): void;
   stop(): Promise<void>;
+  complete(): Promise<void>;
 };
 
 const NativeUploadResilience =
@@ -29,8 +31,10 @@ export async function startNativeVideoUploadGuard(
   try {
     await NativeUploadResilience.start({ uploadId, title });
   } catch (error) {
-    console.warn("Android upload foreground protection could not start", error);
-    return null;
+    console.error("Android upload foreground protection could not start", error);
+    throw new Error("Android could not start the required upload notification. Try again.", {
+      cause: error,
+    });
   }
 
   let lastUpdate = "";
@@ -54,6 +58,14 @@ export async function startNativeVideoUploadGuard(
         await NativeUploadResilience.stop({ uploadId });
       } catch (error) {
         console.warn("Android upload foreground protection could not stop", error);
+      }
+    },
+    async complete() {
+      try {
+        await NativeUploadResilience.complete({ uploadId });
+      } catch (error) {
+        console.warn("Android upload completion notification could not be shown", error);
+        await NativeUploadResilience.stop({ uploadId }).catch(() => {});
       }
     },
   };

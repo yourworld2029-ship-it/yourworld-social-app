@@ -1,4 +1,83 @@
 export const RESUMABLE_UPLOAD_CHUNK_SIZE = 6 * 1024 * 1024;
+export const CLOUDFLARE_TUS_CHUNK_SIZE = 6 * 1024 * 1024;
+
+export function getTusRetryDelayMs(attempt: number) {
+  const safeAttempt = Math.max(0, Math.floor(Number.isFinite(attempt) ? attempt : 0));
+  return Math.min(60_000, 1_000 * 2 ** Math.min(safeAttempt, 6));
+}
+
+export function isRetryableTusError(error: unknown, isOnline: boolean) {
+  if (!error || typeof error !== "object") return !isOnline;
+  const details = error as {
+    causingNetworkError?: unknown;
+    originalResponse?: { getStatus?: () => number };
+  };
+  if (details.causingNetworkError != null) return true;
+
+  let status: number | undefined;
+  try {
+    status = details.originalResponse?.getStatus?.();
+  } catch {
+    status = undefined;
+  }
+  if (typeof status === "number" && Number.isFinite(status)) {
+    return status === 0 || status === 408 || status === 425 || status === 429 || status >= 500;
+  }
+  return !isOnline;
+}
+
+export type TusProgressReporter = ((percent: number, detail?: string) => void) & {
+  flush: () => void;
+  cancel: () => void;
+};
+
+export function createTusProgressReporter(
+  onProgress: ((percent: number, detail?: string) => void) | undefined,
+  intervalMs = 200,
+): TusProgressReporter {
+  let lastEmittedAt = Number.NEGATIVE_INFINITY;
+  let pending: { percent: number; detail?: string } | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let cancelled = false;
+
+  const emit = () => {
+    if (!pending || cancelled) return;
+    const next = pending;
+    pending = null;
+    lastEmittedAt = Date.now();
+    onProgress?.(next.percent, next.detail);
+  };
+  const report = ((percent: number, detail?: string) => {
+    if (cancelled) return;
+    pending = { percent, detail };
+    const elapsed = Date.now() - lastEmittedAt;
+    if (elapsed >= intervalMs || percent >= 100) {
+      if (timer) clearTimeout(timer);
+      timer = null;
+      emit();
+      return;
+    }
+    if (!timer) {
+      timer = setTimeout(() => {
+        timer = null;
+        emit();
+      }, Math.max(0, intervalMs - elapsed));
+    }
+  }) as TusProgressReporter;
+
+  report.flush = () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+    emit();
+  };
+  report.cancel = () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+    pending = null;
+    cancelled = true;
+  };
+  return report;
+}
 
 export function shouldUseResumableStorageUpload(fileSize: number) {
   return Number.isSafeInteger(fileSize) && fileSize > RESUMABLE_UPLOAD_CHUNK_SIZE;

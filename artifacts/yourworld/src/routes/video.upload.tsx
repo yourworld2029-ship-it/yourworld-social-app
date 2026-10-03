@@ -260,6 +260,7 @@ function VideoUploadPage() {
         ownerId: user?.id ?? null,
         thumbnail: thumbnailUrlSnapshot,
         viewTo: "/",
+        notifyOnSuccess: !scheduleSnapshot,
       },
       (onProgress) =>
         publishLongVideo({

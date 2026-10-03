@@ -47,6 +47,7 @@
 - [Session and email OTP security](session-and-email-2fa-security.md) — revoke Auth session state before deleting the app row; email OTP must gate the final sign-in session.
 - [Android system-bar insets](android-system-bar-insets.md) — SDK 35+ forces edge-to-edge on Android 15+, so keep bars visible and inset WebView content natively.
 - [Android Gradle JDK selection](android-gradle-jdk-selection.md) — Android release builds need Gradle runtime and compiler detection explicitly aligned to JDK 21.
+- [Production Android signing continuity](production-android-signing.md) — release APKs must retain the existing signing identity; never substitute a debug or newly generated key.
 - [Android capture protection](android-capture-protection.md) — keep FLAG_SECURE off globally; only an active chat’s explicit protection toggle may enable it, with cleanup on exit.
 - [Managed Realtime table ownership](realtime-system-table-ownership.md) — do not alter Supabase-managed Realtime tables or publication through the project migration connection.
 - [Supabase media upload transport](direct-supabase-uploads.md) — use direct Storage for small files and sequential resumable TUS for large browser uploads.

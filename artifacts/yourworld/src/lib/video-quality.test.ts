@@ -7,6 +7,7 @@ import {
   estimateDownloadSizeMb,
   estimateDownloadSizeMbFromSourceFile,
   formatDownloadSizeMb,
+  hasExactVideoDownload,
   qualityTierFromDimensions,
   qualityTierFromMetadata,
   qualityTierFromSourceMetadata,
@@ -88,23 +89,24 @@ test("quality downloads require their own media URL instead of falling back to O
   );
 });
 
-test("every picker quality resolves immediately to its variant or the direct source", () => {
+test("quality choices resolve only to an exact rendition or the matching source tier", () => {
   const sourceUrl = "https://media.example/source.mp4";
-  for (const tier of VIDEO_DOWNLOAD_PICKER_TIERS) {
-    assert.deepEqual(
-      resolveVideoDownloadSelection(tier, sourceUrl, null, "720p"),
-      { url: sourceUrl, actualQuality: "720p", usesVariant: false },
-    );
+  assert.deepEqual(
+    resolveVideoDownloadSelection("720p", sourceUrl, null, "720p"),
+    { url: sourceUrl, actualQuality: "720p", usesVariant: false },
+  );
+  for (const tier of VIDEO_DOWNLOAD_PICKER_TIERS.filter((tier) => tier !== "720p")) {
+    assert.equal(resolveVideoDownloadSelection(tier, sourceUrl, null, "720p"), null);
   }
 
-  assert.deepEqual(
+  assert.equal(
     resolveVideoDownloadSelection(
       "1080p",
       sourceUrl,
       { "1080p": " https://media.example/1080.mp4 " },
       "720p",
     ),
-    { url: sourceUrl, actualQuality: "720p", usesVariant: false },
+    null,
   );
   assert.deepEqual(
     resolveVideoDownloadSelection(
@@ -120,6 +122,29 @@ test("every picker quality resolves immediately to its variant or the direct sou
     { url: sourceUrl, actualQuality: "original", usesVariant: false },
   );
   assert.equal(resolveVideoDownloadSelection("720p", null, null), null);
+  assert.equal(
+    resolveVideoDownloadSelection(
+      "480p",
+      sourceUrl,
+      { "480p": "https://media.example/480.mp4" },
+      null,
+    )?.usesVariant,
+    true,
+  );
+  assert.equal(hasExactVideoDownload("480p", sourceUrl, null, "1080p"), false);
+  assert.equal(
+    hasExactVideoDownload("480p", sourceUrl, { "480p": "https://media.example/480.mp4" }, "1080p"),
+    true,
+  );
+  assert.equal(
+    resolveVideoDownloadSelection("1080p", sourceUrl, null, "2160p", "cloudflare-stream-id")
+      ?.actualQuality,
+    "1080p",
+  );
+  assert.equal(
+    resolveVideoDownloadSelection("1080p", sourceUrl, null, "2160p", null),
+    null,
+  );
 });
 
 test("range size probes require the total Content-Range size for partial responses", () => {

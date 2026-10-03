@@ -61,6 +61,10 @@ type Ctx = {
       viewTo: string;
       ownerId?: string | null;
       caption?: string | null;
+      /** Marks video posts whose upload should be protected while Android is backgrounded. */
+      isVideo?: boolean;
+      /** Scheduled posts are queued successfully, but are not published yet. */
+      notifyOnSuccess?: boolean;
     },
     runner: (onProgress: UploadProgressReporter) => Promise<{ error: string | null }>,
     onStarted?: (id: string) => void,
@@ -220,26 +224,54 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         }
         patch(id, { progress: 0, status: "processing", error: null, detail: null, retry: undefined });
 
-        let result: { error: string | null };
+        let result: { error: string | null } = { error: null };
         let nativeGuard: NativeVideoUploadGuard | null = null;
+        let lastProgressAt = 0;
+        let progressTimer: ReturnType<typeof setTimeout> | null = null;
+        let pendingProgress: { percent: number; detail?: string } | null = null;
+        const applyPendingProgress = () => {
+          if (!pendingProgress) return;
+          const next = pendingProgress;
+          pendingProgress = null;
+          lastProgressAt = Date.now();
+          patch(id, {
+            progress: next.percent,
+            status: next.detail?.toLowerCase().includes("optim") || next.percent >= 100
+              ? "processing"
+              : "uploading",
+            detail: next.detail ?? null,
+          });
+        };
         try {
-          if (meta.kind === "video") {
+          if (meta.kind === "video" || meta.isVideo) {
             nativeGuard = await startNativeVideoUploadGuard(id, meta.label);
           }
           result = await runner((p, detail) => {
-            patch(id, {
-              progress: p,
-              status: detail?.toLowerCase().includes("optim") || p >= 100
-                ? "processing"
-                : "uploading",
-              detail: detail ?? null,
-            });
             nativeGuard?.update(p, detail);
+            pendingProgress = { percent: p, detail };
+            const remaining = 200 - (Date.now() - lastProgressAt);
+            if (remaining <= 0) {
+              if (progressTimer) clearTimeout(progressTimer);
+              progressTimer = null;
+              applyPendingProgress();
+            } else if (!progressTimer) {
+              progressTimer = setTimeout(() => {
+                progressTimer = null;
+                applyPendingProgress();
+              }, remaining);
+            }
           });
         } catch (e) {
           result = { error: readableTaskError(e) };
         } finally {
-          await nativeGuard?.stop();
+          if (progressTimer) clearTimeout(progressTimer);
+          progressTimer = null;
+          applyPendingProgress();
+          if (result?.error || meta.notifyOnSuccess === false) {
+            await nativeGuard?.stop();
+          } else {
+            await nativeGuard?.complete();
+          }
         }
 
         if (result.error) {

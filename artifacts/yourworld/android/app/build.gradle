@@ -1,5 +1,14 @@
 apply plugin: 'com.android.application'
 
+def releaseKeystorePath = System.getenv("ANDROID_RELEASE_KEYSTORE_PATH")
+def releaseSigningConfigured =
+        releaseKeystorePath != null &&
+        !releaseKeystorePath.trim().isEmpty() &&
+        file(releaseKeystorePath).isFile() &&
+        System.getenv("ANDROID_RELEASE_KEYSTORE_PASSWORD") &&
+        System.getenv("ANDROID_RELEASE_KEY_ALIAS") &&
+        System.getenv("ANDROID_RELEASE_KEY_PASSWORD")
+
 android {
     namespace = "com.yourworld.app"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +16,8 @@ android {
         applicationId "com.yourworld.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 45
-        versionName "1.0.45"
+        versionCode 46
+        versionName "1.0.46"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,9 +25,22 @@ android {
              ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~:!*.apk'
         }
     }
+    signingConfigs {
+        if (releaseSigningConfigured) {
+            production {
+                storeFile file(releaseKeystorePath)
+                storePassword System.getenv("ANDROID_RELEASE_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("ANDROID_RELEASE_KEY_ALIAS")
+                keyPassword System.getenv("ANDROID_RELEASE_KEY_PASSWORD")
+                storeType "JKS"
+            }
+        }
+    }
     buildTypes {
         release {
-            signingConfig signingConfigs.debug
+            // Missing production signing material yields an unsigned release,
+            // never a debug-signed APK that could be mistaken for a release.
+            signingConfig releaseSigningConfigured ? signingConfigs.production : null
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }

@@ -1,4 +1,4 @@
-import { Capacitor, type PluginListenerHandle } from "@capacitor/core";
+import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import { Directory, Encoding, Filesystem } from "@capacitor/filesystem";
 import { Preferences } from "@capacitor/preferences";
 import type { OfflineVideo } from "@/lib/offlineVideosDB";
@@ -12,6 +12,30 @@ const REGISTRY_FILE_NAME = "registry.json";
 const REGISTRY_FILE_PATH = `${ROOT_DIRECTORY}/${REGISTRY_FILE_NAME}`;
 const WRITE_CHUNK_BYTES = 1024 * 1024;
 const MAX_THUMBNAIL_BYTES = 4 * 1024 * 1024;
+
+type NativeOfflineMediaDownloadPlugin = {
+  start(options: { transferId: string; title: string }): Promise<void>;
+  update(options: { transferId: string; progress: number }): Promise<void>;
+  stop(options: { transferId: string }): Promise<void>;
+  download(options: {
+    url: string;
+    path: string;
+    transferId: string;
+    title: string;
+  }): Promise<{ sizeBytes: number }>;
+  addListener(
+    eventName: "progress",
+    listener: (event: {
+      transferId: string;
+      bytesTransferred: number;
+      totalBytes: number;
+      stage: string;
+    }) => void,
+  ): Promise<PluginListenerHandle>;
+};
+
+const NativeOfflineMediaDownload =
+  registerPlugin<NativeOfflineMediaDownloadPlugin>("OfflineMediaDownload");
 
 export type NativeOfflineVideo = OfflineVideo & {
   id: string;
@@ -29,6 +53,25 @@ let registryQueue: Promise<void> = Promise.resolve();
 
 export function isAndroidNativeDownloads() {
   return Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
+}
+
+export async function startNativeOfflineDownloadNotice(title: string) {
+  if (!isAndroidNativeDownloads()) return null;
+  const transferId = `offline-start-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  await NativeOfflineMediaDownload.start({
+    transferId,
+    title: title.trim().slice(0, 120) || "Video",
+  });
+  return transferId;
+}
+
+export async function stopNativeOfflineDownloadNotice(transferId: string | null) {
+  if (!transferId || !isAndroidNativeDownloads()) return;
+  try {
+    await NativeOfflineMediaDownload.stop({ transferId });
+  } catch (error) {
+    console.warn("[downloads] could not stop the Android foreground notification", error);
+  }
 }
 
 async function mkdirIgnoringExisting(path: string) {
@@ -437,12 +480,25 @@ async function downloadSingleNativeOfflineVideo(
   ));
   const isHls = /\.m3u8$/i.test(new URL(sourceUrl).pathname);
   if (isHls) paths.localFilePath = paths.localFilePath.replace(/\.mp4$/, ".m3u8");
-  let filesystemListener: PluginListenerHandle | null = null;
+  const transferId = `download-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  let progressListener: PluginListenerHandle | null = null;
+  let transferStarted = false;
 
   try {
     await ensureParentDirectory(paths.localFilePath);
     let totalHlsBytes: number | null = null;
+    let exactDownloadSize: number | null = null;
+    progressListener = await NativeOfflineMediaDownload.addListener("progress", (progress) => {
+      if (progress.transferId === transferId) {
+        onProgress?.(progress.bytesTransferred, progress.totalBytes);
+      }
+    });
     if (isHls) {
+      await NativeOfflineMediaDownload.start({
+        transferId,
+        title: normalizedRecord.title || "Video",
+      });
+      transferStarted = true;
       const scratch = `${paths.localFilePath}.manifest-tmp`;
       totalHlsBytes = await downloadOfflineHls(sourceUrl, paths.localFilePath, {
         readText: async (url) => {
@@ -463,20 +519,21 @@ async function downloadSingleNativeOfflineVideo(
           await Filesystem.writeFile({ path, data, directory: Directory.Data, encoding: Encoding.UTF8, recursive: true });
         },
         removeDirectory: async (path) => { await Filesystem.rmdir({ path, directory: Directory.Data, recursive: true }); },
-      }, onProgress);
-    } else {
-      filesystemListener = await Filesystem.addListener("progress", (progress) => {
-        if (progress.url === sourceUrl) {
-          onProgress?.(progress.bytes, progress.contentLength);
-        }
+      }, (bytes, total) => {
+        onProgress?.(bytes, total);
+        void NativeOfflineMediaDownload.update({ transferId, progress: total > 0
+          ? Math.floor((bytes / total) * 100)
+          : -1 }).catch(() => {});
       });
-      await Filesystem.downloadFile({
+    } else {
+      transferStarted = true;
+      const result = await NativeOfflineMediaDownload.download({
         url: sourceUrl,
         path: paths.localFilePath,
-        directory: Directory.Data,
-        progress: true,
-        recursive: true,
+        transferId,
+        title: normalizedRecord.title || "Video",
       });
+      exactDownloadSize = Number(result.sizeBytes);
     }
 
     const savedFile = await Filesystem.stat({
@@ -485,6 +542,9 @@ async function downloadSingleNativeOfflineVideo(
     });
     if (!Number.isFinite(savedFile.size) || savedFile.size <= 0) {
       throw new Error("The downloaded offline video is empty.");
+    }
+    if (exactDownloadSize !== null && exactDownloadSize !== savedFile.size) {
+      throw new Error("The saved video size did not match the completed download.");
     }
     const { uri } = await Filesystem.getUri({
       path: paths.localFilePath,
@@ -506,7 +566,10 @@ async function downloadSingleNativeOfflineVideo(
     await removeFile(paths.localFilePath);
     throw error;
   } finally {
-    await filesystemListener?.remove().catch(() => undefined);
+    await progressListener?.remove().catch(() => undefined);
+    if (transferStarted) {
+      await NativeOfflineMediaDownload.stop({ transferId }).catch(() => undefined);
+    }
   }
 }
 

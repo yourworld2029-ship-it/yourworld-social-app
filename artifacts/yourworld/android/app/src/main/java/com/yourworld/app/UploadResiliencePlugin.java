@@ -70,4 +70,23 @@ public class UploadResiliencePlugin extends Plugin {
             call.reject("Could not stop Android upload protection.", error);
         }
     }
+
+    @PluginMethod
+    public void complete(PluginCall call) {
+        String uploadId = call.getString("uploadId");
+        if (uploadId == null || uploadId.trim().isEmpty()) {
+            call.reject("An upload ID is required.");
+            return;
+        }
+
+        Intent intent = new Intent(getContext(), UploadForegroundService.class)
+                .setAction(UploadForegroundService.ACTION_COMPLETE)
+                .putExtra(UploadForegroundService.EXTRA_UPLOAD_ID, uploadId);
+        try {
+            getContext().startService(intent);
+            call.resolve();
+        } catch (Exception error) {
+            call.reject("Could not finish Android upload notifications.", error);
+        }
+    }
 }

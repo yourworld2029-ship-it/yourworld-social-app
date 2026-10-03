@@ -66,6 +66,7 @@ import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadShee
 import {
   qualityTierFromDimensions,
   qualityTierFromSourceMetadata,
+  resolveVideoDownloadSelection,
   type VideoQualityTier,
 } from "@/lib/video-quality";
 import { trackEvent } from "@/lib/analytics";
@@ -1135,12 +1136,30 @@ function ReelItem({
       if (isVideo) {
         const selectedTier: VideoQualityTier | undefined =
           choice && choice !== "original" && choice !== "mp3" ? choice : undefined;
+        const selection = selectedTier
+          ? resolveVideoDownloadSelection(
+              selectedTier,
+              mediaUrl,
+              reel.qualityUrls,
+              reel.sourceQualityTier,
+              reel.cloudflareStreamId,
+            )
+          : null;
+        if (selectedTier && !selection) {
+          throw new Error(`This Reel has no exact ${selectedTier} rendition.`);
+        }
         const requestedQuality =
           selectedTier === "4320p" ? "2160p" : selectedTier ?? "original";
         const offlineSource = await resolveAuthorizedOfflineSource(
           reel.id,
           requestedQuality,
-          { url: mediaUrl!, streamId: reel.cloudflareStreamId, bucket: mediaBucket ?? "reels" },
+          {
+            url: selection?.url ?? mediaUrl!,
+            qualityUrl: selection?.usesVariant ? selection.url : null,
+            streamId: reel.cloudflareStreamId,
+            sourceUrl: mediaUrl,
+            bucket: mediaBucket ?? "reels",
+          },
         );
         const playableUrl = offlineSource.url;
         const baseName = sanitizeDownloadName(reel.caption, `yw-reel-${reel.id}`);
@@ -1556,6 +1575,7 @@ function ReelItem({
         durationSeconds={reel.durationSeconds ?? REEL_DURATION}
         sourceQualityTier={reel.sourceQualityTier ?? null}
         qualityMediaUrls={reel.qualityUrls}
+        cloudflareStreamId={reel.cloudflareStreamId}
         sourceMediaUrl={mediaUrl}
         mediaBucket={mediaBucket ?? "reels"}
         onDownload={handleDownload}

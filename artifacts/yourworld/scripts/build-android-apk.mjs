@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { access, copyFile, mkdir, readFile, readdir, rm, stat } from "node:fs/promises";
+import { access, copyFile, mkdir, opendir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -25,42 +26,69 @@ function run(command, args, cwd, env) {
   });
 }
 
-function findJava21Environment() {
+async function findJava21Environment() {
   const currentVersion = spawnSync("java", ["-version"], { encoding: "utf8" });
   const currentOutput = `${currentVersion.stdout ?? ""}\n${currentVersion.stderr ?? ""}`;
-  const java21Bin = process.env.PATH
-    ?.split(path.delimiter)
-    .find((entry) => /(?:openjdk|jdk)[-_].*21/i.test(entry));
-
-  if (java21Bin) {
-    const java21Path = path.join(java21Bin, "java");
-    const candidateVersion = spawnSync(java21Path, ["-version"], { encoding: "utf8" });
-    const candidateOutput = `${candidateVersion.stdout ?? ""}\n${candidateVersion.stderr ?? ""}`;
-    if (!candidateOutput.includes('version "21.')) {
-      throw new Error(`The Java executable at ${java21Path} is not JDK 21.`);
-    }
-
-    return {
-      ...process.env,
-      JAVA_HOME: path.dirname(java21Bin),
-      PATH: `${java21Bin}${path.delimiter}${process.env.PATH ?? ""}`,
-    };
+  const candidates = new Set();
+  if (process.env.JAVA_HOME) candidates.add(path.join(process.env.JAVA_HOME, "bin"));
+  for (const entry of process.env.PATH?.split(path.delimiter) ?? []) {
+    if (/(?:openjdk|jdk)[-_].*21/i.test(entry)) candidates.add(entry);
   }
-
   if (currentOutput.includes('version "21.')) {
     const javaCommand = spawnSync("which", ["java"], { encoding: "utf8" }).stdout?.trim();
-    if (!javaCommand) {
-      throw new Error("Could not locate the JDK 21 executable on PATH.");
+    if (javaCommand) {
+      const resolvedJava = spawnSync("readlink", ["-f", javaCommand], {
+        encoding: "utf8",
+      }).stdout?.trim();
+      candidates.add(path.dirname(resolvedJava || javaCommand));
     }
-    const resolvedJava = spawnSync("readlink", ["-f", javaCommand], {
-      encoding: "utf8",
-    }).stdout?.trim();
-    const javaBin = path.dirname(resolvedJava || javaCommand);
-    return {
-      ...process.env,
-      JAVA_HOME: path.dirname(javaBin),
-      PATH: `${javaBin}${path.delimiter}${process.env.PATH ?? ""}`,
-    };
+  }
+
+  const makeJava21Environment = async (java21Bin) => {
+    const java21Path = path.join(java21Bin, "java");
+    const javac21Path = path.join(java21Bin, "javac");
+    try {
+      await Promise.all([access(java21Path), access(javac21Path)]);
+    } catch {
+      return null;
+    }
+    const candidateVersion = spawnSync(java21Path, ["-version"], { encoding: "utf8" });
+    const candidateOutput = `${candidateVersion.stdout ?? ""}\n${candidateVersion.stderr ?? ""}`;
+    const compilerVersion = spawnSync(javac21Path, ["-version"], { encoding: "utf8" });
+    const compilerOutput = `${compilerVersion.stdout ?? ""}\n${compilerVersion.stderr ?? ""}`;
+    if (
+      candidateOutput.includes('version "21.') &&
+      /(?:^|\s)javac 21\./.test(compilerOutput)
+    ) {
+      return {
+        ...process.env,
+        JAVA_HOME: path.dirname(java21Bin),
+        PATH: `${java21Bin}${path.delimiter}${process.env.PATH ?? ""}`,
+      };
+    }
+    return null;
+  };
+
+  for (const java21Bin of candidates) {
+    const java21Environment = await makeJava21Environment(java21Bin);
+    if (java21Environment) return java21Environment;
+  }
+
+  // Replit may have JDK 21 in the Nix store without exposing it on PATH.
+  // Scan only after checking configured paths so normal builds stay fast.
+  try {
+    const nixStore = await opendir("/nix/store");
+    for await (const entry of nixStore) {
+      if (!entry.isDirectory() || !/-(?:openjdk|jdk)-?21(?:[.+-]|$)/i.test(entry.name)) {
+        continue;
+      }
+      const java21Environment = await makeJava21Environment(
+        path.join("/nix/store", entry.name, "bin"),
+      );
+      if (java21Environment) return java21Environment;
+    }
+  } catch {
+    // Non-Nix environments can still provide JDK 21 through JAVA_HOME or PATH.
   }
 
   throw new Error("JDK 21 is required; add its bin directory to PATH.");
@@ -159,9 +187,37 @@ async function main() {
   const versionCode = gradleFile.match(/versionCode\s+(\d+)/)?.[1];
   if (!versionCode) throw new Error("Could not read Android versionCode from app/build.gradle.");
 
-  const java21Env = findJava21Environment();
+  const java21Env = await findJava21Environment();
   const javaHome = java21Env.JAVA_HOME;
   if (!javaHome) throw new Error("Could not determine the JDK 21 home directory.");
+
+  const releaseSecrets = {
+    keystoreBase64: process.env.ANDROID_RELEASE_KEYSTORE_BASE64,
+    keystorePassword: process.env.ANDROID_RELEASE_KEYSTORE_PASSWORD,
+    keyAlias: process.env.ANDROID_RELEASE_KEY_ALIAS,
+    keyPassword: process.env.ANDROID_RELEASE_KEY_PASSWORD,
+  };
+  if (Object.values(releaseSecrets).some((value) => !value?.trim())) {
+    throw new Error(
+      "A production-signed APK requires the existing Android release keystore and signing secrets. " +
+      "Add them through Replit Secrets; this build will not fall back to the debug key.",
+    );
+  }
+  const encodedKeystore = releaseSecrets.keystoreBase64.replace(/\s/g, "");
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encodedKeystore)) {
+    throw new Error("ANDROID_RELEASE_KEYSTORE_BASE64 is not valid Base64.");
+  }
+  const keystoreBytes = Buffer.from(encodedKeystore, "base64");
+  if (keystoreBytes.length === 0) {
+    throw new Error("ANDROID_RELEASE_KEYSTORE_BASE64 did not contain a keystore file.");
+  }
+  const temporaryKeystorePath = path.join(
+    tmpdir(),
+    `yourworld-release-${process.pid}-${Date.now()}.jks`,
+  );
+  await writeFile(temporaryKeystorePath, keystoreBytes, { mode: 0o600, flag: "wx" });
+  keystoreBytes.fill(0);
+
   // This project may pin org.gradle.java.home to an older JDK in gradle.properties.
   // Override it for this build so Gradle's compiler toolchain also uses JDK 21.
   const gradleEnv = {
@@ -172,9 +228,31 @@ async function main() {
       `-Dorg.gradle.java.installations.paths=${javaHome}`,
     ].filter(Boolean).join(" "),
   };
-  await run("pnpm", ["run", "build"], appDir, java21Env);
-  await run("pnpm", ["exec", "cap", "sync", "android"], appDir, java21Env);
-  await run("./gradlew", ["clean", "assembleRelease", "--no-build-cache"], androidDir, gradleEnv);
+  const safeBuildEnv = { ...java21Env };
+  delete safeBuildEnv.ANDROID_RELEASE_KEYSTORE_BASE64;
+  delete safeBuildEnv.ANDROID_RELEASE_KEYSTORE_PASSWORD;
+  delete safeBuildEnv.ANDROID_RELEASE_KEY_ALIAS;
+  delete safeBuildEnv.ANDROID_RELEASE_KEY_PASSWORD;
+  const productionGradleEnv = {
+    ...gradleEnv,
+    ANDROID_RELEASE_KEYSTORE_PATH: temporaryKeystorePath,
+    ANDROID_RELEASE_KEYSTORE_PASSWORD: releaseSecrets.keystorePassword,
+    ANDROID_RELEASE_KEY_ALIAS: releaseSecrets.keyAlias,
+    ANDROID_RELEASE_KEY_PASSWORD: releaseSecrets.keyPassword,
+  };
+  delete productionGradleEnv.ANDROID_RELEASE_KEYSTORE_BASE64;
+  try {
+    await run("pnpm", ["run", "build"], appDir, safeBuildEnv);
+    await run("pnpm", ["exec", "cap", "sync", "android"], appDir, safeBuildEnv);
+    await run(
+      "./gradlew",
+      ["clean", "assembleRelease", "--no-build-cache"],
+      androidDir,
+      productionGradleEnv,
+    );
+  } finally {
+    await rm(temporaryKeystorePath, { force: true });
+  }
 
   const sdkRoot = await getSdkRoot();
   const aapt = await findAndroidTool(sdkRoot, "aapt");
@@ -189,12 +267,15 @@ async function main() {
       throw new Error(`Built APK is missing required permission ${permission}.`);
     }
   }
-  runTool(apksigner, ["verify", "--verbose", apkPath]);
+  const signerDetails = runTool(apksigner, ["verify", "--verbose", "--print-certs", apkPath]);
+  if (!/Signer #1 certificate SHA-256 digest:/i.test(signerDetails)) {
+    throw new Error("The APK does not contain a verifiable production signing certificate.");
+  }
 
   const timestamp = new Date().toISOString()
     .replace(/[-:]/g, "")
     .replace(/\.\d{3}Z$/, "Z");
-  const filename = `yourworld-${timestamp}-v${versionCode}-release-debug-signed.apk`;
+  const filename = `yourworld-${timestamp}-v${versionCode}-release-signed.apk`;
   const outputPath = path.join(publicDownloadsDir, filename);
   await mkdir(publicDownloadsDir, { recursive: true });
   await copyFile(apkPath, outputPath);

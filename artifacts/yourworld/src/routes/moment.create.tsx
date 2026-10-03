@@ -2418,6 +2418,7 @@ function MomentCreatePage() {
         label: newMoments[0]?.caption ?? "New moment",
         thumbnail: null,
         viewTo: "/moment",
+        isVideo,
       },
       async (onProgress) => {
         for (const [index, part] of newMoments.entries()) {

@@ -42,12 +42,15 @@ async function copyLatestAndroidApkToWebOutput() {
   const downloadsDir = join(publicDir, "downloads");
   const entries = await readdir(downloadsDir, { withFileTypes: true });
   const latestApk = entries
-    .filter((entry) => entry.isFile() && /^yourworld-\d{8}T\d{6}Z-v\d+(?:-[a-z0-9-]+)?\.apk$/i.test(entry.name))
+    .filter((entry) => entry.isFile() && /^yourworld-\d{8}T\d{6}Z-v\d+-release-signed\.apk$/i.test(entry.name))
     .map((entry) => entry.name)
     .sort()
     .at(-1);
 
-  if (!latestApk) return;
+  if (!latestApk) {
+    console.info("[web] no production-signed Android APK found; skipping APK download staging");
+    return;
+  }
 
   const targetDir = join(webPublicDir, "downloads");
   await mkdir(targetDir, { recursive: true });

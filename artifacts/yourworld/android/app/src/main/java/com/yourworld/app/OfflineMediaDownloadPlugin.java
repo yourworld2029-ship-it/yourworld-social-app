@@ -2,6 +2,9 @@ package com.yourworld.app;
 
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
+
+import androidx.core.content.ContextCompat;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -15,6 +18,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import android.content.Intent;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
@@ -23,6 +27,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -38,6 +43,64 @@ public class OfflineMediaDownloadPlugin extends Plugin {
 
     private final ExecutorService executor = Executors.newCachedThreadPool();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final ConcurrentHashMap<String, ProgressThrottle> progressThrottles =
+            new ConcurrentHashMap<>();
+
+    @PluginMethod
+    public void start(PluginCall call) {
+        String transferId = call.getString("transferId");
+        if (transferId == null || transferId.trim().isEmpty()) {
+            call.reject("A transfer ID is required.");
+            return;
+        }
+        try {
+            startDownloadForegroundService(
+                    transferId,
+                    call.getString("title", "Video")
+            );
+            call.resolve();
+        } catch (Exception error) {
+            call.reject("Could not start the Android download notification.", error);
+        }
+    }
+
+    @PluginMethod
+    public void update(PluginCall call) {
+        String transferId = call.getString("transferId");
+        if (transferId == null || transferId.trim().isEmpty()) {
+            call.reject("A transfer ID is required.");
+            return;
+        }
+        Intent intent = new Intent(getContext(), UploadForegroundService.class)
+                .setAction(UploadForegroundService.ACTION_UPDATE)
+                .putExtra(UploadForegroundService.EXTRA_UPLOAD_ID, transferId)
+                .putExtra(UploadForegroundService.EXTRA_PROGRESS, call.getInt("progress", -1));
+        try {
+            getContext().startService(intent);
+            call.resolve();
+        } catch (Exception error) {
+            call.reject("Could not update the Android download notification.", error);
+        }
+    }
+
+    @PluginMethod
+    public void stop(PluginCall call) {
+        String transferId = call.getString("transferId");
+        if (transferId == null || transferId.trim().isEmpty()) {
+            call.reject("A transfer ID is required.");
+            return;
+        }
+        progressThrottles.remove(transferId);
+        Intent intent = new Intent(getContext(), UploadForegroundService.class)
+                .setAction(UploadForegroundService.ACTION_STOP)
+                .putExtra(UploadForegroundService.EXTRA_UPLOAD_ID, transferId);
+        try {
+            getContext().startService(intent);
+            call.resolve();
+        } catch (Exception error) {
+            call.reject("Could not stop the Android download notification.", error);
+        }
+    }
 
     @PluginMethod
     public void download(PluginCall call) {
@@ -57,6 +120,12 @@ public class OfflineMediaDownloadPlugin extends Plugin {
             resolveTarget(relativePath);
         } catch (Exception error) {
             call.reject("The offline video path or URL is invalid.", error);
+            return;
+        }
+        try {
+            startDownloadForegroundService(transferId, call.getString("title", "Video"));
+        } catch (Exception error) {
+            call.reject("Could not start the Android download notification.", error);
             return;
         }
 
@@ -341,13 +410,53 @@ public class OfflineMediaDownloadPlugin extends Plugin {
         }
     }
 
+    private void startDownloadForegroundService(String transferId, String title) {
+        Intent intent = new Intent(getContext(), UploadForegroundService.class)
+                .setAction(UploadForegroundService.ACTION_START_DOWNLOAD)
+                .putExtra(UploadForegroundService.EXTRA_UPLOAD_ID, transferId)
+                .putExtra(UploadForegroundService.EXTRA_TITLE, title);
+        ContextCompat.startForegroundService(getContext(), intent);
+    }
+
     private void emitProgress(String transferId, long bytes, long total, String stage) {
+        int percent = total > 0
+                ? (int) Math.min(100, Math.max(0, (bytes * 100) / total))
+                : -1;
+        long now = SystemClock.elapsedRealtime();
+        ProgressThrottle throttle = progressThrottles.computeIfAbsent(
+                transferId,
+                ignored -> new ProgressThrottle()
+        );
+        synchronized (throttle) {
+            boolean complete = "complete".equals(stage);
+            if (!complete &&
+                    (percent == throttle.percent ||
+                            (throttle.lastAt != 0 && now - throttle.lastAt < 500))) {
+                return;
+            }
+            throttle.lastAt = now;
+            throttle.percent = percent;
+        }
+
+        Intent update = new Intent(getContext(), UploadForegroundService.class)
+                .setAction(UploadForegroundService.ACTION_UPDATE)
+                .putExtra(UploadForegroundService.EXTRA_UPLOAD_ID, transferId)
+                .putExtra(UploadForegroundService.EXTRA_PROGRESS, percent);
+        try {
+            getContext().startService(update);
+        } catch (Exception ignored) {
+            // A notification update must not interrupt the byte transfer.
+        }
+
         JSObject event = new JSObject();
         event.put("transferId", transferId);
         event.put("bytesTransferred", bytes);
         event.put("totalBytes", total);
         event.put("stage", stage);
         mainHandler.post(() -> notifyListeners("progress", event));
+        if ("complete".equals(stage)) {
+            progressThrottles.remove(transferId, throttle);
+        }
     }
 
     private String valueOrEmpty(String value) {
@@ -368,5 +477,10 @@ public class OfflineMediaDownloadPlugin extends Plugin {
             this.end = end;
             this.file = file;
         }
+    }
+
+    private static final class ProgressThrottle {
+        long lastAt;
+        int percent = Integer.MIN_VALUE;
     }
 }

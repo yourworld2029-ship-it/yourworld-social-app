@@ -29,6 +29,7 @@ export function resolveVideoDownloadSelection(
   sourceUrl: string | null | undefined,
   qualityUrls?: DownloadQualityUrls | null,
   sourceQualityTier?: VideoQualityTier | null,
+  cloudflareStreamId?: string | null,
 ): ResolvedVideoDownloadSelection | null {
   const directSourceUrl = sourceUrl?.trim();
   if (!directSourceUrl) return null;
@@ -41,24 +42,40 @@ export function resolveVideoDownloadSelection(
     };
   }
 
+  const sourceIndex = sourceQualityTier
+    ? VIDEO_QUALITY_TIERS.findIndex((candidate) => candidate.id === sourceQualityTier)
+    : -1;
+  const requestedIndex = VIDEO_QUALITY_TIERS.findIndex((candidate) => candidate.id === choice);
+  const cloudflareProvidesExact1080p =
+    choice === "1080p" &&
+    Boolean(cloudflareStreamId?.trim()) &&
+    sourceIndex >= requestedIndex;
+
   const variantUrl = qualityUrls?.[choice]?.trim();
   if (variantUrl) {
     const actualQuality = capQualityTierToSource(choice, sourceQualityTier);
-    if (actualQuality !== choice) {
-      return {
-        url: directSourceUrl,
-        actualQuality,
-        usesVariant: false,
-      };
-    }
+    if (actualQuality !== choice) return null;
     return { url: variantUrl, actualQuality: choice, usesVariant: true };
   }
 
-  return {
-    url: directSourceUrl,
-    actualQuality: sourceQualityTier ?? "original",
-    usesVariant: false,
-  };
+  if (sourceQualityTier !== choice && !cloudflareProvidesExact1080p) return null;
+  return { url: directSourceUrl, actualQuality: choice, usesVariant: false };
+}
+
+export function hasExactVideoDownload(
+  choice: VideoDownloadChoice,
+  sourceUrl: string | null | undefined,
+  qualityUrls?: DownloadQualityUrls | null,
+  sourceQualityTier?: VideoQualityTier | null,
+  cloudflareStreamId?: string | null,
+) {
+  return resolveVideoDownloadSelection(
+    choice,
+    sourceUrl,
+    qualityUrls,
+    sourceQualityTier,
+    cloudflareStreamId,
+  ) !== null;
 }
 
 const DOWNLOADABLE_QUALITY_TIERS = new Set<VideoQualityTier>([
