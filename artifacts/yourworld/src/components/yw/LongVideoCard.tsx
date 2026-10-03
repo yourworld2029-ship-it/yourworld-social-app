@@ -444,7 +444,7 @@ export function LongVideoCard({
               contentId={video.id}
               contentKind="video"
               thumbnailUrl={video.thumbnailUrl}
-              thumbnailBucket="videos"
+              thumbnailBucket="thumbnails"
             >
               <button aria-label="Share" className="text-zinc-300 transition-transform active:scale-75">
                 <Send size={18} />

@@ -12,7 +12,7 @@ type Props = {
   className?: string;
   loading?: "lazy" | "eager";
   fetchPriority?: "high" | "low" | "auto";
-  bucket?: "reels" | "videos";
+  bucket?: "reels" | "videos" | "thumbnails";
   posterOnly?: boolean;
   allowFrameFallback?: boolean;
   showPlayFallback?: boolean;
@@ -35,11 +35,11 @@ export function VideoPoster({
   className,
   loading = "lazy",
   fetchPriority = "auto",
-  bucket = "videos",
+  bucket = "thumbnails",
   posterOnly = false,
-  allowFrameFallback = true,
+  allowFrameFallback = false,
   showPlayFallback = true,
-  showLoadingShimmer = true,
+  showLoadingShimmer = false,
   onPosterResolved,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);

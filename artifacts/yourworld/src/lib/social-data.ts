@@ -22,7 +22,8 @@ import {
   type ProgressFn,
 } from "@/lib/storage-upload";
 import { optimizeVideoBlob } from "@/lib/video-compression";
-import { generateAndUploadVideoThumbnail, uploadVideoThumbnail } from "@/lib/video-thumbnails";
+import { generateVideoThumbnail } from "@/lib/video-frames";
+import { uploadVideoThumbnail } from "@/lib/video-thumbnails";
 import { flagChatMessage } from "@/lib/chat-compliance";
 import type { User } from "@/lib/yw-data";
 import { missingColumn, normalizePostRow, postKind, writeCompat } from "@/lib/supabase-compat";
@@ -181,6 +182,11 @@ function storagePathFrom(url: string, bucket: string): string | null {
   return m ? decodeURIComponent(m[1]) : null;
 }
 
+function storageBucketFrom(url: string, fallbackBucket: string): string {
+  const match = url.match(/\/storage\/v1\/object\/(?:sign|public)\/([^/]+)\//);
+  return match?.[1] ? decodeURIComponent(match[1]) : fallbackBucket;
+}
+
 /**
  * Turns a stored media reference into a URL the <video>/<img> tag can load.
  * Handles bare storage paths and expired signed URLs by re-signing, and falls
@@ -193,10 +199,13 @@ export async function resolveMediaUrl(url: string, bucket = "reels"): Promise<st
   if (cached && cached.expiresAt > Date.now()) return cached.url;
   if (cached) signedCache.delete(url);
 
-  const path = storagePathFrom(url, bucket);
+  const resolvedBucket = storageBucketFrom(url, bucket);
+  const path = storagePathFrom(url, resolvedBucket);
   if (!path) return url;
 
-  const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, 60 * 60 * 24);
+  const { data, error } = await supabase.storage
+    .from(resolvedBucket)
+    .createSignedUrl(path, 60 * 60 * 24);
   if (error || !data?.signedUrl) return url;
   const next = data.signedUrl;
   // Keep a safety margin below the one-day signed URL lifetime so a long-lived
@@ -938,11 +947,36 @@ export async function publishReel(opts: {
   let uploadedWidth = opts.originalWidth ?? null;
   let uploadedHeight = opts.originalHeight ?? null;
 
+  if (!sourceBlob && /^(blob:|data:)/.test(opts.fileUrl)) {
+    try {
+      const response = await fetch(opts.fileUrl);
+      if (!response.ok) return { error: "Could not read the selected Reel video." };
+      sourceBlob = await response.blob();
+    } catch (error) {
+      console.error("Could not read the selected Reel video for its thumbnail", error);
+      return { error: "Could not prepare a thumbnail for this Reel." };
+    }
+  }
+
+  let generatedThumbnail: Blob | null = null;
+  if (!opts.thumbnail) {
+    if (!sourceBlob) {
+      return { error: "A video thumbnail is required before publishing this Reel." };
+    }
+    try {
+      generatedThumbnail = await generateVideoThumbnail(sourceBlob, 1);
+    } catch (error) {
+      console.warn("Could not generate the Reel thumbnail", error);
+    }
+    if (!generatedThumbnail) {
+      return { error: "Could not capture a thumbnail frame from this Reel. Please try again." };
+    }
+  }
+
   // Blob/object URLs must be uploaded to storage first.
   if (/^(blob:|data:)/.test(opts.fileUrl)) {
     try {
-      const blob = opts.file ?? await (await fetch(opts.fileUrl)).blob();
-      sourceBlob = blob;
+      const blob = sourceBlob!;
       const uploadBlob = await optimizeVideoBlob(
         blob,
         (percent, detail) => opts.onProgress?.(Math.round(percent * 0.45), detail),
@@ -976,19 +1010,21 @@ export async function publishReel(opts: {
     opts.onProgress?.(100);
   }
 
-  let thumbnailUrl: string | null = null;
-  if (opts.thumbnail || sourceBlob) {
-    const thumbnail = opts.thumbnail
-      ? await uploadVideoThumbnail(opts.thumbnail, uid, undefined, STORAGE_BUCKETS.thumbnails)
-      : await generateAndUploadVideoThumbnail(
-          sourceBlob as Blob,
-          uid,
-          undefined,
-          STORAGE_BUCKETS.thumbnails,
-        );
-    if (thumbnail.error) console.warn("Rendered reel thumbnail upload failed", thumbnail.error);
-    thumbnailUrl = thumbnail.url;
+  const thumbnailSource = opts.thumbnail || generatedThumbnail;
+  if (!thumbnailSource) {
+    return { error: "A video thumbnail is required before publishing this Reel." };
   }
+  const thumbnail = await uploadVideoThumbnail(
+    thumbnailSource,
+    uid,
+    undefined,
+    STORAGE_BUCKETS.thumbnails,
+  );
+  if (thumbnail.error || !thumbnail.url) {
+    console.warn("Rendered reel thumbnail upload failed", thumbnail.error);
+    return { error: thumbnail.error ?? "Thumbnail upload failed. Please try again." };
+  }
+  const thumbnailUrl = thumbnail.url;
 
   const { error } = await writeCompat((payload) => supabase.from("posts").insert(payload as never), {
     user_id: uid,
@@ -1043,6 +1079,18 @@ export async function publishDirectReel(opts: {
     return { error: MAX_REEL_DURATION_MESSAGE };
   }
 
+  let thumbnailSource: Blob | string | null = opts.thumbnail ?? null;
+  if (!thumbnailSource) {
+    try {
+      thumbnailSource = await generateVideoThumbnail(opts.file, 1);
+    } catch (error) {
+      console.warn("Could not generate the direct Reel thumbnail", error);
+    }
+    if (!thumbnailSource) {
+      return { error: "Could not capture a thumbnail frame from this Reel. Please try again." };
+    }
+  }
+
   let uploadedWidth = opts.originalWidth ?? null;
   let uploadedHeight = opts.originalHeight ?? null;
   const uploadBlob = await optimizeVideoBlob(
@@ -1073,29 +1121,17 @@ export async function publishDirectReel(opts: {
     return { error: uploadError ?? "Upload failed" };
   }
 
-  let thumbnailUrl: string | null = null;
-  try {
-    const thumbnailUpload = opts.thumbnail
-      ? await uploadVideoThumbnail(
-          opts.thumbnail,
-          uid,
-          (percent, detail) => opts.onProgress?.(88 + Math.round(percent * 0.1), detail),
-          STORAGE_BUCKETS.thumbnails,
-        )
-      : await generateAndUploadVideoThumbnail(
-          opts.file,
-          uid,
-          (percent, detail) => opts.onProgress?.(88 + Math.round(percent * 0.1), detail),
-          STORAGE_BUCKETS.thumbnails,
-        );
-    if (thumbnailUpload.error || !thumbnailUpload.url) {
-      console.warn("Direct reel thumbnail upload failed", thumbnailUpload.error);
-    } else {
-      thumbnailUrl = thumbnailUpload.url;
-    }
-  } catch (error) {
-    console.warn("Automatic reel thumbnail generation failed", error);
+  const thumbnailUpload = await uploadVideoThumbnail(
+    thumbnailSource,
+    uid,
+    (percent, detail) => opts.onProgress?.(88 + Math.round(percent * 0.1), detail),
+    STORAGE_BUCKETS.thumbnails,
+  );
+  if (thumbnailUpload.error || !thumbnailUpload.url) {
+    console.warn("Direct reel thumbnail upload failed", thumbnailUpload.error);
+    return { error: thumbnailUpload.error ?? "Thumbnail upload failed. Please try again." };
   }
+  const thumbnailUrl = thumbnailUpload.url;
 
   const { error } = await writeCompat(
     (payload) => supabase.from("posts").insert(payload as never),
@@ -1133,6 +1169,7 @@ export async function publishDirectReel(opts: {
 export async function publishPost(opts: {
   fileUrl: string;
   file?: Blob | null;
+  thumbnail?: Blob | string | null;
   mediaType: "image" | "video";
   caption?: string;
   hashtags?: string[];
@@ -1151,10 +1188,39 @@ export async function publishPost(opts: {
 
   let mediaUrl = opts.fileUrl;
   let sourceBlob: Blob | null = opts.file ?? null;
+  if (
+    opts.mediaType === "video" &&
+    !sourceBlob &&
+    /^(blob:|data:)/.test(opts.fileUrl)
+  ) {
+    try {
+      const response = await fetch(opts.fileUrl);
+      if (!response.ok) return { error: "Could not read the selected video." };
+      sourceBlob = await response.blob();
+    } catch (error) {
+      console.error("Could not read the selected video for its thumbnail", error);
+      return { error: "Could not prepare a thumbnail for this video." };
+    }
+  }
+
+  let thumbnailSource: Blob | string | null = opts.thumbnail ?? null;
+  if (opts.mediaType === "video" && !thumbnailSource) {
+    if (!sourceBlob) {
+      return { error: "A video thumbnail is required before publishing this post." };
+    }
+    try {
+      thumbnailSource = await generateVideoThumbnail(sourceBlob, 1);
+    } catch (error) {
+      console.warn("Could not generate the video post thumbnail", error);
+    }
+    if (!thumbnailSource) {
+      return { error: "Could not capture a thumbnail frame from this video. Please try again." };
+    }
+  }
 
   if (/^(blob:|data:)/.test(opts.fileUrl)) {
     try {
-      const blob = opts.file ?? await (await fetch(opts.fileUrl)).blob();
+      const blob = sourceBlob ?? await (await fetch(opts.fileUrl)).blob();
       sourceBlob = blob;
       const type = blob.type || (opts.mediaType === "video" ? "video/mp4" : "image/jpeg");
       const uploadBlob = opts.mediaType === "video"
@@ -1190,9 +1256,20 @@ export async function publishPost(opts: {
   }
 
   let thumbnailUrl: string | null = null;
-  if (opts.mediaType === "video" && sourceBlob) {
-    const thumbnail = await generateAndUploadVideoThumbnail(sourceBlob, uid);
-    if (thumbnail.error) console.warn("Post thumbnail upload failed", thumbnail.error);
+  if (opts.mediaType === "video") {
+    if (!thumbnailSource) {
+      return { error: "A video thumbnail is required before publishing this post." };
+    }
+    const thumbnail = await uploadVideoThumbnail(
+      thumbnailSource,
+      uid,
+      undefined,
+      STORAGE_BUCKETS.thumbnails,
+    );
+    if (thumbnail.error || !thumbnail.url) {
+      console.warn("Post thumbnail upload failed", thumbnail.error);
+      return { error: thumbnail.error ?? "Thumbnail upload failed. Please try again." };
+    }
     thumbnailUrl = thumbnail.url;
   }
 

@@ -548,6 +548,8 @@ export function FeedVideoPreview({
         thumbnailUrl={video.thumbnailUrl}
         alt={video.title}
         showPlayFallback={showPlayFallback}
+        showFallbackIcon
+        bucket="thumbnails"
         className="pointer-events-none m-0 select-none p-0 [&_img]:block"
       />
       <video

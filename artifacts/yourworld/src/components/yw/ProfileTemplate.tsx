@@ -504,6 +504,8 @@ function MediaGrid({
               <LazyVideoThumbnail
                 thumbnailUrl={it.thumbnail ?? it.post?.thumbnail_url}
                 alt=""
+                showFallbackIcon
+                bucket="thumbnails"
                 className="h-full w-full object-cover"
               />
           ) : (

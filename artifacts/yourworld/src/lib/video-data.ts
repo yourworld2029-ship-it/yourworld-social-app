@@ -21,9 +21,8 @@ import {
   type ProgressFn,
 } from "@/lib/storage-upload";
 import { optimizeVideoBlob } from "@/lib/video-compression";
-import { sampleVideoFrames } from "@/lib/video-frames";
+import { generateVideoThumbnail, sampleVideoFrames } from "@/lib/video-frames";
 import {
-  generateAndUploadVideoThumbnail,
   uploadVideoThumbnail,
 } from "@/lib/video-thumbnails";
 import { scanVideoContent, type ModerationVerdict } from "@/lib/moderation.functions";
@@ -332,59 +331,48 @@ export async function publishLongVideo(opts: {
     storagePath: null,
     error: error instanceof Error ? error.message : "Could not prepare the video thumbnail.",
   });
-  let sourceBlobPromise: Promise<Blob | null> | null = null;
+  let sourceBlob = opts.file ?? null;
+  if (!sourceBlob && /^(blob:|data:)/.test(opts.fileUrl)) {
+    try {
+      const response = await fetch(opts.fileUrl);
+      if (response.ok) sourceBlob = await response.blob();
+    } catch (error) {
+      console.warn("Could not read the local video for its thumbnail", error);
+    }
+  }
+
+  let generatedThumbnail: Blob | null = null;
+  if (!thumb) {
+    try {
+      generatedThumbnail = opts.generatedThumbnailPromise
+        ? await opts.generatedThumbnailPromise
+        : null;
+      if (!generatedThumbnail && sourceBlob) {
+        generatedThumbnail = await generateVideoThumbnail(sourceBlob, 1);
+      }
+    } catch (error) {
+      console.warn("Could not generate the long-video thumbnail", error);
+    }
+    if (!generatedThumbnail) {
+      return { error: "Could not capture a thumbnail frame from this video. Please try again." };
+    }
+  }
+
+  const thumbnailSource = customThumbnail
+    ? opts.thumbnailFile ?? thumb
+    : !thumb
+      ? generatedThumbnail
+      : null;
   let thumbnailUploadPromise:
     | ReturnType<typeof uploadVideoThumbnail>
     | null = null;
-
-  if (customThumbnail && thumb) {
+  if (thumbnailSource) {
     thumbnailUploadPromise = uploadVideoThumbnail(
-      opts.thumbnailFile ?? thumb,
+      thumbnailSource,
       uid,
       undefined,
       STORAGE_BUCKETS.thumbnails,
     ).catch(thumbnailTaskResult);
-  } else if (!thumb) {
-    if (opts.generatedThumbnailPromise) {
-      thumbnailUploadPromise = opts.generatedThumbnailPromise
-        .then((thumbnail) =>
-          thumbnail
-            ? uploadVideoThumbnail(
-                thumbnail,
-                uid,
-                undefined,
-                STORAGE_BUCKETS.thumbnails,
-              )
-            : { url: null, storagePath: null, error: null },
-        )
-        .catch(thumbnailTaskResult);
-    } else {
-      if (opts.file) {
-        sourceBlobPromise = Promise.resolve(opts.file);
-      } else if (/^(blob:|data:)/.test(opts.fileUrl)) {
-        sourceBlobPromise = fetch(opts.fileUrl)
-          .then((response) => (response.ok ? response.blob() : null))
-          .catch((error) => {
-            console.warn("Could not read the local video for its thumbnail", error);
-            return null;
-          });
-      }
-
-      if (sourceBlobPromise) {
-        thumbnailUploadPromise = sourceBlobPromise
-          .then((sourceBlob) =>
-            sourceBlob
-              ? generateAndUploadVideoThumbnail(
-                  sourceBlob,
-                  uid,
-                  undefined,
-                  STORAGE_BUCKETS.thumbnails,
-                )
-              : { url: null, storagePath: null, error: null },
-          )
-          .catch(thumbnailTaskResult);
-      }
-    }
   }
 
   let mediaUrl = opts.fileUrl;
@@ -416,16 +404,13 @@ export async function publishLongVideo(opts: {
 
   if (thumbnailUploadPromise) {
     const thumbnail = await thumbnailUploadPromise;
-    if (customThumbnail) {
-      thumb = thumbnail.url;
-      if (thumbnail.error || !thumb) {
-        return { error: thumbnail.error ?? "Thumbnail upload failed. Please try again." };
-      }
-    } else if (thumbnail.error) {
-      console.warn("Generated long-video thumbnail upload failed", thumbnail.error);
-    } else {
-      thumb = thumbnail.url;
+    if (thumbnail.error || !thumbnail.url) {
+      return { error: thumbnail.error ?? "Thumbnail upload failed. Please try again." };
     }
+    thumb = thumbnail.url;
+  }
+  if (!thumb) {
+    return { error: "A video thumbnail is required before publishing this video." };
   }
 
   // Automated content scan (safety + brand/sponsorship detection) before publishing.

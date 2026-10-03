@@ -96,7 +96,6 @@ export async function generateVideoThumbnail(
   video.preload = "metadata";
   video.muted = true;
   video.playsInline = true;
-  video.src = objectUrl;
 
   const waitFor = (
     eventName: "loadedmetadata" | "seeked",
@@ -120,19 +119,25 @@ export async function generateVideoThumbnail(
     });
 
   try {
-    if (!(await waitFor("loadedmetadata", 8_000))) return null;
+    const metadataReady = waitFor("loadedmetadata", 8_000);
+    video.src = objectUrl;
+    video.load();
+    if (!(await metadataReady)) return null;
     if (!Number.isFinite(video.duration) || video.duration <= 0) return null;
 
     const target = Math.min(
       Math.max(0, requestedTime),
       Math.max(0, video.duration - 0.1),
     );
-    try {
-      video.currentTime = target;
-    } catch {
-      return null;
+    if (Math.abs(video.currentTime - target) > 0.01) {
+      const frameReady = waitFor("seeked", 8_000);
+      try {
+        video.currentTime = target;
+      } catch {
+        return null;
+      }
+      if (!(await frameReady)) return null;
     }
-    if (!(await waitFor("seeked", 8_000))) return null;
 
     const width = video.videoWidth || 640;
     const height = video.videoHeight || 360;

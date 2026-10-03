@@ -423,7 +423,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     setResolvedPoster(null);
     if (!thumbnailUrl) return;
 
-    void resolveMediaUrl(thumbnailUrl, "videos")
+    void resolveMediaUrl(thumbnailUrl, "thumbnails")
       .then((url) => {
         if (alive) setResolvedPoster(url || thumbnailUrl);
       })

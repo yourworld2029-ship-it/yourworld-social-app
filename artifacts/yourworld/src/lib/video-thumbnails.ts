@@ -9,8 +9,10 @@ import { generateVideoThumbnail } from "@/lib/video-frames";
 /** Unique paths let browsers safely keep generated thumbnails for one year. */
 export const VIDEO_THUMBNAIL_CACHE_CONTROL = IMMUTABLE_MEDIA_CACHE_CONTROL;
 
-function thumbnailPath(uid: string) {
-  return `${uid}/thumb-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.webp`;
+function thumbnailPath(uid: string, contentType: string) {
+  const extension =
+    contentType === "image/webp" ? "webp" : contentType === "image/png" ? "png" : "jpg";
+  return `${uid}/thumb-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${extension}`;
 }
 
 async function toBlob(source: Blob | string) {
@@ -21,7 +23,7 @@ async function toBlob(source: Blob | string) {
 }
 
 async function encodeThumbnail(blob: Blob): Promise<Blob> {
-  if (blob.type === "image/webp" || typeof Image === "undefined") return blob;
+  if (typeof Image === "undefined") return blob;
   const objectUrl = URL.createObjectURL(blob);
   try {
     const image = await new Promise<HTMLImageElement>((resolve, reject) => {
@@ -38,10 +40,14 @@ async function encodeThumbnail(blob: Blob): Promise<Blob> {
     if (!context) return blob;
     context.imageSmoothingQuality = "high";
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
-    const encoded = await new Promise<Blob | null>((resolve) =>
+    const webp = await new Promise<Blob | null>((resolve) =>
       canvas.toBlob(resolve, "image/webp", 0.78),
     );
-    return encoded ?? blob;
+    if (webp?.type === "image/webp") return webp;
+    const jpeg = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", 0.82),
+    );
+    return jpeg ?? blob;
   } catch {
     return blob;
   } finally {
@@ -49,20 +55,21 @@ async function encodeThumbnail(blob: Blob): Promise<Blob> {
   }
 }
 
-/** Uploads a compact WebP thumbnail with long-lived immutable caching. */
+/** Uploads a compact JPEG/WebP thumbnail with long-lived immutable caching. */
 export async function uploadVideoThumbnail(
   source: Blob | string,
   uid: string,
   onProgress?: ProgressFn,
-  bucket: string = STORAGE_BUCKETS.videos,
+  bucket: string = STORAGE_BUCKETS.thumbnails,
 ): Promise<{ url: string | null; storagePath: string | null; error: string | null }> {
   try {
     const blob = await encodeThumbnail(await toBlob(source));
+    const contentType = blob.type.startsWith("image/") ? blob.type : "image/jpeg";
     const result = await uploadWithProgress(
       bucket,
-      thumbnailPath(uid),
+      thumbnailPath(uid, contentType),
       blob,
-      "image/webp",
+      contentType,
       onProgress,
       VIDEO_THUMBNAIL_CACHE_CONTROL,
     );
@@ -85,9 +92,15 @@ export async function generateAndUploadVideoThumbnail(
   videoFile: Blob,
   uid: string,
   onProgress?: ProgressFn,
-  bucket: string = STORAGE_BUCKETS.videos,
+  bucket: string = STORAGE_BUCKETS.thumbnails,
 ): Promise<{ url: string | null; storagePath: string | null; error: string | null }> {
   const thumbnail = await generateVideoThumbnail(videoFile, 1);
-  if (!thumbnail) return { url: null, storagePath: null, error: null };
+  if (!thumbnail) {
+    return {
+      url: null,
+      storagePath: null,
+      error: "Could not capture a thumbnail frame from this video.",
+    };
+  }
   return uploadVideoThumbnail(thumbnail, uid, onProgress, bucket);
 }

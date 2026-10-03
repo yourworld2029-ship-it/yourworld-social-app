@@ -286,7 +286,7 @@ export function VideoWatchDetails({
             contentId={video.id}
             contentKind="video"
             thumbnailUrl={video.thumbnailUrl}
-            thumbnailBucket="videos"
+            thumbnailBucket="thumbnails"
           >
             <button
               type="button"

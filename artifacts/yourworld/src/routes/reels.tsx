@@ -353,6 +353,8 @@ function ReelsList() {
                 thumbnailUrl={thumbnailUrl ?? (mediaType?.toLowerCase().startsWith("video") ? null : mediaUrl)}
                 alt=""
                 showPlayFallback={false}
+                showFallbackIcon={mediaType?.toLowerCase().startsWith("video")}
+                bucket="thumbnails"
                 className="absolute inset-0"
               />
             )
