@@ -28,6 +28,7 @@ import {
 } from "@/lib/video-playback-progress";
 import {
   attemptVideoPlay,
+  detectNativeVideoSupport,
   isAutoplayPolicyError,
   isHlsMediaUrl,
   mediaErrorName,
@@ -761,6 +762,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     setActiveHlsHeight(null);
     activeSourceRef.current = { id: activeVideoId, url: activeVideoUrl };
     try {
+      // Capability probing is advisory: keep the browser-native source path as
+      // the fallback because canPlayType may under-report installed decoders.
+      video.dataset.ywNativeVideoSupport = detectNativeVideoSupport(video, activeVideoUrl);
       if (isHlsMediaUrl(activeVideoUrl)) {
         if (Hls.isSupported()) {
           const hls = new Hls({ enableWorker: true });

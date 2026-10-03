@@ -4,6 +4,7 @@ import {
   attemptVideoPlay,
   isAutoplayPolicyError,
   canAutoplayPublicVideo,
+  detectNativeVideoSupport,
   isHlsMediaUrl,
   isPlayableMediaUrl,
   supportsNativeHls,
@@ -34,6 +35,35 @@ test("only public videos without a price autoplay in feed previews", () => {
 test("detects native HLS support", () => {
   assert.equal(supportsNativeHls({ canPlayType: () => "maybe" }), true);
   assert.equal(supportsNativeHls({ canPlayType: () => "" }), false);
+});
+
+test("detects native H.264, AV1, WebM, and HLS playback support", () => {
+  const h264 = detectNativeVideoSupport(
+    { canPlayType: (type) => type.includes("avc1") ? "probably" : "" },
+    "https://media.example/video.mp4",
+  );
+  const av1 = detectNativeVideoSupport(
+    { canPlayType: (type) => type.includes("av01") ? "probably" : "" },
+    "https://media.example/video.mp4?token=abc",
+  );
+  const webm = detectNativeVideoSupport(
+    { canPlayType: (type) => type.includes("vp9") ? "maybe" : "" },
+    "https://media.example/video.webm",
+  );
+  const hls = detectNativeVideoSupport(
+    { canPlayType: (type) => type.includes("mpegurl") ? "maybe" : "" },
+    "https://media.example/stream.m3u8",
+  );
+  const unknown = detectNativeVideoSupport(
+    { canPlayType: () => "" },
+    "https://media.example/stream",
+  );
+
+  assert.equal(h264, "probably");
+  assert.equal(av1, "probably");
+  assert.equal(webm, "maybe");
+  assert.equal(hls, "maybe");
+  assert.equal(unknown, "unknown");
 });
 
 test("converts synchronous and asynchronous play failures to handled promises", async () => {

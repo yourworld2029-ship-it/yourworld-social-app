@@ -39,6 +39,7 @@ import { useMoments } from "@/lib/moment-context";
 import { formatChatRelativeTime } from "@/lib/chat-time";
 import { useChatNames, setChatNameLocal } from "@/lib/chat-names";
 import { useChatSettings } from "@/lib/chat-settings";
+import { setThreadCacheProtection } from "@/lib/chat-cache-security";
 import {
   consumeSecretChatUnlock,
   hasSecretChatUnlock,
@@ -1105,6 +1106,10 @@ function NativeChatThreadPage() {
     chatProtectionDecisionReady,
     chatSecurityScopeKey,
   );
+  useEffect(() => {
+    if (!currentUserId || !chatProtectionDecisionReady) return;
+    void setThreadCacheProtection(threadId, currentUserId, protectChatEnabled);
+  }, [chatProtectionDecisionReady, currentUserId, protectChatEnabled, threadId]);
   const { nameFor } = useChatNames();
   const displayName = nameFor(peer.peerId, settings.displayName ?? peer.peerName ?? "");
   const openPeerProfile = {

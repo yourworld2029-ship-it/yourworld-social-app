@@ -87,7 +87,7 @@ export async function generateAndUploadVideoThumbnail(
   onProgress?: ProgressFn,
   bucket: string = STORAGE_BUCKETS.videos,
 ): Promise<{ url: string | null; storagePath: string | null; error: string | null }> {
-  const thumbnail = await generateVideoThumbnail(videoFile, 1.75);
+  const thumbnail = await generateVideoThumbnail(videoFile, 1);
   if (!thumbnail) return { url: null, storagePath: null, error: null };
   return uploadVideoThumbnail(thumbnail, uid, onProgress, bucket);
 }

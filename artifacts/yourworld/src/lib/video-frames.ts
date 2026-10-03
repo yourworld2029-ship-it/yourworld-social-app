@@ -82,13 +82,12 @@ export async function sampleVideoFrames(src: string, count = 3): Promise<string[
 /**
  * Creates a durable JPEG poster from a local video file.
  *
- * This intentionally samples at 1.75 seconds instead of the first frame:
- * opening frames are often black, contain a fade-in, or have not rendered a
- * useful subject yet. Callers can upload the returned Blob to storage.
+ * Sampling at one second avoids black or incomplete opening frames on many
+ * clips. Callers can upload the returned Blob to storage.
  */
 export async function generateVideoThumbnail(
   videoFile: Blob,
-  requestedTime = 1.75,
+  requestedTime = 1,
 ): Promise<Blob | null> {
   if (typeof document === "undefined" || !videoFile.size) return null;
 

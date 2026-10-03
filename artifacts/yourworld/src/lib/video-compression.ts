@@ -2,6 +2,20 @@ import type { ProgressFn } from "@/lib/storage-upload";
 
 const OPTIMIZING_LABEL = "Optimizing Video for Ultra-Fast Upload...";
 const MAX_PRESERVED_DIMENSION = 3_840;
+const HEAVY_SOURCE_MAX_DIMENSION = 2_560;
+const LARGE_RECORDING_BYTES = 64 * 1024 * 1024;
+
+const RECORDER_MIME_CANDIDATES = [
+  'video/mp4;codecs="avc1.640028"',
+  'video/mp4;codecs="avc1.4D401F"',
+  'video/mp4;codecs="avc1.42E01E"',
+  "video/mp4",
+  'video/mp4;codecs="av01.0.08M.08"',
+  'video/webm;codecs="vp9,opus"',
+  'video/webm;codecs="vp8,opus"',
+  'video/webm;codecs="av01.0.08M.08,opus"',
+  "video/webm",
+];
 
 export type VideoMetadata = {
   width: number;
@@ -9,14 +23,17 @@ export type VideoMetadata = {
   duration: number;
 };
 
+export function selectSupportedRecorderMimeType(
+  isSupported: (mimeType: string) => boolean,
+) {
+  return RECORDER_MIME_CANDIDATES.find((mimeType) => isSupported(mimeType)) ?? null;
+}
+
 function supportedMimeType() {
   if (typeof MediaRecorder === "undefined") return null;
-  const candidates = [
-    "video/webm;codecs=vp9,opus",
-    "video/webm;codecs=vp8,opus",
-    "video/webm",
-  ];
-  return candidates.find((type) => MediaRecorder.isTypeSupported(type)) ?? null;
+  return selectSupportedRecorderMimeType((mimeType) =>
+    MediaRecorder.isTypeSupported(mimeType),
+  );
 }
 
 export function readVideoMetadata(blobUrl: string): Promise<VideoMetadata | null> {
@@ -67,10 +84,10 @@ function even(value: number) {
   return Math.max(2, Math.floor(value / 2) * 2);
 }
 
-function outputSize(metadata: VideoMetadata) {
+function outputSize(metadata: VideoMetadata, maxDimension = MAX_PRESERVED_DIMENSION) {
   const scale = Math.min(
     1,
-    MAX_PRESERVED_DIMENSION / Math.max(metadata.width, metadata.height),
+    maxDimension / Math.max(metadata.width, metadata.height),
   );
   return {
     width: even(metadata.width * scale),
@@ -98,6 +115,7 @@ function encodeVideo(
   metadata: VideoMetadata,
   mimeType: string,
   bitrateFactor: number,
+  size: { width: number; height: number },
   onProgress?: ProgressFn,
 ) {
   return new Promise<Blob>((resolve, reject) => {
@@ -113,7 +131,6 @@ function encodeVideo(
     video.crossOrigin = "anonymous";
 
     const canvas = document.createElement("canvas");
-    const size = outputSize(metadata);
     canvas.width = size.width;
     canvas.height = size.height;
     const canvasContext = canvas.getContext("2d", { alpha: false });
@@ -161,7 +178,7 @@ function encodeVideo(
         // The element is disposable.
       }
       if (error) reject(error);
-      else resolve(new Blob(chunks, { type: mimeType }));
+      else resolve(new Blob(chunks, { type: recorder?.mimeType || mimeType }));
     };
     const draw = () => {
       if (settled) return;
@@ -224,8 +241,8 @@ function encodeVideo(
 /**
  * Best-effort adaptive compression. It only re-encodes a source when its
  * measured bitrate is materially above a resolution-appropriate target.
- * 1080p, 2K, and 4K sources keep their native dimensions; sources above 4K
- * may be reduced to 4K so the result remains crisp without uploading waste.
+ * 1080p and 2K sources keep their native dimensions. Large 4K+ recordings
+ * can be reduced to 2.5K; exceptionally large sources are capped at 4K.
  *
  * This is never an upload-size gate. If metadata, codecs, or device resources
  * are unavailable, the original Blob is returned for direct Storage upload.
@@ -244,9 +261,21 @@ export async function optimizeVideoBlob(
   }
   if (!metadata) return source;
 
-  const target = targetBitrates(metadata);
   const sourceBitsPerSecond = (source.size * 8) / metadata.duration;
-  const shouldCompress = sourceBitsPerSecond > target.totalBitsPerSecond * 1.15;
+  const sourceMaxDimension = Math.max(metadata.width, metadata.height);
+  const shouldDownscale =
+    sourceMaxDimension > HEAVY_SOURCE_MAX_DIMENSION &&
+    source.size >= LARGE_RECORDING_BYTES;
+  const targetSize = outputSize(
+    metadata,
+    shouldDownscale ? HEAVY_SOURCE_MAX_DIMENSION : MAX_PRESERVED_DIMENSION,
+  );
+  const outputMetadata = { ...metadata, ...targetSize };
+  const target = targetBitrates(outputMetadata);
+  const shouldCompress =
+    sourceMaxDimension > MAX_PRESERVED_DIMENSION ||
+    sourceBitsPerSecond > target.totalBitsPerSecond * 1.15 ||
+    shouldDownscale;
   if (!shouldCompress) return source;
 
   const mimeType = supportedMimeType();
@@ -256,8 +285,13 @@ export async function optimizeVideoBlob(
   try {
     const factors = [1, 0.82, 0.68];
     for (const factor of factors) {
-      const optimized = await encodeVideo(encodeUrl, metadata, mimeType, factor, (percent) =>
-        onProgress?.(percent, `${OPTIMIZING_LABEL} ${percent}%`),
+      const optimized = await encodeVideo(
+        encodeUrl,
+        outputMetadata,
+        mimeType,
+        factor,
+        targetSize,
+        (percent) => onProgress?.(percent, `${OPTIMIZING_LABEL} ${percent}%`),
       );
       if (optimized.size < source.size * 0.9) {
         onProgress?.(100, `${OPTIMIZING_LABEL} 100%`);

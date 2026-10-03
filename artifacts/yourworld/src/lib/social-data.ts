@@ -8,6 +8,7 @@ import {
   subscribeToPostDeleted,
 } from "@/lib/post-deletion";
 import { cacheGet, cacheSet } from "@/lib/local-cache";
+import { useThreadCachePolicy } from "@/lib/chat-cache-security";
 import {
   loadCachedThread,
   loadCachedThreadSync,
@@ -1527,6 +1528,7 @@ function maintainChatBroadcastSubscription(
 /** Live public.messages records for the canonical two-person route id. */
 export function useThreadMessages(threadId: string, _opts: { staleTime?: number } = {}) {
   const pair = useMemo(() => dmThreadPair(threadId), [threadId]);
+  const cacheProtection = useThreadCachePolicy(threadId);
   const [messages, setMessages] = useState<DbMessage[]>(
     () =>
       normalizeCachedThreadRows(
@@ -1566,7 +1568,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     const retained = messages.filter((m) => !m.id.startsWith("tmp-")).slice(-40);
     cacheSet(`thread:${threadId}`, retained);
     saveCachedThread(`social:${threadId}`, retained);
-  }, [messages, messagesThreadId, threadId]);
+  }, [cacheProtection, messages, messagesThreadId, threadId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1613,6 +1615,44 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       cancelled = true;
     };
   }, [pair, threadId]);
+
+  useEffect(() => {
+    if (cacheProtection.phase !== "plain" && cacheProtection.phase !== "protected") return;
+    let cancelled = false;
+    const cachedSync = normalizeCachedThreadRows(
+      loadCachedThreadSync<unknown>(`social:${threadId}`) ??
+        cacheGet<unknown>(`thread:${threadId}`) ??
+        [],
+      pair,
+    );
+    if (cachedSync.length && !messagesRef.current.length) {
+      messagesRef.current = cachedSync;
+      setMessages((current) => current.length ? current : cachedSync);
+    }
+    void loadCachedThread<unknown>(`social:${threadId}`).then((rows) => {
+      if (
+        cancelled ||
+        threadIdRef.current !== threadId ||
+        messagesThreadIdRef.current !== threadId ||
+        !rows?.length
+      ) return;
+      const safeRows = normalizeCachedThreadRows(rows, pair, meRef.current);
+      setMessages((current) => {
+        if (
+          threadIdRef.current !== threadId ||
+          messagesThreadIdRef.current !== threadId ||
+          current.length
+        ) return current;
+        messagesRef.current = safeRows;
+        return safeRows;
+      });
+    }).catch((cause) => {
+      if (!cancelled) console.warn("[social-chat] protected cache load failed", cause);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [cacheProtection, pair, threadId]);
 
   const belongs = useCallback((row: PublicMessageRow) => !!pair &&
     ((row.sender_id === pair[0] && row.receiver_id === pair[1]) || (row.sender_id === pair[1] && row.receiver_id === pair[0])), [pair]);

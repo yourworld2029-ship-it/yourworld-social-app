@@ -227,7 +227,7 @@ function VideoUploadPage() {
     const paidPromotionSnapshot = paidPromotion;
     const generatedThumbnailPromise =
       !thumbnailUrlSnapshot && selectedFile
-        ? generateVideoThumbnail(selectedFile, 1.75).catch(() => null)
+        ? generateVideoThumbnail(selectedFile, 1).catch(() => null)
         : undefined;
     const publishingOptions = {
       fileUrl: fileUrlSnapshot,

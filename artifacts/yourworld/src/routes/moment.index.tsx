@@ -99,7 +99,7 @@ function Section({
           >
             {m.kind === "video" ? (
               <video
-                src={m.media ? `${m.media}${m.media.includes("#") ? "" : "#t=0.1"}` : undefined}
+                src={m.media ? `${m.media}${m.media.includes("#") ? "" : "#t=1"}` : undefined}
                 muted
                 playsInline
                 preload="none"

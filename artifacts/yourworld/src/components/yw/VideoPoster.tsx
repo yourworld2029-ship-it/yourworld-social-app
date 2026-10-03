@@ -20,7 +20,7 @@ type Props = {
 };
 
 function firstFrameUrl(url: string) {
-  return `${url.split("#", 1)[0]}#t=0.1`;
+  return `${url.split("#", 1)[0]}#t=1`;
 }
 
 const FALLBACK_VIDEO_POSTER_SVG =
@@ -30,7 +30,7 @@ export const VIDEO_POSTER_FALLBACK =
   `data:image/svg+xml;charset=utf-8,${encodeURIComponent(FALLBACK_VIDEO_POSTER_SVG)}`;
 
 /**
- * Shows stored thumbnails first, then captures the real 0.1s video frame when
+ * Shows stored thumbnails first, then captures a real one-second video frame when
  * a thumbnail is missing or unavailable. Extraction is deferred until near view.
  */
 export function VideoPoster({
@@ -175,16 +175,15 @@ export function VideoPoster({
   const captureFrame = useCallback(() => {
     const player = videoRef.current;
     if (!player) return;
-    if (
-      Number.isFinite(player.duration) &&
-      player.duration > 0.1 &&
-      player.currentTime < 0.08
-    ) {
-      try {
-        player.currentTime = 0.1;
-        return;
-      } catch {
-        // Some remote streams only allow seeking after the first frame is ready.
+    if (Number.isFinite(player.duration) && player.duration > 0.1) {
+      const targetTime = Math.min(1, player.duration - 0.1);
+      if (player.currentTime < targetTime - 0.05) {
+        try {
+          player.currentTime = targetTime;
+          return;
+        } catch {
+          // Some remote streams only allow seeking after the first frame is ready.
+        }
       }
     }
 
@@ -249,14 +248,15 @@ export function VideoPoster({
           preload="metadata"
           onLoadedMetadata={(event) => {
             const player = event.currentTarget;
-            if (
-              Number.isFinite(player.duration) &&
-              player.duration > 0.1 &&
-              player.currentTime < 0.08
-            ) {
-              try {
-                player.currentTime = 0.1;
-              } catch {
+            if (Number.isFinite(player.duration) && player.duration > 0.1) {
+              const targetTime = Math.min(1, player.duration - 0.1);
+              if (player.currentTime < targetTime - 0.05) {
+                try {
+                  player.currentTime = targetTime;
+                } catch {
+                  captureFrame();
+                }
+              } else {
                 captureFrame();
               }
             }
