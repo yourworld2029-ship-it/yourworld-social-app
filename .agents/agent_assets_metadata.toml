@@ -364,3 +364,17 @@ mtime_ms = 1791054690112
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/57442374-9ac4-4a21-80d8-c25105b8b273/bddc3dbb-99ca-4a50-b74e-ccdca9812460"
 storage_version_token = "1791054735600816"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "H-qCMTAzeDWnSFNJClF9O"
+uri = "file://artifacts/yourworld/public/app.apk"
+type = "unspecified"
+title = "YourWorld.apk"
+description = "Direct Android installer download (APK, not a ZIP). The same file is served by the app's /app.apk endpoint."
+logical_id = "00e10df5-37ac-41ae-be7f-57142fec3732"
+content_hash = "sha256:486005dfb87ff15ecc2e4d26f23ccb16ba178d4f2949d8d0b36a5bb5fa44153b"
+size = 7636565
+mtime_ms = 1791055065682
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/00e10df5-37ac-41ae-be7f-57142fec3732/7bf41812-21fa-44f4-8813-6d3933659f21"
+storage_version_token = "1791055339044979"
+content_type = "application/octet-stream"
