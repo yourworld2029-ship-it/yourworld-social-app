@@ -88,6 +88,82 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+  /media/playback-url:
+    post:
+      operationId: getMediaPlaybackUrl
+      tags: [media]
+      summary: Resolve a protected Stream video after checking access
+      security:
+        - SupabaseBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VideoPlaybackInput"
+      responses:
+        "200":
+          description: Short-lived authorized HLS playback URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoPlaybackResponse"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: The caller cannot view this video
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: The video is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /media/offline-source:
+    post:
+      operationId: getVideoOfflineSource
+      tags: [media]
+      summary: Resolve the retained MP4 source after checking access
+      security:
+        - SupabaseBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VideoPlaybackInput"
+      responses:
+        "200":
+          description: Temporary source URL for a user-authorized offline download
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoOfflineSourceResponse"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: The caller cannot download this video
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: The video source is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
   /posts/{postId}/pin:
     patch:
       operationId: setPostPin
@@ -322,6 +398,10 @@ components:
           type: string
           minLength: 3
           maxLength: 512
+        cloudflareStream:
+          type: boolean
+        requireSignedURLs:
+          type: boolean
       required:
         - bucket
         - path
@@ -336,10 +416,49 @@ components:
           const: video/mp4
         faststart:
           type: boolean
+        streamUid:
+          type: ["string", "null"]
+        playbackUrl:
+          type: ["string", "null"]
       required:
         - path
         - contentType
         - faststart
+        - streamUid
+        - playbackUrl
+    VideoPlaybackInput:
+      type: object
+      additionalProperties: false
+      properties:
+        postId:
+          type: string
+          minLength: 1
+          maxLength: 128
+        quality:
+          type: string
+          enum: [original, 360p, 480p, 720p, 1080p, 1440p, 2160p]
+      required:
+        - postId
+    VideoPlaybackResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        url:
+          type: string
+      required:
+        - url
+    VideoOfflineSourceResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        url:
+          type: string
+        actualQuality:
+          type: string
+          enum: [original, 360p, 480p, 720p, 1080p, 1440p, 2160p]
+      required:
+        - url
+        - actualQuality
     PostPinInput:
       type: object
       additionalProperties: false

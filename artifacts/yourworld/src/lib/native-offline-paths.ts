@@ -1,5 +1,7 @@
 import { isVideoQualityTier } from "@/lib/video-quality";
 
+const OFFLINE_VIDEO_DIRECTORY = "device_offline_videos";
+
 function encodePathSegment(value: string, label: string) {
   const segment = encodeURIComponent(String(value).trim()).replace(/\./g, "%2E");
   if (!segment) throw new Error(`A ${label} is required for offline storage.`);
@@ -20,7 +22,7 @@ export function nativeOfflinePathsForVideo(
   const subtype = mimeType.split("/")[1]?.split(";")[0]?.toLowerCase() ?? "";
   const extension = subtype === "webm" ? "webm" : "mp4";
   return {
-    localFilePath: `offline_${id}_${qualityTag}${owner}.${extension}`,
-    thumbnailPath: `offline_${id}_${qualityTag}${owner}-thumbnail`,
+    localFilePath: `${OFFLINE_VIDEO_DIRECTORY}/offline_${id}_${qualityTag}${owner}.${extension}`,
+    thumbnailPath: `${OFFLINE_VIDEO_DIRECTORY}/offline_${id}_${qualityTag}${owner}-thumbnail`,
   };
 }

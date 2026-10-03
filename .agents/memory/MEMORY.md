@@ -8,6 +8,7 @@
 - [Video frame capture event order](video-frame-capture-event-order.md) — attach metadata and seek listeners before setting a local video source or seeking, or fast Blob playback may outrun thumbnail extraction.
 - [Unique interaction counting](unique-interaction-counting.md) — use one database-enforced key per user/content/type and an atomic insert-before-increment RPC for views.
 - [Video playback and downloads](video-playback-downloads.md) — feed sources attach only to the 70%-visible active player; keep posters/fallbacks and offline downloads separate.
+- [Video source retention](video-source-retention.md) — never publish HLS video without persisting the owner-scoped MP4 path needed for authorized downloads and deletion.
 - [Low-memory media policy](low-memory-media.md) — target 2–3 GB Android phones conservatively; screen-sized display buffers are disposable, unlike offline downloads.
 - [Persistent video player](persistent-video-player.md) — keep the root detail player separate from the feed’s single-active candidate player.
 - [Watermarked video downloads](watermarked-reel-downloads.md) — use the creator-watermarked export for Reels and horizontal/vertical videos; never fall back to unwatermarked bytes.

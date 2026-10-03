@@ -25,12 +25,62 @@ export interface VideoTranscodeInput {
      * @maxLength 512
      */
   path: string;
+  cloudflareStream?: boolean;
+  requireSignedURLs?: boolean;
 }
 
 export interface VideoTranscodeResponse {
   path: string;
   contentType: 'video/mp4';
   faststart: boolean;
+  /** @nullable */
+  streamUid: string | null;
+  /** @nullable */
+  playbackUrl: string | null;
+}
+
+export type VideoPlaybackInputQuality = typeof VideoPlaybackInputQuality[keyof typeof VideoPlaybackInputQuality];
+
+
+export const VideoPlaybackInputQuality = {
+  original: 'original',
+  '360p': '360p',
+  '480p': '480p',
+  '720p': '720p',
+  '1080p': '1080p',
+  '1440p': '1440p',
+  '2160p': '2160p',
+} as const;
+
+export interface VideoPlaybackInput {
+  /**
+     * @minLength 1
+     * @maxLength 128
+     */
+  postId: string;
+  quality?: VideoPlaybackInputQuality;
+}
+
+export interface VideoPlaybackResponse {
+  url: string;
+}
+
+export type VideoOfflineSourceResponseActualQuality = typeof VideoOfflineSourceResponseActualQuality[keyof typeof VideoOfflineSourceResponseActualQuality];
+
+
+export const VideoOfflineSourceResponseActualQuality = {
+  original: 'original',
+  '360p': '360p',
+  '480p': '480p',
+  '720p': '720p',
+  '1080p': '1080p',
+  '1440p': '1440p',
+  '2160p': '2160p',
+} as const;
+
+export interface VideoOfflineSourceResponse {
+  url: string;
+  actualQuality: VideoOfflineSourceResponseActualQuality;
 }
 
 export interface PostPinInput {

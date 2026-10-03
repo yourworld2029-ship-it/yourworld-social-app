@@ -14,4 +14,6 @@ export interface VideoTranscodeInput {
      * @maxLength 512
      */
   path: string;
+  cloudflareStream?: boolean;
+  requireSignedURLs?: boolean;
 }

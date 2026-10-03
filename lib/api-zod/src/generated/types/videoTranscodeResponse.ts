@@ -10,4 +10,8 @@ export interface VideoTranscodeResponse {
   path: string;
   contentType: 'video/mp4';
   faststart: boolean;
+  /** @nullable */
+  streamUid: string | null;
+  /** @nullable */
+  playbackUrl: string | null;
 }

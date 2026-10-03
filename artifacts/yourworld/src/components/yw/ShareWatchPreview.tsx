@@ -1,4 +1,5 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import Hls from "hls.js";
 import { Download, Heart, MessageCircle, UserPlus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -33,6 +34,33 @@ export function ShareWatchPreview({
 }: ShareWatchPreviewProps) {
   const [promptOpen, setPromptOpen] = useState(false);
   const dialogTitleId = useId();
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !/\.m3u8(?:[?#]|$)/i.test(mediaUrl)) return;
+    let hls: Hls | null = null;
+    if (Hls.isSupported()) {
+      hls = new Hls({
+        enableWorker: true,
+        maxBufferLength: 10,
+        maxMaxBufferLength: 20,
+        backBufferLength: 0,
+        maxBufferSize: 8 * 1024 * 1024,
+      });
+      hls.loadSource(mediaUrl);
+      hls.attachMedia(video);
+    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = mediaUrl;
+      video.load();
+    }
+    return () => {
+      hls?.destroy();
+      video.pause();
+      video.removeAttribute("src");
+      video.load();
+    };
+  }, [mediaUrl]);
 
   useEffect(() => {
     if (!promptOpen) return;
@@ -58,8 +86,10 @@ export function ShareWatchPreview({
       >
         <div className="relative bg-[#050608]">
           <video
+            ref={videoRef}
             className="block max-h-[78svh] min-h-[13rem] w-full object-contain sm:max-h-[82svh]"
-            src={mediaUrl}
+            src={/\.m3u8(?:[?#]|$)/i.test(mediaUrl) ? undefined : mediaUrl}
+            crossOrigin="anonymous"
             poster={posterUrl ?? undefined}
             controls
             playsInline

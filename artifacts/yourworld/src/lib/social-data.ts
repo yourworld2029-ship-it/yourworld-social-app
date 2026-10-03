@@ -943,6 +943,7 @@ export async function publishReel(opts: {
   }
 
   let mediaUrl = opts.fileUrl;
+  let uploadedSourcePath: string | null = null;
   let sourceBlob: Blob | null = opts.file ?? null;
   let uploadedWidth = opts.originalWidth ?? null;
   let uploadedHeight = opts.originalHeight ?? null;
@@ -987,7 +988,7 @@ export async function publishReel(opts: {
       );
       const ext = uploadBlob.type.includes("webm") ? "webm" : "mp4";
       const path = `${uid}/${Date.now()}.${ext}`;
-      const { url, error: upErr } = await uploadWithProgress(
+      const { url, storagePath, error: upErr } = await uploadWithProgress(
         STORAGE_BUCKETS.reels,
         path,
         uploadBlob,
@@ -996,12 +997,17 @@ export async function publishReel(opts: {
           45 + Math.round(percent * 0.55),
         ),
         IMMUTABLE_MEDIA_CACHE_CONTROL,
+        {
+          cloudflareStream: true,
+          requireSignedURLs: opts.audience === "close_friends",
+        },
       );
-      if (upErr || !url) {
+      if (upErr || !url || !storagePath) {
         console.error("Reel storage upload failed", upErr);
         return { error: upErr ?? "Upload failed" };
       }
       mediaUrl = url;
+      uploadedSourcePath = storagePath;
     } catch (e) {
       console.error("Reel upload preparation failed", e);
       return { error: e instanceof Error ? e.message : "Upload failed" };
@@ -1026,10 +1032,13 @@ export async function publishReel(opts: {
   }
   const thumbnailUrl = thumbnail.url;
 
-  const { error } = await writeCompat((payload) => supabase.from("posts").insert(payload as never), {
+  const result = await writeCompat((payload) => supabase.from("posts").insert(payload as never), {
     user_id: uid,
     kind: "reel",
     media_url: mediaUrl,
+    video_url: uploadedSourcePath
+      ? `${STORAGE_BUCKETS.reels}/${uploadedSourcePath}`
+      : null,
     media_type: "video",
     thumbnail_url: thumbnailUrl,
     caption: opts.caption ?? "",
@@ -1045,7 +1054,11 @@ export async function publishReel(opts: {
     original_width: uploadedWidth,
     original_height: uploadedHeight,
     source_quality_tier: sourceQualityTierFromDimensions(uploadedWidth, uploadedHeight),
-  }, { kind: "type" });
+  }, { kind: "type" }, uploadedSourcePath ? ["video_url"] : []);
+  const error =
+    uploadedSourcePath && missingColumn(result.error) === "video_url"
+      ? { message: "The video source could not be saved for offline downloads. Please update the video schema and try again." }
+      : result.error;
   if (error) console.error("Reel database insert failed", error);
   else rememberLocalMedia(mediaUrl, opts.fileUrl);
   return { error: error?.message ?? null };
@@ -1107,7 +1120,7 @@ export async function publishDirectReel(opts: {
     opts.file.name.split(".").pop()?.toLowerCase() ||
     "mp4";
   const path = `${uid}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${extension}`;
-  const { url: mediaUrl, error: uploadError } = await uploadWithProgress(
+  const { url: mediaUrl, storagePath, error: uploadError } = await uploadWithProgress(
     STORAGE_BUCKETS.reels,
     path,
     uploadBlob,
@@ -1115,8 +1128,9 @@ export async function publishDirectReel(opts: {
     (percent, detail) =>
       opts.onProgress?.(Math.min(88, 12 + Math.round(percent * 0.76)), detail),
     IMMUTABLE_MEDIA_CACHE_CONTROL,
+    { cloudflareStream: true, requireSignedURLs: false },
   );
-  if (uploadError || !mediaUrl) {
+  if (uploadError || !mediaUrl || !storagePath) {
     console.error("Direct reel storage upload failed", uploadError);
     return { error: uploadError ?? "Upload failed" };
   }
@@ -1133,13 +1147,14 @@ export async function publishDirectReel(opts: {
   }
   const thumbnailUrl = thumbnailUpload.url;
 
-  const { error } = await writeCompat(
+  const result = await writeCompat(
     (payload) => supabase.from("posts").insert(payload as never),
     {
       user_id: uid,
       kind: "reel",
       is_reel: true,
       media_url: mediaUrl,
+      video_url: `${STORAGE_BUCKETS.reels}/${storagePath}`,
       media_type: "video",
       thumbnail_url: thumbnailUrl,
       title: opts.title.trim(),
@@ -1159,7 +1174,12 @@ export async function publishDirectReel(opts: {
       ),
     },
     { kind: "type" },
+    ["video_url"],
   );
+  const error =
+    missingColumn(result.error) === "video_url"
+      ? { message: "The video source could not be saved for offline downloads. Please update the video schema and try again." }
+      : result.error;
   opts.onProgress?.(100);
   if (error) console.error("Direct reel database insert failed", error);
   return { error: error?.message ?? null };
@@ -1187,6 +1207,7 @@ export async function publishPost(opts: {
   if (!uid) return { error: "You need to sign in to create a post." };
 
   let mediaUrl = opts.fileUrl;
+  let uploadedSourcePath: string | null = null;
   let sourceBlob: Blob | null = opts.file ?? null;
   if (
     opts.mediaType === "video" &&
@@ -1232,7 +1253,7 @@ export async function publishPost(opts: {
       const uploadType = uploadBlob.type || type;
       const ext = uploadType.split("/")[1]?.split(";")[0] || (opts.mediaType === "video" ? "mp4" : "jpg");
       const path = `${uid}/post-${Date.now()}.${ext}`;
-      const { url, error: upErr } = await uploadWithProgress(
+      const { url, storagePath, error: upErr } = await uploadWithProgress(
         STORAGE_BUCKETS.videos,
         path,
         uploadBlob,
@@ -1241,12 +1262,19 @@ export async function publishPost(opts: {
           opts.mediaType === "video" ? 45 + Math.round(percent * 0.55) : percent,
         ),
         opts.mediaType === "video" ? IMMUTABLE_MEDIA_CACHE_CONTROL : undefined,
+        opts.mediaType === "video"
+          ? {
+              cloudflareStream: true,
+              requireSignedURLs: opts.audience === "close_friends",
+            }
+          : undefined,
       );
-      if (upErr || !url) {
+      if (upErr || !url || (opts.mediaType === "video" && !storagePath)) {
         console.error("Post storage upload failed", upErr);
         return { error: upErr ?? "Upload failed" };
       }
       mediaUrl = url;
+      uploadedSourcePath = storagePath ?? null;
     } catch (e) {
       console.error("Post upload preparation failed", e);
       return { error: e instanceof Error ? e.message : "Upload failed" };
@@ -1273,10 +1301,13 @@ export async function publishPost(opts: {
     thumbnailUrl = thumbnail.url;
   }
 
-  const { error } = await writeCompat((payload) => supabase.from("posts").insert(payload as never), {
+  const result = await writeCompat((payload) => supabase.from("posts").insert(payload as never), {
     user_id: uid,
     kind: "post",
     media_url: mediaUrl,
+    video_url: uploadedSourcePath
+      ? `${STORAGE_BUCKETS.videos}/${uploadedSourcePath}`
+      : null,
     media_type: opts.mediaType,
     thumbnail_url: thumbnailUrl,
     caption: opts.caption ?? "",
@@ -1286,7 +1317,12 @@ export async function publishPost(opts: {
     audience: opts.audience ?? "everyone",
     tagged_user_ids: [],
     viewer_user_ids: [],
-  }, { kind: "type" });
+  }, { kind: "type" }, uploadedSourcePath ? ["video_url"] : []);
+  const error =
+    uploadedSourcePath &&
+    missingColumn(result.error) === "video_url"
+      ? { message: "The video source could not be saved for offline downloads. Please update the video schema and try again." }
+      : result.error;
   if (error) console.error("Post database insert failed", error);
   else rememberLocalMedia(mediaUrl, opts.fileUrl);
   return { error: error?.message ?? null };

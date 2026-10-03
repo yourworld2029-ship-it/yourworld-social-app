@@ -59,6 +59,7 @@ import {
 } from "@/components/yw/SportsProfile";
 import { resolveMediaUrl, type DbPost } from "@/lib/social-data";
 import { buildWatchShareUrl } from "@/lib/watch-links";
+import { resolveAuthorizedOfflineSource } from "@/lib/video-media-api";
 import { removeDeletedPostFromQueryCaches } from "@/lib/post-deletion";
 import { STORAGE_BUCKETS } from "@/lib/storage-upload";
 import { useFollowCounts } from "@/lib/follow-data";
@@ -453,14 +454,22 @@ function ProfilePage() {
               downloadSourceQualityTier,
             )
           : null;
-      const mediaUrl =
-        selection?.usesVariant
-          ? await resolveMediaUrl(selection.url, mediaBucket)
-          : sourceMediaUrl;
-      if (!mediaUrl) throw new Error("This media file is unavailable");
+      if (!sourceMediaUrl) throw new Error("This media file is unavailable");
       if (choice !== "original" && choice !== "mp3" && !selection) {
         throw new Error("This media file is unavailable");
       }
+      const offlineSource = await resolveAuthorizedOfflineSource(
+        post.id,
+        (selection?.actualQuality ?? "original") as
+          | "original"
+          | "360p"
+          | "480p"
+          | "720p"
+          | "1080p"
+          | "1440p"
+          | "2160p",
+      );
+      const mediaUrl = offlineSource.url;
 
       const creatorName = profile.display_name || "YourWorld creator";
       const creatorUsername = profile.username || "creator";

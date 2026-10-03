@@ -235,7 +235,13 @@ async function uploadToStorage(
   ext: string,
   fallbackType: string,
   onProgress?: ProgressFn,
-): Promise<{ url: string; width: number | null; height: number | null } | null> {
+  requireSignedURLs = false,
+): Promise<{
+  url: string;
+  storagePath: string;
+  width: number | null;
+  height: number | null;
+} | null> {
   try {
     const blob = typeof source === "string"
       ? await (await fetch(source)).blob()
@@ -253,7 +259,7 @@ async function uploadToStorage(
       : blob;
     const outputExt = uploadBlob.type.includes("webm") ? "webm" : ext;
     const path = `${uid}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${outputExt}`;
-    const { url } = await uploadWithProgress(
+    const { url, storagePath } = await uploadWithProgress(
       STORAGE_BUCKETS.videos,
       path,
       uploadBlob,
@@ -262,8 +268,12 @@ async function uploadToStorage(
         blob.type.startsWith("video/") ? 45 + Math.round(percent * 0.55) : percent,
       ),
       IMMUTABLE_MEDIA_CACHE_CONTROL,
+      {
+        cloudflareStream: true,
+        requireSignedURLs,
+      },
     );
-    return url ? { url, width, height } : null;
+    return url && storagePath ? { url, storagePath, width, height } : null;
   } catch (error) {
     console.error("Video storage upload failed", error);
     return null;
@@ -376,12 +386,14 @@ export async function publishLongVideo(opts: {
   }
 
   let mediaUrl = opts.fileUrl;
+  let uploadedSourcePath: string | null = null;
   let uploadedWidth = opts.originalWidth ?? null;
   let uploadedHeight = opts.originalHeight ?? null;
   if (/^(blob:|data:)/.test(mediaUrl)) {
     // Reserve the last few percent for thumbnail, moderation, and database work.
     const up = await uploadToStorage(opts.file ?? mediaUrl, uid, "mp4", "video/mp4", (p) =>
       opts.onProgress?.(Math.min(97, Math.round(p * 0.97))),
+      (opts.access ?? "public") !== "public",
     );
     if (!up) {
       if (thumbnailUploadPromise) {
@@ -398,6 +410,7 @@ export async function publishLongVideo(opts: {
       return { error: "Video upload failed. Please try again." };
     }
     mediaUrl = up.url;
+    uploadedSourcePath = up.storagePath;
     uploadedWidth = up.width ?? uploadedWidth;
     uploadedHeight = up.height ?? uploadedHeight;
   }
@@ -457,6 +470,9 @@ export async function publishLongVideo(opts: {
         user_id: uid,
         kind: "video",
         media_url: mediaUrl,
+        video_url: uploadedSourcePath
+          ? `${STORAGE_BUCKETS.videos}/${uploadedSourcePath}`
+          : null,
         media_type: "video",
         title: opts.title.trim(),
         caption: opts.description ?? "",
@@ -483,8 +499,13 @@ export async function publishLongVideo(opts: {
         viewer_user_ids: [],
       },
       { kind: "type", video_access: "audience" },
+      uploadedSourcePath ? ["video_url"] : [],
     );
-    if (
+    if (uploadedSourcePath && missingColumn(result.error) === "video_url") {
+      insertError = {
+        message: "The video source could not be saved for downloads. Please try again after the video schema update is available.",
+      };
+    } else if (
       !result.error &&
       opts.access &&
       opts.access !== "public" &&

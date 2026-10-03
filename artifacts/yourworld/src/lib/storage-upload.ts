@@ -8,6 +8,10 @@ import { uploadLargeStorageObjectWithTus } from "@/lib/storage-upload-tus";
 import { shouldUseResumableStorageUpload } from "@/lib/storage-upload-tus-utils";
 
 export type ProgressFn = (percent: number, detail?: string) => void;
+export type VideoStreamUploadOptions = {
+  cloudflareStream?: boolean;
+  requireSignedURLs?: boolean;
+};
 
 export const STORAGE_BUCKETS = {
   videos: "videos",
@@ -78,9 +82,14 @@ export async function uploadWithProgress(
   contentType: string,
   onProgress?: ProgressFn,
   cacheControl = "3600",
+  options: VideoStreamUploadOptions = {},
 ): Promise<{ url: string | null; storagePath: string | null; error: string | null }> {
   const needsFastStart =
     contentType.toLowerCase().startsWith("video/") && FASTSTART_BUCKETS.has(bucket);
+  const needsCloudflareStream =
+    options.cloudflareStream === true &&
+    contentType.toLowerCase().startsWith("video/") &&
+    (bucket === STORAGE_BUCKETS.videos || bucket === STORAGE_BUCKETS.reels);
   if (getAdaptivePerformanceSnapshot().networkQuality === "offline") {
     const error = "You appear to be offline. Reconnect and try again.";
     console.error(`Direct storage upload failed for ${bucket}/${path}: ${error}`);
@@ -113,6 +122,7 @@ export async function uploadWithProgress(
   }
 
   let finalPath = path;
+  let streamPlaybackUrl: string | null = null;
   if (needsFastStart) {
     onProgress?.(97, "Preparing video for playback");
     let response: Response;
@@ -123,7 +133,12 @@ export async function uploadWithProgress(
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ bucket, path }),
+        body: JSON.stringify({
+          bucket,
+          path,
+          cloudflareStream: needsCloudflareStream,
+          requireSignedURLs: options.requireSignedURLs ?? true,
+        }),
       });
     } catch (error) {
       const message = readableUploadError(error);
@@ -149,16 +164,33 @@ export async function uploadWithProgress(
       console.warn("Transcode skipped or incomplete, using original upload path:", path);
       finalPath = path;
     }
+    if (needsCloudflareStream && (
+      typeof responseData?.streamUid !== "string" ||
+      typeof responseData?.playbackUrl !== "string"
+    )) {
+      return {
+        url: null,
+        storagePath: null,
+        error: "The video was processed but Cloudflare Stream did not return a playback source.",
+      };
+    }
+    if (needsCloudflareStream) {
+      streamPlaybackUrl = responseData?.playbackUrl as string;
+    }
   }
 
-  const { data: signed, error: signError } = await supabase.storage
-    .from(bucket)
-    .createSignedUrl(finalPath, 60 * 60 * 24 * 365);
-  if (signError || !signed?.signedUrl) {
-    const error =
-      signError?.message ?? "Upload completed, but the media URL could not be created.";
-    console.error(`Failed to sign uploaded media ${bucket}/${finalPath}: ${error}`, signError);
-    return { url: null, storagePath: null, error };
+  let signedUrl: string | null = null;
+  if (!needsCloudflareStream) {
+    const { data: signed, error: signError } = await supabase.storage
+      .from(bucket)
+      .createSignedUrl(finalPath, 60 * 60 * 24 * 365);
+    if (signError || !signed?.signedUrl) {
+      const error =
+        signError?.message ?? "Upload completed, but the media URL could not be created.";
+      console.error(`Failed to sign uploaded media ${bucket}/${finalPath}: ${error}`, signError);
+      return { url: null, storagePath: null, error };
+    }
+    signedUrl = signed.signedUrl;
   }
   if (finalPath !== path) {
     const { error: removeError } = await supabase.storage.from(bucket).remove([path]);
@@ -167,7 +199,11 @@ export async function uploadWithProgress(
     }
   }
   onProgress?.(100);
-  return { url: signed.signedUrl, storagePath: finalPath, error: null };
+  return {
+    url: streamPlaybackUrl ?? signedUrl,
+    storagePath: finalPath,
+    error: null,
+  };
 }
 
 export async function uploadSourceWithProgress(

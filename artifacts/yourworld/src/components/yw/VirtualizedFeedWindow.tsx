@@ -27,7 +27,10 @@ export function VirtualizedFeedWindow<T extends FeedWindowItem>({
 }: VirtualizedFeedWindowProps<T>) {
   const [ready, setReady] = useState(false);
   const [centerKey, setCenterKey] = useState<string | null>(null);
+  const [scrollDirection, setScrollDirection] = useState<1 | -1>(1);
   const [, setHeightVersion] = useState(0);
+  const centerKeyRef = useRef<string | null>(null);
+  const centerIndexRef = useRef<number | null>(null);
   const rowElements = useRef(new Map<string, HTMLDivElement>());
   const rowCallbacks = useRef(new Map<string, RefCallback<HTMLDivElement>>());
   const heights = useRef(new Map<string, number>());
@@ -40,8 +43,8 @@ export function VirtualizedFeedWindow<T extends FeedWindowItem>({
   const centerIndex = centerKey === null ? 0 : itemIndices.get(centerKey) ?? 0;
   const pinnedIndex = pinnedKey === null ? null : itemIndices.get(pinnedKey) ?? null;
   const visibleIndices = useMemo(
-    () => new Set(getFeedWindowIndices(items.length, centerIndex, pinnedIndex)),
-    [centerIndex, items.length, pinnedIndex],
+    () => new Set(getFeedWindowIndices(items.length, centerIndex, pinnedIndex, scrollDirection)),
+    [centerIndex, items.length, pinnedIndex, scrollDirection],
   );
 
   const recordHeight = useCallback((key: string, element: HTMLDivElement, adjustScroll: boolean) => {
@@ -83,11 +86,33 @@ export function VirtualizedFeedWindow<T extends FeedWindowItem>({
     return callback;
   }, []);
 
+  const moveCenterTo = useCallback((key: string | null) => {
+    if (!key) return;
+    const nextIndex = itemIndices.get(key);
+    if (nextIndex !== undefined) {
+      const previousIndex = centerIndexRef.current;
+      if (previousIndex !== null && previousIndex !== nextIndex) {
+        setScrollDirection(nextIndex > previousIndex ? 1 : -1);
+      }
+      centerIndexRef.current = nextIndex;
+    }
+    centerKeyRef.current = key;
+    setCenterKey((current) => current === key ? current : key);
+  }, [itemIndices]);
+
   useEffect(() => {
     const scrollContainer = getAppScrollContainer();
     const viewportTop = scrollContainer?.getBoundingClientRect().top ?? 0;
     const viewportHeight = scrollContainer?.clientHeight ?? window.innerHeight;
     const liveKeys = new Set(items.map((item) => item.key));
+    const currentKey = centerKeyRef.current;
+    const currentCenterIndex = currentKey === null ? undefined : itemIndices.get(currentKey);
+    if (currentCenterIndex !== undefined) centerIndexRef.current = currentCenterIndex;
+    else if (currentKey !== null) {
+      centerKeyRef.current = null;
+      centerIndexRef.current = null;
+      setCenterKey(null);
+    }
     for (const key of heights.current.keys()) {
       if (!liveKeys.has(key)) heights.current.delete(key);
     }
@@ -114,7 +139,7 @@ export function VirtualizedFeedWindow<T extends FeedWindowItem>({
       }
     }
 
-    if (closestKey) setCenterKey((current) => current ?? closestKey);
+    if (closestKey) moveCenterTo(centerKeyRef.current ?? closestKey);
     setReady(true);
 
     if (typeof ResizeObserver !== "undefined") {
@@ -145,7 +170,7 @@ export function VirtualizedFeedWindow<T extends FeedWindowItem>({
           nearestDistance = distance;
         }
       }
-      if (nearestKey) setCenterKey((current) => current === nearestKey ? current : nearestKey);
+      moveCenterTo(nearestKey);
     };
 
     if (typeof IntersectionObserver !== "undefined") {
@@ -182,7 +207,7 @@ export function VirtualizedFeedWindow<T extends FeedWindowItem>({
             nearestDistance = distance;
           }
         }
-        if (nearestKey) setCenterKey((current) => current === nearestKey ? current : nearestKey);
+        moveCenterTo(nearestKey);
       };
       const onScroll = () => {
         if (frame) return;
@@ -207,7 +232,7 @@ export function VirtualizedFeedWindow<T extends FeedWindowItem>({
       resizeObserver.current?.disconnect();
       resizeObserver.current = null;
     };
-  }, [items, recordHeight]);
+  }, [itemIndices, items, moveCenterTo, recordHeight]);
 
   return (
     <>

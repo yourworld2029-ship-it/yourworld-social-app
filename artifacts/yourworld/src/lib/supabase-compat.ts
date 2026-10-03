@@ -47,6 +47,7 @@ export async function writeCompat(
   write: (payload: Record<string, unknown>) => PromiseLike<{ error: DbError | null }>,
   initial: Record<string, unknown>,
   aliases: Record<string, string> = {},
+  requiredColumns: readonly string[] = [],
 ) {
   const payload = { ...initial };
   const removed = new Set<string>();
@@ -57,6 +58,9 @@ export async function writeCompat(
 
     const column = missingColumn(result.error);
     if (!column || removed.has(column) || !(column in payload)) {
+      return { ...result, removedColumns: [...removed] };
+    }
+    if (requiredColumns.includes(column)) {
       return { ...result, removedColumns: [...removed] };
     }
     removed.add(column);

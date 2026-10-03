@@ -2,14 +2,16 @@ export function getFeedWindowIndices(
   itemCount: number,
   anchorIndex: number,
   pinnedIndex: number | null = null,
+  direction: 1 | -1 = 1,
 ) {
   if (itemCount <= 0) return [];
 
   const anchor = Math.min(itemCount - 1, Math.max(0, anchorIndex));
   const indices = new Set<number>();
-  for (let index = Math.max(0, anchor - 1); index <= Math.min(itemCount - 1, anchor + 1); index += 1) {
-    indices.add(index);
-  }
+  indices.add(anchor);
+
+  const adjacent = anchor + direction;
+  if (adjacent >= 0 && adjacent < itemCount) indices.add(adjacent);
 
   if (
     pinnedIndex !== null &&
@@ -17,7 +19,11 @@ export function getFeedWindowIndices(
     pinnedIndex >= 0 &&
     pinnedIndex < itemCount
   ) {
-    indices.add(pinnedIndex);
+    if (indices.size < 2 || indices.has(pinnedIndex)) {
+      indices.add(pinnedIndex);
+    } else {
+      return [anchor, pinnedIndex].sort((a, b) => a - b);
+    }
   }
 
   return [...indices].sort((a, b) => a - b);

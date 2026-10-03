@@ -1,4 +1,4 @@
-import { Capacitor } from "@capacitor/core";
+import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import { Directory, Encoding, Filesystem } from "@capacitor/filesystem";
 import { Preferences } from "@capacitor/preferences";
 import type { OfflineVideo } from "@/lib/offlineVideosDB";
@@ -11,6 +11,29 @@ const REGISTRY_FILE_NAME = "registry.json";
 const REGISTRY_FILE_PATH = `${ROOT_DIRECTORY}/${REGISTRY_FILE_NAME}`;
 const WRITE_CHUNK_BYTES = 1024 * 1024;
 const MAX_THUMBNAIL_BYTES = 4 * 1024 * 1024;
+
+type NativeDownloadProgress = {
+  transferId: string;
+  bytesTransferred: number;
+  totalBytes: number;
+  stage: "ranges" | "fallback" | "full-get" | "complete";
+};
+
+type NativeOfflineDownloadPlugin = {
+  download(options: {
+    url: string;
+    path: string;
+    transferId: string;
+  }): Promise<{ sizeBytes: number }>;
+  addListener(
+    eventName: "progress",
+    listener: (event: NativeDownloadProgress) => void,
+  ): Promise<PluginListenerHandle>;
+};
+
+const NativeOfflineDownload = registerPlugin<NativeOfflineDownloadPlugin>(
+  "OfflineMediaDownload",
+);
 
 export type NativeOfflineVideo = OfflineVideo & {
   id: string;
@@ -420,21 +443,43 @@ export async function downloadNativeOfflineVideoFromUrl(
     normalizedRecord.quality,
     normalizedRecord.ownerId,
   ));
-  const listener = await Filesystem.addListener("progress", (progress) => {
-    if (progress.url === sourceUrl) {
-      onProgress?.(progress.bytes, progress.contentLength);
-    }
-  });
+  const transferId = `offline-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  let nativeListener: PluginListenerHandle | null = null;
+  let filesystemListener: PluginListenerHandle | null = null;
+  let lastBytesTransferred = 0;
 
   try {
     await ensureParentDirectory(paths.localFilePath);
-    await Filesystem.downloadFile({
-      url: sourceUrl,
-      path: paths.localFilePath,
-      directory: Directory.Data,
-      progress: true,
-      recursive: true,
-    });
+    try {
+      nativeListener = await NativeOfflineDownload.addListener("progress", (progress) => {
+        if (progress.transferId !== transferId) return;
+        if (progress.stage === "fallback") lastBytesTransferred = 0;
+        else lastBytesTransferred = Math.max(lastBytesTransferred, progress.bytesTransferred);
+        onProgress?.(lastBytesTransferred, progress.totalBytes);
+      });
+      await NativeOfflineDownload.download({
+        url: sourceUrl,
+        path: paths.localFilePath,
+        transferId,
+      });
+    } catch (nativeError) {
+      console.warn("Native range download failed; retrying as one file request.", nativeError);
+      await nativeListener?.remove().catch(() => undefined);
+      nativeListener = null;
+      await removeFile(paths.localFilePath);
+      filesystemListener = await Filesystem.addListener("progress", (progress) => {
+        if (progress.url === sourceUrl) {
+          onProgress?.(progress.bytes, progress.contentLength);
+        }
+      });
+      await Filesystem.downloadFile({
+        url: sourceUrl,
+        path: paths.localFilePath,
+        directory: Directory.Data,
+        progress: true,
+        recursive: true,
+      });
+    }
 
     const savedFile = await Filesystem.stat({
       path: paths.localFilePath,
@@ -463,7 +508,8 @@ export async function downloadNativeOfflineVideoFromUrl(
     await removeFile(paths.localFilePath);
     throw error;
   } finally {
-    await listener.remove().catch(() => undefined);
+    await nativeListener?.remove().catch(() => undefined);
+    await filesystemListener?.remove().catch(() => undefined);
   }
 }
 

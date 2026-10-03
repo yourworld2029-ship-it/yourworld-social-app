@@ -203,7 +203,11 @@ async function main() {
   const hash = createHash("sha256").update(await readFile(outputPath)).digest("hex");
   console.log(`Verified APK: ${outputPath}`);
   console.log(`Build ID: ${timestamp}; versionCode: ${versionCode}; sha256: ${hash}`);
-  await pruneStagedApks();
+  if (process.env.KEEP_OLD_APKS === "1") {
+    console.log("Preserving older staged APKs because KEEP_OLD_APKS=1.");
+  } else {
+    await pruneStagedApks();
+  }
 }
 
 main().catch((error) => {

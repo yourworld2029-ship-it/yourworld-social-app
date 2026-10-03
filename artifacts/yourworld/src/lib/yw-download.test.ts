@@ -16,22 +16,22 @@ test("Reel watermark text uses the creator handle exactly once", () => {
   assert.equal(reelWatermarkText(""), "YourWorld • @user");
 });
 
-test("native offline video files use flat, ID-based app data paths", () => {
+test("native offline video files stay under the ID-based app data folder", () => {
   assert.deepEqual(nativeOfflinePathsForVideo("video-123"), {
-    localFilePath: "offline_video-123_original.mp4",
-    thumbnailPath: "offline_video-123_original-thumbnail",
+    localFilePath: "device_offline_videos/offline_video-123_original.mp4",
+    thumbnailPath: "device_offline_videos/offline_video-123_original-thumbnail",
   });
   assert.equal(
     nativeOfflinePathsForVideo("video/../123", "720p", "user/1").localFilePath,
-    "offline_video%2F%2E%2E%2F123_720p_user%2F1.mp4",
+    "device_offline_videos/offline_video%2F%2E%2E%2F123_720p_user%2F1.mp4",
   );
   assert.equal(
     nativeOfflinePathsForVideo("video-123", "360p", "user-1").localFilePath,
-    "offline_video-123_360p_user-1.mp4",
+    "device_offline_videos/offline_video-123_360p_user-1.mp4",
   );
   assert.equal(
     nativeOfflinePathsForVideo("video-123", "720p", "user-1", "video/webm").localFilePath,
-    "offline_video-123_720p_user-1.webm",
+    "device_offline_videos/offline_video-123_720p_user-1.webm",
   );
 });
 

@@ -4,6 +4,7 @@ import {
   outputSizeForQuality,
   qualityTierForOutput,
   selectSupportedRecorderMimeType,
+  VIDEO_UPLOAD_BITRATE,
 } from "./video-compression";
 
 test("prefers compatible MP4 recording and falls back to AV1 or WebM", () => {
@@ -33,4 +34,8 @@ test("quality conversion downsizes without upscaling the source", () => {
   );
   assert.equal(qualityTierForOutput(640, 360, "1080p"), "360p");
   assert.equal(qualityTierForOutput(3840, 2160, "1080p"), "1080p");
+});
+
+test("upload optimization targets 2500 kbps video before audio overhead", () => {
+  assert.equal(VIDEO_UPLOAD_BITRATE, 2_500_000);
 });

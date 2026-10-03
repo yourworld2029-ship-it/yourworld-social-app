@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import Hls from "hls.js";
 import {
   Heart,
   MessageCircle,
@@ -31,6 +32,10 @@ import { CommentsSheet } from "@/components/yw/CommentsSheet";
 import { useAuth, useResumeAuthAction } from "@/lib/auth-store";
 import { formatCount, type Reel, type User } from "@/lib/yw-data";
 import { getLocalMedia, resolveMediaUrl, timeAgo, useSocialPosts } from "@/lib/social-data";
+import {
+  resolveAuthorizedOfflineSource,
+  resolveAuthorizedPlaybackUrl,
+} from "@/lib/video-media-api";
 import { useDoubleTapLike, useYw } from "@/lib/yw-store";
 import {
   downloadVideoForOfflineInBackground,
@@ -49,7 +54,6 @@ import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadShee
 import {
   qualityTierFromDimensions,
   qualityTierFromSourceMetadata,
-  resolveVideoDownloadSelection,
   type VideoQualityTier,
 } from "@/lib/video-quality";
 import { trackEvent } from "@/lib/analytics";
@@ -385,6 +389,10 @@ function firstFrameUrl(url: string) {
   return `${url.split("#", 1)[0]}#t=1`;
 }
 
+function isHlsManifestUrl(url: string) {
+  return /\.m3u8(?:[?#]|$)/i.test(url);
+}
+
 function formatTime(value: number) {
   const totalSeconds = Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
   const minutes = Math.floor(totalSeconds / 60);
@@ -399,6 +407,7 @@ function formatTime(value: number) {
  * to an image.
  */
 function ReelMedia({
+  postId,
   url,
   type,
   alt,
@@ -412,6 +421,7 @@ function ReelMedia({
   onEnded,
   bucket = "reels",
 }: {
+  postId: string;
   url: string;
   type: string;
   alt: string;
@@ -488,6 +498,9 @@ function ReelMedia({
   }, [bucket, src, url]);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const hlsRef = useRef<Hls | null>(null);
+  const pausedRef = useRef(paused);
+  const isHlsManifest = isHlsManifestUrl(src);
   const setVideoRef = useCallback((element: HTMLVideoElement | null) => {
     const previous = videoRef.current;
     if (!element && previous) {
@@ -497,6 +510,75 @@ function ReelMedia({
     videoRef.current = element;
     mediaRef.current = element;
   }, [mediaRef]);
+  useEffect(() => {
+    pausedRef.current = paused;
+  }, [paused]);
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || asImage || !isHlsManifest || !active) return;
+    let alive = true;
+    let hls: Hls | null = null;
+    let retriedAuthorization = false;
+    video.removeAttribute("src");
+    video.load();
+
+    const failToPoster = () => {
+      if (!alive) return;
+      setAsImage(true);
+      setMediaFailed(true);
+    };
+    const startPlayback = async () => {
+      const playbackUrl = await resolveAuthorizedPlaybackUrl(postId, src);
+      if (!alive) return;
+      if (Hls.isSupported()) {
+        hls = new Hls({
+          enableWorker: true,
+          maxBufferLength: 10,
+          maxMaxBufferLength: 20,
+          backBufferLength: 0,
+          maxBufferSize: 8 * 1024 * 1024,
+        });
+        hlsRef.current = hls;
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          if (active && !pausedRef.current) {
+            void video.play().catch(() => undefined);
+          }
+        });
+        hls.on(Hls.Events.ERROR, (_event, data) => {
+          if (!data.fatal || !alive || !hls) return;
+          if (!retriedAuthorization) {
+            retriedAuthorization = true;
+            void resolveAuthorizedPlaybackUrl(postId, src)
+              .then((freshUrl) => {
+                if (alive && hls) hls.loadSource(freshUrl);
+              })
+              .catch(failToPoster);
+          } else {
+            failToPoster();
+          }
+        });
+        hls.loadSource(playbackUrl);
+        hls.attachMedia(video);
+      } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+        video.src = playbackUrl;
+        video.load();
+        if (active && !paused) void video.play().catch(() => undefined);
+      } else {
+        failToPoster();
+      }
+    };
+
+    void startPlayback().catch(failToPoster);
+    return () => {
+      alive = false;
+      if (hlsRef.current === hls) hlsRef.current = null;
+      hls?.destroy();
+      video.pause();
+      video.removeAttribute("src");
+      video.load();
+    };
+  }, [active, asImage, isHlsManifest, postId, src]);
+
   useEffect(() => {
     const v = videoRef.current;
     if (!v || asImage) return;
@@ -555,7 +637,8 @@ function ReelMedia({
     <div ref={(node) => { posterImage.ref.current = node; }} className="relative h-full w-full">
       <video
         ref={setVideoRef}
-        src={posterSrc ? src : firstFrameUrl(src)}
+        src={isHlsManifest ? undefined : posterSrc ? src : firstFrameUrl(src)}
+        crossOrigin="anonymous"
         poster={posterImage.source ?? VIDEO_POSTER_FALLBACK}
         playsInline
         muted={muted || !active}
@@ -969,7 +1052,6 @@ function ReelItem({
       setDownloadOpen(true);
       return;
     }
-    const source = mediaUrl ?? reel.poster;
     const creatorUsername = author?.username?.trim().replace(/^@+/, "") || "user";
     const toastId = toast.loading(
       isVideo
@@ -984,19 +1066,13 @@ function ReelItem({
       if (isVideo) {
         const selectedTier: VideoQualityTier | undefined =
           choice && choice !== "original" && choice !== "mp3" ? choice : undefined;
-        const selection = selectedTier
-          ? resolveVideoDownloadSelection(
-              selectedTier,
-              source,
-              reel.qualityUrls,
-              reel.sourceQualityTier,
-            )
-          : null;
-        const selectedUrl = selection?.usesVariant ? selection.url : source;
-        const playableUrl =
-          getLocalMedia(selectedUrl) ??
-          await resolveMediaUrl(selectedUrl, mediaBucket ?? "reels");
-        if (!playableUrl) throw new Error("This video is unavailable for download");
+        const requestedQuality =
+          selectedTier === "4320p" ? "2160p" : selectedTier ?? "original";
+        const offlineSource = await resolveAuthorizedOfflineSource(
+          reel.id,
+          requestedQuality,
+        );
+        const playableUrl = offlineSource.url;
         const baseName = sanitizeDownloadName(reel.caption, `yw-reel-${reel.id}`);
         const resolvedThumbnailUrl = reel.thumbnailUrl
           ? await resolveMediaUrl(reel.thumbnailUrl, mediaBucket ?? "reels")
@@ -1013,7 +1089,7 @@ function ReelItem({
           durationSeconds: reel.durationSeconds,
           thumbnailUrl: resolvedThumbnailUrl,
           posterUrl: resolvedThumbnailUrl,
-          quality: selectedTier ?? "original",
+          quality: (selectedTier ?? offlineSource.actualQuality) as DownloadedVideoMetadata["quality"],
         };
         if (choice === "mp3") {
           await downloadAudioOnly(playableUrl, baseName, (percent) => {
@@ -1031,7 +1107,9 @@ function ReelItem({
             downloadMetadata,
             {
               targetQuality: selectedTier,
-              transcodeSource: Boolean(selectedTier && !selection?.usesVariant),
+              transcodeSource: Boolean(
+                selectedTier && offlineSource.actualQuality !== selectedTier,
+              ),
             },
           );
           trackEvent("reel_downloaded", {
@@ -1139,6 +1217,7 @@ function ReelItem({
         onPointerLeave={releasePointer}
       >
         <ReelMedia
+            postId={reel.id}
           url={mediaUrl ?? reel.poster}
           type={mediaType ?? "image"}
           alt={reel.caption}

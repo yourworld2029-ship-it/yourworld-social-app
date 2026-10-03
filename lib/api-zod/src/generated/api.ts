@@ -27,13 +27,52 @@ export const transcodeVideoBodyPathMax = 512;
 
 export const TranscodeVideoBody = zod.object({
   "bucket": zod.enum(['videos', 'reels', 'moments']),
-  "path": zod.string().min(transcodeVideoBodyPathMin).max(transcodeVideoBodyPathMax)
+  "path": zod.string().min(transcodeVideoBodyPathMin).max(transcodeVideoBodyPathMax),
+  "cloudflareStream": zod.boolean().optional(),
+  "requireSignedURLs": zod.boolean().optional()
 })
 
 export const TranscodeVideoResponse = zod.object({
   "path": zod.string(),
   "contentType": zod.literal("video/mp4"),
-  "faststart": zod.boolean()
+  "faststart": zod.boolean(),
+  "streamUid": zod.string().nullable(),
+  "playbackUrl": zod.string().nullable()
+})
+
+
+/**
+ * @summary Resolve a protected Stream video after checking access
+ */
+export const getMediaPlaybackUrlBodyPostIdMax = 128;
+
+
+
+export const GetMediaPlaybackUrlBody = zod.object({
+  "postId": zod.string().min(1).max(getMediaPlaybackUrlBodyPostIdMax),
+  "quality": zod.enum(['original', '360p', '480p', '720p', '1080p', '1440p', '2160p']).optional()
+})
+
+export const GetMediaPlaybackUrlResponse = zod.object({
+  "url": zod.string()
+})
+
+
+/**
+ * @summary Resolve the retained MP4 source after checking access
+ */
+export const getVideoOfflineSourceBodyPostIdMax = 128;
+
+
+
+export const GetVideoOfflineSourceBody = zod.object({
+  "postId": zod.string().min(1).max(getVideoOfflineSourceBodyPostIdMax),
+  "quality": zod.enum(['original', '360p', '480p', '720p', '1080p', '1440p', '2160p']).optional()
+})
+
+export const GetVideoOfflineSourceResponse = zod.object({
+  "url": zod.string(),
+  "actualQuality": zod.enum(['original', '360p', '480p', '720p', '1080p', '1440p', '2160p'])
 })
 
 

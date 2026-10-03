@@ -7,6 +7,7 @@ import {
 
 const OPTIMIZING_LABEL = "Preparing optimized video...";
 const UPLOAD_MAX_TIER: VideoQualityTier = "1080p";
+export const VIDEO_UPLOAD_BITRATE = 2_500_000;
 
 const RECORDER_MIME_CANDIDATES = [
   'video/mp4;codecs="avc1.640028"',
@@ -118,9 +119,11 @@ export function outputSizeForQuality(
   return outputSize(metadata, definition.shortSide);
 }
 
-function targetBitrates(tier: VideoQualityTier) {
+function targetBitrates(tier: VideoQualityTier, videoBitrateOverride?: number) {
   const videoBitsPerSecond =
-    VIDEO_QUALITY_TIERS.find((candidate) => candidate.id === tier)?.bitrate ?? 5_000_000;
+    videoBitrateOverride ??
+    VIDEO_QUALITY_TIERS.find((candidate) => candidate.id === tier)?.bitrate ??
+    5_000_000;
   return {
     videoBitsPerSecond,
     audioBitsPerSecond: 128_000,
@@ -136,6 +139,7 @@ function encodeVideo(
   bitrateFactor: number,
   size: { width: number; height: number },
   onProgress?: ProgressFn,
+  videoBitrateOverride?: number,
 ) {
   return new Promise<Blob>((resolve, reject) => {
     const video = document.createElement("video");
@@ -175,7 +179,7 @@ function encodeVideo(
       return;
     }
 
-    const target = targetBitrates(tier);
+    const target = targetBitrates(tier, videoBitrateOverride);
     const audioBitsPerSecond = Math.floor(target.audioBitsPerSecond * bitrateFactor);
     const videoBitsPerSecond = Math.floor(target.videoBitsPerSecond * bitrateFactor);
     let tracks: MediaStreamTrack[] = [];
@@ -292,7 +296,7 @@ export async function optimizeVideoBlob(
   if (!targetTier) return source;
   const targetSize = outputSizeForQuality(metadata, targetTier);
   const outputMetadata = { ...metadata, ...targetSize };
-  const target = targetBitrates(targetTier);
+  const target = targetBitrates(targetTier, VIDEO_UPLOAD_BITRATE);
   const shouldDownscale = targetSize.width < metadata.width || targetSize.height < metadata.height;
   const shouldCompress =
     shouldDownscale ||
@@ -313,6 +317,7 @@ export async function optimizeVideoBlob(
       1,
       targetSize,
       (percent) => onProgress?.(percent, `${OPTIMIZING_LABEL} ${percent}%`),
+      VIDEO_UPLOAD_BITRATE,
     );
     if (optimized.size >= source.size * 0.9) return source;
     onOutputDimensions?.(targetSize);

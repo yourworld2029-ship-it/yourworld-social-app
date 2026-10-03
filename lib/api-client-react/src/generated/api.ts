@@ -29,6 +29,9 @@ import type {
   PostPinInput,
   PostPinResponse,
   PublicLiveStream,
+  VideoOfflineSourceResponse,
+  VideoPlaybackInput,
+  VideoPlaybackResponse,
   VideoTranscodeInput,
   VideoTranscodeResponse
 } from './api.schemas';
@@ -207,6 +210,148 @@ export const useTranscodeVideo = <TError = ErrorType<ApiError>,
         TContext
       > => {
       return useMutation(getTranscodeVideoMutationOptions(options));
+    }
+
+export const getGetMediaPlaybackUrlUrl = () => {
+
+
+
+
+  return `/api/media/playback-url`
+}
+
+/**
+ * @summary Resolve a protected Stream video after checking access
+ */
+export const getMediaPlaybackUrl = async (videoPlaybackInput: VideoPlaybackInput, options?: Parameters<typeof customFetch>[1]): Promise<VideoPlaybackResponse> => {
+
+  return customFetch<VideoPlaybackResponse>(getGetMediaPlaybackUrlUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(videoPlaybackInput)
+  }
+);}
+
+
+
+
+
+export const getGetMediaPlaybackUrlMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof getMediaPlaybackUrl>>, TError,{data: BodyType<VideoPlaybackInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof getMediaPlaybackUrl>>, TError,{data: BodyType<VideoPlaybackInput>}, TContext> => {
+
+const mutationKey = ['getMediaPlaybackUrl'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof getMediaPlaybackUrl>>, {data: BodyType<VideoPlaybackInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  getMediaPlaybackUrl(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type GetMediaPlaybackUrlMutationResult = NonNullable<Awaited<ReturnType<typeof getMediaPlaybackUrl>>>
+    export type GetMediaPlaybackUrlMutationBody = BodyType<VideoPlaybackInput>
+    export type GetMediaPlaybackUrlMutationError = ErrorType<ApiError>
+
+    /**
+ * @summary Resolve a protected Stream video after checking access
+ */
+export const useGetMediaPlaybackUrl = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof getMediaPlaybackUrl>>, TError,{data: BodyType<VideoPlaybackInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof getMediaPlaybackUrl>>,
+        TError,
+        {data: BodyType<VideoPlaybackInput>},
+        TContext
+      > => {
+      return useMutation(getGetMediaPlaybackUrlMutationOptions(options));
+    }
+
+export const getGetVideoOfflineSourceUrl = () => {
+
+
+
+
+  return `/api/media/offline-source`
+}
+
+/**
+ * @summary Resolve the retained MP4 source after checking access
+ */
+export const getVideoOfflineSource = async (videoPlaybackInput: VideoPlaybackInput, options?: Parameters<typeof customFetch>[1]): Promise<VideoOfflineSourceResponse> => {
+
+  return customFetch<VideoOfflineSourceResponse>(getGetVideoOfflineSourceUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(videoPlaybackInput)
+  }
+);}
+
+
+
+
+
+export const getGetVideoOfflineSourceMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof getVideoOfflineSource>>, TError,{data: BodyType<VideoPlaybackInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof getVideoOfflineSource>>, TError,{data: BodyType<VideoPlaybackInput>}, TContext> => {
+
+const mutationKey = ['getVideoOfflineSource'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof getVideoOfflineSource>>, {data: BodyType<VideoPlaybackInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  getVideoOfflineSource(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type GetVideoOfflineSourceMutationResult = NonNullable<Awaited<ReturnType<typeof getVideoOfflineSource>>>
+    export type GetVideoOfflineSourceMutationBody = BodyType<VideoPlaybackInput>
+    export type GetVideoOfflineSourceMutationError = ErrorType<ApiError>
+
+    /**
+ * @summary Resolve the retained MP4 source after checking access
+ */
+export const useGetVideoOfflineSource = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof getVideoOfflineSource>>, TError,{data: BodyType<VideoPlaybackInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof getVideoOfflineSource>>,
+        TError,
+        {data: BodyType<VideoPlaybackInput>},
+        TContext
+      > => {
+      return useMutation(getGetVideoOfflineSourceMutationOptions(options));
     }
 
 export const getSetPostPinUrl = (postId: string,) => {

@@ -20,7 +20,10 @@ import {
 } from "@/lib/yw-download";
 import { useAuth, useResumeAuthAction } from "@/lib/auth-store";
 import { useYw } from "@/lib/yw-store";
-import { resolveMediaUrl } from "@/lib/social-data";
+import {
+  resolveAuthorizedOfflineSource,
+  resolveAuthorizedPlaybackUrl,
+} from "@/lib/video-media-api";
 import {
   VIDEO_QUALITY_TIERS,
   resolveVideoDownloadSelection,
@@ -60,6 +63,19 @@ function readQualityMediaUrls(row: Record<string, unknown>): DownloadQualityUrls
   return Object.keys(qualityMediaUrls).length ? qualityMediaUrls : null;
 }
 
+function isCloudflareStreamManifest(value: string) {
+  try {
+    const url = new URL(value);
+    return (
+      (url.hostname === "videodelivery.net" ||
+        url.hostname.endsWith(".cloudflarestream.com")) &&
+      url.pathname.includes("/manifest/video.m3u8")
+    );
+  } catch {
+    return false;
+  }
+}
+
 export const Route = createFileRoute("/video/$videoId")({
   component: VideoRouteComponent,
 });
@@ -84,6 +100,7 @@ async function loadVideoForPlayback(videoId: string): Promise<VideoRouteData> {
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
   if (sessionError) throw sessionError;
   const user = sessionData.session?.user;
+  const accessToken = sessionData.session?.access_token;
   const isOwner = user?.id === video.userId;
   const requiresGrant =
     video.access !== "public" ||
@@ -112,7 +129,16 @@ async function loadVideoForPlayback(videoId: string): Promise<VideoRouteData> {
     }
   }
 
-  const url = await resolveLongVideoUrl(video.mediaUrl);
+  let url: string | null;
+  if (isCloudflareStreamManifest(video.mediaUrl)) {
+    if (!accessToken) {
+      url = video.mediaUrl;
+    } else {
+      url = await resolveAuthorizedPlaybackUrl(video.id);
+    }
+  } else {
+    url = await resolveLongVideoUrl(video.mediaUrl);
+  }
   if (!url || !isPlayableMediaUrl(url)) {
     throw new Error("The video source is not available.");
   }
@@ -392,10 +418,22 @@ function VideoRouteComponent() {
       if (choice !== "mp3" && !selection) {
         throw new Error("This video has no downloadable media");
       }
-      const downloadUrl =
-        choice !== "mp3" && selection?.usesVariant
-          ? await resolveMediaUrl(selection.url, "videos")
-          : selection?.url ?? data.url;
+      let downloadUrl = selection?.url ?? data.url;
+      let downloadedQuality: DownloadedVideoMetadata["quality"] =
+        (selection?.actualQuality ?? "original") as DownloadedVideoMetadata["quality"];
+      const offlineSource = await resolveAuthorizedOfflineSource(
+        video.id,
+        (choice === "mp3" ? "original" : selection?.actualQuality ?? "original") as
+          | "original"
+          | "360p"
+          | "480p"
+          | "720p"
+          | "1080p"
+          | "1440p"
+          | "2160p",
+      );
+      downloadUrl = offlineSource.url;
+      downloadedQuality = offlineSource.actualQuality as DownloadedVideoMetadata["quality"];
       if (!downloadUrl) throw new Error("This video has no downloadable media");
 
       const metadata: DownloadedVideoMetadata = {
@@ -410,7 +448,7 @@ function VideoRouteComponent() {
         durationSeconds: video.durationSeconds,
         thumbnailUrl: video.thumbnailUrl,
         posterUrl: video.thumbnailUrl,
-        quality: choice === "mp3" ? "original" : selection?.actualQuality ?? "original",
+        quality: choice === "mp3" ? "original" : downloadedQuality,
       };
       const fileName = sanitizeDownloadName(video.title, `yourworld-video-${video.id}`);
 
