@@ -40,7 +40,7 @@ test("Vanish sub-timers preserve the immediate-on-exit default and selected dela
   assert.deepEqual(
     VANISH_TIMER_OPTIONS.map(({ value, label, delaySeconds }) => [value, label, delaySeconds]),
     [
-      ["after_view", "Immediately on Exit", 0],
+      ["after_view", "Immediately (On Exit)", 0],
       ["after_view_15s", "15 Seconds", 15],
       ["after_view_1m", "1 Minute", 60],
       ["after_view_10m", "10 Minutes", 600],

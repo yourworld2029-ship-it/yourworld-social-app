@@ -19,7 +19,7 @@ export const AUTO_DELETE_OPTIONS: readonly {
 ];
 
 export const VANISH_TIMER_OPTIONS = [
-  { value: "after_view", label: "Immediately on Exit", delaySeconds: 0 },
+  { value: "after_view", label: "Immediately (On Exit)", delaySeconds: 0 },
   { value: "after_view_15s", label: "15 Seconds", delaySeconds: 15 },
   { value: "after_view_1m", label: "1 Minute", delaySeconds: 60 },
   { value: "after_view_10m", label: "10 Minutes", delaySeconds: 600 },

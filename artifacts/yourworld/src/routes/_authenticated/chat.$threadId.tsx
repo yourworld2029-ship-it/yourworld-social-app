@@ -1181,7 +1181,6 @@ function NativeChatThreadPage() {
   const [pinMode, setPinMode] = useState<"set" | "remove" | null>(null);
   const [pinError, setPinError] = useState<string | null>(null);
   const [autoDeleteOpen, setAutoDeleteOpen] = useState(false);
-  const [vanishPickerOpen, setVanishPickerOpen] = useState(false);
 
   const toggleSecretLock = () => {
     if (!peer.peerId) {
@@ -2072,7 +2071,6 @@ function NativeChatThreadPage() {
                 setShowOptionsMenu(false);
               }} />
               <MenuItem icon={<Clock size={16} className="text-zinc-400" />} label={settings.autoDeleteSetting === "off" ? "Auto Delete Messages" : `Auto Delete: ${autoDeleteLabel(settings.autoDeleteSetting)}`} state={settings.autoDeleteSetting !== "off"} onClick={() => {
-                setVanishPickerOpen(normalizeAutoDeleteSetting(settings.autoDeleteSetting) === "after_view");
                 setAutoDeleteOpen(true);
                 setShowOptionsMenu(false);
               }} />
@@ -2133,8 +2131,14 @@ function NativeChatThreadPage() {
 
       {autoDeleteOpen && (
         <div className="fixed inset-0 z-[130] grid place-items-center bg-black/70 px-6" onClick={() => setAutoDeleteOpen(false)}>
-          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-xs space-y-1 rounded-2xl border border-zinc-800 bg-zinc-900 p-4 shadow-2xl">
-            <h2 className="px-2 pb-2 text-sm font-bold text-white">Auto-delete messages</h2>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="auto-delete-title"
+            onClick={(e) => e.stopPropagation()}
+            className="max-h-[85dvh] w-full max-w-xs space-y-1 overflow-y-auto rounded-2xl border border-zinc-800 bg-zinc-900 p-4 shadow-2xl"
+          >
+            <h2 id="auto-delete-title" className="px-2 pb-2 text-sm font-bold text-white">Auto-delete messages</h2>
             {AUTO_DELETE_OPTIONS.map((option) => {
               const isAfterView = option.value === "after_view";
               const selected = isAfterView
@@ -2144,27 +2148,27 @@ function NativeChatThreadPage() {
                 <React.Fragment key={option.value}>
                   <button
                     type="button"
-                    aria-expanded={isAfterView ? vanishPickerOpen : undefined}
+                    aria-expanded={isAfterView ? true : undefined}
                     aria-controls={isAfterView ? "vanish-timer-options" : undefined}
                     onClick={() => {
                       if (isAfterView) {
                         const alreadySelected =
                           normalizeAutoDeleteSetting(settings.autoDeleteSetting) === "after_view";
-                        setVanishPickerOpen((expanded) => !alreadySelected || !expanded);
                         if (!alreadySelected) {
                           void setAutoDeleteSetting("after_view").then((result) => {
                             if (result.error) toast.error(result.error);
-                            else toast.success("Auto-delete after view (immediately on exit)");
+                            else toast.success("Auto-delete after view: immediately (on exit)");
                           });
                         }
                         return;
                       }
-                      setVanishPickerOpen(false);
                       void setAutoDeleteSetting(option.value).then((result) => {
                         if (result.error) toast.error(result.error);
-                        else toast.success(`Auto-delete ${option.label.toLowerCase()}`);
+                        else {
+                          toast.success(`Auto-delete ${option.label.toLowerCase()}`);
+                          setAutoDeleteOpen(false);
+                        }
                       });
-                      setAutoDeleteOpen(false);
                     }}
                     className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm transition-colors hover:bg-zinc-800 ${
                       selected ? "font-bold text-purple-300" : "text-zinc-200"
@@ -2173,15 +2177,9 @@ function NativeChatThreadPage() {
                     {option.label}
                     <span className="flex items-center gap-2">
                       {selected && <CheckCheck size={16} />}
-                      {isAfterView && (
-                        <ChevronRight
-                          size={15}
-                          className={`transition-transform ${vanishPickerOpen ? "rotate-90" : ""}`}
-                        />
-                      )}
                     </span>
                   </button>
-                  {isAfterView && vanishPickerOpen && (
+                  {isAfterView && (
                     <div
                       id="vanish-timer-options"
                       className="ml-3 space-y-1 border-l border-zinc-700 pl-2"
@@ -2192,11 +2190,13 @@ function NativeChatThreadPage() {
                           type="button"
                           onClick={() => {
                             void setAutoDeleteSetting(timerOption.value).then((result) => {
-                              if (result.error) toast.error(result.error);
-                              else toast.success(`Vanish timer: ${timerOption.label.toLowerCase()}`);
+                              if (result.error) {
+                                toast.error(result.error);
+                                return;
+                              }
+                              toast.success(`Vanish timer: ${timerOption.label.toLowerCase()}`);
+                              setAutoDeleteOpen(false);
                             });
-                            setAutoDeleteOpen(false);
-                            setVanishPickerOpen(false);
                           }}
                           className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs transition-colors hover:bg-zinc-800 ${
                             settings.autoDeleteSetting === timerOption.value
