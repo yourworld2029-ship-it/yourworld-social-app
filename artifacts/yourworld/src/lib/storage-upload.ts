@@ -13,6 +13,8 @@ export type ProgressFn = (percent: number, detail?: string) => void;
 export type VideoStreamUploadOptions = {
   cloudflareStream?: boolean;
   requireSignedURLs?: boolean;
+  /** Allows public long videos to use their uploaded Storage copy if Stream fails. */
+  fallbackToStorage?: boolean;
 };
 
 export const STORAGE_BUCKETS = {
@@ -139,6 +141,7 @@ export async function uploadWithProgress(
   let streamUid: string | null = null;
   let streamPosterUrl: string | null = null;
   let streamDurationSeconds: number | null = null;
+  let useStoragePlaybackFallback = false;
   if (needsFastStart) {
     onProgress?.(needsCloudflareStream ? 48 : 97, "Preparing video for playback");
     let response: Response;
@@ -183,6 +186,21 @@ export async function uploadWithProgress(
   }
 
   if (needsCloudflareStream) {
+    const canFallbackToStorage =
+      options.fallbackToStorage === true &&
+      bucket === STORAGE_BUCKETS.videos &&
+      options.requireSignedURLs !== true;
+    const selectStoragePlaybackFallback = () => {
+      if (!canFallbackToStorage) return false;
+      useStoragePlaybackFallback = true;
+      streamUid = null;
+      streamPlaybackUrl = null;
+      streamPosterUrl = null;
+      streamDurationSeconds = null;
+      onProgress?.(94, "Finishing with secure video storage");
+      return true;
+    };
+
     onProgress?.(65, "Uploading video to Cloudflare Stream");
     const cloudflareBucket =
       bucket === STORAGE_BUCKETS.videos ? STORAGE_BUCKETS.videos : STORAGE_BUCKETS.reels;
@@ -195,69 +213,85 @@ export async function uploadWithProgress(
       onProgress: (percent) => onProgress?.(65 + Math.round(percent * 0.28)),
     });
     if (tusResult.error || !tusResult.streamUid) {
-      return {
-        url: null,
-        storagePath: null,
-        error: tusResult.error ?? "Cloudflare Stream did not return a video ID.",
-      };
-    }
+      if (!tusResult.fallbackAllowed || !selectStoragePlaybackFallback()) {
+        return {
+          url: null,
+          storagePath: null,
+          error: tusResult.error ?? "Cloudflare Stream did not return a video ID.",
+        };
+      }
+    } else {
+      streamUid = tusResult.streamUid;
 
-    onProgress?.(94, "Finalizing Cloudflare playback");
-    const { data: currentSession, error: currentSessionError } =
-      await supabase.auth.getSession();
-    const currentToken = currentSession.session?.access_token;
-    if (currentSessionError || !currentToken) {
-      return {
-        url: null,
-        storagePath: null,
-        error: currentSessionError?.message ?? "Your sign-in expired. Sign in and try again.",
-      };
-    }
+      onProgress?.(94, "Finalizing Cloudflare playback");
+      const { data: currentSession, error: currentSessionError } =
+        await supabase.auth.getSession();
+      const currentToken = currentSession.session?.access_token;
+      if (currentSessionError || !currentToken) {
+        return {
+          url: null,
+          storagePath: null,
+          error: currentSessionError?.message ?? "Your sign-in expired. Sign in and try again.",
+        };
+      }
 
-    let assetResponse: Response;
-    try {
-      assetResponse = await fetch(mediaApiUrl("/api/media/cloudflare-stream-asset"), {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${currentToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ streamUid: tusResult.streamUid }),
-      });
-    } catch (error) {
-      const message = readableUploadError(error);
-      return {
-        url: null,
-        storagePath: null,
-        error: `The video uploaded, but Cloudflare playback could not be verified: ${message}`,
-      };
-    }
+      let assetResponse: Response | null = null;
+      try {
+        assetResponse = await fetch(mediaApiUrl("/api/media/cloudflare-stream-asset"), {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${currentToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ streamUid: tusResult.streamUid }),
+        });
+      } catch (error) {
+        const message = readableUploadError(error);
+        if (!selectStoragePlaybackFallback()) {
+          return {
+            url: null,
+            storagePath: null,
+            error: `The video uploaded, but Cloudflare playback could not be verified: ${message}`,
+          };
+        }
+      }
 
-    const assetPayload: unknown = await assetResponse.json().catch(() => null);
-    const asset =
-      assetPayload && typeof assetPayload === "object"
-        ? (assetPayload as Record<string, unknown>)
-        : null;
-    if (!assetResponse.ok || typeof asset?.playbackUrl !== "string") {
-      const message =
-        typeof asset?.error === "string"
-          ? asset.error
-          : `Cloudflare playback verification failed (${assetResponse.status}).`;
-      return { url: null, storagePath: null, error: message };
+      if (!useStoragePlaybackFallback && assetResponse) {
+        const assetPayload: unknown = await assetResponse.json().catch(() => null);
+        const asset =
+          assetPayload && typeof assetPayload === "object"
+            ? (assetPayload as Record<string, unknown>)
+            : null;
+        if (!assetResponse.ok || typeof asset?.playbackUrl !== "string") {
+          const message =
+            typeof asset?.error === "string"
+              ? asset.error
+              : `Cloudflare playback verification failed (${assetResponse.status}).`;
+          if (
+            assetResponse.status === 401 ||
+            assetResponse.status === 403 ||
+            !selectStoragePlaybackFallback()
+          ) {
+            return { url: null, storagePath: null, error: message };
+          }
+        } else {
+          streamUid =
+            typeof asset.streamUid === "string" ? asset.streamUid : tusResult.streamUid;
+          streamPlaybackUrl = asset.playbackUrl;
+          streamPosterUrl = typeof asset.posterUrl === "string" ? asset.posterUrl : null;
+          streamDurationSeconds =
+            typeof asset.durationSeconds === "number" &&
+            Number.isFinite(asset.durationSeconds) &&
+            asset.durationSeconds > 0
+              ? asset.durationSeconds
+              : null;
+        }
+      }
     }
-    streamUid = typeof asset.streamUid === "string" ? asset.streamUid : tusResult.streamUid;
-    streamPlaybackUrl = asset.playbackUrl;
-    streamPosterUrl = typeof asset.posterUrl === "string" ? asset.posterUrl : null;
-    streamDurationSeconds =
-      typeof asset.durationSeconds === "number" &&
-      Number.isFinite(asset.durationSeconds) &&
-      asset.durationSeconds > 0
-        ? asset.durationSeconds
-        : null;
   }
 
   let signedUrl: string | null = null;
-  if (!needsCloudflareStream) {
+  if (!needsCloudflareStream || useStoragePlaybackFallback) {
     const { data: signed, error: signError } = await supabase.storage
       .from(bucket)
       .createSignedUrl(finalPath, 60 * 60 * 24 * 365);

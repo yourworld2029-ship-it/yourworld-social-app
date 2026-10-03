@@ -73,6 +73,7 @@ function VideoUploadPage() {
   const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
   const [orientation, setOrientation] = useState<"landscape" | "portrait">("landscape");
   const [duration, setDuration] = useState<number | null>(null);
+  const [currentTime, setCurrentTime] = useState(0);
   const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null);
   const [thumb, setThumb] = useState<string | null>(null);
 
@@ -122,6 +123,7 @@ function VideoUploadPage() {
     setIsPreviewPlaying(false);
     setThumb(null);
     setDuration(null);
+    setCurrentTime(0);
     setDimensions(null);
   };
 
@@ -161,6 +163,7 @@ function VideoUploadPage() {
     if (!v) return;
     setOrientation(v.videoHeight > v.videoWidth ? "portrait" : "landscape");
     setDuration(Number.isFinite(v.duration) ? v.duration : null);
+    setCurrentTime(Number.isFinite(v.currentTime) ? v.currentTime : 0);
     setDimensions(
       v.videoWidth > 0 && v.videoHeight > 0
         ? { width: v.videoWidth, height: v.videoHeight }
@@ -178,6 +181,14 @@ function VideoUploadPage() {
     }
   };
 
+  const seekPreview = (time: number) => {
+    const video = videoRef.current;
+    if (!video || !Number.isFinite(video.duration) || video.duration <= 0) return;
+    const nextTime = Math.max(0, Math.min(time, video.duration));
+    video.currentTime = nextTime;
+    setCurrentTime(nextTime);
+  };
+
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !fileUrl) return;
@@ -191,11 +202,17 @@ function VideoUploadPage() {
       const poster = cacheVideoPoster(video, fileUrl);
       if (poster) setPreviewFrame(poster);
     };
+    const handleTimeUpdate = () => {
+      if (active && Number.isFinite(video.currentTime)) {
+        setCurrentTime(video.currentTime);
+      }
+    };
 
     // Attach listeners before assigning the Blob URL. Fast local files can
     // dispatch loadedmetadata before declarative React handlers are ready.
     video.addEventListener("loadedmetadata", handleMetadata);
     video.addEventListener("loadeddata", handleLoadedData);
+    video.addEventListener("timeupdate", handleTimeUpdate);
     video.src = fileUrl;
     video.load();
 
@@ -203,6 +220,7 @@ function VideoUploadPage() {
       active = false;
       video.removeEventListener("loadedmetadata", handleMetadata);
       video.removeEventListener("loadeddata", handleLoadedData);
+      video.removeEventListener("timeupdate", handleTimeUpdate);
       video.pause();
       video.removeAttribute("src");
       video.load();
@@ -460,6 +478,33 @@ function VideoUploadPage() {
                   <Play className="ml-0.5 h-5 w-5 fill-current" />
                 )}
               </button>
+            </div>
+            <div className="flex min-h-11 items-center gap-3">
+              <span
+                className="w-10 shrink-0 text-right text-[11px] tabular-nums text-zinc-400"
+                data-testid="text-video-preview-current-time"
+              >
+                {formatDuration(currentTime)}
+              </span>
+              <input
+                type="range"
+                aria-label="Seek video preview"
+                aria-valuetext={`${formatDuration(currentTime)} of ${formatDuration(duration)}`}
+                data-testid="slider-video-preview-seek"
+                min={0}
+                max={duration ?? 0}
+                step={0.1}
+                value={Math.min(currentTime, duration ?? 0)}
+                onChange={(event) => seekPreview(Number(event.currentTarget.value))}
+                disabled={duration === null || duration <= 0}
+                className="h-11 min-w-0 flex-1 cursor-pointer accent-pink-500 disabled:cursor-not-allowed disabled:opacity-50"
+              />
+              <span
+                className="w-10 shrink-0 text-[11px] tabular-nums text-zinc-400"
+                data-testid="text-video-preview-duration"
+              >
+                {formatDuration(duration)}
+              </span>
             </div>
             <div className="flex items-center justify-between text-[11px] text-zinc-400">
               <span>

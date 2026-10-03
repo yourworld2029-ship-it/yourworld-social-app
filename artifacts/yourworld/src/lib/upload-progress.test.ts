@@ -4,6 +4,7 @@ import {
   applyUploadTaskPatch,
   arePendingVideoUploadSummariesEqual,
   selectPendingVideoUploadSummary,
+  selectVisibleUploadTask,
   type UploadTask,
 } from "./upload-progress";
 
@@ -43,6 +44,27 @@ test("pending-video summary changes when an upload starts, finishes, or changes 
   assert.equal(arePendingVideoUploadSummariesEqual(empty, pending), false);
   assert.equal(arePendingVideoUploadSummariesEqual(pending, finished), false);
   assert.equal(arePendingVideoUploadSummariesEqual(pending, transferred), false);
+});
+
+test("only the latest active upload is selected for the top progress card", () => {
+  const older = videoTask({ id: "older" });
+  const latest = videoTask({ id: "latest", progress: 34, kind: "post" });
+
+  assert.equal(selectVisibleUploadTask([older, latest]), latest);
+});
+
+test("an earlier active upload remains visible when the latest task has finished", () => {
+  const active = videoTask({ id: "active", progress: 62 });
+  const completed = videoTask({ id: "completed", status: "done", progress: 100 });
+
+  assert.equal(selectVisibleUploadTask([active, completed]), active);
+});
+
+test("the latest finished upload is selected when there are no active uploads", () => {
+  const failed = videoTask({ id: "failed", status: "error" });
+  const completed = videoTask({ id: "completed", status: "done", progress: 100 });
+
+  assert.equal(selectVisibleUploadTask([failed, completed]), completed);
 });
 
 test("upload task patches preserve identity when the task is no longer present", () => {

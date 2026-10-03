@@ -125,6 +125,18 @@ export function applyUploadTaskPatch(
   return tasks.map((task) => (task.id === id ? { ...task, ...next } : task));
 }
 
+export function selectVisibleUploadTask(
+  tasks: readonly UploadTask[],
+): UploadTask | null {
+  for (let index = tasks.length - 1; index >= 0; index -= 1) {
+    const task = tasks[index];
+    if (task?.status === "uploading" || task?.status === "processing") {
+      return task;
+    }
+  }
+  return tasks[tasks.length - 1] ?? null;
+}
+
 export function useUploadTasks() {
   const tasks = useContext(UploadTasksContext);
   if (!tasks) throw new Error("useUploadTasks must be used inside <UploadProvider>");
@@ -329,17 +341,17 @@ const TITLE: Record<UploadKind, string> = {
 function UploadProgressStack() {
   const tasks = useUploadTasks();
   const { dismiss } = useUploadActions();
-  if (!tasks.length) return null;
+  const t = selectVisibleUploadTask(tasks);
+  if (!t) return null;
 
   return (
     <div className="pointer-events-none fixed inset-x-0 top-0 z-[70] flex flex-col items-center gap-2 px-3 pt-3">
-      {tasks.map((t) => (
-        <div
-          key={t.id}
-          role="status"
-          aria-live="polite"
-          className="pointer-events-auto w-full max-w-md overflow-hidden rounded-2xl border border-zinc-800 bg-[#141418]/95 shadow-xl backdrop-blur-md"
-        >
+      <div
+        key={t.id}
+        role="status"
+        aria-live="polite"
+        className="pointer-events-auto w-full max-w-md overflow-hidden rounded-2xl border border-zinc-800 bg-[#141418]/95 shadow-xl backdrop-blur-md"
+      >
           <div className="flex items-center gap-3 px-3 py-2.5">
             <div className="h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-zinc-900">
               {t.thumbnail ? (
@@ -425,8 +437,7 @@ function UploadProgressStack() {
               <CheckCircle2 size={12} /> done
             </span>
           )}
-        </div>
-      ))}
+      </div>
     </div>
   );
 }

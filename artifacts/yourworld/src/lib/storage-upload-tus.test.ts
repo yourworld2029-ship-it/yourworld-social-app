@@ -23,7 +23,7 @@ test("TUS uploads use 6 MiB chunks and keep retrying with a bounded backoff", ()
   assert.equal(getTusRetryDelayMs(20), 60_000);
 });
 
-test("only transient TUS failures retry indefinitely", () => {
+test("TUS retries transient failures but stops on app-level dependency or auth denials", () => {
   assert.equal(isRetryableTusError({ causingNetworkError: new Error("offline") }, true), true);
   assert.equal(
     isRetryableTusError({ originalResponse: { getStatus: () => 503 } }, true),
@@ -31,6 +31,10 @@ test("only transient TUS failures retry indefinitely", () => {
   );
   assert.equal(
     isRetryableTusError({ originalResponse: { getStatus: () => 401 } }, true),
+    false,
+  );
+  assert.equal(
+    isRetryableTusError({ originalResponse: { getStatus: () => 424 } }, true),
     false,
   );
   assert.equal(isRetryableTusError(new Error("offline"), false), true);

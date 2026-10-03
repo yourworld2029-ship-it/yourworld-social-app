@@ -837,11 +837,23 @@ router.post("/media/cloudflare-tus-upload", async (req, res): Promise<void> => {
       !streamUid ||
       !/^[a-zA-Z0-9_-]{8,128}$/.test(streamUid)
     ) {
+      const authorizationRejected =
+        cloudflareResponse.status === 401 || cloudflareResponse.status === 403;
+      const clientStatus =
+        cloudflareResponse.status === 429
+          ? 429
+          : authorizationRejected
+            ? 424
+            : 502;
       req.log.warn(
-        { status: cloudflareResponse.status },
+        { status: cloudflareResponse.status, clientStatus },
         "Cloudflare did not create a valid TUS upload",
       );
-      res.status(502).json({ error: "Cloudflare Stream could not create this upload." });
+      res.status(clientStatus).json({
+        error: authorizationRejected
+          ? "Cloudflare Stream rejected the upload authorization."
+          : "Cloudflare Stream could not create this upload.",
+      });
       return;
     }
 

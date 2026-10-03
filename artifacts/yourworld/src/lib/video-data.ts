@@ -256,7 +256,7 @@ async function uploadToStorage(
       : source;
     const uploadBlob = blob.type.startsWith("video/")
       ? await optimizeVideoBlob(blob, (percent, detail) =>
-          onProgress?.(Math.round(percent * 0.45), detail),
+          onProgress?.(Math.round(percent * 0.1), detail),
           (dimensions) => {
             width = dimensions.width;
             height = dimensions.height;
@@ -277,12 +277,13 @@ async function uploadToStorage(
       uploadBlob,
       uploadBlob.type || fallbackType,
       (percent) => onProgress?.(
-        blob.type.startsWith("video/") ? 45 + Math.round(percent * 0.55) : percent,
+        blob.type.startsWith("video/") ? 10 + Math.round(percent * 0.87) : percent,
       ),
       IMMUTABLE_MEDIA_CACHE_CONTROL,
       {
         cloudflareStream: true,
         requireSignedURLs,
+        fallbackToStorage: !requireSignedURLs,
       },
     );
     return {
