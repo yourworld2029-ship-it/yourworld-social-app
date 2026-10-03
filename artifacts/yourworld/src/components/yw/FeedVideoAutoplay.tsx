@@ -16,6 +16,7 @@ import {
 } from "@/lib/video-hls-config";
 import type { LongVideo } from "@/lib/video-data";
 import {
+  cacheVideoPoster,
   canPrefetchVideo,
   cancelPendingVideoPrefetches,
   prefetchVideo,
@@ -585,8 +586,9 @@ export function FeedVideoPreview({
         loop
         preload="metadata"
         aria-label={video.title}
-        onLoadedData={() => {
+        onLoadedData={(event) => {
           setVideoReady(true);
+          cacheVideoPoster(event.currentTarget, video.mediaUrl);
         }}
         onEmptied={() => {
           setVideoReady(false);

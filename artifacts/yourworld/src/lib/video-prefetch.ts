@@ -13,6 +13,7 @@ const PREFIX_TTL_MS = 10 * 60 * 1000;
 const MAX_PREFIX_ENTRIES = 4;
 const MAX_HLS_SEGMENT_ENTRIES = 8;
 const MAX_HLS_SEGMENT_BYTES = 2 * 1024 * 1024;
+const VIDEO_POSTER_READY_EVENT = "yourworld:video-poster-ready";
 
 type PrefetchJob = {
   key: string;
@@ -518,6 +519,19 @@ export function getVideoPoster(url: string) {
   return posters.get(mediaCacheKey(url)) ?? null;
 }
 
+export function subscribeVideoPoster(url: string, onPoster: (poster: string) => void) {
+  if (typeof window === "undefined") return () => {};
+  const key = mediaCacheKey(url);
+  const listener = (event: Event) => {
+    const detail = (event as CustomEvent<{ key?: string; poster?: string }>).detail;
+    if (detail?.key === key && typeof detail.poster === "string") {
+      onPoster(detail.poster);
+    }
+  };
+  window.addEventListener(VIDEO_POSTER_READY_EVENT, listener);
+  return () => window.removeEventListener(VIDEO_POSTER_READY_EVENT, listener);
+}
+
 /** Safely captures a scaled first frame; cross-origin/tainted canvases simply skip caching. */
 export function cacheVideoPoster(video: HTMLVideoElement, url: string): string | null {
   if (!url || !video.videoWidth || !video.videoHeight) return null;
@@ -534,6 +548,11 @@ export function cacheVideoPoster(video: HTMLVideoElement, url: string): string |
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
     const poster = canvas.toDataURL("image/jpeg", 0.62);
     posters.set(key, poster);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent(VIDEO_POSTER_READY_EVENT, { detail: { key, poster } }),
+      );
+    }
     while (posters.size > MAX_POSTER_CACHE_ENTRIES) {
       const oldest = posters.keys().next().value;
       if (!oldest) break;

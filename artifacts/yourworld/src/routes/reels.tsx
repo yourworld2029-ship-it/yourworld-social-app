@@ -8,6 +8,11 @@ import {
 } from "@/lib/video-hls-config";
 import { cloudflareStreamPosterUrl } from "@/lib/cloudflare-stream-media";
 import {
+  cacheVideoPoster,
+  getVideoPoster,
+  subscribeVideoPoster,
+} from "@/lib/video-prefetch";
+import {
   Heart,
   MessageCircle,
   Send,
@@ -396,10 +401,6 @@ function ReelsList() {
 
 const REEL_DURATION = 15;
 
-function firstFrameUrl(url: string) {
-  return `${url.split("#", 1)[0]}#t=1`;
-}
-
 function isHlsManifestUrl(url: string) {
   return /\.m3u8(?:[?#]|$)/i.test(url);
 }
@@ -449,9 +450,14 @@ function ReelMedia({
   const [src, setSrc] = useState(url);
   const [asImage, setAsImage] = useState(!type.startsWith("video"));
   const [posterSrc, setPosterSrc] = useState<string | null>(null);
+  const [generatedPoster, setGeneratedPoster] = useState<string | null>(null);
+  const [posterFailed, setPosterFailed] = useState(false);
+  const [frameReady, setFrameReady] = useState(false);
   const [mediaFailed, setMediaFailed] = useState(false);
   const image = useScreenImage(asImage ? (mediaFailed && posterSrc ? posterSrc : src) : null);
-  const posterImage = useScreenImage(posterSrc);
+  const posterImage = useScreenImage(
+    posterFailed && generatedPoster ? generatedPoster : posterSrc ?? generatedPoster,
+  );
   const tried = useRef<Set<string>>(new Set());
   const retryGeneration = useRef(0);
 
@@ -461,7 +467,14 @@ function ReelMedia({
     setSrc(url);
     setAsImage(!type.startsWith("video"));
     setMediaFailed(false);
+    setPosterFailed(false);
+    setFrameReady(false);
   }, [url, type]);
+
+  useEffect(() => {
+    setGeneratedPoster(getVideoPoster(url));
+    return subscribeVideoPoster(url, setGeneratedPoster);
+  }, [url]);
 
   useEffect(() => {
     if (!posterUrl) {
@@ -478,6 +491,10 @@ function ReelMedia({
       alive = false;
     };
   }, [bucket, posterUrl]);
+
+  useEffect(() => {
+    setPosterFailed(false);
+  }, [posterUrl]);
 
   const handleError = useCallback(() => {
     tried.current.add(src);
@@ -607,6 +624,15 @@ function ReelMedia({
     }
   }, [active, asImage, paused, src]);
 
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || active || asImage || isHlsManifest) return;
+    video.pause();
+    video.removeAttribute("src");
+    video.load();
+    setFrameReady(false);
+  }, [active, asImage, isHlsManifest, src]);
+
   const className = cn(
     "h-full w-full object-cover will-change-transform [backface-visibility:hidden]",
     active && asImage && "animate-kenburns",
@@ -643,7 +669,7 @@ function ReelMedia({
     <div ref={(node) => { posterImage.ref.current = node; }} className="relative h-full w-full">
       <video
         ref={setVideoRef}
-        src={isHlsManifest ? undefined : posterSrc ? src : firstFrameUrl(src)}
+        src={active && !isHlsManifest ? src : undefined}
         crossOrigin="anonymous"
         poster={posterImage.source ?? VIDEO_POSTER_FALLBACK}
         playsInline
@@ -651,6 +677,11 @@ function ReelMedia({
         preload="metadata"
         {...({ loading: active ? "eager" : "lazy" } as const)}
         onError={handleError}
+        onLoadedData={(event) => {
+          const generated = cacheVideoPoster(event.currentTarget, url);
+          if (generated) setGeneratedPoster(generated);
+          setFrameReady(true);
+        }}
         onLoadedMetadata={onLoadedMetadata}
         onTimeUpdate={onTimeUpdate}
         onEnded={onEnded}
@@ -660,6 +691,15 @@ function ReelMedia({
         videoRef={videoRef}
         screenBounded
         className={`absolute inset-0 ${className}`}
+      />
+      <img
+        src={posterImage.source || VIDEO_POSTER_FALLBACK}
+        alt=""
+        aria-hidden="true"
+        onError={() => setPosterFailed(true)}
+        className={`pointer-events-none absolute inset-0 z-20 h-full w-full object-cover transition-opacity duration-150 ${
+          active && frameReady ? "opacity-0" : "opacity-100"
+        }`}
       />
     </div>
   );

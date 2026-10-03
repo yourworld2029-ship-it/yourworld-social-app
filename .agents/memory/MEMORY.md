@@ -10,7 +10,7 @@
 - [Video playback and downloads](video-playback-downloads.md) — feed sources attach only to the 70%-visible active player; keep posters/fallbacks and offline downloads separate.
 - [Video source retention](video-source-retention.md) — never publish HLS video without persisting the owner-scoped MP4 path needed for authorized downloads and deletion.
 - [Low-memory media policy](low-memory-media.md) — target 2–3 GB Android phones conservatively; screen-sized display buffers are disposable, unlike offline downloads.
-- [Persistent video player](persistent-video-player.md) — keep the root detail player separate from the feed’s single-active candidate player.
+- [Persistent video player](persistent-video-player.md) — keep one active feed source, release inactive Reel sources, and reuse active frames for poster fallbacks.
 - [Watermarked video downloads](watermarked-reel-downloads.md) — use the creator-watermarked export for Reels and horizontal/vertical videos; never fall back to unwatermarked bytes.
 - [Quality-specific downloads](quality-downloads.md) — preserve the source tier and keep offline copies until explicit user deletion; scope library rows by owner.
 - [Audio-preserving compression](audio-preserving-compression.md) — only use a local re-encode when a source audio track is attached; otherwise upload the original.

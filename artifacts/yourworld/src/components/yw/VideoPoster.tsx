@@ -2,7 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Play } from "lucide-react";
 import { resolveMediaUrl } from "@/lib/social-data";
 import { cn } from "@/lib/utils";
-import { cacheVideoPoster, getVideoPoster } from "@/lib/video-prefetch";
+import {
+  cacheVideoPoster,
+  getVideoPoster,
+  subscribeVideoPoster,
+} from "@/lib/video-prefetch";
 import { VIDEO_POSTER_FALLBACK } from "@/components/yw/LazyVideoThumbnail";
 import { useScreenImage } from "@/lib/screen-image";
 
@@ -158,6 +162,18 @@ export function VideoPoster({
       setThumbnailReady(true);
     }
   }, [posterOnly, resolvedMedia, thumbnailFailed, thumbnailUrl]);
+
+  useEffect(() => {
+    const showCachedPoster = (poster: string) => {
+      if (thumbnailUrl && !thumbnailFailed) return;
+      setResolvedThumbnail(poster);
+      setThumbnailReady(true);
+      setThumbnailFailed(false);
+    };
+    const cachedPoster = getVideoPoster(mediaUrl);
+    if (cachedPoster) showCachedPoster(cachedPoster);
+    return subscribeVideoPoster(mediaUrl, showCachedPoster);
+  }, [mediaUrl, thumbnailFailed, thumbnailUrl]);
 
   const posterImage = hasThumbnail ? resolvedThumbnail! : VIDEO_POSTER_FALLBACK;
   const image = useScreenImage(posterImage, loading === "eager");

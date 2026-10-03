@@ -53,6 +53,8 @@ export function createVideoHlsConfig() {
   return {
     enableWorker: true,
     lowLatencyMode: true,
+    autoStartLoad: true,
+    startLevel: -1,
     maxBufferLength: 3,
     maxMaxBufferLength: 6,
     maxBufferSize: 6 * 1024 * 1024,

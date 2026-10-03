@@ -22,6 +22,8 @@ import type { VideoQualityTier } from "@/lib/video-quality";
 import { getAdjacentVideo } from "@/lib/video-queue";
 import { resolveMediaUrl } from "@/lib/social-data";
 import { VideoPlayerErrorBoundary } from "@/components/yw/VideoPlayerErrorBoundary";
+import { VIDEO_POSTER_FALLBACK } from "@/components/yw/LazyVideoThumbnail";
+import { cacheVideoPoster } from "@/lib/video-prefetch";
 import {
   createVideoPlaybackProgressStore,
   type VideoPlaybackProgressStore,
@@ -1820,7 +1822,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
           >
             <video
               ref={videoRef}
-              poster={resolvedPoster ?? activeVideo.thumbnailUrl ?? undefined}
+              poster={resolvedPoster ?? activeVideo.thumbnailUrl ?? VIDEO_POSTER_FALLBACK}
               controls={false}
               autoPlay
               loop={loopVideo}
@@ -1828,6 +1830,11 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               playsInline
               preload="metadata"
               onLoadedMetadata={handleLoadedMetadata}
+              onLoadedData={(event) => {
+                if (activeVideoUrl) {
+                  cacheVideoPoster(event.currentTarget, activeVideoUrl);
+                }
+              }}
               onError={handleNativeMediaError}
               onTimeUpdate={handleTimeUpdate}
               onSeeking={handleVideoSeeking}
