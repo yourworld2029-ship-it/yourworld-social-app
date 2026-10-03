@@ -73,8 +73,41 @@ function registerApkDownload(routePath: string) {
   });
 }
 
+function registerDirectApkDownload(routePath: string, filename: string) {
+  const filePath = path.join(apkPublicDir, filename);
+  router.get(routePath, (req, res, next) => {
+    res.download(
+      filePath,
+      APK_DOWNLOAD_FILENAME,
+      {
+        headers: {
+          "Content-Type": APK_CONTENT_TYPE,
+          "Content-Disposition": 'attachment; filename="YourWorld.apk"',
+          "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0, no-transform",
+          "Pragma": "no-cache",
+          "Expires": "0",
+        },
+      },
+      (error) => {
+        if (!error) return;
+
+        // A client closing a large download is not a server failure.
+        if (req.aborted || res.destroyed) return;
+
+        if ((error as NodeJS.ErrnoException).code === "ENOENT" && !res.headersSent) {
+          res.status(404).json({ error: "APK is not available" });
+          return;
+        }
+
+        next(error);
+      },
+    );
+  });
+}
+
 registerApkDownload("/yourworld-debug.apk");
 registerApkDownload("/yourworld-v3.apk");
 registerApkDownload("/download-apk");
+registerDirectApkDownload("/app.apk", "app.apk");
 
 export default router;
