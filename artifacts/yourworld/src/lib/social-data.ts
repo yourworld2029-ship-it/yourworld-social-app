@@ -647,6 +647,101 @@ export function useSocialPosts(
   };
 }
 
+async function deterministicRepostPostId(userId: string, originalPostId: string) {
+  const bytes = new Uint8Array(
+    await crypto.subtle.digest(
+      "SHA-1",
+      new TextEncoder().encode(`yourworld:reel-repost:v1:${userId}:${originalPostId}`),
+    ),
+  ).slice(0, 16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x50;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/** Adds a public Reel to the signed-in user's feed/profile with stable attribution. */
+export async function repostReelToProfile(
+  original: SocialPost,
+): Promise<{ alreadyExists: boolean }> {
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError) throw new Error(sessionError.message);
+  const userId = sessionData.session?.user.id;
+  if (!userId) throw new Error("Sign in to repost this Reel.");
+  if (postKind(original as unknown as Record<string, unknown>) !== "reel") {
+    throw new Error("Only Reels can be reposted.");
+  }
+  if (original.user_id === userId) {
+    throw new Error("You can't repost your own Reel.");
+  }
+
+  const sourcePolicy = original as SocialPost & {
+    audience?: string | null;
+    price?: number | null;
+    video_access?: string | null;
+  };
+  const audience = sourcePolicy.audience?.toLowerCase();
+  const videoAccess = sourcePolicy.video_access?.toLowerCase();
+  if (
+    (audience && !["everyone", "public"].includes(audience)) ||
+    Number(sourcePolicy.price ?? 0) > 0 ||
+    (videoAccess && !["free", "public", "everyone", "open"].includes(videoAccess))
+  ) {
+    throw new Error("Only public, free Reels can be reposted.");
+  }
+  if (!original.media_url?.trim()) {
+    throw new Error("This Reel no longer has playable media.");
+  }
+
+  const id = await deterministicRepostPostId(userId, original.id);
+  const originalUsername =
+    original.author.username?.trim().replace(/^@+/, "") || "creator";
+  const attribution = `↻ Reposted from @${originalUsername}`;
+  const originalCaption = original.caption?.trim();
+  const caption = originalCaption
+    ? `${attribution}\n\n${originalCaption}`
+    : attribution;
+
+  const result = await writeCompat(
+    (payload) => supabase.from("posts").insert(payload as never),
+    {
+      id,
+      user_id: userId,
+      kind: "reel",
+      media_url: original.media_url,
+      media_type: original.media_type,
+      thumbnail_url: original.thumbnail_url ?? null,
+      title: original.title ?? null,
+      caption,
+      hashtags: original.hashtags ?? [],
+      audio: original.audio ?? null,
+      location: original.location ?? null,
+      audience: "everyone",
+      allow_download: original.allow_download,
+      duration_seconds: original.duration_seconds ?? null,
+      original_width: original.original_width ?? null,
+      original_height: original.original_height ?? null,
+      source_quality_tier: original.source_quality_tier ?? null,
+      comments_off: original.comments_off ?? false,
+      hide_like_count: original.hide_like_count ?? false,
+      hide_share_count: original.hide_share_count ?? false,
+    },
+    { kind: "type" },
+  );
+
+  if (result.error?.code === "23505") {
+    const { data: existing, error } = await supabase
+      .from("posts")
+      .select("id")
+      .eq("id", id)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (!error && existing?.id === id) return { alreadyExists: true };
+  }
+  if (result.error) throw new Error(result.error.message);
+  return { alreadyExists: false };
+}
+
 export type DbMessage = {
   id: string;
   sender_id: string;

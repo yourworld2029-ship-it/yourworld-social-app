@@ -27,6 +27,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(CallPushPlugin.class);
         registerPlugin(UploadResiliencePlugin.class);
         registerPlugin(OfflineMediaDownloadPlugin.class);
+        registerPlugin(ReelGalleryExportPlugin.class);
         super.onCreate(savedInstanceState);
 
         prepareForIncomingCall(getIntent());

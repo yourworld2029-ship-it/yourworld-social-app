@@ -46,12 +46,22 @@ const downloadTasks = new Map<string, DownloadTask>();
 let downloadTaskSnapshot: DownloadTask[] = [];
 
 export type DownloadQuality = VideoQualityTier | "original";
+export type WatermarkPlacement = "standard" | "reel";
 export type OfflineVideoDownloadOptions = {
   fallbackUrls?: string[];
   targetQuality?: VideoQualityTier;
   transcodeSource?: boolean;
   androidSingleGet?: boolean;
+  watermarkPlacement?: WatermarkPlacement;
 };
+
+const MP4_RECORDER_MIME_TYPES = [
+  'video/mp4;codecs="avc1.640028,mp4a.40.2"',
+  'video/mp4;codecs="avc1.4D401F,mp4a.40.2"',
+  'video/mp4;codecs="avc1.42E01E,mp4a.40.2"',
+  'video/mp4;codecs="avc1.42E01E"',
+  "video/mp4",
+];
 
 const LEGACY_DOWNLOAD_DB_NAME = "yourworld-downloads-v1";
 const LEGACY_DOWNLOAD_STORE_NAME = "videos";
@@ -723,9 +733,10 @@ export async function downloadWatermarkedVideoInBackground(
   onProgress?: (percent: number) => void,
   metadata?: DownloadedVideoMetadata,
   targetQuality?: VideoQualityTier,
+  watermarkPlacement: WatermarkPlacement = "standard",
 ) {
   const watermark = reelWatermarkText(creatorUsername);
-  const key = `${src}|watermarked-video|${fileNameBase}|${watermark}|${targetQuality ?? "original"}`;
+  const key = `${src}|watermarked-video|${fileNameBase}|${watermark}|${targetQuality ?? "original"}|${watermarkPlacement}`;
   const existing = activeVideoDownloads.get(key);
   if (existing) return existing;
 
@@ -753,6 +764,7 @@ export async function downloadWatermarkedVideoInBackground(
             onProgress?.(percent);
           },
           targetQuality,
+          watermarkPlacement,
         );
       } finally {
         if (sourceBlob) URL.revokeObjectURL(sourceUrl);
@@ -804,7 +816,13 @@ export async function downloadVideoForOfflineInBackground(
     for (const url of [...new Set([src, ...(options.fallbackUrls ?? [])])]) {
       try {
         await downloadWatermarkedVideoInBackground(
-          url, fileNameBase, creatorUsername, onProgress, metadata, options.targetQuality,
+          url,
+          fileNameBase,
+          creatorUsername,
+          onProgress,
+          metadata,
+          options.targetQuality,
+          options.watermarkPlacement,
         );
         return "watermarked";
       } catch (error) { lastError = error; }
@@ -882,11 +900,34 @@ export function reelWatermarkText(creatorUsername: string) {
   return `YourWorld • @${creatorUsername.trim().replace(/^@+/, "") || "user"}`;
 }
 
+/** Creates a crop-resistant, burned-in MP4 watermark for the Android Reel gallery export. */
+export async function createWatermarkedReelMp4Blob(
+  src: string,
+  creatorUsername: string,
+  onProgress?: (percent: number) => void,
+  targetQuality?: VideoQualityTier,
+) {
+  const { blob } = await renderWatermarkedVideo(
+    src,
+    reelWatermarkText(creatorUsername),
+    onProgress,
+    targetQuality,
+    "reel",
+    true,
+  );
+  if (!blob.type.toLowerCase().startsWith("video/mp4")) {
+    throw new Error("This device could not create the watermarked MP4 for the gallery.");
+  }
+  return blob;
+}
+
 async function renderWatermarkedVideo(
   src: string,
   watermark: string,
   onProgress?: (percent: number) => void,
   targetQuality?: VideoQualityTier,
+  watermarkPlacement: WatermarkPlacement = "standard",
+  requireMp4 = false,
 ) {
   const exportLabel = watermark
     ? "watermarked video"
@@ -958,15 +999,61 @@ async function renderWatermarkedVideo(
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
     if (!watermark) return;
     context.save();
-    context.globalAlpha = 0.72;
     context.font = `600 ${fontSize}px system-ui, sans-serif`;
-    context.textAlign = "left";
-    context.textBaseline = "bottom";
-    context.fillStyle = "#ffffff";
-    context.shadowColor = "rgba(0,0,0,0.75)";
-    context.shadowBlur = Math.max(3, Math.round(fontSize * 0.24));
-    context.shadowOffsetY = Math.max(1, Math.round(fontSize * 0.08));
-    context.fillText(watermark, padding, canvas.height - padding, canvas.width - padding * 2);
+    if (watermarkPlacement === "reel") {
+      const centerX = canvas.width / 2;
+      const centerY = canvas.height * 0.82;
+      const maxWidth = canvas.width * 0.82;
+      const pillHeight = fontSize + padding;
+      const pillWidth = Math.min(
+        maxWidth,
+        context.measureText(watermark).width + padding * 2,
+      );
+      const left = centerX - pillWidth / 2;
+      const top = centerY - pillHeight / 2;
+      const radius = pillHeight / 2;
+      context.beginPath();
+      context.moveTo(left + radius, top);
+      context.lineTo(left + pillWidth - radius, top);
+      context.arcTo(left + pillWidth, top, left + pillWidth, top + radius, radius);
+      context.lineTo(left + pillWidth, top + pillHeight - radius);
+      context.arcTo(
+        left + pillWidth,
+        top + pillHeight,
+        left + pillWidth - radius,
+        top + pillHeight,
+        radius,
+      );
+      context.lineTo(left + radius, top + pillHeight);
+      context.arcTo(left, top + pillHeight, left, top + pillHeight - radius, radius);
+      context.lineTo(left, top + radius);
+      context.arcTo(left, top, left + radius, top, radius);
+      context.closePath();
+      context.globalAlpha = 0.48;
+      context.fillStyle = "#05070b";
+      context.fill();
+      context.globalAlpha = 0.94;
+      context.textAlign = "center";
+      context.textBaseline = "middle";
+      context.fillStyle = "#ffffff";
+      context.shadowColor = "rgba(0,0,0,0.75)";
+      context.shadowBlur = Math.max(3, Math.round(fontSize * 0.24));
+      context.fillText(watermark, centerX, centerY, maxWidth - padding);
+    } else {
+      context.globalAlpha = 0.72;
+      context.textAlign = "left";
+      context.textBaseline = "bottom";
+      context.fillStyle = "#ffffff";
+      context.shadowColor = "rgba(0,0,0,0.75)";
+      context.shadowBlur = Math.max(3, Math.round(fontSize * 0.24));
+      context.shadowOffsetY = Math.max(1, Math.round(fontSize * 0.08));
+      context.fillText(
+        watermark,
+        padding,
+        canvas.height - padding,
+        canvas.width - padding * 2,
+      );
+    }
     context.restore();
   };
 
@@ -991,10 +1078,18 @@ async function renderWatermarkedVideo(
     for (const track of audioDestination.stream.getAudioTracks()) {
       stream.addTrack(track);
     }
-    const mime =
-      selectSupportedRecorderMimeType((candidate) =>
-        MediaRecorder.isTypeSupported(candidate),
-      ) ?? "";
+    const mime = requireMp4
+      ? MP4_RECORDER_MIME_TYPES.find((candidate) =>
+          MediaRecorder.isTypeSupported(candidate),
+        ) ?? ""
+      : selectSupportedRecorderMimeType((candidate) =>
+          MediaRecorder.isTypeSupported(candidate),
+        ) ?? "";
+    if (requireMp4 && !mime) {
+      throw new Error(
+        "This Android device cannot encode an MP4 for the gallery. Update Android System WebView and try again.",
+      );
+    }
     const targetBitrate = actualQuality
       ? VIDEO_QUALITY_TIERS.find((candidate) => candidate.id === actualQuality)?.bitrate
       : undefined;

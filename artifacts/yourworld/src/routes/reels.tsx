@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Hls from "hls.js";
 import {
   bindHlsNetworkAwareLevelCap,
@@ -18,6 +18,7 @@ import {
   Heart,
   MessageCircle,
   Send,
+  Repeat2,
   Download,
   Music2,
   Volume2,
@@ -43,7 +44,14 @@ import { ShareSheet } from "@/components/yw/ShareSheet";
 import { CommentsSheet } from "@/components/yw/CommentsSheet";
 import { useAuth, useResumeAuthAction } from "@/lib/auth-store";
 import { formatCount, type Reel, type User } from "@/lib/yw-data";
-import { getLocalMedia, resolveMediaUrl, timeAgo, useSocialPosts } from "@/lib/social-data";
+import {
+  getLocalMedia,
+  repostReelToProfile,
+  resolveMediaUrl,
+  timeAgo,
+  useSocialPosts,
+  type SocialPost,
+} from "@/lib/social-data";
 import {
   resolveAuthorizedOfflineSource,
   resolveAuthorizedPlaybackUrl,
@@ -51,6 +59,7 @@ import {
 import { useDoubleTapLike, useYw } from "@/lib/yw-store";
 import {
   downloadVideoForOfflineInBackground,
+  createWatermarkedReelMp4Blob,
   downloadAudioOnly,
   downloadWithWatermark,
   isAndroidNativeDownloads,
@@ -58,6 +67,7 @@ import {
   sanitizeDownloadName,
   type DownloadedVideoMetadata,
 } from "@/lib/yw-download";
+import { saveReelMp4ToAndroidGallery } from "@/lib/reel-gallery";
 import { cn } from "@/lib/utils";
 import { releaseListVideo } from "@/lib/media-release";
 import { useScreenImage } from "@/lib/screen-image";
@@ -149,6 +159,7 @@ function ReelsPage() {
 function ReelsList() {
   const { reelId, userId, initialVideoId, focusComments, returnTo } = Route.useSearch();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { toggleFollow } = useYw();
   const scoped = Boolean(userId);
   const initialId = initialVideoId || reelId;
@@ -185,6 +196,46 @@ function ReelsList() {
     hasNextPage,
     isFetchingNextPage,
   } = useSocialPosts(scoped ? "creator-media" : "reel", userId);
+  const [repostedKeys, setRepostedKeys] = useState<Set<string>>(() => new Set());
+  const [pendingRepostKeys, setPendingRepostKeys] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const repostingKeys = useRef(new Set<string>());
+  const handleRepost = useCallback(async (post: SocialPost) => {
+    if (!currentUserId) {
+      toast.error("Sign in to repost this Reel.");
+      return;
+    }
+    if (post.user_id === currentUserId) {
+      toast.error("You can't repost your own Reel.");
+      return;
+    }
+    const key = `${currentUserId}:${post.id}`;
+    if (repostingKeys.current.has(key) || repostedKeys.has(key)) return;
+    repostingKeys.current.add(key);
+    setPendingRepostKeys((current) => new Set(current).add(key));
+    try {
+      const result = await repostReelToProfile(post);
+      setRepostedKeys((current) => new Set(current).add(key));
+      await queryClient.invalidateQueries({ queryKey: ["social-posts"] });
+      toast.success(
+        result.alreadyExists
+          ? "This Reel is already on your profile."
+          : "Reposted to your profile.",
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Could not repost this Reel.",
+      );
+    } finally {
+      repostingKeys.current.delete(key);
+      setPendingRepostKeys((current) => {
+        const next = new Set(current);
+        next.delete(key);
+        return next;
+      });
+    }
+  }, [currentUserId, queryClient, repostedKeys]);
   useEffect(() => {
     if (!openingLongVideo || !initialId) return;
     void navigate({
@@ -224,6 +275,7 @@ function ReelsList() {
   }, [navigate, returnTo, scoped, userId]);
 
   const live = dbReels.map((p) => ({
+    sourcePost: p,
     reel: {
       id: p.id,
       userId: p.user_id,
@@ -370,7 +422,7 @@ function ReelsList() {
 
   return (
     <>
-      {items.map(({ reel, author, likedByMe, mediaUrl, mediaType, mediaBucket, thumbnailUrl, access }, i) => (
+      {items.map(({ reel, author, likedByMe, mediaUrl, mediaType, mediaBucket, thumbnailUrl, access, sourcePost }, i) => (
         <section
           key={reel.id}
           data-index={i}
@@ -402,6 +454,19 @@ function ReelsList() {
                 initialCommentsOpen={focusComments && reel.id === initialId && i === active}
                 onDbLike={() => toggleDbLike(reel.id)}
                 onView={() => recordView(reel.id)}
+                onRepost={
+                  sourcePost && sourcePost.user_id !== currentUserId
+                    ? () => void handleRepost(sourcePost)
+                    : undefined
+                }
+                reposted={
+                  Boolean(currentUserId) &&
+                  repostedKeys.has(`${currentUserId}:${reel.id}`)
+                }
+                repostPending={
+                  Boolean(currentUserId) &&
+                  pendingRepostKeys.has(`${currentUserId}:${reel.id}`)
+                }
                 canDelete={currentUserId === reel.userId}
                 onDeleted={() => removePost(reel.id)}
               />
@@ -751,6 +816,9 @@ function ReelItem({
   initialCommentsOpen = false,
   onDbLike,
   onView,
+  onRepost,
+  reposted = false,
+  repostPending = false,
   canDelete = false,
   onDeleted,
 }: {
@@ -774,6 +842,9 @@ function ReelItem({
   initialCommentsOpen?: boolean;
   onDbLike?: () => void | Promise<unknown>;
   onView?: () => void | Promise<unknown>;
+  onRepost?: () => void;
+  reposted?: boolean;
+  repostPending?: boolean;
   canDelete?: boolean;
   onDeleted?: () => void;
 }) {
@@ -1120,22 +1191,28 @@ function ReelItem({
     reportProgress?: (percent: number) => void,
   ) => {
     if (!user) return;
+    if (!reel.allowDownload) {
+      toast.error("The creator has not allowed downloads for this Reel.");
+      return;
+    }
     const isVideo = mediaType?.startsWith("video") && Boolean(mediaUrl);
     if (isVideo && !currentUserId) {
-      toast.error("Sign in to save videos for offline viewing.");
+      toast.error("Sign in to download this Reel.");
       return;
     }
     if (isVideo && !choice) {
       setDownloadOpen(true);
       return;
     }
-    const creatorUsername = author?.username?.trim().replace(/^@+/, "") || "user";
+    const repostCreator = reel.caption.match(/^↻ Reposted from @([^\s\r\n]+)/)?.[1];
+    const creatorUsername =
+      repostCreator || author?.username?.trim().replace(/^@+/, "") || "user";
     const toastId = toast.loading(
       isVideo
         ? choice === "mp3"
           ? "Preparing MP3 audio…"
           : isAndroidNativeDownloads()
-            ? "Saving Reel for offline viewing…"
+            ? "Preparing watermarked MP4 for Gallery…"
             : "Preparing watermarked Reel…"
         : "Preparing image download…",
     );
@@ -1192,6 +1269,68 @@ function ReelItem({
             reportProgress?.(percent);
             toast.loading(`Preparing MP3 audio... ${percent}%`, { id: toastId });
           });
+        } else if (isAndroidNativeDownloads()) {
+          const candidates = [...new Set([playableUrl, ...offlineSource.fallbackUrls])];
+          let watermarkedMp4: Blob | null = null;
+          let exportError: unknown;
+          for (const [index, sourceUrl] of candidates.entries()) {
+            try {
+              watermarkedMp4 = await createWatermarkedReelMp4Blob(
+                sourceUrl,
+                creatorUsername,
+                (percent) => {
+                  const progress = Math.round(percent);
+                  reportProgress?.(progress);
+                  if (progress === 0 || progress === 100 || progress % 10 === 0) {
+                    toast.loading(`Creating watermarked MP4… ${progress}%`, {
+                      id: toastId,
+                    });
+                  }
+                },
+                selectedTier,
+              );
+              break;
+            } catch (error) {
+              exportError = error;
+              if (
+                error instanceof Error &&
+                error.message.includes("cannot encode an MP4")
+              ) {
+                break;
+              }
+              if (index < candidates.length - 1) {
+                toast.loading("Trying another authorized Reel source…", {
+                  id: toastId,
+                });
+              }
+            }
+          }
+          if (!watermarkedMp4) {
+            throw exportError instanceof Error
+              ? exportError
+              : new Error("The watermarked Reel could not be exported.");
+          }
+          await saveReelMp4ToAndroidGallery(
+            watermarkedMp4,
+            `${baseName}.mp4`,
+            (percent) => {
+              const progress = Math.round(percent);
+              reportProgress?.(Math.min(100, 90 + Math.round(progress * 0.1)));
+              if (progress === 0 || progress === 100 || progress % 20 === 0) {
+                toast.loading(`Saving Reel to Gallery… ${progress}%`, {
+                  id: toastId,
+                });
+              }
+            },
+          );
+          trackEvent("reel_downloaded", {
+            surface: "reels_feed",
+            media_type: "video",
+            download_type: "watermarked_gallery_mp4",
+            download_quality: choice || "original",
+          });
+          toast.success("Saved watermarked Reel to Gallery.", { id: toastId });
+          return;
         } else {
           const downloadMode = await downloadVideoForOfflineInBackground(
             playableUrl,
@@ -1207,6 +1346,7 @@ function ReelItem({
               transcodeSource: Boolean(
                 selectedTier && offlineSource.actualQuality !== selectedTier,
               ),
+              watermarkPlacement: "reel",
             },
           );
           trackEvent("reel_downloaded", {
@@ -1425,16 +1565,19 @@ function ReelItem({
 
       <div
         className="absolute bottom-14 right-3 flex flex-col items-center gap-3"
-        style={{ right: '14px', gap: '20px' }}
+        style={{ right: "14px", gap: "18px" }}
       >
         <Action
           onClick={() => void handleLike()}
-            label={hideLikeCount ? "Likes hidden" : formatCount(reel.likes)}
+          label={hideLikeCount ? "Likes hidden" : formatCount(reel.likes)}
           active={isLiked}
         >
           <Heart
-            strokeWidth={1.8}
-            className={cn("h-[18px] w-[18px] text-white", isLiked && "fill-white")}
+            strokeWidth={1.9}
+            className={cn(
+              "h-5 w-5 transition-colors",
+              isLiked ? "fill-rose-500 text-rose-500" : "text-white",
+            )}
           />
         </Action>
 
@@ -1444,7 +1587,7 @@ function ReelItem({
           initialOpen={initialCommentsOpen}
         >
           <Action label={formatCount(reel.commentCount)}>
-            <MessageCircle strokeWidth={1.8} className="h-[18px] w-[18px]" />
+            <MessageCircle strokeWidth={1.9} className="h-5 w-5" />
           </Action>
         </CommentsSheet>
 
@@ -1459,13 +1602,27 @@ function ReelItem({
           thumbnailBucket="thumbnails"
         >
           <Action label={hideShareCount ? "Shares hidden" : formatCount(reel.shares)}>
-            <Send strokeWidth={1.8} className="h-[18px] w-[18px]" />
+            <Send strokeWidth={1.9} className="h-5 w-5" />
           </Action>
         </ShareSheet>
 
+        {onRepost ? (
+          <Action
+            onClick={onRepost}
+            label={repostPending ? "Reposting…" : reposted ? "Reposted" : "Repost"}
+            active={reposted}
+            disabled={repostPending || reposted}
+          >
+            <Repeat2
+              strokeWidth={1.9}
+              className={cn("h-5 w-5", reposted && "text-emerald-300")}
+            />
+          </Action>
+        ) : null}
+
         <div className="relative">
           <Action onClick={() => setMenuOpen((v) => !v)} label="More">
-            <MoreVertical strokeWidth={1.8} className="h-[18px] w-[18px]" />
+            <MoreVertical strokeWidth={1.9} className="h-5 w-5" />
           </Action>
         </div>
       </div>
@@ -1489,7 +1646,11 @@ function ReelItem({
                 onClick={() => {
                   setMenuOpen(false);
                   if (mediaType?.startsWith("video") && mediaUrl) {
-                    setDownloadOpen(true);
+                    if (isAndroidNativeDownloads()) {
+                      void handleDownload("original");
+                    } else {
+                      setDownloadOpen(true);
+                    }
                   } else {
                     void handleDownload();
                   }
@@ -1497,7 +1658,7 @@ function ReelItem({
                 className="flex w-full items-center gap-3 border-b border-border/50 px-4 py-3 text-left text-[13px] font-medium transition-colors hover:bg-foreground/10"
               >
                 <Download strokeWidth={1.6} className="h-[17px] w-[17px] text-muted-foreground" />
-                Download Reel
+                Download to Gallery
               </button>
             ) : null}
             {[
@@ -1629,27 +1790,35 @@ function Action({
   label,
   onClick,
   active,
+  disabled,
 }: {
   children: React.ReactNode;
   label: string;
   onClick?: () => void;
   active?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
+      aria-label={label}
+      disabled={disabled}
       className={cn(
-        "group flex w-11 flex-col items-center gap-1 text-foreground transition-transform duration-150 active:scale-90",
+        "group flex w-12 shrink-0 flex-col items-center gap-1 text-foreground transition-transform duration-150 active:scale-90 disabled:pointer-events-none disabled:opacity-60",
         active && "animate-pop",
       )}
     >
       <span
-        className="grid h-9 w-9 place-items-center text-white"
+        className={cn(
+          "grid h-11 w-11 place-items-center rounded-full border border-white/20 bg-black/35 text-white shadow-[0_4px_16px_rgba(0,0,0,0.35)] backdrop-blur-md transition-colors group-hover:bg-black/55",
+          active && "border-white/40 bg-white/15",
+        )}
         style={{ filter: "drop-shadow(0px 2px 4px rgba(0, 0, 0, 0.6))" }}
       >
         {children}
       </span>
-      <span className="w-full truncate text-[8px] font-semibold tracking-wide text-foreground/85 drop-shadow-[0_2px_6px_rgba(0,0,0,0.6)]">
+      <span className="w-full truncate text-center text-[9px] font-semibold tracking-wide text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.75)]">
         {label}
       </span>
     </button>
