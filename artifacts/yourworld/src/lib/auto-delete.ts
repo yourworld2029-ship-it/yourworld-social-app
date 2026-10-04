@@ -5,7 +5,17 @@ export type AutoDeleteSetting =
   | "after_view_1m"
   | "after_view_10m";
 export type LegacyAutoDeleteSetting = "3_hours" | "6_hours";
-type AutoDeleteInput = AutoDeleteSetting | LegacyAutoDeleteSetting;
+export type CompactAutoDeleteSetting =
+  | "immediately"
+  | "15s"
+  | "1m"
+  | "10m"
+  | "5h"
+  | "24h";
+type AutoDeleteInput =
+  | AutoDeleteSetting
+  | LegacyAutoDeleteSetting
+  | CompactAutoDeleteSetting;
 export const AFTER_VIEW_DELAY_MS = 5_000;
 
 export const AUTO_DELETE_OPTIONS: readonly {
@@ -52,6 +62,12 @@ export function normalizeChatAutoDeleteSetting(
   value: unknown,
   legacySeconds = 0,
 ): AutoDeleteSetting {
+  if (value === "immediately") return "after_view";
+  if (value === "15s") return "after_view_15s";
+  if (value === "1m") return "after_view_1m";
+  if (value === "10m") return "after_view_10m";
+  if (value === "5h") return "5_hours";
+  if (value === "24h") return "24_hours";
   if (
     value === "after_view" ||
     value === "after_view_15s" ||
@@ -101,15 +117,18 @@ export function normalizeAutoDeleteSetting(
 ): AutoDeleteMode {
   if (
     value === "after_view" ||
+    value === "immediately" ||
+    value === "15s" ||
+    value === "1m" ||
+    value === "10m" ||
     value === "after_view_15s" ||
     value === "after_view_1m" ||
     value === "after_view_10m"
   ) {
     return "after_view";
   }
-  if (value === "5_hours" || value === "24_hours") {
-    return value;
-  }
+  if (value === "5_hours" || value === "5h") return "5_hours";
+  if (value === "24_hours" || value === "24h") return "24_hours";
   if (value === "3_hours" || value === "6_hours") return "5_hours";
   if (Number(legacySeconds) >= 24 * 60 * 60) return "24_hours";
   if (Number(legacySeconds) > 0) return "5_hours";

@@ -60,6 +60,26 @@ test("Vanish sub-timers preserve the immediate-on-exit default and selected dela
   assert.equal(formatVanishCountdown(-1), "0s");
 });
 
+test("compact database aliases normalize to the existing chat settings", () => {
+  assert.equal(normalizeChatAutoDeleteSetting("immediately"), "after_view");
+  assert.equal(normalizeChatAutoDeleteSetting("15s"), "after_view_15s");
+  assert.equal(normalizeChatAutoDeleteSetting("1m"), "after_view_1m");
+  assert.equal(normalizeChatAutoDeleteSetting("10m"), "after_view_10m");
+  assert.equal(normalizeChatAutoDeleteSetting("5h"), "5_hours");
+  assert.equal(normalizeChatAutoDeleteSetting("24h"), "24_hours");
+
+  assert.equal(normalizeAutoDeleteSetting("15s"), "after_view");
+  assert.equal(normalizeAutoDeleteSetting("5h"), "5_hours");
+  assert.equal(normalizeAutoDeleteSetting("24h"), "24_hours");
+  assert.equal(vanishDelaySeconds("15s"), 15);
+  assert.equal(vanishDelaySeconds("1m"), 60);
+  assert.equal(vanishDelaySeconds("10m"), 600);
+  assert.equal(autoDeleteSeconds("5h"), 5 * 60 * 60);
+  assert.equal(autoDeleteSeconds("24h"), 24 * 60 * 60);
+  assert.equal(autoDeleteLabel("immediately"), "After View (Vanish Mode)");
+  assert.equal(autoDeleteLabel("5h"), "5 Hours");
+});
+
 test("timed settings expire from their selected duration and legacy values become five hours", () => {
   const createdAt = Date.parse("2026-09-11T10:00:00.000Z");
   assert.equal(autoDeleteSeconds("5_hours"), 5 * 60 * 60);
