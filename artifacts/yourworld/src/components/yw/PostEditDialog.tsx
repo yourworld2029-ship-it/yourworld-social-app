@@ -236,7 +236,7 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md gap-0 overflow-hidden p-0">
+      <DialogContent className="max-w-md gap-0 overflow-hidden p-0 [&>button:last-child]:hidden">
         <DialogHeader className="grid grid-cols-[auto_1fr_auto] items-center border-b border-border px-4 py-3 text-center">
           <Button variant="ghost" size="sm" className="h-8 px-2" disabled={saving} onClick={() => onOpenChange(false)}>
             Cancel
@@ -328,7 +328,7 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
                       />
                     </div>
                   </div>
-                  <span className="pointer-events-none absolute bottom-3 left-3 rounded-full bg-black/65 px-2 py-0.5 text-[11px] font-medium tabular-nums text-white/90 backdrop-blur-sm">
+                  <span className="pointer-events-none absolute bottom-9 left-3 rounded-full bg-black/65 px-2 py-0.5 text-[11px] font-medium tabular-nums text-white/90 backdrop-blur-sm">
                     {formatVideoTime(currentTime)} / {formatVideoTime(duration)}
                   </span>
                 </>

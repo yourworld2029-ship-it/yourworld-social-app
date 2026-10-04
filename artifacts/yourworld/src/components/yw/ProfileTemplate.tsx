@@ -568,7 +568,7 @@ export function MediaGrid({
               onClick={() => onManage(it.post!)}
               className="absolute right-1.5 top-1.5 z-20 grid h-9 w-9 place-items-center rounded-full bg-black/70 text-white shadow-md backdrop-blur-sm transition-colors hover:bg-black/90 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
             >
-              <MoreVertical className="h-[18px] w-[18px]" aria-hidden="true" />
+              <MoreVertical className="h-4 w-4" aria-hidden="true" />
             </button>
           ) : null}
         </li>
