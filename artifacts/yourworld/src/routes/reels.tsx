@@ -157,6 +157,41 @@ function ReelsPage() {
   );
 }
 
+function PendingReelPreview({
+  src,
+  caption,
+  title,
+}: {
+  src: string;
+  caption: string;
+  title: string;
+}) {
+  return (
+    <div className="absolute inset-0 overflow-hidden bg-black">
+      <video
+        src={src}
+        autoPlay
+        muted
+        loop
+        playsInline
+        preload="metadata"
+        aria-label={`Local preview of ${title || "your Reel"}`}
+        className="absolute inset-0 h-full w-full object-contain"
+      />
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/85 via-transparent to-black/20" />
+      <div className="pointer-events-none absolute bottom-8 left-4 right-20 space-y-2">
+        <span className="inline-flex rounded-full bg-pink-600/90 px-3 py-1 text-xs font-semibold text-white">
+          Uploading Reel · only you can see this
+        </span>
+        {title ? <p className="text-sm font-semibold text-white">{title}</p> : null}
+        {caption ? (
+          <p className="line-clamp-3 whitespace-pre-wrap text-sm text-white">{caption}</p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function ReelsList() {
   const { reelId, userId, initialVideoId, focusComments, returnTo } = Route.useSearch();
   const navigate = useNavigate();
@@ -322,11 +357,13 @@ function ReelsList() {
         (p as typeof p & { audience?: string | null }).audience === "everyone"
         ? p.thumbnail_url ?? cloudflareStreamPosterUrl(p.media_url, p.cloudflare_stream_id ?? p.cloudflare_stream_uid) ?? null
         : p.thumbnail_url ?? null,
+    isPending: p.id.startsWith("optimistic-reel-"),
   })), [dbReels]);
 
   const items = live;
   const nextItem = items[active + 1];
   const nextMediaUrl =
+    !nextItem?.isPending &&
     nextItem?.access === "public" &&
     nextItem.mediaType?.toLowerCase().startsWith("video")
       ? nextItem.mediaUrl
@@ -352,6 +389,7 @@ function ReelsList() {
     const addTarget = (index: number) => {
       const item = items[index];
       if (
+        !item?.isPending &&
         item?.access === "public" &&
         item.mediaType?.toLowerCase().startsWith("video") &&
         item.mediaUrl
@@ -459,7 +497,7 @@ function ReelsList() {
     return () => scroller.removeEventListener("scroll", onScroll);
   }, [hasNextPage, isFetchingNextPage, loadMore]);
 
-  if (loading) {
+  if (loading && !items.length) {
     return (
       <div className="grid h-full min-h-[calc(100dvh-4.75rem)] place-items-center px-6 text-center text-sm text-muted-foreground">
         Loading reels…
@@ -493,7 +531,7 @@ function ReelsList() {
 
   return (
     <>
-      {items.map(({ reel, author, likedByMe, mediaUrl, mediaType, mediaBucket, thumbnailUrl, access, sourcePost }, i) => (
+      {items.map(({ reel, author, likedByMe, mediaUrl, mediaType, mediaBucket, thumbnailUrl, access, sourcePost, isPending }, i) => (
         <section
           key={reel.id}
           data-index={i}
@@ -504,6 +542,13 @@ function ReelsList() {
         >
           {/* Only the active reel mounts its player and interaction controls. */}
           {i === active ? (
+            isPending ? (
+              <PendingReelPreview
+                src={mediaUrl}
+                title={sourcePost?.title ?? ""}
+                caption={reel.caption}
+              />
+            ) : (
               <ReelItem
                 reel={reel}
                 currentUserId={currentUserId}
@@ -541,10 +586,11 @@ function ReelsList() {
                 canDelete={currentUserId === reel.userId}
                 onDeleted={() => removePost(reel.id)}
               />
+            )
             ) : (
               <LazyVideoThumbnail
                 thumbnailUrl={thumbnailUrl ?? (mediaType?.toLowerCase().startsWith("video") ? null : mediaUrl)}
-                mediaUrl={access === "public" && mediaType?.toLowerCase().startsWith("video") ? mediaUrl : undefined}
+                mediaUrl={!isPending && access === "public" && mediaType?.toLowerCase().startsWith("video") ? mediaUrl : undefined}
                 alt=""
                 showPlayFallback={false}
                 showFallbackIcon={mediaType?.toLowerCase().startsWith("video")}

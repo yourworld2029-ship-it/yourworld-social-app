@@ -17,7 +17,18 @@ export const PendingLongVideoUploadCard = memo(function PendingLongVideoUploadCa
       aria-label={`Your video ${task.label} is ${status.toLowerCase()}`}
     >
       <div className="relative aspect-video overflow-hidden bg-gradient-to-br from-zinc-800 via-zinc-900 to-zinc-950">
-        {task.thumbnail ? (
+        {task.previewUrl ? (
+          <video
+            src={task.previewUrl}
+            poster={task.thumbnail ?? undefined}
+            controls
+            muted
+            playsInline
+            preload="metadata"
+            aria-label={`Local preview of ${task.label}`}
+            className="h-full w-full object-cover"
+          />
+        ) : task.thumbnail ? (
           <img
             src={task.thumbnail}
             alt=""
@@ -30,7 +41,7 @@ export const PendingLongVideoUploadCard = memo(function PendingLongVideoUploadCa
             <UploadCloud aria-hidden="true" className="h-9 w-9" />
           </div>
         )}
-        <div className="absolute inset-0 grid place-items-center bg-black/35">
+        <div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/35">
           <div className="flex items-center gap-2 rounded-full bg-black/65 px-3 py-2 text-xs font-medium text-white">
             <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
             {status}

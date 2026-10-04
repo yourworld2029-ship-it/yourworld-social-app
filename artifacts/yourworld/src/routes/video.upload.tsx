@@ -28,6 +28,11 @@ import { trackEvent } from "@/lib/analytics";
 import { historyBackOr } from "@/lib/navigation";
 import { cacheVideoPoster } from "@/lib/video-prefetch";
 import { generateVideoThumbnail } from "@/lib/video-frames";
+import {
+  cancelNativeVideoOptimization,
+  pickAndOptimizeNativeVideo,
+  supportsNativeVideoOptimization,
+} from "@/lib/native-video-optimization";
 
 type AccessOption = "public" | "vip" | "paid";
 const MIN_PAID_VIDEO_PRICE = 10;
@@ -54,7 +59,6 @@ export const Route = createFileRoute("/video/upload")({
   component: VideoUploadPage,
 });
 const MIN_DURATION = 90;
-const MAX_VIDEO_BYTES = 209_715_200;
 const UPLOAD_VIDEO_CATEGORIES = [...VIDEO_CATEGORIES, "Sports"] as const;
 
 function VideoUploadPage() {
@@ -68,6 +72,7 @@ function VideoUploadPage() {
   const thumbnailFileRef = useRef<File | null>(null);
   const videoInput = useRef<HTMLInputElement | null>(null);
   const thumbInput = useRef<HTMLInputElement | null>(null);
+  const mountedRef = useRef(true);
 
   const [fileUrl, setFileUrl] = useState<string | null>(null);
   const [previewFrame, setPreviewFrame] = useState<string | null>(null);
@@ -91,6 +96,9 @@ function VideoUploadPage() {
   const [time, setTime] = useState("");
 
   const [busy, setBusy] = useState(false);
+  const [preparingVideo, setPreparingVideo] = useState(false);
+  const [optimizingVideo, setOptimizingVideo] = useState(false);
+  const [optimizationProgress, setOptimizationProgress] = useState(0);
 
   const [access, setAccess] = useState<AccessOption>("public");
   const [price, setPrice] = useState("");
@@ -102,14 +110,18 @@ function VideoUploadPage() {
     { value: "vip", label: "Subscribers Only", hint: "Only subscribers can watch" },
   ];
 
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      void cancelNativeVideoOptimization();
+    };
+  }, []);
+
   const pickVideo = (file: File | undefined) => {
     if (!file) return;
     if (!file.type.startsWith("video/")) {
       toast.error("Please choose a video file");
-      return;
-    }
-    if (file.size > MAX_VIDEO_BYTES) {
-      toast.error("Videos must be under 200 MB.");
       return;
     }
     // Keep the selected file as a Blob URL so the media element can seek and
@@ -126,6 +138,37 @@ function VideoUploadPage() {
     setDuration(null);
     setCurrentTime(0);
     setDimensions(null);
+    if (videoInput.current) videoInput.current.value = "";
+  };
+
+  const chooseVideo = async () => {
+    if (preparingVideo || optimizingVideo) return;
+    if (!supportsNativeVideoOptimization()) {
+      videoInput.current?.click();
+      return;
+    }
+    setPreparingVideo(true);
+    setOptimizationProgress(0);
+    try {
+      const optimizedFile = await pickAndOptimizeNativeVideo((percent) => {
+        if (!mountedRef.current) return;
+        setPreparingVideo(false);
+        setOptimizingVideo(true);
+        setOptimizationProgress(percent);
+      });
+      if (!mountedRef.current || !optimizedFile) return;
+      pickVideo(optimizedFile);
+    } catch (error) {
+      if (!mountedRef.current) return;
+      toast.error(
+        error instanceof Error ? error.message : "Video optimization failed.",
+      );
+    } finally {
+      if (mountedRef.current) {
+        setPreparingVideo(false);
+        setOptimizingVideo(false);
+      }
+    }
   };
 
   useEffect(() => {
@@ -253,6 +296,8 @@ function VideoUploadPage() {
   const tooShort = duration !== null && duration < MIN_DURATION;
   const canPublish =
     !!fileUrl &&
+    !preparingVideo &&
+    !optimizingVideo &&
     !tooShort &&
     title.trim().length >= 2 &&
     (!seriesEnabled || (seriesTitle.trim().length >= 2 && episodeNumber.trim().length > 0)) &&
@@ -261,10 +306,6 @@ function VideoUploadPage() {
 
   const submit = () => {
     if (!fileUrl) return;
-    if (selectedFileRef.current && selectedFileRef.current.size > MAX_VIDEO_BYTES) {
-      toast.error("Videos must be under 200 MB.");
-      return;
-    }
     if (duration === null || duration < MIN_DURATION) {
       toast.error("Long videos must be at least 90 seconds.");
       return;
@@ -301,6 +342,9 @@ function VideoUploadPage() {
     const titleSnapshot = title.trim() || "Long video";
     const descriptionSnapshot = description.trim();
     const thumbnailUrlSnapshot = thumb;
+    const localPreviewUrl = selectedFile
+      ? URL.createObjectURL(selectedFile)
+      : undefined;
     const orientationSnapshot = orientation;
     const scheduleSnapshot = scheduledAt;
     const paidPromotionSnapshot = paidPromotion;
@@ -336,8 +380,10 @@ function VideoUploadPage() {
         kind: "video",
         label: titleSnapshot,
         caption: descriptionSnapshot,
+        isVideo: true,
+        thumbnail: previewFrame,
+        previewUrl: localPreviewUrl,
         ownerId: user?.id ?? null,
-        thumbnail: thumbnailUrlSnapshot,
         viewTo: "/",
         notifyOnSuccess: !scheduleSnapshot,
       },
@@ -392,6 +438,18 @@ function VideoUploadPage() {
       </header>
 
       <div className="mx-auto max-w-xl space-y-5 px-4 pt-5">
+        {(preparingVideo || optimizingVideo) && (
+          <div
+            className="flex items-center justify-center gap-2 rounded-xl border border-pink-400/20 bg-pink-500/10 px-4 py-3 text-sm text-pink-100"
+            role="status"
+            aria-live="polite"
+          >
+            <Loader2 className="h-4 w-4 animate-spin" />
+            {optimizingVideo
+              ? `Optimizing video... ${optimizationProgress}%`
+              : "Choose a video to optimize"}
+          </div>
+        )}
         {/* PLAYER / PICKER */}
         {!fileUrl ? (
           <div className="space-y-3">
@@ -422,7 +480,7 @@ function VideoUploadPage() {
                   aria-pressed={orientation === option.value}
                   onClick={() => {
                     setOrientation(option.value);
-                    videoInput.current?.click();
+                    void chooseVideo();
                   }}
                   className={`flex min-h-36 flex-col items-center justify-center gap-2 rounded-2xl border bg-zinc-900/50 px-3 py-4 text-center transition-colors active:scale-[0.98] ${
                     orientation === option.value
@@ -517,7 +575,7 @@ function VideoUploadPage() {
                 {formatDuration(duration)}
               </span>
               <button
-                onClick={() => videoInput.current?.click()}
+                onClick={() => void chooseVideo()}
                 className="font-semibold text-pink-400"
               >
                 Change video

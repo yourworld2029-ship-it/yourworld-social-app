@@ -9,9 +9,14 @@ import {
 } from "@/lib/post-deletion";
 import {
   announcePublishedPost,
+  getOptimisticPosts,
+  OPTIMISTIC_POST_EVENT,
   PUBLISHED_POST_EVENT,
   prependUniqueFeedItem,
+  readOptimisticPostEvent,
   readPublishedPostEvent,
+  removeOptimisticPost,
+  type OptimisticPostDetail,
 } from "@/lib/published-feed";
 import { cacheGet, cacheSet } from "@/lib/local-cache";
 import { useThreadCachePolicy } from "@/lib/chat-cache-security";
@@ -115,6 +120,7 @@ export type DbPost = {
   sports_tag?: string | null;
   series_title?: string | null;
   episode_number?: string | null;
+  audience?: string | null;
 };
 
 export type SocialPost = DbPost & {
@@ -124,6 +130,48 @@ export type SocialPost = DbPost & {
   commentCount: number;
   likedByMe: boolean;
 };
+
+function optimisticSocialPost(post: OptimisticPostDetail): SocialPost {
+  return {
+    id: post.id,
+    user_id: post.userId,
+    kind: post.kind,
+    title: post.title,
+    media_url: post.mediaUrl,
+    video_url: null,
+    media_type: "video",
+    thumbnail_url: post.thumbnailUrl,
+    duration_seconds: post.durationSeconds,
+    original_width: post.originalWidth,
+    original_height: post.originalHeight,
+    source_quality_tier: sourceQualityTierFromDimensions(
+      post.originalWidth,
+      post.originalHeight,
+    ),
+    caption: post.caption,
+    hashtags: post.hashtags,
+    location: null,
+    audio: null,
+    allow_download: post.allowDownload,
+    created_at: post.createdAt,
+    views: 0,
+    views_count: 0,
+    hide_like_count: false,
+    hide_share_count: false,
+    comments_off: false,
+    pinned: false,
+    archived: false,
+    audience: "everyone",
+    author: toUser(
+      { id: post.userId, username: post.username, display_name: post.displayName },
+      post.userId,
+    ),
+    authorAvatarUrl: post.avatarUrl,
+    likeCount: 0,
+    commentCount: 0,
+    likedByMe: false,
+  };
+}
 
 const hueFromId = (id: string) => {
   let h = 0;
@@ -487,13 +535,14 @@ export function useSocialPosts(
     getNextPageParam: (lastPage, _allPages, lastPageParam) =>
       lastPage.hasMore ? lastPageParam + 1 : undefined,
   });
-  const rows = useMemo(
-    () =>
-      (feedQuery.data?.pages ?? [])
-        .flatMap((page) => page.posts)
-        .filter((post) => !removedRef.current.has(post.id)),
-    [feedQuery.data],
-  );
+  const [optimisticPosts, setOptimisticPosts] = useState<OptimisticPostDetail[]>([]);
+  const rows = useMemo(() => {
+    const pendingRows = optimisticPosts.map(optimisticSocialPost);
+    const persistedRows = (feedQuery.data?.pages ?? []).flatMap((page) => page.posts);
+    return [...pendingRows, ...persistedRows].filter(
+      (post) => !removedRef.current.has(post.id),
+    );
+  }, [feedQuery.data, optimisticPosts]);
   const me = feedQuery.data?.pages[0]?.currentUserId ?? null;
   const loading = feedQuery.isLoading;
 
@@ -518,6 +567,25 @@ export function useSocialPosts(
 
   useEffect(() => {
     removedRef.current.clear();
+    const matchesQuery = (post: OptimisticPostDetail) =>
+      (kind === post.kind ||
+        (kind === "creator-media" && (post.kind === "reel" || post.kind === "video"))) &&
+      (!userId || userId === post.userId);
+    setOptimisticPosts(getOptimisticPosts().filter(matchesQuery));
+    const onOptimisticPost = (event: Event) => {
+      const update = readOptimisticPostEvent(event);
+      if (!update) return;
+      if (update.action === "remove") {
+        setOptimisticPosts((current) => current.filter((post) => post.id !== update.id));
+        return;
+      }
+      if (!matchesQuery(update.post)) return;
+      setOptimisticPosts((current) => [
+        update.post,
+        ...current.filter((post) => post.id !== update.post.id),
+      ]);
+    };
+    window.addEventListener(OPTIMISTIC_POST_EVENT, onOptimisticPost);
     const unsubscribeFromDeletes = subscribeToPostDeleted((postId) => {
       removedRef.current.add(postId);
       removeDeletedPostFromQueryCaches(queryClient, postId);
@@ -539,6 +607,7 @@ export function useSocialPosts(
     const onPublishedPost = (event: Event) => {
       const detail = readPublishedPostEvent(event);
       if (!detail || (detail.kind === "post" && detail.mediaType !== "video")) return;
+      removeOptimisticPost(detail.optimisticId);
       const matchesKind =
         kind === detail.kind ||
         (kind === "creator-media" && (detail.kind === "reel" || detail.kind === "video"));
@@ -588,6 +657,7 @@ export function useSocialPosts(
       window.clearTimeout(boot);
       window.clearTimeout(timer);
       unsubscribeFromDeletes();
+      window.removeEventListener(OPTIMISTIC_POST_EVENT, onOptimisticPost);
       window.removeEventListener(PUBLISHED_POST_EVENT, onPublishedPost);
       if (channel) void supabase.removeChannel(channel);
     };
@@ -1239,6 +1309,7 @@ export async function publishReel(opts: {
 export async function publishDirectReel(opts: {
   file: File;
   title: string;
+  optimisticId?: string;
   caption?: string;
   hashtags?: string[];
   allowDownload?: boolean;
@@ -1372,7 +1443,14 @@ export async function publishDirectReel(opts: {
       ? { message: "The video source could not be saved for offline downloads. Please update the video schema and try again." }
       : result.error;
   if (error) console.error("Direct reel database insert failed", error);
-  else announcePublishedPost({ id: postId, kind: "reel", mediaType: "video" });
+  else {
+    announcePublishedPost({
+      id: postId,
+      kind: "reel",
+      mediaType: "video",
+      optimisticId: opts.optimisticId,
+    });
+  }
   if (!opts.signal?.aborted) opts.onProgress?.(100);
   return { error: error?.message ?? null };
 }

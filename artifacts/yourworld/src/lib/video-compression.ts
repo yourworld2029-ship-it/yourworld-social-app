@@ -8,6 +8,16 @@ import {
 const OPTIMIZING_LABEL = "Preparing optimized video...";
 const UPLOAD_MAX_TIER: VideoQualityTier = "1080p";
 export const VIDEO_UPLOAD_BITRATE = 2_500_000;
+const nativeOptimizedBlobs = new WeakSet<Blob>();
+const LARGE_SOURCE_COMPRESSION_REQUIRED_BYTES = 300 * 1024 * 1024;
+
+export function markVideoBlobAsOptimized(blob: Blob) {
+  nativeOptimizedBlobs.add(blob);
+}
+
+export function isNativeOptimizedVideo(blob: Blob) {
+  return nativeOptimizedBlobs.has(blob);
+}
 
 const RECORDER_MIME_CANDIDATES = [
   'video/mp4;codecs="avc1.640028"',
@@ -275,25 +285,47 @@ export async function optimizeVideoBlob(
   onOutputDimensions?: (dimensions: { width: number; height: number }) => void,
 ): Promise<Blob> {
   if (!source.type.startsWith("video/")) return source;
+  if (isNativeOptimizedVideo(source)) return source;
+  const requiresCompression = source.size > LARGE_SOURCE_COMPRESSION_REQUIRED_BYTES;
   let metadata: VideoMetadata | null = null;
   let sourceUrl: string | null = null;
   try {
     sourceUrl = URL.createObjectURL(source);
     metadata = await readVideoMetadata(sourceUrl);
   } catch (error) {
+    if (requiresCompression) {
+      throw new Error("This video is too large to upload without local compression.", {
+        cause: error,
+      });
+    }
     console.warn("Video metadata optimization unavailable; uploading the original source.", error);
     return source;
   } finally {
     if (sourceUrl) URL.revokeObjectURL(sourceUrl);
   }
-  if (!metadata) return source;
+  if (!metadata) {
+    if (requiresCompression) {
+      throw new Error("Video details could not be read, so this large video cannot be compressed.");
+    }
+    return source;
+  }
   onOutputDimensions?.({ width: metadata.width, height: metadata.height });
 
   const sourceBitsPerSecond = (source.size * 8) / metadata.duration;
   const sourceTier = qualityTierFromDimensions(metadata.width, metadata.height);
-  if (!sourceTier) return source;
+  if (!sourceTier) {
+    if (requiresCompression) {
+      throw new Error("This video cannot be compressed to a supported upload quality.");
+    }
+    return source;
+  }
   const targetTier = qualityTierForOutput(metadata.width, metadata.height, UPLOAD_MAX_TIER);
-  if (!targetTier) return source;
+  if (!targetTier) {
+    if (requiresCompression) {
+      throw new Error("This video cannot be compressed to a supported upload quality.");
+    }
+    return source;
+  }
   const targetSize = outputSizeForQuality(metadata, targetTier);
   const outputMetadata = { ...metadata, ...targetSize };
   const target = targetBitrates(targetTier, VIDEO_UPLOAD_BITRATE);
@@ -305,7 +337,12 @@ export async function optimizeVideoBlob(
   if (!shouldCompress) return source;
 
   const mimeType = supportedMimeType();
-  if (!mimeType) return source;
+  if (!mimeType) {
+    if (requiresCompression) {
+      throw new Error("This device cannot compress the selected video.");
+    }
+    return source;
+  }
 
   const encodeUrl = URL.createObjectURL(source);
   try {
@@ -319,11 +356,21 @@ export async function optimizeVideoBlob(
       (percent) => onProgress?.(percent, `${OPTIMIZING_LABEL} ${percent}%`),
       VIDEO_UPLOAD_BITRATE,
     );
-    if (optimized.size >= source.size * 0.9) return source;
+    if (optimized.size >= source.size * 0.9) {
+      if (requiresCompression) {
+        throw new Error("Video compression did not reduce this file enough to upload safely.");
+      }
+      return source;
+    }
     onOutputDimensions?.(targetSize);
     onProgress?.(100, `${OPTIMIZING_LABEL} 100%`);
     return optimized;
   } catch (error) {
+    if (requiresCompression) {
+      throw error instanceof Error
+        ? error
+        : new Error("Video compression failed. The original was not uploaded.");
+    }
     console.warn("Adaptive video compression unavailable; uploading the original source.", error);
     return source;
   } finally {

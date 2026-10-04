@@ -25,6 +25,7 @@ export type UploadTask = {
   kind: UploadKind;
   label: string;
   thumbnail?: string | null;
+  previewUrl?: string | null;
   ownerId?: string | null;
   caption?: string | null;
   /** Destination to open once the upload finishes. */
@@ -59,6 +60,7 @@ type Ctx = {
       kind: UploadKind;
       label: string;
       thumbnail?: string | null;
+      previewUrl?: string | null;
       viewTo: string;
       ownerId?: string | null;
       caption?: string | null;
@@ -167,6 +169,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   const abortControllers = useRef(new Map<string, AbortController>());
   const liveTaskIds = useRef(new Set<string>());
   const previewObjectUrls = useRef(new Map<string, string>());
+  const previewVideoObjectUrls = useRef(new Map<string, string>());
   const pendingVideoSummaryRef = useRef<PendingVideoUploadSummary>([]);
 
   const pendingVideoSummary = useMemo(() => {
@@ -186,6 +189,8 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       abortControllers.current.clear();
       previewObjectUrls.current.forEach((url) => URL.revokeObjectURL(url));
       previewObjectUrls.current.clear();
+      previewVideoObjectUrls.current.forEach((url) => URL.revokeObjectURL(url));
+      previewVideoObjectUrls.current.clear();
       liveTaskIds.current.clear();
     },
     [],
@@ -209,6 +214,11 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       URL.revokeObjectURL(previewUrl);
       previewObjectUrls.current.delete(id);
     }
+    const videoPreviewUrl = previewVideoObjectUrls.current.get(id);
+    if (videoPreviewUrl) {
+      URL.revokeObjectURL(videoPreviewUrl);
+      previewVideoObjectUrls.current.delete(id);
+    }
     setTasks((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
@@ -227,6 +237,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     async (meta, runner, onStarted) => {
       const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
       liveTaskIds.current.add(id);
+      if (meta.previewUrl) previewVideoObjectUrls.current.set(id, meta.previewUrl);
       setTasks((prev) => [
         ...prev,
         { id, progress: 0, status: "uploading", ...meta },
@@ -317,6 +328,12 @@ export function UploadProvider({ children }: { children: ReactNode }) {
 
         if (controller.signal.aborted || result.cancelled) {
           liveTaskIds.current.delete(id);
+          const thumbnailUrl = previewObjectUrls.current.get(id);
+          if (thumbnailUrl) URL.revokeObjectURL(thumbnailUrl);
+          previewObjectUrls.current.delete(id);
+          const videoPreviewUrl = previewVideoObjectUrls.current.get(id);
+          if (videoPreviewUrl) URL.revokeObjectURL(videoPreviewUrl);
+          previewVideoObjectUrls.current.delete(id);
           setTasks((prev) => prev.filter((task) => task.id !== id));
           return { error: null, cancelled: true };
         }
