@@ -54,5 +54,5 @@
 - [Supabase media upload transport](direct-supabase-uploads.md) — use direct Storage for small files and sequential resumable TUS for large browser uploads.
 - [Cloudflare Stream downloads](cloudflare-stream-downloads.md) — prefer Cloudflare MP4, active playback, then storage; keep quality labels honest and preserve access denials.
 - [Native media API routing](native-media-api-routing.md) — packaged WebView requests need the hosted origin; TUS responses must expose the continuation and media-ID headers.
-- [Cross-artifact public downloads](cross-artifact-public-downloads.md) — API working directories are artifact-local; resolve files staged in workspace-root `public/` from a stable artifact path.
+- [Cross-artifact public downloads](cross-artifact-public-downloads.md) — workspace-root and artifact-local APK routes differ; stage each requested file at the route's actual source and verify through the proxy.
 - [Browser media fixtures](browser-media-fixtures.md) — automated Chromium may reject valid AVC; use VP8 fixtures to verify browser flows without changing Android encoding.

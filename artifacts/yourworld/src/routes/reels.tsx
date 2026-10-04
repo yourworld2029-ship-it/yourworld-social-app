@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Hls from "hls.js";
 import {
@@ -10,6 +10,7 @@ import { cloudflareStreamPosterUrl } from "@/lib/cloudflare-stream-media";
 import {
   cacheVideoPoster,
   getVideoPoster,
+  prefetchVideo,
   subscribeVideoPoster,
 } from "@/lib/video-prefetch";
 import { preloadNextVideo } from "@/lib/next-video-preload";
@@ -274,7 +275,7 @@ function ReelsList() {
     }
   }, [navigate, returnTo, scoped, userId]);
 
-  const live = dbReels.map((p) => ({
+  const live = useMemo(() => dbReels.map((p) => ({
     sourcePost: p,
     reel: {
       id: p.id,
@@ -321,20 +322,90 @@ function ReelsList() {
         (p as typeof p & { audience?: string | null }).audience === "everyone"
         ? p.thumbnail_url ?? cloudflareStreamPosterUrl(p.media_url, p.cloudflare_stream_id ?? p.cloudflare_stream_uid) ?? null
         : p.thumbnail_url ?? null,
-  }));
+  })), [dbReels]);
 
   const items = live;
-  const nextMediaUrl = items[active + 1]?.access === "public" &&
-    items[active + 1]?.mediaType?.startsWith("video") ? items[active + 1]?.mediaUrl : null;
+  const nextItem = items[active + 1];
+  const nextMediaUrl =
+    nextItem?.access === "public" &&
+    nextItem.mediaType?.toLowerCase().startsWith("video")
+      ? nextItem.mediaUrl
+      : null;
+  const nextMediaBucket = nextItem?.mediaBucket ?? "reels";
   useEffect(() => {
     if (active < 0 || !nextMediaUrl) return;
     let alive = true;
     let dispose: (() => void) | undefined;
-    void resolveMediaUrl(nextMediaUrl, "reels").then((url) => {
+    void resolveMediaUrl(nextMediaUrl, nextMediaBucket).then((url) => {
       if (alive && url) dispose = preloadNextVideo(url, nextMediaUrl);
     }).catch(() => undefined);
     return () => { alive = false; dispose?.(); };
-  }, [active, nextMediaUrl]);
+  }, [active, nextMediaBucket, nextMediaUrl]);
+
+  const prefetchTargets = useMemo(() => {
+    if (active < 0) return [];
+    const targets: Array<{
+      mediaUrl: string;
+      mediaBucket: "reels" | "videos";
+      durationSeconds: number | null;
+    }> = [];
+    const addTarget = (index: number) => {
+      const item = items[index];
+      if (
+        item?.access === "public" &&
+        item.mediaType?.toLowerCase().startsWith("video") &&
+        item.mediaUrl
+      ) {
+        targets.push({
+          mediaUrl: item.mediaUrl,
+          mediaBucket: item.mediaBucket,
+          durationSeconds: item.reel.durationSeconds ?? null,
+        });
+      }
+    };
+    for (let index = active + 1; index <= Math.min(items.length - 1, active + 4); index += 1) {
+      addTarget(index);
+    }
+    for (let index = active - 1; index >= Math.max(0, active - 2); index -= 1) {
+      addTarget(index);
+    }
+    return targets;
+  }, [active, items]);
+
+  useEffect(() => {
+    if (!prefetchTargets.length) return;
+    let disposed = false;
+    let controller = new AbortController();
+    const startPrefetch = () => {
+      if (disposed || document.visibilityState === "hidden") return;
+      controller.abort();
+      controller = new AbortController();
+      const requestController = controller;
+      void (async () => {
+        for (const target of prefetchTargets) {
+          if (requestController.signal.aborted) break;
+          try {
+            const url = await resolveMediaUrl(target.mediaUrl, target.mediaBucket);
+            if (!url || requestController.signal.aborted) continue;
+            await prefetchVideo(url, target.durationSeconds, requestController.signal);
+          } catch {
+            // Reel warm-cache reads are opportunistic; playback remains authoritative.
+          }
+        }
+      })();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") controller.abort();
+      else startPrefetch();
+    };
+    startPrefetch();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      disposed = true;
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      controller.abort();
+    };
+  }, [prefetchTargets]);
 
   useEffect(() => {
     if (!initialId || loading) return;
@@ -613,6 +684,7 @@ export function ReelMedia({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const hlsRef = useRef<Hls | null>(null);
   const pausedRef = useRef(paused);
+  const previousPaused = useRef(paused);
   const isHlsManifest = isHlsManifestUrl(src);
   const setVideoRef = useCallback((element: HTMLVideoElement | null) => {
     const previous = videoRef.current;
@@ -698,14 +770,20 @@ export function ReelMedia({
   useEffect(() => {
     const v = videoRef.current;
     if (!v || asImage) return;
+    const wasPaused = previousPaused.current;
+    previousPaused.current = paused;
     if (active && !paused) {
+      if (wasPaused) {
+        v.muted = false;
+        v.defaultMuted = false;
+        v.volume = 1;
+      }
       void v.play().catch(() => {
         // Some browsers block unmuted autoplay. Keep the requested audio
         // state and let the normal tap-to-pause/play gesture retry playback.
       });
     } else {
       v.pause();
-      v.muted = true;
     }
   }, [active, asImage, paused, src]);
 
@@ -873,6 +951,7 @@ function ReelItem({
   const [held, setHeld] = useState(false);
   const [tappedPause, setTappedPause] = useState(false);
   const paused = held || tappedPause;
+  const previousPaused = useRef(paused);
   const barRef = useRef<HTMLDivElement>(null);
   const mediaRef = useRef<HTMLElement | null>(null);
   const seekRaf = useRef<number | null>(null);
@@ -883,6 +962,12 @@ function ReelItem({
   const lastResumeSavedAt = useRef(0);
   const resumeRemoved = useRef(false);
   const resumeApplied = useRef(false);
+
+  useEffect(() => {
+    const wasPaused = previousPaused.current;
+    previousPaused.current = paused;
+    if (active && wasPaused && !paused) onMutedChange(false);
+  }, [active, onMutedChange, paused]);
 
   useEffect(() => {
     playedSeconds.current = 0;
@@ -1154,8 +1239,21 @@ function ReelItem({
       return;
     }
     lastTap.current = now;
-    // single tap toggles pause/play
-    setTappedPause((v) => !v);
+    if (paused) {
+      const video = mediaRef.current instanceof HTMLVideoElement ? mediaRef.current : null;
+      onMutedChange(false);
+      if (video) {
+        video.muted = false;
+        video.defaultMuted = false;
+        video.volume = 1;
+        void video.play().catch(() => {
+          // Preserve the unmuted state for the effect's retry after React updates.
+        });
+      }
+      setTappedPause(false);
+      return;
+    }
+    setTappedPause(true);
   };
 
   const enableAudio = useCallback(() => {
@@ -1565,7 +1663,7 @@ function ReelItem({
 
       <div
         className="absolute bottom-14 right-3 flex flex-col items-center gap-3"
-        style={{ right: "14px", gap: "18px" }}
+        style={{ right: "14px" }}
       >
         <Action
           onClick={() => void handleLike()}
@@ -1575,7 +1673,7 @@ function ReelItem({
           <Heart
             strokeWidth={1.9}
             className={cn(
-              "h-5 w-5 transition-colors",
+              "h-[22px] w-[22px] transition-colors",
               isLiked ? "fill-rose-500 text-rose-500" : "text-white",
             )}
           />
@@ -1587,7 +1685,7 @@ function ReelItem({
           initialOpen={initialCommentsOpen}
         >
           <Action label={formatCount(reel.commentCount)}>
-            <MessageCircle strokeWidth={1.9} className="h-5 w-5" />
+            <MessageCircle strokeWidth={1.9} className="h-[22px] w-[22px]" />
           </Action>
         </CommentsSheet>
 
@@ -1602,7 +1700,7 @@ function ReelItem({
           thumbnailBucket="thumbnails"
         >
           <Action label={hideShareCount ? "Shares hidden" : formatCount(reel.shares)}>
-            <Send strokeWidth={1.9} className="h-5 w-5" />
+            <Send strokeWidth={1.9} className="h-[22px] w-[22px]" />
           </Action>
         </ShareSheet>
 
@@ -1615,14 +1713,14 @@ function ReelItem({
           >
             <Repeat2
               strokeWidth={1.9}
-              className={cn("h-5 w-5", reposted && "text-emerald-300")}
+              className={cn("h-[22px] w-[22px]", reposted && "text-emerald-300")}
             />
           </Action>
         ) : null}
 
         <div className="relative">
           <Action onClick={() => setMenuOpen((v) => !v)} label="More">
-            <MoreVertical strokeWidth={1.9} className="h-5 w-5" />
+            <MoreVertical strokeWidth={1.9} className="h-[22px] w-[22px]" />
           </Action>
         </div>
       </div>

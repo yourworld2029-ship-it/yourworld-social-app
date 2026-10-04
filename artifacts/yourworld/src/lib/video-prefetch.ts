@@ -10,8 +10,8 @@ const MAX_POSTER_CACHE_ENTRIES = 24;
 const VIDEO_PREFIX_CACHE = "yourworld-video-prefixes-v1";
 const HLS_SEGMENT_CACHE = "yourworld-video-hls-prefixes-v1";
 const PREFIX_TTL_MS = 10 * 60 * 1000;
-const MAX_PREFIX_ENTRIES = 4;
-const MAX_HLS_SEGMENT_ENTRIES = 8;
+const MAX_PREFIX_ENTRIES = 6;
+const MAX_HLS_SEGMENT_ENTRIES = 12;
 const MAX_HLS_SEGMENT_BYTES = 2 * 1024 * 1024;
 const VIDEO_POSTER_READY_EVENT = "yourworld:video-poster-ready";
 
@@ -20,6 +20,8 @@ type PrefetchJob = {
   url: string;
   controller: AbortController;
   durationSeconds?: number | null;
+  done: Promise<void>;
+  finish: () => void;
 };
 
 const active = new Map<string, PrefetchJob>();
@@ -130,12 +132,14 @@ function pump() {
     if (job.controller.signal.aborted) {
       if (active.get(job.key) === job) active.delete(job.key);
       seenPrefetches.delete(job.key);
+      job.finish();
       continue;
     }
     activeCount += 1;
     void fetchPrefetch(job).finally(() => {
       activeCount -= 1;
       if (active.get(job.key) === job) active.delete(job.key);
+      job.finish();
       pump();
     });
   }
@@ -466,13 +470,21 @@ async function fetchPrefetch({ url, controller, durationSeconds }: PrefetchJob) 
   }
 }
 
-/** Starts one bounded, deduplicated prefetch for a media URL. */
-export async function prefetchVideo(url: string, durationSeconds?: number | null) {
-  if (typeof window === "undefined" || !url) return;
+/** Starts one bounded, deduplicated prefetch and resolves when it finishes. */
+export async function prefetchVideo(
+  url: string,
+  durationSeconds?: number | null,
+  signal?: AbortSignal,
+) {
+  if (typeof window === "undefined" || !url || signal?.aborted) return;
   const key = url ? mediaCacheKey(url) : "";
+  const existing = active.get(key);
+  if (existing) {
+    await existing.done;
+    return;
+  }
   if (
     !/^https?:\/\//i.test(url) ||
-    active.has(key) ||
     seenPrefetches.has(key) ||
     active.size >= MAX_CONCURRENT_PREFETCHES + MAX_QUEUED_PREFETCHES
   ) {
@@ -485,20 +497,57 @@ export async function prefetchVideo(url: string, durationSeconds?: number | null
     seenPrefetches.delete(oldest);
   }
   const controller = new AbortController();
-  const job = { key, url, controller, durationSeconds };
+  let settle!: () => void;
+  let settled = false;
+  const done = new Promise<void>((resolve) => {
+    settle = resolve;
+  });
+  const job: PrefetchJob = {
+    key,
+    url,
+    controller,
+    durationSeconds,
+    done,
+    finish: () => {
+      if (settled) return;
+      settled = true;
+      settle();
+    },
+  };
   active.set(key, job);
-  if (!(await canPrefetchVideo()) || controller.signal.aborted || active.get(key) !== job) {
+  const cancel = () => {
+    controller.abort();
+    const queuedIndex = queued.indexOf(job);
+    if (queuedIndex >= 0) queued.splice(queuedIndex, 1);
     if (active.get(key) === job) active.delete(key);
     seenPrefetches.delete(key);
-    return;
+    job.finish();
+    pump();
+  };
+  signal?.addEventListener("abort", cancel, { once: true });
+  try {
+    if (
+      !(await canPrefetchVideo()) ||
+      controller.signal.aborted ||
+      active.get(key) !== job
+    ) {
+      if (active.get(key) === job) active.delete(key);
+      seenPrefetches.delete(key);
+      job.finish();
+      return;
+    }
+    if (queued.length >= MAX_QUEUED_PREFETCHES) {
+      active.delete(key);
+      seenPrefetches.delete(key);
+      job.finish();
+      return;
+    }
+    queued.push(job);
+    pump();
+    await job.done;
+  } finally {
+    signal?.removeEventListener("abort", cancel);
   }
-  if (queued.length >= MAX_QUEUED_PREFETCHES) {
-    active.delete(key);
-    seenPrefetches.delete(key);
-    return;
-  }
-  queued.push(job);
-  pump();
 }
 
 export function cancelPendingVideoPrefetches() {
@@ -506,11 +555,13 @@ export function cancelPendingVideoPrefetches() {
     job.controller.abort();
     if (active.get(job.key) === job) active.delete(job.key);
     seenPrefetches.delete(job.key);
+    job.finish();
   }
   for (const [key, job] of active) {
     job.controller.abort();
     active.delete(key);
     seenPrefetches.delete(key);
+    job.finish();
   }
 }
 
