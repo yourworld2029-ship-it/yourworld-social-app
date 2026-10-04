@@ -1,4 +1,8 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { test, type TestContext } from "node:test";
 import cors from "cors";
 import express from "express";
@@ -36,10 +40,11 @@ function setTestEnvironment(t: TestContext) {
   });
 }
 
-async function startServer(t: TestContext) {
+async function startServer(t: TestContext, logLevel = "silent") {
   const app = express();
-  app.use(pinoHttp({ logger: pino({ level: "silent" }) }));
+  app.use(pinoHttp({ logger: pino({ level: logLevel }) }));
   app.use(cors());
+  app.use(express.json());
   app.use("/api", mediaRouter);
 
   const server = app.listen(0, "127.0.0.1");
@@ -57,6 +62,49 @@ async function startServer(t: TestContext) {
   const address = server.address();
   assert.ok(address && typeof address !== "string");
   return `http://127.0.0.1:${address.port}`;
+}
+
+function createSourceFixture(filePath: string) {
+  return new Promise<void>((resolve, reject) => {
+    const child = spawn(
+      "ffmpeg",
+      [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc2=size=1280x720:rate=24:duration=4",
+        "-an",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "fast",
+        "-b:v",
+        "4M",
+        "-maxrate",
+        "4M",
+        "-bufsize",
+        "4M",
+        "-pix_fmt",
+        "yuv420p",
+        "-movflags",
+        "+faststart",
+        filePath,
+      ],
+      { stdio: ["ignore", "ignore", "pipe"] },
+    );
+    let stderr = "";
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr = `${stderr}${chunk.toString("utf8")}`.slice(-4000);
+    });
+    child.once("error", reject);
+    child.once("close", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(stderr || `ffmpeg exited with code ${String(code)}`));
+    });
+  });
 }
 
 test("Cloudflare TUS creation exposes protocol headers to native WebViews", async (t) => {
@@ -124,4 +172,155 @@ test("Cloudflare TUS creation exposes protocol headers to native WebViews", asyn
     "https://upload.videodelivery.net/tus/session-id",
   );
   assert.equal(response.headers.get("stream-media-id"), "stream-video-id");
+});
+
+test("offline-source creates and caches a genuinely smaller selected rendition", async (t) => {
+  setTestEnvironment(t);
+  const directory = await mkdtemp(join(tmpdir(), "yourworld-offline-route-test-"));
+  const sourcePath = join(directory, "source.mp4");
+  await createSourceFixture(sourcePath);
+  const sourceBytes = await readFile(sourcePath);
+  let uploadedBytes = 0;
+  let uploadedObjectPath = "";
+  let sourceFetchCount = 0;
+
+  t.mock.method(
+    globalThis,
+    "fetch",
+    async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/auth/v1/user") {
+        return jsonResponse({ id: "user-1" });
+      }
+      if (url.pathname === "/rest/v1/posts") {
+        return jsonResponse([
+          {
+            id: "post-1",
+            user_id: "user-1",
+            kind: "video",
+            media_url: "videos/user-1/source.mp4",
+            source_quality_tier: "720p",
+            video_access: "public",
+            allow_download: true,
+          },
+        ]);
+      }
+      if (
+        url.pathname === "/storage/v1/object/list/videos" &&
+        init?.method === "POST"
+      ) {
+        const cachedName = uploadedObjectPath.split("/").pop();
+        return jsonResponse(cachedName ? [{ name: cachedName }] : []);
+      }
+      if (
+        url.pathname === "/storage/v1/object/videos/user-1/source.mp4" &&
+        (!init?.method || init.method === "GET")
+      ) {
+        sourceFetchCount += 1;
+        return new Response(sourceBytes, {
+          headers: { "Content-Type": "video/mp4", "Content-Length": String(sourceBytes.byteLength) },
+        });
+      }
+      if (
+        url.pathname.startsWith(
+          "/storage/v1/object/videos/user-1/.quality-renditions/post-1/",
+        ) &&
+        init?.method === "POST"
+      ) {
+        uploadedObjectPath = decodeURIComponent(
+          url.pathname.replace("/storage/v1/object/videos/", ""),
+        );
+        const body = init.body as AsyncIterable<Uint8Array>;
+        for await (const chunk of body) uploadedBytes += chunk.byteLength;
+        return new Response(null, { status: 200 });
+      }
+      if (
+        url.pathname.startsWith(
+          "/storage/v1/object/sign/videos/user-1/.quality-renditions/post-1/",
+        ) &&
+        init?.method === "POST"
+      ) {
+        return jsonResponse({
+          signedURL: `${url.pathname.replace("/storage/v1/object/sign", "/object/sign")}?token=test`,
+        });
+      }
+      return jsonResponse({ error: `Unexpected mocked request: ${url.pathname}` }, 500);
+    },
+  );
+
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const baseUrl = await startServer(t);
+  const response = await nativeFetch(`${baseUrl}/api/media/offline-source`, {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer test-user-access-token",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ postId: "post-1", quality: "360p" }),
+  });
+  const payload = (await response.json()) as { url?: string; actualQuality?: string };
+
+  assert.equal(response.status, 200);
+  assert.equal(payload.actualQuality, "360p");
+  assert.match(payload.url ?? "", /\/object\/sign\/videos\/user-1\/\.quality-renditions/);
+  assert.match(uploadedObjectPath, /-360p-360p\.mp4$/);
+  assert.ok(uploadedBytes > 0);
+  assert.ok(uploadedBytes < sourceBytes.byteLength);
+
+  const cachedResponse = await nativeFetch(`${baseUrl}/api/media/offline-source`, {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer test-user-access-token",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ postId: "post-1", quality: "360p" }),
+  });
+  const cachedPayload = (await cachedResponse.json()) as {
+    url?: string;
+    actualQuality?: string;
+  };
+  assert.equal(cachedResponse.status, 200);
+  assert.equal(cachedPayload.actualQuality, "360p");
+  assert.match(cachedPayload.url ?? "", /\/object\/sign\/videos\/user-1\/\.quality-renditions/);
+  assert.equal(sourceFetchCount, 1, "a cache hit should not refetch or transcode the source");
+});
+
+test("offline-source still honors the creator's download denial", async (t) => {
+  setTestEnvironment(t);
+  t.mock.method(
+    globalThis,
+    "fetch",
+    async (input: Parameters<typeof fetch>[0]) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/auth/v1/user") {
+        return jsonResponse({ id: "user-1" });
+      }
+      if (url.pathname === "/rest/v1/posts") {
+        return jsonResponse([
+          {
+            id: "post-1",
+            user_id: "user-1",
+            kind: "video",
+            media_url: "videos/user-1/source.mp4",
+            video_access: "public",
+            allow_download: false,
+          },
+        ]);
+      }
+      return jsonResponse({ error: `Unexpected mocked request: ${url.pathname}` }, 500);
+    },
+  );
+
+  const baseUrl = await startServer(t);
+  const response = await nativeFetch(`${baseUrl}/api/media/offline-source`, {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer test-user-access-token",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ postId: "post-1", quality: "360p" }),
+  });
+
+  assert.equal(response.status, 403);
+  assert.match(await response.text(), /creator has disabled offline downloads/i);
 });

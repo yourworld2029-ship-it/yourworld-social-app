@@ -83,6 +83,8 @@ import {
 } from "@/lib/yw-download";
 import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadSheet";
 import {
+  effectiveDownloadSourceQuality,
+  needsOnDemandVideoTranscode,
   qualityTierFromDimensions,
   qualityTierFromSourceMetadata,
   resolveVideoDownloadSelection,
@@ -436,10 +438,25 @@ function ProfilePage() {
                 downloadSourceQualityTier,
                 post.cloudflare_stream_id ?? post.cloudflare_stream_uid,
               );
+        const cloudflareStreamId =
+          post.cloudflare_stream_id ?? post.cloudflare_stream_uid;
         const desiredQuality =
           choice === "original" || choice === "mp3"
             ? "original"
-            : existingSelection?.actualQuality ?? downloadSourceQualityTier ?? "original";
+            : existingSelection?.usesVariant
+              ? existingSelection.actualQuality
+              : existingSelection &&
+                  needsOnDemandVideoTranscode(
+                    choice,
+                    existingSelection,
+                    downloadSourceQualityTier,
+                    cloudflareStreamId,
+                  )
+                ? choice
+                : effectiveDownloadSourceQuality(
+                    downloadSourceQualityTier,
+                    cloudflareStreamId,
+                  );
         const alreadyDownloaded = existingDownloads.some(
           (item) => item.mediaId === post.id && item.quality === desiredQuality,
         );
@@ -469,7 +486,7 @@ function ProfilePage() {
       }
       const offlineSource = await resolveAuthorizedOfflineSource(
         post.id,
-        (selection?.isSourceFallback ? "original" : selection?.actualQuality ?? "original") as
+        (choice === "mp3" ? "original" : choice) as
           | "original"
           | "360p"
           | "480p"

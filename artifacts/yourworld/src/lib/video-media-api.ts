@@ -30,6 +30,7 @@ function errorFromPayload(payload: unknown, fallback: string) {
 async function postAuthorizedMediaRequest(
   path: "/api/media/playback-url" | "/api/media/offline-source",
   body: Record<string, unknown>,
+  timeoutMs = 20_000,
 ) {
   const { data, error } = await supabase.auth.getSession();
   if (error) throw new MediaRequestError(error.message, 401);
@@ -43,7 +44,7 @@ async function postAuthorizedMediaRequest(
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(20_000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   const payload: unknown = await response.json().catch(() => null);
   if (!response.ok) {
@@ -102,7 +103,11 @@ export async function resolveAuthorizedOfflineSource(
   });
   let payload: Record<string, unknown> & { url: string };
   try {
-    payload = await postAuthorizedMediaRequest("/api/media/offline-source", { postId, quality });
+    payload = await postAuthorizedMediaRequest(
+      "/api/media/offline-source",
+      { postId, quality },
+      quality === "original" ? 20_000 : 11 * 60 * 1000,
+    );
   } catch (error) {
     if (quality !== "original") {
       if (error instanceof MediaRequestError && [401, 402, 403].includes(error.status)) throw error;

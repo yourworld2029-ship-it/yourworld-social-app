@@ -10,9 +10,13 @@ import {
 import {
   downloadFileSizeBytesFromHeaders,
   type DownloadQualityUrls,
+  capQualityTierToSource,
+  effectiveDownloadSourceQuality,
   estimateDownloadSizeMb,
+  estimateDownloadSizeMbFromSourceFile,
   formatDownloadSizeMb,
   hasExactVideoDownload,
+  needsOnDemandVideoTranscode,
   resolveVideoDownloadSelection,
   type VideoQualityTier,
   VIDEO_DOWNLOAD_PICKER_TIERS,
@@ -78,6 +82,37 @@ function isDownloadChoiceAvailable(
     qualityMediaUrls,
     sourceQualityTier,
     cloudflareStreamId,
+  );
+}
+
+function onDemandConversionTier(
+  choice: DownloadChoice,
+  selection: ReturnType<typeof resolveVideoDownloadSelection>,
+  sourceQualityTier?: VideoQualityTier | null,
+  cloudflareStreamId?: string | null,
+) {
+  if (
+    choice === "original" ||
+    choice === "mp3" ||
+    !selection ||
+    !needsOnDemandVideoTranscode(
+      choice,
+      selection,
+      sourceQualityTier,
+      cloudflareStreamId,
+    )
+  ) {
+    return null;
+  }
+
+  const effectiveSourceTier = effectiveDownloadSourceQuality(
+    sourceQualityTier,
+    cloudflareStreamId,
+  );
+  if (effectiveSourceTier === "original") return null;
+  return capQualityTierToSource(
+    choice,
+    effectiveSourceTier,
   );
 }
 
@@ -235,6 +270,18 @@ export function DownloadSheet({
             cloudflareStreamId,
           );
       if (choice !== "original" && !selection) return [];
+      if (
+      choice !== "original" &&
+        selection &&
+        needsOnDemandVideoTranscode(
+          choice,
+          selection,
+          sourceQualityTier,
+          cloudflareStreamId,
+        )
+      ) {
+        return [];
+      }
       const url = choice === "original" ? sourceMediaUrl : selection?.url;
       return url ? [{ choice, url }] : [];
     });
@@ -273,6 +320,49 @@ export function DownloadSheet({
 
   const sizeForChoice = (choice: DownloadChoice) => {
     const providedSourceSize = positiveByteSize(sourceFileSizeBytes);
+    const selection =
+      choice !== "original" && choice !== "mp3"
+        ? resolveVideoDownloadSelection(
+            choice,
+            sourceMediaUrl,
+            qualityMediaUrls,
+            sourceQualityTier,
+            cloudflareStreamId,
+          )
+        : null;
+    const conversionTier = onDemandConversionTier(
+      choice,
+      selection,
+      sourceQualityTier,
+      cloudflareStreamId,
+    );
+    const requestsServerQuality =
+      choice !== "original" &&
+      choice !== "mp3" &&
+      needsOnDemandVideoTranscode(
+        choice,
+        selection,
+        sourceQualityTier,
+        cloudflareStreamId,
+      );
+    if (requestsServerQuality) {
+      if (!conversionTier) return formatDownloadSizeMb(null);
+      const sourceBytes =
+        resolvedFileSizes.original ?? providedSourceSize;
+      const effectiveSourceTier = effectiveDownloadSourceQuality(
+        sourceQualityTier,
+        cloudflareStreamId,
+      );
+      const estimate =
+        estimateDownloadSizeMb(resolvedDurationSeconds, conversionTier) ??
+        estimateDownloadSizeMbFromSourceFile(
+          sourceBytes,
+          effectiveSourceTier === "original" ? null : effectiveSourceTier,
+          conversionTier,
+        );
+      return formatDownloadSizeMb(estimate);
+    }
+
     const exactSize =
       resolvedFileSizes[choice] ??
       (choice === "original" ? providedSourceSize : null);
@@ -340,9 +430,27 @@ export function DownloadSheet({
         )
       : null;
   const selectedActualQualityLabel =
-    selectedSelection?.actualQuality === "original"
+    effectiveDownloadSourceQuality(sourceQualityTier, cloudflareStreamId) === "original"
       ? "quality unknown"
-      : selectedSelection?.actualQuality;
+      : effectiveDownloadSourceQuality(sourceQualityTier, cloudflareStreamId);
+  const selectedConversionTier = onDemandConversionTier(
+    selected,
+    selectedSelection,
+    sourceQualityTier,
+    cloudflareStreamId,
+  );
+  const selectedRequiresServerQuality =
+    selected !== "original" &&
+    selected !== "mp3" &&
+    Boolean(
+      selectedSelection &&
+        needsOnDemandVideoTranscode(
+          selected,
+          selectedSelection,
+          sourceQualityTier,
+          cloudflareStreamId,
+        ),
+    );
 
   return (
     <Sheet
@@ -387,11 +495,29 @@ export function DownloadSheet({
                     cloudflareStreamId,
                   )
                 : null;
-            const directSourceFallback = Boolean(selection?.isSourceFallback);
+            const conversionTier = onDemandConversionTier(
+              choice,
+              selection,
+              sourceQualityTier,
+              cloudflareStreamId,
+            );
+            const requestsServerQuality =
+              choice !== "original" &&
+              choice !== "mp3" &&
+              needsOnDemandVideoTranscode(
+                choice,
+                selection,
+                sourceQualityTier,
+                cloudflareStreamId,
+              );
+            const directSourceFallback = Boolean(
+              selection?.isSourceFallback && !requestsServerQuality,
+            );
             const actualQualityLabel =
-              selection?.actualQuality === "original"
+              effectiveDownloadSourceQuality(sourceQualityTier, cloudflareStreamId) ===
+              "original"
                 ? "Original (quality unknown)"
-                : selection?.actualQuality;
+                : effectiveDownloadSourceQuality(sourceQualityTier, cloudflareStreamId);
             const size = sizeForChoice(choice);
             return (
               <button
@@ -427,6 +553,10 @@ export function DownloadSheet({
                       : isAvailable
                         ? directSourceFallback
                           ? `Direct source file · ${actualQualityLabel}`
+                          : conversionTier
+                            ? `Converted to ${conversionTier} when downloaded`
+                            : requestsServerQuality
+                              ? "Will be converted if the source allows · size unavailable"
                           : quality?.description
                         : `Exact ${choice} rendition is unavailable`}{" "}
                     · {size}
@@ -458,7 +588,10 @@ export function DownloadSheet({
               ? "Download Video (Original Quality)"
               : selected === "mp3"
                 ? "Download Video"
-                  : selectedSelection?.isSourceFallback
+                  : selectedConversionTier
+                    ? `Download ${QUALITY_COPY[selected]?.title ?? selected}`
+                    : selectedSelection?.isSourceFallback &&
+                        !selectedRequiresServerQuality
                     ? `Download direct source (${selectedActualQualityLabel})`
                     : `Download ${QUALITY_COPY[selected]?.title ?? selected}`}
           </button>

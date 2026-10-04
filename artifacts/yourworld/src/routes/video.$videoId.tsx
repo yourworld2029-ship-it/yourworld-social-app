@@ -262,6 +262,7 @@ function VideoRouteComponent() {
     ) {
       return;
     }
+    if (activeVideo?.id === cachedFeedVideo.id && activeVideo.url) return;
 
     activateVideo({
       id: cachedFeedVideo.id,
@@ -271,6 +272,7 @@ function VideoRouteComponent() {
     });
   }, [
     activateVideo,
+    activeVideo,
     cachedFeedVideo,
     hasResolvedRouteData,
     query.data?.locked,
@@ -423,9 +425,7 @@ function VideoRouteComponent() {
         (selection?.actualQuality ?? "original") as DownloadedVideoMetadata["quality"];
       const offlineSource = await resolveAuthorizedOfflineSource(
         video.id,
-        (choice === "mp3" || selection?.isSourceFallback
-          ? "original"
-          : selection?.actualQuality ?? "original") as
+        (choice === "mp3" ? "original" : choice) as
           | "original"
           | "360p"
           | "480p"

@@ -1330,7 +1330,7 @@ function ReelItem({
         if (selectedTier && !selection) {
           throw new Error(`This Reel has no exact ${selectedTier} rendition.`);
         }
-        const requestedQuality = !selectedTier || selection?.isSourceFallback
+        const requestedQuality = !selectedTier
           ? "original"
           : selectedTier === "4320p"
             ? "2160p"

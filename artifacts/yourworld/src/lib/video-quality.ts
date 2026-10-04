@@ -164,6 +164,37 @@ export function capQualityTierToSource(
   return sourceIndex < targetIndex ? sourceTier : targetTier;
 }
 
+export function effectiveDownloadSourceQuality(
+  sourceTier: VideoQualityTier | null | undefined,
+  cloudflareStreamId?: string | null,
+): VideoQualityTier | "original" {
+  if (!sourceTier) return "original";
+  if (!cloudflareStreamId) return sourceTier;
+
+  const sourceIndex = VIDEO_QUALITY_TIERS.findIndex((candidate) => candidate.id === sourceTier);
+  const cloudflareMaximumIndex = VIDEO_QUALITY_TIERS.findIndex(
+    (candidate) => candidate.id === "1080p",
+  );
+  return sourceIndex > cloudflareMaximumIndex ? "1080p" : sourceTier;
+}
+
+export function needsOnDemandVideoTranscode(
+  choice: VideoQualityTier,
+  selection: ResolvedVideoDownloadSelection | null | undefined,
+  sourceTier: VideoQualityTier | null | undefined,
+  cloudflareStreamId?: string | null,
+) {
+  if (!selection || selection.usesVariant || !selection.isSourceFallback) return false;
+
+  const effectiveSourceTier = effectiveDownloadSourceQuality(sourceTier, cloudflareStreamId);
+  if (effectiveSourceTier === "original") return true;
+  const sourceIndex = VIDEO_QUALITY_TIERS.findIndex(
+    (candidate) => candidate.id === effectiveSourceTier,
+  );
+  const choiceIndex = VIDEO_QUALITY_TIERS.findIndex((candidate) => candidate.id === choice);
+  return sourceIndex > choiceIndex;
+}
+
 export function isVideoQualityTier(value: string | null | undefined): value is VideoQualityTier {
   return VIDEO_QUALITY_TIERS.some((candidate) => candidate.id === value);
 }

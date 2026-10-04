@@ -4,10 +4,12 @@ import {
   availableDownloadQualityTiers,
   capQualityTierToSource,
   downloadFileSizeBytesFromHeaders,
+  effectiveDownloadSourceQuality,
   estimateDownloadSizeMb,
   estimateDownloadSizeMbFromSourceFile,
   formatDownloadSizeMb,
   hasExactVideoDownload,
+  needsOnDemandVideoTranscode,
   qualityTierFromDimensions,
   qualityTierFromMetadata,
   qualityTierFromSourceMetadata,
@@ -177,6 +179,39 @@ test("quality choices fall back to the direct source without claiming a differen
     resolveVideoDownloadSelection("1080p", sourceUrl, null, "2160p")?.isSourceFallback,
     true,
   );
+});
+
+test("only lower-than-source fallbacks request a real on-demand conversion", () => {
+  const sourceUrl = "https://media.example/source.mp4";
+  const from720p = resolveVideoDownloadSelection("360p", sourceUrl, null, "720p");
+  const above360p = resolveVideoDownloadSelection("720p", sourceUrl, null, "360p");
+  const cloudflare1080p = resolveVideoDownloadSelection(
+    "720p",
+    sourceUrl,
+    null,
+    "2160p",
+    "stream-12345678",
+  );
+  const exactVariant = resolveVideoDownloadSelection(
+    "360p",
+    sourceUrl,
+    { "360p": "https://media.example/360.mp4" },
+    "1080p",
+  );
+  const unknownSource = resolveVideoDownloadSelection("480p", sourceUrl, null, null);
+
+  assert.equal(needsOnDemandVideoTranscode("360p", from720p, "720p"), true);
+  assert.equal(needsOnDemandVideoTranscode("720p", above360p, "360p"), false);
+  assert.equal(
+    effectiveDownloadSourceQuality("2160p", "stream-12345678"),
+    "1080p",
+  );
+  assert.equal(
+    needsOnDemandVideoTranscode("720p", cloudflare1080p, "2160p", "stream-12345678"),
+    true,
+  );
+  assert.equal(needsOnDemandVideoTranscode("360p", exactVariant, "1080p"), false);
+  assert.equal(needsOnDemandVideoTranscode("480p", unknownSource, null), true);
 });
 
 test("range size probes require the total Content-Range size for partial responses", () => {

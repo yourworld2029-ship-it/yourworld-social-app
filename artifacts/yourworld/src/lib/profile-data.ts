@@ -1024,6 +1024,36 @@ export async function deleteMyPost(post: {
     }
   }
 
+  const renditionFolder = `${sessionUserId}/.quality-renditions/${post.id}`;
+  const renditionPaths: string[] = [];
+  for (let offset = 0; ; offset += 100) {
+    const { data: renditionFiles, error: renditionListError } = await supabase.storage
+      .from(STORAGE_BUCKETS.videos)
+      .list(renditionFolder, { limit: 100, offset });
+    if (renditionListError) {
+      console.warn("Could not list cached quality downloads for deletion", renditionListError);
+      break;
+    }
+    const files = renditionFiles ?? [];
+    renditionPaths.push(
+      ...files
+        .filter((file) => file.name && !file.name.includes("/"))
+        .map((file) => `${renditionFolder}/${file.name}`),
+    );
+    if (files.length < 100) break;
+  }
+  for (let index = 0; index < renditionPaths.length; index += 100) {
+    const paths = renditionPaths.slice(index, index + 100);
+    if (paths.length) {
+      const { error: renditionDeleteError } = await supabase.storage
+        .from(STORAGE_BUCKETS.videos)
+        .remove(paths);
+      if (renditionDeleteError) {
+        console.warn("Could not remove cached quality downloads", renditionDeleteError);
+      }
+    }
+  }
+
   const { data: deletedRows, error } = await supabase
     .from("posts")
     .delete()

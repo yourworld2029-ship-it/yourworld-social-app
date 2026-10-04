@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { Check, Link2, LoaderCircle, Search, Share2, Sparkles, X } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -348,7 +349,8 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
         {children}
       </span>
 
-      {open ? (
+      {open && typeof document !== "undefined"
+        ? createPortal(
         <div className="fixed inset-0 z-[70] flex items-end justify-center">
           <button
             type="button"
@@ -548,8 +550,10 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
               </div>
             </div>
           </section>
-        </div>
-      ) : null}
+        </div>,
+          document.body,
+        )
+        : null}
 
       {delivery && user?.id ? (
         <ShareDeliveryController

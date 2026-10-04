@@ -3,11 +3,13 @@ name: Quality-specific downloads
 description: Constraints and fallback behavior for source-quality downloads and browser-side exports.
 ---
 
-When a source URL exists, always let users select 1080p, 720p, 480p, 360p, and Original. Use an exact quality-specific URL when one exists. If it does not, keep the tier selectable but clearly label that it downloads the direct source; record the actual source tier in offline metadata (or Original when unknown) and show the source size or “Size unavailable,” never a smaller-tier estimate.
+When a source URL exists, keep 1080p, 720p, 480p, 360p, and Original selectable. Use an exact quality-specific URL when available. Otherwise, an authorized server may create a genuinely lower-resolution rendition from a permitted source and cache it privately. If conversion is not available, never label direct-source bytes as a smaller tier: deliver the authorized source with its actual quality and measured size, or “Size unavailable,” when appropriate; fail rather than silently treating it as a conversion.
 
-**Why:** The product requires every quality choice to remain selectable even when a video has no transcoded variants. Silently calling the source file a different resolution or estimating a smaller download would mislead users.
+Show a size estimate only when the picker has confirmed that the selected choice will use an on-demand conversion. Direct-source downloads use their measured size, and unknown source quality must not receive a smaller-tier estimate.
 
-**How to apply:** Resolve downloads to a matching variant URL when present and otherwise use the authorized direct source URL. Make source fallback visible in the picker, retain the source’s real quality label, and estimate a smaller size only for an actual variant asset. Keep source quality metadata optional for legacy rows.
+**Why:** Users need every tier to remain selectable, but a tier label or estimate must never imply smaller bytes when the server is actually returning the original source.
+
+**How to apply:** Prefer exact variants. For a lower requested tier without a variant, call an access-checked conversion endpoint and require its returned rendition to be verified and stored before displaying a conversion estimate. Otherwise use only the authorized direct source, retain its actual tier (or Original when unknown), and keep legacy source-quality metadata optional.
 
 Keep quality/audio labels and selection behavior in the shared download sheet; route-specific code should only resolve the media URL and dispatch the selected choice.
 

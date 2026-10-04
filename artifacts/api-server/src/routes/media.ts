@@ -3,7 +3,7 @@ import { createReadStream, createWriteStream } from "node:fs";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import {
@@ -22,6 +22,14 @@ import {
   TranscodeVideoBody,
   TranscodeVideoResponse,
 } from "@workspace/api-zod";
+import {
+  createVideoRendition,
+  isLowerRendition,
+  probeVideoDimensions,
+  videoQualityFromDimensions,
+  type DetectedVideoQuality,
+  type RenditionQuality,
+} from "../lib/video-rendition";
 
 const router: IRouter = Router();
 
@@ -33,6 +41,8 @@ const SIGNED_SOURCE_TTL_SECONDS = 60 * 60;
 let activeTranscodes = 0;
 
 class VideoTooLargeError extends Error {}
+class VideoProcessingBusyError extends Error {}
+class QualityConversionUnavailableError extends Error {}
 
 function storageConfig() {
   const url = process.env.SUPABASE_URL?.replace(/\/+$/, "");
@@ -210,6 +220,7 @@ async function uploadProcessedVideo(
   objectPath: string,
   filePath: string,
   sizeBytes: number,
+  upsert = false,
 ) {
   const cacheControl =
     bucket === "moments"
@@ -224,7 +235,7 @@ async function uploadProcessedVideo(
       "Content-Type": "video/mp4",
       "Content-Length": String(sizeBytes),
       "Cache-Control": cacheControl,
-      "x-upsert": "false",
+      "x-upsert": upsert ? "true" : "false",
     },
     body,
     duplex: "half",
@@ -703,6 +714,296 @@ async function getCloudflareDefaultDownloadUrl(
   return null;
 }
 
+async function getDownloadableCloudflareStreamUrl(
+  accountId: string,
+  apiToken: string,
+  streamUid: string,
+) {
+  const streamDownloadUrl = await getCloudflareDefaultDownloadUrl(
+    accountId,
+    apiToken,
+    streamUid,
+  ).catch(() => null);
+  if (!streamDownloadUrl) return null;
+
+  const tokenResponse = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(
+      accountId,
+    )}/stream/${encodeURIComponent(streamUid)}/token`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        exp: Math.floor(Date.now() / 1000) + SIGNED_SOURCE_TTL_SECONDS,
+        downloadable: true,
+      }),
+      signal: AbortSignal.timeout(20_000),
+    },
+  );
+  const tokenPayload: unknown = await tokenResponse.json().catch(() => null);
+  const tokenResult =
+    tokenPayload && typeof tokenPayload === "object" && "result" in tokenPayload &&
+    tokenPayload.result && typeof tokenPayload.result === "object"
+      ? (tokenPayload.result as Record<string, unknown>)
+      : null;
+  const signedToken = typeof tokenResult?.token === "string" ? tokenResult.token : null;
+  if (!tokenResponse.ok || !signedToken) return null;
+
+  const signedUrl = new URL(streamDownloadUrl);
+  signedUrl.pathname = signedUrl.pathname.replace(
+    `/${streamUid}/`,
+    `/${signedToken}/`,
+  );
+  return signedUrl.toString();
+}
+
+async function findCachedRendition(
+  req: Request,
+  baseUrl: string,
+  serviceRoleKey: string,
+  ownerId: string,
+  postId: string,
+  sourceKey: string,
+  quality: RenditionQuality,
+) {
+  const folder = `${ownerId}/.quality-renditions/${postId}`;
+  try {
+    const namePrefix = `${sourceKey}-${quality}-`;
+    let cachedName: string | null = null;
+    for (let offset = 0; ; offset += 100) {
+      const response = await fetch(`${baseUrl}/storage/v1/object/list/videos`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${serviceRoleKey}`,
+          apikey: serviceRoleKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ prefix: folder, limit: 100, offset }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!response.ok) {
+        throw new Error(`Storage returned ${response.status} while checking the rendition cache.`);
+      }
+      const entries: unknown = await response.json();
+      if (!Array.isArray(entries)) return null;
+      const entry = entries.find(
+        (candidate): candidate is { name: string } =>
+          !!candidate &&
+          typeof candidate === "object" &&
+          "name" in candidate &&
+          typeof candidate.name === "string" &&
+          candidate.name.startsWith(namePrefix) &&
+          /^([a-f0-9]{20})-(360p|480p|720p|1080p)-(360p|480p|720p|1080p|1440p|2160p|original)\.mp4$/.test(candidate.name),
+      );
+      if (entry) {
+        cachedName = entry.name;
+        break;
+      }
+      if (entries.length < 100) return null;
+    }
+    if (!cachedName) return null;
+
+    const match = cachedName.match(
+      /^([a-f0-9]{20})-(360p|480p|720p|1080p)-(360p|480p|720p|1080p|1440p|2160p|original)\.mp4$/,
+    );
+    if (!match || match[1] !== sourceKey || match[2] !== quality) return null;
+    const actualQuality = match[3] as DetectedVideoQuality;
+    const url = await signStorageObject(
+      baseUrl,
+      serviceRoleKey,
+      "videos",
+      `${folder}/${cachedName}`,
+    );
+    return { url, actualQuality };
+  } catch (error) {
+    req.log.warn({ err: error, postId, quality }, "Could not check the quality download cache");
+    return null;
+  }
+}
+
+async function createOnDemandQualitySource(
+  req: Request,
+  authorized: NonNullable<Awaited<ReturnType<typeof authenticateAndLoadPost>>>,
+  streamUid: string | null,
+  requestedQuality: RenditionQuality,
+) {
+  const { config, row } = authorized;
+  const ownerId = String(row.user_id);
+  const postId = String(row.id);
+  const cloudflare = cloudflareConfig();
+  const cloudflareUrl =
+    streamUid && cloudflare
+      ? await getDownloadableCloudflareStreamUrl(
+          cloudflare.accountId,
+          cloudflare.apiToken,
+          streamUid,
+        ).catch((error) => {
+          req.log.warn({ err: error, postId }, "Could not resolve the Cloudflare download source");
+          return null;
+        })
+      : null;
+  const source = videoSourceObject(row, "original");
+  const sourceQualityFromPost =
+    sourceQuality(row) as DetectedVideoQuality;
+  let sourceIdentity: string | null = null;
+  let knownSourceQuality: DetectedVideoQuality = sourceQualityFromPost;
+  let directSourceUrl = cloudflareUrl;
+
+  if (cloudflareUrl && streamUid) {
+    sourceIdentity = `cloudflare:${streamUid}`;
+    knownSourceQuality =
+      (cloudflareDefaultQuality(sourceQualityFromPost) as DetectedVideoQuality | null) ??
+      "original";
+  } else if (source) {
+    sourceIdentity = `storage:${source.bucket}:${source.objectPath}`;
+  } else {
+    const externalSource = [
+      row.video_url,
+      row.source_url,
+      row.media_url,
+      row.hls_url,
+      row.url,
+    ].find((value): value is string => typeof value === "string" && /^https?:\/\//i.test(value));
+    if (
+      externalSource &&
+      knownSourceQuality !== "original" &&
+      !isLowerRendition(knownSourceQuality, requestedQuality)
+    ) {
+      return { url: externalSource, actualQuality: knownSourceQuality };
+    }
+    throw new QualityConversionUnavailableError(
+      "This video source cannot be converted to the selected quality. Choose Original instead.",
+    );
+  }
+
+  if ((!directSourceUrl && !source) || !sourceIdentity) {
+    throw new QualityConversionUnavailableError(
+      "No downloadable video source is available for this quality.",
+    );
+  }
+
+  const getDirectSourceUrl = async () =>
+    directSourceUrl ??
+    (source
+      ? signStorageObject(
+          config.url,
+          config.serviceRoleKey,
+          source.bucket,
+          source.objectPath,
+        )
+      : null);
+
+  if (
+    knownSourceQuality !== "original" &&
+    !isLowerRendition(knownSourceQuality, requestedQuality)
+  ) {
+    const url = await getDirectSourceUrl();
+    if (!url) throw new QualityConversionUnavailableError("No downloadable video source is available.");
+    return { url, actualQuality: knownSourceQuality };
+  }
+
+  const sourceKey = createHash("sha256")
+    .update(sourceIdentity)
+    .digest("hex")
+    .slice(0, 20);
+  const cached = await findCachedRendition(
+    req,
+    config.url,
+    config.serviceRoleKey,
+    ownerId,
+    postId,
+    sourceKey,
+    requestedQuality,
+  );
+  if (cached) return cached;
+
+  if (activeTranscodes >= MAX_CONCURRENT_TRANSCODES) {
+    throw new VideoProcessingBusyError("Video processing is busy. Please try again shortly.");
+  }
+  activeTranscodes += 1;
+  let tempDir: string | null = null;
+
+  try {
+    tempDir = await mkdtemp(join(tmpdir(), "yourworld-rendition-"));
+    const inputPath = join(tempDir, "source.mp4");
+    const outputPath = join(tempDir, "rendition.mp4");
+    const sourceResponse = cloudflareUrl
+      ? await fetch(cloudflareUrl, { signal: AbortSignal.timeout(FFMPEG_TIMEOUT_MS) })
+      : await fetch(objectUrl(config.url, source!.bucket, source!.objectPath), {
+          headers: {
+            Authorization: `Bearer ${config.serviceRoleKey}`,
+            apikey: config.serviceRoleKey,
+          },
+          signal: AbortSignal.timeout(FFMPEG_TIMEOUT_MS),
+        });
+    if (!sourceResponse.ok) {
+      await sourceResponse.body?.cancel().catch(() => {});
+      throw new Error(`The authorized video source returned ${sourceResponse.status}.`);
+    }
+
+    const inputBytes = await downloadSource(sourceResponse, inputPath);
+    const dimensions = await probeVideoDimensions(inputPath);
+    const actualSourceQuality = videoQualityFromDimensions(
+      dimensions.width,
+      dimensions.height,
+    );
+    if (!isLowerRendition(actualSourceQuality, requestedQuality)) {
+      const url = await getDirectSourceUrl();
+      if (!url) throw new QualityConversionUnavailableError("No downloadable video source is available.");
+      return { url, actualQuality: actualSourceQuality };
+    }
+
+    let outputBytes = 0;
+    for (const bitrateScale of [1, 0.75, 0.5, 0.35]) {
+      await rm(outputPath, { force: true });
+      await createVideoRendition(
+        inputPath,
+        outputPath,
+        requestedQuality,
+        bitrateScale,
+      );
+      const output = await stat(outputPath);
+      if (output.size > 0 && output.size < inputBytes && output.size <= MAX_VIDEO_BYTES) {
+        outputBytes = output.size;
+        break;
+      }
+    }
+    if (!outputBytes) {
+      throw new Error("The selected quality could not be made smaller than the source video.");
+    }
+
+    const objectPath =
+      `${ownerId}/.quality-renditions/${postId}/` +
+      `${sourceKey}-${requestedQuality}-${requestedQuality}.mp4`;
+    await uploadProcessedVideo(
+      config.url,
+      config.serviceRoleKey,
+      "videos",
+      objectPath,
+      outputPath,
+      outputBytes,
+      true,
+    );
+    const url = await signStorageObject(
+      config.url,
+      config.serviceRoleKey,
+      "videos",
+      objectPath,
+    );
+    req.log.info(
+      { postId, requestedQuality, sourceBytes: inputBytes, outputBytes },
+      "Created a smaller offline video rendition",
+    );
+    return { url, actualQuality: requestedQuality };
+  } finally {
+    activeTranscodes -= 1;
+    if (tempDir) await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 router.options("/media/cloudflare-tus-upload", (_req, res): void => {
   res
     .set({
@@ -1059,68 +1360,58 @@ router.post("/media/offline-source", async (req, res): Promise<void> => {
       ? explicitUid : streamUidFromManifest(authorized.row.hls_url ?? authorized.row.media_url);
     const defaultStreamQuality = cloudflareDefaultQuality(sourceQuality(authorized.row)) ?? "original";
     const cloudflare = cloudflareConfig();
+    const qualityRendition = ["360p", "480p", "720p", "1080p"].includes(requestedQuality)
+      ? (requestedQuality as RenditionQuality)
+      : null;
+
     if (
-      streamUid &&
-      cloudflare
+      qualityRendition &&
+      !hasQualitySpecificSource(authorized.row, requestedQuality)
     ) {
-      const streamDownloadUrl = await getCloudflareDefaultDownloadUrl(
+      const rendition = await createOnDemandQualitySource(
+        req,
+        authorized,
+        streamUid,
+        qualityRendition,
+      );
+      res.status(200).json(GetVideoOfflineSourceResponse.parse(rendition));
+      return;
+    }
+
+    if (
+      requestedQuality !== "original" &&
+      hasQualitySpecificSource(authorized.row, requestedQuality) &&
+      source
+    ) {
+      const url = await signStorageObject(
+        authorized.config.url,
+        authorized.config.serviceRoleKey,
+        source.bucket,
+        source.objectPath,
+      );
+      res.status(200).json(
+        GetVideoOfflineSourceResponse.parse({ url, actualQuality: source.actualQuality }),
+      );
+      return;
+    }
+
+    if (streamUid && cloudflare) {
+      const downloadableUrl = await getDownloadableCloudflareStreamUrl(
         cloudflare.accountId,
         cloudflare.apiToken,
         streamUid,
-      ).catch(() => null);
-      if (streamDownloadUrl) {
-        let downloadableUrl = streamDownloadUrl;
-        // Always mint a download-enabled token after authorization. A stream
-        // may require signed URLs even when its post audience is public.
-        {
-          const tokenResponse = await fetch(
-            `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(
-              cloudflare.accountId,
-            )}/stream/${encodeURIComponent(streamUid)}/token`,
-            {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${cloudflare.apiToken}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                exp: Math.floor(Date.now() / 1000) + SIGNED_SOURCE_TTL_SECONDS,
-                downloadable: true,
-              }),
-              signal: AbortSignal.timeout(20_000),
-            },
-          );
-          const tokenPayload: unknown = await tokenResponse.json().catch(() => null);
-          const tokenResult =
-            tokenPayload && typeof tokenPayload === "object" && "result" in tokenPayload &&
-            tokenPayload.result && typeof tokenPayload.result === "object"
-              ? (tokenPayload.result as Record<string, unknown>)
-              : null;
-          const signedToken = typeof tokenResult?.token === "string" ? tokenResult.token : null;
-          if (tokenResponse.ok && signedToken) {
-            const signedUrl = new URL(streamDownloadUrl);
-            signedUrl.pathname = signedUrl.pathname.replace(
-              `/${streamUid}/`,
-              `/${signedToken}/`,
-            );
-            downloadableUrl = signedUrl.toString();
-          } else {
-            req.log.warn(
-              { status: tokenResponse.status },
-              "Cloudflare did not issue a downloadable token",
-            );
-            downloadableUrl = "";
-          }
-        }
-        if (downloadableUrl) {
-          res.status(200).json(
-            GetVideoOfflineSourceResponse.parse({
-              url: downloadableUrl,
-              actualQuality: defaultStreamQuality,
-            }),
-          );
-          return;
-        }
+      ).catch((error) => {
+        req.log.warn({ err: error }, "Cloudflare did not issue a downloadable video URL");
+        return null;
+      });
+      if (downloadableUrl) {
+        res.status(200).json(
+          GetVideoOfflineSourceResponse.parse({
+            url: downloadableUrl,
+            actualQuality: defaultStreamQuality,
+          }),
+        );
+        return;
       }
     }
 
@@ -1147,6 +1438,18 @@ router.post("/media/offline-source", async (req, res): Promise<void> => {
       GetVideoOfflineSourceResponse.parse({ url, actualQuality: source.actualQuality }),
     );
   } catch (error) {
+    if (error instanceof VideoProcessingBusyError) {
+      res.status(429).json({ error: error.message });
+      return;
+    }
+    if (error instanceof VideoTooLargeError) {
+      res.status(413).json({ error: error.message });
+      return;
+    }
+    if (error instanceof QualityConversionUnavailableError) {
+      res.status(422).json({ error: error.message });
+      return;
+    }
     req.log.error({ err: error }, "Could not sign an authorized offline source");
     res.status(502).json({ error: "The video could not be prepared for offline viewing." });
   }
