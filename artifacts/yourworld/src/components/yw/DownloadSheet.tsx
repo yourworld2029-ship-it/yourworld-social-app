@@ -13,6 +13,7 @@ import {
   estimateDownloadSizeMb,
   formatDownloadSizeMb,
   hasExactVideoDownload,
+  resolveVideoDownloadSelection,
   type VideoQualityTier,
   VIDEO_DOWNLOAD_PICKER_TIERS,
 } from "@/lib/video-quality";
@@ -224,18 +225,17 @@ export function DownloadSheet({
 
     const sizeCandidates = choices.flatMap((choice) => {
       if (choice === "mp3") return [];
-      if (choice !== "original" && !isDownloadChoiceAvailable(
-        choice,
-        sourceMediaUrl,
-        qualityMediaUrls,
-        sourceQualityTier,
-        cloudflareStreamId,
-      )) return [];
-      const url =
-        choice === "original"
-          ? sourceMediaUrl
-          : qualityMediaUrls?.[choice]?.trim() ||
-            (choice === sourceQualityTier ? sourceMediaUrl : undefined);
+      const selection = choice === "original"
+        ? null
+        : resolveVideoDownloadSelection(
+            choice,
+            sourceMediaUrl,
+            qualityMediaUrls,
+            sourceQualityTier,
+            cloudflareStreamId,
+          );
+      if (choice !== "original" && !selection) return [];
+      const url = choice === "original" ? sourceMediaUrl : selection?.url;
       return url ? [{ choice, url }] : [];
     });
     void Promise.all(
@@ -329,6 +329,21 @@ export function DownloadSheet({
       console.error("[downloads] background download failed", error);
     });
   };
+  const selectedSelection =
+    selected !== "original" && selected !== "mp3"
+      ? resolveVideoDownloadSelection(
+          selected,
+          sourceMediaUrl,
+          qualityMediaUrls,
+          sourceQualityTier,
+          cloudflareStreamId,
+        )
+      : null;
+  const selectedActualQualityLabel =
+    selectedSelection?.actualQuality === "original"
+      ? "quality unknown"
+      : selectedSelection?.actualQuality;
+
   return (
     <Sheet
       open={open}
@@ -362,6 +377,21 @@ export function DownloadSheet({
             );
             const quality =
               choice !== "original" && choice !== "mp3" ? QUALITY_COPY[choice] : null;
+            const selection =
+              choice !== "original" && choice !== "mp3"
+                ? resolveVideoDownloadSelection(
+                    choice,
+                    sourceMediaUrl,
+                    qualityMediaUrls,
+                    sourceQualityTier,
+                    cloudflareStreamId,
+                  )
+                : null;
+            const directSourceFallback = Boolean(selection?.isSourceFallback);
+            const actualQualityLabel =
+              selection?.actualQuality === "original"
+                ? "Original (quality unknown)"
+                : selection?.actualQuality;
             const size = sizeForChoice(choice);
             return (
               <button
@@ -386,7 +416,8 @@ export function DownloadSheet({
                 <span className="min-w-0 flex-1">
                   <span className="block text-sm font-semibold">
                     {isOriginal ? "Original" : quality?.title}
-                    {!isOriginal && choice === sourceQualityTier && (
+                    {!isOriginal && selection && !directSourceFallback &&
+                      !selection.usesVariant && choice === sourceQualityTier && (
                       <span className="ml-2 text-[10px] font-medium text-pink-300">SOURCE</span>
                     )}
                   </span>
@@ -394,7 +425,9 @@ export function DownloadSheet({
                     {isOriginal
                       ? "Original source file"
                       : isAvailable
-                        ? quality?.description
+                        ? directSourceFallback
+                          ? `Direct source file · ${actualQualityLabel}`
+                          : quality?.description
                         : `Exact ${choice} rendition is unavailable`}{" "}
                     · {size}
                   </span>
@@ -425,7 +458,9 @@ export function DownloadSheet({
               ? "Download Video (Original Quality)"
               : selected === "mp3"
                 ? "Download Video"
-                  : `Download ${QUALITY_COPY[selected]?.title ?? selected}`}
+                  : selectedSelection?.isSourceFallback
+                    ? `Download direct source (${selectedActualQualityLabel})`
+                    : `Download ${QUALITY_COPY[selected]?.title ?? selected}`}
           </button>
         </div>
       </SheetContent>

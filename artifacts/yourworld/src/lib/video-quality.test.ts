@@ -89,24 +89,39 @@ test("quality downloads require their own media URL instead of falling back to O
   );
 });
 
-test("quality choices resolve only to an exact rendition or the matching source tier", () => {
+test("quality choices fall back to the direct source without claiming a different tier", () => {
   const sourceUrl = "https://media.example/source.mp4";
   assert.deepEqual(
     resolveVideoDownloadSelection("720p", sourceUrl, null, "720p"),
-    { url: sourceUrl, actualQuality: "720p", usesVariant: false },
+    {
+      url: sourceUrl,
+      actualQuality: "720p",
+      usesVariant: false,
+      isSourceFallback: false,
+    },
   );
   for (const tier of VIDEO_DOWNLOAD_PICKER_TIERS.filter((tier) => tier !== "720p")) {
-    assert.equal(resolveVideoDownloadSelection(tier, sourceUrl, null, "720p"), null);
+    assert.deepEqual(resolveVideoDownloadSelection(tier, sourceUrl, null, "720p"), {
+      url: sourceUrl,
+      actualQuality: "720p",
+      usesVariant: false,
+      isSourceFallback: true,
+    });
   }
 
-  assert.equal(
+  assert.deepEqual(
     resolveVideoDownloadSelection(
       "1080p",
       sourceUrl,
       { "1080p": " https://media.example/1080.mp4 " },
       "720p",
     ),
-    null,
+    {
+      url: sourceUrl,
+      actualQuality: "720p",
+      usesVariant: false,
+      isSourceFallback: true,
+    },
   );
   assert.deepEqual(
     resolveVideoDownloadSelection(
@@ -115,13 +130,29 @@ test("quality choices resolve only to an exact rendition or the matching source 
       { "720p": "https://media.example/720.mp4" },
       "1080p",
     ),
-    { url: "https://media.example/720.mp4", actualQuality: "720p", usesVariant: true },
+    {
+      url: "https://media.example/720.mp4",
+      actualQuality: "720p",
+      usesVariant: true,
+      isSourceFallback: false,
+    },
   );
   assert.deepEqual(
     resolveVideoDownloadSelection("original", sourceUrl, null, "720p"),
-    { url: sourceUrl, actualQuality: "original", usesVariant: false },
+    {
+      url: sourceUrl,
+      actualQuality: "original",
+      usesVariant: false,
+      isSourceFallback: false,
+    },
   );
   assert.equal(resolveVideoDownloadSelection("720p", null, null), null);
+  assert.deepEqual(resolveVideoDownloadSelection("480p", sourceUrl, null, null), {
+    url: sourceUrl,
+    actualQuality: "original",
+    usesVariant: false,
+    isSourceFallback: true,
+  });
   assert.equal(
     resolveVideoDownloadSelection(
       "480p",
@@ -131,7 +162,8 @@ test("quality choices resolve only to an exact rendition or the matching source 
     )?.usesVariant,
     true,
   );
-  assert.equal(hasExactVideoDownload("480p", sourceUrl, null, "1080p"), false);
+  assert.equal(hasExactVideoDownload("480p", sourceUrl, null, "1080p"), true);
+  assert.equal(hasExactVideoDownload("480p", null, null, "1080p"), false);
   assert.equal(
     hasExactVideoDownload("480p", sourceUrl, { "480p": "https://media.example/480.mp4" }, "1080p"),
     true,
@@ -139,11 +171,11 @@ test("quality choices resolve only to an exact rendition or the matching source 
   assert.equal(
     resolveVideoDownloadSelection("1080p", sourceUrl, null, "2160p", "cloudflare-stream-id")
       ?.actualQuality,
-    "1080p",
+    "2160p",
   );
   assert.equal(
-    resolveVideoDownloadSelection("1080p", sourceUrl, null, "2160p", null),
-    null,
+    resolveVideoDownloadSelection("1080p", sourceUrl, null, "2160p")?.isSourceFallback,
+    true,
   );
 });
 

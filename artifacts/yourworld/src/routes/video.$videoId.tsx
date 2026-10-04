@@ -423,7 +423,9 @@ function VideoRouteComponent() {
         (selection?.actualQuality ?? "original") as DownloadedVideoMetadata["quality"];
       const offlineSource = await resolveAuthorizedOfflineSource(
         video.id,
-        (choice === "mp3" ? "original" : selection?.actualQuality ?? "original") as
+        (choice === "mp3" || selection?.isSourceFallback
+          ? "original"
+          : selection?.actualQuality ?? "original") as
           | "original"
           | "360p"
           | "480p"
@@ -437,6 +439,7 @@ function VideoRouteComponent() {
           streamId: video.cloudflareStreamId,
           sourceUrl: data.url,
           bucket: "videos",
+          sourceQualityTier: video.sourceQualityTier,
         },
       );
       downloadUrl = offlineSource.url;
@@ -472,10 +475,13 @@ function VideoRouteComponent() {
           {
             fallbackUrls: offlineSource.fallbackUrls,
             targetQuality:
-              choice !== "original" ? choice : undefined,
+              choice !== "original" && !selection?.isSourceFallback
+                ? choice
+                : undefined,
             transcodeSource:
               choice !== "original" &&
-              !selection?.usesVariant,
+              !selection?.usesVariant &&
+              !selection?.isSourceFallback,
             androidSingleGet: true,
           },
         );

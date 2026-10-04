@@ -15,6 +15,7 @@ export type ResolvedVideoDownloadSelection = {
   url: string;
   actualQuality: VideoQualityTier | "original";
   usesVariant: boolean;
+  isSourceFallback: boolean;
 };
 
 export const VIDEO_DOWNLOAD_PICKER_TIERS = [
@@ -29,7 +30,7 @@ export function resolveVideoDownloadSelection(
   sourceUrl: string | null | undefined,
   qualityUrls?: DownloadQualityUrls | null,
   sourceQualityTier?: VideoQualityTier | null,
-  cloudflareStreamId?: string | null,
+  _cloudflareStreamId?: string | null,
 ): ResolvedVideoDownloadSelection | null {
   const directSourceUrl = sourceUrl?.trim();
   if (!directSourceUrl) return null;
@@ -39,27 +40,29 @@ export function resolveVideoDownloadSelection(
       url: directSourceUrl,
       actualQuality: "original",
       usesVariant: false,
+      isSourceFallback: false,
     };
   }
-
-  const sourceIndex = sourceQualityTier
-    ? VIDEO_QUALITY_TIERS.findIndex((candidate) => candidate.id === sourceQualityTier)
-    : -1;
-  const requestedIndex = VIDEO_QUALITY_TIERS.findIndex((candidate) => candidate.id === choice);
-  const cloudflareProvidesExact1080p =
-    choice === "1080p" &&
-    Boolean(cloudflareStreamId?.trim()) &&
-    sourceIndex >= requestedIndex;
 
   const variantUrl = qualityUrls?.[choice]?.trim();
   if (variantUrl) {
     const actualQuality = capQualityTierToSource(choice, sourceQualityTier);
-    if (actualQuality !== choice) return null;
-    return { url: variantUrl, actualQuality: choice, usesVariant: true };
+    if (actualQuality === choice) {
+      return {
+        url: variantUrl,
+        actualQuality: choice,
+        usesVariant: true,
+        isSourceFallback: false,
+      };
+    }
   }
 
-  if (sourceQualityTier !== choice && !cloudflareProvidesExact1080p) return null;
-  return { url: directSourceUrl, actualQuality: choice, usesVariant: false };
+  return {
+    url: directSourceUrl,
+    actualQuality: sourceQualityTier ?? "original",
+    usesVariant: false,
+    isSourceFallback: sourceQualityTier !== choice,
+  };
 }
 
 export function hasExactVideoDownload(

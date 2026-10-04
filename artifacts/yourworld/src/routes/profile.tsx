@@ -83,7 +83,6 @@ import {
 } from "@/lib/yw-download";
 import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadSheet";
 import {
-  capQualityTierToSource,
   qualityTierFromDimensions,
   qualityTierFromSourceMetadata,
   resolveVideoDownloadSelection,
@@ -427,10 +426,20 @@ function ProfilePage() {
     try {
       if (post.kind === "video") {
         const existingDownloads = await listDownloadedVideos();
+        const existingSelection =
+          choice === "original" || choice === "mp3"
+            ? null
+            : resolveVideoDownloadSelection(
+                choice,
+                downloadSourceUrl ?? post.media_url,
+                downloadQualityUrls,
+                downloadSourceQualityTier,
+                post.cloudflare_stream_id ?? post.cloudflare_stream_uid,
+              );
         const desiredQuality =
           choice === "original" || choice === "mp3"
             ? "original"
-            : capQualityTierToSource(choice, downloadSourceQualityTier);
+            : existingSelection?.actualQuality ?? downloadSourceQualityTier ?? "original";
         const alreadyDownloaded = existingDownloads.some(
           (item) => item.mediaId === post.id && item.quality === desiredQuality,
         );
@@ -460,7 +469,7 @@ function ProfilePage() {
       }
       const offlineSource = await resolveAuthorizedOfflineSource(
         post.id,
-        (selection?.actualQuality ?? "original") as
+        (selection?.isSourceFallback ? "original" : selection?.actualQuality ?? "original") as
           | "original"
           | "360p"
           | "480p"
@@ -470,7 +479,10 @@ function ProfilePage() {
           | "2160p",
         { url: selection?.url ?? sourceMediaUrl, sourceUrl: sourceMediaUrl,
           qualityUrl: selection?.usesVariant ? selection.url : null,
-          streamId: post.cloudflare_stream_id ?? post.cloudflare_stream_uid, bucket: mediaBucket },
+          streamId: post.cloudflare_stream_id ?? post.cloudflare_stream_uid,
+          bucket: mediaBucket,
+          sourceQualityTier: downloadSourceQualityTier,
+        },
       );
       const mediaUrl = offlineSource.url;
 
@@ -515,10 +527,13 @@ function ProfilePage() {
           {
             fallbackUrls: offlineSource.fallbackUrls,
             targetQuality:
-              choice !== "original" ? choice : undefined,
+              choice !== "original" && !selection?.isSourceFallback
+                ? choice
+                : undefined,
             transcodeSource:
               choice !== "original" &&
-              !selection?.usesVariant,
+              !selection?.usesVariant &&
+              !selection?.isSourceFallback,
           },
         );
         toast.success(

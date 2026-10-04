@@ -3,6 +3,7 @@ import { mediaApiUrl } from "@/lib/media-api-url";
 import { cloudflareStreamDownloadUrl } from "@/lib/cloudflare-stream-media";
 import { resolveMediaUrl } from "@/lib/social-data";
 import { orderedOfflineSources } from "@/lib/offline-source-order";
+import type { VideoQualityTier } from "@/lib/video-quality";
 
 class MediaRequestError extends Error {
   constructor(message: string, readonly status: number) { super(message); }
@@ -31,9 +32,9 @@ async function postAuthorizedMediaRequest(
   body: Record<string, unknown>,
 ) {
   const { data, error } = await supabase.auth.getSession();
-  if (error) throw error;
+  if (error) throw new MediaRequestError(error.message, 401);
   const accessToken = data.session?.access_token;
-  if (!accessToken) throw new Error("Sign in to access this video.");
+  if (!accessToken) throw new MediaRequestError("Sign in to access this video.", 401);
 
   const response = await fetch(mediaApiUrl(path), {
     method: "POST",
@@ -85,6 +86,7 @@ export async function resolveAuthorizedOfflineSource(
     streamId?: string | null;
     bucket?: "videos" | "reels";
     sourceUrl?: string | null;
+    sourceQualityTier?: VideoQualityTier | null;
   },
 ) {
   const resolveReference = async (reference?: string | null) => {
@@ -114,7 +116,11 @@ export async function resolveAuthorizedOfflineSource(
     if (!activeSource?.url) throw error;
     const urls = await sources();
     if (!urls.length) throw error;
-    return { url: urls[0], actualQuality: "original" as const, fallbackUrls: urls.slice(1) };
+    return {
+      url: urls[0],
+      actualQuality: activeSource.sourceQualityTier ?? "original",
+      fallbackUrls: urls.slice(1),
+    };
   }
   const actualQuality =
     payload.actualQuality === "360p" ||
@@ -137,16 +143,26 @@ export async function resolveAuthorizedOfflineSource(
       return { url: variantUrl, actualQuality: quality, fallbackUrls: [] as string[] };
     }
     if (actualQuality !== quality) {
-      throw new Error(
-        `This video has no exact ${quality} rendition. It was not replaced with another quality.`,
-      );
+      return {
+        url: payload.url,
+        actualQuality:
+          actualQuality === "original"
+            ? activeSource?.sourceQualityTier ?? "original"
+            : actualQuality,
+        fallbackUrls: [] as string[],
+      };
     }
     return { url: payload.url, actualQuality, fallbackUrls: [] as string[] };
   }
   const urls = await sources(payload.url);
+  const responseQuality = urls[0] === payload.url ? actualQuality : "original";
+  const resolvedQuality =
+    responseQuality === "original"
+      ? activeSource?.sourceQualityTier ?? "original"
+      : responseQuality;
   return {
     url: urls[0] ?? payload.url,
-    actualQuality: urls[0] === payload.url ? actualQuality : "original" as const,
+    actualQuality: resolvedQuality,
     fallbackUrls: urls.slice(1),
   };
 }

@@ -18,6 +18,7 @@ import {
 import type { LongVideo } from "@/lib/video-data";
 import {
   cacheVideoPoster,
+  cacheResolvedVideoCover,
   cancelPendingVideoPrefetches,
 } from "@/lib/video-prefetch";
 import { cloudflareStreamPosterUrl } from "@/lib/cloudflare-stream-media";
@@ -521,6 +522,10 @@ export function FeedVideoPreview({
   const [videoReady, setVideoReady] = useState(false);
   const canAutoplay = canAutoplayPublicVideo(video.access, video.price);
   const active = activeCandidateId === candidateId;
+  const rememberCover = useCallback(
+    (url: string) => cacheResolvedVideoCover(video.id, url),
+    [video.id],
+  );
   const onPlaybackFailure = useCallback(() => {
     setVideoReady(false);
     stopCandidate(candidateId);
@@ -584,6 +589,7 @@ export function FeedVideoPreview({
         bucket="thumbnails"
         className="pointer-events-none m-0 select-none p-0 [&_img]:block"
         allowFrameCapture={!active}
+        onPosterResolved={rememberCover}
       />
       {active && canAutoplay ? <video
         ref={setVideoRef}

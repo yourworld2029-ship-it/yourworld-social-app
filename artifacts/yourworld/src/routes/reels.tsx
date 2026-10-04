@@ -1330,17 +1330,28 @@ function ReelItem({
         if (selectedTier && !selection) {
           throw new Error(`This Reel has no exact ${selectedTier} rendition.`);
         }
-        const requestedQuality =
-          selectedTier === "4320p" ? "2160p" : selectedTier ?? "original";
+        const requestedQuality = !selectedTier || selection?.isSourceFallback
+          ? "original"
+          : selectedTier === "4320p"
+            ? "2160p"
+            : selectedTier;
         const offlineSource = await resolveAuthorizedOfflineSource(
           reel.id,
-          requestedQuality,
+          requestedQuality as
+            | "original"
+            | "360p"
+            | "480p"
+            | "720p"
+            | "1080p"
+            | "1440p"
+            | "2160p",
           {
             url: selection?.url ?? mediaUrl!,
             qualityUrl: selection?.usesVariant ? selection.url : null,
             streamId: reel.cloudflareStreamId,
             sourceUrl: mediaUrl,
             bucket: mediaBucket ?? "reels",
+            sourceQualityTier: reel.sourceQualityTier,
           },
         );
         const playableUrl = offlineSource.url;
@@ -1385,7 +1396,7 @@ function ReelItem({
                     });
                   }
                 },
-                selectedTier,
+                selectedTier && !selection?.isSourceFallback ? selectedTier : undefined,
               );
               break;
             } catch (error) {
@@ -1439,10 +1450,13 @@ function ReelItem({
             },
             downloadMetadata,
             {
-              targetQuality: selectedTier,
+              targetQuality:
+                selectedTier && !selection?.isSourceFallback ? selectedTier : undefined,
               fallbackUrls: offlineSource.fallbackUrls,
               transcodeSource: Boolean(
-                selectedTier && offlineSource.actualQuality !== selectedTier,
+                selectedTier &&
+                  !selection?.isSourceFallback &&
+                  offlineSource.actualQuality !== selectedTier,
               ),
               watermarkPlacement: "reel",
             },

@@ -23,7 +23,10 @@ import { getAdjacentVideo } from "@/lib/video-queue";
 import { resolveMediaUrl } from "@/lib/social-data";
 import { VideoPlayerErrorBoundary } from "@/components/yw/VideoPlayerErrorBoundary";
 import { VIDEO_POSTER_FALLBACK } from "@/components/yw/LazyVideoThumbnail";
-import { cacheVideoPoster } from "@/lib/video-prefetch";
+import {
+  cacheVideoPoster,
+  getResolvedVideoCover,
+} from "@/lib/video-prefetch";
 import {
   createVideoPlaybackProgressStore,
   type VideoPlaybackProgressStore,
@@ -317,7 +320,8 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const [activeVideo, setActiveVideo] = useState<PersistentVideo | null>(null);
   const [mediaError, setMediaError] = useState<{ id: string; url: string } | null>(null);
   const [playbackRetryKey, setPlaybackRetryKey] = useState(0);
-  const [resolvedPoster, setResolvedPoster] = useState<string | null>(null);
+  const [resolvedPoster, setResolvedPoster] = useState<{ key: string; url: string } | null>(null);
+  const [hasVideoFrame, setHasVideoFrame] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isVerticalVideo, setIsVerticalVideo] = useState(false);
   const [screenLocked, setScreenLocked] = useState(false);
@@ -350,6 +354,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const activeVideoId = activeVideo?.id;
   const activeVideoUrl = activeVideo?.url;
   const activeVideoInitialTime = activeVideo?.initialTime;
+  const activePosterKey = activeVideo
+    ? `${activeVideo.id}\u0000${activeVideo.thumbnailUrl ?? ""}`
+    : "";
 
   const reportMediaError = useCallback(
     (source: { id: string; url: string }, attempt: number) => {
@@ -426,21 +433,22 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let alive = true;
     const thumbnailUrl = activeVideo?.thumbnailUrl;
+    const posterKey = activePosterKey;
     setResolvedPoster(null);
     if (!thumbnailUrl) return;
 
     void resolveMediaUrl(thumbnailUrl, "thumbnails")
       .then((url) => {
-        if (alive) setResolvedPoster(url || thumbnailUrl);
+        if (alive) setResolvedPoster({ key: posterKey, url: url || thumbnailUrl });
       })
       .catch(() => {
-        if (alive) setResolvedPoster(thumbnailUrl);
+        if (alive) setResolvedPoster({ key: posterKey, url: thumbnailUrl });
       });
 
     return () => {
       alive = false;
     };
-  }, [activeVideo?.id, activeVideo?.thumbnailUrl]);
+  }, [activePosterKey, activeVideo?.thumbnailUrl]);
   const timeUpdateHandlerRef = useRef<
     ((currentTime: number, duration: number, wasSeeking: boolean) => void) | null
   >(null);
@@ -536,8 +544,11 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const showDetailChrome = isDetailPlayer && !pictureInPicture;
   const needsAndroidPortraitSafeArea =
     isAndroidApp && showDetailChrome && (!isFullscreen || isVerticalVideo);
+  const activeResolvedPoster =
+    resolvedPoster?.key === activePosterKey ? resolvedPoster.url : null;
   const placeholderPosterUrl =
-    resolvedPoster ??
+    activeResolvedPoster ??
+    (activeVideo?.id ? getResolvedVideoCover(activeVideo.id) : null) ??
     (activeVideo?.thumbnailUrl &&
     /^(https?:|data:|blob:)/i.test(activeVideo.thumbnailUrl)
       ? activeVideo.thumbnailUrl
@@ -546,6 +557,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const activateVideo = useCallback((video: PersistentVideo) => {
     const source = activeSourceRef.current;
     const player = videoRef.current;
+    if (source?.id !== video.id || source.url !== video.url) {
+      setHasVideoFrame(false);
+    }
     if (
       source?.id === video.id &&
       source.url === video.url &&
@@ -615,6 +629,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     }
     activeSourceRef.current = null;
     setActiveVideo(null);
+    setHasVideoFrame(false);
     setIsVerticalVideo(false);
     setPictureInPicture(false);
     setFloatingPosition(null);
@@ -1822,7 +1837,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
           >
             <video
               ref={videoRef}
-              poster={resolvedPoster ?? activeVideo.thumbnailUrl ?? VIDEO_POSTER_FALLBACK}
+              poster={activeResolvedPoster ?? activeVideo.thumbnailUrl ?? VIDEO_POSTER_FALLBACK}
               controls={false}
               autoPlay
               loop={loopVideo}
@@ -1831,10 +1846,12 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               preload="metadata"
               onLoadedMetadata={handleLoadedMetadata}
               onLoadedData={(event) => {
+                setHasVideoFrame(true);
                 if (activeVideoUrl) {
                   cacheVideoPoster(event.currentTarget, activeVideoUrl);
                 }
               }}
+              onEmptied={() => setHasVideoFrame(false)}
               onError={handleNativeMediaError}
               onTimeUpdate={handleTimeUpdate}
               onSeeking={handleVideoSeeking}
@@ -1843,7 +1860,10 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               onVolumeChange={handleVolumeChange}
               onPlay={handleVideoPlay}
               onPause={handleVideoPause}
-              onLoadStart={() => setIsBuffering(true)}
+              onLoadStart={() => {
+                setHasVideoFrame(false);
+                setIsBuffering(true);
+              }}
               onWaiting={() => setIsBuffering(true)}
               onStalled={() => setIsBuffering(true)}
               onCanPlay={() => setIsBuffering(false)}
@@ -1869,7 +1889,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               }}
             />
 
-            {showDetailChrome && !activeVideo.url ? (
+            {showDetailChrome && (!activeVideo.url || !hasVideoFrame) ? (
               <div
                 role="status"
                 aria-label="Loading video preview"
@@ -1880,7 +1900,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                   <img
                     src={placeholderPosterUrl}
                     alt=""
-                    loading="lazy"
+                    loading="eager"
                     decoding="async"
                     className="absolute inset-0 h-full w-full object-contain"
                   />

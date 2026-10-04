@@ -7,6 +7,7 @@ const MAX_CONCURRENT_PREFETCHES = 1;
 const MAX_QUEUED_PREFETCHES = 1;
 const MAX_SEEN_PREFETCHES = 64;
 const MAX_POSTER_CACHE_ENTRIES = 24;
+const MAX_RESOLVED_COVER_ENTRIES = 24;
 const VIDEO_PREFIX_CACHE = "yourworld-video-prefixes-v1";
 const HLS_SEGMENT_CACHE = "yourworld-video-hls-prefixes-v1";
 const PREFIX_TTL_MS = 10 * 60 * 1000;
@@ -27,6 +28,7 @@ type PrefetchJob = {
 const active = new Map<string, PrefetchJob>();
 const queued: PrefetchJob[] = [];
 const posters = new Map<string, string>();
+const resolvedCovers = new Map<string, string>();
 const seenPrefetches = new Set<string>();
 let activeCount = 0;
 
@@ -568,6 +570,24 @@ export function cancelPendingVideoPrefetches() {
 /** Returns a small poster generated during an earlier visit, if available. */
 export function getVideoPoster(url: string) {
   return posters.get(mediaCacheKey(url)) ?? null;
+}
+
+/** Keeps a real feed thumbnail available while its video opens in the persistent player. */
+export function cacheResolvedVideoCover(videoId: string, url: string) {
+  const id = videoId.trim();
+  const cover = url.trim();
+  if (!id || !/^(https?:|blob:|data:image\/)/i.test(cover)) return;
+  resolvedCovers.delete(id);
+  resolvedCovers.set(id, cover);
+  while (resolvedCovers.size > MAX_RESOLVED_COVER_ENTRIES) {
+    const oldest = resolvedCovers.keys().next().value;
+    if (!oldest) break;
+    resolvedCovers.delete(oldest);
+  }
+}
+
+export function getResolvedVideoCover(videoId: string) {
+  return resolvedCovers.get(videoId) ?? null;
 }
 
 export function subscribeVideoPoster(url: string, onPoster: (poster: string) => void) {
