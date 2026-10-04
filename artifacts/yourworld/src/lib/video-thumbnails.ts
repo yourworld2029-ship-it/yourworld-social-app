@@ -61,6 +61,7 @@ export async function uploadVideoThumbnail(
   uid: string,
   onProgress?: ProgressFn,
   bucket: string = STORAGE_BUCKETS.thumbnails,
+  signal?: AbortSignal,
 ): Promise<{ url: string | null; storagePath: string | null; error: string | null }> {
   try {
     const blob = await encodeThumbnail(await toBlob(source));
@@ -72,6 +73,7 @@ export async function uploadVideoThumbnail(
       contentType,
       onProgress,
       VIDEO_THUMBNAIL_CACHE_CONTROL,
+      { signal },
     );
     return {
       url: result.url,

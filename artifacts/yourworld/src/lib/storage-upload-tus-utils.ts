@@ -26,6 +26,37 @@ export function isRetryableTusError(error: unknown, isOnline: boolean) {
   return !isOnline;
 }
 
+export function canFallbackAfterCloudflareTusFailure(
+  error: unknown,
+  isOnline = true,
+) {
+  if (!error || typeof error !== "object") return false;
+  const details = error as {
+    originalResponse?: { getStatus?: () => number };
+  };
+  let status: number | undefined;
+  try {
+    status = details.originalResponse?.getStatus?.();
+  } catch {
+    status = undefined;
+  }
+  if (status === 424) return true;
+  if (status === 401 || status === 403) return false;
+  return isRetryableTusError(error, isOnline);
+}
+
+export function shouldUseStoragePlaybackFallback(options: {
+  bucket: string;
+  fallbackToStorage?: boolean;
+  requireSignedURLs?: boolean;
+}) {
+  return (
+    options.fallbackToStorage === true &&
+    (options.bucket === "videos" || options.bucket === "reels") &&
+    options.requireSignedURLs !== true
+  );
+}
+
 export type TusProgressReporter = ((percent: number, detail?: string) => void) & {
   flush: () => void;
   cancel: () => void;

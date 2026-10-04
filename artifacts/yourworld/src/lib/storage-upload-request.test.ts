@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { runDirectUploadRequest } from "./storage-upload-request";
+import {
+  runAbortableDirectUploadRequest,
+  runDirectUploadRequest,
+} from "./storage-upload-request";
 
 test("direct upload reports completion only after the Storage response", async () => {
   const progress: Array<[number, string | undefined]> = [];
@@ -39,4 +42,30 @@ test("direct upload preserves thrown network error messages", async () => {
   });
 
   assert.deepEqual(result, { error: "Failed to fetch" });
+});
+
+test("abortable direct uploads stop the request without reporting completion", async () => {
+  const controller = new AbortController();
+  const progress: number[] = [];
+  let requestAborted = false;
+  const pending = runAbortableDirectUploadRequest(
+    (signal) =>
+      new Promise((_resolve, reject) => {
+        signal?.addEventListener(
+          "abort",
+          () => {
+            requestAborted = true;
+            reject(new Error("request aborted"));
+          },
+          { once: true },
+        );
+      }),
+    (percent) => progress.push(percent),
+    controller.signal,
+  );
+
+  controller.abort();
+  assert.deepEqual(await pending, { error: "Upload cancelled" });
+  assert.equal(requestAborted, true);
+  assert.equal(progress.includes(100), false);
 });

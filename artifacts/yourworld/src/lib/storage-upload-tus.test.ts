@@ -6,6 +6,8 @@ import {
   getTusRetryDelayMs,
   isRetryableTusError,
   RESUMABLE_UPLOAD_CHUNK_SIZE,
+  canFallbackAfterCloudflareTusFailure,
+  shouldUseStoragePlaybackFallback,
   shouldUseResumableStorageUpload,
 } from "./storage-upload-tus-utils";
 
@@ -39,6 +41,48 @@ test("TUS retries transient failures but stops on app-level dependency or auth d
   );
   assert.equal(isRetryableTusError(new Error("offline"), false), true);
   assert.equal(isRetryableTusError(new Error("expired session"), true), false);
+});
+
+test("Cloudflare 424 is eligible for the public Storage fallback, but app auth denials are not", () => {
+  assert.equal(
+    canFallbackAfterCloudflareTusFailure({ originalResponse: { getStatus: () => 424 } }),
+    true,
+  );
+  assert.equal(
+    canFallbackAfterCloudflareTusFailure({ originalResponse: { getStatus: () => 401 } }),
+    false,
+  );
+  assert.equal(
+    canFallbackAfterCloudflareTusFailure({ originalResponse: { getStatus: () => 403 } }),
+    false,
+  );
+});
+
+test("Storage playback fallback is explicit, public-only, and available for videos and reels", () => {
+  assert.equal(
+    shouldUseStoragePlaybackFallback({
+      bucket: "reels",
+      fallbackToStorage: true,
+      requireSignedURLs: false,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldUseStoragePlaybackFallback({
+      bucket: "reels",
+      fallbackToStorage: true,
+      requireSignedURLs: true,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldUseStoragePlaybackFallback({
+      bucket: "videos",
+      fallbackToStorage: false,
+      requireSignedURLs: false,
+    }),
+    false,
+  );
 });
 
 test("resumable upload endpoint uses Supabase's direct storage hostname", () => {

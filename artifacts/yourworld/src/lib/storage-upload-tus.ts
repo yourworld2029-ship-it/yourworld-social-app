@@ -17,6 +17,7 @@ export async function uploadLargeStorageObjectWithTus(options: {
   contentType: string;
   cacheControl: string;
   onProgress?: TusUploadProgress;
+  signal?: AbortSignal;
 }): Promise<{ error: string | null }> {
   const projectUrl = import.meta.env["VITE_SUPABASE_URL"];
   const publishableKey = import.meta.env["VITE_SUPABASE_PUBLISHABLE_KEY"];
@@ -41,10 +42,19 @@ export async function uploadLargeStorageObjectWithTus(options: {
     let retryAttempt = 0;
     let lastPercent = 0;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let activeUpload: { abort: () => Promise<void> } | null = null;
     const reportProgress = createTusProgressReporter(options.onProgress);
+    const abortTransfer = () => {
+      if (settled) return;
+      const runningUpload = activeUpload;
+      activeUpload = null;
+      finish("Upload cancelled");
+      if (runningUpload) void runningUpload.abort().catch(() => undefined);
+    };
     const finish = (error: string | null) => {
       if (settled) return;
       settled = true;
+      options.signal?.removeEventListener("abort", abortTransfer);
       if (retryTimer) clearTimeout(retryTimer);
       retryTimer = null;
       if (error) reportProgress.cancel();
@@ -54,6 +64,11 @@ export async function uploadLargeStorageObjectWithTus(options: {
 
     const recoverFromTransientFailure = (error: unknown) => {
       if (settled) return;
+      activeUpload = null;
+      if (options.signal?.aborted) {
+        finish("Upload cancelled");
+        return;
+      }
       const isOnline = typeof navigator === "undefined" || navigator.onLine;
       if (!isRetryableTusError(error, isOnline)) {
         finish(readableUploadError(error));
@@ -69,6 +84,10 @@ export async function uploadLargeStorageObjectWithTus(options: {
 
     const startAttempt = async () => {
       if (settled) return;
+      if (options.signal?.aborted) {
+        finish("Upload cancelled");
+        return;
+      }
       const upload = new Upload(options.file, {
       endpoint,
       chunkSize: RESUMABLE_UPLOAD_CHUNK_SIZE,
@@ -107,12 +126,22 @@ export async function uploadLargeStorageObjectWithTus(options: {
         lastPercent = percent;
         reportProgress(percent, "Uploading");
       },
-      onError: recoverFromTransientFailure,
+      onError: (error) => {
+        activeUpload = null;
+        if (options.signal?.aborted) finish("Upload cancelled");
+        else recoverFromTransientFailure(error);
+      },
       onSuccess: () => {
+        activeUpload = null;
+        if (options.signal?.aborted) {
+          finish("Upload cancelled");
+          return;
+        }
         reportProgress(100, "Upload complete");
         finish(null);
       },
       });
+      activeUpload = upload;
 
       try {
         const previousUploads = await upload.findPreviousUploads().catch(() => []);
@@ -127,6 +156,8 @@ export async function uploadLargeStorageObjectWithTus(options: {
     };
 
     reportProgress(0, "Uploading");
-    void startAttempt();
+    options.signal?.addEventListener("abort", abortTransfer, { once: true });
+    if (options.signal?.aborted) abortTransfer();
+    else void startAttempt();
   });
 }

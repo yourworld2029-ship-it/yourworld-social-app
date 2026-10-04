@@ -2420,8 +2420,9 @@ function MomentCreatePage() {
         viewTo: "/moment",
         isVideo,
       },
-      async (onProgress) => {
+      async (onProgress, signal) => {
         for (const [index, part] of newMoments.entries()) {
+          if (signal.aborted) return { error: null, cancelled: true };
           const result = await addMoment({
         kind: isVideo
           ? "video"
@@ -2485,13 +2486,15 @@ function MomentCreatePage() {
               const overall = ((index + Math.max(0, Math.min(100, percent) / 100)) / newMoments.length) * 100;
               onProgress(overall);
             },
-          });
+          }, signal);
+          if (signal.aborted) return { error: null, cancelled: true };
           if (result?.error) return { error: result.error };
         }
 
         return { error: null };
       }
-    ).then(({ error: publishError }) => {
+    ).then(({ error: publishError, cancelled }) => {
+      if (cancelled) return;
       if (publishError) toast.error(publishError);
     });
 

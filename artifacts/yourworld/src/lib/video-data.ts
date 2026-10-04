@@ -8,6 +8,12 @@ import {
   subscribeToPostDeleted,
 } from "@/lib/post-deletion";
 import {
+  announcePublishedPost,
+  PUBLISHED_POST_EVENT,
+  prependUniqueFeedItem,
+  readPublishedPostEvent,
+} from "@/lib/published-feed";
+import {
   getLocalMedia,
   rememberLocalMedia,
   resolveMediaUrl,
@@ -239,6 +245,7 @@ async function uploadToStorage(
   fallbackType: string,
   onProgress?: ProgressFn,
   requireSignedURLs = false,
+  signal?: AbortSignal,
 ): Promise<{
   url: string | null;
   storagePath: string | null;
@@ -252,8 +259,9 @@ async function uploadToStorage(
   let height: number | null = null;
   try {
     const blob = typeof source === "string"
-      ? await (await fetch(source)).blob()
+      ? await (await fetch(source, { signal })).blob()
       : source;
+    if (signal?.aborted) throw new Error("Upload cancelled");
     const uploadBlob = blob.type.startsWith("video/")
       ? await optimizeVideoBlob(blob, (percent, detail) =>
           onProgress?.(Math.round(percent * 0.1), detail),
@@ -284,6 +292,7 @@ async function uploadToStorage(
         cloudflareStream: true,
         requireSignedURLs,
         fallbackToStorage: !requireSignedURLs,
+        signal,
       },
     );
     return {
@@ -345,6 +354,7 @@ export async function publishLongVideo(opts: {
   officialSponsorshipId?: string | null;
   generatedThumbnailPromise?: Promise<Blob | null>;
   onProgress?: ProgressFn;
+  signal?: AbortSignal;
 }): Promise<{ error: string | null }> {
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
   if (sessionError) {
@@ -353,6 +363,7 @@ export async function publishLongVideo(opts: {
   }
   const uid = sessionData.session?.user.id;
   if (!uid) return { error: "You need to sign in to publish a video." };
+  if (opts.signal?.aborted) return { error: "Upload cancelled" };
 
   if (opts.seriesTitle?.trim() || opts.episodeNumber?.trim()) {
     const { error } = await supabase
@@ -377,7 +388,7 @@ export async function publishLongVideo(opts: {
   let sourceBlob = opts.file ?? null;
   if (!sourceBlob && /^(blob:|data:)/.test(opts.fileUrl)) {
     try {
-      const response = await fetch(opts.fileUrl);
+      const response = await fetch(opts.fileUrl, { signal: opts.signal });
       if (response.ok) sourceBlob = await response.blob();
     } catch (error) {
       console.warn("Could not read the local video for its thumbnail", error);
@@ -415,6 +426,7 @@ export async function publishLongVideo(opts: {
       uid,
       undefined,
       STORAGE_BUCKETS.thumbnails,
+      opts.signal,
     ).catch(thumbnailTaskResult);
   }
 
@@ -429,7 +441,9 @@ export async function publishLongVideo(opts: {
     const up = await uploadToStorage(opts.file ?? mediaUrl, uid, "mp4", "video/mp4", (p) =>
       opts.onProgress?.(Math.min(97, Math.round(p * 0.97))),
       (opts.access ?? "public") !== "public",
+      opts.signal,
     );
+    if (opts.signal?.aborted) return { error: "Upload cancelled" };
     if (up.error || !up.url || !up.storagePath) {
       if (thumbnailUploadPromise) {
         void thumbnailUploadPromise
@@ -462,6 +476,7 @@ export async function publishLongVideo(opts: {
   if (!thumb) {
     return { error: "A video thumbnail is required before publishing this video." };
   }
+  if (opts.signal?.aborted) return { error: "Upload cancelled" };
 
   // Automated content scan (safety + brand/sponsorship detection) before publishing.
   let scan: ModerationVerdict | null = null;
@@ -499,11 +514,14 @@ export async function publishLongVideo(opts: {
     !!scan?.sponsorship ||
     (scan?.brands?.length ?? 0) > 0;
 
+  if (opts.signal?.aborted) return { error: "Upload cancelled" };
+  const postId = crypto.randomUUID();
   let insertError: { message: string } | null = null;
   try {
     const result = await writeCompat(
       (payload) => supabase.from("posts").insert(payload as never),
       {
+        id: postId,
         user_id: uid,
         kind: "video",
         media_url: mediaUrl,
@@ -572,7 +590,12 @@ export async function publishLongVideo(opts: {
 
   opts.onProgress?.(100);
   if (insertError) console.error("Long-video database insert failed", insertError);
-  else rememberLocalMedia(mediaUrl, opts.fileUrl);
+  else {
+    rememberLocalMedia(mediaUrl, opts.fileUrl);
+    if (!opts.scheduledAt && !needsReview) {
+      announcePublishedPost({ id: postId, kind: "video", mediaType: "video" });
+    }
+  }
   return { error: insertError?.message ?? null };
 }
 
@@ -808,6 +831,38 @@ export function useLongVideos() {
       announcePostDeletedFromRealtime(payload);
       queue();
     };
+    const onPublishedPost = (event: Event) => {
+      const detail = readPublishedPostEvent(event);
+      if (!detail || detail.kind !== "video") return;
+      void loadLongVideosByIds([detail.id])
+        .then(([publishedVideo]) => {
+          if (!publishedVideo) {
+            void queryClient.invalidateQueries({ queryKey });
+            return;
+          }
+          let updated = false;
+          queryClient.setQueryData<InfiniteData<LongVideoPage, number>>(queryKey, (current) => {
+            if (!current?.pages.length) return current;
+            updated = true;
+            return {
+              ...current,
+              pages: current.pages.map((page, index) => ({
+                ...page,
+                videos:
+                  index === 0
+                    ? prependUniqueFeedItem(page.videos, publishedVideo, VIDEO_PAGE_SIZE)
+                    : page.videos.filter((video) => video.id !== publishedVideo.id),
+              })),
+            };
+          });
+          if (!updated) void queryClient.invalidateQueries({ queryKey });
+        })
+        .catch((error) => {
+          console.warn("Could not add the published video to the feed", error);
+          void queryClient.invalidateQueries({ queryKey });
+        });
+    };
+    window.addEventListener(PUBLISHED_POST_EVENT, onPublishedPost);
     let channel: ReturnType<typeof supabase.channel> | null = null;
     const boot = window.setTimeout(() => {
       channel = supabase
@@ -821,6 +876,7 @@ export function useLongVideos() {
       window.clearTimeout(boot);
       window.clearTimeout(timer);
       unsubscribeFromDeletes();
+      window.removeEventListener(PUBLISHED_POST_EVENT, onPublishedPost);
       if (channel) void supabase.removeChannel(channel);
     };
   }, [queryClient, queryKey]);

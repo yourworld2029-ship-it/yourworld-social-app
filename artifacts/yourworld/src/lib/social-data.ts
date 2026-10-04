@@ -7,6 +7,12 @@ import {
   removeDeletedPostFromQueryCaches,
   subscribeToPostDeleted,
 } from "@/lib/post-deletion";
+import {
+  announcePublishedPost,
+  PUBLISHED_POST_EVENT,
+  prependUniqueFeedItem,
+  readPublishedPostEvent,
+} from "@/lib/published-feed";
 import { cacheGet, cacheSet } from "@/lib/local-cache";
 import { useThreadCachePolicy } from "@/lib/chat-cache-security";
 import {
@@ -226,6 +232,7 @@ export async function loadSocialPosts(
   userId?: string,
   page = 0,
   pageSize = SOCIAL_PAGE_SIZE,
+  onlyIds?: string[],
 ): Promise<SocialPage> {
   const { data: sessionData } = await client.auth.getSession();
   const uid = sessionData.session?.user.id ?? null;
@@ -233,6 +240,7 @@ export async function loadSocialPosts(
   if (kind === "creator-media") query = query.in("kind", ["reel", "video"]);
   else query = query.eq("kind", kind);
   if (userId) query = query.eq("user_id", userId);
+  if (onlyIds) query = query.in("id", onlyIds);
   let { data: posts, error } = await applyPage(
     query.order("created_at", { ascending: false }),
     page,
@@ -246,6 +254,7 @@ export async function loadSocialPosts(
       .select("*")
       .eq("type" as "kind", legacyKind);
     if (userId) legacyQuery = legacyQuery.eq("user_id", userId);
+    if (onlyIds) legacyQuery = legacyQuery.in("id", onlyIds);
     const legacy = await applyPage(
       legacyQuery.order("created_at", { ascending: false }),
       page,
@@ -256,6 +265,7 @@ export async function loadSocialPosts(
     if (missingColumn(error) === "type" || kind === "creator-media") {
       let unfilteredQuery = client.from("posts").select("*");
       if (userId) unfilteredQuery = unfilteredQuery.eq("user_id", userId);
+      if (onlyIds) unfilteredQuery = unfilteredQuery.in("id", onlyIds);
       const unfiltered = await applyPage(
         unfilteredQuery.order("created_at", { ascending: false }),
         page,
@@ -526,6 +536,44 @@ export function useSocialPosts(
       announcePostDeletedFromRealtime(payload);
       queue();
     };
+    const onPublishedPost = (event: Event) => {
+      const detail = readPublishedPostEvent(event);
+      if (!detail || (detail.kind === "post" && detail.mediaType !== "video")) return;
+      const matchesKind =
+        kind === detail.kind ||
+        (kind === "creator-media" && (detail.kind === "reel" || detail.kind === "video"));
+      if (!matchesKind) return;
+
+      void loadSocialPosts(kind, supabase, userId, 0, 1, [detail.id])
+        .then(({ posts }) => {
+          const publishedPost = posts[0];
+          if (!publishedPost) {
+            void queryClient.invalidateQueries({ queryKey });
+            return;
+          }
+          let updated = false;
+          queryClient.setQueryData<InfiniteData<SocialPage, number>>(queryKey, (current) => {
+            if (!current?.pages.length) return current;
+            updated = true;
+            return {
+              ...current,
+              pages: current.pages.map((page, index) => ({
+                ...page,
+                posts:
+                  index === 0
+                    ? prependUniqueFeedItem(page.posts, publishedPost, SOCIAL_PAGE_SIZE)
+                    : page.posts.filter((post) => post.id !== publishedPost.id),
+              })),
+            };
+          });
+          if (!updated) void queryClient.invalidateQueries({ queryKey });
+        })
+        .catch((error) => {
+          console.warn("Could not add the published upload to the feed", error);
+          void queryClient.invalidateQueries({ queryKey });
+        });
+    };
+    window.addEventListener(PUBLISHED_POST_EVENT, onPublishedPost);
     let channel: ReturnType<typeof supabase.channel> | null = null;
     // Subscribe after first paint so the socket handshake doesn't delay render.
     const boot = window.setTimeout(() => {
@@ -540,6 +588,7 @@ export function useSocialPosts(
       window.clearTimeout(boot);
       window.clearTimeout(timer);
       unsubscribeFromDeletes();
+      window.removeEventListener(PUBLISHED_POST_EVENT, onPublishedPost);
       if (channel) void supabase.removeChannel(channel);
     };
   }, [kind, queryClient, queryKey, userId]);
@@ -1198,6 +1247,7 @@ export async function publishDirectReel(opts: {
   originalHeight?: number | null;
   thumbnail?: Blob | null;
   onProgress?: ProgressFn;
+  signal?: AbortSignal;
 }): Promise<{ error: string | null }> {
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
   if (sessionError) {
@@ -1207,6 +1257,7 @@ export async function publishDirectReel(opts: {
 
   const uid = sessionData.session?.user.id;
   if (!uid) return { error: "You need to sign in to post a reel." };
+  if (opts.signal?.aborted) return { error: "Upload cancelled" };
   if (opts.durationSeconds < MIN_REEL_DURATION_SECONDS) {
     return { error: MIN_REEL_DURATION_MESSAGE };
   }
@@ -1236,6 +1287,7 @@ export async function publishDirectReel(opts: {
       uploadedHeight = dimensions.height;
     },
   );
+  if (opts.signal?.aborted) return { error: "Upload cancelled" };
   const uploadType = uploadBlob.type || opts.file.type || "video/mp4";
   const extension =
     uploadType.split("/")[1]?.split(";")[0]?.toLowerCase() ||
@@ -1256,8 +1308,14 @@ export async function publishDirectReel(opts: {
     (percent, detail) =>
       opts.onProgress?.(Math.min(88, 12 + Math.round(percent * 0.76)), detail),
     IMMUTABLE_MEDIA_CACHE_CONTROL,
-    { cloudflareStream: true, requireSignedURLs: false },
+    {
+      cloudflareStream: true,
+      requireSignedURLs: false,
+      fallbackToStorage: true,
+      signal: opts.signal,
+    },
   );
+  if (opts.signal?.aborted) return { error: "Upload cancelled" };
   if (uploadError || !mediaUrl || !storagePath) {
     console.error("Direct reel storage upload failed", uploadError);
     return { error: uploadError ?? "Upload failed" };
@@ -1268,16 +1326,20 @@ export async function publishDirectReel(opts: {
     uid,
     (percent, detail) => opts.onProgress?.(88 + Math.round(percent * 0.1), detail),
     STORAGE_BUCKETS.thumbnails,
+    opts.signal,
   );
+  if (opts.signal?.aborted) return { error: "Upload cancelled" };
   if (thumbnailUpload.error || !thumbnailUpload.url) {
     console.warn("Direct reel thumbnail upload failed", thumbnailUpload.error);
     return { error: thumbnailUpload.error ?? "Thumbnail upload failed. Please try again." };
   }
   const thumbnailUrl = thumbnailUpload.url;
+  const postId = crypto.randomUUID();
 
   const result = await writeCompat(
     (payload) => supabase.from("posts").insert(payload as never),
     {
+      id: postId,
       user_id: uid,
       kind: "reel",
       is_reel: true,
@@ -1309,8 +1371,9 @@ export async function publishDirectReel(opts: {
     missingColumn(result.error) === "video_url"
       ? { message: "The video source could not be saved for offline downloads. Please update the video schema and try again." }
       : result.error;
-  opts.onProgress?.(100);
   if (error) console.error("Direct reel database insert failed", error);
+  else announcePublishedPost({ id: postId, kind: "reel", mediaType: "video" });
+  if (!opts.signal?.aborted) opts.onProgress?.(100);
   return { error: error?.message ?? null };
 }
 
@@ -1326,6 +1389,7 @@ export async function publishPost(opts: {
   allowDownload?: boolean;
   audience?: "everyone" | "close_friends";
   onProgress?: ProgressFn;
+  signal?: AbortSignal;
 }): Promise<{ error: string | null }> {
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
   if (sessionError) {
@@ -1334,6 +1398,7 @@ export async function publishPost(opts: {
   }
   const uid = sessionData.session?.user.id;
   if (!uid) return { error: "You need to sign in to create a post." };
+  if (opts.signal?.aborted) return { error: "Upload cancelled" };
 
   let mediaUrl = opts.fileUrl;
   let uploadedSourcePath: string | null = null;
@@ -1346,7 +1411,7 @@ export async function publishPost(opts: {
     /^(blob:|data:)/.test(opts.fileUrl)
   ) {
     try {
-      const response = await fetch(opts.fileUrl);
+      const response = await fetch(opts.fileUrl, { signal: opts.signal });
       if (!response.ok) return { error: "Could not read the selected video." };
       sourceBlob = await response.blob();
     } catch (error) {
@@ -1372,7 +1437,7 @@ export async function publishPost(opts: {
 
   if (/^(blob:|data:)/.test(opts.fileUrl)) {
     try {
-      const blob = sourceBlob ?? await (await fetch(opts.fileUrl)).blob();
+      const blob = sourceBlob ?? await (await fetch(opts.fileUrl, { signal: opts.signal })).blob();
       sourceBlob = blob;
       const type = blob.type || (opts.mediaType === "video" ? "video/mp4" : "image/jpeg");
       const uploadBlob = opts.mediaType === "video"
@@ -1403,9 +1468,12 @@ export async function publishPost(opts: {
           ? {
               cloudflareStream: true,
               requireSignedURLs: opts.audience === "close_friends",
+              fallbackToStorage: opts.audience === "everyone",
+              signal: opts.signal,
             }
-          : undefined,
+          : { signal: opts.signal },
       );
+      if (opts.signal?.aborted) return { error: "Upload cancelled" };
       if (upErr || !url || (opts.mediaType === "video" && !storagePath)) {
         console.error("Post storage upload failed", upErr);
         return { error: upErr ?? "Upload failed" };
@@ -1421,6 +1489,7 @@ export async function publishPost(opts: {
   } else {
     opts.onProgress?.(100);
   }
+  if (opts.signal?.aborted) return { error: "Upload cancelled" };
 
   let thumbnailUrl: string | null = null;
   if (opts.mediaType === "video") {
@@ -1432,7 +1501,9 @@ export async function publishPost(opts: {
       uid,
       undefined,
       STORAGE_BUCKETS.thumbnails,
+      opts.signal,
     );
+    if (opts.signal?.aborted) return { error: "Upload cancelled" };
     if (thumbnail.error || !thumbnail.url) {
       console.warn("Post thumbnail upload failed", thumbnail.error);
       return { error: thumbnail.error ?? "Thumbnail upload failed. Please try again." };
@@ -1440,7 +1511,9 @@ export async function publishPost(opts: {
     thumbnailUrl = thumbnail.url;
   }
 
+  const postId = opts.mediaType === "video" ? crypto.randomUUID() : null;
   const result = await writeCompat((payload) => supabase.from("posts").insert(payload as never), {
+    ...(postId ? { id: postId } : {}),
     user_id: uid,
     kind: "post",
     media_url: mediaUrl,
@@ -1467,7 +1540,10 @@ export async function publishPost(opts: {
       ? { message: "The video source could not be saved for offline downloads. Please update the video schema and try again." }
       : result.error;
   if (error) console.error("Post database insert failed", error);
-  else rememberLocalMedia(mediaUrl, opts.fileUrl);
+  else {
+    rememberLocalMedia(mediaUrl, opts.fileUrl);
+    if (postId) announcePublishedPost({ id: postId, kind: "post", mediaType: "video" });
+  }
   return { error: error?.message ?? null };
 }
 

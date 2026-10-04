@@ -33,3 +33,24 @@ export async function runDirectUploadRequest(
     return { error: readableUploadError(error) };
   }
 }
+
+/** Runs a direct Storage request with cancellation for active, non-resumable uploads. */
+export async function runAbortableDirectUploadRequest(
+  request: (signal?: AbortSignal) => Promise<{ error: unknown | null }>,
+  onProgress?: UploadRequestProgress,
+  signal?: AbortSignal,
+): Promise<{ error: string | null }> {
+  if (signal?.aborted) return { error: "Upload cancelled" };
+  onProgress?.(0, "Uploading");
+  try {
+    const { error } = await request(signal);
+    if (signal?.aborted) return { error: "Upload cancelled" };
+    if (error) return { error: readableUploadError(error) };
+    onProgress?.(100, "Upload complete");
+    return { error: null };
+  } catch (error) {
+    return {
+      error: signal?.aborted ? "Upload cancelled" : readableUploadError(error),
+    };
+  }
+}

@@ -4,6 +4,7 @@ import { mediaApiUrl } from "@/lib/media-api-url";
 import {
   CLOUDFLARE_TUS_CHUNK_SIZE,
   createTusProgressReporter,
+  canFallbackAfterCloudflareTusFailure,
   getTusRetryDelayMs,
   isRetryableTusError,
 } from "@/lib/storage-upload-tus-utils";
@@ -12,27 +13,6 @@ const CLOUDFLARE_TUS_ENDPOINT = "/api/media/cloudflare-tus-upload";
 const VIDEO_TUS_INACTIVITY_TIMEOUT_MS = 120_000;
 const MAX_VIDEO_TUS_RESUMES = 3;
 
-function mayFallbackToStorageAfterTusFailure(error: unknown) {
-  if (!error || typeof error !== "object") return false;
-  const details = error as {
-    originalResponse?: { getStatus?: () => number };
-  };
-  let status: number | undefined;
-  try {
-    status = details.originalResponse?.getStatus?.();
-  } catch {
-    status = undefined;
-  }
-  // 424 is returned only when Cloudflare itself rejects the upstream upload.
-  // App authentication and ownership denials (401/403) must remain failures.
-  if (status === 424) return true;
-  if (status === 401 || status === 403) return false;
-  return isRetryableTusError(
-    error,
-    typeof navigator === "undefined" || navigator.onLine,
-  );
-}
-
 export async function uploadCloudflareStreamWithTus(options: {
   bucket: "videos" | "reels";
   path: string;
@@ -40,6 +20,7 @@ export async function uploadCloudflareStreamWithTus(options: {
   contentType: string;
   requireSignedURLs: boolean;
   onProgress?: (percent: number) => void;
+  signal?: AbortSignal;
 }): Promise<{
   streamUid: string | null;
   error: string | null;
@@ -53,7 +34,17 @@ export async function uploadCloudflareStreamWithTus(options: {
     };
   }
 
-  const { Upload } = await import("tus-js-client");
+  let Upload: typeof import("tus-js-client").Upload;
+  try {
+    ({ Upload } = await import("tus-js-client"));
+  } catch (error) {
+    return {
+      streamUid: null,
+      error: readableUploadError(error),
+      fallbackAllowed:
+        canFallbackAfterCloudflareTusFailure(error) || !options.requireSignedURLs,
+    };
+  }
   const endpoint = new URL(mediaApiUrl(CLOUDFLARE_TUS_ENDPOINT), window.location.origin).toString();
   const filename = options.path.split("/").pop() || "video";
 
@@ -63,10 +54,19 @@ export async function uploadCloudflareStreamWithTus(options: {
     let retryAttempt = 0;
     let lastPercent = 0;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let activeUpload: { abort: () => Promise<void> } | null = null;
     const reportProgress = createTusProgressReporter(options.onProgress);
+    const abortTransfer = () => {
+      if (settled) return;
+      const runningUpload = activeUpload;
+      activeUpload = null;
+      finish("Upload cancelled");
+      if (runningUpload) void runningUpload.abort().catch(() => undefined);
+    };
     const finish = (error: string | null, fallbackAllowed = false) => {
       if (settled) return;
       settled = true;
+      options.signal?.removeEventListener("abort", abortTransfer);
       if (retryTimer) clearTimeout(retryTimer);
       retryTimer = null;
       if (error) reportProgress.cancel();
@@ -80,11 +80,16 @@ export async function uploadCloudflareStreamWithTus(options: {
 
     const recoverFromTransientFailure = (error: unknown) => {
       if (settled) return;
+      activeUpload = null;
+      if (options.signal?.aborted) {
+        finish("Upload cancelled");
+        return;
+      }
       const isOnline = typeof navigator === "undefined" || navigator.onLine;
       if (!isRetryableTusError(error, isOnline)) {
         finish(
           readableUploadError(error),
-          mayFallbackToStorageAfterTusFailure(error),
+          canFallbackAfterCloudflareTusFailure(error, isOnline),
         );
         return;
       }
@@ -102,6 +107,10 @@ export async function uploadCloudflareStreamWithTus(options: {
 
     const startAttempt = async () => {
       if (settled) return;
+      if (options.signal?.aborted) {
+        finish("Upload cancelled");
+        return;
+      }
       const upload = new Upload(options.file, {
         endpoint,
         chunkSize: CLOUDFLARE_TUS_CHUNK_SIZE,
@@ -181,6 +190,11 @@ export async function uploadCloudflareStreamWithTus(options: {
         },
         onError: recoverFromTransientFailure,
         onSuccess: () => {
+          activeUpload = null;
+          if (options.signal?.aborted) {
+            finish("Upload cancelled");
+            return;
+          }
           if (!streamUid) {
             finish(
               "Cloudflare completed the upload without returning a video ID.",
@@ -192,6 +206,7 @@ export async function uploadCloudflareStreamWithTus(options: {
           finish(null);
         },
       });
+      activeUpload = upload;
 
       try {
         const previousUploads = await upload.findPreviousUploads().catch(() => []);
@@ -205,6 +220,8 @@ export async function uploadCloudflareStreamWithTus(options: {
       }
     };
 
-    void startAttempt();
+    options.signal?.addEventListener("abort", abortTransfer, { once: true });
+    if (options.signal?.aborted) abortTransfer();
+    else void startAttempt();
   });
 }

@@ -3,11 +3,15 @@ import { supabase } from "@/integrations/supabase/client";
 import { getAdaptivePerformanceSnapshot } from "@/lib/adaptive-performance";
 import {
   readableUploadError,
+  runAbortableDirectUploadRequest,
   runDirectUploadRequest,
 } from "@/lib/storage-upload-request";
 import { uploadCloudflareStreamWithTus } from "@/lib/storage-upload-cloudflare-tus";
 import { uploadLargeStorageObjectWithTus } from "@/lib/storage-upload-tus";
-import { shouldUseResumableStorageUpload } from "@/lib/storage-upload-tus-utils";
+import {
+  shouldUseResumableStorageUpload,
+  shouldUseStoragePlaybackFallback,
+} from "@/lib/storage-upload-tus-utils";
 
 export type ProgressFn = (percent: number, detail?: string) => void;
 export type VideoStreamUploadOptions = {
@@ -15,6 +19,7 @@ export type VideoStreamUploadOptions = {
   requireSignedURLs?: boolean;
   /** Allows public long videos to use their uploaded Storage copy if Stream fails. */
   fallbackToStorage?: boolean;
+  signal?: AbortSignal;
 };
 
 export const STORAGE_BUCKETS = {
@@ -36,6 +41,17 @@ export const STORAGE_BUCKETS = {
 export const IMMUTABLE_MEDIA_CACHE_CONTROL = "31536000, immutable";
 const FASTSTART_BUCKETS = new Set(["videos", "reels", "moments"]);
 
+async function removeCanceledStorageObjects(bucket: string, paths: string[]) {
+  const uniquePaths = [...new Set(paths.filter(Boolean))];
+  if (!uniquePaths.length) return;
+  try {
+    const { error } = await supabase.storage.from(bucket).remove(uniquePaths);
+    if (error) console.warn(`Could not clean up a cancelled upload in ${bucket}`, error);
+  } catch (error) {
+    console.warn(`Could not clean up a cancelled upload in ${bucket}`, error);
+  }
+}
+
 async function uploadDirect(
   bucket: string,
   path: string,
@@ -43,7 +59,10 @@ async function uploadDirect(
   contentType: string,
   onProgress?: ProgressFn,
   cacheControl = "3600",
+  signal?: AbortSignal,
+  accessToken?: string,
 ): Promise<{ error: string | null }> {
+  if (signal?.aborted) return { error: "Upload cancelled" };
   if (shouldUseResumableStorageUpload(file.size)) {
     const result = await uploadLargeStorageObjectWithTus({
       bucket,
@@ -52,11 +71,52 @@ async function uploadDirect(
       contentType,
       cacheControl,
       onProgress,
+      signal,
     });
     if (result.error) {
       console.error(`Resumable storage upload failed for ${bucket}/${path}: ${result.error}`);
     }
     return result;
+  }
+
+  if (signal) {
+    const projectUrl = import.meta.env["VITE_SUPABASE_URL"];
+    const publishableKey = import.meta.env["VITE_SUPABASE_PUBLISHABLE_KEY"];
+    if (!projectUrl || !publishableKey || !accessToken) {
+      return { error: "Direct Storage upload is not configured for this session." };
+    }
+    const encodedPath = path.split("/").map(encodeURIComponent).join("/");
+    const endpoint = `${projectUrl.replace(/\/+$/, "")}/storage/v1/object/${encodeURIComponent(bucket)}/${encodedPath}`;
+    return runAbortableDirectUploadRequest(
+      async (requestSignal) => {
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            apikey: publishableKey,
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": contentType,
+            "Cache-Control": `max-age=${cacheControl}`,
+            "x-upsert": "false",
+          },
+          body: file,
+          signal: requestSignal,
+        });
+        const body: unknown = await response.json().catch(() => null);
+        if (response.ok) return { error: null };
+        const details =
+          body && typeof body === "object" ? (body as Record<string, unknown>) : null;
+        return {
+          error: {
+            message:
+              (typeof details?.message === "string" && details.message) ||
+              (typeof details?.error === "string" && details.error) ||
+              `Storage upload failed (${response.status} ${response.statusText}).`,
+          },
+        };
+      },
+      onProgress,
+      signal,
+    );
   }
 
   const result = await runDirectUploadRequest(
@@ -106,6 +166,9 @@ export async function uploadWithProgress(
     console.error(`Direct storage upload failed for ${bucket}/${path}: ${error}`);
     return { url: null, storagePath: null, error };
   }
+  if (options.signal?.aborted) {
+    return { url: null, storagePath: null, error: "Upload cancelled" };
+  }
 
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
   if (sessionError) {
@@ -125,7 +188,16 @@ export async function uploadWithProgress(
       ? (percent: number, detail?: string) =>
           onProgress(Math.round(percent * 0.45), detail)
       : onProgress;
-    upload = await uploadDirect(bucket, path, blob, contentType, sourceProgress, cacheControl);
+    upload = await uploadDirect(
+      bucket,
+      path,
+      blob,
+      contentType,
+      sourceProgress,
+      cacheControl,
+      options.signal,
+      token,
+    );
   } catch (error) {
     const message = readableUploadError(error);
     console.error(`Storage upload failed for ${bucket}/${path}: ${message}`, error);
@@ -134,6 +206,10 @@ export async function uploadWithProgress(
 
   if (upload.error) {
     return { url: null, storagePath: null, error: upload.error };
+  }
+  if (options.signal?.aborted) {
+    await removeCanceledStorageObjects(bucket, [path]);
+    return { url: null, storagePath: null, error: "Upload cancelled" };
   }
 
   let finalPath = path;
@@ -152,6 +228,7 @@ export async function uploadWithProgress(
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
+        signal: options.signal,
         body: JSON.stringify({
           bucket,
           path,
@@ -160,6 +237,10 @@ export async function uploadWithProgress(
         }),
       });
     } catch (error) {
+      if (options.signal?.aborted) {
+        await removeCanceledStorageObjects(bucket, [path, finalPath]);
+        return { url: null, storagePath: null, error: "Upload cancelled" };
+      }
       const message = readableUploadError(error);
       const uploadError = `The video uploaded, but playback preparation failed: ${message}`;
       console.error(`Video processing request failed for ${bucket}/${path}: ${message}`, error);
@@ -186,10 +267,11 @@ export async function uploadWithProgress(
   }
 
   if (needsCloudflareStream) {
-    const canFallbackToStorage =
-      options.fallbackToStorage === true &&
-      bucket === STORAGE_BUCKETS.videos &&
-      options.requireSignedURLs !== true;
+    const canFallbackToStorage = shouldUseStoragePlaybackFallback({
+      bucket,
+      fallbackToStorage: options.fallbackToStorage,
+      requireSignedURLs: options.requireSignedURLs,
+    });
     const selectStoragePlaybackFallback = () => {
       if (!canFallbackToStorage) return false;
       useStoragePlaybackFallback = true;
@@ -211,7 +293,12 @@ export async function uploadWithProgress(
       contentType,
       requireSignedURLs: options.requireSignedURLs ?? true,
       onProgress: (percent) => onProgress?.(65 + Math.round(percent * 0.28)),
+      signal: options.signal,
     });
+    if (options.signal?.aborted) {
+      await removeCanceledStorageObjects(bucket, [path, finalPath]);
+      return { url: null, storagePath: null, error: "Upload cancelled" };
+    }
     if (tusResult.error || !tusResult.streamUid) {
       if (!tusResult.fallbackAllowed || !selectStoragePlaybackFallback()) {
         return {
@@ -290,6 +377,10 @@ export async function uploadWithProgress(
     }
   }
 
+  if (options.signal?.aborted) {
+    await removeCanceledStorageObjects(bucket, [path, finalPath]);
+    return { url: null, storagePath: null, error: "Upload cancelled" };
+  }
   let signedUrl: string | null = null;
   if (!needsCloudflareStream || useStoragePlaybackFallback) {
     const { data: signed, error: signError } = await supabase.storage
@@ -302,6 +393,10 @@ export async function uploadWithProgress(
       return { url: null, storagePath: null, error };
     }
     signedUrl = signed.signedUrl;
+  }
+  if (options.signal?.aborted) {
+    await removeCanceledStorageObjects(bucket, [path, finalPath]);
+    return { url: null, storagePath: null, error: "Upload cancelled" };
   }
   if (finalPath !== path) {
     const { error: removeError } = await supabase.storage.from(bucket).remove([path]);

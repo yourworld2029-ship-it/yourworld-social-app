@@ -18,6 +18,7 @@ import {
 
 export type UploadKind = "reel" | "video" | "post" | "moment";
 export type UploadProgressReporter = ProgressFn;
+export type UploadRunResult = { error: string | null; cancelled?: boolean };
 
 export type UploadTask = {
   id: string;
@@ -66,9 +67,12 @@ type Ctx = {
       /** Scheduled posts are queued successfully, but are not published yet. */
       notifyOnSuccess?: boolean;
     },
-    runner: (onProgress: UploadProgressReporter) => Promise<{ error: string | null }>,
+    runner: (
+      onProgress: UploadProgressReporter,
+      signal: AbortSignal,
+    ) => Promise<UploadRunResult>,
     onStarted?: (id: string) => void,
-  ) => Promise<{ error: string | null }>;
+  ) => Promise<UploadRunResult>;
   updatePreviewThumbnail: (id: string, thumbnail: string) => void;
   dismiss: (id: string) => void;
 };
@@ -160,6 +164,7 @@ export function usePendingVideoUploadCount(ownerId?: string | null) {
 export function UploadProvider({ children }: { children: ReactNode }) {
   const [tasks, setTasks] = useState<UploadTask[]>([]);
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const abortControllers = useRef(new Map<string, AbortController>());
   const liveTaskIds = useRef(new Set<string>());
   const previewObjectUrls = useRef(new Map<string, string>());
   const pendingVideoSummaryRef = useRef<PendingVideoUploadSummary>([]);
@@ -177,6 +182,8 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     () => () => {
       timers.current.forEach(clearTimeout);
       timers.current.clear();
+      abortControllers.current.forEach((controller) => controller.abort());
+      abortControllers.current.clear();
       previewObjectUrls.current.forEach((url) => URL.revokeObjectURL(url));
       previewObjectUrls.current.clear();
       liveTaskIds.current.clear();
@@ -189,6 +196,8 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const dismiss = useCallback((id: string) => {
+    abortControllers.current.get(id)?.abort();
+    abortControllers.current.delete(id);
     const timer = timers.current.get(id);
     if (timer) {
       clearTimeout(timer);
@@ -228,15 +237,17 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         console.warn("Could not initialize upload preview", error);
       }
 
-      const run = async (): Promise<{ error: string | null }> => {
+      const run = async (): Promise<UploadRunResult> => {
         const previousTimer = timers.current.get(id);
         if (previousTimer) {
           clearTimeout(previousTimer);
           timers.current.delete(id);
         }
+        const controller = new AbortController();
+        abortControllers.current.set(id, controller);
         patch(id, { progress: 0, status: "processing", error: null, detail: null, retry: undefined });
 
-        let result: { error: string | null } = { error: null };
+        let result: UploadRunResult = { error: null };
         let nativeGuard: NativeVideoUploadGuard | null = null;
         let lastProgressAt = 0;
         let progressTimer: ReturnType<typeof setTimeout> | null = null;
@@ -258,32 +269,56 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           if (meta.kind === "video" || meta.isVideo) {
             nativeGuard = await startNativeVideoUploadGuard(id, meta.label);
           }
-          result = await runner((p, detail) => {
-            nativeGuard?.update(p, detail);
-            pendingProgress = { percent: p, detail };
-            const remaining = 200 - (Date.now() - lastProgressAt);
-            if (remaining <= 0) {
-              if (progressTimer) clearTimeout(progressTimer);
-              progressTimer = null;
-              applyPendingProgress();
-            } else if (!progressTimer) {
-              progressTimer = setTimeout(() => {
+          if (controller.signal.aborted) {
+            result = { error: null, cancelled: true };
+          } else {
+            result = await runner((p, detail) => {
+              nativeGuard?.update(p, detail);
+              pendingProgress = { percent: p, detail };
+              const remaining = 200 - (Date.now() - lastProgressAt);
+              if (remaining <= 0) {
+                if (progressTimer) clearTimeout(progressTimer);
                 progressTimer = null;
                 applyPendingProgress();
-              }, remaining);
-            }
-          });
+              } else if (!progressTimer) {
+                progressTimer = setTimeout(() => {
+                  progressTimer = null;
+                  applyPendingProgress();
+                }, remaining);
+              }
+            }, controller.signal);
+          }
         } catch (e) {
-          result = { error: readableTaskError(e) };
+          result = controller.signal.aborted
+            ? { error: null, cancelled: true }
+            : { error: readableTaskError(e) };
         } finally {
           if (progressTimer) clearTimeout(progressTimer);
           progressTimer = null;
-          applyPendingProgress();
-          if (result?.error || meta.notifyOnSuccess === false) {
+          if (controller.signal.aborted || result.cancelled) {
+            pendingProgress = null;
+          } else {
+            applyPendingProgress();
+          }
+          if (
+            controller.signal.aborted ||
+            result.cancelled ||
+            result?.error ||
+            meta.notifyOnSuccess === false
+          ) {
             await nativeGuard?.stop();
           } else {
             await nativeGuard?.complete();
           }
+          if (abortControllers.current.get(id) === controller) {
+            abortControllers.current.delete(id);
+          }
+        }
+
+        if (controller.signal.aborted || result.cancelled) {
+          liveTaskIds.current.delete(id);
+          setTasks((prev) => prev.filter((task) => task.id !== id));
+          return { error: null, cancelled: true };
         }
 
         if (result.error) {
@@ -369,13 +404,17 @@ function UploadProgressStack() {
                   ? "Upload complete"
                   : t.status === "error"
                     ? "Upload failed"
-                    : TITLE[t.kind]}
+                    : t.kind === "reel"
+                      ? t.label || "New reel"
+                      : TITLE[t.kind]}
               </p>
               <p className="truncate text-[11px] text-zinc-400">
                 {t.status === "error"
                   ? t.error
                   : t.status === "done"
                     ? t.label
+                    : t.kind === "reel"
+                      ? "Uploading reel..."
                     : t.detail
                       ? `${t.progress}% · ${t.detail}`
                     : t.status === "processing"
@@ -412,7 +451,11 @@ function UploadProgressStack() {
 
             <button
               onClick={() => dismiss(t.id)}
-              aria-label="Dismiss upload notification"
+              aria-label={
+                t.status === "uploading" || t.status === "processing"
+                  ? "Cancel and dismiss upload"
+                  : "Dismiss upload notification"
+              }
               className="shrink-0 text-zinc-500 hover:text-white"
             >
               <X size={15} />

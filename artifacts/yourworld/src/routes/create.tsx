@@ -156,7 +156,7 @@ function DirectReelUploadPage() {
         viewTo: "/reels",
         isVideo: true,
       },
-      (onProgress) =>
+      (onProgress, signal) =>
         publishDirectReel({
           file,
           title,
@@ -167,8 +167,10 @@ function DirectReelUploadPage() {
           originalWidth: dimensions.width || null,
           originalHeight: dimensions.height || null,
           onProgress,
+          signal,
         }),
-    ).then(({ error: uploadError }) => {
+    ).then(({ error: uploadError, cancelled }) => {
+      if (cancelled) return;
       if (uploadError) {
         toast.error(uploadError);
         return;

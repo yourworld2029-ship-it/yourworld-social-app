@@ -80,7 +80,7 @@ function PostCreatePage() {
         viewTo: "/",
         isVideo: mediaType === "video",
       },
-      (onProgress) =>
+      (onProgress, signal) =>
         publishPost({
           fileUrl,
           file: selectedFileRef.current,
@@ -91,8 +91,10 @@ function PostCreatePage() {
           allowDownload,
           audience: closeFriends ? "close_friends" : "everyone",
           onProgress,
+          signal,
         }),
-    ).then(({ error }) => {
+    ).then(({ error, cancelled }) => {
+      if (cancelled) return;
       if (error) toast.error(error);
       else toast.success("Posted — it's live on your feed");
     });

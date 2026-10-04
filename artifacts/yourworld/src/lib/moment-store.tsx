@@ -127,7 +127,7 @@ export type Store = {
   moments: MyMoment[];
   archive: MyMoment[];
   loading: boolean;
-  addMoment: (m: NewMoment) => Promise<{ error: string | null }>;
+  addMoment: (m: NewMoment, signal?: AbortSignal) => Promise<{ error: string | null }>;
   deleteMoment: (id: string) => Promise<{ error: string | null }>;
   archiveMoment: (id: string) => void;
   restoreMoment: (id: string) => void;
@@ -426,13 +426,14 @@ async function uploadMomentMedia(
   mediaType?: string,
   prefix = "media",
   onProgress?: ProgressFn,
+  signal?: AbortSignal,
 ) {
   if (!src || (!src.startsWith("blob:") && !src.startsWith("data:"))) return src;
   // Prefer the retained Blob: the object URL may already be revoked by the
   // editor screen that unmounted while this upload runs in the background.
   let blob = getRegisteredBlob(src);
   if (!blob) {
-    const res = await fetch(src);
+    const res = await fetch(src, { signal });
     if (!res.ok) throw new Error("Media is no longer available on this device");
     blob = await res.blob();
   }
@@ -469,6 +470,8 @@ async function uploadMomentMedia(
     (percent) => onProgress?.(
       type.startsWith("video/") ? 45 + Math.round(percent * 0.55) : percent,
     ),
+    undefined,
+    { signal },
   );
   if (error && !url) throw new Error(error);
   // Store the storage path; every viewer signs their own short-lived URL.
@@ -915,7 +918,8 @@ export function MomentProvider({ children }: { children: ReactNode }) {
       ),
       archive: moments.filter((m) => m.archived || (m.expiresAt ? m.expiresAt <= now : false)),
       loading,
-      addMoment: (m) => {
+      addMoment: (m, signal) => {
+        if (signal?.aborted) return Promise.resolve({ error: "Upload cancelled" });
         const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
         const optimistic: MyMoment = {
           ...m,
@@ -929,7 +933,12 @@ export function MomentProvider({ children }: { children: ReactNode }) {
         setMoments((p) => [optimistic, ...p]);
 
         return (async () => {
+          const cancelMoment = () => {
+            setMoments((p) => p.filter((x) => x.id !== tempId));
+            return { error: "Upload cancelled" };
+          };
           const uid = uidRef.current ?? (await supabase.auth.getUser()).data.user?.id ?? null;
+          if (signal?.aborted) return cancelMoment();
           if (!uid) {
             toast.error("Sign in to publish a moment");
             setMoments((p) => p.filter((x) => x.id !== tempId));
@@ -949,8 +958,10 @@ export function MomentProvider({ children }: { children: ReactNode }) {
                 uploadsLocalMusic && m.onUploadProgress
                   ? (percent) => m.onUploadProgress?.(Math.round(percent * 0.8))
                   : m.onUploadProgress,
+                signal,
               );
             } catch (e) {
+              if (signal?.aborted) return cancelMoment();
               console.error("Moment media upload failed", e);
               toast.error(
                 e instanceof Error ? e.message : "Couldn't upload this moment's media",
@@ -961,6 +972,7 @@ export function MomentProvider({ children }: { children: ReactNode }) {
               };
             }
           }
+          if (signal?.aborted) return cancelMoment();
           if (uploadsLocalMusic && musicUrl) {
             const localMusic = musicUrl;
             try {
@@ -972,13 +984,16 @@ export function MomentProvider({ children }: { children: ReactNode }) {
                 m.onUploadProgress
                   ? (percent) => m.onUploadProgress?.(Math.round(80 + percent * 0.2))
                   : undefined,
+                signal,
               );
             } catch (e) {
+              if (signal?.aborted) return cancelMoment();
               console.error("Moment music upload failed", e);
               toast.error(e instanceof Error ? e.message : "Couldn't upload the moment song");
               musicUrl = undefined;
             }
           }
+          if (signal?.aborted) return cancelMoment();
           // never persist a device-only url — it can't play for anyone else
           if (musicUrl && /^(blob:|data:)/.test(musicUrl)) musicUrl = undefined;
           if (m.kind !== "text" && !media) {

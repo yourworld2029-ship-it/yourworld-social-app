@@ -341,10 +341,11 @@ function VideoUploadPage() {
         viewTo: "/",
         notifyOnSuccess: !scheduleSnapshot,
       },
-      (onProgress) =>
+      (onProgress, signal) =>
         publishLongVideo({
           ...publishingOptions,
           onProgress,
+          signal,
         }),
       (taskId) => {
         if (!generatedThumbnailPromise) return;
@@ -354,7 +355,8 @@ function VideoUploadPage() {
           }
         });
       },
-    ).then(({ error }) => {
+    ).then(({ error, cancelled }) => {
+      if (cancelled) return;
       if (error) {
         toast.error(error);
         return;
