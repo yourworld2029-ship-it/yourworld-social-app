@@ -153,6 +153,7 @@ function ReelsList() {
   const scoped = Boolean(userId);
   const initialId = initialVideoId || reelId;
    const [active, setActive] = useState(-1);
+  // Start with sound on, and keep the viewer's choice as the active reel changes.
   const [reelsMuted, setReelsMuted] = useState(false);
   const nodes = useRef<(HTMLElement | null)[]>([]);
   const longVideoTarget = useQuery({
@@ -1073,7 +1074,8 @@ function ReelItem({
 
   useEffect(() => () => cancelHold(), []);
 
-  const handleTap = () => {
+  // The player wrapper routes a quick second tap directly to the like action.
+  const handlePlayerTap = () => {
     const now = Date.now();
     if (now - lastTap.current < 300) {
       onDoubleTap();
@@ -1303,7 +1305,7 @@ function ReelItem({
     <>
       <div
         className="absolute inset-0 touch-pan-y select-none overflow-hidden"
-        onClick={handleTap}
+        onClick={handlePlayerTap}
         onContextMenu={(e) => e.preventDefault()}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -1343,7 +1345,10 @@ function ReelItem({
         <Heart className="pointer-events-none absolute left-1/2 top-1/2 h-28 w-28 -translate-x-1/2 -translate-y-1/2 animate-burst fill-primary text-primary" />
       )}
 
-      <div className="absolute inset-x-0 top-0 flex items-center justify-between px-4 pt-[calc(env(safe-area-inset-top,24px)_+_1rem)]">
+      <div
+        className="absolute inset-x-0 top-0 flex items-center justify-between px-4 pt-[calc(env(safe-area-inset-top,24px)_+_1rem)]"
+        style={{ paddingTop: '48px' }}
+      >
         <div className="flex min-w-0 items-center gap-2">
           {scoped && onBack ? (
             <button
@@ -1418,7 +1423,10 @@ function ReelItem({
         </p>
       </div>
 
-      <div className="absolute bottom-14 right-3 flex flex-col items-center gap-3">
+      <div
+        className="absolute bottom-14 right-3 flex flex-col items-center gap-3"
+        style={{ right: '14px', gap: '20px' }}
+      >
         <Action
           onClick={() => void handleLike()}
             label={hideLikeCount ? "Likes hidden" : formatCount(reel.likes)}
