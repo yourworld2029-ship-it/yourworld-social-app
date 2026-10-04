@@ -55,6 +55,7 @@ export const Route = createFileRoute("/video/upload")({
 });
 const MIN_DURATION = 90;
 const MAX_VIDEO_BYTES = 209_715_200;
+const UPLOAD_VIDEO_CATEGORIES = [...VIDEO_CATEGORIES, "Sports"] as const;
 
 function VideoUploadPage() {
 
@@ -213,6 +214,8 @@ function VideoUploadPage() {
     video.addEventListener("loadedmetadata", handleMetadata);
     video.addEventListener("loadeddata", handleLoadedData);
     video.addEventListener("timeupdate", handleTimeUpdate);
+    video.muted = false;
+    video.volume = 1.0;
     video.src = fileUrl;
     video.load();
 
@@ -453,7 +456,7 @@ function VideoUploadPage() {
                 ref={videoRef}
                 poster={thumb ?? previewFrame ?? undefined}
                 autoPlay
-                muted
+                muted={false}
                 loop
                 playsInline
                 preload="metadata"
@@ -562,59 +565,61 @@ function VideoUploadPage() {
         </Field>
 
         {/* THUMBNAIL */}
-        <Field label="Custom Thumbnail">
-          <div className="flex items-center gap-3">
-            <div
-              className={`overflow-hidden rounded-xl bg-zinc-900 ${
-                orientation === "portrait" ? "h-28 w-16" : "h-20 w-36"
-              }`}
-            >
-              {thumb ? (
-                <img src={thumb} alt="Custom video thumbnail" loading="lazy" decoding="async" className="h-full w-full object-cover" />
-              ) : (
-                <div className="grid h-full w-full place-items-center text-zinc-600">
-                  <ImageIcon size={20} />
-                </div>
-              )}
-            </div>
-            <div className="flex flex-col gap-2">
-              <Button
-                variant="secondary"
-                className="h-9 rounded-full text-xs"
-                onClick={() => thumbInput.current?.click()}
+        <div style={{ marginTop: "0.75rem" }}>
+          <Field label="Custom Thumbnail">
+            <div className="flex items-center gap-3">
+              <div
+                className={`overflow-hidden rounded-xl bg-zinc-900 ${
+                  orientation === "portrait" ? "h-28 w-16" : "h-20 w-36"
+                }`}
               >
-                <ImageIcon size={14} className="mr-1.5" /> Upload image
-              </Button>
-              <Button
-                variant="secondary"
-                className="h-9 rounded-full text-xs"
-                disabled={!fileUrl}
-                onClick={grabFrame}
-              >
-                <Camera size={14} className="mr-1.5" /> Use current frame
-              </Button>
+                {thumb ? (
+                  <img src={thumb} alt="Custom video thumbnail" loading="lazy" decoding="async" className="h-full w-full object-cover" />
+                ) : (
+                  <div className="grid h-full w-full place-items-center text-zinc-600">
+                    <ImageIcon size={20} />
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-col gap-2">
+                <Button
+                  variant="secondary"
+                  className="h-9 rounded-full text-xs"
+                  onClick={() => thumbInput.current?.click()}
+                >
+                  <ImageIcon size={14} className="mr-1.5" /> Upload image
+                </Button>
+                <Button
+                  variant="secondary"
+                  className="h-9 rounded-full text-xs"
+                  disabled={!fileUrl}
+                  onClick={grabFrame}
+                >
+                  <Camera size={14} className="mr-1.5" /> Use current frame
+                </Button>
+              </div>
             </div>
-          </div>
-          <input
-            ref={thumbInput}
-            type="file"
-            accept="image/*"
-            hidden
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-               if (f) {
-                 if (thumb?.startsWith("blob:")) URL.revokeObjectURL(thumb);
-                thumbnailFileRef.current = f;
-                 setThumb(URL.createObjectURL(f));
-               }
-            }}
-          />
-        </Field>
+            <input
+              ref={thumbInput}
+              type="file"
+              accept="image/*"
+              hidden
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) {
+                  if (thumb?.startsWith("blob:")) URL.revokeObjectURL(thumb);
+                  thumbnailFileRef.current = f;
+                  setThumb(URL.createObjectURL(f));
+                }
+              }}
+            />
+          </Field>
+        </div>
 
         {/* CATEGORIES */}
         <Field label="Category / Tags">
           <div className="flex flex-wrap gap-2">
-            {VIDEO_CATEGORIES.map((c) => {
+            {UPLOAD_VIDEO_CATEGORIES.map((c) => {
               const active = tags.includes(c);
               return (
                 <button
