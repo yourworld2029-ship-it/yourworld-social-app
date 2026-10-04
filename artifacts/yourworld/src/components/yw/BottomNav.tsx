@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { Link } from "@tanstack/react-router";
 import { Home, Film, PlusSquare, MessageSquare, User } from "lucide-react";
+import { useUnreadMessageCount } from "@/lib/social-data";
 
 interface BottomNavProps {
   onOpenCreate?: () => void;
@@ -8,6 +9,11 @@ interface BottomNavProps {
 
 export const BottomNav = memo(function BottomNav({ onOpenCreate }: BottomNavProps) {
   const currentPath = typeof window !== "undefined" ? window.location.pathname : "/";
+  const unreadChatCount = useUnreadMessageCount();
+  const chatLabel =
+    unreadChatCount > 0
+      ? `Chat, ${unreadChatCount} unread ${unreadChatCount === 1 ? "message" : "messages"}`
+      : "Chat";
 
   return (
     <nav 
@@ -47,12 +53,22 @@ export const BottomNav = memo(function BottomNav({ onOpenCreate }: BottomNavProp
 
         <Link
           to="/chat"
-          aria-label="Chat"
+          aria-label={chatLabel}
           className={`flex-1 flex flex-col items-center justify-center py-1 transition-colors ${
             currentPath.startsWith("/chat") ? "text-pink-500" : "text-neutral-400 hover:text-neutral-200"
           }`}
         >
-          <MessageSquare className="size-6 shrink-0 stroke-[1.8]" />
+          <span className="relative inline-flex">
+            <MessageSquare className="size-6 shrink-0 stroke-[1.8]" />
+            {unreadChatCount > 0 ? (
+              <span
+                aria-hidden="true"
+                className="absolute -right-2 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-pink-600 px-1 text-[9px] font-bold leading-none text-white shadow ring-2 ring-black"
+              >
+                {unreadChatCount > 99 ? "99+" : unreadChatCount}
+              </span>
+            ) : null}
+          </span>
         </Link>
 
         <Link
