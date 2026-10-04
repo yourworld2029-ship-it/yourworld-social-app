@@ -105,6 +105,45 @@ function registerDirectApkDownload(routePath: string, filename: string) {
   });
 }
 
+router.get("/get-my-apk", (req, res, next) => {
+  const filePath = path.resolve(
+    apkPublicDir,
+    "../../../public/YourWorld-App.apk",
+  );
+
+  res.setHeader("Content-Type", APK_CONTENT_TYPE);
+  res.setHeader(
+    "Content-Disposition",
+    'attachment; filename="YourWorld-App.apk"',
+  );
+  res.setHeader("Content-Transfer-Encoding", "binary");
+  res.setHeader(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, max-age=0, no-transform",
+  );
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+
+  res.sendFile(filePath, (error) => {
+    if (!error || req.aborted || res.destroyed) return;
+
+    if (
+      (error as NodeJS.ErrnoException).code === "ENOENT" &&
+      !res.headersSent
+    ) {
+      res.status(404).json({ error: "APK is not available" });
+      return;
+    }
+
+    if (res.headersSent) {
+      res.destroy(error);
+      return;
+    }
+
+    next(error);
+  });
+});
+
 registerApkDownload("/yourworld-debug.apk");
 registerApkDownload("/yourworld-v3.apk");
 registerApkDownload("/download-apk");
