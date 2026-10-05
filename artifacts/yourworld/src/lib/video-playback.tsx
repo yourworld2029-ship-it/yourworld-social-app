@@ -27,7 +27,6 @@ import {
   cacheVideoPoster,
   getResolvedVideoCover,
 } from "@/lib/video-prefetch";
-import { verifyRangedMp4PlaybackUrl } from "@/lib/video-range-probe";
 import {
   createVideoPlaybackProgressStore,
   type VideoPlaybackProgressStore,
@@ -35,9 +34,9 @@ import {
 import {
   attemptVideoPlay,
   detectNativeVideoSupport,
+  firstPlayablePlaybackFallback,
   isAutoplayPolicyError,
   isHlsMediaUrl,
-  isPlayableMediaUrl,
   mediaErrorName,
   safeMediaUrlForLog,
   supportsNativeHls,
@@ -394,10 +393,11 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   );
 
   const attemptStorageFallback = useCallback(
-    (source: { id: string; url: string }, attempt: number) => {
+    (source: { id: string; url: string }) => {
       const video = activeVideoRef.current;
-      const fallbackUrl = video?.fallbackUrls?.find(
-        (url) => url !== source.url && isPlayableMediaUrl(url),
+      const fallbackUrl = firstPlayablePlaybackFallback(
+        source.url,
+        video?.fallbackUrls,
       );
       if (
         !video ||
@@ -412,46 +412,24 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       if (fallbackAttemptRef.current === attemptKey) return true;
       fallbackAttemptRef.current = attemptKey;
 
-      void verifyRangedMp4PlaybackUrl(fallbackUrl)
-        .then(() => {
-          if (
-            playbackAttemptRef.current !== attempt ||
-            activeSourceRef.current?.id !== source.id ||
-            activeSourceRef.current.url !== source.url
-          ) {
-            return;
-          }
-          console.warn("[video-playback] switching to verified ranged MP4 fallback", {
-            videoId: source.id,
-            source: safeMediaUrlForLog(source.url),
-            fallback: safeMediaUrlForLog(fallbackUrl),
-          });
-          setMediaError(null);
-          setIsBuffering(true);
-          setPlaybackSourceOverride({
-            id: source.id,
-            primaryUrl: video.url,
-            url: fallbackUrl,
-          });
-        })
-        .catch((error: unknown) => {
-          if (
-            playbackAttemptRef.current !== attempt ||
-            activeSourceRef.current?.id !== source.id ||
-            activeSourceRef.current.url !== source.url
-          ) {
-            return;
-          }
-          console.error("[video-playback] ranged MP4 fallback failed validation", {
-            videoId: source.id,
-            source: safeMediaUrlForLog(source.url),
-            error: error instanceof Error ? error.message : "unknown error",
-          });
-          reportMediaError(source, attempt);
-        });
+      // Point the native player directly at Supabase Storage. The <video>
+      // element handles progressive Range requests; don't prefetch bytes here
+      // because an app-side timeout can reject a playable source prematurely.
+      console.warn("[video-playback] switching to direct MP4 fallback", {
+        videoId: source.id,
+        source: safeMediaUrlForLog(source.url),
+        fallback: safeMediaUrlForLog(fallbackUrl),
+      });
+      setMediaError(null);
+      setIsBuffering(true);
+      setPlaybackSourceOverride({
+        id: source.id,
+        primaryUrl: video.url,
+        url: fallbackUrl,
+      });
       return true;
     },
-    [reportMediaError],
+    [],
   );
 
   const handleNativeMediaError = useCallback(
@@ -470,7 +448,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
         readyState: event.currentTarget.readyState,
       });
       const attempt = playbackAttemptRef.current;
-      if (attemptStorageFallback(source, attempt)) return;
+      if (attemptStorageFallback(source)) return;
       reportMediaError(source, attempt);
     },
     [attemptStorageFallback, reportMediaError],
@@ -509,6 +487,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
           return;
         }
 
+        if (attemptStorageFallback(source)) return;
         reportMediaError(source, attempt);
       };
 
@@ -516,7 +495,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
         handleRejectedPlay(error, true);
       });
     },
-    [reportMediaError],
+    [attemptStorageFallback, reportMediaError],
   );
 
   useEffect(() => {
@@ -917,7 +896,6 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
             });
             const usingStorageFallback = attemptStorageFallback(
               { id: activeVideoId, url: activeVideoUrl },
-              attempt,
             );
             if (hlsRef.current === hls) hlsRef.current = null;
             hls.destroy();
@@ -942,7 +920,6 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
           if (
             !attemptStorageFallback(
               { id: activeVideoId, url: activeVideoUrl },
-              attempt,
             )
           ) {
             reportMediaError({ id: activeVideoId, url: activeVideoUrl }, attempt);

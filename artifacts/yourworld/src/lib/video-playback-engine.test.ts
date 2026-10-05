@@ -5,6 +5,7 @@ import {
   isAutoplayPolicyError,
   canAutoplayPublicVideo,
   detectNativeVideoSupport,
+  firstPlayablePlaybackFallback,
   isHlsMediaUrl,
   isPlayableMediaUrl,
   isValidMp4RangeResponse,
@@ -74,6 +75,17 @@ test("recognizes browser-playable media URLs", () => {
   assert.equal(isPlayableMediaUrl("blob:https://app.example/video-id"), true);
   assert.equal(isPlayableMediaUrl("data:video/mp4;base64,AAAA"), true);
   assert.equal(isPlayableMediaUrl("videos/user/video.mp4"), false);
+});
+
+test("selects the direct signed Supabase MP4 fallback without altering its range URL", () => {
+  const primary = "https://stream.example/manifest/video.m3u8?token=stream";
+  const directMp4 =
+    "https://project.supabase.co/storage/v1/object/sign/videos/user/video.mp4?token=storage";
+  assert.equal(
+    firstPlayablePlaybackFallback(primary, [primary, directMp4]),
+    directMp4,
+  );
+  assert.equal(firstPlayablePlaybackFallback(directMp4, [directMp4]), null);
 });
 
 test("only public videos without a price autoplay in feed previews", () => {

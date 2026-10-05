@@ -105,6 +105,17 @@ export function isPlayableMediaUrl(url: string) {
   return /^(?:https?:|blob:|data:)/i.test(url);
 }
 
+export function firstPlayablePlaybackFallback(
+  sourceUrl: string,
+  fallbackUrls: readonly string[] | undefined,
+) {
+  return (
+    fallbackUrls?.find(
+      (url) => url !== sourceUrl && isPlayableMediaUrl(url),
+    ) ?? null
+  );
+}
+
 export function canAutoplayPublicVideo(access: string | undefined, price?: number | null) {
   return access === "public" && Number(price ?? 0) <= 0;
 }

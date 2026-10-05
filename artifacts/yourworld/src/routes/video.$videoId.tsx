@@ -139,7 +139,7 @@ async function loadVideoForPlayback(videoId: string): Promise<VideoRouteData> {
     } else {
       const hasRetainedSource =
         typeof row.video_url === "string" && row.video_url.trim().length > 0;
-      const [playbackUrl, storageFallback] = await Promise.all([
+      const [playbackResult, storageResult] = await Promise.allSettled([
         resolveAuthorizedPlaybackUrl(video.id),
         hasRetainedSource
           ? resolveAuthorizedStoragePlaybackUrl(video.id).catch((error: unknown) => {
@@ -151,8 +151,24 @@ async function loadVideoForPlayback(videoId: string): Promise<VideoRouteData> {
             })
           : Promise.resolve(null),
       ]);
-      url = playbackUrl;
-      if (storageFallback) fallbackUrls = [storageFallback];
+      const playbackUrl =
+        playbackResult.status === "fulfilled" ? playbackResult.value : null;
+      const storageFallback =
+        storageResult.status === "fulfilled" ? storageResult.value : null;
+      if (playbackUrl) {
+        url = playbackUrl;
+        if (storageFallback) fallbackUrls = [storageFallback];
+      } else if (storageFallback) {
+        // If the Stream playback token cannot be resolved, start with the
+        // retained direct Storage MP4 instead of failing the watch route.
+        url = storageFallback;
+      } else if (playbackResult.status === "rejected") {
+        throw playbackResult.reason;
+      } else if (storageResult.status === "rejected") {
+        throw storageResult.reason;
+      } else {
+        throw new Error("The video playback source is unavailable.");
+      }
     }
   } else {
     url = await resolveLongVideoUrl(video.mediaUrl);

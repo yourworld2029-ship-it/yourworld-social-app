@@ -8,7 +8,6 @@ export async function verifyRangedMp4PlaybackUrl(
     method: "GET",
     headers: { Range: "bytes=0-1" },
     cache: "no-store",
-    signal: AbortSignal.timeout(10_000),
   });
   const contentType = response.headers.get("content-type");
   const contentRange = response.headers.get("content-range");
