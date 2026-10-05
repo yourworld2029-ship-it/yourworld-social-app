@@ -472,6 +472,7 @@ export async function optimizeVideoSource(
 }
 
 export const MAX_LONG_VIDEO_INPUT_BYTES = 1_000_000_000;
+export const MAX_LONG_VIDEO_STORAGE_BYTES = 500_000_000;
 export const MAX_LONG_VIDEO_LOCAL_COMPRESSION_BYTES = 300 * 1024 * 1024;
 export const MAX_LONG_VIDEO_LOCAL_COMPRESSION_DURATION_SECONDS = 5 * 60;
 export const LONG_VIDEO_AUDIO_BITRATE = 128_000;
@@ -504,13 +505,17 @@ export type LongVideoCompressionResult = {
 export function shouldAttemptLongVideoLocalCompression(
   sourceBytes: number,
   durationSeconds: number,
+  force = false,
 ) {
-  return (
+  const validInput =
     Number.isFinite(sourceBytes) &&
     sourceBytes > 0 &&
-    sourceBytes <= MAX_LONG_VIDEO_LOCAL_COMPRESSION_BYTES &&
     Number.isFinite(durationSeconds) &&
-    durationSeconds > 0 &&
+    durationSeconds > 0;
+  if (!validInput) return false;
+  if (force || sourceBytes >= MAX_LONG_VIDEO_STORAGE_BYTES) return true;
+  return (
+    sourceBytes <= MAX_LONG_VIDEO_LOCAL_COMPRESSION_BYTES &&
     durationSeconds <= MAX_LONG_VIDEO_LOCAL_COMPRESSION_DURATION_SECONDS
   );
 }
@@ -616,12 +621,14 @@ function selectLongVideoRecorderMimeType() {
 
 export async function compressLongVideoByTier(
   source: Blob,
-  options: { signal?: AbortSignal; onProgress?: ProgressFn } = {},
+  options: { signal?: AbortSignal; onProgress?: ProgressFn; force?: boolean } = {},
 ): Promise<LongVideoCompressionResult> {
   if (source.size > MAX_LONG_VIDEO_INPUT_BYTES) {
     throw new Error("Long videos must be 1 GB or smaller.");
   }
 
+  const requiresStorageSafeCompression =
+    source.size >= MAX_LONG_VIDEO_STORAGE_BYTES || options.force === true;
   let sourceUrl: string | null = null;
   let metadata: VideoMetadata | null = null;
   let plan: LongVideoCompressionPlan | null = null;
@@ -637,25 +644,52 @@ export async function compressLongVideoByTier(
   };
 
   try {
-    if (!source.type.startsWith("video/") || source.size === 0) return originalResult();
-    // Large originals go straight to resumable upload. Encoding them locally
-    // can take as long as the video itself and delays the first uploaded byte.
-    if (source.size > MAX_LONG_VIDEO_LOCAL_COMPRESSION_BYTES) return originalResult();
+    if (!source.type.startsWith("video/") || source.size === 0) {
+      if (requiresStorageSafeCompression) {
+        throw new Error("The selected file cannot be compressed to fit the 500 MB storage limit.");
+      }
+      return originalResult();
+    }
+    // Keep optional compression off the upload hot path, but require large
+    // originals to be compressed before they can reach the 500 MB bucket cap.
+    if (
+      !requiresStorageSafeCompression &&
+      source.size > MAX_LONG_VIDEO_LOCAL_COMPRESSION_BYTES
+    ) {
+      return originalResult();
+    }
     if (typeof document === "undefined" || typeof MediaRecorder === "undefined") {
+      if (requiresStorageSafeCompression) {
+        throw new Error("This device cannot compress the video below the 500 MB storage limit.");
+      }
       return originalResult();
     }
     sourceUrl = URL.createObjectURL(source);
     metadata = await readVideoMetadata(sourceUrl);
     if (options.signal?.aborted) return originalResult();
-    if (!metadata) return originalResult();
-    if (!shouldAttemptLongVideoLocalCompression(source.size, metadata.duration)) {
+    if (!metadata) {
+      if (requiresStorageSafeCompression) {
+        throw new Error("Video details could not be read for required storage compression.");
+      }
+      return originalResult();
+    }
+    if (!shouldAttemptLongVideoLocalCompression(
+      source.size,
+      metadata.duration,
+      options.force,
+    )) {
       return originalResult();
     }
 
     plan = getLongVideoCompressionPlan(source.size, metadata.duration);
     const mimeType = selectLongVideoRecorderMimeType();
     const qualityTier = qualityTierForOutput(metadata.width, metadata.height, "1080p");
-    if (!mimeType || !qualityTier) return originalResult();
+    if (!mimeType || !qualityTier) {
+      if (requiresStorageSafeCompression) {
+        throw new Error("This device does not support MP4 compression for the 500 MB storage limit.");
+      }
+      return originalResult();
+    }
 
     const outputSize = outputSizeForQuality(metadata, qualityTier);
     const encoded = await encodeVideo(
@@ -669,16 +703,21 @@ export async function compressLongVideoByTier(
       plan.videoBitrate,
       options.signal,
     );
-    if (
-      options.signal?.aborted ||
-      encoded.size <= 0 ||
-      encoded.size >= source.size ||
-      !(await hasFastStartMp4Layout(encoded))
-    ) {
+    if (options.signal?.aborted) return originalResult();
+    const isUsableCompressedFile =
+      encoded.size > 0 &&
+      encoded.size < source.size &&
+      !(requiresStorageSafeCompression && encoded.size >= MAX_LONG_VIDEO_STORAGE_BYTES) &&
+      await hasFastStartMp4Layout(encoded);
+    if (!isUsableCompressedFile) {
+      if (requiresStorageSafeCompression) {
+        throw new Error("Video compression did not produce a file below the 500 MB storage limit.");
+      }
       return originalResult();
     }
 
     markVideoBlobAsUploadReady(encoded);
+    options.onProgress?.(100, "Optimized video ready");
     return {
       blob: encoded,
       width: outputSize.width,
@@ -688,6 +727,11 @@ export async function compressLongVideoByTier(
     };
   } catch (error) {
     if (options.signal?.aborted) return originalResult();
+    if (requiresStorageSafeCompression) {
+      throw error instanceof Error
+        ? error
+        : new Error("Video compression failed before the 500 MB storage limit could be met.");
+    }
     console.warn("Long-video compression unavailable; using the original upload.", error);
     return originalResult();
   } finally {

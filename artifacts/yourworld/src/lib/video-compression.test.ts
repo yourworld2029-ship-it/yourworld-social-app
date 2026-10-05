@@ -7,6 +7,7 @@ import {
   LONG_VIDEO_AUDIO_BITRATE,
   markVideoBlobAsUploadReady,
   MAX_LONG_VIDEO_INPUT_BYTES,
+  MAX_LONG_VIDEO_STORAGE_BYTES,
   optimizeVideoBlob,
   outputSizeForQuality,
   qualityTierForOutput,
@@ -73,6 +74,7 @@ test("long-video compression selects size tiers and output budgets at exact boun
   assert.equal(getLongVideoCompressionPlan(100_000_000, 300).tier, "balanced");
   assert.equal(getLongVideoCompressionPlan(99_999_999, 300).tier, "light");
   assert.equal(MAX_LONG_VIDEO_INPUT_BYTES, 1_000_000_000);
+  assert.equal(MAX_LONG_VIDEO_STORAGE_BYTES, 500_000_000);
 });
 
 test("long-video planning rejects files over the strict 1 GB input limit", () => {
@@ -82,19 +84,21 @@ test("long-video planning rejects files over the strict 1 GB input limit", () =>
   );
 });
 
-test("long videos that would take too long to encode locally use the original upload", () => {
+test("over-limit Long Videos require compression regardless of local size and duration", () => {
   assert.equal(shouldAttemptLongVideoLocalCompression(100_000_000, 180), true);
-  assert.equal(shouldAttemptLongVideoLocalCompression(560_000_000, 900), false);
+  assert.equal(shouldAttemptLongVideoLocalCompression(560_000_000, 900), true);
   assert.equal(shouldAttemptLongVideoLocalCompression(100_000_000, 301), false);
+  assert.equal(shouldAttemptLongVideoLocalCompression(100_000_000, 301, true), true);
   assert.equal(shouldAttemptLongVideoLocalCompression(0, 120), false);
 });
 
-test("very large Long Video files bypass local encoding before metadata probing", async () => {
+test("over-limit Long Videos fail closed when local encoding is unavailable", async () => {
   const original = { size: 560_000_000, type: "video/mp4" } as Blob;
-  const prepared = await compressLongVideoByTier(original);
 
-  assert.equal(prepared.blob, original);
-  assert.equal(prepared.compressed, false);
+  await assert.rejects(
+    compressLongVideoByTier(original),
+    /cannot compress the video below the 500 MB storage limit/i,
+  );
 });
 
 test("long-video recorder selection accepts MP4 only", () => {

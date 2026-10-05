@@ -32,9 +32,11 @@ import {
   compressLongVideoByTier,
   MAX_LONG_VIDEO_LOCAL_COMPRESSION_BYTES,
   MAX_LONG_VIDEO_INPUT_BYTES,
+  MAX_LONG_VIDEO_STORAGE_BYTES,
   markVideoBlobAsUploadReady,
   type LongVideoCompressionResult,
 } from "@/lib/video-compression";
+import type { ProgressFn } from "@/lib/storage-upload";
 
 type AccessOption = "public" | "vip" | "paid";
 const MIN_PAID_VIDEO_PRICE = 10;
@@ -78,6 +80,8 @@ function VideoUploadPage() {
   const uploadSubmittedRef = useRef(false);
   const compressionAbortRef = useRef<AbortController | null>(null);
   const compressionResultRef = useRef<LongVideoCompressionResult | null>(null);
+  const compressionPromiseRef = useRef<Promise<LongVideoCompressionResult> | null>(null);
+  const compressionTaskProgressRef = useRef<ProgressFn | null>(null);
 
   const [fileUrl, setFileUrl] = useState<string | null>(null);
   const [previewFrame, setPreviewFrame] = useState<string | null>(null);
@@ -133,6 +137,7 @@ function VideoUploadPage() {
     }
     compressionAbortRef.current?.abort();
     compressionResultRef.current = null;
+    compressionPromiseRef.current = null;
     // Keep the selected file as a Blob URL so the media element can seek and
     // buffer it locally without copying an entire long video into memory.
     const url = URL.createObjectURL(file);
@@ -149,12 +154,25 @@ function VideoUploadPage() {
     setDimensions(null);
     const controller = new AbortController();
     compressionAbortRef.current = controller;
-    setCompressionPending(file.size <= MAX_LONG_VIDEO_LOCAL_COMPRESSION_BYTES);
+    setCompressionPending(
+      file.size <= MAX_LONG_VIDEO_LOCAL_COMPRESSION_BYTES ||
+        file.size >= MAX_LONG_VIDEO_STORAGE_BYTES,
+    );
     const compressionPromise = compressLongVideoByTier(file, {
       signal: controller.signal,
+      onProgress: (percent) => {
+        compressionTaskProgressRef.current?.(
+          Math.min(9, Math.round(percent * 0.09)),
+          `Optimizing video for the 500 MB storage limit · ${percent}%`,
+          null,
+        );
+      },
     }).catch((error): LongVideoCompressionResult => {
       if (!controller.signal.aborted) {
-        console.warn("Long-video compression unavailable; using the original upload.", error);
+        console.warn(
+          "Long-video compression failed; the original is only safe for under-limit uploads.",
+          error,
+        );
       }
       markVideoBlobAsUploadReady(file);
       return {
@@ -165,6 +183,7 @@ function VideoUploadPage() {
         compressed: false,
       };
     });
+    compressionPromiseRef.current = compressionPromise;
     void compressionPromise.then((result) => {
       if (mountedRef.current && selectedFileRef.current === file) {
         compressionResultRef.current = result;
@@ -344,11 +363,30 @@ function VideoUploadPage() {
     }
     const parsedPrice = access === "paid" ? parsedInputPrice : 0;
 
+    const readyVideo = compressionResultRef.current;
+    const requiresStorageSafeCompression =
+      selectedFile.size >= MAX_LONG_VIDEO_STORAGE_BYTES;
+    const pendingCompression = compressionPromiseRef.current;
+    if (
+      requiresStorageSafeCompression &&
+      readyVideo &&
+      (!readyVideo.compressed ||
+        readyVideo.blob.size >= MAX_LONG_VIDEO_STORAGE_BYTES)
+    ) {
+      toast.error(
+        "This video could not be compressed below the 500 MB storage limit. Try a smaller or shorter video.",
+      );
+      return;
+    }
+    if (requiresStorageSafeCompression && !readyVideo && !pendingCompression) {
+      toast.error("Could not start compression for this video. Choose another file and try again.");
+      return;
+    }
+
     setBusy(true);
     const compressionController = compressionAbortRef.current;
-    const readyVideo = compressionResultRef.current;
-    if (!readyVideo) {
-      // Never wait for a full-length local transcode before starting TUS.
+    if (!readyVideo && !requiresStorageSafeCompression) {
+      // Under-limit uploads should not wait for optional compression.
       compressionController?.abort();
       markVideoBlobAsUploadReady(selectedFile);
     }
@@ -411,13 +449,45 @@ function VideoUploadPage() {
       },
       async (onProgress, signal) => {
         if (signal.aborted) return { error: "Upload cancelled" };
+        let finalVideo = readyVideo;
+        if (requiresStorageSafeCompression && !finalVideo) {
+          const compressionTaskProgress = onProgress;
+          compressionTaskProgressRef.current = compressionTaskProgress;
+          onProgress(0, "Optimizing video to fit the 500 MB storage limit", null);
+          try {
+            finalVideo = await pendingCompression!;
+          } finally {
+            if (compressionTaskProgressRef.current === compressionTaskProgress) {
+              compressionTaskProgressRef.current = null;
+            }
+          }
+          if (signal.aborted) return { error: "Upload cancelled" };
+          if (
+            !finalVideo.compressed ||
+            finalVideo.blob.size >= MAX_LONG_VIDEO_STORAGE_BYTES
+          ) {
+            return {
+              error:
+                "This video could not be compressed below the 500 MB storage limit. Try a smaller or shorter video.",
+            };
+          }
+        }
+
+        const reportUploadProgress: ProgressFn = (percent, detail, byteProgress) =>
+          onProgress(
+            requiresStorageSafeCompression
+              ? 10 + Math.round(Math.max(0, Math.min(percent, 100)) * 0.9)
+              : percent,
+            detail,
+            byteProgress,
+          );
         return publishLongVideo({
           ...publishingOptions,
-          file: uploadFile,
+          file: finalVideo?.blob ?? uploadFile,
           sourceSizeBytes: selectedFile.size,
-          originalWidth: readyVideo?.width ?? dimensions?.width ?? null,
-          originalHeight: readyVideo?.height ?? dimensions?.height ?? null,
-          onProgress,
+          originalWidth: finalVideo?.width ?? dimensions?.width ?? null,
+          originalHeight: finalVideo?.height ?? dimensions?.height ?? null,
+          onProgress: reportUploadProgress,
           signal,
         });
       },
@@ -611,7 +681,9 @@ function VideoUploadPage() {
             role="status"
             aria-live="polite"
           >
-            Video preparation is running in the background. Keep filling in the details or publish.
+            {(selectedFileRef.current?.size ?? 0) >= MAX_LONG_VIDEO_STORAGE_BYTES
+              ? "Compressing this video below the 500 MB storage limit. Upload will start as soon as it is ready."
+              : "Video preparation is running in the background. Keep filling in the details or publish."}
           </p>
         )}
         <input

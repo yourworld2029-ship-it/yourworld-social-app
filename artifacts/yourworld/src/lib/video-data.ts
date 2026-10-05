@@ -26,9 +26,12 @@ import {
   uploadWithProgress,
   type ProgressFn,
 } from "@/lib/storage-upload";
+import { retryLongVideoUploadWithCompression } from "@/lib/long-video-storage-retry";
 import { readableUploadError } from "@/lib/storage-upload-request";
 import {
   MAX_LONG_VIDEO_INPUT_BYTES,
+  MAX_LONG_VIDEO_STORAGE_BYTES,
+  compressLongVideoByTier,
   optimizeVideoBlob,
 } from "@/lib/video-compression";
 import { generateVideoThumbnail, sampleVideoFrames } from "@/lib/video-frames";
@@ -330,6 +333,52 @@ async function uploadToStorage(
   }
 }
 
+async function uploadLongVideoWithStorageRetry(
+  source: Blob,
+  uid: string,
+  ext: string,
+  fallbackType: string,
+  onProgress: ProgressFn | undefined,
+  requireSignedURLs: boolean,
+  signal?: AbortSignal,
+) {
+  const upload = (file: Blob) =>
+    uploadToStorage(
+      file,
+      uid,
+      ext,
+      fallbackType,
+      onProgress,
+      requireSignedURLs,
+      signal,
+    );
+  const initialResult = await upload(source);
+  const retry = await retryLongVideoUploadWithCompression({
+    source,
+    initialResult,
+    maxBytes: MAX_LONG_VIDEO_STORAGE_BYTES,
+    onProgress,
+    signal,
+    compress: (file) =>
+      compressLongVideoByTier(file, {
+        force: true,
+        signal,
+        onProgress: (percent) =>
+          onProgress?.(
+            Math.min(15, Math.round(percent * 0.15)),
+            `Optimizing video for storage retry · ${percent}%`,
+            null,
+          ),
+      }),
+    upload,
+  });
+  return {
+    ...retry.result,
+    width: retry.result.width ?? retry.compressionResult?.width ?? null,
+    height: retry.result.height ?? retry.compressionResult?.height ?? null,
+  };
+}
+
 /** Uploads a long-form video (and optional custom thumbnail) and stores the post. */
 const BRAND_PROMO_HINTS = [
   "sponsored by",
@@ -412,6 +461,12 @@ export async function publishLongVideo(opts: {
   if (sourceBlob && sourceBlob.size > MAX_LONG_VIDEO_INPUT_BYTES) {
     return { error: "Long videos must be 1 GB or smaller." };
   }
+  if (sourceBlob && sourceBlob.size >= MAX_LONG_VIDEO_STORAGE_BYTES) {
+    return {
+      error:
+        "This video must be compressed below the 500 MB storage limit before it can be uploaded.",
+    };
+  }
 
   let mediaUrl = opts.fileUrl;
   let uploadedSourcePath: string | null = null;
@@ -424,8 +479,23 @@ export async function publishLongVideo(opts: {
     // Start the raw/resumable video transfer before thumbnail work. On-device
     // frame extraction must not hold the first TUS chunk behind it.
     opts.onProgress?.(0, "Starting video upload", null);
-    mediaUploadPromise = uploadToStorage(
-      opts.file ?? mediaUrl,
+    mediaUploadPromise = sourceBlob
+      ? uploadLongVideoWithStorageRetry(
+          sourceBlob,
+          uid,
+          "mp4",
+          "video/mp4",
+          (percent, detail, byteProgress) =>
+            opts.onProgress?.(
+              Math.min(97, Math.round(percent * 0.97)),
+              detail,
+              byteProgress,
+            ),
+          (opts.access ?? "public") !== "public",
+          opts.signal,
+        )
+      : uploadToStorage(
+      mediaUrl,
       uid,
       "mp4",
       "video/mp4",

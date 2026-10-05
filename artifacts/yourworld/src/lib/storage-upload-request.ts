@@ -24,6 +24,12 @@ export function readableUploadError(error: unknown) {
   return "The storage upload failed. Please try again.";
 }
 
+export function isStorageSizeLimitError(message: string) {
+  return /(?:\b413\b|payload.{0,40}(?:too large|exceed|limit)|entity.{0,40}too large|(?:file|object).{0,60}(?:too large|exceed|maximum|max(?:imum)?|limit)|(?:too large|exceed|maximum|max(?:imum)?|limit).{0,60}(?:file|object|payload|size))/i.test(
+    message,
+  );
+}
+
 /**
  * Supabase's standard upload request has no byte progress event. Keep the
  * task in Uploading until the response arrives, then report transfer complete.
