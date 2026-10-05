@@ -158,6 +158,7 @@ function encodeVideo(
   size: { width: number; height: number },
   onProgress?: ProgressFn,
   videoBitrateOverride?: number,
+  signal?: AbortSignal,
 ) {
   return new Promise<Blob>((resolve, reject) => {
     const video = document.createElement("video");
@@ -206,9 +207,11 @@ function encodeVideo(
     let raf = 0;
     let settled = false;
     let lastProgress = -1;
+    let abortHandler: (() => void) | null = null;
     const finish = (error?: Error) => {
       if (settled) return;
       settled = true;
+      if (abortHandler) signal?.removeEventListener("abort", abortHandler);
       cancelAnimationFrame(raf);
       tracks.forEach((track) => track.stop());
       video.pause();
@@ -221,6 +224,21 @@ function encodeVideo(
       if (error) reject(error);
       else resolve(new Blob(chunks, { type: recorder?.mimeType || mimeType }));
     };
+    abortHandler = () => {
+      if (recorder && recorder.state !== "inactive") {
+        try {
+          recorder.stop();
+        } catch {
+          // The recorder may already be stopping.
+        }
+      }
+      finish(new Error("Video encoding was cancelled."));
+    };
+    if (signal?.aborted) {
+      abortHandler();
+      return;
+    }
+    signal?.addEventListener("abort", abortHandler, { once: true });
     const draw = () => {
       if (settled) return;
       if (video.readyState >= 2) {
@@ -451,4 +469,206 @@ export async function optimizeVideoSource(
   const response = await fetch(sourceUrl);
   if (!response.ok) throw new Error("The selected video is no longer available.");
   return optimizeVideoBlob(await response.blob(), onProgress);
+}
+
+export const MAX_LONG_VIDEO_INPUT_BYTES = 1_000_000_000;
+export const LONG_VIDEO_AUDIO_BITRATE = 128_000;
+const LONG_VIDEO_MIN_OUTPUT_BITRATE = 48_000;
+const LONG_VIDEO_MAX_OUTPUT_BITRATE = 24_000_000;
+const LONG_VIDEO_BYTES_PER_MB = 1_000_000;
+const LONG_VIDEO_MP4_RECORDER_MIME_CANDIDATES = [
+  'video/mp4;codecs="avc1.640028"',
+  'video/mp4;codecs="avc1.4D401F"',
+  'video/mp4;codecs="avc1.42E01E"',
+  "video/mp4",
+];
+
+export type LongVideoCompressionTier = "aggressive" | "balanced" | "light";
+
+export type LongVideoCompressionPlan = {
+  tier: LongVideoCompressionTier;
+  targetOutputBytes: number;
+  videoBitrate: number;
+};
+
+export type LongVideoCompressionResult = {
+  blob: Blob;
+  width: number | null;
+  height: number | null;
+  tier: LongVideoCompressionTier | null;
+  compressed: boolean;
+};
+
+export function getLongVideoCompressionPlan(
+  sourceBytes: number,
+  durationSeconds: number,
+): LongVideoCompressionPlan {
+  if (!Number.isFinite(sourceBytes) || sourceBytes <= 0) {
+    throw new Error("The selected video file is empty or invalid.");
+  }
+  if (sourceBytes > MAX_LONG_VIDEO_INPUT_BYTES) {
+    throw new Error("Long videos must be 1 GB or smaller.");
+  }
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+    throw new Error("The selected video duration is invalid.");
+  }
+
+  let tier: LongVideoCompressionTier;
+  let targetOutputBytes: number;
+  if (sourceBytes >= 500 * LONG_VIDEO_BYTES_PER_MB) {
+    tier = "aggressive";
+    targetOutputBytes = Math.min(
+      100 * LONG_VIDEO_BYTES_PER_MB,
+      Math.max(70 * LONG_VIDEO_BYTES_PER_MB, Math.round(sourceBytes * 0.1)),
+    );
+  } else if (sourceBytes >= 100 * LONG_VIDEO_BYTES_PER_MB) {
+    tier = "balanced";
+    targetOutputBytes = Math.round(sourceBytes * 0.5);
+  } else {
+    tier = "light";
+    targetOutputBytes = Math.round(sourceBytes * 0.7);
+  }
+
+  // MediaRecorder accepts bitrate targets, not CRF; derive the video bitrate
+  // from the requested file-size budget while reserving space for AAC audio.
+  const targetTotalBitrate = (targetOutputBytes * 8) / durationSeconds;
+  const videoBitrate = Math.max(
+    LONG_VIDEO_MIN_OUTPUT_BITRATE,
+    Math.min(
+      LONG_VIDEO_MAX_OUTPUT_BITRATE,
+      Math.floor(targetTotalBitrate - LONG_VIDEO_AUDIO_BITRATE),
+    ),
+  );
+  return { tier, targetOutputBytes, videoBitrate };
+}
+
+export function selectSupportedFastStartMp4MimeType(
+  isSupported: (mimeType: string) => boolean,
+) {
+  return LONG_VIDEO_MP4_RECORDER_MIME_CANDIDATES.find(isSupported) ?? null;
+}
+
+export async function hasFastStartMp4Layout(blob: Blob) {
+  if (!blob.type.toLowerCase().includes("mp4") || blob.size < 16) return false;
+
+  let offset = 0;
+  let sawMovieMetadata = false;
+  let sawFileType = false;
+  let boxesScanned = 0;
+  while (offset + 8 <= blob.size && boxesScanned < 10_000) {
+    const header = await blob.slice(offset, Math.min(blob.size, offset + 16)).arrayBuffer();
+    if (header.byteLength < 8) return false;
+
+    const view = new DataView(header);
+    const size32 = view.getUint32(0);
+    const type = String.fromCharCode(
+      view.getUint8(4),
+      view.getUint8(5),
+      view.getUint8(6),
+      view.getUint8(7),
+    );
+    if (offset === 0) {
+      if (type !== "ftyp") return false;
+      sawFileType = true;
+    }
+    if (type === "mdat") return sawFileType && sawMovieMetadata;
+    if (type === "moov") sawMovieMetadata = true;
+    if (size32 === 0) return false;
+
+    let boxSize = size32;
+    let headerSize = 8;
+    if (size32 === 1) {
+      if (header.byteLength < 16) return false;
+      const extendedSize = view.getBigUint64(8);
+      if (extendedSize > BigInt(Number.MAX_SAFE_INTEGER)) return false;
+      boxSize = Number(extendedSize);
+      headerSize = 16;
+    }
+    if (boxSize < headerSize || offset + boxSize > blob.size) return false;
+    offset += boxSize;
+    boxesScanned += 1;
+  }
+  return false;
+}
+
+function selectLongVideoRecorderMimeType() {
+  if (typeof MediaRecorder === "undefined") return null;
+  return selectSupportedFastStartMp4MimeType((mimeType) =>
+    MediaRecorder.isTypeSupported(mimeType),
+  );
+}
+
+export async function compressLongVideoByTier(
+  source: Blob,
+  options: { signal?: AbortSignal; onProgress?: ProgressFn } = {},
+): Promise<LongVideoCompressionResult> {
+  if (source.size > MAX_LONG_VIDEO_INPUT_BYTES) {
+    throw new Error("Long videos must be 1 GB or smaller.");
+  }
+
+  let sourceUrl: string | null = null;
+  let metadata: VideoMetadata | null = null;
+  let plan: LongVideoCompressionPlan | null = null;
+  const originalResult = (): LongVideoCompressionResult => {
+    markVideoBlobAsUploadReady(source);
+    return {
+      blob: source,
+      width: metadata?.width ?? null,
+      height: metadata?.height ?? null,
+      tier: plan?.tier ?? null,
+      compressed: false,
+    };
+  };
+
+  try {
+    if (!source.type.startsWith("video/") || source.size === 0) return originalResult();
+    if (typeof document === "undefined" || typeof MediaRecorder === "undefined") {
+      return originalResult();
+    }
+    sourceUrl = URL.createObjectURL(source);
+    metadata = await readVideoMetadata(sourceUrl);
+    if (options.signal?.aborted) return originalResult();
+    if (!metadata) return originalResult();
+
+    plan = getLongVideoCompressionPlan(source.size, metadata.duration);
+    const mimeType = selectLongVideoRecorderMimeType();
+    const qualityTier = qualityTierForOutput(metadata.width, metadata.height, "1080p");
+    if (!mimeType || !qualityTier) return originalResult();
+
+    const outputSize = outputSizeForQuality(metadata, qualityTier);
+    const encoded = await encodeVideo(
+      sourceUrl,
+      metadata,
+      qualityTier,
+      mimeType,
+      1,
+      outputSize,
+      options.onProgress,
+      plan.videoBitrate,
+      options.signal,
+    );
+    if (
+      options.signal?.aborted ||
+      encoded.size <= 0 ||
+      encoded.size >= source.size ||
+      !(await hasFastStartMp4Layout(encoded))
+    ) {
+      return originalResult();
+    }
+
+    markVideoBlobAsUploadReady(encoded);
+    return {
+      blob: encoded,
+      width: outputSize.width,
+      height: outputSize.height,
+      tier: plan.tier,
+      compressed: true,
+    };
+  } catch (error) {
+    if (options.signal?.aborted) return originalResult();
+    console.warn("Long-video compression unavailable; using the original upload.", error);
+    return originalResult();
+  } finally {
+    if (sourceUrl) URL.revokeObjectURL(sourceUrl);
+  }
 }

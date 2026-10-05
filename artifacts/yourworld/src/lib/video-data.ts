@@ -27,7 +27,10 @@ import {
   type ProgressFn,
 } from "@/lib/storage-upload";
 import { readableUploadError } from "@/lib/storage-upload-request";
-import { optimizeVideoBlob } from "@/lib/video-compression";
+import {
+  MAX_LONG_VIDEO_INPUT_BYTES,
+  optimizeVideoBlob,
+} from "@/lib/video-compression";
 import { generateVideoThumbnail, sampleVideoFrames } from "@/lib/video-frames";
 import {
   uploadVideoThumbnail,
@@ -353,6 +356,7 @@ export async function publishLongVideo(opts: {
   paidPromotion?: boolean;
   officialSponsorshipId?: string | null;
   generatedThumbnailPromise?: Promise<Blob | null>;
+  sourceSizeBytes?: number | null;
   onProgress?: ProgressFn;
   signal?: AbortSignal;
 }): Promise<{ error: string | null }> {
@@ -364,6 +368,12 @@ export async function publishLongVideo(opts: {
   const uid = sessionData.session?.user.id;
   if (!uid) return { error: "You need to sign in to publish a video." };
   if (opts.signal?.aborted) return { error: "Upload cancelled" };
+  if (
+    (opts.sourceSizeBytes ?? 0) > MAX_LONG_VIDEO_INPUT_BYTES ||
+    (opts.file?.size ?? 0) > MAX_LONG_VIDEO_INPUT_BYTES
+  ) {
+    return { error: "Long videos must be 1 GB or smaller." };
+  }
 
   if (opts.seriesTitle?.trim() || opts.episodeNumber?.trim()) {
     const { error } = await supabase
@@ -393,6 +403,9 @@ export async function publishLongVideo(opts: {
     } catch (error) {
       console.warn("Could not read the local video for its thumbnail", error);
     }
+  }
+  if (sourceBlob && sourceBlob.size > MAX_LONG_VIDEO_INPUT_BYTES) {
+    return { error: "Long videos must be 1 GB or smaller." };
   }
 
   let generatedThumbnail: Blob | null = null;

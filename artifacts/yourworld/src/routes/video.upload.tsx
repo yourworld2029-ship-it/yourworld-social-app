@@ -29,11 +29,11 @@ import { historyBackOr } from "@/lib/navigation";
 import { cacheVideoPoster } from "@/lib/video-prefetch";
 import { generateVideoThumbnail } from "@/lib/video-frames";
 import {
-  cancelNativeVideoOptimization,
-  pickAndOptimizeNativeVideo,
-  supportsNativeVideoOptimization,
-} from "@/lib/native-video-optimization";
-import { markVideoBlobAsUploadReady } from "@/lib/video-compression";
+  compressLongVideoByTier,
+  MAX_LONG_VIDEO_INPUT_BYTES,
+  markVideoBlobAsUploadReady,
+  type LongVideoCompressionResult,
+} from "@/lib/video-compression";
 
 type AccessOption = "public" | "vip" | "paid";
 const MIN_PAID_VIDEO_PRICE = 10;
@@ -74,7 +74,9 @@ function VideoUploadPage() {
   const videoInput = useRef<HTMLInputElement | null>(null);
   const thumbInput = useRef<HTMLInputElement | null>(null);
   const mountedRef = useRef(true);
-  const uploadOriginalOnNextChooseRef = useRef(false);
+  const uploadSubmittedRef = useRef(false);
+  const compressionAbortRef = useRef<AbortController | null>(null);
+  const compressionPromiseRef = useRef<Promise<LongVideoCompressionResult> | null>(null);
 
   const [fileUrl, setFileUrl] = useState<string | null>(null);
   const [previewFrame, setPreviewFrame] = useState<string | null>(null);
@@ -98,9 +100,7 @@ function VideoUploadPage() {
   const [time, setTime] = useState("");
 
   const [busy, setBusy] = useState(false);
-  const [preparingVideo, setPreparingVideo] = useState(false);
-  const [optimizingVideo, setOptimizingVideo] = useState(false);
-  const [optimizationProgress, setOptimizationProgress] = useState(0);
+  const [compressionPending, setCompressionPending] = useState(false);
 
   const [access, setAccess] = useState<AccessOption>("public");
   const [price, setPrice] = useState("");
@@ -116,7 +116,7 @@ function VideoUploadPage() {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      void cancelNativeVideoOptimization();
+      if (!uploadSubmittedRef.current) compressionAbortRef.current?.abort();
     };
   }, []);
 
@@ -126,6 +126,11 @@ function VideoUploadPage() {
       toast.error("Please choose a video file");
       return;
     }
+    if (file.size > MAX_LONG_VIDEO_INPUT_BYTES) {
+      toast.error("Long videos must be 1 GB or smaller.");
+      return;
+    }
+    compressionAbortRef.current?.abort();
     // Keep the selected file as a Blob URL so the media element can seek and
     // buffer it locally without copying an entire long video into memory.
     const url = URL.createObjectURL(file);
@@ -140,40 +145,35 @@ function VideoUploadPage() {
     setDuration(null);
     setCurrentTime(0);
     setDimensions(null);
+    const controller = new AbortController();
+    compressionAbortRef.current = controller;
+    setCompressionPending(true);
+    const compressionPromise = compressLongVideoByTier(file, {
+      signal: controller.signal,
+    }).catch((error): LongVideoCompressionResult => {
+      if (!controller.signal.aborted) {
+        console.warn("Long-video compression unavailable; using the original upload.", error);
+      }
+      markVideoBlobAsUploadReady(file);
+      return {
+        blob: file,
+        width: null,
+        height: null,
+        tier: null,
+        compressed: false,
+      };
+    });
+    compressionPromiseRef.current = compressionPromise;
+    void compressionPromise.then(() => {
+      if (mountedRef.current && selectedFileRef.current === file) {
+        setCompressionPending(false);
+      }
+    });
     if (videoInput.current) videoInput.current.value = "";
   };
 
-  const chooseVideo = async () => {
-    if (preparingVideo || optimizingVideo) return;
-    if (uploadOriginalOnNextChooseRef.current) {
-      videoInput.current?.click();
-      return;
-    }
-    if (!supportsNativeVideoOptimization()) {
-      videoInput.current?.click();
-      return;
-    }
-    setPreparingVideo(true);
-    setOptimizationProgress(0);
-    try {
-      const optimizedFile = await pickAndOptimizeNativeVideo((percent) => {
-        if (!mountedRef.current) return;
-        setPreparingVideo(false);
-        setOptimizingVideo(true);
-        setOptimizationProgress(percent);
-      });
-      if (!mountedRef.current || !optimizedFile) return;
-      pickVideo(optimizedFile);
-    } catch {
-      if (!mountedRef.current) return;
-      uploadOriginalOnNextChooseRef.current = true;
-      toast("Compression is unavailable. Choose the video again to upload the original.");
-    } finally {
-      if (mountedRef.current) {
-        setPreparingVideo(false);
-        setOptimizingVideo(false);
-      }
-    }
+  const chooseVideo = () => {
+    videoInput.current?.click();
   };
 
   useEffect(() => {
@@ -301,8 +301,6 @@ function VideoUploadPage() {
   const tooShort = duration !== null && duration < MIN_DURATION;
   const canPublish =
     !!fileUrl &&
-    !preparingVideo &&
-    !optimizingVideo &&
     !tooShort &&
     title.trim().length >= 2 &&
     (!seriesEnabled || (seriesTitle.trim().length >= 2 && episodeNumber.trim().length > 0)) &&
@@ -311,6 +309,15 @@ function VideoUploadPage() {
 
   const submit = () => {
     if (!fileUrl) return;
+    const selectedFile = selectedFileRef.current;
+    if (!selectedFile) {
+      toast.error("Choose a video file before publishing this video.");
+      return;
+    }
+    if (selectedFile.size > MAX_LONG_VIDEO_INPUT_BYTES) {
+      toast.error("Long videos must be 1 GB or smaller.");
+      return;
+    }
     if (duration === null || duration < MIN_DURATION) {
       toast.error("Long videos must be at least 90 seconds.");
       return;
@@ -336,7 +343,10 @@ function VideoUploadPage() {
     const parsedPrice = access === "paid" ? parsedInputPrice : 0;
 
     setBusy(true);
-    const selectedFile = selectedFileRef.current;
+    const compressionPromise =
+      compressionPromiseRef.current ??
+      compressLongVideoByTier(selectedFile);
+    const compressionController = compressionAbortRef.current;
     const thumbnailFile = thumbnailFileRef.current;
     const fileUrlSnapshot = fileUrl;
     if (!fileUrlSnapshot) {
@@ -355,7 +365,10 @@ function VideoUploadPage() {
     const paidPromotionSnapshot = paidPromotion;
     const generatedThumbnailPromise =
       !thumbnailUrlSnapshot && selectedFile
-        ? generateVideoThumbnail(selectedFile, 1).catch(() => null)
+        ? compressionPromise.then(
+            (preparedVideo) => generateVideoThumbnail(preparedVideo.blob, 1).catch(() => null),
+            () => generateVideoThumbnail(selectedFile, 1).catch(() => null),
+          )
         : undefined;
     const publishingOptions = {
       fileUrl: fileUrlSnapshot,
@@ -380,6 +393,7 @@ function VideoUploadPage() {
     };
 
     // Upload keeps running in the background while the user browses the app.
+    uploadSubmittedRef.current = true;
     void startUpload(
       {
         kind: "video",
@@ -392,12 +406,41 @@ function VideoUploadPage() {
         viewTo: "/",
         notifyOnSuccess: !scheduleSnapshot,
       },
-      (onProgress, signal) =>
-        publishLongVideo({
-          ...publishingOptions,
-          onProgress,
-          signal,
-        }),
+      async (onProgress, signal) => {
+        const abortCompression = () => compressionController?.abort();
+        if (signal.aborted) abortCompression();
+        else signal.addEventListener("abort", abortCompression, { once: true });
+        try {
+          let preparedVideo: LongVideoCompressionResult;
+          try {
+            preparedVideo = await compressionPromise;
+          } catch (error) {
+            if (!signal.aborted) {
+              console.warn("Long-video preparation failed; using the original upload.", error);
+            }
+            markVideoBlobAsUploadReady(selectedFile);
+            preparedVideo = {
+              blob: selectedFile,
+              width: dimensions?.width ?? null,
+              height: dimensions?.height ?? null,
+              tier: null,
+              compressed: false,
+            };
+          }
+          if (signal.aborted) return { error: "Upload cancelled" };
+          return publishLongVideo({
+            ...publishingOptions,
+            file: preparedVideo.blob,
+            sourceSizeBytes: selectedFile.size,
+            originalWidth: preparedVideo.width ?? dimensions?.width ?? null,
+            originalHeight: preparedVideo.height ?? dimensions?.height ?? null,
+            onProgress,
+            signal,
+          });
+        } finally {
+          signal.removeEventListener("abort", abortCompression);
+        }
+      },
       (taskId) => {
         if (!generatedThumbnailPromise) return;
         void generatedThumbnailPromise.then((thumbnail) => {
@@ -443,18 +486,6 @@ function VideoUploadPage() {
       </header>
 
       <div className="mx-auto max-w-xl space-y-5 px-4 pt-5">
-        {(preparingVideo || optimizingVideo) && (
-          <div
-            className="flex items-center justify-center gap-2 rounded-xl border border-pink-400/20 bg-pink-500/10 px-4 py-3 text-sm text-pink-100"
-            role="status"
-            aria-live="polite"
-          >
-            <Loader2 className="h-4 w-4 animate-spin" />
-            {optimizingVideo
-              ? `Optimizing video... ${optimizationProgress}%`
-              : "Choose a video to optimize"}
-          </div>
-        )}
         {/* PLAYER / PICKER */}
         {!fileUrl ? (
           <div className="space-y-3">
@@ -594,20 +625,22 @@ function VideoUploadPage() {
 
           </div>
         )}
+        {fileUrl && compressionPending && (
+          <p
+            className="text-center text-xs text-zinc-400"
+            role="status"
+            aria-live="polite"
+          >
+            Video preparation is running in the background. Keep filling in the details or publish.
+          </p>
+        )}
         <input
           ref={videoInput}
           type="file"
           accept="video/*"
           hidden
           onChange={(e) => {
-            const selectedFile = e.target.files?.[0];
-            if (selectedFile && uploadOriginalOnNextChooseRef.current) {
-              uploadOriginalOnNextChooseRef.current = false;
-              if (selectedFile.type.startsWith("video/")) {
-                markVideoBlobAsUploadReady(selectedFile);
-              }
-            }
-            pickVideo(selectedFile);
+            pickVideo(e.target.files?.[0]);
             e.currentTarget.value = "";
           }}
         />

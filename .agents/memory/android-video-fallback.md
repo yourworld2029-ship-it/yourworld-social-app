@@ -1,10 +1,10 @@
 ---
-name: Native large-video fallback
-description: Safe direct-upload recovery when Android video encoding fails on multi-gigabyte sources.
+name: Long-video compression fallback
+description: Browser-file compression and safe chunked fallback for horizontal and vertical Long Videos.
 ---
 
-After native Media3 compression fails, do not fetch the original `content://` URI into a JavaScript Blob. Let the user select the original again through the browser video input, then use the existing chunked TUS uploader and mark that exact `File` as ready so browser-side re-encoding is skipped.
+Long Videos use the browser `File` from selection for best-effort MP4 compression. `MediaRecorder` has no CRF setting, so size goals must be estimated with a duration-based bitrate; accept encoded output only after validating fast-start layout and audio preservation. If encoding is unsupported, fails, or produces invalid output, silently upload that same original `File` through the existing chunked TUS path. Keep this behavior isolated from Reels.
 
-**Why:** Copying a 1–2 GB source through the Capacitor bridge or materializing it as a JavaScript Blob can exhaust memory on low-end Android phones. Reusing the browser `File` keeps upload reads chunked.
+**Why:** `MediaRecorder` exposes bitrate rather than CRF, and hardware encoder/resource failures vary across Android devices. Retaining the browser `File` avoids whole-file copies and supports chunked recovery; the user explicitly scoped this flow to Long Videos, not Reels.
 
-**How to apply:** Treat optimizer errors as recoverable, clearly explain the reselect action without surfacing a compression error, and preserve the original file object through upload. Avoid adding a parallel native TUS client unless the chunk bridge is deliberately designed and reviewed.
+**How to apply:** Keep compression asynchronous so metadata editing and submit remain available. Preserve the original file object and size through upload; do not materialize a large native content URI into JavaScript memory or change Reel behavior as part of Long Video work.
