@@ -1,9 +1,13 @@
 package com.yourworld.app;
 
+import android.app.PictureInPictureParams;
 import android.content.Intent;
+import android.content.res.Configuration;
 import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
+import android.util.Log;
+import android.util.Rational;
 import android.view.WindowManager;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -19,6 +23,10 @@ import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
     private static volatile boolean appForeground;
+    private volatile boolean videoPipActive;
+    private volatile boolean videoPipPlaying;
+    private volatile int pipAspectRatioWidth = 16;
+    private volatile int pipAspectRatioHeight = 9;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -29,6 +37,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(VideoOptimizerPlugin.class);
         registerPlugin(OfflineMediaDownloadPlugin.class);
         registerPlugin(ReelGalleryExportPlugin.class);
+        registerPlugin(SystemVideoPipPlugin.class);
         super.onCreate(savedInstanceState);
 
         prepareForIncomingCall(getIntent());
@@ -77,6 +86,64 @@ public class MainActivity extends BridgeActivity {
     public void onPause() {
         appForeground = false;
         super.onPause();
+    }
+
+    @Override
+    public void onUserLeaveHint() {
+        super.onUserLeaveHint();
+        if (
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                        && videoPipActive
+                        && videoPipPlaying
+                        && !isInPictureInPictureMode()
+        ) {
+            try {
+                enterPictureInPictureMode(buildVideoPipParams());
+            } catch (IllegalArgumentException | IllegalStateException error) {
+                Log.w("YourWorldPiP", "Could not enter system picture-in-picture mode.", error);
+            }
+        }
+    }
+
+    @Override
+    public void onPictureInPictureModeChanged(
+            boolean isInPictureInPictureMode,
+            Configuration newConfig
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
+        WebView webView = getBridge() != null ? getBridge().getWebView() : null;
+        if (webView != null) {
+            webView.evaluateJavascript(
+                    "window.dispatchEvent(new CustomEvent('yw-system-pip-change', "
+                            + "{ detail: { active: "
+                            + isInPictureInPictureMode
+                            + " } }));",
+                    null
+            );
+        }
+    }
+
+    void setVideoPipPlaybackState(
+            boolean active,
+            boolean playing,
+            int aspectRatioWidth,
+            int aspectRatioHeight
+    ) {
+        videoPipActive = active;
+        videoPipPlaying = playing;
+        if (aspectRatioWidth > 0 && aspectRatioHeight > 0) {
+            pipAspectRatioWidth = aspectRatioWidth;
+            pipAspectRatioHeight = aspectRatioHeight;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            setPictureInPictureParams(buildVideoPipParams());
+        }
+    }
+
+    private PictureInPictureParams buildVideoPipParams() {
+        return new PictureInPictureParams.Builder()
+                .setAspectRatio(new Rational(pipAspectRatioWidth, pipAspectRatioHeight))
+                .build();
     }
 
     @Override

@@ -15,7 +15,7 @@ import {
   type TouchEvent as ReactTouchEvent,
 } from "react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { Capacitor } from "@capacitor/core";
+import { Capacitor, registerPlugin } from "@capacitor/core";
 import { ScreenOrientation } from "@capacitor/screen-orientation";
 import { getAppScrollContainer } from "@/lib/app-scroll-container";
 import type { VideoQualityTier } from "@/lib/video-quality";
@@ -130,12 +130,30 @@ type SwipeNavigation = {
   exitOffset: number;
 };
 
+type SystemVideoPipPlugin = {
+  setPlaybackState(options: {
+    active: boolean;
+    playing: boolean;
+    aspectRatioWidth: number;
+    aspectRatioHeight: number;
+  }): Promise<void>;
+};
+
+const globalSystemVideoPip = globalThis as typeof globalThis & {
+  __yourWorldSystemVideoPip?: SystemVideoPipPlugin;
+};
+const systemVideoPip =
+  globalSystemVideoPip.__yourWorldSystemVideoPip ??
+  (globalSystemVideoPip.__yourWorldSystemVideoPip =
+    registerPlugin<SystemVideoPipPlugin>("SystemVideoPip"));
+
 type FloatingPosition = {
   left: number;
   top: number;
 };
 
 type FloatingDrag = FloatingPosition & {
+  mode: "move" | "resize";
   pointerId: number;
   startX: number;
   startY: number;
@@ -344,7 +362,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const [displayMode, setDisplayMode] = useState<"fit" | "fill">("fit");
   const [brightness, setBrightness] = useState(1);
   const [pictureInPicture, setPictureInPicture] = useState(false);
+  const [systemPictureInPicture, setSystemPictureInPicture] = useState(false);
   const [floatingPosition, setFloatingPosition] = useState<FloatingPosition | null>(null);
+  const [floatingWidth, setFloatingWidth] = useState<number | null>(null);
   const [floatingDragging, setFloatingDragging] = useState(false);
   const isAndroidApp =
     Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
@@ -354,6 +374,24 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const [quality, setQuality] = useState<QualityId>("auto");
   const [hlsLevels, setHlsLevels] = useState<Hls["levels"]>([]);
   const [activeHlsHeight, setActiveHlsHeight] = useState<number | null>(null);
+
+  const syncNativePipState = useCallback(
+    (active: boolean, playing: boolean) => {
+      if (!isAndroidApp) return;
+      void systemVideoPip
+        .setPlaybackState({
+          active,
+          playing,
+          aspectRatioWidth: isVerticalVideo ? 9 : 16,
+          aspectRatioHeight: isVerticalVideo ? 16 : 9,
+        })
+        .catch((error: unknown) => {
+          console.warn("Could not update Android picture-in-picture state.", error);
+        });
+    },
+    [isAndroidApp, isVerticalVideo],
+  );
+
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const activeVideoRef = useRef<PersistentVideo | null>(null);
@@ -694,6 +732,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const closeVideo = useCallback(() => {
+    syncNativePipState(false, false);
     playbackAttemptRef.current += 1;
     setMediaError(null);
     const video = videoRef.current;
@@ -712,6 +751,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     setIsVerticalVideo(false);
     setPictureInPicture(false);
     setFloatingPosition(null);
+    setFloatingWidth(null);
     setFloatingDragging(false);
     floatingDragRef.current = null;
     setSettingsMenu("closed");
@@ -724,7 +764,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     setLoopVideo(false);
     setHlsLevels([]);
     setActiveHlsHeight(null);
-  }, [setCurrentTime, setDuration]);
+  }, [setCurrentTime, setDuration, syncNativePipState]);
 
   const retryPlayback = useCallback(() => {
     if (!activeVideo) return;
@@ -750,10 +790,15 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const previousPathname = previousPathnameRef.current;
     previousPathnameRef.current = location.pathname;
-    if (previousPathname !== location.pathname && activeVideo && !isPlayerRoute) {
+    if (
+      previousPathname !== location.pathname &&
+      activeVideo &&
+      !isPlayerRoute &&
+      !pictureInPicture
+    ) {
       closeVideo();
     }
-  }, [activeVideo, closeVideo, isPlayerRoute, location.pathname]);
+  }, [activeVideo, closeVideo, isPlayerRoute, location.pathname, pictureInPicture]);
 
   const markControlsActivity = useCallback(() => {
     setControlsVisible(true);
@@ -1011,18 +1056,30 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     if (!videoRef.current) return;
     setPictureInPicture(true);
     setFloatingPosition(null);
+    setFloatingWidth(null);
+    syncNativePipState(true, !videoRef.current.paused);
     if (isFullscreen) void teardownFullscreen(true);
     setSettingsMenu("closed");
     markControlsActivity();
-  }, [isFullscreen, markControlsActivity, teardownFullscreen]);
+  }, [isFullscreen, markControlsActivity, syncNativePipState, teardownFullscreen]);
 
-  const startFloatingDrag = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+  const startFloatingDrag = useCallback((
+    event: ReactPointerEvent<HTMLElement>,
+    mode: FloatingDrag["mode"] = "move",
+  ) => {
     if (!pictureInPicture || (event.pointerType === "mouse" && event.button !== 0)) return;
-    if (event.target instanceof Element && event.target.closest("button")) return;
-    const rect = event.currentTarget.getBoundingClientRect();
+    if (
+      mode === "move" &&
+      event.target instanceof Element &&
+      event.target.closest("button")
+    ) return;
+    const player = containerRef.current;
+    if (!player) return;
+    const rect = player.getBoundingClientRect();
     event.preventDefault();
     event.stopPropagation();
     floatingDragRef.current = {
+      mode,
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
@@ -1037,7 +1094,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     setFloatingPosition({ left: rect.left, top: rect.top });
     setFloatingDragging(true);
     try {
-      event.currentTarget.setPointerCapture(event.pointerId);
+      player.setPointerCapture(event.pointerId);
     } catch {
       // Pointer capture is unavailable in a few embedded browser surfaces.
     }
@@ -1052,6 +1109,38 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     drag.moved = true;
     event.preventDefault();
     const edge = 10;
+    if (drag.mode === "resize") {
+      const maxWidth = Math.max(
+        120,
+        Math.min(
+          window.innerWidth - edge * 2,
+          (window.innerHeight - edge * 2) * (drag.width / drag.height),
+        ),
+      );
+      const nextWidth = clamp(
+        drag.width + (deltaX + deltaY) / 2,
+        Math.min(160, maxWidth),
+        maxWidth,
+      );
+      const nextHeight = drag.height * (nextWidth / drag.width);
+      const position = {
+        left: clamp(
+          drag.startLeft,
+          edge,
+          Math.max(edge, window.innerWidth - nextWidth - edge),
+        ),
+        top: clamp(
+          drag.startTop,
+          edge,
+          Math.max(edge, window.innerHeight - nextHeight - edge),
+        ),
+      };
+      drag.left = position.left;
+      drag.top = position.top;
+      setFloatingWidth(nextWidth);
+      setFloatingPosition(position);
+      return;
+    }
     const maxLeft = Math.max(edge, window.innerWidth - drag.width - edge);
     const maxTop = Math.max(edge, window.innerHeight - drag.height - edge);
     const position = {
@@ -1069,13 +1158,14 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     floatingDragRef.current = null;
     if (drag.moved) {
       const edge = 10;
-      const maxLeft = Math.max(edge, window.innerWidth - drag.width - edge);
-      const maxTop = Math.max(edge, window.innerHeight - drag.height - edge);
-      const left = drag.left + drag.width / 2 < window.innerWidth / 2 ? edge : maxLeft;
-      setFloatingPosition({
-        left,
-        top: clamp(drag.top, edge, maxTop),
-      });
+      if (drag.mode === "move") {
+        const maxLeft = Math.max(edge, window.innerWidth - drag.width - edge);
+        const maxTop = Math.max(edge, window.innerHeight - drag.height - edge);
+        setFloatingPosition({
+          left: clamp(drag.left, edge, maxLeft),
+          top: clamp(drag.top, edge, maxTop),
+        });
+      }
       suppressFloatingClickRef.current = true;
       window.setTimeout(() => {
         suppressFloatingClickRef.current = false;
@@ -1083,8 +1173,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     }
     setFloatingDragging(false);
     try {
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-        event.currentTarget.releasePointerCapture(event.pointerId);
+      const player = containerRef.current;
+      if (player?.hasPointerCapture(event.pointerId)) {
+        player.releasePointerCapture(event.pointerId);
       }
     } catch {
       // The pointer may already have been released by the browser.
@@ -1259,9 +1350,26 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   }, [hlsLevels, quality]);
 
   useEffect(() => {
+    syncNativePipState(
+      pictureInPicture && Boolean(activeVideo),
+      pictureInPicture && Boolean(activeVideo) && isPlaying,
+    );
+  }, [activeVideo, isPlaying, pictureInPicture, syncNativePipState]);
+
+  useEffect(() => {
+    const handleSystemPipChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ active?: boolean }>).detail;
+      setSystemPictureInPicture(detail?.active === true);
+    };
+    window.addEventListener("yw-system-pip-change", handleSystemPipChange);
+    return () => window.removeEventListener("yw-system-pip-change", handleSystemPipChange);
+  }, []);
+
+  useEffect(() => {
     const attemptNativePictureInPicture = () => {
       const video = videoRef.current;
       if (
+        isAndroidApp ||
         document.visibilityState !== "hidden" ||
         !video ||
         video.paused ||
@@ -1277,7 +1385,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
 
     document.addEventListener("visibilitychange", attemptNativePictureInPicture);
     return () => document.removeEventListener("visibilitychange", attemptNativePictureInPicture);
-  }, []);
+  }, [isAndroidApp]);
 
   useEffect(() => {
     if (isDetailPlayer) return;
@@ -1299,6 +1407,14 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       const rect = containerRef.current?.getBoundingClientRect();
       if (!current || !rect) return;
       const edge = 10;
+      const maxWidth = Math.max(
+        100,
+        Math.min(
+          window.innerWidth - edge * 2,
+          (window.innerHeight - edge * 2) * (rect.width / rect.height),
+        ),
+      );
+      setFloatingWidth((width) => (width === null ? null : Math.min(width, maxWidth)));
       setFloatingPosition({
         left: clamp(current.left, edge, Math.max(edge, window.innerWidth - rect.width - edge)),
         top: clamp(current.top, edge, Math.max(edge, window.innerHeight - rect.height - edge)),
@@ -1774,6 +1890,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
 
   const openDetail = useCallback(() => {
     if (!activeVideo) return;
+    syncNativePipState(false, false);
     setPictureInPicture(false);
     setFloatingPosition(null);
     setFloatingDragging(false);
@@ -1786,7 +1903,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       return;
     }
     void navigate({ to: "/video/$videoId", params: { videoId: activeVideo.id } });
-  }, [activeVideo, navigate]);
+  }, [activeVideo, navigate, syncNativePipState]);
 
   const openFromFloatingPlayer = useCallback(() => {
     if (suppressFloatingClickRef.current) {
@@ -1825,16 +1942,20 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       <VideoPlaybackProgressContext.Provider value={progressStore}>
         <div
           className={
-            isPlayerRoute
-              ? `yw-video-player-route relative flex h-[100dvh] flex-col ${isFullscreen ? "overflow-visible" : "overflow-hidden"}`
-              : "relative min-h-screen"
+            systemPictureInPicture
+              ? "yw-video-player-route relative h-full min-h-full w-full overflow-hidden bg-black"
+              : isPlayerRoute
+                ? `yw-video-player-route relative flex h-[100dvh] flex-col ${isFullscreen ? "overflow-visible" : "overflow-hidden"}`
+                : "relative min-h-screen"
           }
         >
         <div
           className={
-            isPlayerRoute
-              ? "yw-video-detail-scroll order-2 min-h-0 flex-1 overflow-y-auto overscroll-contain"
-              : "relative min-h-screen"
+            systemPictureInPicture
+              ? "hidden"
+              : isPlayerRoute
+                ? "yw-video-detail-scroll order-2 min-h-0 flex-1 overflow-y-auto overscroll-contain"
+                : "relative min-h-screen"
           }
         >
           {children}
@@ -1843,34 +1964,48 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
           <div
           ref={containerRef}
           className={
-            pictureInPicture
-              ? `fixed z-[100] ${
-                  isVerticalVideo ? "w-[min(54vw,15rem)]" : "w-[min(76vw,20rem)]"
-                } max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-2xl border border-white/15 bg-black shadow-2xl ${
-                  floatingPosition ? "" : "bottom-[calc(4.75rem+env(safe-area-inset-bottom))] right-3"
-                } ${
-                  floatingDragging
-                    ? "cursor-grabbing transition-none"
-                    : "cursor-grab transition-[left,top] duration-200 ease-out"
-                }`
-              : isDetailPlayer
-                ? isFullscreen
-                  ? `fixed inset-0 z-50 h-screen w-screen max-w-none bg-black ${
-                      needsAndroidPortraitSafeArea ? "yw-android-video-safe-area" : ""
-                    }`
-                  : `sticky top-0 z-50 order-1 mx-auto block aspect-video w-full max-w-lg shrink-0 bg-black ${
-                      needsAndroidPortraitSafeArea ? "yw-android-video-safe-area" : ""
-                    }`
-                : isPlayerRoute
-                  ? "pointer-events-none fixed left-[-9999px] top-[-9999px] z-[-1] h-px w-px opacity-0"
-                  : "fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] right-3 z-[70] w-[min(68vw,280px)] overflow-hidden rounded-xl border border-white/15 bg-zinc-950 shadow-2xl"
+            systemPictureInPicture
+              ? "fixed inset-0 z-[100] h-full w-full overflow-hidden bg-black"
+              : pictureInPicture
+                ? `fixed z-[100] ${
+                    isVerticalVideo ? "w-[min(54vw,15rem)]" : "w-[min(76vw,20rem)]"
+                  } max-h-[calc(100dvh-1.5rem)] overflow-hidden rounded-2xl border border-white/15 bg-black shadow-2xl ${
+                    floatingPosition ? "" : "bottom-[calc(4.75rem+env(safe-area-inset-bottom))] right-3"
+                  } ${
+                    floatingDragging
+                      ? "cursor-grabbing transition-none"
+                      : "cursor-grab transition-[left,top] duration-200 ease-out"
+                  }`
+                : isDetailPlayer
+                  ? isFullscreen
+                    ? `fixed inset-0 z-50 h-screen w-screen max-w-none bg-black ${
+                        needsAndroidPortraitSafeArea ? "yw-android-video-safe-area" : ""
+                      }`
+                    : `sticky top-0 z-50 order-1 mx-auto block aspect-video w-full max-w-lg shrink-0 bg-black ${
+                        needsAndroidPortraitSafeArea ? "yw-android-video-safe-area" : ""
+                      }`
+                  : isPlayerRoute
+                    ? "pointer-events-none fixed left-[-9999px] top-[-9999px] z-[-1] h-px w-px opacity-0"
+                    : "fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] right-3 z-[70] w-[min(68vw,280px)] overflow-hidden rounded-xl border border-white/15 bg-zinc-950 shadow-2xl"
           }
-          onPointerDown={pictureInPicture ? startFloatingDrag : undefined}
-          onPointerMove={pictureInPicture ? moveFloatingPlayer : undefined}
-          onPointerUp={pictureInPicture ? finishFloatingDrag : undefined}
-          onPointerCancel={pictureInPicture ? finishFloatingDrag : undefined}
+          onPointerDown={
+            pictureInPicture && !systemPictureInPicture
+              ? (event) => startFloatingDrag(event)
+              : undefined
+          }
+          onPointerMove={
+            pictureInPicture && !systemPictureInPicture ? moveFloatingPlayer : undefined
+          }
+          onPointerUp={
+            pictureInPicture && !systemPictureInPicture ? finishFloatingDrag : undefined
+          }
+          onPointerCancel={
+            pictureInPicture && !systemPictureInPicture ? finishFloatingDrag : undefined
+          }
           style={
-            pictureInPicture
+            systemPictureInPicture
+              ? { touchAction: "none", width: "100%", height: "100%" }
+              : pictureInPicture
               ? {
                   touchAction: "none",
                   ...(floatingPosition
@@ -1881,6 +2016,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                         bottom: "auto",
                       }
                     : {}),
+                  ...(floatingWidth !== null ? { width: floatingWidth } : {}),
                 }
               : showDetailChrome
                 ? { touchAction: isFullscreen ? "none" : "manipulation" }
@@ -1894,19 +2030,21 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
           >
           <div
             className={
-              showDetailChrome
-                ? `relative w-full bg-black ${
-                    isFullscreen
-                      ? `h-screen w-screen ${
-                          needsAndroidPortraitSafeArea
-                            ? "yw-android-video-safe-area-fullscreen"
-                            : ""
-                        }`
-                    : "h-full"
-                  }`
-                : `relative ${
-                    isVerticalVideo ? "aspect-[9/16]" : "aspect-video"
-                  } w-full bg-black`
+              systemPictureInPicture
+                ? "relative h-full w-full bg-black"
+                : showDetailChrome
+                  ? `relative w-full bg-black ${
+                      isFullscreen
+                        ? `h-screen w-screen ${
+                            needsAndroidPortraitSafeArea
+                              ? "yw-android-video-safe-area-fullscreen"
+                              : ""
+                          }`
+                        : "h-full"
+                    }`
+                  : `relative ${
+                      isVerticalVideo ? "aspect-[9/16]" : "aspect-video"
+                    } w-full bg-black`
             }
             onClick={
               pictureInPicture
@@ -2124,6 +2262,21 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                 >
                   <X className="h-4 w-4" />
                 </button>
+                {!systemPictureInPicture ? (
+                  <button
+                    type="button"
+                    onPointerDown={(event) => startFloatingDrag(event, "resize")}
+                    onClick={(event) => event.stopPropagation()}
+                    className="absolute bottom-1 right-1 z-[90] grid h-8 w-8 touch-none place-items-center rounded-full bg-black/55 text-white/90 shadow-md backdrop-blur-sm"
+                    aria-label="Resize picture-in-picture player"
+                    title="Drag to resize"
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="h-3 w-3 border-b-2 border-r-2 border-white/85"
+                    />
+                  </button>
+                ) : null}
                 <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[70] bg-gradient-to-t from-black/85 to-transparent px-2.5 pb-2 pt-8 text-[11px] font-semibold text-white">
                   <span className="block truncate">{activeVideo.title || "Now playing"}</span>
                 </div>
