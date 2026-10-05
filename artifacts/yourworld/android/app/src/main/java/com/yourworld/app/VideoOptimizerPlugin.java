@@ -1,23 +1,30 @@
 package com.yourworld.app;
 
+import android.Manifest;
 import android.app.Activity;
+import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.database.Cursor;
 import android.media.MediaMetadataRetriever;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.MediaStore;
 import android.provider.OpenableColumns;
 
 import androidx.annotation.Nullable;
 import androidx.activity.result.ActivityResult;
 
 import com.getcapacitor.JSObject;
+import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
 
 import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
@@ -43,10 +50,25 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.util.Collections;
 
-@CapacitorPlugin(name = "VideoOptimizer")
+@CapacitorPlugin(
+        name = "VideoOptimizer",
+        permissions = {
+                @Permission(
+                        alias = "videos",
+                        strings = {Manifest.permission.READ_MEDIA_VIDEO}
+                ),
+                @Permission(
+                        alias = "legacyStorage",
+                        strings = {Manifest.permission.READ_EXTERNAL_STORAGE}
+                )
+        }
+)
 public class VideoOptimizerPlugin extends Plugin {
     private static final int MAX_SHORT_SIDE = 1080;
     private static final int MP4_FRONT_METADATA_RESERVE_BYTES = 8 * 1024 * 1024;
+    private static final long TARGET_MAX_OUTPUT_BYTES = 66_000_000L;
+    private static final int AUDIO_BITRATE = 96_000;
+    private static final int MIN_VIDEO_BITRATE = 64_000;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private PluginCall activeCall;
@@ -75,15 +97,68 @@ public class VideoOptimizerPlugin extends Plugin {
             return;
         }
         activeCall = call;
-        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType("video/*");
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        String permissionAlias = videoPermissionAlias();
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
+                getPermissionState(permissionAlias) == PermissionState.GRANTED) {
+            openVideoPicker(call);
+            return;
+        }
+        requestPermissionForAlias(
+                permissionAlias,
+                call,
+                "videoLibraryPermissionResult"
+        );
+    }
+
+    @PermissionCallback
+    private void videoLibraryPermissionResult(PluginCall call) {
+        if (call == null || activeCall != call) return;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+                getPermissionState(videoPermissionAlias()) != PermissionState.GRANTED) {
+            failOptimization(call, "Video library access was not granted.", null);
+            return;
+        }
+        openVideoPicker(call);
+    }
+
+    private String videoPermissionAlias() {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                ? "videos"
+                : "legacyStorage";
+    }
+
+    private void openVideoPicker(PluginCall call) {
+        Intent galleryPicker = new Intent(Intent.ACTION_PICK);
+        galleryPicker.setDataAndType(
+                MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                "video/*"
+        );
+        galleryPicker.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        if (tryOpenPicker(call, galleryPicker)) return;
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            Intent systemPhotoPicker = new Intent(MediaStore.ACTION_PICK_IMAGES);
+            systemPhotoPicker.setType("video/*");
+            systemPhotoPicker.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            if (tryOpenPicker(call, systemPhotoPicker)) return;
+        }
+
+        Intent videoContentPicker = new Intent(Intent.ACTION_GET_CONTENT);
+        videoContentPicker.addCategory(Intent.CATEGORY_OPENABLE);
+        videoContentPicker.setType("video/*");
+        videoContentPicker.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        if (tryOpenPicker(call, videoContentPicker)) return;
+
+        failOptimization(call, "No video gallery is available on this device.", null);
+    }
+
+    private boolean tryOpenPicker(PluginCall call, Intent intent) {
+        if (intent.resolveActivity(getContext().getPackageManager()) == null) return false;
         try {
             startActivityForResult(call, intent, "onVideoPicked");
-        } catch (Exception error) {
-            activeCall = null;
-            call.reject("Could not open the video picker.", error);
+            return true;
+        } catch (ActivityNotFoundException | IllegalArgumentException error) {
+            return false;
         }
     }
 
@@ -165,11 +240,11 @@ public class VideoOptimizerPlugin extends Plugin {
         double scale = Math.min(1d, (double) MAX_SHORT_SIDE / Math.min(width, height));
         int outputWidth = even((int) Math.floor(width * scale));
         int outputHeight = even((int) Math.floor(height * scale));
-        int targetBitrate = Math.min(width, height) >= 1080 ? 4_200_000 : 2_500_000;
+        int targetBitrate = targetVideoBitrate(Math.min(width, height), durationMs);
 
         File cacheDir = getContext().getCacheDir();
         long estimatedOutputBytes =
-                (durationMs * ((long) targetBitrate + 128_000L) / 8_000L * 115L / 100L)
+                (durationMs * ((long) targetBitrate + AUDIO_BITRATE) / 8_000L * 115L / 100L)
                         + MP4_FRONT_METADATA_RESERVE_BYTES;
         if (cacheDir.getUsableSpace() < estimatedOutputBytes) {
             throw new IOException("There is not enough free device storage to optimize this video.");
@@ -184,6 +259,7 @@ public class VideoOptimizerPlugin extends Plugin {
                 .build();
         DefaultEncoderFactory encoderFactory = new DefaultEncoderFactory.Builder(getContext())
                 .setRequestedVideoEncoderSettings(videoSettings)
+                .setEnableFallback(true)
                 .build();
 
         Transformer transformer = new Transformer.Builder(getContext())
@@ -203,7 +279,7 @@ public class VideoOptimizerPlugin extends Plugin {
                             ExportResult exportResult,
                             ExportException exportException
                     ) {
-                        failOptimization(call, "This device could not optimize the selected video.",
+                        failOptimization(call, "Video optimization failed.",
                                 exportException);
                     }
                 })
@@ -313,6 +389,20 @@ public class VideoOptimizerPlugin extends Plugin {
         } catch (IOException error) {
             return false;
         }
+    }
+
+    private static int targetVideoBitrate(int shortSide, long durationMs) {
+        int qualityCeiling = shortSide >= 1080 ? 4_200_000 : 2_500_000;
+        long mediaBytes = Math.max(
+                1L,
+                TARGET_MAX_OUTPUT_BYTES - MP4_FRONT_METADATA_RESERVE_BYTES
+        );
+        long totalBitrateBudget = (mediaBytes * 8_000L) / durationMs;
+        long videoBitrateBudget = totalBitrateBudget - AUDIO_BITRATE;
+        return (int) Math.max(
+                MIN_VIDEO_BITRATE,
+                Math.min((long) qualityCeiling, videoBitrateBudget)
+        );
     }
 
     private static int parseMetadata(MediaMetadataRetriever retriever, int key) {

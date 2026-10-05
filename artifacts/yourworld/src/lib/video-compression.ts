@@ -8,15 +8,23 @@ import {
 const OPTIMIZING_LABEL = "Preparing optimized video...";
 const UPLOAD_MAX_TIER: VideoQualityTier = "1080p";
 export const VIDEO_UPLOAD_BITRATE = 2_500_000;
-const nativeOptimizedBlobs = new WeakSet<Blob>();
+const uploadReadyVideoBlobs = new WeakSet<Blob>();
 const LARGE_SOURCE_COMPRESSION_REQUIRED_BYTES = 300 * 1024 * 1024;
 
+export function markVideoBlobAsUploadReady(blob: Blob) {
+  uploadReadyVideoBlobs.add(blob);
+}
+
 export function markVideoBlobAsOptimized(blob: Blob) {
-  nativeOptimizedBlobs.add(blob);
+  markVideoBlobAsUploadReady(blob);
+}
+
+export function isVideoBlobUploadReady(blob: Blob) {
+  return uploadReadyVideoBlobs.has(blob);
 }
 
 export function isNativeOptimizedVideo(blob: Blob) {
-  return nativeOptimizedBlobs.has(blob);
+  return isVideoBlobUploadReady(blob);
 }
 
 const RECORDER_MIME_CANDIDATES = [
@@ -285,7 +293,7 @@ export async function optimizeVideoBlob(
   onOutputDimensions?: (dimensions: { width: number; height: number }) => void,
 ): Promise<Blob> {
   if (!source.type.startsWith("video/")) return source;
-  if (isNativeOptimizedVideo(source)) return source;
+  if (isVideoBlobUploadReady(source)) return source;
   const requiresCompression = source.size > LARGE_SOURCE_COMPRESSION_REQUIRED_BYTES;
   let metadata: VideoMetadata | null = null;
   let sourceUrl: string | null = null;

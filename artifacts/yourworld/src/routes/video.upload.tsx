@@ -33,6 +33,7 @@ import {
   pickAndOptimizeNativeVideo,
   supportsNativeVideoOptimization,
 } from "@/lib/native-video-optimization";
+import { markVideoBlobAsUploadReady } from "@/lib/video-compression";
 
 type AccessOption = "public" | "vip" | "paid";
 const MIN_PAID_VIDEO_PRICE = 10;
@@ -73,6 +74,7 @@ function VideoUploadPage() {
   const videoInput = useRef<HTMLInputElement | null>(null);
   const thumbInput = useRef<HTMLInputElement | null>(null);
   const mountedRef = useRef(true);
+  const uploadOriginalOnNextChooseRef = useRef(false);
 
   const [fileUrl, setFileUrl] = useState<string | null>(null);
   const [previewFrame, setPreviewFrame] = useState<string | null>(null);
@@ -143,6 +145,10 @@ function VideoUploadPage() {
 
   const chooseVideo = async () => {
     if (preparingVideo || optimizingVideo) return;
+    if (uploadOriginalOnNextChooseRef.current) {
+      videoInput.current?.click();
+      return;
+    }
     if (!supportsNativeVideoOptimization()) {
       videoInput.current?.click();
       return;
@@ -158,11 +164,10 @@ function VideoUploadPage() {
       });
       if (!mountedRef.current || !optimizedFile) return;
       pickVideo(optimizedFile);
-    } catch (error) {
+    } catch {
       if (!mountedRef.current) return;
-      toast.error(
-        error instanceof Error ? error.message : "Video optimization failed.",
-      );
+      uploadOriginalOnNextChooseRef.current = true;
+      toast("Compression is unavailable. Choose the video again to upload the original.");
     } finally {
       if (mountedRef.current) {
         setPreparingVideo(false);
@@ -595,7 +600,14 @@ function VideoUploadPage() {
           accept="video/*"
           hidden
           onChange={(e) => {
-            pickVideo(e.target.files?.[0]);
+            const selectedFile = e.target.files?.[0];
+            if (selectedFile && uploadOriginalOnNextChooseRef.current) {
+              uploadOriginalOnNextChooseRef.current = false;
+              if (selectedFile.type.startsWith("video/")) {
+                markVideoBlobAsUploadReady(selectedFile);
+              }
+            }
+            pickVideo(selectedFile);
             e.currentTarget.value = "";
           }}
         />

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  markVideoBlobAsUploadReady,
+  optimizeVideoBlob,
   outputSizeForQuality,
   qualityTierForOutput,
   selectSupportedRecorderMimeType,
@@ -38,4 +40,11 @@ test("quality conversion downsizes without upscaling the source", () => {
 
 test("upload optimization targets 2500 kbps video before audio overhead", () => {
   assert.equal(VIDEO_UPLOAD_BITRATE, 2_500_000);
+});
+
+test("direct-upload fallback bypasses browser-side video re-encoding", async () => {
+  const original = new Blob(["large source placeholder"], { type: "video/mp4" });
+  markVideoBlobAsUploadReady(original);
+
+  assert.equal(await optimizeVideoBlob(original), original);
 });

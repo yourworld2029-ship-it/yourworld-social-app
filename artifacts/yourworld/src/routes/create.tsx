@@ -25,6 +25,7 @@ import {
   pickAndOptimizeNativeVideo,
   supportsNativeVideoOptimization,
 } from "@/lib/native-video-optimization";
+import { markVideoBlobAsUploadReady } from "@/lib/video-compression";
 
 const MIN_REEL_SECONDS = 5;
 const MAX_REEL_SECONDS = 90;
@@ -50,6 +51,7 @@ function DirectReelUploadPage() {
   const { startUpload } = useUploadActions();
   const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadOriginalOnNextChooseRef = useRef(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const mountedRef = useRef(true);
   const [file, setFile] = useState<File | null>(null);
@@ -95,6 +97,7 @@ function DirectReelUploadPage() {
     setCurrentTime(0);
     setIsPlaying(false);
     setError(null);
+    uploadOriginalOnNextChooseRef.current = false;
     setPreparingVideo(false);
     setOptimizingVideo(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -117,6 +120,10 @@ function DirectReelUploadPage() {
 
   const chooseVideo = async () => {
     if (preparingVideo || optimizingVideo) return;
+    if (uploadOriginalOnNextChooseRef.current) {
+      fileInputRef.current?.click();
+      return;
+    }
     if (!supportsNativeVideoOptimization()) {
       fileInputRef.current?.click();
       return;
@@ -133,12 +140,10 @@ function DirectReelUploadPage() {
       });
       if (!mountedRef.current || !optimizedFile) return;
       handleFileChange(optimizedFile);
-    } catch (error) {
+    } catch {
       if (!mountedRef.current) return;
-      const message =
-        error instanceof Error ? error.message : "Video optimization failed.";
-      setError(message);
-      toast.error(message);
+      uploadOriginalOnNextChooseRef.current = true;
+      toast("Compression is unavailable. Choose the video again to upload the original.");
     } finally {
       if (mountedRef.current) {
         setPreparingVideo(false);
@@ -373,7 +378,16 @@ function DirectReelUploadPage() {
             type="file"
             accept="video/*"
             className="hidden"
-            onChange={(event) => handleFileChange(event.target.files?.[0])}
+            onChange={(event) => {
+              const nextFile = event.target.files?.[0];
+              if (nextFile && uploadOriginalOnNextChooseRef.current) {
+                uploadOriginalOnNextChooseRef.current = false;
+                if (nextFile.type.startsWith("video/")) {
+                  markVideoBlobAsUploadReady(nextFile);
+                }
+              }
+              handleFileChange(nextFile);
+            }}
           />
 
           {(preparingVideo || optimizingVideo) && (
