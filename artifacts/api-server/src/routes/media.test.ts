@@ -285,6 +285,80 @@ test("offline-source creates and caches a genuinely smaller selected rendition",
   assert.equal(sourceFetchCount, 1, "a cache hit should not refetch or transcode the source");
 });
 
+test("offline-source refuses a requested tier above probed source dimensions", async (t) => {
+  setTestEnvironment(t);
+  const directory = await mkdtemp(join(tmpdir(), "yourworld-offline-upscale-test-"));
+  const sourcePath = join(directory, "source.mp4");
+  await createSourceFixture(sourcePath);
+  const sourceBytes = await readFile(sourcePath);
+  let uploadedBytes = 0;
+
+  t.mock.method(
+    globalThis,
+    "fetch",
+    async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/auth/v1/user") {
+        return jsonResponse({ id: "user-1" });
+      }
+      if (url.pathname === "/rest/v1/posts") {
+        return jsonResponse([
+          {
+            id: "post-1",
+            user_id: "user-1",
+            kind: "video",
+            media_url: "videos/user-1/source.mp4",
+            video_access: "public",
+            allow_download: true,
+          },
+        ]);
+      }
+      if (
+        url.pathname === "/storage/v1/object/list/videos" &&
+        init?.method === "POST"
+      ) {
+        return jsonResponse([]);
+      }
+      if (
+        url.pathname === "/storage/v1/object/videos/user-1/source.mp4" &&
+        (!init?.method || init.method === "GET")
+      ) {
+        return new Response(sourceBytes, {
+          headers: {
+            "Content-Type": "video/mp4",
+            "Content-Length": String(sourceBytes.byteLength),
+          },
+        });
+      }
+      if (
+        url.pathname.startsWith("/storage/v1/object/videos/user-1/.quality-renditions/") &&
+        init?.method === "POST"
+      ) {
+        const body = init.body as AsyncIterable<Uint8Array>;
+        for await (const chunk of body) uploadedBytes += chunk.byteLength;
+        return new Response(null, { status: 200 });
+      }
+      return jsonResponse({ error: `Unexpected mocked request: ${url.pathname}` }, 500);
+    },
+  );
+
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const baseUrl = await startServer(t);
+  const response = await nativeFetch(`${baseUrl}/api/media/offline-source`, {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer test-user-access-token",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ postId: "post-1", quality: "1080p" }),
+  });
+  const payload = (await response.json()) as { error?: string };
+
+  assert.equal(response.status, 422);
+  assert.match(payload.error ?? "", /above this video's source resolution/i);
+  assert.equal(uploadedBytes, 0, "an unsupported upscale must never be stored as a rendition");
+});
+
 test("offline-source still honors the creator's download denial", async (t) => {
   setTestEnvironment(t);
   t.mock.method(

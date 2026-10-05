@@ -5,9 +5,13 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
 import {
+  createFastStartMp4,
   createVideoRendition,
+  hasFastStartMp4Layout,
+  isLowerRendition,
   probeVideoDimensions,
   qualityRenditionArgs,
+  sourceSupportsRequestedQuality,
   videoQualityFromDimensions,
 } from "./video-rendition";
 
@@ -35,6 +39,15 @@ test("quality renditions cap landscape and portrait short sides without upscalin
   assert.equal(videoQualityFromDimensions(1920, 1080), "1080p");
   assert.equal(videoQualityFromDimensions(1080, 1920), "1080p");
   assert.equal(videoQualityFromDimensions(320, 240), "original");
+});
+
+test("server quality checks reject tiers above the source resolution", () => {
+  assert.equal(sourceSupportsRequestedQuality("720p", "720p"), true);
+  assert.equal(sourceSupportsRequestedQuality("720p", "480p"), true);
+  assert.equal(sourceSupportsRequestedQuality("360p", "720p"), false);
+  assert.equal(sourceSupportsRequestedQuality("original", "360p"), false);
+  assert.equal(isLowerRendition("720p", "360p"), true);
+  assert.equal(isLowerRendition("720p", "720p"), false);
 });
 
 test("360p rendition is an actual smaller MP4 with scaled dimensions", async () => {
@@ -79,6 +92,41 @@ test("360p rendition is an actual smaller MP4 with scaled dimensions", async () 
     assert.deepEqual(dimensions, { width: 640, height: 360 });
     assert.ok(outputStats.size > 0);
     assert.ok(outputStats.size < sourceStats.size);
+    assert.equal(await hasFastStartMp4Layout(outputPath), true);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("upload processing moves the MP4 moov atom before mdat", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "yourworld-faststart-test-"));
+  const inputPath = join(directory, "late-moov.mp4");
+  const outputPath = join(directory, "faststart.mp4");
+
+  try {
+    await runFixtureFfmpeg([
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-f",
+      "lavfi",
+      "-i",
+      "testsrc2=size=1280x720:rate=24:duration=2",
+      "-an",
+      "-c:v",
+      "libx264",
+      "-preset",
+      "fast",
+      "-b:v",
+      "1M",
+      "-pix_fmt",
+      "yuv420p",
+      inputPath,
+    ]);
+
+    assert.equal(await hasFastStartMp4Layout(inputPath), false);
+    await createFastStartMp4(inputPath, outputPath);
+    assert.equal(await hasFastStartMp4Layout(outputPath), true);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

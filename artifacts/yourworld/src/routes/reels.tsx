@@ -1910,6 +1910,7 @@ function ReelItem({
         cloudflareStreamId={reel.cloudflareStreamId}
         sourceMediaUrl={mediaUrl}
         mediaBucket={mediaBucket ?? "reels"}
+        enforceSourceQualityLimit={false}
         onDownload={handleDownload}
       />
       <AlertDialog

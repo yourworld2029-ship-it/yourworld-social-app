@@ -7,8 +7,11 @@ import {
   effectiveDownloadSourceQuality,
   estimateDownloadSizeMb,
   estimateDownloadSizeMbFromSourceFile,
+  estimateDownloadSizeMbForPicker,
+  estimateDownloadSizeMbFromSourceFileForPicker,
   formatDownloadSizeMb,
   hasExactVideoDownload,
+  isVideoDownloadTierWithinSource,
   needsOnDemandVideoTranscode,
   qualityTierFromDimensions,
   qualityTierFromMetadata,
@@ -48,6 +51,29 @@ test("download quality is capped at the source tier when the source is smaller",
   assert.equal(capQualityTierToSource("1080p", "720p"), "720p");
   assert.equal(capQualityTierToSource("480p", "720p"), "480p");
   assert.equal(capQualityTierToSource("480p", null), "480p");
+});
+
+test("quality picker never enables a tier above the known effective source", () => {
+  assert.deepEqual(
+    VIDEO_DOWNLOAD_PICKER_TIERS.filter((tier) =>
+      isVideoDownloadTierWithinSource(tier, "720p"),
+    ),
+    ["720p", "480p", "360p"],
+  );
+  assert.deepEqual(
+    VIDEO_DOWNLOAD_PICKER_TIERS.filter((tier) =>
+      isVideoDownloadTierWithinSource(tier, "360p"),
+    ),
+    ["360p"],
+  );
+  assert.deepEqual(
+    VIDEO_DOWNLOAD_PICKER_TIERS.filter((tier) =>
+      isVideoDownloadTierWithinSource(tier, null),
+    ),
+    [],
+  );
+  assert.equal(isVideoDownloadTierWithinSource("1080p", "2160p", "stream-12345678"), true);
+  assert.equal(isVideoDownloadTierWithinSource("1080p", "720p"), false);
 });
 
 test("requested download qualities are offered only when an actual quality media URL exists", () => {
@@ -225,6 +251,23 @@ test("quality sizes are duration-based estimates while original source sizes are
   assert.equal(formatDownloadSizeMb(20), "≈ 20 MB");
   assert.equal(formatDownloadSizeMb(6.41, true), "6.41 MB");
   assert.equal(formatDownloadSizeMb(1_200, true), "1,200 MB");
+});
+
+test("quality-picker estimates scale with duration near the requested size ratios", () => {
+  const estimate1080 = estimateDownloadSizeMbForPicker(60, "1080p");
+  assert.equal(estimate1080, 38);
+  assert.equal(estimateDownloadSizeMbForPicker(60, "720p"), 17);
+  assert.equal(estimateDownloadSizeMbForPicker(60, "480p"), 10);
+  assert.equal(estimateDownloadSizeMbForPicker(60, "360p"), 5);
+  assert.equal(estimateDownloadSizeMbForPicker(null, "720p"), null);
+});
+
+test("quality-picker fallback estimates retain the requested ratios from a source size", () => {
+  assert.equal(estimateDownloadSizeMbFromSourceFileForPicker(100_000_000, "1080p", "1080p"), 100);
+  assert.equal(estimateDownloadSizeMbFromSourceFileForPicker(100_000_000, "1080p", "720p"), 45);
+  assert.equal(estimateDownloadSizeMbFromSourceFileForPicker(100_000_000, "1080p", "480p"), 25);
+  assert.equal(estimateDownloadSizeMbFromSourceFileForPicker(100_000_000, "1080p", "360p"), 14);
+  assert.equal(estimateDownloadSizeMbFromSourceFileForPicker(6_410_000, null, "720p"), null);
 });
 
 test("estimates quality sizes from the source file when duration is missing", () => {

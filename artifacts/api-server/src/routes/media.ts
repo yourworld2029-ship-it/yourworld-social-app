@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { createReadStream, createWriteStream } from "node:fs";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -23,9 +22,11 @@ import {
   TranscodeVideoResponse,
 } from "@workspace/api-zod";
 import {
+  createFastStartMp4,
   createVideoRendition,
   isLowerRendition,
   probeVideoDimensions,
+  sourceSupportsRequestedQuality,
   videoQualityFromDimensions,
   type DetectedVideoQuality,
   type RenditionQuality,
@@ -121,96 +122,6 @@ async function downloadSource(
     }),
   );
   return receivedBytes;
-}
-
-function runFfmpeg(args: string[]) {
-  return new Promise<void>((resolve, reject) => {
-    const child = spawn("ffmpeg", args, { stdio: ["ignore", "ignore", "pipe"] });
-    let stderr = "";
-    let timedOut = false;
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      child.kill("SIGKILL");
-    }, FFMPEG_TIMEOUT_MS);
-
-    child.stderr.on("data", (chunk: Buffer) => {
-      stderr = `${stderr}${chunk.toString("utf8")}`.slice(-8_000);
-    });
-    child.once("error", (error) => {
-      clearTimeout(timeout);
-      reject(error);
-    });
-    child.once("close", (code) => {
-      clearTimeout(timeout);
-      if (code === 0 && !timedOut) {
-        resolve();
-        return;
-      }
-      reject(
-        new Error(
-          timedOut
-            ? "FFmpeg processing exceeded the time limit."
-            : stderr.trim() || `FFmpeg exited with code ${String(code)}.`,
-        ),
-      );
-    });
-  });
-}
-
-function ffmpegArgs(inputPath: string, outputPath: string, reencode: boolean) {
-  const args = [
-    "-hide_banner",
-    "-loglevel",
-    "error",
-    "-nostdin",
-    "-y",
-    "-protocol_whitelist",
-    "file,pipe",
-    "-i",
-    inputPath,
-    "-map",
-    "0:v:0",
-    "-map",
-    "0:a?",
-  ];
-
-  if (reencode) {
-    args.push(
-      "-c:v",
-      "libx264",
-      "-preset",
-      "fast",
-      "-crf",
-      "23",
-      "-pix_fmt",
-      "yuv420p",
-      "-c:a",
-      "aac",
-      "-b:a",
-      "128k",
-    );
-  } else {
-    args.push("-c", "copy");
-  }
-
-  args.push("-movflags", "+faststart", "-f", "mp4", outputPath);
-  return args;
-}
-
-async function makeFastStartMp4(inputPath: string, outputPath: string) {
-  try {
-    await runFfmpeg(ffmpegArgs(inputPath, outputPath, false));
-  } catch (copyError) {
-    await rm(outputPath, { force: true });
-    try {
-      await runFfmpeg(ffmpegArgs(inputPath, outputPath, true));
-    } catch (encodeError) {
-      throw new Error(
-        `Fast-start remux failed (${copyError instanceof Error ? copyError.message : "unknown error"}); ` +
-          `H.264 fallback failed (${encodeError instanceof Error ? encodeError.message : "unknown error"}).`,
-      );
-    }
-  }
 }
 
 async function uploadProcessedVideo(
@@ -908,6 +819,14 @@ async function createOnDemandQualitySource(
       knownSourceQuality !== "original" &&
       !isLowerRendition(knownSourceQuality, requestedQuality)
     ) {
+      if (
+        row.kind !== "reel" &&
+        !sourceSupportsRequestedQuality(knownSourceQuality, requestedQuality)
+      ) {
+        throw new QualityConversionUnavailableError(
+          "The selected quality is above this video's source resolution.",
+        );
+      }
       return { url: externalSource, actualQuality: knownSourceQuality };
     }
     throw new QualityConversionUnavailableError(
@@ -932,13 +851,20 @@ async function createOnDemandQualitySource(
         )
       : null);
 
-  if (
-    knownSourceQuality !== "original" &&
-    !isLowerRendition(knownSourceQuality, requestedQuality)
-  ) {
-    const url = await getDirectSourceUrl();
-    if (!url) throw new QualityConversionUnavailableError("No downloadable video source is available.");
-    return { url, actualQuality: knownSourceQuality };
+  if (knownSourceQuality !== "original") {
+    if (
+      row.kind !== "reel" &&
+      !sourceSupportsRequestedQuality(knownSourceQuality, requestedQuality)
+    ) {
+      throw new QualityConversionUnavailableError(
+        "The selected quality is above this video's source resolution.",
+      );
+    }
+    if (!isLowerRendition(knownSourceQuality, requestedQuality)) {
+      const url = await getDirectSourceUrl();
+      if (!url) throw new QualityConversionUnavailableError("No downloadable video source is available.");
+      return { url, actualQuality: knownSourceQuality };
+    }
   }
 
   const sourceKey = createHash("sha256")
@@ -986,6 +912,14 @@ async function createOnDemandQualitySource(
       dimensions.width,
       dimensions.height,
     );
+    if (
+      row.kind !== "reel" &&
+      !sourceSupportsRequestedQuality(actualSourceQuality, requestedQuality)
+    ) {
+      throw new QualityConversionUnavailableError(
+        "The selected quality is above this video's source resolution.",
+      );
+    }
     if (!isLowerRendition(actualSourceQuality, requestedQuality)) {
       const url = await getDirectSourceUrl();
       if (!url) throw new QualityConversionUnavailableError("No downloadable video source is available.");
@@ -1589,7 +1523,7 @@ router.post("/media/transcode", async (req, res): Promise<void> => {
     }
 
     const inputBytes = await downloadSource(sourceResponse, inputPath);
-    await makeFastStartMp4(inputPath, outputPath);
+    await createFastStartMp4(inputPath, outputPath);
     const outputStats = await stat(outputPath);
     if (outputStats.size < 1 || outputStats.size > MAX_VIDEO_BYTES) {
       throw new VideoTooLargeError("The processed video is outside the supported size limit.");

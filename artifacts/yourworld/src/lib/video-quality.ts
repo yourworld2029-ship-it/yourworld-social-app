@@ -178,6 +178,25 @@ export function effectiveDownloadSourceQuality(
   return sourceIndex > cloudflareMaximumIndex ? "1080p" : sourceTier;
 }
 
+export function isVideoDownloadTierWithinSource(
+  choice: VideoQualityTier,
+  sourceTier: VideoQualityTier | null | undefined,
+  cloudflareStreamId?: string | null,
+) {
+  const effectiveSourceTier = effectiveDownloadSourceQuality(
+    sourceTier,
+    cloudflareStreamId,
+  );
+  if (effectiveSourceTier === "original") return false;
+  const sourceIndex = VIDEO_QUALITY_TIERS.findIndex(
+    (candidate) => candidate.id === effectiveSourceTier,
+  );
+  const choiceIndex = VIDEO_QUALITY_TIERS.findIndex(
+    (candidate) => candidate.id === choice,
+  );
+  return sourceIndex >= choiceIndex;
+}
+
 export function needsOnDemandVideoTranscode(
   choice: VideoQualityTier,
   selection: ResolvedVideoDownloadSelection | null | undefined,
@@ -272,6 +291,53 @@ export function estimateDownloadSizeMbFromSourceFile(
   const audioBitrate = 128_000;
   return Math.ceil(
     (sizeBytes * (targetDefinition.bitrate + audioBitrate)) /
+      (sourceDefinition.bitrate + audioBitrate) /
+      1_000_000,
+  );
+}
+
+const QUALITY_PICKER_ESTIMATE_BITRATES: Partial<Record<VideoQualityTier, number>> = {
+  "360p": 600_000,
+  "480p": 1_150_000,
+  "720p": 2_200_000,
+  "1080p": 5_000_000,
+};
+
+export function estimateDownloadSizeMbForPicker(
+  durationSeconds: number | null | undefined,
+  tier: VideoQualityTier,
+) {
+  const duration = Number(durationSeconds);
+  const videoBitrate = QUALITY_PICKER_ESTIMATE_BITRATES[tier];
+  if (!Number.isFinite(duration) || duration <= 0 || !videoBitrate) return null;
+  // Include AAC audio. Rounded estimates are intentionally approximate and
+  // keep the requested tiers near 100%, 45%, 25%, and 12–15% of 1080p.
+  return Math.round((duration * (videoBitrate + 128_000)) / 8 / 1_000_000);
+}
+
+export function estimateDownloadSizeMbFromSourceFileForPicker(
+  sourceFileSizeBytes: number | null | undefined,
+  sourceTier: VideoQualityTier | null | undefined,
+  targetTier: VideoQualityTier,
+) {
+  const sizeBytes = Number(sourceFileSizeBytes);
+  const sourceDefinition = VIDEO_QUALITY_TIERS.find(
+    (candidate) => candidate.id === sourceTier,
+  );
+  const effectiveTier = capQualityTierToSource(targetTier, sourceTier);
+  const targetBitrate = QUALITY_PICKER_ESTIMATE_BITRATES[effectiveTier];
+  if (
+    !Number.isFinite(sizeBytes) ||
+    sizeBytes <= 0 ||
+    !sourceDefinition ||
+    !targetBitrate
+  ) {
+    return null;
+  }
+
+  const audioBitrate = 128_000;
+  return Math.round(
+    (sizeBytes * (targetBitrate + audioBitrate)) /
       (sourceDefinition.bitrate + audioBitrate) /
       1_000_000,
   );

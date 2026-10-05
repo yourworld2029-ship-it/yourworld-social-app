@@ -12,7 +12,7 @@ const apkPublicDir = path.resolve(
 );
 const apkDownloadDir = path.join(apkPublicDir, "downloads");
 const timestampedApkPattern =
-  /^yourworld-(\d{8}T\d{6}Z)-v(\d+)(?:-release-debug-signed)?\.apk$/;
+  /^yourworld-(\d{8}T\d{6}Z)-v(\d+)(?:-debug|-release-debug-signed)?\.apk$/;
 
 async function findLatestApk() {
   const entries = await readdir(apkDownloadDir, { withFileTypes: true });

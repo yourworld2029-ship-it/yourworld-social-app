@@ -1117,6 +1117,7 @@ function ProfilePage() {
         }
         sourceMediaUrl={downloadSourceUrl}
         mediaBucket={downloadTarget?.kind === "reel" ? "reels" : "videos"}
+        enforceSourceQualityLimit={downloadTarget?.kind !== "reel"}
         onDownload={downloadManagedMedia}
       />
 

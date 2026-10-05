@@ -14,8 +14,11 @@ import {
   effectiveDownloadSourceQuality,
   estimateDownloadSizeMb,
   estimateDownloadSizeMbFromSourceFile,
+  estimateDownloadSizeMbForPicker,
+  estimateDownloadSizeMbFromSourceFileForPicker,
   formatDownloadSizeMb,
   hasExactVideoDownload,
+  isVideoDownloadTierWithinSource,
   needsOnDemandVideoTranscode,
   resolveVideoDownloadSelection,
   type VideoQualityTier,
@@ -51,6 +54,7 @@ type Props = {
   sourceMediaUrl?: string | null;
   sourceFileSizeBytes?: number | null;
   mediaBucket?: "reels" | "videos";
+  enforceSourceQualityLimit?: boolean;
   onDownload: (
     choice: DownloadChoice,
     onProgress?: (percent: number) => void,
@@ -73,15 +77,24 @@ function isDownloadChoiceAvailable(
   qualityMediaUrls?: DownloadQualityUrls | null,
   sourceQualityTier?: VideoQualityTier | null,
   cloudflareStreamId?: string | null,
+  enforceSourceQualityLimit = true,
 ) {
   if (choice === "mp3") return false;
   if (choice === "original") return Boolean(sourceMediaUrl?.trim());
-  return hasExactVideoDownload(
-    choice,
-    sourceMediaUrl,
-    qualityMediaUrls,
-    sourceQualityTier,
-    cloudflareStreamId,
+  return (
+    hasExactVideoDownload(
+      choice,
+      sourceMediaUrl,
+      qualityMediaUrls,
+      sourceQualityTier,
+      cloudflareStreamId,
+    ) &&
+    (!enforceSourceQualityLimit ||
+      isVideoDownloadTierWithinSource(
+        choice,
+        sourceQualityTier,
+        cloudflareStreamId,
+      ))
   );
 }
 
@@ -217,14 +230,29 @@ export function DownloadSheet({
   sourceMediaUrl,
   sourceFileSizeBytes,
   mediaBucket = "videos",
+  enforceSourceQualityLimit = true,
   onDownload,
 }: Props) {
   const choices = useMemo<DownloadChoice[]>(
-    () => [...VIDEO_DOWNLOAD_PICKER_TIERS, "original"],
-    [],
+    () => [
+      ...VIDEO_DOWNLOAD_PICKER_TIERS.filter(
+        (tier) =>
+          !enforceSourceQualityLimit ||
+          isVideoDownloadTierWithinSource(
+            tier,
+            sourceQualityTier,
+            cloudflareStreamId,
+          ),
+      ),
+      "original",
+    ],
+    [cloudflareStreamId, enforceSourceQualityLimit, sourceQualityTier],
   );
-  const preferredChoice: DownloadChoice =
-    VIDEO_DOWNLOAD_PICKER_TIERS.find((tier) => tier === sourceQualityTier) ?? "original";
+  const preferredChoice: DownloadChoice = enforceSourceQualityLimit
+    ? VIDEO_DOWNLOAD_PICKER_TIERS.find((tier) =>
+        isVideoDownloadTierWithinSource(tier, sourceQualityTier, cloudflareStreamId),
+      ) ?? "original"
+    : VIDEO_DOWNLOAD_PICKER_TIERS.find((tier) => tier === sourceQualityTier) ?? "original";
   const [selected, setSelected] = useState<DownloadChoice>(
     preferredChoice,
   );
@@ -260,18 +288,31 @@ export function DownloadSheet({
 
     const sizeCandidates = choices.flatMap((choice) => {
       if (choice === "mp3") return [];
-      const selection = choice === "original"
-        ? null
-        : resolveVideoDownloadSelection(
-            choice,
-            sourceMediaUrl,
-            qualityMediaUrls,
-            sourceQualityTier,
-            cloudflareStreamId,
-          );
+      if (
+        !isDownloadChoiceAvailable(
+          choice,
+          sourceMediaUrl,
+          qualityMediaUrls,
+          sourceQualityTier,
+          cloudflareStreamId,
+          enforceSourceQualityLimit,
+        )
+      ) {
+        return [];
+      }
+      const selection =
+        choice === "original"
+          ? null
+          : resolveVideoDownloadSelection(
+              choice,
+              sourceMediaUrl,
+              qualityMediaUrls,
+              sourceQualityTier,
+              cloudflareStreamId,
+            );
       if (choice !== "original" && !selection) return [];
       if (
-      choice !== "original" &&
+        choice !== "original" &&
         selection &&
         needsOnDemandVideoTranscode(
           choice,
@@ -313,12 +354,25 @@ export function DownloadSheet({
     open,
     qualityMediaUrls,
     cloudflareStreamId,
+    enforceSourceQualityLimit,
     sourceFileSizeBytes,
     sourceMediaUrl,
     sourceQualityTier,
   ]);
 
   const sizeForChoice = (choice: DownloadChoice) => {
+    if (
+      !isDownloadChoiceAvailable(
+        choice,
+        sourceMediaUrl,
+        qualityMediaUrls,
+        sourceQualityTier,
+        cloudflareStreamId,
+        enforceSourceQualityLimit,
+      )
+    ) {
+      return "Unavailable for this source";
+    }
     const providedSourceSize = positiveByteSize(sourceFileSizeBytes);
     const selection =
       choice !== "original" && choice !== "mp3"
@@ -354,12 +408,20 @@ export function DownloadSheet({
         cloudflareStreamId,
       );
       const estimate =
-        estimateDownloadSizeMb(resolvedDurationSeconds, conversionTier) ??
-        estimateDownloadSizeMbFromSourceFile(
-          sourceBytes,
-          effectiveSourceTier === "original" ? null : effectiveSourceTier,
-          conversionTier,
-        );
+        (enforceSourceQualityLimit
+          ? estimateDownloadSizeMbForPicker(resolvedDurationSeconds, conversionTier)
+          : estimateDownloadSizeMb(resolvedDurationSeconds, conversionTier)) ??
+        (enforceSourceQualityLimit
+          ? estimateDownloadSizeMbFromSourceFileForPicker(
+              sourceBytes,
+              effectiveSourceTier === "original" ? null : effectiveSourceTier,
+              conversionTier,
+            )
+          : estimateDownloadSizeMbFromSourceFile(
+              sourceBytes,
+              effectiveSourceTier === "original" ? null : effectiveSourceTier,
+              conversionTier,
+            ));
       return formatDownloadSizeMb(estimate);
     }
 
@@ -370,16 +432,6 @@ export function DownloadSheet({
       return formatDownloadSizeMb(exactSize / 1_000_000, true);
     }
 
-    if (choice !== "original" && choice !== "mp3" &&
-        !isDownloadChoiceAvailable(
-          choice,
-          sourceMediaUrl,
-          qualityMediaUrls,
-          sourceQualityTier,
-          cloudflareStreamId,
-        )) {
-      return "Exact rendition unavailable";
-    }
     if (choice === "original") {
       return formatDownloadSizeMb(null);
     }
@@ -397,6 +449,7 @@ export function DownloadSheet({
       qualityMediaUrls,
       sourceQualityTier,
       cloudflareStreamId,
+      enforceSourceQualityLimit,
     )) return;
     onOpenChange(false);
     void (async () => {
@@ -482,6 +535,7 @@ export function DownloadSheet({
               qualityMediaUrls,
               sourceQualityTier,
               cloudflareStreamId,
+              enforceSourceQualityLimit,
             );
             const quality =
               choice !== "original" && choice !== "mp3" ? QUALITY_COPY[choice] : null;
@@ -580,6 +634,7 @@ export function DownloadSheet({
               qualityMediaUrls,
               sourceQualityTier,
               cloudflareStreamId,
+              enforceSourceQualityLimit,
             )}
             className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-white py-3 text-sm font-bold text-black transition-transform active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
           >

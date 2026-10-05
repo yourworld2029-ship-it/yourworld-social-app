@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { open, rm } from "node:fs/promises";
 
 export type RenditionQuality = "360p" | "480p" | "720p" | "1080p";
 export type DetectedVideoQuality =
@@ -85,6 +86,17 @@ export function isLowerRendition(
   if (sourceQuality === "original") return false;
   return (
     QUALITY_ORDER.indexOf(sourceQuality) >
+    QUALITY_ORDER.indexOf(requestedQuality)
+  );
+}
+
+export function sourceSupportsRequestedQuality(
+  sourceQuality: DetectedVideoQuality,
+  requestedQuality: RenditionQuality,
+) {
+  if (sourceQuality === "original") return false;
+  return (
+    QUALITY_ORDER.indexOf(sourceQuality) >=
     QUALITY_ORDER.indexOf(requestedQuality)
   );
 }
@@ -191,4 +203,111 @@ export async function createVideoRendition(
     "ffmpeg",
     qualityRenditionArgs(inputPath, outputPath, quality, bitrateScale),
   );
+}
+
+export async function hasFastStartMp4Layout(filePath: string) {
+  const file = await open(filePath, "r");
+  try {
+    const fileSize = (await file.stat()).size;
+    const header = Buffer.alloc(16);
+    let offset = 0;
+    let sawFileType = false;
+    let sawMovieMetadata = false;
+
+    for (
+      let boxCount = 0;
+      offset + 8 <= fileSize && boxCount < 10_000;
+      boxCount += 1
+    ) {
+      const { bytesRead } = await file.read(header, 0, header.byteLength, offset);
+      if (bytesRead < 8) return false;
+      const size32 = header.readUInt32BE(0);
+      const type = header.toString("ascii", 4, 8);
+      if (offset === 0) {
+        if (type !== "ftyp") return false;
+        sawFileType = true;
+      }
+      if (type === "mdat") return sawFileType && sawMovieMetadata;
+      if (type === "moov") sawMovieMetadata = true;
+
+      let boxSize = size32;
+      let headerSize = 8;
+      if (size32 === 0) return false;
+      if (size32 === 1) {
+        if (bytesRead < 16) return false;
+        const extendedSize = header.readBigUInt64BE(8);
+        if (extendedSize > BigInt(Number.MAX_SAFE_INTEGER)) return false;
+        boxSize = Number(extendedSize);
+        headerSize = 16;
+      }
+      if (
+        boxSize < headerSize ||
+        !Number.isSafeInteger(boxSize) ||
+        offset + boxSize > fileSize
+      ) {
+        return false;
+      }
+      offset += boxSize;
+    }
+    return false;
+  } finally {
+    await file.close();
+  }
+}
+
+function fastStartMp4Args(inputPath: string, outputPath: string, reencode: boolean) {
+  const args = [
+    "-hide_banner",
+    "-loglevel",
+    "error",
+    "-nostdin",
+    "-y",
+    "-protocol_whitelist",
+    "file,pipe",
+    "-i",
+    inputPath,
+    "-map",
+    "0:v:0",
+    "-map",
+    "0:a?",
+  ];
+  if (reencode) {
+    args.push(
+      "-c:v",
+      "libx264",
+      "-preset",
+      "fast",
+      "-crf",
+      "23",
+      "-pix_fmt",
+      "yuv420p",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "128k",
+    );
+  } else {
+    args.push("-c", "copy");
+  }
+  args.push("-movflags", "+faststart", "-f", "mp4", outputPath);
+  return args;
+}
+
+export async function createFastStartMp4(inputPath: string, outputPath: string) {
+  try {
+    await runVideoTool("ffmpeg", fastStartMp4Args(inputPath, outputPath, false));
+  } catch (copyError) {
+    await rm(outputPath, { force: true });
+    try {
+      await runVideoTool("ffmpeg", fastStartMp4Args(inputPath, outputPath, true));
+    } catch (encodeError) {
+      throw new Error(
+        `Fast-start remux failed (${copyError instanceof Error ? copyError.message : "unknown error"}); ` +
+          `H.264 fallback failed (${encodeError instanceof Error ? encodeError.message : "unknown error"}).`,
+      );
+    }
+  }
+  if (!(await hasFastStartMp4Layout(outputPath))) {
+    throw new Error("Processed MP4 does not place its moov metadata before video data.");
+  }
 }
