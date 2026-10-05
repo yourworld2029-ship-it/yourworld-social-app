@@ -252,6 +252,7 @@ async function uploadToStorage(
 ): Promise<{
   url: string | null;
   storagePath: string | null;
+  posterUrl: string | null;
   width: number | null;
   height: number | null;
   streamUid: string | null;
@@ -279,6 +280,7 @@ async function uploadToStorage(
     const {
       url,
       storagePath,
+      posterUrl,
       streamUid,
       durationSeconds,
       error,
@@ -294,6 +296,7 @@ async function uploadToStorage(
       {
         cloudflareStream: true,
         requireSignedURLs,
+        reportByteProgress: true,
         fallbackToStorage: !requireSignedURLs,
         signal,
       },
@@ -301,6 +304,7 @@ async function uploadToStorage(
     return {
       url,
       storagePath,
+      posterUrl: posterUrl ?? null,
       width,
       height,
       streamUid: streamUid ?? null,
@@ -316,6 +320,7 @@ async function uploadToStorage(
     return {
       url: null,
       storagePath: null,
+      posterUrl: null,
       width,
       height,
       streamUid: null,
@@ -408,6 +413,33 @@ export async function publishLongVideo(opts: {
     return { error: "Long videos must be 1 GB or smaller." };
   }
 
+  let mediaUrl = opts.fileUrl;
+  let uploadedSourcePath: string | null = null;
+  let uploadedWidth = opts.originalWidth ?? null;
+  let uploadedHeight = opts.originalHeight ?? null;
+  let uploadedStreamUid: string | null = null;
+  let uploadedDurationSeconds: number | null = null;
+  let mediaUploadPromise: ReturnType<typeof uploadToStorage> | null = null;
+  if (/^(blob:|data:)/.test(mediaUrl)) {
+    // Start the raw/resumable video transfer before thumbnail work. On-device
+    // frame extraction must not hold the first TUS chunk behind it.
+    opts.onProgress?.(0, "Starting video upload", null);
+    mediaUploadPromise = uploadToStorage(
+      opts.file ?? mediaUrl,
+      uid,
+      "mp4",
+      "video/mp4",
+      (percent, detail, byteProgress) =>
+        opts.onProgress?.(
+          Math.min(97, Math.round(percent * 0.97)),
+          detail,
+          byteProgress,
+        ),
+      (opts.access ?? "public") !== "public",
+      opts.signal,
+    );
+  }
+
   let generatedThumbnail: Blob | null = null;
   if (!thumb) {
     try {
@@ -421,8 +453,37 @@ export async function publishLongVideo(opts: {
       console.warn("Could not generate the long-video thumbnail", error);
     }
     if (!generatedThumbnail) {
-      return { error: "Could not capture a thumbnail frame from this video. Please try again." };
+      console.warn("Could not capture a local thumbnail; checking for a Stream poster.");
     }
+  }
+
+  const uploadedMedia = mediaUploadPromise ? await mediaUploadPromise : null;
+  if (opts.signal?.aborted) return { error: "Upload cancelled" };
+  if (uploadedMedia) {
+    if (uploadedMedia.error || !uploadedMedia.url || !uploadedMedia.storagePath) {
+      return {
+        error:
+          uploadedMedia.error ??
+          "The video upload did not return a playable media URL.",
+      };
+    }
+    mediaUrl = uploadedMedia.url;
+    uploadedSourcePath = uploadedMedia.storagePath;
+    uploadedWidth = uploadedMedia.width ?? uploadedWidth;
+    uploadedHeight = uploadedMedia.height ?? uploadedHeight;
+    uploadedStreamUid = uploadedMedia.streamUid;
+    uploadedDurationSeconds = uploadedMedia.durationSeconds;
+    if (!thumb && uploadedMedia.posterUrl) thumb = uploadedMedia.posterUrl;
+  }
+
+  if (!thumb && !generatedThumbnail) {
+    if (uploadedSourcePath) {
+      const { error } = await supabase.storage
+        .from(STORAGE_BUCKETS.videos)
+        .remove([uploadedSourcePath]);
+      if (error) console.warn("Could not remove a video whose thumbnail could not be prepared", error);
+    }
+    return { error: "Could not capture a thumbnail frame from this video. Please try again." };
   }
 
   const thumbnailSource = customThumbnail
@@ -441,42 +502,6 @@ export async function publishLongVideo(opts: {
       STORAGE_BUCKETS.thumbnails,
       opts.signal,
     ).catch(thumbnailTaskResult);
-  }
-
-  let mediaUrl = opts.fileUrl;
-  let uploadedSourcePath: string | null = null;
-  let uploadedWidth = opts.originalWidth ?? null;
-  let uploadedHeight = opts.originalHeight ?? null;
-  let uploadedStreamUid: string | null = null;
-  let uploadedDurationSeconds: number | null = null;
-  if (/^(blob:|data:)/.test(mediaUrl)) {
-    // Reserve the last few percent for thumbnail, moderation, and database work.
-    const up = await uploadToStorage(opts.file ?? mediaUrl, uid, "mp4", "video/mp4", (p) =>
-      opts.onProgress?.(Math.min(97, Math.round(p * 0.97))),
-      (opts.access ?? "public") !== "public",
-      opts.signal,
-    );
-    if (opts.signal?.aborted) return { error: "Upload cancelled" };
-    if (up.error || !up.url || !up.storagePath) {
-      if (thumbnailUploadPromise) {
-        void thumbnailUploadPromise
-          .then(async ({ storagePath }) => {
-            if (!storagePath) return;
-            const { error } = await supabase.storage
-              .from(STORAGE_BUCKETS.thumbnails)
-              .remove([storagePath]);
-            if (error) console.warn("Could not remove an orphan video thumbnail", error);
-          })
-          .catch((error) => console.warn("Could not clean up an orphan video thumbnail", error));
-      }
-      return { error: up.error ?? "Video upload failed. Please try again." };
-    }
-    mediaUrl = up.url;
-    uploadedSourcePath = up.storagePath;
-    uploadedWidth = up.width ?? uploadedWidth;
-    uploadedHeight = up.height ?? uploadedHeight;
-    uploadedStreamUid = up.streamUid;
-    uploadedDurationSeconds = up.durationSeconds;
   }
 
   if (thumbnailUploadPromise) {

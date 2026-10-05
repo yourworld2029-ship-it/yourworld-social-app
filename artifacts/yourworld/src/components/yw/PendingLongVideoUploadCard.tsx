@@ -1,6 +1,9 @@
 import { memo } from "react";
-import { Loader2, UploadCloud } from "lucide-react";
-import type { UploadTask } from "@/lib/upload-progress";
+import { UploadCloud } from "lucide-react";
+import {
+  formatUploadByteProgress,
+  type UploadTask,
+} from "@/lib/upload-progress";
 
 export const PendingLongVideoUploadCard = memo(function PendingLongVideoUploadCard({
   task,
@@ -8,7 +11,8 @@ export const PendingLongVideoUploadCard = memo(function PendingLongVideoUploadCa
   task: UploadTask;
 }) {
   const progress = Math.max(0, Math.min(100, Math.round(task.progress)));
-  const status = task.status === "processing" ? "Preparing video" : "Uploading video";
+  const status = task.status === "processing" ? "Finalizing video" : "Uploading video";
+  const byteProgress = formatUploadByteProgress(task.bytesUploaded, task.bytesTotal);
 
   return (
     <article
@@ -41,9 +45,8 @@ export const PendingLongVideoUploadCard = memo(function PendingLongVideoUploadCa
             <UploadCloud aria-hidden="true" className="h-9 w-9" />
           </div>
         )}
-        <div className="pointer-events-none absolute inset-0 grid place-items-center bg-black/35">
-          <div className="flex items-center gap-2 rounded-full bg-black/65 px-3 py-2 text-xs font-medium text-white">
-            <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+        <div className="pointer-events-none absolute left-2 top-2">
+          <div className="rounded-full bg-black/70 px-3 py-1.5 text-xs font-medium text-white">
             {status}
           </div>
         </div>
@@ -67,7 +70,7 @@ export const PendingLongVideoUploadCard = memo(function PendingLongVideoUploadCa
           </span>
         </div>
         <p className="text-[10px] text-neutral-500">
-          Only you can see this while the video is being uploaded.
+          {byteProgress ?? "Only you can see this while the video is being uploaded."}
         </p>
       </div>
     </article>

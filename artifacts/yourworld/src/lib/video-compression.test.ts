@@ -12,6 +12,7 @@ import {
   qualityTierForOutput,
   selectSupportedFastStartMp4MimeType,
   selectSupportedRecorderMimeType,
+  shouldAttemptLongVideoLocalCompression,
   VIDEO_UPLOAD_BITRATE,
 } from "./video-compression";
 
@@ -79,6 +80,21 @@ test("long-video planning rejects files over the strict 1 GB input limit", () =>
     () => getLongVideoCompressionPlan(MAX_LONG_VIDEO_INPUT_BYTES + 1, 300),
     /1 GB or smaller/,
   );
+});
+
+test("long videos that would take too long to encode locally use the original upload", () => {
+  assert.equal(shouldAttemptLongVideoLocalCompression(100_000_000, 180), true);
+  assert.equal(shouldAttemptLongVideoLocalCompression(560_000_000, 900), false);
+  assert.equal(shouldAttemptLongVideoLocalCompression(100_000_000, 301), false);
+  assert.equal(shouldAttemptLongVideoLocalCompression(0, 120), false);
+});
+
+test("very large Long Video files bypass local encoding before metadata probing", async () => {
+  const original = { size: 560_000_000, type: "video/mp4" } as Blob;
+  const prepared = await compressLongVideoByTier(original);
+
+  assert.equal(prepared.blob, original);
+  assert.equal(prepared.compressed, false);
 });
 
 test("long-video recorder selection accepts MP4 only", () => {

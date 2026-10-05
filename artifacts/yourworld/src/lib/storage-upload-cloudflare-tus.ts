@@ -1,6 +1,10 @@
 import { supabase } from "@/integrations/supabase/client";
 import { readableUploadError } from "@/lib/storage-upload-request";
 import { mediaApiUrl } from "@/lib/media-api-url";
+import type {
+  UploadByteProgress,
+  UploadRequestProgress,
+} from "@/lib/storage-upload-request";
 import {
   CLOUDFLARE_TUS_CHUNK_SIZE,
   createTusProgressReporter,
@@ -19,7 +23,8 @@ export async function uploadCloudflareStreamWithTus(options: {
   file: Blob;
   contentType: string;
   requireSignedURLs: boolean;
-  onProgress?: (percent: number) => void;
+  onProgress?: UploadRequestProgress;
+  reportByteProgress?: boolean;
   signal?: AbortSignal;
 }): Promise<{
   streamUid: string | null;
@@ -53,6 +58,8 @@ export async function uploadCloudflareStreamWithTus(options: {
     let streamUid: string | null = null;
     let retryAttempt = 0;
     let lastPercent = 0;
+    let lastByteProgress: UploadByteProgress | null | undefined =
+      options.reportByteProgress ? null : undefined;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let activeUpload: { abort: () => Promise<void> } | null = null;
     const reportProgress = createTusProgressReporter(options.onProgress);
@@ -98,7 +105,7 @@ export async function uploadCloudflareStreamWithTus(options: {
         return;
       }
       const delay = getTusRetryDelayMs(retryAttempt++);
-      reportProgress(lastPercent, "Connection interrupted; resuming upload.");
+      reportProgress(lastPercent, "Connection interrupted; resuming upload.", lastByteProgress);
       retryTimer = setTimeout(() => {
         retryTimer = null;
         void startAttempt();
@@ -186,7 +193,16 @@ export async function uploadCloudflareStreamWithTus(options: {
             bytesTotal > 0 ? Math.min(99, Math.round((bytesUploaded / bytesTotal) * 100)) : 0;
           if (percent > lastPercent) retryAttempt = 0;
           lastPercent = Math.max(lastPercent, percent);
-          reportProgress(lastPercent);
+          lastByteProgress = options.reportByteProgress
+            ? bytesTotal > 0
+              ? { bytesUploaded, bytesTotal }
+              : null
+            : undefined;
+          reportProgress(
+            lastPercent,
+            options.reportByteProgress ? "Uploading to Cloudflare Stream" : undefined,
+            lastByteProgress,
+          );
         },
         onError: recoverFromTransientFailure,
         onSuccess: () => {
@@ -202,7 +218,13 @@ export async function uploadCloudflareStreamWithTus(options: {
             );
             return;
           }
-          reportProgress(100);
+          lastByteProgress = options.reportByteProgress
+            ? {
+                bytesUploaded: options.file.size,
+                bytesTotal: options.file.size,
+              }
+            : undefined;
+          reportProgress(100, "Upload complete", lastByteProgress);
           finish(null);
         },
       });
@@ -220,6 +242,9 @@ export async function uploadCloudflareStreamWithTus(options: {
       }
     };
 
+    if (options.reportByteProgress) {
+      reportProgress(0, "Connecting to Cloudflare Stream", null);
+    }
     options.signal?.addEventListener("abort", abortTransfer, { once: true });
     if (options.signal?.aborted) abortTransfer();
     else void startAttempt();

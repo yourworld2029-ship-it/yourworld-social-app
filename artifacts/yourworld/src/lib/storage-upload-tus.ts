@@ -1,5 +1,9 @@
 import { supabase } from "@/integrations/supabase/client";
 import { readableUploadError } from "@/lib/storage-upload-request";
+import type {
+  UploadByteProgress,
+  UploadRequestProgress,
+} from "@/lib/storage-upload-request";
 import {
   createTusProgressReporter,
   getTusRetryDelayMs,
@@ -8,7 +12,7 @@ import {
   RESUMABLE_UPLOAD_CHUNK_SIZE,
 } from "@/lib/storage-upload-tus-utils";
 
-export type TusUploadProgress = (percent: number, detail?: string) => void;
+export type TusUploadProgress = UploadRequestProgress;
 
 export async function uploadLargeStorageObjectWithTus(options: {
   bucket: string;
@@ -17,6 +21,7 @@ export async function uploadLargeStorageObjectWithTus(options: {
   contentType: string;
   cacheControl: string;
   onProgress?: TusUploadProgress;
+  reportByteProgress?: boolean;
   signal?: AbortSignal;
 }): Promise<{ error: string | null }> {
   const projectUrl = import.meta.env["VITE_SUPABASE_URL"];
@@ -35,12 +40,13 @@ export async function uploadLargeStorageObjectWithTus(options: {
   }
 
   const { Upload } = await import("tus-js-client");
-  options.onProgress?.(0, "Uploading");
 
   return new Promise((resolve) => {
     let settled = false;
     let retryAttempt = 0;
     let lastPercent = 0;
+    let lastByteProgress: UploadByteProgress | null | undefined =
+      options.reportByteProgress ? null : undefined;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let activeUpload: { abort: () => Promise<void> } | null = null;
     const reportProgress = createTusProgressReporter(options.onProgress);
@@ -75,7 +81,7 @@ export async function uploadLargeStorageObjectWithTus(options: {
         return;
       }
       const delay = getTusRetryDelayMs(retryAttempt++);
-      reportProgress(lastPercent, "Connection interrupted; resuming upload.");
+      reportProgress(lastPercent, "Connection interrupted; resuming upload.", lastByteProgress);
       retryTimer = setTimeout(() => {
         retryTimer = null;
         void startAttempt();
@@ -124,7 +130,12 @@ export async function uploadLargeStorageObjectWithTus(options: {
           bytesTotal > 0 ? Math.min(99, Math.round((bytesUploaded / bytesTotal) * 100)) : 0;
         retryAttempt = 0;
         lastPercent = percent;
-        reportProgress(percent, "Uploading");
+        lastByteProgress = options.reportByteProgress
+          ? bytesTotal > 0
+            ? { bytesUploaded, bytesTotal }
+            : null
+          : undefined;
+        reportProgress(percent, "Uploading", lastByteProgress);
       },
       onError: (error) => {
         activeUpload = null;
@@ -137,7 +148,13 @@ export async function uploadLargeStorageObjectWithTus(options: {
           finish("Upload cancelled");
           return;
         }
-        reportProgress(100, "Upload complete");
+        lastByteProgress = options.reportByteProgress
+          ? {
+              bytesUploaded: options.file.size,
+              bytesTotal: options.file.size,
+            }
+          : undefined;
+        reportProgress(100, "Upload complete", lastByteProgress);
         finish(null);
       },
       });
@@ -155,7 +172,11 @@ export async function uploadLargeStorageObjectWithTus(options: {
       }
     };
 
-    reportProgress(0, "Uploading");
+    reportProgress(
+      0,
+      options.reportByteProgress ? "Connecting to resumable uploader" : "Uploading",
+      options.reportByteProgress ? null : undefined,
+    );
     options.signal?.addEventListener("abort", abortTransfer, { once: true });
     if (options.signal?.aborted) abortTransfer();
     else void startAttempt();

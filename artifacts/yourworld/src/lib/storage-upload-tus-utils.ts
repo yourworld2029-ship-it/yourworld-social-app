@@ -1,3 +1,8 @@
+import type {
+  UploadByteProgress,
+  UploadRequestProgress,
+} from "./storage-upload-request";
+
 export const RESUMABLE_UPLOAD_CHUNK_SIZE = 6 * 1024 * 1024;
 export const CLOUDFLARE_TUS_CHUNK_SIZE = 6 * 1024 * 1024;
 
@@ -57,17 +62,21 @@ export function shouldUseStoragePlaybackFallback(options: {
   );
 }
 
-export type TusProgressReporter = ((percent: number, detail?: string) => void) & {
+export type TusProgressReporter = UploadRequestProgress & {
   flush: () => void;
   cancel: () => void;
 };
 
 export function createTusProgressReporter(
-  onProgress: ((percent: number, detail?: string) => void) | undefined,
+  onProgress: UploadRequestProgress | undefined,
   intervalMs = 200,
 ): TusProgressReporter {
   let lastEmittedAt = Number.NEGATIVE_INFINITY;
-  let pending: { percent: number; detail?: string } | null = null;
+  let pending: {
+    percent: number;
+    detail?: string;
+    byteProgress?: UploadByteProgress | null;
+  } | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let cancelled = false;
 
@@ -76,11 +85,15 @@ export function createTusProgressReporter(
     const next = pending;
     pending = null;
     lastEmittedAt = Date.now();
-    onProgress?.(next.percent, next.detail);
+    onProgress?.(next.percent, next.detail, next.byteProgress);
   };
-  const report = ((percent: number, detail?: string) => {
+  const report = ((
+    percent: number,
+    detail?: string,
+    byteProgress?: UploadByteProgress | null,
+  ) => {
     if (cancelled) return;
-    pending = { percent, detail };
+    pending = { percent, detail, byteProgress };
     const elapsed = Date.now() - lastEmittedAt;
     if (elapsed >= intervalMs || percent >= 100) {
       if (timer) clearTimeout(timer);

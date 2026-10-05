@@ -30,6 +30,7 @@ import { cacheVideoPoster } from "@/lib/video-prefetch";
 import { generateVideoThumbnail } from "@/lib/video-frames";
 import {
   compressLongVideoByTier,
+  MAX_LONG_VIDEO_LOCAL_COMPRESSION_BYTES,
   MAX_LONG_VIDEO_INPUT_BYTES,
   markVideoBlobAsUploadReady,
   type LongVideoCompressionResult,
@@ -76,7 +77,7 @@ function VideoUploadPage() {
   const mountedRef = useRef(true);
   const uploadSubmittedRef = useRef(false);
   const compressionAbortRef = useRef<AbortController | null>(null);
-  const compressionPromiseRef = useRef<Promise<LongVideoCompressionResult> | null>(null);
+  const compressionResultRef = useRef<LongVideoCompressionResult | null>(null);
 
   const [fileUrl, setFileUrl] = useState<string | null>(null);
   const [previewFrame, setPreviewFrame] = useState<string | null>(null);
@@ -131,6 +132,7 @@ function VideoUploadPage() {
       return;
     }
     compressionAbortRef.current?.abort();
+    compressionResultRef.current = null;
     // Keep the selected file as a Blob URL so the media element can seek and
     // buffer it locally without copying an entire long video into memory.
     const url = URL.createObjectURL(file);
@@ -147,7 +149,7 @@ function VideoUploadPage() {
     setDimensions(null);
     const controller = new AbortController();
     compressionAbortRef.current = controller;
-    setCompressionPending(true);
+    setCompressionPending(file.size <= MAX_LONG_VIDEO_LOCAL_COMPRESSION_BYTES);
     const compressionPromise = compressLongVideoByTier(file, {
       signal: controller.signal,
     }).catch((error): LongVideoCompressionResult => {
@@ -163,9 +165,9 @@ function VideoUploadPage() {
         compressed: false,
       };
     });
-    compressionPromiseRef.current = compressionPromise;
-    void compressionPromise.then(() => {
+    void compressionPromise.then((result) => {
       if (mountedRef.current && selectedFileRef.current === file) {
+        compressionResultRef.current = result;
         setCompressionPending(false);
       }
     });
@@ -343,10 +345,14 @@ function VideoUploadPage() {
     const parsedPrice = access === "paid" ? parsedInputPrice : 0;
 
     setBusy(true);
-    const compressionPromise =
-      compressionPromiseRef.current ??
-      compressLongVideoByTier(selectedFile);
     const compressionController = compressionAbortRef.current;
+    const readyVideo = compressionResultRef.current;
+    if (!readyVideo) {
+      // Never wait for a full-length local transcode before starting TUS.
+      compressionController?.abort();
+      markVideoBlobAsUploadReady(selectedFile);
+    }
+    const uploadFile = readyVideo?.blob ?? selectedFile;
     const thumbnailFile = thumbnailFileRef.current;
     const fileUrlSnapshot = fileUrl;
     if (!fileUrlSnapshot) {
@@ -356,7 +362,7 @@ function VideoUploadPage() {
     }
     const titleSnapshot = title.trim() || "Long video";
     const descriptionSnapshot = description.trim();
-    const thumbnailUrlSnapshot = thumb;
+    const thumbnailUrlSnapshot = thumb ?? previewFrame;
     const localPreviewUrl = selectedFile
       ? URL.createObjectURL(selectedFile)
       : undefined;
@@ -365,14 +371,11 @@ function VideoUploadPage() {
     const paidPromotionSnapshot = paidPromotion;
     const generatedThumbnailPromise =
       !thumbnailUrlSnapshot && selectedFile
-        ? compressionPromise.then(
-            (preparedVideo) => generateVideoThumbnail(preparedVideo.blob, 1).catch(() => null),
-            () => generateVideoThumbnail(selectedFile, 1).catch(() => null),
-          )
+        ? generateVideoThumbnail(selectedFile, 1).catch(() => null)
         : undefined;
     const publishingOptions = {
       fileUrl: fileUrlSnapshot,
-      file: selectedFile,
+      file: uploadFile,
       thumbnailUrl: thumbnailUrlSnapshot,
       thumbnailFile,
       title: titleSnapshot,
@@ -382,8 +385,8 @@ function VideoUploadPage() {
       seriesTitle: seriesEnabled ? seriesTitle.trim() : null,
       episodeNumber: seriesEnabled ? episodeNumber.trim() : null,
       durationSeconds: duration,
-      originalWidth: dimensions?.width ?? null,
-      originalHeight: dimensions?.height ?? null,
+      originalWidth: readyVideo?.width ?? dimensions?.width ?? null,
+      originalHeight: readyVideo?.height ?? dimensions?.height ?? null,
       scheduledAt: scheduleSnapshot ? scheduleSnapshot.toISOString() : null,
       access,
       price: parsedPrice,
@@ -407,39 +410,16 @@ function VideoUploadPage() {
         notifyOnSuccess: !scheduleSnapshot,
       },
       async (onProgress, signal) => {
-        const abortCompression = () => compressionController?.abort();
-        if (signal.aborted) abortCompression();
-        else signal.addEventListener("abort", abortCompression, { once: true });
-        try {
-          let preparedVideo: LongVideoCompressionResult;
-          try {
-            preparedVideo = await compressionPromise;
-          } catch (error) {
-            if (!signal.aborted) {
-              console.warn("Long-video preparation failed; using the original upload.", error);
-            }
-            markVideoBlobAsUploadReady(selectedFile);
-            preparedVideo = {
-              blob: selectedFile,
-              width: dimensions?.width ?? null,
-              height: dimensions?.height ?? null,
-              tier: null,
-              compressed: false,
-            };
-          }
-          if (signal.aborted) return { error: "Upload cancelled" };
-          return publishLongVideo({
-            ...publishingOptions,
-            file: preparedVideo.blob,
-            sourceSizeBytes: selectedFile.size,
-            originalWidth: preparedVideo.width ?? dimensions?.width ?? null,
-            originalHeight: preparedVideo.height ?? dimensions?.height ?? null,
-            onProgress,
-            signal,
-          });
-        } finally {
-          signal.removeEventListener("abort", abortCompression);
-        }
+        if (signal.aborted) return { error: "Upload cancelled" };
+        return publishLongVideo({
+          ...publishingOptions,
+          file: uploadFile,
+          sourceSizeBytes: selectedFile.size,
+          originalWidth: readyVideo?.width ?? dimensions?.width ?? null,
+          originalHeight: readyVideo?.height ?? dimensions?.height ?? null,
+          onProgress,
+          signal,
+        });
       },
       (taskId) => {
         if (!generatedThumbnailPromise) return;

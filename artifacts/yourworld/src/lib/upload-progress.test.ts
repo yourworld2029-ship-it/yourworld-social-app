@@ -3,6 +3,8 @@ import { test } from "node:test";
 import {
   applyUploadTaskPatch,
   arePendingVideoUploadSummariesEqual,
+  formatUploadByteProgress,
+  formatUploadBytes,
   selectPendingVideoUploadSummary,
   selectVisibleUploadTask,
   type UploadTask,
@@ -20,6 +22,15 @@ function videoTask(overrides: Partial<UploadTask> = {}): UploadTask {
     ...overrides,
   };
 }
+
+test("upload UI formats byte-accurate transfer progress in decimal MB", () => {
+  assert.equal(formatUploadBytes(560_000_000), "560 MB");
+  assert.equal(
+    formatUploadByteProgress(56_000_000, 560_000_000),
+    "56 MB of 560 MB uploaded",
+  );
+  assert.equal(formatUploadByteProgress(20, null), null);
+});
 
 test("upload progress changes do not change the pending-video summary", () => {
   const first = selectPendingVideoUploadSummary([videoTask()]);

@@ -5,6 +5,8 @@ import {
   readableUploadError,
   runAbortableDirectUploadRequest,
   runDirectUploadRequest,
+  type UploadByteProgress,
+  type UploadRequestProgress,
 } from "@/lib/storage-upload-request";
 import { uploadCloudflareStreamWithTus } from "@/lib/storage-upload-cloudflare-tus";
 import { uploadLargeStorageObjectWithTus } from "@/lib/storage-upload-tus";
@@ -13,12 +15,14 @@ import {
   shouldUseStoragePlaybackFallback,
 } from "@/lib/storage-upload-tus-utils";
 
-export type ProgressFn = (percent: number, detail?: string) => void;
+export type ProgressFn = UploadRequestProgress;
 export type VideoStreamUploadOptions = {
   cloudflareStream?: boolean;
   requireSignedURLs?: boolean;
   /** Allows public long videos to use their uploaded Storage copy if Stream fails. */
   fallbackToStorage?: boolean;
+  /** Exposes real TUS byte counts for Long Video uploads only. */
+  reportByteProgress?: boolean;
   signal?: AbortSignal;
 };
 
@@ -61,6 +65,7 @@ async function uploadDirect(
   cacheControl = "3600",
   signal?: AbortSignal,
   accessToken?: string,
+  reportByteProgress = false,
 ): Promise<{ error: string | null }> {
   if (signal?.aborted) return { error: "Upload cancelled" };
   if (shouldUseResumableStorageUpload(file.size)) {
@@ -71,6 +76,7 @@ async function uploadDirect(
       contentType,
       cacheControl,
       onProgress,
+      reportByteProgress,
       signal,
     });
     if (result.error) {
@@ -185,8 +191,8 @@ export async function uploadWithProgress(
   let upload: { error: string | null };
   try {
     const sourceProgress = needsCloudflareStream && onProgress
-      ? (percent: number, detail?: string) =>
-          onProgress(Math.round(percent * 0.45), detail)
+      ? (percent: number, detail?: string, byteProgress?: UploadByteProgress | null) =>
+          onProgress(Math.round(percent * 0.45), detail, byteProgress)
       : onProgress;
     upload = await uploadDirect(
       bucket,
@@ -197,6 +203,7 @@ export async function uploadWithProgress(
       cacheControl,
       options.signal,
       token,
+      options.reportByteProgress,
     );
   } catch (error) {
     const message = readableUploadError(error);
@@ -283,7 +290,12 @@ export async function uploadWithProgress(
       return true;
     };
 
-    onProgress?.(65, "Uploading video to Cloudflare Stream");
+    const reportByteProgress = options.reportByteProgress === true;
+    onProgress?.(
+      65,
+      reportByteProgress ? "Connecting to Cloudflare Stream" : "Uploading video to Cloudflare Stream",
+      reportByteProgress ? null : undefined,
+    );
     const cloudflareBucket =
       bucket === STORAGE_BUCKETS.videos ? STORAGE_BUCKETS.videos : STORAGE_BUCKETS.reels;
     const tusResult = await uploadCloudflareStreamWithTus({
@@ -292,7 +304,13 @@ export async function uploadWithProgress(
       file: blob,
       contentType,
       requireSignedURLs: options.requireSignedURLs ?? true,
-      onProgress: (percent) => onProgress?.(65 + Math.round(percent * 0.28)),
+      onProgress: (percent, detail, byteProgress) =>
+        onProgress?.(
+          65 + Math.round(percent * 0.28),
+          reportByteProgress ? detail ?? "Uploading video to Cloudflare Stream" : undefined,
+          reportByteProgress ? byteProgress : undefined,
+        ),
+      reportByteProgress,
       signal: options.signal,
     });
     if (options.signal?.aborted) {

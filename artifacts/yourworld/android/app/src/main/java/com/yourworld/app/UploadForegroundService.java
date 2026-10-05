@@ -14,6 +14,7 @@ import android.os.PowerManager;
 import androidx.core.app.NotificationManagerCompat;
 
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 
 public class UploadForegroundService extends Service {
@@ -26,6 +27,9 @@ public class UploadForegroundService extends Service {
     public static final String EXTRA_TITLE = "title";
     public static final String EXTRA_PROGRESS = "progress";
     public static final String EXTRA_DETAIL = "detail";
+    public static final String EXTRA_BYTES_UPLOADED = "bytesUploaded";
+    public static final String EXTRA_BYTES_TOTAL = "bytesTotal";
+    public static final String EXTRA_CLEAR_BYTE_PROGRESS = "clearByteProgress";
 
     private static final String CHANNEL_ID = "video_uploads";
     private static final String COMPLETION_CHANNEL_ID = "video_upload_complete";
@@ -62,7 +66,9 @@ public class UploadForegroundService extends Service {
                     title == null || title.trim().isEmpty() ? "Long video" : title.trim(),
                     -1,
                     "",
-                    ACTION_START_DOWNLOAD.equals(action) ? TYPE_DOWNLOAD : TYPE_UPLOAD
+                    ACTION_START_DOWNLOAD.equals(action) ? TYPE_DOWNLOAD : TYPE_UPLOAD,
+                    -1L,
+                    -1L
             ));
             acquireWakeLock();
             startInForeground(buildNotification());
@@ -70,11 +76,21 @@ public class UploadForegroundService extends Service {
             UploadState current = activeUploads.get(uploadId);
             if (current != null) {
                 activeUploads.remove(uploadId);
+                boolean clearByteProgress =
+                        intent.getBooleanExtra(EXTRA_CLEAR_BYTE_PROGRESS, false);
+                long bytesUploaded = intent.getLongExtra(EXTRA_BYTES_UPLOADED, -1L);
+                long bytesTotal = intent.getLongExtra(EXTRA_BYTES_TOTAL, -1L);
                 activeUploads.put(uploadId, new UploadState(
                         current.title,
                         clampProgress(intent.getIntExtra(EXTRA_PROGRESS, -1)),
                         intent.getStringExtra(EXTRA_DETAIL),
-                        current.type
+                        current.type,
+                        clearByteProgress
+                                ? -1L
+                                : bytesUploaded >= 0L ? bytesUploaded : current.bytesUploaded,
+                        clearByteProgress
+                                ? -1L
+                                : bytesTotal >= 0L ? bytesTotal : current.bytesTotal
                 ));
                 updateNotification();
             }
@@ -131,12 +147,24 @@ public class UploadForegroundService extends Service {
                 ? "Preparing video transfer..."
                 : ("download".equals(current.type) ? "Downloading video... " : "Uploading video... ")
                     + (indeterminate ? "" : progress + "%");
+        String contentText = title;
+        if (current != null && current.bytesUploaded >= 0L && current.bytesTotal > 0L) {
+            contentText = formatBytes(current.bytesUploaded)
+                    + " / "
+                    + formatBytes(current.bytesTotal)
+                    + " uploaded";
+            if (current.detail != null && !current.detail.trim().isEmpty()
+                    && !"Uploading".equalsIgnoreCase(current.detail.trim())) {
+                contentText += " · " + current.detail.trim();
+            }
+            contentText += " · " + title;
+        }
         Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 ? new Notification.Builder(this, CHANNEL_ID)
                 : new Notification.Builder(this);
         builder.setSmallIcon(R.drawable.ic_upload_notification)
                 .setContentTitle(content)
-                .setContentText(title)
+                .setContentText(contentText)
                 .setCategory(Notification.CATEGORY_PROGRESS)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
@@ -206,6 +234,19 @@ public class UploadForegroundService extends Service {
         return progress < 0 ? -1 : Math.max(0, Math.min(100, progress));
     }
 
+    private static String formatBytes(long bytes) {
+        long safeBytes = Math.max(0L, bytes);
+        if (safeBytes < 1000L) return safeBytes + " B";
+        String[] units = {"KB", "MB", "GB", "TB"};
+        double value = safeBytes / 1000.0;
+        int unitIndex = 0;
+        while (value >= 1000.0 && unitIndex < units.length - 1) {
+            value /= 1000.0;
+            unitIndex++;
+        }
+        return String.format(Locale.US, value >= 10.0 ? "%.0f %s" : "%.1f %s", value, units[unitIndex]);
+    }
+
     private void acquireWakeLock() {
         if (wakeLock != null && wakeLock.isHeld()) {
             return;
@@ -247,12 +288,23 @@ public class UploadForegroundService extends Service {
         final int progress;
         final String detail;
         final String type;
+        final long bytesUploaded;
+        final long bytesTotal;
 
-        UploadState(String title, int progress, String detail, String type) {
+        UploadState(
+                String title,
+                int progress,
+                String detail,
+                String type,
+                long bytesUploaded,
+                long bytesTotal
+        ) {
             this.title = title;
             this.progress = progress;
             this.detail = detail;
             this.type = type;
+            this.bytesUploaded = bytesUploaded;
+            this.bytesTotal = bytesTotal;
         }
     }
 }

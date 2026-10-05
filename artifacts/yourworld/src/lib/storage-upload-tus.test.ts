@@ -7,6 +7,7 @@ import {
   isRetryableTusError,
   RESUMABLE_UPLOAD_CHUNK_SIZE,
   canFallbackAfterCloudflareTusFailure,
+  createTusProgressReporter,
   shouldUseStoragePlaybackFallback,
   shouldUseResumableStorageUpload,
 } from "./storage-upload-tus-utils";
@@ -23,6 +24,32 @@ test("TUS uploads use 6 MiB chunks and keep retrying with a bounded backoff", ()
   assert.equal(getTusRetryDelayMs(0), 1_000);
   assert.equal(getTusRetryDelayMs(4), 16_000);
   assert.equal(getTusRetryDelayMs(20), 60_000);
+});
+
+test("TUS progress reports byte counts and can clear them at a transfer boundary", () => {
+  const events: Array<{
+    percent: number;
+    detail?: string;
+    byteProgress?: { bytesUploaded: number; bytesTotal: number } | null;
+  }> = [];
+  const report = createTusProgressReporter(
+    (percent, detail, byteProgress) => events.push({ percent, detail, byteProgress }),
+    1000,
+  );
+
+  report(0, "Connecting", null);
+  report(14, "Uploading", { bytesUploaded: 80_000_000, bytesTotal: 560_000_000 });
+  report.flush();
+
+  assert.deepEqual(events, [
+    { percent: 0, detail: "Connecting", byteProgress: null },
+    {
+      percent: 14,
+      detail: "Uploading",
+      byteProgress: { bytesUploaded: 80_000_000, bytesTotal: 560_000_000 },
+    },
+  ]);
+  report.cancel();
 });
 
 test("TUS retries transient failures but stops on app-level dependency or auth denials", () => {

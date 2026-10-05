@@ -9,8 +9,9 @@ import {
   type ReactNode,
 } from "react";
 import { Link } from "@tanstack/react-router";
-import { CheckCircle2, AlertCircle, X, Loader2, RefreshCw } from "lucide-react";
+import { CheckCircle2, AlertCircle, X, Loader2, UploadCloud, RefreshCw } from "lucide-react";
 import type { ProgressFn } from "@/lib/storage-upload";
+import type { UploadByteProgress } from "@/lib/storage-upload-request";
 import {
   startNativeVideoUploadGuard,
   type NativeVideoUploadGuard,
@@ -31,6 +32,8 @@ export type UploadTask = {
   /** Destination to open once the upload finishes. */
   viewTo: string;
   progress: number;
+  bytesUploaded?: number | null;
+  bytesTotal?: number | null;
   status: "uploading" | "processing" | "done" | "error";
   error?: string | null;
   detail?: string | null;
@@ -84,6 +87,35 @@ export type PendingVideoUploadSummary = ReadonlyArray<{
   id: string;
   ownerId: string | null;
 }>;
+
+export function formatUploadBytes(bytes: number) {
+  const safeBytes = Math.max(0, Number.isFinite(bytes) ? bytes : 0);
+  if (safeBytes < 1000) return `${Math.round(safeBytes)} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = safeBytes / 1000;
+  let unitIndex = 0;
+  while (value >= 1000 && unitIndex < units.length - 1) {
+    value /= 1000;
+    unitIndex += 1;
+  }
+  return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unitIndex]}`;
+}
+
+export function formatUploadByteProgress(
+  bytesUploaded?: number | null,
+  bytesTotal?: number | null,
+) {
+  if (
+    bytesUploaded == null ||
+    bytesTotal == null ||
+    !Number.isFinite(bytesUploaded) ||
+    !Number.isFinite(bytesTotal) ||
+    bytesTotal <= 0
+  ) {
+    return null;
+  }
+  return `${formatUploadBytes(bytesUploaded)} of ${formatUploadBytes(bytesTotal)} uploaded`;
+}
 
 const UploadTasksContext = createContext<UploadTask[] | null>(null);
 const UploadActionsContext = createContext<UploadActions | null>(null);
@@ -256,13 +288,26 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         }
         const controller = new AbortController();
         abortControllers.current.set(id, controller);
-        patch(id, { progress: 0, status: "processing", error: null, detail: null, retry: undefined });
+        const isLongVideo = meta.kind === "video";
+        patch(id, {
+          progress: 0,
+          bytesUploaded: null,
+          bytesTotal: null,
+          status: isLongVideo ? "uploading" : "processing",
+          error: null,
+          detail: isLongVideo ? "Starting upload" : null,
+          retry: undefined,
+        });
 
         let result: UploadRunResult = { error: null };
         let nativeGuard: NativeVideoUploadGuard | null = null;
         let lastProgressAt = 0;
         let progressTimer: ReturnType<typeof setTimeout> | null = null;
-        let pendingProgress: { percent: number; detail?: string } | null = null;
+        let pendingProgress: {
+          percent: number;
+          detail?: string;
+          byteProgress?: UploadByteProgress | null;
+        } | null = null;
         const applyPendingProgress = () => {
           if (!pendingProgress) return;
           const next = pendingProgress;
@@ -274,6 +319,14 @@ export function UploadProvider({ children }: { children: ReactNode }) {
               ? "processing"
               : "uploading",
             detail: next.detail ?? null,
+            ...(next.byteProgress === undefined
+              ? {}
+              : next.byteProgress === null
+                ? { bytesUploaded: null, bytesTotal: null }
+                : {
+                    bytesUploaded: next.byteProgress.bytesUploaded,
+                    bytesTotal: next.byteProgress.bytesTotal,
+                  }),
           });
         };
         try {
@@ -283,9 +336,9 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           if (controller.signal.aborted) {
             result = { error: null, cancelled: true };
           } else {
-            result = await runner((p, detail) => {
-              nativeGuard?.update(p, detail);
-              pendingProgress = { percent: p, detail };
+            result = await runner((p, detail, byteProgress) => {
+              nativeGuard?.update(p, detail, byteProgress);
+              pendingProgress = { percent: p, detail, byteProgress };
               const remaining = 200 - (Date.now() - lastProgressAt);
               if (remaining <= 0) {
                 if (progressTimer) clearTimeout(progressTimer);
@@ -395,6 +448,7 @@ function UploadProgressStack() {
   const { dismiss } = useUploadActions();
   const t = selectVisibleUploadTask(tasks);
   if (!t) return null;
+  const byteProgress = formatUploadByteProgress(t.bytesUploaded, t.bytesTotal);
 
   return (
     <div className="pointer-events-none fixed inset-x-0 top-0 z-[70] flex flex-col items-center gap-2 px-3 pt-3">
@@ -410,7 +464,11 @@ function UploadProgressStack() {
             <img src={t.thumbnail} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
               ) : (
                 <div className="grid h-full w-full place-items-center text-zinc-500">
-                  <Loader2 size={16} className="animate-spin" />
+                  {t.kind === "video" ? (
+                    <UploadCloud size={16} />
+                  ) : (
+                    <Loader2 size={16} className="animate-spin" />
+                  )}
                 </div>
               )}
             </div>
@@ -432,6 +490,8 @@ function UploadProgressStack() {
                     ? t.label
                     : t.kind === "reel"
                       ? "Uploading reel..."
+                    : byteProgress
+                      ? `${t.progress}% · ${byteProgress}${t.detail && t.detail !== "Uploading" ? ` · ${t.detail}` : ""}`
                     : t.detail
                       ? `${t.progress}% · ${t.detail}`
                     : t.status === "processing"

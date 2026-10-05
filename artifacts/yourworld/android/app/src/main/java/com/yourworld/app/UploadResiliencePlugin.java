@@ -43,7 +43,19 @@ public class UploadResiliencePlugin extends Plugin {
                 .setAction(UploadForegroundService.ACTION_UPDATE)
                 .putExtra(UploadForegroundService.EXTRA_UPLOAD_ID, uploadId)
                 .putExtra(UploadForegroundService.EXTRA_PROGRESS, call.getInt("progress", 0))
-                .putExtra(UploadForegroundService.EXTRA_DETAIL, call.getString("detail", ""));
+                .putExtra(UploadForegroundService.EXTRA_DETAIL, call.getString("detail", ""))
+                .putExtra(
+                        UploadForegroundService.EXTRA_CLEAR_BYTE_PROGRESS,
+                        Boolean.TRUE.equals(call.getBoolean("clearByteProgress"))
+                );
+        Long bytesUploaded = call.getLong("bytesUploaded");
+        Long bytesTotal = call.getLong("bytesTotal");
+        if (bytesUploaded != null) {
+            intent.putExtra(UploadForegroundService.EXTRA_BYTES_UPLOADED, bytesUploaded);
+        }
+        if (bytesTotal != null) {
+            intent.putExtra(UploadForegroundService.EXTRA_BYTES_TOTAL, bytesTotal);
+        }
         try {
             getContext().startService(intent);
             call.resolve();

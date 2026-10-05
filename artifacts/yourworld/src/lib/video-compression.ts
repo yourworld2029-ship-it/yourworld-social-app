@@ -472,6 +472,8 @@ export async function optimizeVideoSource(
 }
 
 export const MAX_LONG_VIDEO_INPUT_BYTES = 1_000_000_000;
+export const MAX_LONG_VIDEO_LOCAL_COMPRESSION_BYTES = 300 * 1024 * 1024;
+export const MAX_LONG_VIDEO_LOCAL_COMPRESSION_DURATION_SECONDS = 5 * 60;
 export const LONG_VIDEO_AUDIO_BITRATE = 128_000;
 const LONG_VIDEO_MIN_OUTPUT_BITRATE = 48_000;
 const LONG_VIDEO_MAX_OUTPUT_BITRATE = 24_000_000;
@@ -498,6 +500,20 @@ export type LongVideoCompressionResult = {
   tier: LongVideoCompressionTier | null;
   compressed: boolean;
 };
+
+export function shouldAttemptLongVideoLocalCompression(
+  sourceBytes: number,
+  durationSeconds: number,
+) {
+  return (
+    Number.isFinite(sourceBytes) &&
+    sourceBytes > 0 &&
+    sourceBytes <= MAX_LONG_VIDEO_LOCAL_COMPRESSION_BYTES &&
+    Number.isFinite(durationSeconds) &&
+    durationSeconds > 0 &&
+    durationSeconds <= MAX_LONG_VIDEO_LOCAL_COMPRESSION_DURATION_SECONDS
+  );
+}
 
 export function getLongVideoCompressionPlan(
   sourceBytes: number,
@@ -622,6 +638,9 @@ export async function compressLongVideoByTier(
 
   try {
     if (!source.type.startsWith("video/") || source.size === 0) return originalResult();
+    // Large originals go straight to resumable upload. Encoding them locally
+    // can take as long as the video itself and delays the first uploaded byte.
+    if (source.size > MAX_LONG_VIDEO_LOCAL_COMPRESSION_BYTES) return originalResult();
     if (typeof document === "undefined" || typeof MediaRecorder === "undefined") {
       return originalResult();
     }
@@ -629,6 +648,9 @@ export async function compressLongVideoByTier(
     metadata = await readVideoMetadata(sourceUrl);
     if (options.signal?.aborted) return originalResult();
     if (!metadata) return originalResult();
+    if (!shouldAttemptLongVideoLocalCompression(source.size, metadata.duration)) {
+      return originalResult();
+    }
 
     plan = getLongVideoCompressionPlan(source.size, metadata.duration);
     const mimeType = selectLongVideoRecorderMimeType();

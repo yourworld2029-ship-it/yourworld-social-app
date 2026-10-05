@@ -1,4 +1,13 @@
-export type UploadRequestProgress = (percent: number, detail?: string) => void;
+export type UploadByteProgress = {
+  bytesUploaded: number;
+  bytesTotal: number;
+};
+
+export type UploadRequestProgress = (
+  percent: number,
+  detail?: string,
+  byteProgress?: UploadByteProgress | null,
+) => void;
 
 export function readableUploadError(error: unknown) {
   if (typeof error === "string" && error.trim()) return error;
