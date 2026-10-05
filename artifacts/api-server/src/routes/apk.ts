@@ -147,6 +147,10 @@ router.get("/get-my-apk", (req, res, next) => {
 registerApkDownload("/yourworld-debug.apk");
 registerApkDownload("/yourworld-v3.apk");
 registerApkDownload("/download-apk");
+registerDirectApkDownload(
+  "/yourworld-v1.0.52-debug.apk",
+  "yourworld-v1.0.52-debug.apk",
+);
 registerDirectApkDownload("/app.apk", "app.apk");
 
 export default router;
