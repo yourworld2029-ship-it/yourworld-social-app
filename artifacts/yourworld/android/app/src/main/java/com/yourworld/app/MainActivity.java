@@ -4,8 +4,10 @@ import android.app.PictureInPictureParams;
 import android.content.Intent;
 import android.content.res.Configuration;
 import android.graphics.Color;
+import android.media.AudioManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.util.Log;
 import android.util.Rational;
 import android.view.WindowManager;
@@ -27,6 +29,9 @@ public class MainActivity extends BridgeActivity {
     private volatile boolean videoPipPlaying;
     private volatile int pipAspectRatioWidth = 16;
     private volatile int pipAspectRatioHeight = 9;
+    private volatile boolean videoFullscreenImmersive;
+    private Float videoFullscreenOriginalBrightness;
+    private int videoFullscreenOriginalCutoutMode;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -63,6 +68,9 @@ public class MainActivity extends BridgeActivity {
     public void onResume() {
         super.onResume();
         appForeground = true;
+        if (videoFullscreenImmersive) {
+            applyVideoFullscreenImmersiveMode();
+        }
 
         WebView webView = getBridge() != null ? getBridge().getWebView() : null;
         if (webView != null) {
@@ -86,6 +94,14 @@ public class MainActivity extends BridgeActivity {
     public void onPause() {
         appForeground = false;
         super.onPause();
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus && videoFullscreenImmersive) {
+            applyVideoFullscreenImmersiveMode();
+        }
     }
 
     @Override
@@ -144,6 +160,116 @@ public class MainActivity extends BridgeActivity {
         return new PictureInPictureParams.Builder()
                 .setAspectRatio(new Rational(pipAspectRatioWidth, pipAspectRatioHeight))
                 .build();
+    }
+
+    public void setVideoFullscreenImmersiveMode(boolean enabled) {
+        if (enabled == videoFullscreenImmersive) {
+            if (enabled) {
+                applyVideoFullscreenImmersiveMode();
+            }
+            return;
+        }
+
+        if (enabled) {
+            videoFullscreenOriginalBrightness = getWindow().getAttributes().screenBrightness;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                videoFullscreenOriginalCutoutMode =
+                        getWindow().getAttributes().layoutInDisplayCutoutMode;
+                WindowManager.LayoutParams attributes = getWindow().getAttributes();
+                attributes.layoutInDisplayCutoutMode =
+                        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+                getWindow().setAttributes(attributes);
+            }
+            videoFullscreenImmersive = true;
+            applyVideoFullscreenImmersiveMode();
+            return;
+        }
+
+        videoFullscreenImmersive = false;
+        if (videoFullscreenOriginalBrightness != null) {
+            WindowManager.LayoutParams attributes = getWindow().getAttributes();
+            attributes.screenBrightness = videoFullscreenOriginalBrightness;
+            getWindow().setAttributes(attributes);
+            videoFullscreenOriginalBrightness = null;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            WindowManager.LayoutParams attributes = getWindow().getAttributes();
+            attributes.layoutInDisplayCutoutMode = videoFullscreenOriginalCutoutMode;
+            getWindow().setAttributes(attributes);
+        }
+
+        WindowInsetsControllerCompat controller = new WindowInsetsControllerCompat(
+                getWindow(),
+                getWindow().getDecorView()
+        );
+        controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_DEFAULT);
+        controller.show(WindowInsetsCompat.Type.systemBars());
+        requestVideoFullscreenInsets();
+    }
+
+    private void applyVideoFullscreenImmersiveMode() {
+        if (!videoFullscreenImmersive) return;
+        WindowInsetsControllerCompat controller = new WindowInsetsControllerCompat(
+                getWindow(),
+                getWindow().getDecorView()
+        );
+        controller.setSystemBarsBehavior(
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        );
+        controller.hide(WindowInsetsCompat.Type.systemBars());
+        requestVideoFullscreenInsets();
+    }
+
+    private void requestVideoFullscreenInsets() {
+        WebView webView = getBridge() != null ? getBridge().getWebView() : null;
+        if (webView != null) {
+            ViewCompat.requestApplyInsets(webView);
+        }
+    }
+
+    public float getVideoFullscreenBrightness() {
+        float windowBrightness = getWindow().getAttributes().screenBrightness;
+        if (windowBrightness >= 0f) {
+            return clampVideoGestureLevel(windowBrightness, 0.1f, 1f);
+        }
+        try {
+            int systemBrightness = Settings.System.getInt(
+                    getContentResolver(),
+                    Settings.System.SCREEN_BRIGHTNESS
+            );
+            return clampVideoGestureLevel(systemBrightness / 255f, 0.1f, 1f);
+        } catch (Settings.SettingNotFoundException error) {
+            return 1f;
+        }
+    }
+
+    public float setVideoFullscreenBrightness(float value) {
+        float level = clampVideoGestureLevel(value, 0.1f, 1f);
+        if (!videoFullscreenImmersive) return getVideoFullscreenBrightness();
+        WindowManager.LayoutParams attributes = getWindow().getAttributes();
+        attributes.screenBrightness = level;
+        getWindow().setAttributes(attributes);
+        return level;
+    }
+
+    public float getVideoMediaVolume() {
+        AudioManager audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
+        if (audioManager == null) return 0f;
+        int maxVolume = Math.max(1, audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC));
+        return audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) / (float) maxVolume;
+    }
+
+    public float setVideoMediaVolume(float value) {
+        AudioManager audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
+        if (audioManager == null) return 0f;
+        int maxVolume = Math.max(1, audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC));
+        int targetVolume = Math.round(clampVideoGestureLevel(value, 0f, 1f) * maxVolume);
+        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, targetVolume, 0);
+        return getVideoMediaVolume();
+    }
+
+    private static float clampVideoGestureLevel(float value, float min, float max) {
+        return Math.max(min, Math.min(max, value));
     }
 
     @Override
@@ -231,11 +357,13 @@ public class MainActivity extends BridgeActivity {
         final int initialBottom = webView.getPaddingBottom();
 
         ViewCompat.setOnApplyWindowInsetsListener(webView, (view, windowInsets) -> {
-            Insets safeInsets = windowInsets.getInsets(
-                    WindowInsetsCompat.Type.statusBars()
-                            | WindowInsetsCompat.Type.navigationBars()
-                            | WindowInsetsCompat.Type.displayCutout()
-            );
+            Insets safeInsets = videoFullscreenImmersive
+                    ? Insets.NONE
+                    : windowInsets.getInsets(
+                            WindowInsetsCompat.Type.statusBars()
+                                    | WindowInsetsCompat.Type.navigationBars()
+                                    | WindowInsetsCompat.Type.displayCutout()
+                    );
             // Keep WebView content clear of native status, navigation, and display-cutout areas.
             view.setPadding(
                     initialLeft + safeInsets.left,

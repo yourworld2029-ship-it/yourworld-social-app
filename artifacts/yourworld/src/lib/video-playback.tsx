@@ -118,6 +118,7 @@ type TouchGesture = {
   width: number;
   moved: boolean;
   swipeAxis: "x" | "y" | null;
+  adjustmentKind: "brightness" | "volume" | null;
   initialVolume: number;
   initialBrightness: number;
   initialDistance: number | null;
@@ -137,6 +138,10 @@ type SystemVideoPipPlugin = {
     aspectRatioWidth: number;
     aspectRatioHeight: number;
   }): Promise<void>;
+  setFullscreenImmersive(options: { enabled: boolean }): Promise<void>;
+  getGestureLevels(): Promise<{ brightness: number; volume: number }>;
+  setScreenBrightness(options: { value: number }): Promise<void>;
+  setMediaVolume(options: { value: number }): Promise<void>;
 };
 
 const globalSystemVideoPip = globalThis as typeof globalThis & {
@@ -361,6 +366,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const [zoom, setZoom] = useState(1);
   const [displayMode, setDisplayMode] = useState<"fit" | "fill">("fit");
   const [brightness, setBrightness] = useState(1);
+  const [mediaVolume, setMediaVolume] = useState(1);
   const [pictureInPicture, setPictureInPicture] = useState(false);
   const [systemPictureInPicture, setSystemPictureInPicture] = useState(false);
   const [floatingPosition, setFloatingPosition] = useState<FloatingPosition | null>(null);
@@ -374,6 +380,18 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const [quality, setQuality] = useState<QualityId>("auto");
   const [hlsLevels, setHlsLevels] = useState<Hls["levels"]>([]);
   const [activeHlsHeight, setActiveHlsHeight] = useState<number | null>(null);
+
+  const setNativeFullscreenImmersive = useCallback(
+    async (enabled: boolean) => {
+      if (!isAndroidApp) return;
+      try {
+        await systemVideoPip.setFullscreenImmersive({ enabled });
+      } catch (error) {
+        console.warn("Could not update Android fullscreen system bars.", error);
+      }
+    },
+    [isAndroidApp],
+  );
 
   const syncNativePipState = useCallback(
     (active: boolean, playing: boolean) => {
@@ -649,7 +667,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const isPlayerRoute = Boolean(detailVideoId || downloadDetailPath);
   const showDetailChrome = isDetailPlayer && !pictureInPicture;
   const needsAndroidPortraitSafeArea =
-    isAndroidApp && showDetailChrome && (!isFullscreen || isVerticalVideo);
+    isAndroidApp && showDetailChrome && !isFullscreen;
   const activeResolvedPoster =
     resolvedPoster?.key === activePosterKey ? resolvedPoster.url : null;
   const placeholderPosterUrl =
@@ -827,6 +845,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
 
   const finishFullscreenExit = useCallback(async () => {
     fullscreenRequestIdRef.current += 1;
+    await setNativeFullscreenImmersive(false);
     await lockPlayerOrientation("portrait");
     setIsFullscreen(false);
     setScreenLocked(false);
@@ -838,7 +857,11 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     setGestureFeedback(null);
     setSettingsMenu("closed");
     restoreFullscreenScroll();
-  }, [clearLockedUnlockTimer, restoreFullscreenScroll]);
+  }, [
+    clearLockedUnlockTimer,
+    restoreFullscreenScroll,
+    setNativeFullscreenImmersive,
+  ]);
 
   const teardownFullscreen = useCallback(
     async (exitCurrentFullscreen: boolean) => {
@@ -1208,6 +1231,34 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const applyGestureBrightness = useCallback(
+    (nextBrightness: number) => {
+      const value = clamp(nextBrightness, 0.1, 1);
+      setBrightness(value);
+      if (isAndroidApp) {
+        void systemVideoPip.setScreenBrightness({ value }).catch((error: unknown) => {
+          console.warn("Could not update Android video brightness.", error);
+        });
+      }
+    },
+    [isAndroidApp],
+  );
+
+  const applyGestureVolume = useCallback(
+    (nextVolume: number) => {
+      const value = clamp(nextVolume, 0, 1);
+      setMediaVolume(value);
+      if (isAndroidApp) {
+        void systemVideoPip.setMediaVolume({ value }).catch((error: unknown) => {
+          console.warn("Could not update Android media volume.", error);
+        });
+      } else if (videoRef.current) {
+        videoRef.current.volume = value;
+      }
+    },
+    [isAndroidApp],
+  );
+
   const togglePlayPause = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -1246,7 +1297,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const toggleFullscreen = useCallback(() => {
     const fullscreenElement = getPlayerFullscreenElement();
     if (fullscreenElement) {
-      void exitPlayerFullscreen().then(() => teardownFullscreen(false));
+      void exitPlayerFullscreen().then(() => {
+        if (!getPlayerFullscreenElement()) void teardownFullscreen(false);
+      });
     } else {
       const container = containerRef.current;
       const video = videoRef.current;
@@ -1281,6 +1334,21 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
             return;
           }
           setIsFullscreen(true);
+          if (isAndroidApp) {
+            await setNativeFullscreenImmersive(true);
+            try {
+              const levels = await systemVideoPip.getGestureLevels();
+              if (
+                requestId === fullscreenRequestIdRef.current &&
+                getPlayerFullscreenElement()
+              ) {
+                setBrightness(clamp(levels.brightness, 0.1, 1));
+                setMediaVolume(clamp(levels.volume, 0, 1));
+              }
+            } catch (error) {
+              console.warn("Could not read Android fullscreen gesture levels.", error);
+            }
+          }
           await lockPlayerOrientation(
             video && video.videoHeight > video.videoWidth ? "portrait" : "landscape",
           );
@@ -1292,7 +1360,12 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
         });
     }
     markControlsActivity();
-  }, [markControlsActivity, teardownFullscreen]);
+  }, [
+    isAndroidApp,
+    markControlsActivity,
+    setNativeFullscreenImmersive,
+    teardownFullscreen,
+  ]);
 
   const clearControlsHideTimer = useCallback(() => {
     if (controlsHideTimerRef.current !== null) {
@@ -1436,10 +1509,18 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
         fullscreenElement === containerRef.current ||
         fullscreenElement === videoRef.current ||
         fullscreenScrollYRef.current !== null;
+      if (playerIsFullscreen) {
+        void setNativeFullscreenImmersive(false);
+      }
       if (playerIsFullscreen) void exitPlayerFullscreen();
       void lockPlayerOrientation("portrait").finally(restoreFullscreenScroll);
     },
-    [clearLockedUnlockTimer, restoreFullscreenScroll],
+    [
+      clearLockedUnlockTimer,
+      isAndroidApp,
+      restoreFullscreenScroll,
+      setNativeFullscreenImmersive,
+    ],
   );
 
   useEffect(() => {
@@ -1626,7 +1707,8 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
           width: rect.width,
           moved: true,
           swipeAxis: null,
-          initialVolume: videoRef.current?.volume ?? 1,
+          adjustmentKind: null,
+          initialVolume: isAndroidApp ? mediaVolume : videoRef.current?.volume ?? 1,
           initialBrightness: brightness,
           initialDistance: touchDistance(event.touches),
           initialZoom: zoom,
@@ -1641,13 +1723,14 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
         width: rect.width,
         moved: false,
         swipeAxis: null,
-        initialVolume: videoRef.current?.volume ?? 1,
+        adjustmentKind: null,
+        initialVolume: isAndroidApp ? mediaVolume : videoRef.current?.volume ?? 1,
         initialBrightness: brightness,
         initialDistance: null,
         initialZoom: zoom,
       };
     },
-    [brightness, isDetailPlayer, isFullscreen, screenLocked, zoom],
+    [brightness, isAndroidApp, isDetailPlayer, isFullscreen, mediaVolume, screenLocked, zoom],
   );
 
   const handleTouchMove = useCallback(
@@ -1697,6 +1780,39 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
 
       if (
         !gesture.swipeAxis &&
+        !gesture.adjustmentKind &&
+        Math.abs(deltaY) >= 8 &&
+        Math.abs(deltaY) >= Math.abs(deltaX) * 1.1
+      ) {
+        gesture.adjustmentKind =
+          gesture.startX < gesture.width / 2 ? "brightness" : "volume";
+      }
+
+      if (gesture.adjustmentKind) {
+        gesture.moved = true;
+        if (event.cancelable) event.preventDefault();
+        if (gesture.adjustmentKind === "brightness") {
+          const nextBrightness = clamp(
+            gesture.initialBrightness - deltaY / 280,
+            0.1,
+            1,
+          );
+          applyGestureBrightness(nextBrightness);
+          showGestureFeedback(
+            "brightness",
+            nextBrightness,
+            `${Math.round(nextBrightness * 100)}%`,
+          );
+        } else {
+          const nextVolume = clamp(gesture.initialVolume - deltaY / 280, 0, 1);
+          applyGestureVolume(nextVolume);
+          showGestureFeedback("volume", nextVolume, `${Math.round(nextVolume * 100)}%`);
+        }
+        return;
+      }
+
+      if (
+        !gesture.swipeAxis &&
         Math.abs(primaryDelta) >= 7 &&
         Math.abs(primaryDelta) >= Math.abs(crossDelta) * 1.1
       ) {
@@ -1721,30 +1837,16 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       }
 
       if (Math.hypot(deltaX, deltaY) >= 8) gesture.moved = true;
-      if (
-        !isVerticalVideo ||
-        Math.abs(deltaY) < 12 ||
-        Math.abs(deltaY) < Math.abs(deltaX)
-      ) {
-        return;
-      }
-      if (event.cancelable) event.preventDefault();
-
-      if (gesture.startX < gesture.width * 0.4) {
-        const nextBrightness = clamp(
-          gesture.initialBrightness - deltaY / 280,
-          0.1,
-          1,
-        );
-        setBrightness(nextBrightness);
-        showGestureFeedback("brightness", nextBrightness, `${Math.round(nextBrightness * 100)}%`);
-      } else {
-        const nextVolume = clamp(gesture.initialVolume - deltaY / 280, 0, 1);
-        if (videoRef.current) videoRef.current.volume = nextVolume;
-        showGestureFeedback("volume", nextVolume, `${Math.round(nextVolume * 100)}%`);
-      }
     },
-    [isDetailPlayer, isFullscreen, isVerticalVideo, screenLocked, showGestureFeedback],
+    [
+      applyGestureBrightness,
+      applyGestureVolume,
+      isDetailPlayer,
+      isFullscreen,
+      isVerticalVideo,
+      screenLocked,
+      showGestureFeedback,
+    ],
   );
 
   const handleTouchEnd = useCallback(
@@ -1886,6 +1988,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const handleVolumeChange = useCallback((event: React.SyntheticEvent<HTMLVideoElement>) => {
     const video = event.currentTarget;
     setIsMuted(video.muted || video.volume === 0);
+    setMediaVolume(video.volume);
   }, []);
 
   const openDetail = useCallback(() => {
@@ -1978,7 +2081,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                   }`
                 : isDetailPlayer
                   ? isFullscreen
-                    ? `fixed inset-0 z-50 h-screen w-screen max-w-none bg-black ${
+                    ? `fixed inset-0 z-50 max-w-none bg-black ${
                         needsAndroidPortraitSafeArea ? "yw-android-video-safe-area" : ""
                       }`
                     : `sticky top-0 z-50 order-1 mx-auto block aspect-video w-full max-w-lg shrink-0 bg-black ${
@@ -2067,7 +2170,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
             }
             style={{
               ...(showDetailChrome && isFullscreen
-                ? { width: "100vw", height: "100vh" }
+                ? { width: "100vw", height: "100dvh" }
                 : {}),
               ...(showDetailChrome
                 ? { touchAction: isFullscreen ? "none" : "manipulation" }
@@ -2118,7 +2221,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                   (showDetailChrome && isFullscreen) || displayMode === "fill"
                     ? "cover"
                     : "contain",
-                filter: `brightness(${brightness})`,
+                filter: isAndroidApp ? undefined : `brightness(${brightness})`,
                 transition: gestureFeedback?.kind === "zoom" ? "none" : "transform 160ms ease-out",
                 touchAction: showDetailChrome
                   ? isFullscreen
@@ -2390,17 +2493,27 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
             {showDetailChrome && !screenLocked ? (
               <button
                 type="button"
-                onClick={() =>
-                  activeVideo.backTo
-                    ? (closeVideo(), void navigate({ to: activeVideo.backTo as never }))
-                    : window.history.length > 1
-                      ? window.history.back()
-                      : void navigate({ to: "/" })
-                }
-                className={`absolute left-3 top-2 z-50 rounded-full bg-black/60 p-2 text-white transition-opacity duration-200 hover:bg-black/80 ${
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  if (isFullscreen) {
+                    toggleFullscreen();
+                    return;
+                  }
+                  if (activeVideo.backTo) {
+                    closeVideo();
+                    void navigate({ to: activeVideo.backTo as never });
+                  } else if (window.history.length > 1) {
+                    window.history.back();
+                  } else {
+                    void navigate({ to: "/" });
+                  }
+                }}
+                onPointerDown={(event) => event.stopPropagation()}
+                className={`absolute left-3 top-[max(env(safe-area-inset-top,0px),0.5rem)] z-[110] rounded-full bg-black/60 p-2 text-white transition-opacity duration-200 hover:bg-black/80 ${
                   controlsVisible ? "opacity-100" : "pointer-events-none opacity-0"
                 }`}
-                aria-label="Go back"
+                aria-label={isFullscreen ? "Exit fullscreen" : "Go back"}
               >
                 <ArrowLeft className="h-5 w-5" />
               </button>
@@ -2410,7 +2523,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               <button
                 type="button"
                 onClick={toggleScreenLock}
-                className={`absolute right-14 top-[max(env(safe-area-inset-top,0px),40px)] z-50 rounded-full bg-black/60 p-2 text-white transition-opacity duration-200 hover:bg-black/80 ${
+                className={`absolute right-14 top-[max(env(safe-area-inset-top,0px),40px)] z-[110] rounded-full bg-black/60 p-2 text-white transition-opacity duration-200 hover:bg-black/80 ${
                   controlsVisible ? "opacity-100" : "pointer-events-none opacity-0"
                 }`}
                 aria-label="Lock player controls"
@@ -2446,14 +2559,18 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                 <button
                   type="button"
                   onClick={(event) => {
+                    event.preventDefault();
                     event.stopPropagation();
                     setSettingsMenu((current) => (current === "closed" ? "root" : "closed"));
+                    markControlsActivity();
                   }}
-                  className={`absolute right-3 top-2 z-[70] rounded-full bg-black/60 p-2 text-white transition-opacity duration-200 hover:bg-black/90 ${
+                  onPointerDown={(event) => event.stopPropagation()}
+                  className={`absolute right-3 top-[max(env(safe-area-inset-top,0px),0.5rem)] z-[110] rounded-full bg-black/60 p-2 text-white transition-opacity duration-200 hover:bg-black/90 ${
                     controlsVisible ? "opacity-100" : "pointer-events-none opacity-0"
                   }`}
                   aria-label="Player settings"
                   aria-expanded={settingsMenu !== "closed"}
+                  data-testid="video-player-settings"
                 >
                   <MoreVertical className="h-5 w-5" />
                 </button>
@@ -2461,7 +2578,12 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                 {settingsMenu !== "closed" ? (
                   <div
                     role="menu"
-                    className="absolute bottom-20 right-3 z-[70] w-52 overflow-hidden rounded-xl border border-white/15 bg-black/85 p-1.5 text-white shadow-2xl backdrop-blur-xl"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => event.stopPropagation()}
+                    className={`absolute right-3 z-[120] max-h-[70vh] w-52 overflow-y-auto overscroll-contain rounded-xl border border-white/15 bg-black/90 p-1.5 text-white shadow-2xl backdrop-blur-xl ${
+                      isFullscreen ? "top-14" : "bottom-20"
+                    }`}
+                    data-testid="video-player-settings-menu"
                   >
                     {settingsMenu === "root" ? (
                       <>

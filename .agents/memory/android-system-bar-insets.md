@@ -21,8 +21,8 @@ Fresh shells may still default to a JDK older than the Android project requires,
 
 **How to apply:** Check `java -version` immediately before `assembleDebug`; if needed, select JDK 21 for that invocation.
 
-Keep Android system-bar visibility, overlay mode, color, and contrast fixed at native startup/Capacitor configuration rather than changing them on route or player transitions. In the current Capacitor StatusBar plugin, `DARK` selects light (white) status icons for a dark background.
+Keep Android system-bar appearance and contrast stable at native startup. Video detail fullscreen is an explicit exception: use immersive sticky mode only while the Android player is actually fullscreen, hide status and navigation bars, suppress WebView safe-area padding during that state, and restore visible bars plus the saved brightness and cutout settings on every exit. All other app screens keep the native bars and insets.
 
-**Why:** Reapplying status-bar style or toggling system bars changes WebView insets and can flash or reposition the page.
+**Why:** The user explicitly requested edge-to-edge fullscreen playback while normal app screens continue to use native insets. Unscoped bar changes can flash or reposition other routes.
 
-**How to apply:** Use one startup source of truth for system-bar appearance, keep bars visible through navigation and fullscreen playback, and handle safe areas with native WebView insets.
+**How to apply:** Gate immersive mode to actual player fullscreen, reapply it on activity focus/resume, and restore it on button exit, external fullscreen changes, and route teardown. Do not change system-bar behavior for unrelated screens.

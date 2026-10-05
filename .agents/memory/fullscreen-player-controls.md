@@ -26,3 +26,9 @@ On the video detail route, keep the 16:9 player in the page layout above a dedic
 **Why:** A fixed overlay and a separate spacer can drift out of alignment and cover the title as content scrolls; on Android, the native video surface can also swallow touch and click events.
 
 **How to apply:** Use a viewport-height column on detail routes, keep the player as a sticky block, and scroll the content below it independently. Do not render the spacer while the detail player is active. Keep the hit target beneath custom controls and overlays, with `pointer-events: none` on decorative loading feedback.
+
+Keep player requests limited to the explicitly requested player behavior and the native bridge it needs. Do not modify uploads, compression, feed layouts, or other modules unless the user asks.
+
+**Why:** The user set a strict scope boundary to avoid regressions in unrelated app features.
+
+**How to apply:** Restrict changes to the shared player and necessary Android fullscreen support; verify the changed-file list before finishing.
