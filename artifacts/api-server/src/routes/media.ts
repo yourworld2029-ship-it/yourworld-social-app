@@ -256,6 +256,42 @@ async function uploadProcessedVideo(
   }
 }
 
+async function inspectStoredMp4Playback(
+  baseUrl: string,
+  serviceRoleKey: string,
+  bucket: string,
+  objectPath: string,
+) {
+  const response = await fetch(objectUrl(baseUrl, bucket, objectPath), {
+    headers: {
+      Authorization: `Bearer ${serviceRoleKey}`,
+      apikey: serviceRoleKey,
+      Range: "bytes=0-1",
+    },
+    signal: AbortSignal.timeout(20_000),
+  });
+  const contentType =
+    response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() ?? null;
+  const contentRange = response.headers.get("content-range");
+  const rangeSupported =
+    response.status === 206 &&
+    (!contentRange || /^bytes\s+0-1\/(?:\d+|\*)$/i.test(contentRange.trim()));
+  await response.body?.cancel().catch(() => {});
+
+  if (contentType !== "video/mp4") {
+    throw new Error(
+      `Storage returned ${contentType ?? "no Content-Type"} for the processed MP4.`,
+    );
+  }
+  return {
+    contentType,
+    rangeSupported,
+    rangeStatus: response.status,
+    contentRange,
+    acceptRanges: response.headers.get("accept-ranges"),
+  };
+}
+
 function createReadStreamWithBuffer(filePath: string) {
   // A 512 KiB stream buffer keeps storage uploads bounded without loading the
   // complete processed video into memory.
@@ -1340,6 +1376,35 @@ router.post("/media/playback-url", async (req, res): Promise<void> => {
   }
 });
 
+router.post("/media/playback-source", async (req, res): Promise<void> => {
+  const parsed = GetMediaPlaybackUrlBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "A video post ID is required." });
+    return;
+  }
+  const authorized = await authenticateAndLoadPost(req, res, parsed.data.postId);
+  if (!authorized) return;
+
+  const source = videoSourceObject(authorized.row, "original");
+  if (!source) {
+    res.status(404).json({ error: "The retained MP4 playback source is unavailable." });
+    return;
+  }
+
+  try {
+    const url = await signStorageObject(
+      authorized.config.url,
+      authorized.config.serviceRoleKey,
+      source.bucket,
+      source.objectPath,
+    );
+    res.status(200).json(GetMediaPlaybackUrlResponse.parse({ url }));
+  } catch (error) {
+    req.log.warn({ err: error, postId: parsed.data.postId }, "Could not sign the MP4 playback fallback");
+    res.status(502).json({ error: "The retained MP4 playback source is temporarily unavailable." });
+  }
+});
+
 router.post("/media/offline-source", async (req, res): Promise<void> => {
   const parsed = GetVideoOfflineSourceBody.safeParse(req.body);
   if (!parsed.success) {
@@ -1543,6 +1608,30 @@ router.post("/media/transcode", async (req, res): Promise<void> => {
       outputPath,
       outputStats.size,
     );
+    if (bucket === "videos") {
+      const playbackCheck = await inspectStoredMp4Playback(
+        config.url,
+        config.serviceRoleKey,
+        bucket,
+        outputPathInStorage,
+      );
+      const playbackLog = {
+        bucket,
+        contentType: playbackCheck.contentType,
+        rangeStatus: playbackCheck.rangeStatus,
+        rangeSupported: playbackCheck.rangeSupported,
+        contentRange: playbackCheck.contentRange,
+        acceptRanges: playbackCheck.acceptRanges,
+      };
+      if (playbackCheck.rangeSupported) {
+        req.log.info(playbackLog, "Verified stored MP4 MIME and byte-range playback");
+      } else {
+        req.log.warn(
+          playbackLog,
+          "Stored MP4 is fast-started but Storage did not confirm byte-range playback",
+        );
+      }
+    }
 
     let stream: { uid: string; playbackUrl: string } | null = null;
     if (parsed.data.cloudflareStream) {

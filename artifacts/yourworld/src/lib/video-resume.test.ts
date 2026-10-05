@@ -90,6 +90,37 @@ test("resume entries stay local and discard signed thumbnail URLs", () => {
     requestVideoResume(entry!.id, entry!.currentTime);
     assert.equal(consumeVideoResumeRequest(entry!.id), 42.375);
     assert.equal(consumeVideoResumeRequest(entry!.id), null);
+
+    const pendingKey = "yw:pending-video-resume:v1";
+    session.set(
+      pendingKey,
+      JSON.stringify({
+        id: entry!.id,
+        currentTime: 12,
+        requestedAt: Date.now() + 1_000,
+      }),
+    );
+    assert.equal(consumeVideoResumeRequest(entry!.id), null);
+
+    session.set(
+      pendingKey,
+      JSON.stringify({
+        id: entry!.id,
+        currentTime: 12,
+        requestedAt: Date.now() - 3 * 60 * 1000,
+      }),
+    );
+    assert.equal(consumeVideoResumeRequest(entry!.id), null);
+
+    session.set(
+      pendingKey,
+      JSON.stringify({
+        id: entry!.id,
+        currentTime: 12,
+        requestedAt: Date.now(),
+      }),
+    );
+    assert.equal(consumeVideoResumeRequest("another-video"), null);
   } finally {
     if (originalWindow === undefined) {
       Reflect.deleteProperty(globalThis, "window");

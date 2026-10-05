@@ -155,13 +155,17 @@ export function consumeVideoResumeRequest(id: string) {
     const pending: unknown = JSON.parse(raw);
     if (!pending || typeof pending !== "object") return null;
     const request = pending as Partial<PendingResume>;
+    const now = Date.now();
     if (
       request.id !== id ||
       typeof request.currentTime !== "number" ||
       !Number.isFinite(request.currentTime) ||
       request.currentTime < 0 ||
       typeof request.requestedAt !== "number" ||
-      Date.now() - request.requestedAt > PENDING_MAX_AGE_MS
+      !Number.isFinite(request.requestedAt) ||
+      request.requestedAt < 0 ||
+      request.requestedAt > now ||
+      now - request.requestedAt > PENDING_MAX_AGE_MS
     ) {
       return null;
     }

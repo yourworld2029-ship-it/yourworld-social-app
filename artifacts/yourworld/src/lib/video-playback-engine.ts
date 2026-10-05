@@ -1,5 +1,48 @@
-export function isHlsMediaUrl(url: string) {
-  return /\.m3u8(?:$|[?#])/i.test(url);
+function mediaPath(url: string) {
+  try {
+    return decodeURIComponent(new URL(url, "https://media.invalid").pathname).toLowerCase();
+  } catch {
+    const path = url.split(/[?#]/, 1)[0] ?? "";
+    try {
+      return decodeURIComponent(path).toLowerCase();
+    } catch {
+      return path.toLowerCase();
+    }
+  }
+}
+
+export function isHlsMediaUrl(url: string, contentType?: string | null) {
+  const mimeType = contentType?.split(";", 1)[0]?.trim().toLowerCase();
+  if (
+    mimeType === "application/vnd.apple.mpegurl" ||
+    mimeType === "application/x-mpegurl" ||
+    mimeType === "audio/mpegurl" ||
+    mimeType === "audio/x-mpegurl"
+  ) {
+    return true;
+  }
+  const path = mediaPath(url);
+  return /\.m3u8$/i.test(path) || /\/manifest\/video\.m3u8$/i.test(path);
+}
+
+export function isValidMp4RangeResponse(
+  status: number,
+  contentType: string | null,
+  contentRange: string | null,
+) {
+  const mimeType = contentType?.split(";", 1)[0]?.trim().toLowerCase();
+  if (status !== 206 || mimeType !== "video/mp4") return false;
+  return !contentRange || /^bytes\s+0-1\/(?:\d+|\*)$/i.test(contentRange.trim());
+}
+
+export function safeMediaUrlForLog(value: string) {
+  try {
+    const url = new URL(value, "https://media.invalid");
+    if (url.protocol === "blob:" || url.protocol === "data:") return url.protocol;
+    return `${url.origin === "https://media.invalid" ? "" : url.origin}${url.pathname}`;
+  } catch {
+    return (value.split(/[?#]/, 1)[0] ?? "").slice(0, 240);
+  }
 }
 
 export function supportsNativeHls(video: Pick<HTMLVideoElement, "canPlayType">) {
@@ -34,8 +77,8 @@ export function detectNativeVideoSupport(
   video: Pick<HTMLVideoElement, "canPlayType">,
   url: string,
 ): NativeVideoSupport {
-  const path = url.split(/[?#]/, 1)[0]?.toLowerCase() ?? "";
-  if (/\.m3u8$/i.test(path)) {
+  const path = mediaPath(url);
+  if (isHlsMediaUrl(url)) {
     const hlsResult =
       video.canPlayType("application/vnd.apple.mpegurl") ||
       video.canPlayType("application/x-mpegURL");

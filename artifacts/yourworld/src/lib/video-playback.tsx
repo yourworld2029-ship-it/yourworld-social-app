@@ -27,6 +27,7 @@ import {
   cacheVideoPoster,
   getResolvedVideoCover,
 } from "@/lib/video-prefetch";
+import { verifyRangedMp4PlaybackUrl } from "@/lib/video-range-probe";
 import {
   createVideoPlaybackProgressStore,
   type VideoPlaybackProgressStore,
@@ -36,7 +37,9 @@ import {
   detectNativeVideoSupport,
   isAutoplayPolicyError,
   isHlsMediaUrl,
+  isPlayableMediaUrl,
   mediaErrorName,
+  safeMediaUrlForLog,
   supportsNativeHls,
 } from "@/lib/video-playback-engine";
 import {
@@ -171,6 +174,7 @@ export type PersistentVideo = {
   detailRoute?: string;
   backTo?: string;
   qualityUrls?: QualityUrls;
+  fallbackUrls?: string[];
   initialTime?: number;
 };
 
@@ -318,6 +322,11 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     [progressStore],
   );
   const [activeVideo, setActiveVideo] = useState<PersistentVideo | null>(null);
+  const [playbackSourceOverride, setPlaybackSourceOverride] = useState<{
+    id: string;
+    primaryUrl: string;
+    url: string;
+  } | null>(null);
   const [mediaError, setMediaError] = useState<{ id: string; url: string } | null>(null);
   const [playbackRetryKey, setPlaybackRetryKey] = useState(0);
   const [resolvedPoster, setResolvedPoster] = useState<{ key: string; url: string } | null>(null);
@@ -348,11 +357,19 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const [activeHlsHeight, setActiveHlsHeight] = useState<number | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const activeVideoRef = useRef<PersistentVideo | null>(null);
+  const fallbackAttemptRef = useRef<string | null>(null);
   const activeSourceRef = useRef<{ id: string; url: string } | null>(null);
   const playbackAttemptRef = useRef(0);
   const hlsRef = useRef<Hls | null>(null);
+  activeVideoRef.current = activeVideo;
   const activeVideoId = activeVideo?.id;
-  const activeVideoUrl = activeVideo?.url;
+  const activeVideoUrl =
+    playbackSourceOverride !== null &&
+    playbackSourceOverride.id === activeVideo?.id &&
+    playbackSourceOverride.primaryUrl === activeVideo?.url
+      ? playbackSourceOverride.url
+      : activeVideo?.url;
   const activeVideoInitialTime = activeVideo?.initialTime;
   const activePosterKey = activeVideo
     ? `${activeVideo.id}\u0000${activeVideo.thumbnailUrl ?? ""}`
@@ -376,15 +393,87 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const attemptStorageFallback = useCallback(
+    (source: { id: string; url: string }, attempt: number) => {
+      const video = activeVideoRef.current;
+      const fallbackUrl = video?.fallbackUrls?.find(
+        (url) => url !== source.url && isPlayableMediaUrl(url),
+      );
+      if (
+        !video ||
+        video.id !== source.id ||
+        video.url !== source.url ||
+        !fallbackUrl
+      ) {
+        return false;
+      }
+
+      const attemptKey = `${source.id}\u0000${source.url}`;
+      if (fallbackAttemptRef.current === attemptKey) return true;
+      fallbackAttemptRef.current = attemptKey;
+
+      void verifyRangedMp4PlaybackUrl(fallbackUrl)
+        .then(() => {
+          if (
+            playbackAttemptRef.current !== attempt ||
+            activeSourceRef.current?.id !== source.id ||
+            activeSourceRef.current.url !== source.url
+          ) {
+            return;
+          }
+          console.warn("[video-playback] switching to verified ranged MP4 fallback", {
+            videoId: source.id,
+            source: safeMediaUrlForLog(source.url),
+            fallback: safeMediaUrlForLog(fallbackUrl),
+          });
+          setMediaError(null);
+          setIsBuffering(true);
+          setPlaybackSourceOverride({
+            id: source.id,
+            primaryUrl: video.url,
+            url: fallbackUrl,
+          });
+        })
+        .catch((error: unknown) => {
+          if (
+            playbackAttemptRef.current !== attempt ||
+            activeSourceRef.current?.id !== source.id ||
+            activeSourceRef.current.url !== source.url
+          ) {
+            return;
+          }
+          console.error("[video-playback] ranged MP4 fallback failed validation", {
+            videoId: source.id,
+            source: safeMediaUrlForLog(source.url),
+            error: error instanceof Error ? error.message : "unknown error",
+          });
+          reportMediaError(source, attempt);
+        });
+      return true;
+    },
+    [reportMediaError],
+  );
+
   const handleNativeMediaError = useCallback(
     (event: ReactSyntheticEvent<HTMLVideoElement>) => {
       const source = activeSourceRef.current;
       if (!source) return;
       const currentSource = event.currentTarget.currentSrc;
       if (currentSource && currentSource !== source.url) return;
-      reportMediaError(source, playbackAttemptRef.current);
+      const mediaError = event.currentTarget.error;
+      console.warn("[video-playback] native media source failed", {
+        videoId: source.id,
+        source: safeMediaUrlForLog(source.url),
+        code: mediaError?.code ?? null,
+        message: mediaError?.message ?? "",
+        networkState: event.currentTarget.networkState,
+        readyState: event.currentTarget.readyState,
+      });
+      const attempt = playbackAttemptRef.current;
+      if (attemptStorageFallback(source, attempt)) return;
+      reportMediaError(source, attempt);
     },
-    [reportMediaError],
+    [attemptStorageFallback, reportMediaError],
   );
 
   const requestPlayback = useCallback(
@@ -556,7 +645,12 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
 
   const activateVideo = useCallback((video: PersistentVideo) => {
     const source = activeSourceRef.current;
+    const previousVideo = activeVideoRef.current;
     const player = videoRef.current;
+    if (previousVideo?.id !== video.id || previousVideo.url !== video.url) {
+      fallbackAttemptRef.current = null;
+      setPlaybackSourceOverride(null);
+    }
     if (source?.id !== video.id || source.url !== video.url) {
       setHasVideoFrame(false);
     }
@@ -597,7 +691,11 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
         current?.id === video.id &&
         current.url === video.url &&
         current.title === video.title &&
-        current.thumbnailUrl === video.thumbnailUrl
+        current.thumbnailUrl === video.thumbnailUrl &&
+        (current.fallbackUrls ?? []).length === (video.fallbackUrls ?? []).length &&
+        (current.fallbackUrls ?? []).every(
+          (url, index) => url === video.fallbackUrls?.[index],
+        )
       ) {
         return current;
       }
@@ -628,6 +726,8 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       video.load();
     }
     activeSourceRef.current = null;
+      fallbackAttemptRef.current = null;
+      setPlaybackSourceOverride(null);
     setActiveVideo(null);
     setHasVideoFrame(false);
     setIsVerticalVideo(false);
@@ -654,6 +754,8 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     hlsRef.current?.destroy();
     hlsRef.current = null;
     activeSourceRef.current = null;
+    fallbackAttemptRef.current = null;
+    setPlaybackSourceOverride(null);
     setPlaybackRetryKey((key) => key + 1);
   }, [activeVideo]);
 
@@ -782,6 +884,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     setHlsLevels([]);
     setActiveHlsHeight(null);
     activeSourceRef.current = { id: activeVideoId, url: activeVideoUrl };
+    video.addEventListener("loadedmetadata", restorePlayback, { once: true });
     try {
       // Capability probing is advisory: keep the browser-native source path as
       // the fallback because canPlayType may under-report installed decoders.
@@ -804,13 +907,28 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
           });
           hls.on(Hls.Events.ERROR, (_event, data) => {
             if (!data.fatal) return;
+            console.warn("[video-playback] fatal HLS playback error", {
+              videoId: activeVideoId,
+              source: safeMediaUrlForLog(activeVideoUrl),
+              type: data.type,
+              details: data.details,
+              responseCode: data.response?.code ?? null,
+              fatal: data.fatal,
+            });
+            const usingStorageFallback = attemptStorageFallback(
+              { id: activeVideoId, url: activeVideoUrl },
+              attempt,
+            );
             if (hlsRef.current === hls) hlsRef.current = null;
             hls.destroy();
+            if (usingStorageFallback) return;
             if (supportsNativeHls(video)) {
+              activeSourceRef.current = null;
               video.removeAttribute("src");
               video.load();
               video.src = activeVideoUrl;
               video.load();
+              activeSourceRef.current = { id: activeVideoId, url: activeVideoUrl };
             } else {
               reportMediaError({ id: activeVideoId, url: activeVideoUrl }, attempt);
             }
@@ -821,7 +939,14 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
           video.src = activeVideoUrl;
           video.load();
         } else {
-          reportMediaError({ id: activeVideoId, url: activeVideoUrl }, attempt);
+          if (
+            !attemptStorageFallback(
+              { id: activeVideoId, url: activeVideoUrl },
+              attempt,
+            )
+          ) {
+            reportMediaError({ id: activeVideoId, url: activeVideoUrl }, attempt);
+          }
         }
       } else {
         video.src = activeVideoUrl;
@@ -831,8 +956,6 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       console.error("[video-playback] unable to mount media source", cause);
       reportMediaError({ id: activeVideoId, url: activeVideoUrl }, attempt);
     }
-    video.addEventListener("loadedmetadata", restorePlayback, { once: true });
-
     return () => {
       video.removeEventListener("loadedmetadata", restorePlayback);
     };
@@ -840,6 +963,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     activeVideoId,
     activeVideoInitialTime,
     activeVideoUrl,
+    attemptStorageFallback,
     playbackRetryKey,
     reportMediaError,
     requestPlayback,
@@ -880,7 +1004,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const nextUrl = nextQuality === "auto" ? activeVideo.url : activeVideo.qualityUrls?.[nextQuality];
+    const nextUrl = nextQuality === "auto" ? activeVideoUrl : activeVideo.qualityUrls?.[nextQuality];
     if (!nextUrl || nextUrl === activeSourceRef.current?.url) {
       setQuality(nextQuality);
       setSettingsMenu("closed");
@@ -904,7 +1028,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     setQuality(nextQuality);
     setSettingsMenu("closed");
     markControlsActivity();
-  }, [activeVideo, hlsLevels, markControlsActivity, requestPlayback]);
+  }, [activeVideo, activeVideoUrl, hlsLevels, markControlsActivity, requestPlayback]);
 
   const togglePictureInPicture = useCallback(() => {
     if (!videoRef.current) return;
@@ -1928,7 +2052,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
 
             {showDetailChrome &&
             isBuffering &&
-            !(mediaError?.id === activeVideo.id && mediaError.url === activeVideo.url) ? (
+            !(mediaError?.id === activeVideo.id && mediaError.url === activeVideoUrl) ? (
               <div
                 className="pointer-events-none absolute inset-0 z-[35] grid place-items-center"
                 role="status"
@@ -1941,7 +2065,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               </div>
             ) : null}
 
-            {mediaError?.id === activeVideo.id && mediaError.url === activeVideo.url ? (
+            {mediaError?.id === activeVideo.id && mediaError.url === activeVideoUrl ? (
               <div
                 className="absolute inset-0 z-[85] grid place-items-center bg-black/95 px-5 text-center text-white"
                 role="alert"

@@ -159,6 +159,10 @@ registerDirectApkDownload(
   "/yourworld-v1.0.54-debug.apk",
   "yourworld-v1.0.54-debug.apk",
 );
+registerDirectApkDownload(
+  "/yourworld-v1.0.55-debug.apk",
+  "yourworld-v1.0.55-debug.apk",
+);
 registerDirectApkDownload("/app.apk", "app.apk");
 
 export default router;

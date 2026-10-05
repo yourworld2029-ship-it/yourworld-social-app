@@ -28,7 +28,10 @@ function errorFromPayload(payload: unknown, fallback: string) {
 }
 
 async function postAuthorizedMediaRequest(
-  path: "/api/media/playback-url" | "/api/media/offline-source",
+  path:
+    | "/api/media/playback-url"
+    | "/api/media/playback-source"
+    | "/api/media/offline-source",
   body: Record<string, unknown>,
   timeoutMs = 20_000,
 ) {
@@ -75,6 +78,11 @@ export async function resolveAuthorizedPlaybackUrl(
     throw new Error("Sign in to access this video.");
   }
   const payload = await postAuthorizedMediaRequest("/api/media/playback-url", { postId });
+  return payload.url;
+}
+
+export async function resolveAuthorizedStoragePlaybackUrl(postId: string) {
+  const payload = await postAuthorizedMediaRequest("/api/media/playback-source", { postId });
   return payload.url;
 }
 

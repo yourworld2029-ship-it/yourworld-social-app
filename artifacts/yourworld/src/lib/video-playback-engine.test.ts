@@ -7,13 +7,66 @@ import {
   detectNativeVideoSupport,
   isHlsMediaUrl,
   isPlayableMediaUrl,
+  isValidMp4RangeResponse,
+  safeMediaUrlForLog,
   supportsNativeHls,
 } from "./video-playback-engine";
+import { verifyRangedMp4PlaybackUrl } from "./video-range-probe";
 
 test("identifies HLS manifests with query strings and fragments", () => {
   assert.equal(isHlsMediaUrl("https://media.example/stream.m3u8?token=abc"), true);
   assert.equal(isHlsMediaUrl("https://media.example/STREAM.M3U8#t=2"), true);
+  assert.equal(
+    isHlsMediaUrl(
+      "https://media.example/manifest/abc?token=private",
+      "application/vnd.apple.mpegurl; charset=utf-8",
+    ),
+    true,
+  );
   assert.equal(isHlsMediaUrl("https://media.example/video.mp4"), false);
+});
+
+test("accepts only MP4 partial-content responses for storage playback fallbacks", () => {
+  assert.equal(isValidMp4RangeResponse(206, "video/mp4", "bytes 0-1/5000"), true);
+  assert.equal(isValidMp4RangeResponse(206, "video/mp4; charset=binary", null), true);
+  assert.equal(isValidMp4RangeResponse(200, "video/mp4", "bytes 0-1/5000"), false);
+  assert.equal(isValidMp4RangeResponse(206, "application/json", "bytes 0-1/5000"), false);
+  assert.equal(isValidMp4RangeResponse(206, "video/mp4", "bytes 1-2/5000"), false);
+});
+
+test("strips signed query strings from playback diagnostic URLs", () => {
+  assert.equal(
+    safeMediaUrlForLog("https://media.example/videos/abc.mp4?token=secret#frame=2"),
+    "https://media.example/videos/abc.mp4",
+  );
+  assert.equal(safeMediaUrlForLog("data:video/mp4;base64,private-bytes"), "data:");
+});
+
+test("probes only a tiny byte range and accepts a correctly typed partial response", async () => {
+  const request: typeof fetch = async (_input, init) => {
+    assert.equal(new Headers(init?.headers).get("range"), "bytes=0-1");
+    return new Response(new Uint8Array([0, 1]), {
+      status: 206,
+      headers: {
+        "Content-Type": "video/mp4",
+        "Content-Range": "bytes 0-1/2000",
+      },
+    });
+  };
+  const url = "https://storage.example/signed/video.mp4?token=hidden";
+  assert.equal(await verifyRangedMp4PlaybackUrl(url, request), url);
+});
+
+test("rejects storage playback responses without partial-content MP4 headers", async () => {
+  const request: typeof fetch = async () =>
+    new Response("not a video", {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  await assert.rejects(
+    verifyRangedMp4PlaybackUrl("https://storage.example/video.mp4", request),
+    /video\/mp4 and byte-range support/,
+  );
 });
 
 test("recognizes browser-playable media URLs", () => {

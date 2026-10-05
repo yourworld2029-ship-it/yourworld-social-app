@@ -23,6 +23,7 @@ import { useYw } from "@/lib/yw-store";
 import {
   resolveAuthorizedOfflineSource,
   resolveAuthorizedPlaybackUrl,
+  resolveAuthorizedStoragePlaybackUrl,
 } from "@/lib/video-media-api";
 import {
   VIDEO_QUALITY_TIERS,
@@ -37,6 +38,7 @@ type VideoRouteData = {
   url: string | null;
   locked: boolean;
   qualityMediaUrls: DownloadQualityUrls | null;
+  fallbackUrls?: string[];
 };
 
 function isRestrictedAudience(row: Record<string, unknown>) {
@@ -130,11 +132,27 @@ async function loadVideoForPlayback(videoId: string): Promise<VideoRouteData> {
   }
 
   let url: string | null;
+  let fallbackUrls: string[] = [];
   if (isCloudflareStreamManifest(video.mediaUrl)) {
     if (!accessToken) {
       url = video.mediaUrl;
     } else {
-      url = await resolveAuthorizedPlaybackUrl(video.id);
+      const hasRetainedSource =
+        typeof row.video_url === "string" && row.video_url.trim().length > 0;
+      const [playbackUrl, storageFallback] = await Promise.all([
+        resolveAuthorizedPlaybackUrl(video.id),
+        hasRetainedSource
+          ? resolveAuthorizedStoragePlaybackUrl(video.id).catch((error: unknown) => {
+              console.warn("[video-playback] retained MP4 fallback could not be resolved", {
+                videoId: video.id,
+                error: error instanceof Error ? error.message : "unknown error",
+              });
+              return null;
+            })
+          : Promise.resolve(null),
+      ]);
+      url = playbackUrl;
+      if (storageFallback) fallbackUrls = [storageFallback];
     }
   } else {
     url = await resolveLongVideoUrl(video.mediaUrl);
@@ -147,6 +165,7 @@ async function loadVideoForPlayback(videoId: string): Promise<VideoRouteData> {
     url,
     locked: false,
     qualityMediaUrls: readQualityMediaUrls(row),
+    fallbackUrls,
   };
 }
 
@@ -247,6 +266,7 @@ function VideoRouteComponent() {
       url: data.url,
       title: data.video.title,
       thumbnailUrl: data.video.thumbnailUrl,
+      fallbackUrls: data.fallbackUrls,
       initialTime: resumeTimeRef.current ?? undefined,
     });
     resumeTimeRef.current = null;
