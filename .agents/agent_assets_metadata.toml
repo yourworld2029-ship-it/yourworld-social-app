@@ -378,3 +378,17 @@ mtime_ms = 1791055065682
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/00e10df5-37ac-41ae-be7f-57142fec3732/7bf41812-21fa-44f4-8813-6d3933659f21"
 storage_version_token = "1791055339044979"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "lOo6MqVOqEO4kkUwK87oY"
+uri = "file://artifacts/yourworld/android/app/build/outputs/apk/debug/YourWorld-v1.0.52-debug-20261005-061947.apk"
+type = "unspecified"
+title = "Download YourWorld Debug APK — v1.0.52"
+description = "Fresh clean Debug build with the latest Long Video tiered compression and background upload bundle. Debug-signed for internal testing; not a production update APK."
+logical_id = "27970c97-e396-436d-a48c-c5fc2ced7c1c"
+content_hash = "sha256:79a0540fb3c975c5f0b4ca3765da4732709785cb589a22b6fb1fa9864b24d8da"
+size = 10919309
+mtime_ms = 1791181323162
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/27970c97-e396-436d-a48c-c5fc2ced7c1c/94ee1591-675d-46a4-a950-cfa33310a026"
+storage_version_token = "1791181339042160"
+content_type = "application/octet-stream"
