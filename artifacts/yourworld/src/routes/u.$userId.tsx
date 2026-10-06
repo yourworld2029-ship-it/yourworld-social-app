@@ -10,6 +10,8 @@ import { useYw } from "@/lib/yw-store";
 import { useAuth, useResumeAuthAction } from "@/lib/auth-store";
 import { getOrCreateSportsProfile } from "@/components/yw/SportsProfile";
 import { ProfileTemplate } from "@/components/yw/ProfileTemplate";
+import { buildPublicAppUrl } from "@/lib/public-app-url";
+import { sharePublicContent } from "@/lib/share-public";
 
 const PUBLIC_PROFILE_MEDIA_PAGE_SIZE = 12;
 
@@ -285,16 +287,16 @@ function PublicProfilePage() {
   });
 
   const onShare = async () => {
-    const url = `${window.location.origin}/u/${encodeURIComponent(userId)}`;
+    const url = buildPublicAppUrl(`/u/${encodeURIComponent(userId)}`);
     try {
-      if (navigator.share) {
-        await navigator.share({ title: profile?.username ?? "YourWorld profile", url });
-      } else {
-        await navigator.clipboard.writeText(url);
-        toast.success("Profile link copied");
-      }
+      const result = await sharePublicContent({
+        title: profile?.username ?? "YourWorld profile",
+        text: `View ${profile?.username ?? "this profile"} on YourWorld`,
+        url,
+      });
+      if (result === "copied") toast.success("Profile link copied");
     } catch {
-      // User cancelled sharing.
+      toast.error("Couldn't share this profile");
     }
   };
 

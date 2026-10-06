@@ -1,10 +1,12 @@
+import { buildPublicAppUrl } from "@/lib/public-app-url";
+
 export type WatchContentKind = "video" | "reel";
 
 export const APK_DOWNLOAD_PATH = "/download-apk";
 
 export function buildWatchShareUrl(id: string, kind: WatchContentKind) {
   const path = `/watch/${encodeURIComponent(id)}?type=${kind}`;
-  return typeof window === "undefined" ? path : `${window.location.origin}${path}`;
+  return buildPublicAppUrl(path);
 }
 
 export function parseWatchShareUrl(value: string) {

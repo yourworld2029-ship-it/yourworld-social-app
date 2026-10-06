@@ -7,6 +7,10 @@ import { useAuth } from "@/lib/auth-store";
 import { dmThreadId, useThreadMessages } from "@/lib/social-data";
 import { supabase } from "@/integrations/supabase/client";
 import { useMoments } from "@/lib/moment-context";
+import { useFollowList } from "@/lib/follow-data";
+import { hiddenThreadIds, loadHiddenDirectThreads } from "@/lib/chat-delete";
+import { buildPublicAppUrl } from "@/lib/public-app-url";
+import { sharePublicContent } from "@/lib/share-public";
 
 interface ShareSheetProps {
   /** Caption or title of the shared item. */
@@ -42,6 +46,64 @@ type ShareDeliveryControllerProps = {
   thumbnailBucket: "reels" | "videos" | "thumbnails";
   onComplete: (error: string | null) => void;
 };
+
+async function loadRecentSharePeople(userId: string): Promise<SharePerson[]> {
+  let hiddenIds = new Set(hiddenThreadIds());
+  try {
+    hiddenIds = new Set(await loadHiddenDirectThreads(userId));
+  } catch {
+    // Keep the device cache of hidden chats if the durable preference read fails.
+  }
+
+  const { data, error } = await supabase
+    .from("messages" as never)
+    .select("sender_id,receiver_id,created_at" as never)
+    .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`)
+    .order("created_at", { ascending: false })
+    .limit(100);
+  if (error) throw error;
+
+  const peerIds: string[] = [];
+  const seen = new Set<string>();
+  for (const row of (data ?? []) as unknown as Array<
+    Record<string, unknown>
+  >) {
+    if (typeof row.sender_id !== "string" || typeof row.receiver_id !== "string") continue;
+    const peerId = row.sender_id === userId ? row.receiver_id : row.sender_id;
+    if (!peerId || peerId === userId || seen.has(peerId)) continue;
+    if (hiddenIds.has(dmThreadId(userId, peerId))) continue;
+    seen.add(peerId);
+    peerIds.push(peerId);
+    if (peerIds.length >= 30) break;
+  }
+  if (!peerIds.length) return [];
+
+  const { data: profiles, error: profileError } = await supabase.rpc(
+    "get_public_profiles",
+    { ids: peerIds },
+  );
+  if (profileError) throw profileError;
+
+  const profilesById = new Map(
+    ((profiles ?? []) as Array<{
+      id: string;
+      username?: string | null;
+      display_name?: string | null;
+      avatar_url?: string | null;
+    }>).map((profile) => [profile.id, profile]),
+  );
+  return peerIds.flatMap((id) => {
+    const profile = profilesById.get(id);
+    return profile
+      ? [{
+          id,
+          username: profile.username ?? null,
+          display_name: profile.display_name ?? profile.username ?? null,
+          avatar_url: profile.avatar_url ?? null,
+        }]
+      : [];
+  });
+}
 
 const glyph = (path: string) => (
   <svg viewBox="0 0 24 24" fill="currentColor" className="h-[21px] w-[21px]" aria-hidden="true">
@@ -165,9 +227,13 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
 }) => {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const [people, setPeople] = useState<SharePerson[]>([]);
-  const [peopleLoading, setPeopleLoading] = useState(false);
-  const [peopleError, setPeopleError] = useState<string | null>(null);
+  const [searchPeople, setSearchPeople] = useState<SharePerson[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [recentPeople, setRecentPeople] = useState<SharePerson[]>([]);
+  const [recentLoading, setRecentLoading] = useState(false);
+  const [recentError, setRecentError] = useState<string | null>(null);
+  const [defaultLoaded, setDefaultLoaded] = useState(false);
   const [delivery, setDelivery] = useState<{ person: SharePerson; threadId: string } | null>(null);
   const [deliveryStatus, setDeliveryStatus] = useState<
     Record<string, "sending" | "sent">
@@ -175,21 +241,59 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
   const deliverySequence = useRef(0);
   const { user } = useAuth();
   const { addMoment } = useMoments();
+  const hasSearchTerm = Boolean(search.trim().replace(/^@+/, ""));
+  const {
+    users: followedUsers,
+    loading: followingLoading,
+    error: followingError,
+  } = useFollowList(user?.id ?? null, "following", open && !hasSearchTerm);
 
-  const link =
-    url ?? (typeof window !== "undefined" ? window.location.href : "https://yourworld.app");
-  const text = title ? `${title} — ${link}` : link;
+  const currentPath =
+    typeof window === "undefined"
+      ? "/"
+      : `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  const link = buildPublicAppUrl(url ?? currentPath);
+  const followPeople = useMemo(
+    () =>
+      followedUsers.map((person) => ({
+        id: person.id,
+        username: person.username || null,
+        display_name: person.display_name || null,
+        avatar_url: person.avatar_url,
+      })),
+    [followedUsers],
+  );
+  const people = useMemo(() => {
+    if (hasSearchTerm) return searchPeople;
+    const unique = new Map<string, SharePerson>();
+    for (const person of [...recentPeople, ...followPeople]) {
+      if (!unique.has(person.id)) unique.set(person.id, person);
+    }
+    return Array.from(unique.values()).slice(0, 30);
+  }, [followPeople, hasSearchTerm, recentPeople, searchPeople]);
+  const peopleLoading = hasSearchTerm
+    ? searchLoading
+    : !defaultLoaded || recentLoading || followingLoading;
+  const peopleError = hasSearchTerm
+    ? searchError
+    : recentError || followingError;
 
   useEffect(() => {
     if (!open) return;
     let alive = true;
-    setPeopleLoading(true);
-    setPeopleError(null);
     const term = search.trim().replace(/^@+/, "");
+    if (!term) {
+      setSearchPeople([]);
+      setSearchLoading(false);
+      setSearchError(null);
+      return;
+    }
+    setSearchLoading(true);
+    setSearchError(null);
     const timer = window.setTimeout(async () => {
       try {
         if (!user?.id) {
-          setPeople([]);
+          setSearchPeople([]);
           return;
         }
         const { data, error } = await supabase.rpc("search_profiles", { search: term });
@@ -198,13 +302,13 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
         const results = ((data ?? []) as SharePerson[])
           .filter((person) => person.id && person.id !== user.id)
           .slice(0, 30);
-        setPeople(results);
+        setSearchPeople(results);
       } catch (cause) {
         if (!alive) return;
-        setPeople([]);
-        setPeopleError(cause instanceof Error ? cause.message : "Couldn't search people.");
+        setSearchPeople([]);
+        setSearchError(cause instanceof Error ? cause.message : "Couldn't search people.");
       } finally {
-        if (alive) setPeopleLoading(false);
+        if (alive) setSearchLoading(false);
       }
     }, 220);
     return () => {
@@ -214,18 +318,56 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
   }, [open, search, user?.id]);
 
   useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    if (!user?.id) {
+      setRecentPeople([]);
+      setRecentError(null);
+      setRecentLoading(false);
+      return;
+    }
+    setRecentLoading(true);
+    setRecentError(null);
+    void loadRecentSharePeople(user.id)
+      .then((results) => {
+        if (alive) setRecentPeople(results);
+      })
+      .catch((cause: unknown) => {
+        if (!alive) return;
+        setRecentPeople([]);
+        setRecentError(
+          cause instanceof Error ? cause.message : "Couldn't load recent chats.",
+        );
+      })
+      .finally(() => {
+        if (alive) setRecentLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [open, user?.id]);
+
+  useEffect(() => {
+    if (!open) {
+      setDefaultLoaded(false);
+      return;
+    }
+    if (!hasSearchTerm && !recentLoading && !followingLoading) {
+      setDefaultLoaded(true);
+    }
+  }, [followingLoading, hasSearchTerm, open, recentLoading]);
+
+  useEffect(() => {
     if (open) return;
     setSearch("");
-    setPeople([]);
-    setPeopleError(null);
+    setSearchPeople([]);
+    setSearchError(null);
+    setRecentPeople([]);
+    setRecentError(null);
+    setRecentLoading(false);
     setDelivery(null);
     setDeliveryStatus({});
   }, [open]);
-
-  const openWindow = (href: string) => {
-    window.open(href, "_blank", "noopener,noreferrer");
-    setOpen(false);
-  };
 
   const copyText = async (value: string) => {
     if (navigator.clipboard?.writeText) {
@@ -254,19 +396,16 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
   };
 
   const nativeShare = async () => {
-    if (navigator.share) {
-      try {
-        await navigator.share({ title: title || "YourWorld", text, url: link });
-      } catch {
-        // A dismissed system share sheet is not an error.
-      }
-    } else {
-      try {
-        await copyText(link);
-        toast.success("Link copied");
-      } catch {
-        toast.error("Could not copy link");
-      }
+    try {
+      const result = await sharePublicContent({
+        title: title || "YourWorld",
+        text: title || "Shared from YourWorld",
+        url: link,
+        dialogTitle: "Share with",
+      });
+      if (result === "copied") toast.success("Link copied");
+    } catch {
+      toast.error("Could not share link");
     }
     setOpen(false);
   };
@@ -295,22 +434,6 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
       else toast.success("Added to your Moment");
     });
     setOpen(false);
-  };
-
-  const onTarget = (id: string) => {
-    if (id === "whatsapp") return openWindow(`https://wa.me/?text=${encodeURIComponent(text)}`);
-    if (id === "snapchat") {
-      return openWindow(
-        `https://www.snapchat.com/scan?attachmentUrl=${encodeURIComponent(link)}`,
-      );
-    }
-    if (id === "instagram") {
-      void copyText(text).then(
-        () => toast.success("Link copied — paste it in Instagram"),
-        () => toast.error("Could not copy link"),
-      );
-      return openWindow("https://www.instagram.com/");
-    }
   };
 
   const sendToPerson = (person: SharePerson) => {
@@ -345,7 +468,14 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
 
   return (
     <>
-      <span onClick={() => setOpen(true)} className="contents">
+      <span
+        onClick={() => {
+          setDefaultLoaded(false);
+          setRecentLoading(true);
+          setOpen(true);
+        }}
+        className="contents"
+      >
         {children}
       </span>
 
@@ -423,7 +553,7 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
                 <p className="rounded-xl border border-white/[0.07] bg-white/[0.025] px-3 py-5 text-center text-xs text-white/45">
                   Sign in to send videos and Reels in a chat.
                 </p>
-              ) : peopleError ? (
+              ) : peopleError && people.length === 0 ? (
                 <p
                   role="status"
                   className="rounded-xl border border-white/[0.07] bg-white/[0.025] px-3 py-5 text-center text-xs text-rose-200/80"
@@ -440,6 +570,12 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
                   ))}
                 </div>
               ) : people.length ? (
+                <>
+                {peopleError ? (
+                  <p role="status" className="mb-2 text-center text-[10px] text-amber-100/70">
+                    Some people couldn’t be loaded. Search still works.
+                  </p>
+                ) : null}
                 <div className="grid max-h-56 grid-cols-5 gap-x-1 gap-y-4 overflow-y-auto overscroll-contain py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   {people.map((person) => {
                     const status = deliveryStatus[person.id];
@@ -491,9 +627,12 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
                     );
                   })}
                 </div>
+                </>
               ) : (
                 <p className="rounded-xl border border-white/[0.07] bg-white/[0.025] px-3 py-5 text-center text-xs text-white/45">
-                  No people found. Try another name or username.
+                  {hasSearchTerm
+                    ? "No people found. Try another name or username."
+                    : "No recent chats or followed people yet. Search by name or username."}
                 </p>
               )}
             </div>
@@ -532,8 +671,7 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
                     data-testid={`share-action-${action.id}`}
                     onClick={() => {
                       if (action.id === "copy") void copy();
-                      else if (action.id === "share") void nativeShare();
-                      else void onTarget(action.id);
+                      else void nativeShare();
                     }}
                     className="flex min-w-0 flex-col items-center gap-1.5 rounded-xl py-1 transition-transform active:scale-95"
                   >

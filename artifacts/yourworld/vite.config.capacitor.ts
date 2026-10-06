@@ -5,11 +5,15 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import { normalizeSupabaseProjectUrl } from "./src/integrations/supabase/url.ts";
+import { normalizePublicAppBaseUrl } from "./src/lib/public-app-url.ts";
 
 const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 const configuredSupabaseUrl = process.env.SUPABASE_URL ?? "";
 const supabasePublishableKey = process.env.SUPABASE_PUBLISHABLE_KEY ?? "";
 const currentDeploymentUrl = "https://your-world-social-app--yourworld2029.replit.app";
+const appUrl = normalizePublicAppBaseUrl(
+  process.env.PUBLIC_APP_URL ?? currentDeploymentUrl,
+);
 
 if (!configuredSupabaseUrl || !supabasePublishableKey) {
   throw new Error(
@@ -44,9 +48,7 @@ export default defineConfig({
       normalizeSupabaseProjectUrl(configuredSupabaseUrl),
     ),
     "import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY": JSON.stringify(supabasePublishableKey),
-    "import.meta.env.VITE_APP_URL": JSON.stringify(
-      process.env.REPLIT_APP_URL ?? currentDeploymentUrl,
-    ),
+    "import.meta.env.VITE_APP_URL": JSON.stringify(appUrl),
   },
   resolve: { tsconfigPaths: true },
   build: {

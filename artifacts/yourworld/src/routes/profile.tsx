@@ -59,6 +59,8 @@ import {
 } from "@/components/yw/SportsProfile";
 import { resolveMediaUrl, type DbPost } from "@/lib/social-data";
 import { buildWatchShareUrl } from "@/lib/watch-links";
+import { buildPublicAppUrl } from "@/lib/public-app-url";
+import { sharePublicContent } from "@/lib/share-public";
 import { resolveAuthorizedOfflineSource } from "@/lib/video-media-api";
 import { removeDeletedPostFromQueryCaches } from "@/lib/post-deletion";
 import { STORAGE_BUCKETS } from "@/lib/storage-upload";
@@ -581,21 +583,16 @@ function ProfilePage() {
       post.kind === "reel" ? "reel" : post.kind === "video" ? "video" : null;
     const url = watchKind
       ? buildWatchShareUrl(post.id, watchKind)
-      : `${window.location.origin}/?post=${encodeURIComponent(post.id)}`;
+      : buildPublicAppUrl(`/?post=${encodeURIComponent(post.id)}`);
     const title = post.title || post.caption || "YourWorld media";
 
-    if (navigator.share) {
-      try {
-        await navigator.share({ title, text: title, url });
-        return;
-      } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") return;
-      }
-    }
-
     try {
-      await navigator.clipboard.writeText(url);
-      toast.success("Link copied to clipboard");
+      const result = await sharePublicContent({
+        title,
+        text: title || "Shared from YourWorld",
+        url,
+      });
+      if (result === "copied") toast.success("Link copied to clipboard");
     } catch {
       toast.error("Couldn't share this media");
     }
@@ -1001,11 +998,17 @@ function ProfilePage() {
        }}
       onEditProfile={() => setEditOpen(true)}
       onShare={async () => {
-        const url = `${window.location.origin}/profile`;
+        const url = buildPublicAppUrl(`/u/${encodeURIComponent(profile.id)}`);
         try {
-          if (navigator.share) await navigator.share({ title: profile.username, url });
-          else { await navigator.clipboard.writeText(url); toast.success("Profile link copied"); }
-        } catch { /* user cancelled */ }
+          const result = await sharePublicContent({
+            title: profile.username || "YourWorld profile",
+            text: `View ${profile.username || "this profile"} on YourWorld`,
+            url,
+          });
+          if (result === "copied") toast.success("Profile link copied");
+        } catch {
+          toast.error("Couldn't share this profile");
+        }
       }}
       onOpen={openViewer}
       onManage={openManage}
@@ -1083,9 +1086,9 @@ function ProfilePage() {
                 onClick={async () => {
                   try {
                     await navigator.clipboard.writeText(
-                      `${window.location.origin}/?post=${manage.id}`,
+                      buildPublicAppUrl(`/?post=${encodeURIComponent(manage.id)}`),
                     );
-                     toast.success("Link copied to clipboard");
+                    toast.success("Link copied to clipboard");
                   } catch {
                     toast.error("Couldn't copy link");
                   }

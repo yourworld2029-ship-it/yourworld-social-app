@@ -4,6 +4,7 @@ import react from "@vitejs/plugin-react";
 import { nitro } from "nitro/vite";
 import { defineConfig } from "vite";
 import { normalizeSupabaseProjectUrl } from "./src/integrations/supabase/url.ts";
+import { normalizePublicAppBaseUrl } from "./src/lib/public-app-url.ts";
 
 const devPort = Number(process.env.DEV_PORT ?? process.env.PORT) || 5173;
 const CURRENT_REPLIT_DEPLOYMENT_URL =
@@ -12,7 +13,9 @@ const CURRENT_REPLIT_DEPLOYMENT_URL =
 export default defineConfig(({ command }) => {
   const configuredSupabaseUrl = process.env.SUPABASE_URL ?? "";
   const supabasePublishableKey = process.env.SUPABASE_PUBLISHABLE_KEY ?? "";
-  const appUrl = process.env.REPLIT_APP_URL ?? CURRENT_REPLIT_DEPLOYMENT_URL;
+  const appUrl = normalizePublicAppBaseUrl(
+    process.env.PUBLIC_APP_URL ?? CURRENT_REPLIT_DEPLOYMENT_URL,
+  );
 
   if (!configuredSupabaseUrl || !supabasePublishableKey) {
     throw new Error(
