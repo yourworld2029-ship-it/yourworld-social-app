@@ -3,6 +3,7 @@ import type { PointerEvent as ReactPointerEvent } from "react";
 import { Camera, SwitchCamera, X, Zap } from "lucide-react";
 
 type CameraFacing = "environment" | "user";
+type FrozenPreview = { source: string; facing: CameraFacing };
 
 type ChatCameraCaptureProps = {
   onClose: () => void;
@@ -48,6 +49,44 @@ async function requestCameraStream(facing: CameraFacing) {
     : new Error("Couldn't open the camera. Check camera permissions and try again.");
 }
 
+function trackSupportsTorch(track: MediaStreamTrack | undefined) {
+  if (!track || typeof track.getCapabilities !== "function") return false;
+  try {
+    const capabilities = track.getCapabilities() as MediaTrackCapabilities & {
+      torch?: boolean;
+    };
+    return capabilities.torch === true;
+  } catch {
+    return false;
+  }
+}
+
+function captureFrozenPreview(
+  video: HTMLVideoElement | null,
+  facing: CameraFacing,
+): FrozenPreview | null {
+  if (
+    !video ||
+    video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA ||
+    !video.videoWidth ||
+    !video.videoHeight
+  ) {
+    return null;
+  }
+
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const context = canvas.getContext("2d");
+    if (!context) return null;
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    return { source: canvas.toDataURL("image/jpeg", 0.86), facing };
+  } catch {
+    return null;
+  }
+}
+
 export function ChatCameraCapture({
   onClose,
   onPhoto,
@@ -60,6 +99,7 @@ export function ChatCameraCapture({
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const mountedRef = useRef(false);
+  const facingRef = useRef<CameraFacing>("environment");
   const deliverVideoOnStopRef = useRef(false);
   const holdTimerRef = useRef<number | null>(null);
   const maxDurationTimerRef = useRef<number | null>(null);
@@ -79,6 +119,7 @@ export function ChatCameraCapture({
   const [hasAudio, setHasAudio] = useState(true);
   const [torchAvailable, setTorchAvailable] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
+  const [frozenPreview, setFrozenPreview] = useState<FrozenPreview | null>(null);
   const [frontFlashOn, setFrontFlashOn] = useState(false);
   const [screenFlash, setScreenFlash] = useState(false);
 
@@ -106,6 +147,8 @@ export function ChatCameraCapture({
 
   const applyStream = useCallback(async (nextFacing: CameraFacing) => {
     const requestId = ++streamRequestIdRef.current;
+    const frozen = captureFrozenPreview(videoRef.current, facingRef.current);
+    if (frozen) setFrozenPreview(frozen);
     setLoading(true);
     setPreviewReady(false);
     setTorchAvailable(false);
@@ -120,9 +163,13 @@ export function ChatCameraCapture({
       }
       streamRef.current = result.stream;
       setStream(result.stream);
+      facingRef.current = nextFacing;
       setFacing(nextFacing);
       setHasAudio(result.hasAudio);
-      setTorchAvailable(nextFacing === "environment");
+      setTorchAvailable(
+        nextFacing === "environment" &&
+          trackSupportsTorch(result.stream.getVideoTracks()[0]),
+      );
     } catch (error) {
       if (mountedRef.current && requestId === streamRequestIdRef.current) {
         onErrorRef.current(
@@ -163,6 +210,7 @@ export function ChatCameraCapture({
       if (!active || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
       setPreviewReady(true);
       setLoading(false);
+      setFrozenPreview(null);
     };
     const failPreview = () => {
       if (!active) return;
@@ -175,7 +223,6 @@ export function ChatCameraCapture({
     video.addEventListener("error", failPreview);
     video.srcObject = stream;
     void video.play().then(markPreviewReady, failPreview);
-    setTorchAvailable(facing === "environment");
     return () => {
       active = false;
       video.removeEventListener("loadeddata", markPreviewReady);
@@ -396,18 +443,24 @@ export function ChatCameraCapture({
       setFrontFlashOn((enabled) => !enabled);
       return;
     }
-    if (!torchAvailable) return;
     const track = streamRef.current?.getVideoTracks()[0];
     if (!track) return;
+    if (!trackSupportsTorch(track)) {
+      setTorchAvailable(false);
+      setTorchOn(false);
+      return;
+    }
     const next = !torchOn;
     try {
       await track.applyConstraints({
         advanced: [{ torch: next } as MediaTrackConstraintSet],
       });
+      if (streamRef.current?.getVideoTracks()[0] !== track) return;
       setTorchOn(next);
     } catch {
+      if (streamRef.current?.getVideoTracks()[0] !== track) return;
       setTorchAvailable(false);
-      onErrorRef.current("The back camera torch couldn't be changed.");
+      setTorchOn(false);
     }
   };
 
@@ -425,7 +478,7 @@ export function ChatCameraCapture({
         playsInline
         controls={false}
         aria-label="Live camera preview"
-        className="pointer-events-none absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-150"
+        className="pointer-events-none absolute inset-0 h-full w-full object-cover object-center"
         style={{
           opacity: previewReady ? 1 : 0,
           objectFit: "cover",
@@ -434,6 +487,18 @@ export function ChatCameraCapture({
           transformOrigin: "center center",
         }}
       />
+      {frozenPreview ? (
+        <img
+          src={frozenPreview.source}
+          alt=""
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 h-full w-full object-cover object-center"
+          style={{
+            transform: frozenPreview.facing === "user" ? "scaleX(-1)" : "none",
+            transformOrigin: "center center",
+          }}
+        />
+      ) : null}
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/50 via-transparent to-black/70" />
 
       <header className="relative z-10 flex items-center justify-between px-4 pt-[calc(env(safe-area-inset-top,24px)_+_0.75rem)]">
@@ -489,9 +554,9 @@ export function ChatCameraCapture({
       </header>
 
       <div className="relative z-10 mt-auto flex flex-col items-center gap-4 px-6 pb-[calc(env(safe-area-inset-bottom,16px)_+_1.5rem)]">
-        {loading ? (
+        {loading && !frozenPreview ? (
           <p className="text-xs text-white/80">Opening camera…</p>
-        ) : hasAudio ? (
+        ) : loading ? null : hasAudio ? (
           <p className="text-xs text-white/80">Tap for photo · hold for video</p>
         ) : (
           <p className="text-xs text-white/80">Tap for photo · hold for silent video · no microphone</p>
@@ -503,6 +568,11 @@ export function ChatCameraCapture({
           onPointerDown={handleShutterDown}
           onPointerUp={handleShutterUp}
           onPointerCancel={handleShutterCancel}
+          onKeyDown={(event) => {
+            if (event.repeat || (event.key !== "Enter" && event.key !== " ")) return;
+            event.preventDefault();
+            void takePhoto();
+          }}
           onContextMenu={(event) => event.preventDefault()}
           className={`grid h-[76px] w-[76px] touch-none place-items-center rounded-full border-[5px] border-white/90 shadow-xl disabled:opacity-50 ${
             recording ? "bg-red-600" : "bg-white/15"

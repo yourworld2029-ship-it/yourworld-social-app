@@ -3228,9 +3228,14 @@ function NativeChatThreadPage() {
           onPointerDown={(event) => {
             if (event.button !== 0) return;
             event.preventDefault();
+            event.stopPropagation();
             void sendCameraPhoto();
           }}
-          onClick={() => void sendCameraPhoto()}
+          onKeyDown={(event) => {
+            if (event.repeat || (event.key !== "Enter" && event.key !== " ")) return;
+            event.preventDefault();
+            void sendCameraPhoto();
+          }}
           className="w-12 h-12 rounded-full bg-emerald-500 flex items-center justify-center text-white shadow-lg active:scale-95 transition-all disabled:opacity-50"
         >
           <Send size={20} className="ml-0.5" />
@@ -3296,9 +3301,14 @@ function NativeChatThreadPage() {
           onPointerDown={(event) => {
             if (event.button !== 0) return;
             event.preventDefault();
+            event.stopPropagation();
             void sendRecordedVideo();
           }}
-          onClick={() => void sendRecordedVideo()}
+          onKeyDown={(event) => {
+            if (event.repeat || (event.key !== "Enter" && event.key !== " ")) return;
+            event.preventDefault();
+            void sendRecordedVideo();
+          }}
           className="grid h-12 w-12 place-items-center rounded-full bg-emerald-500 text-white shadow-lg disabled:opacity-50"
         >
           <Send size={20} />
