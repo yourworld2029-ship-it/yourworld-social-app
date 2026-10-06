@@ -250,18 +250,36 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
 
   const people: Record<string, { name: string; avatarUrl: string | null }> = {};
   if (peerIds.length) {
-    const { data } = await supabase.rpc("get_public_profiles", { ids: peerIds });
+    const { data, error } = await supabase.rpc("get_public_profiles", { ids: peerIds });
+    if (error) {
+      console.warn("Could not load notification actor profiles.", error);
+    }
     for (const p of (data ?? []) as {
       id: string;
       username: string | null;
       display_name: string | null;
       avatar_url?: string | null;
+      profile_pic?: string | null;
+      profile_image?: string | null;
     }[]) {
+      const avatarUrl = [p.avatar_url, p.profile_pic, p.profile_image]
+        .map((value) => value?.trim())
+        .find(Boolean) ?? null;
       people[p.id] = {
         name: p.display_name ?? p.username ?? "Someone",
-        avatarUrl: p.avatar_url ?? null,
+        avatarUrl,
       };
     }
+    await Promise.all(
+      Object.values(people).map(async (person) => {
+        if (!person.avatarUrl) return;
+        try {
+          person.avatarUrl = await resolveMediaUrl(person.avatarUrl, STORAGE_BUCKETS.avatars);
+        } catch {
+          // Keep the original URL so the image element can try it directly.
+        }
+      }),
+    );
   }
   const nameOf = (id: string) => people[id]?.name ?? "Someone";
   const avatarOf = (id: string) => people[id]?.avatarUrl ?? null;

@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   Radio,
   Settings2,
+  UserRound,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -412,8 +413,10 @@ function NotificationAvatar({
           className="absolute top-0.5 grid h-10 w-10 place-items-center overflow-hidden rounded-full border-2 border-zinc-950 bg-zinc-800 text-xs font-semibold text-zinc-200"
           style={{ left: `${urls.length > 1 ? index * 16 : 0}px`, zIndex: index + 1 }}
         >
-          {item.actorName?.trim().charAt(0).toUpperCase() || (
-            <Icon className={cn("h-4 w-4", item.actorId ? "" : "text-zinc-400")} />
+          {item.actorId ? (
+            <UserRound className="h-[1.15rem] w-[1.15rem] text-zinc-400" strokeWidth={1.75} />
+          ) : (
+            <Icon className="h-4 w-4 text-zinc-400" />
           )}
           {url ? (
             <img
