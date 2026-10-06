@@ -435,7 +435,8 @@ function VideoUploadPage() {
 
     // Upload keeps running in the background while the user browses the app.
     uploadSubmittedRef.current = true;
-    void startUpload(
+    let uploadStarted = false;
+    const uploadPromise = startUpload(
       {
         kind: "video",
         label: titleSnapshot,
@@ -492,6 +493,7 @@ function VideoUploadPage() {
         });
       },
       (taskId) => {
+        uploadStarted = true;
         if (!generatedThumbnailPromise) return;
         void generatedThumbnailPromise.then((thumbnail) => {
           if (thumbnail) {
@@ -499,7 +501,12 @@ function VideoUploadPage() {
           }
         });
       },
-    ).then(({ error, cancelled }) => {
+    );
+    if (!uploadStarted) {
+      uploadSubmittedRef.current = false;
+      return;
+    }
+    void uploadPromise.then(({ error, cancelled }) => {
       if (cancelled) return;
       if (error) {
         toast.error(error);

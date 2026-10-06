@@ -217,7 +217,8 @@ function DirectReelUploadPage() {
 
     // Keep the File and all publish metadata captured by this runner. The
     // global task survives route unmount while the SPA remains open.
-    void startUpload(
+    let uploadStarted = false;
+    const uploadPromise = startUpload(
       {
         kind: "reel",
         label: title.trim() || "New reel",
@@ -239,7 +240,15 @@ function DirectReelUploadPage() {
           onProgress,
           signal,
         }),
-    ).then(({ error: uploadError, cancelled }) => {
+      () => {
+        uploadStarted = true;
+      },
+    );
+    if (!uploadStarted) {
+      removeOptimisticPost(optimisticId);
+      return;
+    }
+    void uploadPromise.then(({ error: uploadError, cancelled }) => {
       if (cancelled) {
         removeOptimisticPost(optimisticId);
         return;

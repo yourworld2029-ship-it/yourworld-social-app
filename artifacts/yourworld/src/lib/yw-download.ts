@@ -35,6 +35,10 @@ import {
   sanitizeDownloadName,
 } from "@/lib/video-download-transport";
 import { toast } from "sonner";
+import {
+  withMediaDownloadLock,
+  type MediaDownloadLease,
+} from "@/lib/media-concurrency";
 
 export { fetchVideoBlob, sanitizeDownloadName } from "@/lib/video-download-transport";
 export { isAndroidNativeDownloads };
@@ -663,70 +667,73 @@ export async function downloadVideoInBackground(
   fileName: string,
   onProgress?: (percent: number) => void,
   metadata?: DownloadedVideoMetadata,
+  lease?: MediaDownloadLease,
 ) {
-  const key = `${src}|${fileName}`;
-  const existing = activeVideoDownloads.get(key);
-  if (existing) return existing;
+  return withMediaDownloadLock(async () => {
+    const key = `${src}|${fileName}`;
+    const existing = activeVideoDownloads.get(key);
+    if (existing) return existing;
 
-  const task = (async () => {
-    const title = metadata?.title || fileName.replace(/\.mp4$/i, "");
-    updateDownloadTask(key, title, 0);
-    try {
-      const startedAt = performance.now();
-      let sampledAt = startedAt;
-      let sampledBytes = 0;
-      let bytesPerSecond = 0;
-      let lastPublishedAt = 0;
-      const reportBytes = (bytesTransferred: number, totalBytes: number) => {
-        const now = performance.now();
-        const elapsed = now - sampledAt;
-        if (elapsed >= 350) {
-          bytesPerSecond = Math.max(0, ((bytesTransferred - sampledBytes) * 1000) / elapsed);
-          sampledAt = now;
-          sampledBytes = bytesTransferred;
-        }
-        const percent = totalBytes > 0
-          ? Math.min(99, (bytesTransferred / totalBytes) * 100)
-          : downloadTasks.get(key)?.percent ?? 0;
-        if (now - lastPublishedAt >= 250 || percent >= 99) {
-          lastPublishedAt = now;
-          updateDownloadTask(key, title, percent, {
-            bytesTransferred,
-            totalBytes: totalBytes || undefined,
-            bytesPerSecond,
-          });
-        }
-      };
-      const blob = await fetchVideoBlobInWorker(
-        src,
-        fileName,
-        (percent) => {
-          updateDownloadTask(key, title, percent);
-          onProgress?.(percent);
-        },
-        reportBytes,
-      );
-      if (metadata) await saveDownloadedVideo(metadata, blob);
-      triggerBlobDownload(blob, fileName);
-      updateDownloadTask(key, title, 100);
-      toast.success("Download complete! Ready offline in Profile > Downloads", {
-        duration: 3_000,
-      });
-      window.setTimeout(() => removeDownloadTask(key), 400);
-    } catch (error) {
-      removeDownloadTask(key);
-      throw error;
-    } finally {
-      activeVideoDownloads.delete(key);
-    }
-  })();
+    const task = (async () => {
+      const title = metadata?.title || fileName.replace(/\.mp4$/i, "");
+      updateDownloadTask(key, title, 0);
+      try {
+        const startedAt = performance.now();
+        let sampledAt = startedAt;
+        let sampledBytes = 0;
+        let bytesPerSecond = 0;
+        let lastPublishedAt = 0;
+        const reportBytes = (bytesTransferred: number, totalBytes: number) => {
+          const now = performance.now();
+          const elapsed = now - sampledAt;
+          if (elapsed >= 350) {
+            bytesPerSecond = Math.max(0, ((bytesTransferred - sampledBytes) * 1000) / elapsed);
+            sampledAt = now;
+            sampledBytes = bytesTransferred;
+          }
+          const percent = totalBytes > 0
+            ? Math.min(99, (bytesTransferred / totalBytes) * 100)
+            : downloadTasks.get(key)?.percent ?? 0;
+          if (now - lastPublishedAt >= 250 || percent >= 99) {
+            lastPublishedAt = now;
+            updateDownloadTask(key, title, percent, {
+              bytesTransferred,
+              totalBytes: totalBytes || undefined,
+              bytesPerSecond,
+            });
+          }
+        };
+        const blob = await fetchVideoBlobInWorker(
+          src,
+          fileName,
+          (percent) => {
+            updateDownloadTask(key, title, percent);
+            onProgress?.(percent);
+          },
+          reportBytes,
+        );
+        if (metadata) await saveDownloadedVideo(metadata, blob);
+        triggerBlobDownload(blob, fileName);
+        updateDownloadTask(key, title, 100);
+        toast.success("Download complete! Ready offline in Profile > Downloads", {
+          duration: 3_000,
+        });
+        window.setTimeout(() => removeDownloadTask(key), 400);
+      } catch (error) {
+        removeDownloadTask(key);
+        throw error;
+      } finally {
+        activeVideoDownloads.delete(key);
+      }
+    })();
 
-  activeVideoDownloads.set(key, task);
-  return task;
+    activeVideoDownloads.set(key, task);
+    return task;
+  }, lease);
 }
 
 /** Renders a video through a canvas so its download carries the creator watermark. */
-export async function downloadWatermarkedVideoInBackground(
+async function downloadWatermarkedVideoCore(
   src: string,
   fileNameBase: string,
   creatorUsername: string,
@@ -798,6 +805,31 @@ export async function downloadWatermarkedVideoInBackground(
   return task;
 }
 
+export async function downloadWatermarkedVideoInBackground(
+  src: string,
+  fileNameBase: string,
+  creatorUsername: string,
+  onProgress?: (percent: number) => void,
+  metadata?: DownloadedVideoMetadata,
+  targetQuality?: VideoQualityTier,
+  watermarkPlacement: WatermarkPlacement = "standard",
+  lease?: MediaDownloadLease,
+) {
+  return withMediaDownloadLock(
+    () =>
+      downloadWatermarkedVideoCore(
+        src,
+        fileNameBase,
+        creatorUsername,
+        onProgress,
+        metadata,
+        targetQuality,
+        watermarkPlacement,
+      ),
+    lease,
+  );
+}
+
 /**
  * Android saves original/variant files or complete VOD playlists to private
  * storage without spawning a WebView encoder.
@@ -810,90 +842,97 @@ export async function downloadVideoForOfflineInBackground(
   onProgress?: (percent: number) => void,
   metadata?: DownloadedVideoMetadata,
   options: OfflineVideoDownloadOptions = {},
-): Promise<"native-offline" | "watermarked"> {
-  if (!isAndroidNativeDownloads()) {
-    let lastError: unknown;
-    for (const url of [...new Set([src, ...(options.fallbackUrls ?? [])])]) {
-      try {
-        await downloadWatermarkedVideoInBackground(
-          url,
-          fileNameBase,
-          creatorUsername,
-          onProgress,
-          metadata,
-          options.targetQuality,
-          options.watermarkPlacement,
-        );
-        return "watermarked";
-      } catch (error) { lastError = error; }
-    }
-    throw lastError instanceof Error ? lastError : new Error("Download failed. Check your connection and retry.");
-  }
-  if (!metadata) {
-    throw new Error("Video details are required to save an Android offline download.");
-  }
-
-  const key = `${src}|native-offline|${fileNameBase}|${metadata.ownerId}|${metadata.mediaId}|${metadata.quality}|${options.targetQuality ?? "original"}|${options.androidSingleGet ? "single-get" : "default"}`;
-  const existing = activeVideoDownloads.get(key);
-  if (existing) {
-    await existing;
-    return "native-offline";
-  }
-
-  const task = (async () => {
-    const title = metadata.title || fileNameBase;
-    updateDownloadTask(key, title, 0);
-    try {
-      // Android saves the real source/variant without spawning a WebView
-      // encoder. Missing variants retain their honest actual-quality label.
-      const record = createOfflineVideoRecord(metadata, metadata.quality, 0);
-      const startedAt = performance.now();
-      let sampledAt = startedAt;
-      let sampledBytes = 0;
-      let bytesPerSecond = 0;
-      let lastPublishedAt = 0;
-
-      await downloadNativeOfflineVideoFromUrl(record, src, (bytesTransferred, totalBytes) => {
-        const now = performance.now();
-        const elapsed = now - sampledAt;
-        if (elapsed >= 350) {
-          bytesPerSecond = Math.max(
-            0,
-            ((bytesTransferred - sampledBytes) * 1000) / elapsed,
+  lease?: MediaDownloadLease,
+): Promise<"native-offline" | "watermarked" | null> {
+  return withMediaDownloadLock(async () => {
+    if (!isAndroidNativeDownloads()) {
+      let lastError: unknown;
+      for (const url of [...new Set([src, ...(options.fallbackUrls ?? [])])]) {
+        try {
+          await downloadWatermarkedVideoCore(
+            url,
+            fileNameBase,
+            creatorUsername,
+            onProgress,
+            metadata,
+            options.targetQuality,
+            options.watermarkPlacement,
           );
-          sampledAt = now;
-          sampledBytes = bytesTransferred;
+          return "watermarked" as const;
+        } catch (error) {
+          lastError = error;
         }
-        const percent =
-          totalBytes > 0
-            ? Math.min(99, (bytesTransferred / totalBytes) * 100)
-            : getDownloadTasksSnapshot().find((item) => item.id === key)?.percent ?? 0;
-        if (now - lastPublishedAt >= 250 || percent >= 99) {
-          lastPublishedAt = now;
-          updateDownloadTask(key, title, percent, {
-            bytesTransferred,
-            totalBytes: totalBytes > 0 ? totalBytes : undefined,
-            bytesPerSecond,
-          });
-        }
-        onProgress?.(percent);
-      }, options.fallbackUrls, { singleGet: options.androidSingleGet });
-
-      notifyDownloadedVideoLibrary();
-      onProgress?.(100);
-      updateDownloadTask(key, title, 100);
-      window.setTimeout(() => removeDownloadTask(key), 400);
-    } catch (error) {
-      removeDownloadTask(key);
-      throw error;
-    } finally {
-      activeVideoDownloads.delete(key);
+      }
+      throw lastError instanceof Error
+        ? lastError
+        : new Error("Download failed. Check your connection and retry.");
     }
-  })();
+    if (!metadata) {
+      throw new Error("Video details are required to save an Android offline download.");
+    }
 
-  activeVideoDownloads.set(key, task);
-  await task;
-  return "native-offline";
+    const key = `${src}|native-offline|${fileNameBase}|${metadata.ownerId}|${metadata.mediaId}|${metadata.quality}|${options.targetQuality ?? "original"}|${options.androidSingleGet ? "single-get" : "default"}`;
+    const existing = activeVideoDownloads.get(key);
+    if (existing) {
+      await existing;
+      return "native-offline" as const;
+    }
+
+    const task = (async () => {
+      const title = metadata.title || fileNameBase;
+      updateDownloadTask(key, title, 0);
+      try {
+        // Android saves the real source/variant without spawning a WebView
+        // encoder. Missing variants retain their honest actual-quality label.
+        const record = createOfflineVideoRecord(metadata, metadata.quality, 0);
+        const startedAt = performance.now();
+        let sampledAt = startedAt;
+        let sampledBytes = 0;
+        let bytesPerSecond = 0;
+        let lastPublishedAt = 0;
+
+        await downloadNativeOfflineVideoFromUrl(record, src, (bytesTransferred, totalBytes) => {
+          const now = performance.now();
+          const elapsed = now - sampledAt;
+          if (elapsed >= 350) {
+            bytesPerSecond = Math.max(
+              0,
+              ((bytesTransferred - sampledBytes) * 1000) / elapsed,
+            );
+            sampledAt = now;
+            sampledBytes = bytesTransferred;
+          }
+          const percent =
+            totalBytes > 0
+              ? Math.min(99, (bytesTransferred / totalBytes) * 100)
+              : getDownloadTasksSnapshot().find((item) => item.id === key)?.percent ?? 0;
+          if (now - lastPublishedAt >= 250 || percent >= 99) {
+            lastPublishedAt = now;
+            updateDownloadTask(key, title, percent, {
+              bytesTransferred,
+              totalBytes: totalBytes > 0 ? totalBytes : undefined,
+              bytesPerSecond,
+            });
+          }
+          onProgress?.(percent);
+        }, options.fallbackUrls, { singleGet: options.androidSingleGet });
+
+        notifyDownloadedVideoLibrary();
+        onProgress?.(100);
+        updateDownloadTask(key, title, 100);
+        window.setTimeout(() => removeDownloadTask(key), 400);
+      } catch (error) {
+        removeDownloadTask(key);
+        throw error;
+      } finally {
+        activeVideoDownloads.delete(key);
+      }
+    })();
+
+    activeVideoDownloads.set(key, task);
+    await task;
+    return "native-offline" as const;
+  }, lease);
 }
 
 export function reelWatermarkText(creatorUsername: string) {
@@ -1264,21 +1303,26 @@ export async function downloadVideoAtQuality(
   quality: VideoQualityTier,
   onProgress?: (percent: number) => void,
   metadata?: DownloadedVideoMetadata,
+  lease?: MediaDownloadLease,
 ) {
   const target = VIDEO_QUALITY_TIERS.find((candidate) => candidate.id === quality);
   if (!target) throw new Error("Unsupported video quality");
-  await downloadWatermarkedVideoInBackground(
-    src,
-    sanitizeDownloadName(_fileNameBase, "yourworld-video"),
-    metadata?.creatorUsername || "user",
-    onProgress,
-    metadata ? { ...metadata, quality } : undefined,
-    quality,
+  return withMediaDownloadLock(
+    () =>
+      downloadWatermarkedVideoCore(
+        src,
+        sanitizeDownloadName(_fileNameBase, "yourworld-video"),
+        metadata?.creatorUsername || "user",
+        onProgress,
+        metadata ? { ...metadata, quality } : undefined,
+        quality,
+      ),
+    lease,
   );
 }
 
 /** Extracts an audio-only download. Browsers that support audio/mpeg produce a true MP3. */
-export async function downloadAudioOnly(
+async function downloadAudioOnlyCore(
   src: string,
   fileNameBase: string,
   onProgress?: (percent: number) => void,
@@ -1337,6 +1381,18 @@ export async function downloadAudioOnly(
   triggerBlobDownload(
     blob,
     `${sanitizeDownloadName(fileNameBase, "yourworld-audio")}.${extensionForMime(mime, "webm")}`,
+  );
+}
+
+export async function downloadAudioOnly(
+  src: string,
+  fileNameBase: string,
+  onProgress?: (percent: number) => void,
+  lease?: MediaDownloadLease,
+) {
+  return withMediaDownloadLock(
+    () => downloadAudioOnlyCore(src, fileNameBase, onProgress),
+    lease,
   );
 }
 

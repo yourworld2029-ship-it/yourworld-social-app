@@ -32,6 +32,7 @@ import { EarningsCreditWatcher } from "@/lib/earnings-credit";
 import { SafeProvider } from "@/lib/safe-provider";
 import { AdaptiveMediaController } from "@/lib/adaptive-performance";
 import { VideoPlaybackProvider } from "@/lib/video-playback";
+import { MediaConcurrencyProvider } from "@/lib/media-concurrency";
 import { APP_SCROLL_RESTORATION_ID } from "@/lib/app-scroll-container";
 
 function NotFoundComponent() {
@@ -313,6 +314,7 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <MediaConcurrencyProvider>
         <AdaptiveMediaController />
         <AuthProvider>
         <SafeProvider name="YwStore">
@@ -364,6 +366,7 @@ function RootComponent() {
           </YwStoreProvider>
         </SafeProvider>
         </AuthProvider>
+      </MediaConcurrencyProvider>
     </QueryClientProvider>
   );
 }

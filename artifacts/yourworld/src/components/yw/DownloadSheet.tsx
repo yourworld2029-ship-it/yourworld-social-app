@@ -31,6 +31,12 @@ import {
   startNativeOfflineDownloadNotice,
   stopNativeOfflineDownloadNotice,
 } from "@/lib/native-offline-downloads";
+import {
+  acquireMediaDownloadLock,
+  releaseMediaDownloadLock,
+  useMediaConcurrency,
+  type MediaDownloadLease,
+} from "@/lib/media-concurrency";
 
 export type DownloadChoice = VideoQualityTier | "mp3" | "original";
 
@@ -58,6 +64,7 @@ type Props = {
   onDownload: (
     choice: DownloadChoice,
     onProgress?: (percent: number) => void,
+    lease?: MediaDownloadLease,
   ) => void | Promise<void>;
 };
 
@@ -233,6 +240,7 @@ export function DownloadSheet({
   enforceSourceQualityLimit = true,
   onDownload,
 }: Props) {
+  const { isMediaDownloadInProgress } = useMediaConcurrency();
   const choices = useMemo<DownloadChoice[]>(
     () => [
       ...VIDEO_DOWNLOAD_PICKER_TIERS.filter(
@@ -451,22 +459,28 @@ export function DownloadSheet({
       cloudflareStreamId,
       enforceSourceQualityLimit,
     )) return;
+    const lease = acquireMediaDownloadLock();
+    if (!lease) return;
     onOpenChange(false);
     void (async () => {
-      let transferId: string | null;
+      let transferId: string | null = null;
       try {
-        transferId = await startNativeOfflineDownloadNotice(title);
-      } catch (error) {
-        console.error("[downloads] could not start the Android foreground service", error);
-        toast.error(
-          error instanceof Error ? error.message : "Couldn't start the Android download.",
-        );
-        return;
-      }
-      try {
-        await onDownload(choice);
+        try {
+          transferId = await startNativeOfflineDownloadNotice(title);
+        } catch (error) {
+          console.error("[downloads] could not start the Android foreground service", error);
+          toast.error(
+            error instanceof Error ? error.message : "Couldn't start the Android download.",
+          );
+          return;
+        }
+        await onDownload(choice, undefined, lease);
       } finally {
-        await stopNativeOfflineDownloadNotice(transferId);
+        try {
+          await stopNativeOfflineDownloadNotice(transferId);
+        } finally {
+          releaseMediaDownloadLock(lease);
+        }
       }
     })().catch((error) => {
       console.error("[downloads] background download failed", error);
@@ -628,6 +642,16 @@ export function DownloadSheet({
           <button
             type="button"
             onClick={() => void submit()}
+            aria-disabled={
+              !isDownloadChoiceAvailable(
+                selected,
+                sourceMediaUrl,
+                qualityMediaUrls,
+                sourceQualityTier,
+                cloudflareStreamId,
+                enforceSourceQualityLimit,
+              ) || isMediaDownloadInProgress
+            }
             disabled={!isDownloadChoiceAvailable(
               selected,
               sourceMediaUrl,
@@ -637,6 +661,8 @@ export function DownloadSheet({
               enforceSourceQualityLimit,
             )}
             className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-white py-3 text-sm font-bold text-black transition-transform active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+            data-download-busy={isMediaDownloadInProgress || undefined}
+            style={isMediaDownloadInProgress ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
           >
             <Download size={17} />
             {selected === "original"

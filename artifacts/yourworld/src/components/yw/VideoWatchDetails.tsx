@@ -24,6 +24,12 @@ import {
 import { formatVideoDuration } from "@/lib/video-duration";
 import { formatCount } from "@/lib/yw-data";
 import { buildWatchShareUrl } from "@/lib/watch-links";
+import {
+  isMediaDownloadLocked,
+  showMediaDownloadBusyToast,
+  useMediaConcurrency,
+  type MediaDownloadLease,
+} from "@/lib/media-concurrency";
 
 type Props = {
   video: LongVideo;
@@ -41,7 +47,11 @@ type Props = {
   onLike: () => void;
   onDislike: () => void;
   onFollow: () => void;
-  onDownload: (choice: DownloadChoice) => void | Promise<void>;
+  onDownload: (
+    choice: DownloadChoice,
+    onProgress?: (percent: number) => void,
+    lease?: MediaDownloadLease,
+  ) => void | Promise<void>;
   onSelectVideo: (video: LongVideo) => void;
   recommendationsFooter?: ReactNode;
   initialCommentsOpen?: boolean;
@@ -178,6 +188,7 @@ export function VideoWatchDetails({
 }: Props) {
   const [commentCount, setCommentCount] = useState(video.commentCount);
   const [downloadOpen, setDownloadOpen] = useState(false);
+  const { isMediaDownloadInProgress } = useMediaConcurrency();
   const shareUrl =
     typeof window === "undefined"
       ? undefined
@@ -311,9 +322,26 @@ export function VideoWatchDetails({
             type="button"
             data-testid="button-download-video"
             aria-label="Download video"
-            disabled={isSwitching || isDownloading || !sourceMediaUrl}
-            onClick={() => setDownloadOpen(true)}
+            aria-disabled={
+              isSwitching ||
+              isDownloading ||
+              !sourceMediaUrl ||
+              isMediaDownloadInProgress
+            }
+            disabled={isSwitching || !sourceMediaUrl}
+            onClick={() => {
+              if (isMediaDownloadLocked()) {
+                showMediaDownloadBusyToast();
+                return;
+              }
+              if (!isDownloading) setDownloadOpen(true);
+            }}
             className="inline-flex h-9 w-full min-w-0 items-center justify-center gap-0.5 rounded-full border border-white/10 bg-white/10 px-1 text-[9px] font-semibold tracking-tight text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20 disabled:opacity-50 sm:text-[10px]"
+            style={
+              isMediaDownloadInProgress || isDownloading
+                ? { opacity: 0.5, cursor: "not-allowed" }
+                : undefined
+            }
           >
             {isDownloading ? (
               <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/25 border-t-white" />

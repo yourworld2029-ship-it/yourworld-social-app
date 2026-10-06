@@ -1,4 +1,8 @@
 import { registerPlugin } from "@capacitor/core";
+import {
+  withMediaDownloadLock,
+  type MediaDownloadLease,
+} from "@/lib/media-concurrency";
 
 type ReelGalleryExportPlugin = {
   beginSave(options: {
@@ -42,36 +46,39 @@ export async function saveReelMp4ToAndroidGallery(
   blob: Blob,
   fileName: string,
   onProgress?: (percent: number) => void,
+  lease?: MediaDownloadLease,
 ) {
-  if (blob.type.toLowerCase().split(";")[0] !== "video/mp4") {
-    throw new Error("Only a watermarked MP4 can be saved to the Reel gallery.");
-  }
-  if (!blob.size) throw new Error("The watermarked Reel file is empty.");
-
-  const { transferId } = await ReelGalleryExport.beginSave({
-    fileName: safeMp4FileName(fileName),
-    mimeType: "video/mp4",
-  });
-  try {
-    for (let offset = 0; offset < blob.size; offset += GALLERY_CHUNK_BYTES) {
-      const chunk = new Uint8Array(
-        await blob
-          .slice(offset, Math.min(offset + GALLERY_CHUNK_BYTES, blob.size))
-          .arrayBuffer(),
-      );
-      await ReelGalleryExport.appendData({
-        transferId,
-        base64: toBase64(chunk),
-      });
-      onProgress?.(
-        Math.min(99, Math.round(((offset + chunk.byteLength) / blob.size) * 100)),
-      );
+  return withMediaDownloadLock(async () => {
+    if (blob.type.toLowerCase().split(";")[0] !== "video/mp4") {
+      throw new Error("Only a watermarked MP4 can be saved to the Reel gallery.");
     }
-    const result = await ReelGalleryExport.finishSave({ transferId });
-    onProgress?.(100);
-    return result;
-  } catch (error) {
-    await ReelGalleryExport.cancelSave({ transferId }).catch(() => undefined);
-    throw error;
-  }
+    if (!blob.size) throw new Error("The watermarked Reel file is empty.");
+
+    const { transferId } = await ReelGalleryExport.beginSave({
+      fileName: safeMp4FileName(fileName),
+      mimeType: "video/mp4",
+    });
+    try {
+      for (let offset = 0; offset < blob.size; offset += GALLERY_CHUNK_BYTES) {
+        const chunk = new Uint8Array(
+          await blob
+            .slice(offset, Math.min(offset + GALLERY_CHUNK_BYTES, blob.size))
+            .arrayBuffer(),
+        );
+        await ReelGalleryExport.appendData({
+          transferId,
+          base64: toBase64(chunk),
+        });
+        onProgress?.(
+          Math.min(99, Math.round(((offset + chunk.byteLength) / blob.size) * 100)),
+        );
+      }
+      const result = await ReelGalleryExport.finishSave({ transferId });
+      onProgress?.(100);
+      return result;
+    } catch (error) {
+      await ReelGalleryExport.cancelSave({ transferId }).catch(() => undefined);
+      throw error;
+    }
+  }, lease);
 }

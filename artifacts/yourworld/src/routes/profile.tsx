@@ -95,6 +95,12 @@ import {
 import { useVideoPlayback } from "@/lib/video-playback";
 import { supabase } from "@/integrations/supabase/client";
 import { PostEditDialog } from "@/components/yw/PostEditDialog";
+import {
+  isMediaDownloadLocked,
+  showMediaDownloadBusyToast,
+  useMediaConcurrency,
+  type MediaDownloadLease,
+} from "@/lib/media-concurrency";
 
 
 
@@ -158,6 +164,7 @@ function ProfilePage() {
   } =
     useMyProfile();
   const navigate = useNavigate();
+  const { isMediaDownloadInProgress } = useMediaConcurrency();
   const { connections, tab } = Route.useSearch();
   const { activateVideo } = useVideoPlayback();
   const [downloads, setDownloads] = useState<DownloadedVideo[]>([]);
@@ -404,6 +411,10 @@ function ProfilePage() {
 
   const openManagedDownload = async () => {
     if (!manage || !userId) return;
+    if (isMediaDownloadLocked()) {
+      showMediaDownloadBusyToast();
+      return;
+    }
     const post = manage;
     setManage(null);
     setDownloadTarget(post);
@@ -424,6 +435,7 @@ function ProfilePage() {
   const downloadManagedMedia = async (
     choice: DownloadChoice,
     reportProgress?: (percent: number) => void,
+    lease?: MediaDownloadLease,
   ) => {
     if (!downloadTarget || !userId) return;
     const post = downloadTarget;
@@ -535,7 +547,8 @@ function ProfilePage() {
       );
 
       if (choice === "mp3") {
-        await downloadAudioOnly(mediaUrl, baseName, reportProgress);
+        const audioDownload = await downloadAudioOnly(mediaUrl, baseName, reportProgress, lease);
+        if (audioDownload === null) return;
       } else {
         const downloadMode = await downloadVideoForOfflineInBackground(
           mediaUrl,
@@ -554,7 +567,9 @@ function ProfilePage() {
               !selection?.usesVariant &&
               !selection?.isSourceFallback,
           },
+          lease,
         );
+        if (downloadMode === null) return;
         toast.success(
           downloadMode === "native-offline"
             ? post.kind === "reel"
@@ -1073,7 +1088,14 @@ function ProfilePage() {
                 icon={<Download className="h-5 w-5" />}
                 label="Download"
                 sub="Save a copy of your media."
-                onClick={() => void openManagedDownload()}
+                busy={isMediaDownloadInProgress}
+                onClick={() => {
+                  if (isMediaDownloadLocked()) {
+                    showMediaDownloadBusyToast();
+                    return;
+                  }
+                  void openManagedDownload();
+                }}
               />
               <OptionRow
                 icon={<Share2 className="h-5 w-5" />}
@@ -1232,6 +1254,7 @@ function OptionRow({
   onToggle,
   onClick,
   destructive,
+  busy,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -1240,6 +1263,7 @@ function OptionRow({
   onToggle?: (v: boolean) => void;
   onClick?: () => void;
   destructive?: boolean;
+  busy?: boolean;
 }) {
   const content = (
     <div className="flex w-full items-center gap-3 px-5 py-3.5 text-left">
@@ -1259,7 +1283,12 @@ function OptionRow({
   );
   if (onToggle) return <div className="w-full">{content}</div>;
   return (
-    <button type="button" onClick={onClick} className="w-full transition-colors active:bg-secondary">
+    <button
+      type="button"
+      onClick={onClick}
+      aria-disabled={busy || undefined}
+      className={`w-full transition-colors active:bg-secondary ${busy ? "cursor-not-allowed opacity-50" : ""}`}
+    >
       {content}
     </button>
   );

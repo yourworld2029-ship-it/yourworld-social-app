@@ -16,6 +16,11 @@ import {
   startNativeVideoUploadGuard,
   type NativeVideoUploadGuard,
 } from "@/lib/upload-background";
+import {
+  acquireMediaUploadLock,
+  releaseMediaUploadLock,
+  useMediaConcurrency,
+} from "@/lib/media-concurrency";
 
 export type UploadKind = "reel" | "video" | "post" | "moment";
 export type UploadProgressReporter = ProgressFn;
@@ -57,6 +62,7 @@ function readableTaskError(error: unknown) {
 
 type Ctx = {
   tasks: UploadTask[];
+  isMediaUploadInProgress: boolean;
   /** Runs an upload in the background while the user keeps browsing. */
   startUpload: (
     meta: {
@@ -197,6 +203,7 @@ export function usePendingVideoUploadCount(ownerId?: string | null) {
 
 export function UploadProvider({ children }: { children: ReactNode }) {
   const [tasks, setTasks] = useState<UploadTask[]>([]);
+  const { isMediaUploadInProgress } = useMediaConcurrency();
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const abortControllers = useRef(new Map<string, AbortController>());
   const liveTaskIds = useRef(new Set<string>());
@@ -268,6 +275,12 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   const startUpload = useCallback<Ctx["startUpload"]>(
     async (meta, runner, onStarted) => {
       const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const usesMediaUploadLock = meta.kind === "video" || meta.kind === "reel";
+      let uploadLockHeld = false;
+      if (usesMediaUploadLock) {
+        if (!acquireMediaUploadLock(id)) return { error: null, cancelled: true };
+        uploadLockHeld = true;
+      }
       let hasRun = false;
       let highestProgress = 0;
       let lastByteProgress: UploadByteProgress | null | undefined;
@@ -284,6 +297,10 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       }
 
       const run = async (): Promise<UploadRunResult> => {
+        if (usesMediaUploadLock && !uploadLockHeld) {
+          if (!acquireMediaUploadLock(id)) return { error: null, cancelled: true };
+          uploadLockHeld = true;
+        }
         const isRetry = hasRun;
         hasRun = true;
         const previousTimer = timers.current.get(id);
@@ -385,18 +402,26 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           } else {
             applyPendingProgress();
           }
-          if (
-            controller.signal.aborted ||
-            result.cancelled ||
-            result?.error ||
-            meta.notifyOnSuccess === false
-          ) {
-            await nativeGuard?.stop();
-          } else {
-            await nativeGuard?.complete();
+          if (usesMediaUploadLock && uploadLockHeld) {
+            releaseMediaUploadLock(id);
+            uploadLockHeld = false;
           }
           if (abortControllers.current.get(id) === controller) {
             abortControllers.current.delete(id);
+          }
+          try {
+            if (
+              controller.signal.aborted ||
+              result.cancelled ||
+              result?.error ||
+              meta.notifyOnSuccess === false
+            ) {
+              await nativeGuard?.stop();
+            } else {
+              await nativeGuard?.complete();
+            }
+          } catch (error) {
+            console.warn("Could not finish Android upload notification", error);
           }
         }
 
@@ -441,8 +466,13 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   }, [active]);
 
   const actions = useMemo(
-    () => ({ startUpload, updatePreviewThumbnail, dismiss }),
-    [startUpload, updatePreviewThumbnail, dismiss],
+    () => ({
+      startUpload,
+      updatePreviewThumbnail,
+      dismiss,
+      isMediaUploadInProgress,
+    }),
+    [startUpload, updatePreviewThumbnail, dismiss, isMediaUploadInProgress],
   );
 
   return (

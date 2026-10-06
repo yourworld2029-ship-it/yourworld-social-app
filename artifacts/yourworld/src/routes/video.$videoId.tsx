@@ -32,6 +32,7 @@ import {
 } from "@/lib/video-quality";
 import type { DownloadChoice } from "@/components/yw/DownloadSheet";
 import { VideoWatchDetails } from "@/components/yw/VideoWatchDetails";
+import type { MediaDownloadLease } from "@/lib/media-concurrency";
 
 type VideoRouteData = {
   video: LongVideo;
@@ -432,7 +433,11 @@ function VideoRouteComponent() {
     if (video && !isOwner) void toggleFollow(video.userId);
   });
 
-  const handleDownload = async (choice: DownloadChoice) => {
+  const handleDownload = async (
+    choice: DownloadChoice,
+    _reportProgress?: (percent: number) => void,
+    lease?: MediaDownloadLease,
+  ) => {
     const data = query.data;
     if (
       !video ||
@@ -512,7 +517,8 @@ function VideoRouteComponent() {
       const fileName = sanitizeDownloadName(video.title, `yourworld-video-${video.id}`);
 
       if (choice === "mp3") {
-        await downloadAudioOnly(data.url, fileName);
+        const audioDownload = await downloadAudioOnly(data.url, fileName, undefined, lease);
+        if (audioDownload === null) return;
         toast.success("Saved to your device");
       } else {
         const result = await downloadVideoForOfflineInBackground(
@@ -533,7 +539,9 @@ function VideoRouteComponent() {
               !selection?.isSourceFallback,
             androidSingleGet: true,
           },
+          lease,
         );
+        if (result === null) return;
         toast.success(
           result === "native-offline"
             ? "Saved video for offline viewing"

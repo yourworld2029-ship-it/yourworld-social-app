@@ -86,6 +86,15 @@ import { supabase } from "@/integrations/supabase/client";
 import { isLongVideoRow } from "@/lib/long-video-utils";
 import { buildWatchShareUrl } from "@/lib/watch-links";
 import {
+  acquireMediaDownloadLock,
+  isMediaDownloadLocked,
+  ownsMediaDownloadLock,
+  releaseMediaDownloadLock,
+  showMediaDownloadBusyToast,
+  useMediaConcurrency,
+  type MediaDownloadLease,
+} from "@/lib/media-concurrency";
+import {
   getVideoResumeEntry,
   removeVideoResumeEntry,
   saveVideoResumeEntry,
@@ -1003,6 +1012,7 @@ function ReelItem({
   onDeleted?: () => void;
 }) {
   const user = author;
+  const { isMediaDownloadInProgress } = useMediaConcurrency();
   const { user: viewer, requestAuthAction } = useAuth();
   const { following, toggleFollow } = useYw();
   const gatedLikeRef = useRef<() => void>(() => {});
@@ -1363,6 +1373,7 @@ function ReelItem({
   const handleDownload = async (
     choice?: DownloadChoice,
     reportProgress?: (percent: number) => void,
+    suppliedLease?: MediaDownloadLease,
   ) => {
     if (!user) return;
     if (!reel.allowDownload) {
@@ -1375,8 +1386,19 @@ function ReelItem({
       return;
     }
     if (isVideo && !choice) {
+      if (isMediaDownloadLocked()) {
+        showMediaDownloadBusyToast();
+        return;
+      }
       setDownloadOpen(true);
       return;
+    }
+    let downloadLease = suppliedLease;
+    let ownsDownloadLease = false;
+    if (isVideo && choice && !ownsMediaDownloadLock(downloadLease)) {
+      downloadLease = acquireMediaDownloadLock() ?? undefined;
+      if (!downloadLease) return;
+      ownsDownloadLease = true;
     }
     const repostCreator = reel.caption.match(/^↻ Reposted from @([^\s\r\n]+)/)?.[1];
     const creatorUsername =
@@ -1450,10 +1472,11 @@ function ReelItem({
           quality: offlineSource.actualQuality as DownloadedVideoMetadata["quality"],
         };
         if (choice === "mp3") {
-          await downloadAudioOnly(playableUrl, baseName, (percent) => {
+          const audioDownload = await downloadAudioOnly(playableUrl, baseName, (percent) => {
             reportProgress?.(percent);
             toast.loading(`Preparing MP3 audio... ${percent}%`, { id: toastId });
-          });
+          }, downloadLease);
+          if (audioDownload === null) return;
         } else if (isAndroidNativeDownloads()) {
           const candidates = [...new Set([playableUrl, ...offlineSource.fallbackUrls])];
           let watermarkedMp4: Blob | null = null;
@@ -1495,7 +1518,7 @@ function ReelItem({
               ? exportError
               : new Error("The watermarked Reel could not be exported.");
           }
-          await saveReelMp4ToAndroidGallery(
+          const savedGallery = await saveReelMp4ToAndroidGallery(
             watermarkedMp4,
             `${baseName}.mp4`,
             (percent) => {
@@ -1507,7 +1530,9 @@ function ReelItem({
                 });
               }
             },
+            downloadLease,
           );
+          if (savedGallery === null) return;
           trackEvent("reel_downloaded", {
             surface: "reels_feed",
             media_type: "video",
@@ -1536,7 +1561,9 @@ function ReelItem({
               ),
               watermarkPlacement: "reel",
             },
+            downloadLease,
           );
+          if (downloadMode === null) return;
           trackEvent("reel_downloaded", {
             surface: "reels_feed",
             media_type: "video",
@@ -1582,6 +1609,10 @@ function ReelItem({
       const message = error instanceof Error ? error.message : "Download failed";
       toast.error(message, toastId ? { id: toastId } : undefined);
       if (isVideo && choice) throw error;
+    } finally {
+      if (ownsDownloadLease && downloadLease) {
+        releaseMediaDownloadLock(downloadLease);
+      }
     }
   };
 
@@ -1827,7 +1858,13 @@ function ReelItem({
                 role="menuitem"
                 onClick={() => {
                   setMenuOpen(false);
-                  if (mediaType?.startsWith("video") && mediaUrl) {
+                  const isVideoDownload =
+                    mediaType?.startsWith("video") && Boolean(mediaUrl);
+                  if (isVideoDownload && isMediaDownloadLocked()) {
+                    showMediaDownloadBusyToast();
+                    return;
+                  }
+                  if (isVideoDownload) {
                     if (isAndroidNativeDownloads()) {
                       void handleDownload("original");
                     } else {
@@ -1837,7 +1874,15 @@ function ReelItem({
                     void handleDownload();
                   }
                 }}
-                className="flex w-full items-center gap-3 border-b border-border/50 px-4 py-3 text-left text-[13px] font-medium transition-colors hover:bg-foreground/10"
+                aria-disabled={
+                  Boolean(mediaType?.startsWith("video") && mediaUrl) &&
+                  isMediaDownloadInProgress
+                }
+                className={`flex w-full items-center gap-3 border-b border-border/50 px-4 py-3 text-left text-[13px] font-medium transition-colors hover:bg-foreground/10 ${
+                  mediaType?.startsWith("video") && mediaUrl && isMediaDownloadInProgress
+                    ? "cursor-not-allowed opacity-50"
+                    : ""
+                }`}
               >
                 <Download strokeWidth={1.6} className="h-[17px] w-[17px] text-muted-foreground" />
                 Download to Gallery
