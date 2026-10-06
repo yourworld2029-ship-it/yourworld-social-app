@@ -3228,7 +3228,6 @@ function NativeChatThreadPage() {
           onPointerDown={(event) => {
             if (event.button !== 0) return;
             event.preventDefault();
-            event.stopPropagation();
             void sendCameraPhoto();
           }}
           onKeyDown={(event) => {
@@ -3301,7 +3300,6 @@ function NativeChatThreadPage() {
           onPointerDown={(event) => {
             if (event.button !== 0) return;
             event.preventDefault();
-            event.stopPropagation();
             void sendRecordedVideo();
           }}
           onKeyDown={(event) => {

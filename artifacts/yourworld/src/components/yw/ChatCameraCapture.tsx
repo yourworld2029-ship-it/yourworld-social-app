@@ -20,8 +20,15 @@ async function requestCameraStream(facing: CameraFacing) {
   const videoConstraints: Array<MediaTrackConstraints | boolean> = [
     {
       facingMode: { ideal: facing },
-      width: { ideal: 1280 },
-      height: { ideal: 720 },
+      width: { ideal: 1920, min: 1280 },
+      height: { ideal: 1080, min: 720 },
+      frameRate: { ideal: 30, min: 24 },
+    },
+    {
+      facingMode: { ideal: facing },
+      width: { ideal: 1280, min: 640 },
+      height: { ideal: 720, min: 480 },
+      frameRate: { ideal: 30, min: 24 },
     },
     { facingMode: { ideal: facing } },
     { width: { ideal: 1280 }, height: { ideal: 720 } },
@@ -106,6 +113,8 @@ export function ChatCameraCapture({
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const streamRequestIdRef = useRef(0);
+  const torchCommandIdRef = useRef(0);
+  const torchOnRef = useRef(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const mountedRef = useRef(false);
@@ -162,6 +171,8 @@ export function ChatCameraCapture({
     setLoading(true);
     setPreviewReady(false);
     setTorchAvailable(false);
+    torchCommandIdRef.current += 1;
+    torchOnRef.current = false;
     setTorchOn(false);
     setFrontFlashOn(false);
     releaseCameraStream();
@@ -376,6 +387,21 @@ export function ChatCameraCapture({
     }
 
     const useScreenFlash = facing === "user" && frontFlashOn;
+    const backTorchTrack =
+      facing === "environment" && torchOnRef.current
+        ? streamRef.current?.getVideoTracks()[0]
+        : undefined;
+    if (backTorchTrack && trackSupportsTorch(backTorchTrack)) {
+      try {
+        await backTorchTrack.applyConstraints({
+          advanced: [{ torch: true } as MediaTrackConstraintSet],
+        });
+      } catch {
+        torchOnRef.current = false;
+        setTorchOn(false);
+        setTorchAvailable(false);
+      }
+    }
     if (useScreenFlash) {
       setScreenFlash(true);
       await new Promise((resolve) => window.setTimeout(resolve, 120));
@@ -387,6 +413,10 @@ export function ChatCameraCapture({
       const context = canvas.getContext("2d");
       if (!context || !canvas.width || !canvas.height) {
         throw new Error("The camera frame is not ready.");
+      }
+      if (facing === "user") {
+        context.translate(canvas.width, 0);
+        context.scale(-1, 1);
       }
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
       const blob = await new Promise<Blob>((resolve, reject) => {
@@ -456,19 +486,32 @@ export function ChatCameraCapture({
     const track = streamRef.current?.getVideoTracks()[0];
     if (!track) return;
     if (!trackSupportsTorch(track)) {
+      torchCommandIdRef.current += 1;
+      torchOnRef.current = false;
       setTorchAvailable(false);
       setTorchOn(false);
       return;
     }
-    const next = !torchOn;
+    const next = !torchOnRef.current;
+    const commandId = ++torchCommandIdRef.current;
+    torchOnRef.current = next;
+    setTorchOn(next);
     try {
       await track.applyConstraints({
         advanced: [{ torch: next } as MediaTrackConstraintSet],
       });
-      if (streamRef.current?.getVideoTracks()[0] !== track) return;
+      if (
+        streamRef.current?.getVideoTracks()[0] !== track ||
+        torchCommandIdRef.current !== commandId
+      ) return;
+      setTorchAvailable(true);
       setTorchOn(next);
     } catch {
-      if (streamRef.current?.getVideoTracks()[0] !== track) return;
+      if (
+        streamRef.current?.getVideoTracks()[0] !== track ||
+        torchCommandIdRef.current !== commandId
+      ) return;
+      torchOnRef.current = false;
       setTorchAvailable(false);
       setTorchOn(false);
     }
@@ -490,6 +533,8 @@ export function ChatCameraCapture({
         aria-label="Live camera preview"
         className="pointer-events-none absolute inset-0 h-full w-full object-cover object-center"
         style={{
+          width: "100%",
+          height: "100%",
           opacity: previewReady ? 1 : 0,
           objectFit: "cover",
           objectPosition: "center",
@@ -550,7 +595,7 @@ export function ChatCameraCapture({
                   : "Torch unavailable"
             }
             aria-pressed={facing === "user" ? frontFlashOn : torchOn}
-            disabled={loading || !previewReady || !stream || (facing === "environment" && !torchAvailable)}
+            disabled={loading || !previewReady || !stream || recording || (facing === "environment" && !torchAvailable)}
             onClick={() => void toggleFlash()}
             className={`grid h-10 w-10 place-items-center rounded-full ${
               (facing === "user" ? frontFlashOn : torchOn)
