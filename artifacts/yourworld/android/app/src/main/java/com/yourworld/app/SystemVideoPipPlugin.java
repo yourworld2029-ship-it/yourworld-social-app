@@ -42,31 +42,13 @@ public class SystemVideoPipPlugin extends Plugin {
     }
 
     @PluginMethod
-    public void getGestureLevels(PluginCall call) {
+    public void getMediaVolume(PluginCall call) {
         MainActivity activity = requireMainActivity(call);
         if (activity == null) return;
-
-        activity.runOnUiThread(() -> {
-            JSObject levels = new JSObject();
-            levels.put("brightness", activity.getVideoFullscreenBrightness());
-            levels.put("volume", activity.getVideoMediaVolume());
-            call.resolve(levels);
-        });
-    }
-
-    @PluginMethod
-    public void setScreenBrightness(PluginCall call) {
-        MainActivity activity = requireMainActivity(call);
-        if (activity == null) return;
-        Double value = call.getDouble("value");
-        if (value == null || Double.isNaN(value) || Double.isInfinite(value)) {
-            call.reject("A finite screen brightness value is required.");
-            return;
-        }
 
         activity.runOnUiThread(() -> {
             JSObject result = new JSObject();
-            result.put("value", activity.setVideoFullscreenBrightness(value.floatValue()));
+            result.put("value", activity.getVideoMediaVolume());
             call.resolve(result);
         });
     }

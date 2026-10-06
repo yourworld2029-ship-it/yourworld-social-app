@@ -55,7 +55,6 @@ import {
   Play,
   Repeat,
   Settings2,
-  Sun,
   Volume2,
   VolumeX,
   X,
@@ -103,7 +102,7 @@ function levelForQuality(levels: Hls["levels"], quality: Exclude<QualityId, "aut
 
 type GestureFeedback = {
   id: number;
-  kind: "seek" | "volume" | "brightness" | "zoom";
+  kind: "seek" | "volume" | "zoom";
   value: number;
   label: string;
 };
@@ -118,9 +117,8 @@ type TouchGesture = {
   width: number;
   moved: boolean;
   swipeAxis: "x" | "y" | null;
-  adjustmentKind: "brightness" | "volume" | null;
+  adjustmentKind: "volume" | null;
   initialVolume: number;
-  initialBrightness: number;
   initialDistance: number | null;
   initialZoom: number;
 };
@@ -139,8 +137,7 @@ type SystemVideoPipPlugin = {
     aspectRatioHeight: number;
   }): Promise<void>;
   setFullscreenImmersive(options: { enabled: boolean }): Promise<void>;
-  getGestureLevels(): Promise<{ brightness: number; volume: number }>;
-  setScreenBrightness(options: { value: number }): Promise<void>;
+  getMediaVolume(): Promise<{ value: number }>;
   setMediaVolume(options: { value: number }): Promise<void>;
 };
 
@@ -365,7 +362,6 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const [lockedUnlockVisible, setLockedUnlockVisible] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [displayMode, setDisplayMode] = useState<"fit" | "fill">("fit");
-  const [brightness, setBrightness] = useState(1);
   const [mediaVolume, setMediaVolume] = useState(1);
   const [pictureInPicture, setPictureInPicture] = useState(false);
   const [systemPictureInPicture, setSystemPictureInPicture] = useState(false);
@@ -853,7 +849,6 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     clearLockedUnlockTimer();
     setZoom(1);
     setDisplayMode("fit");
-    setBrightness(1);
     setGestureFeedback(null);
     setSettingsMenu("closed");
     restoreFullscreenScroll();
@@ -1231,19 +1226,6 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const applyGestureBrightness = useCallback(
-    (nextBrightness: number) => {
-      const value = clamp(nextBrightness, 0.1, 1);
-      setBrightness(value);
-      if (isAndroidApp) {
-        void systemVideoPip.setScreenBrightness({ value }).catch((error: unknown) => {
-          console.warn("Could not update Android video brightness.", error);
-        });
-      }
-    },
-    [isAndroidApp],
-  );
-
   const applyGestureVolume = useCallback(
     (nextVolume: number) => {
       const value = clamp(nextVolume, 0, 1);
@@ -1337,16 +1319,15 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
           if (isAndroidApp) {
             await setNativeFullscreenImmersive(true);
             try {
-              const levels = await systemVideoPip.getGestureLevels();
+              const level = await systemVideoPip.getMediaVolume();
               if (
                 requestId === fullscreenRequestIdRef.current &&
                 getPlayerFullscreenElement()
               ) {
-                setBrightness(clamp(levels.brightness, 0.1, 1));
-                setMediaVolume(clamp(levels.volume, 0, 1));
+                setMediaVolume(clamp(level.value, 0, 1));
               }
             } catch (error) {
-              console.warn("Could not read Android fullscreen gesture levels.", error);
+              console.warn("Could not read Android media volume.", error);
             }
           }
           await lockPlayerOrientation(
@@ -1709,7 +1690,6 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
           swipeAxis: null,
           adjustmentKind: null,
           initialVolume: isAndroidApp ? mediaVolume : videoRef.current?.volume ?? 1,
-          initialBrightness: brightness,
           initialDistance: touchDistance(event.touches),
           initialZoom: zoom,
         };
@@ -1725,12 +1705,11 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
         swipeAxis: null,
         adjustmentKind: null,
         initialVolume: isAndroidApp ? mediaVolume : videoRef.current?.volume ?? 1,
-        initialBrightness: brightness,
         initialDistance: null,
         initialZoom: zoom,
       };
     },
-    [brightness, isAndroidApp, isDetailPlayer, isFullscreen, mediaVolume, screenLocked, zoom],
+    [isAndroidApp, isDetailPlayer, isFullscreen, mediaVolume, screenLocked, zoom],
   );
 
   const handleTouchMove = useCallback(
@@ -1781,33 +1760,19 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       if (
         !gesture.swipeAxis &&
         !gesture.adjustmentKind &&
+        gesture.startX >= gesture.width / 2 &&
         Math.abs(deltaY) >= 8 &&
         Math.abs(deltaY) >= Math.abs(deltaX) * 1.1
       ) {
-        gesture.adjustmentKind =
-          gesture.startX < gesture.width / 2 ? "brightness" : "volume";
+        gesture.adjustmentKind = "volume";
       }
 
       if (gesture.adjustmentKind) {
         gesture.moved = true;
         if (event.cancelable) event.preventDefault();
-        if (gesture.adjustmentKind === "brightness") {
-          const nextBrightness = clamp(
-            gesture.initialBrightness - deltaY / 280,
-            0.1,
-            1,
-          );
-          applyGestureBrightness(nextBrightness);
-          showGestureFeedback(
-            "brightness",
-            nextBrightness,
-            `${Math.round(nextBrightness * 100)}%`,
-          );
-        } else {
-          const nextVolume = clamp(gesture.initialVolume - deltaY / 280, 0, 1);
-          applyGestureVolume(nextVolume);
-          showGestureFeedback("volume", nextVolume, `${Math.round(nextVolume * 100)}%`);
-        }
+        const nextVolume = clamp(gesture.initialVolume - deltaY / 280, 0, 1);
+        applyGestureVolume(nextVolume);
+        showGestureFeedback("volume", nextVolume, `${Math.round(nextVolume * 100)}%`);
         return;
       }
 
@@ -1839,7 +1804,6 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       if (Math.hypot(deltaX, deltaY) >= 8) gesture.moved = true;
     },
     [
-      applyGestureBrightness,
       applyGestureVolume,
       isDetailPlayer,
       isFullscreen,
@@ -2221,7 +2185,6 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                   (showDetailChrome && isFullscreen) || displayMode === "fill"
                     ? "cover"
                     : "contain",
-                filter: isAndroidApp ? undefined : `brightness(${brightness})`,
                 transition: gestureFeedback?.kind === "zoom" ? "none" : "transform 160ms ease-out",
                 touchAction: showDetailChrome
                   ? isFullscreen
@@ -2380,7 +2343,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                     />
                   </button>
                 ) : null}
-                <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[70] bg-gradient-to-t from-black/85 to-transparent px-2.5 pb-2 pt-8 text-[11px] font-semibold text-white">
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[70] px-2.5 pb-2 pt-2 text-[11px] font-semibold text-white drop-shadow-lg">
                   <span className="block truncate">{activeVideo.title || "Now playing"}</span>
                 </div>
               </>
@@ -2445,19 +2408,6 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                     <div className="flex h-24 w-1.5 items-end overflow-hidden rounded-full bg-white/25">
                       <div
                         className="w-full rounded-full bg-white transition-[height]"
-                        style={{ height: `${gestureFeedback.value * 100}%` }}
-                      />
-                    </div>
-                    <span className="text-[10px] font-semibold">{gestureFeedback.label}</span>
-                  </div>
-                ) : null}
-
-                {gestureFeedback?.kind === "brightness" ? (
-                  <div className="pointer-events-none absolute left-5 top-1/2 flex -translate-y-1/2 flex-col items-center gap-2 rounded-full bg-black/60 px-2.5 py-3 text-white backdrop-blur-sm">
-                    <Sun className="h-4 w-4" />
-                    <div className="flex h-24 w-1.5 items-end overflow-hidden rounded-full bg-white/25">
-                      <div
-                        className="w-full rounded-full bg-yellow-300 transition-[height]"
                         style={{ height: `${gestureFeedback.value * 100}%` }}
                       />
                     </div>
@@ -2760,7 +2710,7 @@ const PlaybackTimeline = memo(function PlaybackTimeline({
       }`}
     >
       <div
-        className={`bg-gradient-to-t from-black/90 via-black/45 to-transparent px-3 pb-2 pt-12 ${
+        className={`px-3 pb-2 pt-12 ${
           controlsVisible ? "pointer-events-auto" : "pointer-events-none"
         }`}
       >

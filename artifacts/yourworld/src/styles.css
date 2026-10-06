@@ -108,12 +108,6 @@ body,
   --input: oklch(1 0 0 / 14%);
   --ring: oklch(0.68 0.245 356);
   --gradient-brand: linear-gradient(135deg, var(--accent) 0%, var(--primary) 55%, var(--primary-glow) 100%);
-  --gradient-veil: linear-gradient(
-    to top,
-    oklch(0.1 0.01 275 / 0.92) 0%,
-    oklch(0.1 0.01 275 / 0.55) 40%,
-    transparent 100%
-  );
   --shadow-glow: 0 12px 40px -12px oklch(0.68 0.245 356 / 0.55);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
@@ -1021,10 +1015,6 @@ html[data-theme="midnight"] {
 
 @utility ring-story {
   background-image: var(--gradient-brand);
-}
-
-@utility veil {
-  background-image: var(--gradient-veil);
 }
 
 @utility glass {

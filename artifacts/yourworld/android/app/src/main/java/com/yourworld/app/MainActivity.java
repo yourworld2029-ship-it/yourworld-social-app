@@ -7,7 +7,6 @@ import android.graphics.Color;
 import android.media.AudioManager;
 import android.os.Build;
 import android.os.Bundle;
-import android.provider.Settings;
 import android.util.Log;
 import android.util.Rational;
 import android.view.WindowManager;
@@ -30,7 +29,6 @@ public class MainActivity extends BridgeActivity {
     private volatile int pipAspectRatioWidth = 16;
     private volatile int pipAspectRatioHeight = 9;
     private volatile boolean videoFullscreenImmersive;
-    private Float videoFullscreenOriginalBrightness;
     private int videoFullscreenOriginalCutoutMode;
 
     @Override
@@ -171,7 +169,6 @@ public class MainActivity extends BridgeActivity {
         }
 
         if (enabled) {
-            videoFullscreenOriginalBrightness = getWindow().getAttributes().screenBrightness;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 videoFullscreenOriginalCutoutMode =
                         getWindow().getAttributes().layoutInDisplayCutoutMode;
@@ -186,12 +183,6 @@ public class MainActivity extends BridgeActivity {
         }
 
         videoFullscreenImmersive = false;
-        if (videoFullscreenOriginalBrightness != null) {
-            WindowManager.LayoutParams attributes = getWindow().getAttributes();
-            attributes.screenBrightness = videoFullscreenOriginalBrightness;
-            getWindow().setAttributes(attributes);
-            videoFullscreenOriginalBrightness = null;
-        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             WindowManager.LayoutParams attributes = getWindow().getAttributes();
             attributes.layoutInDisplayCutoutMode = videoFullscreenOriginalCutoutMode;
@@ -225,31 +216,6 @@ public class MainActivity extends BridgeActivity {
         if (webView != null) {
             ViewCompat.requestApplyInsets(webView);
         }
-    }
-
-    public float getVideoFullscreenBrightness() {
-        float windowBrightness = getWindow().getAttributes().screenBrightness;
-        if (windowBrightness >= 0f) {
-            return clampVideoGestureLevel(windowBrightness, 0.1f, 1f);
-        }
-        try {
-            int systemBrightness = Settings.System.getInt(
-                    getContentResolver(),
-                    Settings.System.SCREEN_BRIGHTNESS
-            );
-            return clampVideoGestureLevel(systemBrightness / 255f, 0.1f, 1f);
-        } catch (Settings.SettingNotFoundException error) {
-            return 1f;
-        }
-    }
-
-    public float setVideoFullscreenBrightness(float value) {
-        float level = clampVideoGestureLevel(value, 0.1f, 1f);
-        if (!videoFullscreenImmersive) return getVideoFullscreenBrightness();
-        WindowManager.LayoutParams attributes = getWindow().getAttributes();
-        attributes.screenBrightness = level;
-        getWindow().setAttributes(attributes);
-        return level;
     }
 
     public float getVideoMediaVolume() {

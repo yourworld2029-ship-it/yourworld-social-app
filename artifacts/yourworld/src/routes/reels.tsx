@@ -189,7 +189,6 @@ function PendingReelPreview({
         aria-label={`Local preview of ${title || "your Reel"}`}
         className="absolute inset-0 h-full w-full object-contain"
       />
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/85 via-transparent to-black/20" />
       <div className="pointer-events-none absolute bottom-8 left-4 right-20 space-y-2">
         <span className="inline-flex rounded-full bg-pink-600/90 px-3 py-1 text-xs font-semibold text-white">
           Uploading Reel · only you can see this
@@ -1659,13 +1658,6 @@ function ReelItem({
           onLoadedMetadata={handleLoadedMetadata}
           onTimeUpdate={handleTimeUpdate}
           onEnded={handleEnded}
-        />
-        <div className="pointer-events-none absolute inset-0 veil" />
-        <div
-          className={cn(
-            "pointer-events-none absolute inset-0 transition-opacity duration-200",
-            paused ? "bg-black/20 opacity-100" : "opacity-0",
-          )}
         />
       </div>
 
