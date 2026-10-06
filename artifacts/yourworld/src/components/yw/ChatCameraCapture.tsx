@@ -50,8 +50,18 @@ async function requestCameraStream(facing: CameraFacing) {
 }
 
 function trackSupportsTorch(track: MediaStreamTrack | undefined) {
-  if (!track || typeof track.getCapabilities !== "function") return false;
+  if (
+    !track ||
+    !navigator.mediaDevices ||
+    typeof track.getCapabilities !== "function"
+  ) {
+    return false;
+  }
   try {
+    const supportedConstraints = navigator.mediaDevices.getSupportedConstraints?.() as
+      | (MediaTrackSupportedConstraints & { torch?: boolean })
+      | undefined;
+    if (supportedConstraints?.torch === false) return false;
     const capabilities = track.getCapabilities() as MediaTrackCapabilities & {
       torch?: boolean;
     };
