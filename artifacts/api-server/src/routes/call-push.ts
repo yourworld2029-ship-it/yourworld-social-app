@@ -5,6 +5,8 @@ import {
   RegisterIncomingCallPushResponse,
   SendIncomingCallPushBody,
   SendIncomingCallPushResponse,
+  SendMessagePushBody,
+  SendMessagePushResponse,
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
@@ -34,12 +36,26 @@ type CallRow = {
 };
 type ConversationRow = { id: string };
 type PreferenceRow = {
+  is_muted?: boolean | null;
+  is_locked?: boolean | null;
   secret_pin_salt?: string | null;
   secret_pin_hash?: string | null;
 };
 type ProfileRow = {
   display_name?: string | null;
   username?: string | null;
+};
+type MessageRow = {
+  id: string;
+  sender_id: string;
+  receiver_id: string;
+  conversation_id: string | null;
+  is_system_message?: boolean | null;
+};
+type MessageConversationRow = {
+  id: string;
+  participant_one_id: string;
+  participant_two_id: string;
 };
 type SubscriptionRow = {
   id: string;
@@ -552,6 +568,249 @@ router.post("/calls/push", async (req, res): Promise<void> => {
   );
 
   res.json(SendIncomingCallPushResponse.parse({ delivered, suppressed: false }));
+});
+
+router.post("/messages/push", async (req, res): Promise<void> => {
+  const parsedBody = SendMessagePushBody.safeParse(req.body);
+  if (!parsedBody.success || !UUID_PATTERN.test(parsedBody.data.messageId)) {
+    res.status(400).json({ error: "Provide a valid message ID." });
+    return;
+  }
+
+  const token = bearerToken(req.get("authorization"));
+  if (!token) {
+    res.status(401).json({ error: "Authentication is required." });
+    return;
+  }
+
+  const config = supabaseConfig();
+  if (!config) {
+    req.log.error("Chat message push is missing Supabase configuration");
+    res.status(503).json({ error: "Message notifications are not configured." });
+    return;
+  }
+
+  let senderId: string | null;
+  try {
+    senderId = await authenticateUser(config, token);
+  } catch (cause) {
+    req.log.warn({ cause }, "Supabase could not validate the message push user");
+    res.status(502).json({ error: "Could not validate the current session." });
+    return;
+  }
+  if (!senderId) {
+    res.status(401).json({ error: "The current session is no longer valid." });
+    return;
+  }
+
+  let message: MessageRow | undefined;
+  try {
+    const messages = await readRows<MessageRow>(config, "messages", {
+      select: "id,sender_id,receiver_id,conversation_id,is_system_message",
+      id: `eq.${parsedBody.data.messageId}`,
+      sender_id: `eq.${senderId}`,
+      limit: "1",
+    });
+    message = messages[0];
+  } catch (cause) {
+    req.log.error({ cause }, "Could not verify chat message push ownership");
+    res.status(502).json({ error: "Could not verify this message." });
+    return;
+  }
+  if (
+    !message ||
+    !UUID_PATTERN.test(message.receiver_id) ||
+    message.receiver_id === senderId ||
+    !message.conversation_id ||
+    !UUID_PATTERN.test(message.conversation_id)
+  ) {
+    res.status(404).json({ error: "Message is not available." });
+    return;
+  }
+  if (message.is_system_message === true) {
+    res.json(SendMessagePushResponse.parse({ delivered: 0, suppressed: true }));
+    return;
+  }
+
+  let conversation: MessageConversationRow | undefined;
+  let preferences: PreferenceRow[];
+  try {
+    const conversations = await readRows<MessageConversationRow>(config, "conversations", {
+      select: "id,participant_one_id,participant_two_id",
+      id: `eq.${message.conversation_id}`,
+      limit: "1",
+    });
+    conversation = conversations[0];
+    if (
+      !conversation ||
+      !(
+        (conversation.participant_one_id === senderId &&
+          conversation.participant_two_id === message.receiver_id) ||
+        (conversation.participant_two_id === senderId &&
+          conversation.participant_one_id === message.receiver_id)
+      )
+    ) {
+      res.status(404).json({ error: "Message is not available." });
+      return;
+    }
+    preferences = await readRows<PreferenceRow>(config, "conversation_preferences", {
+      select: "is_muted,is_locked,secret_pin_salt,secret_pin_hash",
+      conversation_id: `eq.${conversation.id}`,
+      user_id: `eq.${message.receiver_id}`,
+      limit: "1",
+    });
+  } catch (cause) {
+    req.log.error({ cause }, "Could not verify chat message notification privacy");
+    res.status(503).json({ error: "Could not verify chat notification settings." });
+    return;
+  }
+
+  const recipientSettings = preferences[0];
+  const secretLocked =
+    recipientSettings?.is_locked === true &&
+    typeof recipientSettings.secret_pin_salt === "string" &&
+    recipientSettings.secret_pin_salt.length > 0 &&
+    typeof recipientSettings.secret_pin_hash === "string" &&
+    recipientSettings.secret_pin_hash.length > 0;
+  if (recipientSettings?.is_muted === true || secretLocked) {
+    res.json(SendMessagePushResponse.parse({ delivered: 0, suppressed: true }));
+    return;
+  }
+
+  const account = serviceAccount();
+  if (!account) {
+    req.log.error("FCM service account is missing or invalid");
+    res.status(503).json({ error: "Message notifications are not configured." });
+    return;
+  }
+
+  let subscriptions: SubscriptionRow[];
+  let profiles: ProfileRow[];
+  try {
+    [subscriptions, profiles] = await Promise.all([
+      readRows<SubscriptionRow>(config, "call_push_subscriptions", {
+        select: "id,endpoint,subscription",
+        user_id: `eq.${message.receiver_id}`,
+        provider: "eq.fcm",
+        limit: "50",
+      }),
+      readRows<ProfileRow>(config, "profiles", {
+        select: "display_name,username",
+        id: `eq.${senderId}`,
+        limit: "1",
+      }),
+    ]);
+  } catch (cause) {
+    req.log.error({ cause }, "Could not load chat message push recipients");
+    res.status(502).json({ error: "Could not load message notification devices." });
+    return;
+  }
+
+  const deviceTokens = Array.from(
+    new Set(
+      subscriptions
+        .map(tokenFromSubscription)
+        .filter((value): value is string => value !== null),
+    ),
+  );
+  if (deviceTokens.length === 0) {
+    res.json(SendMessagePushResponse.parse({ delivered: 0, suppressed: false }));
+    return;
+  }
+
+  let accessToken: string;
+  try {
+    accessToken = await getGoogleAccessToken(account);
+  } catch (cause) {
+    req.log.error({ cause }, "Could not obtain FCM authorization for a message push");
+    res.status(502).json({ error: "Could not authorize message notification delivery." });
+    return;
+  }
+
+  const peerName =
+    profiles[0]?.display_name?.trim() ||
+    profiles[0]?.username?.trim() ||
+    "YourWorld";
+  const threadId = `dm_${[senderId, message.receiver_id].sort().join("_")}`;
+  const endpoint = `https://fcm.googleapis.com/v1/projects/${encodeURIComponent(account.project_id)}/messages:send`;
+  let delivered = 0;
+  await Promise.all(
+    deviceTokens.map(async (deviceToken) => {
+      let response: FetchResponse;
+      try {
+        response = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            message: {
+              token: deviceToken,
+              data: {
+                type: "message",
+                messageId: message.id,
+                conversationId: conversation!.id,
+                peerName,
+                body: "Sent you a message",
+                url: `/chat/${threadId}`,
+              },
+              android: {
+                priority: "HIGH",
+                ttl: "86400s",
+              },
+            },
+          }),
+          signal: AbortSignal.timeout(15_000),
+        });
+      } catch (cause) {
+        req.log.warn({ cause }, "FCM chat message push delivery failed");
+        return;
+      }
+
+      const result: unknown = await response.json().catch(() => null);
+      if (response.ok) {
+        delivered += 1;
+        return;
+      }
+      const error =
+        result && typeof result === "object" && "error" in result
+          ? (result as JsonObject).error
+          : null;
+      const details =
+        error && typeof error === "object" && "details" in error
+          ? (error as JsonObject).details
+          : null;
+      const unregistered =
+        Array.isArray(details) &&
+        details.some(
+          (detail) =>
+            !!detail &&
+            typeof detail === "object" &&
+            "errorCode" in detail &&
+            detail.errorCode === "UNREGISTERED",
+        );
+      if (unregistered) {
+        const subscription = subscriptions.find(
+          (row) => tokenFromSubscription(row) === deviceToken,
+        );
+        if (subscription) {
+          try {
+            await deleteSubscription(config, subscription.id);
+          } catch (cause) {
+            req.log.warn({ cause }, "Could not remove an expired FCM message subscription");
+          }
+        }
+      } else {
+        req.log.warn(
+          { status: response.status },
+          "FCM did not accept a chat message push",
+        );
+      }
+    }),
+  );
+
+  res.json(SendMessagePushResponse.parse({ delivered, suppressed: false }));
 });
 
 export default router;

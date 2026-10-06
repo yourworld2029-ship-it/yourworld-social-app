@@ -11,7 +11,12 @@ import {
 } from "react";
 import { Bell, Mic, MicOff, PhoneOff, Phone, Video, VideoOff, SwitchCamera, Zap, ZapOff, Volume2, X, LockKeyhole, Sparkles, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { dmThreadId, ensureThreadConversation } from "@/lib/social-data";
+import {
+  dmThreadId,
+  ensureThreadConversation,
+  resolveMediaUrl,
+  resolveThreadPeer,
+} from "@/lib/social-data";
 import { isSecretChatLockedWith } from "@/lib/secret-chats";
 import { isActiveChatFocusedForCall } from "@/lib/active-chat";
 import { toast } from "sonner";
@@ -87,6 +92,66 @@ async function syncAndroidCallPushToken(userId: string, token: string) {
   if (!response.ok) {
     console.debug("[call-notifications] Android subscription sync pending");
   }
+}
+
+function CallAvatar({
+  avatarUrl,
+  name,
+  containerClassName,
+  fallbackClassName,
+  imageClassName,
+}: {
+  avatarUrl: string | null | undefined;
+  name: string;
+  containerClassName: string;
+  fallbackClassName: string;
+  imageClassName: string;
+}) {
+  const [resolvedUrl, setResolvedUrl] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const initial = name.trim().charAt(0).toUpperCase() || "?";
+
+  useEffect(() => {
+    let cancelled = false;
+    setResolvedUrl(null);
+    setLoaded(false);
+    const source = avatarUrl?.trim();
+    if (!source) return () => { cancelled = true; };
+
+    if (/^(https?:|data:|blob:)/i.test(source)) {
+      setResolvedUrl(source);
+      return () => { cancelled = true; };
+    }
+    void resolveMediaUrl(source, "avatars")
+      .then((url) => {
+        if (!cancelled) setResolvedUrl(url);
+      })
+      .catch(() => {
+        if (!cancelled) setResolvedUrl(null);
+      });
+    return () => { cancelled = true; };
+  }, [avatarUrl]);
+
+  return (
+    <div className={containerClassName}>
+      <span className={fallbackClassName}>{initial}</span>
+      {resolvedUrl && (
+        <img
+          key={resolvedUrl}
+          src={resolvedUrl}
+          alt=""
+          aria-hidden
+          className={imageClassName}
+          style={{ opacity: loaded ? 1 : 0 }}
+          onLoad={() => setLoaded(true)}
+          onError={() => {
+            setResolvedUrl(null);
+            setLoaded(false);
+          }}
+        />
+      )}
+    </div>
+  );
 }
 
 export type CallMode = "audio" | "video";
@@ -421,7 +486,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const [flashOn, setFlashOn] = useState(false);
   /** WhatsApp-style: tap the PiP to swap which stream fills the screen. */
   const [swapped, setSwapped] = useState(false);
-  const [peerAvatar, setPeerAvatar] = useState<string | null>(null);
+  const [peerAvatar, setPeerAvatar] = useState<{
+    peerId: string;
+    avatarUrl: string | null;
+  } | null>(null);
   /** Auto-hiding call controls: visible on activity, hidden after 3s. */
   const [controlsVisible, setControlsVisible] = useState(true);
   const [speakerOn, setSpeakerOn] = useState(false);
@@ -507,7 +575,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         .then((status) => {
           if (
             status &&
-            (status.permission !== "granted" || !status.fullScreenIntentAllowed)
+            status.permission !== "granted"
           ) {
             setShowNotificationBanner(true);
           }
@@ -1407,18 +1475,19 @@ export function CallProvider({ children }: { children: ReactNode }) {
         void callDb.from("calls").update({ status: "declined", ended_at: new Date().toISOString() }).eq("id", row.id);
         return;
       }
-      const { data: callerProfile } = await supabase
-        .from("profiles")
-        .select("display_name,username,avatar_url")
-        .eq("id", row.caller_id)
-        .maybeSingle();
-      const peerName = callerProfile?.display_name || callerProfile?.username || "YourWorld caller";
+      let callerProfile: Awaited<ReturnType<typeof resolveThreadPeer>> | null = null;
+      try {
+        callerProfile = await resolveThreadPeer(row.caller_id, null);
+      } catch (error) {
+        console.debug("[call] caller profile unavailable", error);
+      }
+      const peerName = callerProfile?.peerName || "YourWorld caller";
       const nextCall = {
         callId: row.id,
         mode: row.call_type,
         peerId: row.caller_id,
         peerName,
-        avatarUrl: callerProfile?.avatar_url ?? null,
+        avatarUrl: callerProfile?.avatarUrl ?? null,
         incoming: true,
       };
       const storedSignal = row.signal_data as Partial<StoredSignal> | null;
@@ -1622,17 +1691,16 @@ export function CallProvider({ children }: { children: ReactNode }) {
         if (error || !callId) {
           throw new Error(error?.message ?? "no call id was returned");
         }
-        // Realtime/database ringing remains the source of truth. This
-        // authenticated edge call is only the background wake-up path.
-        void supabase
-          .from("profiles")
-          .select("avatar_url")
-          .eq("id", authId)
-          .maybeSingle()
-          .then(({ data: callerProfile }) => {
-            void supabase
-              .functions
-              .invoke("send-call-push", {
+        // Web Push uses the Edge Function; Android FCM is sent independently so
+        // an unavailable avatar/profile lookup cannot block native delivery.
+        void (async () => {
+          try {
+            const { data: callerProfile } = await supabase
+              .from("profiles")
+              .select("avatar_url")
+              .eq("id", authId)
+              .maybeSingle();
+            const { error: pushError } = await supabase.functions.invoke("send-call-push", {
               body: {
                 callId,
                 receiverId: target,
@@ -1640,33 +1708,35 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 peerName: peerName ?? "YourWorld caller",
                 avatarUrl: callerProfile?.avatar_url ?? null,
               },
-              })
-              .then(({ error: pushError }) => {
-                if (pushError) {
-                  console.debug("[call-notifications] background push unavailable", pushError);
-                }
-              });
-            void supabase.auth
-              .getSession()
-              .then(({ data: sessionData, error: sessionError }) => {
-                const accessToken = sessionData.session?.access_token;
-                if (sessionError || !accessToken) return;
-                return fetch("/api/calls/push", {
-                  method: "POST",
-                  headers: {
-                    Authorization: `Bearer ${accessToken}`,
-                    "Content-Type": "application/json",
-                  },
-                  body: JSON.stringify({ callId }),
-                }).then((response) => {
-                  if (!response.ok) {
-                    console.debug("[call-notifications] Android push delivery pending");
-                  }
-                });
-              })
-              .catch(() => {
-                // FCM is best-effort; realtime remains the source of truth.
-              });
+            });
+            if (pushError) {
+              console.debug("[call-notifications] background push unavailable", pushError);
+            }
+          } catch (error) {
+            console.debug("[call-notifications] web push unavailable", error);
+          }
+        })();
+
+        void supabase.auth
+          .getSession()
+          .then(({ data: sessionData, error: sessionError }) => {
+            const accessToken = sessionData.session?.access_token;
+            if (sessionError || !accessToken) return;
+            return fetch("/api/calls/push", {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ callId }),
+            }).then((response) => {
+              if (!response.ok) {
+                console.debug("[call-notifications] Android push delivery pending");
+              }
+            });
+          })
+          .catch(() => {
+            // FCM is best-effort; realtime remains the source of truth.
           });
         const nextCall = {
           callId,
@@ -1996,17 +2066,17 @@ export function CallProvider({ children }: { children: ReactNode }) {
     if (!peerId) return;
     let cancelled = false;
     void (async () => {
-      const { data } = await supabase
-        .from("profiles")
-        .select("avatar_url")
-        .eq("id", peerId)
-        .maybeSingle();
-      if (!cancelled && data?.avatar_url) setPeerAvatar(data.avatar_url);
+      try {
+        const profile = await resolveThreadPeer(peerId, authId);
+        if (!cancelled) setPeerAvatar({ peerId, avatarUrl: profile.avatarUrl });
+      } catch {
+        // Keep the immediate initials fallback when profile lookup is unavailable.
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [call?.peerId]);
+  }, [call?.peerId, call?.avatarUrl, authId]);
 
   useEffect(() => () => teardown(), [teardown]);
 
@@ -2026,8 +2096,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
         : phase === "connecting"
           ? "Connecting…"
           : "Connected";
+  const currentPeerAvatar =
+    call && peerAvatar?.peerId === call.peerId ? peerAvatar.avatarUrl : null;
   const caller = call
-    ? { name: call.peerName, avatar_url: call.avatarUrl ?? peerAvatar }
+    ? { name: call.peerName, avatar_url: currentPeerAvatar ?? call.avatarUrl }
     : null;
   const callClock = `${String(Math.floor(elapsedSeconds / 60)).padStart(2, "0")}:${String(
     elapsedSeconds % 60,
@@ -2042,8 +2114,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
           if (result.token && me) {
             await syncAndroidCallPushToken(me, result.token);
             toast.success("Call notifications enabled");
-          } else if (result.fullScreenIntentPermissionRequired) {
-            toast.message("Allow full-screen call notifications, then return to YourWorld");
+          } else if (!result.token) {
+            toast.error("Could not register this device for call notifications");
           }
         } else if (result.permission === "denied") {
           toast.message("Notifications remain disabled");
@@ -2197,9 +2269,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
         >
           {phase !== "incoming" && call.mode === "audio" && (
             <div className="absolute inset-0 z-0 overflow-hidden bg-[radial-gradient(circle_at_50%_34%,rgba(99,102,241,0.35),transparent_58%),linear-gradient(160deg,#09090b,#18122e_55%,#09090b)]">
-              {(call.avatarUrl ?? peerAvatar) && (
+              {(call.avatarUrl ?? currentPeerAvatar) && (
                 <img
-                  src={call.avatarUrl ?? peerAvatar ?? undefined}
+                  src={call.avatarUrl ?? currentPeerAvatar ?? undefined}
                   alt=""
                   aria-hidden
                   className="absolute inset-0 h-full w-full scale-125 object-cover opacity-35 blur-3xl"
@@ -2213,17 +2285,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
                   <span className="absolute inset-0 rounded-full border border-indigo-300/25 bg-indigo-400/5 motion-safe:animate-pulse" />
                   <span className="absolute inset-4 rounded-full border border-fuchsia-300/25 bg-fuchsia-400/5 motion-safe:animate-pulse" />
                   <span className="absolute inset-8 rounded-full border border-white/20 bg-white/5 backdrop-blur-xl" />
-                  {call.avatarUrl ?? peerAvatar ? (
-                    <img
-                      src={call.avatarUrl ?? peerAvatar ?? undefined}
-                      alt={call.peerName}
-                      className="relative h-36 w-36 rounded-full border border-white/35 object-cover shadow-[0_0_54px_rgba(129,140,248,0.38)]"
-                    />
-                  ) : (
-                    <div className="relative grid h-36 w-36 place-items-center rounded-full border border-white/25 bg-white/10 text-5xl font-bold shadow-[0_0_54px_rgba(129,140,248,0.38)] backdrop-blur-xl">
-                      {call.peerName?.trim().split(/\s+/).slice(0, 2).map((part) => part.charAt(0)).join("").toUpperCase() || "?"}
-                    </div>
-                  )}
+                  <CallAvatar
+                    avatarUrl={currentPeerAvatar ?? call.avatarUrl}
+                    name={call.peerName}
+                    containerClassName="relative h-36 w-36"
+                    fallbackClassName="relative grid h-36 w-36 place-items-center rounded-full border border-white/25 bg-white/10 text-5xl font-bold shadow-[0_0_54px_rgba(129,140,248,0.38)] backdrop-blur-xl"
+                    imageClassName="absolute inset-0 h-36 w-36 rounded-full border border-white/35 object-cover shadow-[0_0_54px_rgba(129,140,248,0.38)]"
+                  />
                 </div>
                 <div className="max-w-full rounded-2xl border border-white/10 bg-black/35 px-5 py-3 backdrop-blur-xl">
                   <p className="break-words text-center text-xl font-semibold tracking-tight text-white">
@@ -2367,20 +2435,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
               aria-live="assertive"
               className="pointer-events-auto flex w-full max-w-lg items-center gap-2.5 rounded-2xl border border-white/15 bg-zinc-950/95 px-3 py-3 shadow-[0_18px_50px_rgba(0,0,0,0.58)] backdrop-blur-2xl"
             >
-              <div className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-full border border-white/20 bg-white/10">
-                {caller?.avatar_url ? (
-                  <img
-                    src={caller.avatar_url}
-                    alt=""
-                    aria-hidden
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <span className="text-sm font-bold text-white">
-                    {(caller?.name || "U").trim().split(/\s+/).slice(0, 2).map((part) => part.charAt(0)).join("").toUpperCase()}
-                  </span>
-                )}
-              </div>
+              <CallAvatar
+                avatarUrl={caller?.avatar_url}
+                name={caller?.name || "U"}
+                containerClassName="relative grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-full border border-white/20 bg-white/10"
+                fallbackClassName="text-sm font-bold text-white"
+                imageClassName="absolute inset-0 h-full w-full object-cover"
+              />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold text-white">{call.peerName}</p>
                 <p className="mt-0.5 truncate text-[11px] font-medium text-white/65">

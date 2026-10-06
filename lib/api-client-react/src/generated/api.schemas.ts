@@ -131,6 +131,17 @@ export interface CallPushResponse {
   suppressed: boolean;
 }
 
+export interface MessagePushInput {
+  /** @pattern ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$ */
+  messageId: string;
+}
+
+export interface MessagePushResponse {
+  /** @minimum 0 */
+  delivered: number;
+  suppressed: boolean;
+}
+
 export interface CallPushRegistrationInput {
   /**
      * @minLength 16

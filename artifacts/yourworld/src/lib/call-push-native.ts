@@ -7,12 +7,10 @@ type PermissionState = "granted" | "denied" | "prompt";
 type NativeCallPushResult = {
   permission: PermissionState;
   token: string | null;
-  fullScreenIntentPermissionRequired?: boolean;
 };
 
 type NativeCallPushStatus = {
   permission: PermissionState;
-  fullScreenIntentAllowed: boolean;
 };
 
 type NativeCallPushPlugin = {

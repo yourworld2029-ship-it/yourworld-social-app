@@ -10,6 +10,7 @@ const callerId = "11111111-1111-4111-8111-111111111111";
 const receiverId = "22222222-2222-4222-8222-222222222222";
 const callId = "33333333-3333-4333-8333-333333333333";
 const conversationId = "44444444-4444-4444-8444-444444444444";
+const messageId = "55555555-5555-4555-8555-555555555555";
 const supabaseUrl = "https://supabase.test";
 const nativeFetch = globalThis.fetch.bind(globalThis);
 
@@ -75,6 +76,16 @@ function incomingCall() {
     receiver_id: receiverId,
     call_type: "video",
     status: "ringing",
+  };
+}
+
+function incomingMessage() {
+  return {
+    id: messageId,
+    sender_id: callerId,
+    receiver_id: receiverId,
+    conversation_id: conversationId,
+    is_system_message: false,
   };
 }
 
@@ -300,4 +311,123 @@ test("a different authenticated user cannot send the caller's call push", async 
   assert.equal(response.status, 404);
   assert.deepEqual(await response.json(), { error: "Call is not available." });
   assert.equal(readConversations, false);
+});
+
+test("chat message pushes are high priority, generic, and delivered to active Android tokens", async (t) => {
+  setEnvironment(t, { FCM_SERVICE_ACCOUNT_JSON: privateKeyServiceAccount() });
+  const baseUrl = await startServer(t);
+  const captured: { fcmBody: Record<string, unknown> | null } = { fcmBody: null };
+  t.mock.method(
+    globalThis,
+    "fetch",
+    async (
+      input: Parameters<typeof fetch>[0],
+      init?: Parameters<typeof fetch>[1],
+    ) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/auth/v1/user") return jsonResponse({ id: callerId });
+      if (url.pathname === "/rest/v1/messages") return jsonResponse([incomingMessage()]);
+      if (url.pathname === "/rest/v1/conversations") {
+        return jsonResponse([
+          {
+            id: conversationId,
+            participant_one_id: callerId,
+            participant_two_id: receiverId,
+          },
+        ]);
+      }
+      if (url.pathname === "/rest/v1/conversation_preferences") {
+        return jsonResponse([{ is_muted: false, is_locked: false }]);
+      }
+      if (url.pathname === "/rest/v1/profiles") {
+        return jsonResponse([{ display_name: "Caller display name" }]);
+      }
+      if (url.pathname === "/rest/v1/call_push_subscriptions") {
+        return jsonResponse([
+          {
+            id: "message-subscription-1",
+            endpoint: "fcm:test-message-device-token-123456789",
+            subscription: { token: "test-message-device-token-123456789" },
+          },
+        ]);
+      }
+      if (url.hostname === "oauth2.googleapis.com") {
+        return jsonResponse({ access_token: "test-google-oauth-token", expires_in: 3600 });
+      }
+      if (url.hostname === "fcm.googleapis.com") {
+        captured.fcmBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return jsonResponse({ name: "projects/yourworld-test-project/messages/2" });
+      }
+      throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url.href}`);
+    },
+  );
+
+  const response = await nativeFetch(`${baseUrl}/messages/push`, {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer test-user-session",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ messageId }),
+  });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { delivered: 1, suppressed: false });
+  assert.ok(captured.fcmBody);
+  const message = captured.fcmBody.message as Record<string, unknown>;
+  assert.equal(message.token, "test-message-device-token-123456789");
+  assert.deepEqual(message.data, {
+    type: "message",
+    messageId,
+    conversationId,
+    peerName: "Caller display name",
+    body: "Sent you a message",
+    url: `/chat/dm_${[callerId, receiverId].sort().join("_")}`,
+  });
+  assert.deepEqual(message.android, { priority: "HIGH", ttl: "86400s" });
+  assert.deepEqual(Object.keys(message).sort(), ["android", "data", "token"]);
+});
+
+test("muted chat message pushes are suppressed before FCM device lookup", async (t) => {
+  setEnvironment(t, { FCM_SERVICE_ACCOUNT_JSON: undefined });
+  const baseUrl = await startServer(t);
+  const paths: string[] = [];
+  t.mock.method(
+    globalThis,
+    "fetch",
+    async (input: Parameters<typeof fetch>[0]) => {
+      const url = new URL(String(input));
+      paths.push(url.pathname);
+      if (url.pathname === "/auth/v1/user") return jsonResponse({ id: callerId });
+      if (url.pathname === "/rest/v1/messages") return jsonResponse([incomingMessage()]);
+      if (url.pathname === "/rest/v1/conversations") {
+        return jsonResponse([
+          {
+            id: conversationId,
+            participant_one_id: callerId,
+            participant_two_id: receiverId,
+          },
+        ]);
+      }
+      if (url.pathname === "/rest/v1/conversation_preferences") {
+        return jsonResponse([{ is_muted: true, is_locked: false }]);
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    },
+  );
+
+  const response = await nativeFetch(`${baseUrl}/messages/push`, {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer test-user-session",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ messageId }),
+  });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { delivered: 0, suppressed: true });
+  assert.ok(!paths.includes("/rest/v1/call_push_subscriptions"));
+  assert.ok(!paths.includes("/rest/v1/profiles"));
+  assert.ok(!paths.includes("/token"));
 });

@@ -199,6 +199,27 @@ export const SendIncomingCallPushResponse = zod.object({
 
 
 /**
+ * @summary Send an authenticated, mute-aware chat message push
+ */
+export const sendMessagePushBodyMessageIdRegExp = new RegExp('^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$');
+
+
+export const SendMessagePushBody = zod.object({
+  "messageId": zod.string().regex(sendMessagePushBodyMessageIdRegExp)
+})
+
+export const sendMessagePushResponseDeliveredMin = 0;
+export const sendMessagePushResponseDeliveredMultipleOf = 1;
+
+
+
+export const SendMessagePushResponse = zod.object({
+  "delivered": zod.number().min(sendMessagePushResponseDeliveredMin).multipleOf(sendMessagePushResponseDeliveredMultipleOf),
+  "suppressed": zod.boolean()
+})
+
+
+/**
  * @summary Register the authenticated Android device for incoming call pushes
  */
 export const registerIncomingCallPushBodyTokenMin = 16;

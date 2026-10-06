@@ -28,6 +28,8 @@ import type {
   CloudflareStreamAssetInput,
   CloudflareStreamAssetResponse,
   HealthStatus,
+  MessagePushInput,
+  MessagePushResponse,
   PostPinInput,
   PostPinResponse,
   PublicLiveStream,
@@ -864,6 +866,77 @@ export const useSendIncomingCallPush = <TError = ErrorType<ApiError>,
         TContext
       > => {
       return useMutation(getSendIncomingCallPushMutationOptions(options));
+    }
+
+export const getSendMessagePushUrl = () => {
+
+
+
+
+  return `/api/messages/push`
+}
+
+/**
+ * @summary Send an authenticated, mute-aware chat message push
+ */
+export const sendMessagePush = async (messagePushInput: MessagePushInput, options?: Parameters<typeof customFetch>[1]): Promise<MessagePushResponse> => {
+
+  return customFetch<MessagePushResponse>(getSendMessagePushUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(messagePushInput)
+  }
+);}
+
+
+
+
+
+export const getSendMessagePushMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendMessagePush>>, TError,{data: BodyType<MessagePushInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof sendMessagePush>>, TError,{data: BodyType<MessagePushInput>}, TContext> => {
+
+const mutationKey = ['sendMessagePush'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof sendMessagePush>>, {data: BodyType<MessagePushInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  sendMessagePush(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SendMessagePushMutationResult = NonNullable<Awaited<ReturnType<typeof sendMessagePush>>>
+    export type SendMessagePushMutationBody = BodyType<MessagePushInput>
+    export type SendMessagePushMutationError = ErrorType<ApiError>
+
+    /**
+ * @summary Send an authenticated, mute-aware chat message push
+ */
+export const useSendMessagePush = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendMessagePush>>, TError,{data: BodyType<MessagePushInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof sendMessagePush>>,
+        TError,
+        {data: BodyType<MessagePushInput>},
+        TContext
+      > => {
+      return useMutation(getSendMessagePushMutationOptions(options));
     }
 
 export const getRegisterIncomingCallPushUrl = () => {

@@ -18,6 +18,8 @@ tags:
     description: Public live-stream discovery
   - name: calls
     description: Call notification delivery
+  - name: messages
+    description: Chat message notification delivery
 paths:
   /healthz:
     get:
@@ -459,6 +461,56 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+  /messages/push:
+    post:
+      operationId: sendMessagePush
+      tags: [messages]
+      summary: Send an authenticated, mute-aware chat message push
+      security:
+        - SupabaseBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MessagePushInput"
+      responses:
+        "200":
+          description: Push delivery result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessagePushResponse"
+        "400":
+          description: Invalid message ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Message is not available to the caller
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "502":
+          description: Supabase could not verify message delivery
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: FCM delivery is not configured or chat privacy could not be verified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
   /calls/push/register:
     post:
       operationId: registerIncomingCallPush
@@ -666,6 +718,28 @@ components:
       required:
         - callId
     CallPushResponse:
+      type: object
+      additionalProperties: false
+      properties:
+        delivered:
+          type: number
+          multipleOf: 1
+          minimum: 0
+        suppressed:
+          type: boolean
+      required:
+        - delivered
+        - suppressed
+    MessagePushInput:
+      type: object
+      additionalProperties: false
+      properties:
+        messageId:
+          type: string
+          pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+      required:
+        - messageId
+    MessagePushResponse:
       type: object
       additionalProperties: false
       properties:

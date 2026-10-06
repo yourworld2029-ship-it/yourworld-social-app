@@ -76,6 +76,25 @@ const liveCommentLikesTable = (client: typeof supabase) =>
     from: (name: "comment_likes") => ReturnType<typeof supabase.from>;
   }).from("comment_likes");
 
+async function requestChatMessagePush(messageId: string) {
+  const { data, error } = await supabase.auth.getSession();
+  const accessToken = data.session?.access_token;
+  if (error || !accessToken) return;
+
+  const response = await fetch("/api/messages/push", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ messageId }),
+    keepalive: true,
+  });
+  if (!response.ok) {
+    console.debug("[chat-notifications] message push delivery pending");
+  }
+}
+
 export type DbProfile = {
   id: string;
   username: string | null;
@@ -2753,6 +2772,12 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       }
       if (isCurrentThread() && data) merge([data as unknown as PublicMessageRow]);
       rollbackOptimistic();
+      const persistedMessageId = (data as { id?: string } | null)?.id;
+      if (persistedMessageId && payload.isSystemMessage !== true) {
+        void requestChatMessagePush(persistedMessageId).catch(() => {
+          // The message is already saved; notification delivery is best-effort.
+        });
+      }
       flagChatMessage({
         surface: "social",
         text: payload.content,

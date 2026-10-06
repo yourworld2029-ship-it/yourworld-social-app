@@ -14,6 +14,8 @@ export * from './callPushResponse';
 export * from './cloudflareStreamAssetInput';
 export * from './cloudflareStreamAssetResponse';
 export * from './healthStatus';
+export * from './messagePushInput';
+export * from './messagePushResponse';
 export * from './postPinInput';
 export * from './postPinResponse';
 export * from './publicLiveStream';

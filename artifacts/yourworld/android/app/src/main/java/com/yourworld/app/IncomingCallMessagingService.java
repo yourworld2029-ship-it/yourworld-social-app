@@ -9,6 +9,7 @@ import android.media.AudioAttributes;
 import android.media.RingtoneManager;
 import android.net.Uri;
 import android.os.Build;
+import android.os.PowerManager;
 
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.Person;
@@ -25,6 +26,10 @@ public class IncomingCallMessagingService extends FirebaseMessagingService {
     private static final String EXTRA_CALL_ACTION = "yw_call_action";
     private static final String EXTRA_CALL_MODE = "yw_call_mode";
     private static final String EXTRA_PEER_NAME = "yw_peer_name";
+    private static final String MESSAGE_CHANNEL_ID = "yourworld-messages";
+    private static final String EXTRA_MESSAGE_ID = "yw_message_id";
+    private static final String EXTRA_CONVERSATION_ID = "yw_conversation_id";
+    private static final long WAKE_LOCK_TIMEOUT_MS = 10_000L;
     private static final Pattern UUID_PATTERN = Pattern.compile(
             "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
     );
@@ -32,20 +37,43 @@ public class IncomingCallMessagingService extends FirebaseMessagingService {
     @Override
     public void onMessageReceived(RemoteMessage message) {
         Map<String, String> data = message.getData();
-        if (!"call".equals(data.get("type")) || MainActivity.isAppForeground()) return;
+        String type = data.get("type");
+        if (MainActivity.isAppForeground()) return;
+        if (!"call".equals(type) && !"message".equals(type)) return;
 
-        String callId = data.get("callId");
-        String mode = data.get("mode");
-        if (callId == null || !UUID_PATTERN.matcher(callId).matches()) return;
-        if (!"audio".equals(mode) && !"video".equals(mode)) return;
+        PowerManager powerManager = getSystemService(PowerManager.class);
+        PowerManager.WakeLock wakeLock = null;
+        try {
+            if (powerManager != null) {
+                wakeLock = powerManager.newWakeLock(
+                        PowerManager.PARTIAL_WAKE_LOCK,
+                        "YourWorld:incoming-push"
+                );
+                wakeLock.acquire(WAKE_LOCK_TIMEOUT_MS);
+            }
 
-        String peerName = data.get("peerName");
-        if (peerName == null || peerName.trim().isEmpty()) peerName = "YourWorld caller";
-        peerName = peerName.trim();
-        if (peerName.length() > 80) peerName = peerName.substring(0, 80);
+            if ("call".equals(type)) {
+                String callId = data.get("callId");
+                String mode = data.get("mode");
+                if (callId == null || !UUID_PATTERN.matcher(callId).matches()) return;
+                if (!"audio".equals(mode) && !"video".equals(mode)) return;
+                String peerName = safeText(data.get("peerName"), "YourWorld caller", 80);
+                ensureCallChannel();
+                showIncomingCall(callId, mode, peerName);
+            } else {
+                showMessage(data);
+            }
+        } finally {
+            if (wakeLock != null && wakeLock.isHeld()) {
+                wakeLock.release();
+            }
+        }
+    }
 
-        ensureCallChannel();
-        showIncomingCall(callId, mode, peerName);
+    private String safeText(String value, String fallback, int maxLength) {
+        if (value == null || value.trim().isEmpty()) return fallback;
+        String trimmed = value.trim();
+        return trimmed.length() > maxLength ? trimmed.substring(0, maxLength) : trimmed;
     }
 
     static String notificationTag(String callId) {
@@ -83,7 +111,6 @@ public class IncomingCallMessagingService extends FirebaseMessagingService {
                 .setContentTitle(peerName)
                 .setContentText(callLabel)
                 .setContentIntent(openPendingIntent)
-                .setFullScreenIntent(openPendingIntent, true)
                 .setCategory(NotificationCompat.CATEGORY_CALL)
                 .setPriority(NotificationCompat.PRIORITY_MAX)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -99,6 +126,42 @@ public class IncomingCallMessagingService extends FirebaseMessagingService {
         NotificationManager manager = getSystemService(NotificationManager.class);
         if (manager != null) {
             manager.notify(notificationTag(callId), callId.hashCode(), notification.build());
+        }
+    }
+
+    private void showMessage(Map<String, String> data) {
+        String messageId = safeText(data.get("messageId"), String.valueOf(System.currentTimeMillis()), 80);
+        String conversationId = safeText(data.get("conversationId"), "", 100);
+        String peerName = safeText(data.get("peerName"), "YourWorld", 80);
+        String body = safeText(data.get("body"), "Sent you a message", 120);
+
+        Intent openIntent = new Intent(this, MainActivity.class);
+        openIntent.setAction("com.yourworld.app.MESSAGE_NOTIFICATION");
+        openIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        openIntent.putExtra(EXTRA_MESSAGE_ID, messageId);
+        openIntent.putExtra(EXTRA_CONVERSATION_ID, conversationId);
+        PendingIntent openPendingIntent = PendingIntent.getActivity(
+                this,
+                messageId.hashCode(),
+                openIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+
+        ensureMessageChannel();
+        NotificationCompat.Builder notification = new NotificationCompat.Builder(this, MESSAGE_CHANNEL_ID)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setContentTitle(peerName)
+                .setContentText(body)
+                .setContentIntent(openPendingIntent)
+                .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+                .setAutoCancel(true)
+                .setOnlyAlertOnce(false);
+
+        NotificationManager manager = getSystemService(NotificationManager.class);
+        if (manager != null) {
+            manager.notify("yourworld-message-" + messageId, messageId.hashCode(), notification.build());
         }
     }
 
@@ -135,6 +198,28 @@ public class IncomingCallMessagingService extends FirebaseMessagingService {
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .build();
         channel.setSound(ringtone, audioAttributes);
+        manager.createNotificationChannel(channel);
+    }
+
+    private void ensureMessageChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+        NotificationManager manager = getSystemService(NotificationManager.class);
+        if (manager == null || manager.getNotificationChannel(MESSAGE_CHANNEL_ID) != null) return;
+
+        NotificationChannel channel = new NotificationChannel(
+                MESSAGE_CHANNEL_ID,
+                "Messages",
+                NotificationManager.IMPORTANCE_HIGH
+        );
+        channel.setDescription("Alerts for new YourWorld messages.");
+        channel.enableVibration(true);
+        channel.setVibrationPattern(new long[] { 0, 250, 150, 250 });
+        Uri notificationSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+        AudioAttributes audioAttributes = new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build();
+        channel.setSound(notificationSound, audioAttributes);
         manager.createNotificationChannel(channel);
     }
 }

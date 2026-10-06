@@ -1,11 +1,8 @@
 package com.yourworld.app;
 
 import android.Manifest;
-import android.app.NotificationManager;
 import android.content.Intent;
-import android.net.Uri;
 import android.os.Build;
-import android.provider.Settings;
 
 import androidx.core.app.NotificationManagerCompat;
 
@@ -52,7 +49,6 @@ public class CallPushPlugin extends Plugin {
     public void getStatus(PluginCall call) {
         JSObject result = new JSObject();
         result.put("permission", notificationsEnabled() ? "granted" : "prompt");
-        result.put("fullScreenIntentAllowed", fullScreenIntentAllowed());
         call.resolve(result);
     }
 
@@ -70,7 +66,7 @@ public class CallPushPlugin extends Plugin {
     public void notificationPermissionCallback(PluginCall call) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
                 && getPermissionState("notifications") != PermissionState.GRANTED) {
-            resolvePermissionResult(call, "denied", false);
+            resolvePermissionResult(call, "denied");
             return;
         }
         registerAfterPermission(call);
@@ -79,7 +75,7 @@ public class CallPushPlugin extends Plugin {
     @PluginMethod
     public void getToken(PluginCall call) {
         if (!notificationsEnabled()) {
-            resolvePermissionResult(call, "denied", false);
+            resolvePermissionResult(call, "denied");
             return;
         }
         fetchToken(call);
@@ -109,22 +105,9 @@ public class CallPushPlugin extends Plugin {
 
     private void registerAfterPermission(PluginCall call) {
         if (!notificationsEnabled()) {
-            resolvePermissionResult(call, "denied", false);
+            resolvePermissionResult(call, "denied");
             return;
         }
-
-        if (Build.VERSION.SDK_INT >= 34 && !fullScreenIntentAllowed()) {
-            try {
-                Intent settingsIntent = new Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT);
-                settingsIntent.setData(Uri.parse("package:" + getContext().getPackageName()));
-                getActivity().startActivity(settingsIntent);
-                resolvePermissionResult(call, "granted", true);
-            } catch (Exception error) {
-                call.reject("Android could not open full-screen call notification settings.");
-            }
-            return;
-        }
-
         fetchToken(call);
     }
 
@@ -137,20 +120,14 @@ public class CallPushPlugin extends Plugin {
             JSObject result = new JSObject();
             result.put("permission", "granted");
             result.put("token", task.getResult());
-            result.put("fullScreenIntentPermissionRequired", false);
             call.resolve(result);
         });
     }
 
-    private void resolvePermissionResult(
-            PluginCall call,
-            String permission,
-            boolean fullScreenIntentPermissionRequired
-    ) {
+    private void resolvePermissionResult(PluginCall call, String permission) {
         JSObject result = new JSObject();
         result.put("permission", permission);
         result.put("token", (String) null);
-        result.put("fullScreenIntentPermissionRequired", fullScreenIntentPermissionRequired);
         call.resolve(result);
     }
 
@@ -159,14 +136,6 @@ public class CallPushPlugin extends Plugin {
             return getPermissionState("notifications") == PermissionState.GRANTED;
         }
         return NotificationManagerCompat.from(getContext()).areNotificationsEnabled();
-    }
-
-    private boolean fullScreenIntentAllowed() {
-        if (Build.VERSION.SDK_INT < 34) {
-            return true;
-        }
-        NotificationManager manager = getContext().getSystemService(NotificationManager.class);
-        return manager != null && manager.canUseFullScreenIntent();
     }
 
     static boolean isCallNotificationIntent(Intent intent) {
