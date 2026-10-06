@@ -17,6 +17,7 @@ import { LazyImage } from "@/components/yw/LazyImage";
 import { HoldToRevealButton } from "@/components/yw/HoldToRevealButton";
 import { ChatCameraCapture } from "@/components/yw/ChatCameraCapture";
 import { ChatVideoPlayer } from "@/components/yw/ChatVideoPlayer";
+import { ChatVideoBubbleThumbnail } from "@/components/yw/ChatVideoBubbleThumbnail";
 import { ProfileAvatar } from "@/components/yw/ProfileAvatar";
 import {
   ProtectedCanvasImage,
@@ -666,7 +667,10 @@ function NativeChatThreadPage() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [recordedVideo, setRecordedVideo] = useState<{ file: File; url: string } | null>(null);
+  const [isSendingCameraPhoto, setIsSendingCameraPhoto] = useState(false);
   const [isSendingCameraVideo, setIsSendingCameraVideo] = useState(false);
+  const cameraPhotoSendInFlightRef = useRef(false);
+  const cameraVideoSendInFlightRef = useRef(false);
   const [protectionWarning, setProtectionWarning] = useState<string | null>(null);
   const [caption, setCaption] = useState("");
   const [isHD, setIsHD] = useState(true);
@@ -1892,12 +1896,62 @@ function NativeChatThreadPage() {
     return () => URL.revokeObjectURL(recordedVideo.url);
   }, [recordedVideo]);
 
+  const sendCameraPhoto = async () => {
+    if (!selectedImage || cameraPhotoSendInFlightRef.current) return;
+    cameraPhotoSendInFlightRef.current = true;
+    setIsSendingCameraPhoto(true);
+    try {
+      const filterCss = filters.find((filter) => filter.id === selectedFilter)?.css ?? "none";
+      const finalImage = await renderPhoto(selectedImage, filterCss, overlays);
+      if (currentUserId) {
+        const extension = finalImage.startsWith("data:image/png") ? "png" : "jpg";
+        const path = `${currentUserId}/${threadId}/image-${Date.now()}.${extension}`;
+        const uploaded = await uploadSourceWithProgress(
+          STORAGE_BUCKETS.messages,
+          path,
+          finalImage,
+          extension === "png" ? "image/png" : "image/jpeg",
+        );
+        if (uploaded.error || !uploaded.url) {
+          toast.error(uploaded.error ?? "Image upload failed");
+          return;
+        }
+        const sent = await sendToDb({
+          media_url: uploaded.url,
+          content: caption,
+          metadata: {
+            ...(replyTo ? { reply_to: replyTo } : {}),
+            media_bucket: STORAGE_BUCKETS.messages,
+            media_path: path,
+          },
+          viewOnce: settings.viewOnce,
+          expiringMedia: settings.viewOnce,
+        });
+        if (sent.error) {
+          toast.error(sent.error);
+          return;
+        }
+        setReplyTo(null);
+      } else {
+        toast.error("Sign in to send messages.");
+      }
+      handleClosePreview();
+    } catch (error) {
+      console.error("[chat-media] camera photo send failed", error);
+      toast.error("Couldn't send that photo. Please try again.");
+    } finally {
+      cameraPhotoSendInFlightRef.current = false;
+      setIsSendingCameraPhoto(false);
+    }
+  };
+
   const sendRecordedVideo = async () => {
-    if (!recordedVideo || isSendingCameraVideo) return;
+    if (!recordedVideo || cameraVideoSendInFlightRef.current) return;
     if (!currentUserId) {
       toast.error("Sign in to send messages.");
       return;
     }
+    cameraVideoSendInFlightRef.current = true;
     setIsSendingCameraVideo(true);
     try {
       const mimeType = recordedVideo.file.type || "video/webm";
@@ -1935,6 +1989,7 @@ function NativeChatThreadPage() {
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Video upload failed.");
     } finally {
+      cameraVideoSendInFlightRef.current = false;
       setIsSendingCameraVideo(false);
     }
   };
@@ -2530,24 +2585,15 @@ function NativeChatThreadPage() {
                     mimeType: m.mediaMimeType,
                   });
                 }}
-                className="group relative block max-w-[75%] overflow-hidden rounded-2xl border border-zinc-800 text-left shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+                className={`group relative block overflow-hidden rounded-2xl border border-zinc-800 text-left shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 ${
+                  messageAttachmentKind(m) === "video" ? "w-[220px] max-w-[75%]" : "max-w-[75%]"
+                }`}
               >
                 {messageAttachmentKind(m) === "video" ? (
-                  <span className="relative block bg-black">
-                    <video
-                      src={m.image}
-                      muted
-                      playsInline
-                      preload="metadata"
-                      aria-hidden="true"
-                      className="block max-h-60 w-full object-contain"
-                    />
-                    <span className="pointer-events-none absolute inset-0 grid place-items-center bg-black/10">
-                      <span className="grid h-12 w-12 place-items-center rounded-full border border-white/35 bg-black/45 text-white shadow-lg backdrop-blur-sm">
-                        <Play size={19} className="ml-0.5 fill-current" />
-                      </span>
-                    </span>
-                  </span>
+                  <ChatVideoBubbleThumbnail
+                    src={m.image!}
+                    mimeType={m.mediaMimeType || "video/mp4"}
+                  />
                 ) : (
                   <span className="relative block">
                     <LazyImage
@@ -2558,9 +2604,11 @@ function NativeChatThreadPage() {
                     />
                   </span>
                 )}
-                <span className="pointer-events-none absolute bottom-2 right-2 grid h-8 w-8 place-items-center rounded-full border border-white/20 bg-black/65 text-white shadow-lg backdrop-blur-sm">
-                  <Maximize2 size={15} aria-hidden="true" />
-                </span>
+                {messageAttachmentKind(m) !== "video" ? (
+                  <span className="pointer-events-none absolute bottom-2 right-2 grid h-8 w-8 place-items-center rounded-full border border-white/20 bg-black/65 text-white shadow-lg backdrop-blur-sm">
+                    <Maximize2 size={15} aria-hidden="true" />
+                  </span>
+                ) : null}
               </button>
             ) : null}
 
@@ -3175,45 +3223,15 @@ function NativeChatThreadPage() {
       <div className="flex items-center justify-end px-2">
         <button
           type="button"
-          onClick={async () => {
-            if (!selectedImage) return;
-            const filterCss = filters.find((f) => f.id === selectedFilter)?.css ?? "none";
-            const finalImage = await renderPhoto(selectedImage, filterCss, overlays);
-            if (currentUserId) {
-              const extension = finalImage.startsWith("data:image/png") ? "png" : "jpg";
-              const path = `${currentUserId}/${threadId}/image-${Date.now()}.${extension}`;
-              const uploaded = await uploadSourceWithProgress(
-                STORAGE_BUCKETS.messages,
-                path,
-                finalImage,
-                extension === "png" ? "image/png" : "image/jpeg",
-              );
-              if (uploaded.error || !uploaded.url) {
-                toast.error(uploaded.error ?? "Image upload failed");
-                return;
-              }
-              const sent = await sendToDb({
-                media_url: uploaded.url,
-                content: caption,
-                metadata: {
-                  ...(replyTo ? { reply_to: replyTo } : {}),
-                  media_bucket: STORAGE_BUCKETS.messages,
-                  media_path: path,
-                },
-                 viewOnce: settings.viewOnce,
-                 expiringMedia: settings.viewOnce,
-              });
-              if (sent.error) {
-                toast.error(sent.error);
-                return;
-              }
-              setReplyTo(null);
-            } else {
-              toast.error("Sign in to send messages.");
-            }
-            handleClosePreview();
+          aria-label="Send photo"
+          disabled={isSendingCameraPhoto}
+          onPointerDown={(event) => {
+            if (event.button !== 0) return;
+            event.preventDefault();
+            void sendCameraPhoto();
           }}
-          className="w-12 h-12 rounded-full bg-emerald-500 flex items-center justify-center text-white shadow-lg active:scale-95 transition-all"
+          onClick={() => void sendCameraPhoto()}
+          className="w-12 h-12 rounded-full bg-emerald-500 flex items-center justify-center text-white shadow-lg active:scale-95 transition-all disabled:opacity-50"
         >
           <Send size={20} className="ml-0.5" />
         </button>
@@ -3275,6 +3293,11 @@ function NativeChatThreadPage() {
           type="button"
           aria-label="Send recorded video"
           disabled={isSendingCameraVideo}
+          onPointerDown={(event) => {
+            if (event.button !== 0) return;
+            event.preventDefault();
+            void sendRecordedVideo();
+          }}
           onClick={() => void sendRecordedVideo()}
           className="grid h-12 w-12 place-items-center rounded-full bg-emerald-500 text-white shadow-lg disabled:opacity-50"
         >

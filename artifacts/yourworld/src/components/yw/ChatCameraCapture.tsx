@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
-import { Camera, LoaderCircle, SwitchCamera, X, Zap } from "lucide-react";
+import { Camera, SwitchCamera, X, Zap } from "lucide-react";
 
 type CameraFacing = "environment" | "user";
 
@@ -73,6 +73,7 @@ export function ChatCameraCapture({
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [facing, setFacing] = useState<CameraFacing>("environment");
   const [loading, setLoading] = useState(true);
+  const [previewReady, setPreviewReady] = useState(false);
   const [recording, setRecording] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [hasAudio, setHasAudio] = useState(true);
@@ -97,12 +98,16 @@ export function ChatCameraCapture({
       preview.srcObject = null;
     }
     activeStream?.getTracks().forEach((track) => track.stop());
-    if (updateState) setStream(null);
+    if (updateState) {
+      setStream(null);
+      setPreviewReady(false);
+    }
   }, []);
 
   const applyStream = useCallback(async (nextFacing: CameraFacing) => {
     const requestId = ++streamRequestIdRef.current;
     setLoading(true);
+    setPreviewReady(false);
     setTorchAvailable(false);
     setTorchOn(false);
     setFrontFlashOn(false);
@@ -123,9 +128,6 @@ export function ChatCameraCapture({
         onErrorRef.current(
           error instanceof Error ? error.message : "Couldn't open the camera.",
         );
-      }
-    } finally {
-      if (mountedRef.current && requestId === streamRequestIdRef.current) {
         setLoading(false);
       }
     }
@@ -156,16 +158,35 @@ export function ChatCameraCapture({
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !stream) return;
+    let active = true;
+    const markPreviewReady = () => {
+      if (!active || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
+      setPreviewReady(true);
+      setLoading(false);
+    };
+    const failPreview = () => {
+      if (!active) return;
+      releaseCameraStream();
+      setLoading(false);
+      onErrorRef.current("The camera opened, but its preview couldn't start. Try switching cameras.");
+    };
+    video.addEventListener("loadeddata", markPreviewReady);
+    video.addEventListener("playing", markPreviewReady);
+    video.addEventListener("error", failPreview);
     video.srcObject = stream;
-    void video.play().catch(() => {});
+    void video.play().then(markPreviewReady, failPreview);
     setTorchAvailable(facing === "environment");
     return () => {
+      active = false;
+      video.removeEventListener("loadeddata", markPreviewReady);
+      video.removeEventListener("playing", markPreviewReady);
+      video.removeEventListener("error", failPreview);
       if (video.srcObject === stream) {
         video.pause();
         video.srcObject = null;
       }
     };
-  }, [facing, stream]);
+  }, [facing, releaseCameraStream, stream]);
 
   const stopRecording = (deliver: boolean) => {
     deliverVideoOnStopRef.current = deliver;
@@ -188,7 +209,7 @@ export function ChatCameraCapture({
 
   const startRecording = () => {
     const activeStream = streamRef.current;
-    if (!activeStream || loading) return;
+    if (!activeStream || loading || !previewReady) return;
     if (typeof MediaRecorder === "undefined") {
       onErrorRef.current("Video recording is not supported on this device.");
       return;
@@ -288,7 +309,11 @@ export function ChatCameraCapture({
 
   const takePhoto = async () => {
     const video = videoRef.current;
-    if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+    if (
+      !previewReady ||
+      !video ||
+      video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
+    ) {
       onErrorRef.current("The camera is still starting. Try again in a moment.");
       return;
     }
@@ -329,7 +354,7 @@ export function ChatCameraCapture({
   };
 
   const handleShutterDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (loading || !streamRef.current || recording) return;
+    if (loading || !previewReady || !streamRef.current || recording) return;
     event.preventDefault();
     try {
       event.currentTarget.setPointerCapture(event.pointerId);
@@ -392,15 +417,22 @@ export function ChatCameraCapture({
   };
 
   return (
-    <div className="fixed inset-0 z-[120] flex h-[100dvh] w-screen flex-col overflow-hidden bg-black text-white">
+    <div className="fixed inset-0 z-[120] flex h-[100dvh] w-full flex-col overflow-hidden bg-black text-white">
       <video
         ref={videoRef}
         autoPlay
         muted
         playsInline
+        controls={false}
         aria-label="Live camera preview"
-        className="absolute inset-0 h-full w-full object-cover"
-        style={{ transform: facing === "user" ? "scaleX(-1)" : undefined }}
+        className="pointer-events-none absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-150"
+        style={{
+          opacity: previewReady ? 1 : 0,
+          objectFit: "cover",
+          objectPosition: "center",
+          transform: facing === "user" ? "scaleX(-1)" : "none",
+          transformOrigin: "center center",
+        }}
       />
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/50 via-transparent to-black/70" />
 
@@ -424,8 +456,8 @@ export function ChatCameraCapture({
         <div className="flex items-center gap-2">
           <button
             type="button"
-          aria-label="Flip camera"
-          title="Flip camera"
+            aria-label="Flip camera"
+            title="Flip camera"
             disabled={loading || recording}
             onClick={toggleFacing}
             className="grid h-10 w-10 place-items-center rounded-full bg-black/45 disabled:opacity-40"
@@ -443,7 +475,7 @@ export function ChatCameraCapture({
                   : "Torch unavailable"
             }
             aria-pressed={facing === "user" ? frontFlashOn : torchOn}
-            disabled={loading || !stream || (facing === "environment" && !torchAvailable)}
+            disabled={loading || !previewReady || !stream || (facing === "environment" && !torchAvailable)}
             onClick={() => void toggleFlash()}
             className={`grid h-10 w-10 place-items-center rounded-full ${
               (facing === "user" ? frontFlashOn : torchOn)
@@ -458,7 +490,7 @@ export function ChatCameraCapture({
 
       <div className="relative z-10 mt-auto flex flex-col items-center gap-4 px-6 pb-[calc(env(safe-area-inset-bottom,16px)_+_1.5rem)]">
         {loading ? (
-          <LoaderCircle className="h-7 w-7 animate-spin text-white/80" />
+          <p className="text-xs text-white/80">Opening camera…</p>
         ) : hasAudio ? (
           <p className="text-xs text-white/80">Tap for photo · hold for video</p>
         ) : (
@@ -467,7 +499,7 @@ export function ChatCameraCapture({
         <button
           type="button"
           aria-label="Tap to take a photo or hold to record a video"
-          disabled={loading || !stream}
+          disabled={loading || !previewReady || !stream}
           onPointerDown={handleShutterDown}
           onPointerUp={handleShutterUp}
           onPointerCancel={handleShutterCancel}
