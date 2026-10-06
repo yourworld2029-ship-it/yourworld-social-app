@@ -5,7 +5,6 @@ import {
   ArrowLeft,
   CheckCircle2,
   Download,
-  Loader2,
   Pause,
   Play,
   Upload,
@@ -21,11 +20,8 @@ import {
   removeOptimisticPost,
 } from "@/lib/published-feed";
 import {
-  cancelNativeVideoOptimization,
-  pickAndOptimizeNativeVideo,
-  supportsNativeVideoOptimization,
-} from "@/lib/native-video-optimization";
-import { markVideoBlobAsUploadReady } from "@/lib/video-compression";
+  generateVideoThumbnail,
+} from "@/lib/video-frames";
 
 const MIN_REEL_SECONDS = 5;
 const MAX_REEL_SECONDS = 90;
@@ -51,11 +47,10 @@ function DirectReelUploadPage() {
   const { startUpload } = useUploadActions();
   const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const uploadOriginalOnNextChooseRef = useRef(false);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const mountedRef = useRef(true);
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewThumbnailUrl, setPreviewThumbnailUrl] = useState<string | null>(null);
   const [duration, setDuration] = useState<number | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -65,41 +60,29 @@ function DirectReelUploadPage() {
   const [hashtags, setHashtags] = useState("");
   const [allowDownload, setAllowDownload] = useState(true);
   const [progress, setProgress] = useState(0);
-  const [preparingVideo, setPreparingVideo] = useState(false);
-  const [optimizingVideo, setOptimizingVideo] = useState(false);
-  const [optimizationProgress, setOptimizationProgress] = useState(0);
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      void cancelNativeVideoOptimization();
-    };
-  }, []);
-
-  useEffect(() => {
     if (!file) {
       setPreviewUrl(null);
+      setPreviewThumbnailUrl(null);
       return;
     }
     const url = URL.createObjectURL(file);
     setPreviewUrl(url);
+    setPreviewThumbnailUrl(null);
     return () => URL.revokeObjectURL(url);
   }, [file]);
 
   const resetVideo = () => {
-    void cancelNativeVideoOptimization();
     setFile(null);
     setDuration(null);
     setDimensions({ width: 0, height: 0 });
     setCurrentTime(0);
     setIsPlaying(false);
     setError(null);
-    uploadOriginalOnNextChooseRef.current = false;
-    setPreparingVideo(false);
-    setOptimizingVideo(false);
+    setPreviewThumbnailUrl(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -118,38 +101,10 @@ function DirectReelUploadPage() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  const chooseVideo = async () => {
-    if (preparingVideo || optimizingVideo) return;
-    if (uploadOriginalOnNextChooseRef.current) {
-      fileInputRef.current?.click();
-      return;
-    }
-    if (!supportsNativeVideoOptimization()) {
-      fileInputRef.current?.click();
-      return;
-    }
+  const chooseVideo = () => {
+    if (publishing) return;
     setError(null);
-    setPreparingVideo(true);
-    setOptimizationProgress(0);
-    try {
-      const optimizedFile = await pickAndOptimizeNativeVideo((percent) => {
-        if (!mountedRef.current) return;
-        setPreparingVideo(false);
-        setOptimizingVideo(true);
-        setOptimizationProgress(percent);
-      });
-      if (!mountedRef.current || !optimizedFile) return;
-      handleFileChange(optimizedFile);
-    } catch {
-      if (!mountedRef.current) return;
-      uploadOriginalOnNextChooseRef.current = true;
-      toast("Compression is unavailable. Choose the video again to upload the original.");
-    } finally {
-      if (mountedRef.current) {
-        setPreparingVideo(false);
-        setOptimizingVideo(false);
-      }
-    }
+    fileInputRef.current?.click();
   };
 
   const handleMetadata = (event: React.SyntheticEvent<HTMLVideoElement>) => {
@@ -163,6 +118,19 @@ function DirectReelUploadPage() {
       setError(`Reels must be between ${MIN_REEL_SECONDS} and ${MAX_REEL_SECONDS} seconds.`);
     } else {
       setError(null);
+    }
+    if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      void generateVideoThumbnail(file ?? new Blob(), 1).then((thumbnail) => {
+        if (thumbnail) {
+          const nextUrl = URL.createObjectURL(thumbnail);
+          setPreviewThumbnailUrl((currentUrl) => {
+            if (currentUrl) URL.revokeObjectURL(currentUrl);
+            return nextUrl;
+          });
+        }
+      }).catch(() => {
+        // The inline video preview remains available if thumbnail capture fails.
+      });
     }
   };
 
@@ -311,15 +279,22 @@ function DirectReelUploadPage() {
         <section className="space-y-5 rounded-3xl border border-white/10 bg-zinc-950 p-4 shadow-2xl">
           {previewUrl ? (
             <div className="group relative mx-auto aspect-[9/16] w-full max-w-sm overflow-hidden rounded-3xl border border-white/10 bg-zinc-950 shadow-2xl ring-1 ring-white/5">
+              {previewThumbnailUrl ? (
+                <img
+                  src={previewThumbnailUrl}
+                  alt=""
+                  className="absolute inset-0 h-full w-full object-cover"
+                />
+              ) : null}
               <video
                 ref={videoRef}
                 src={previewUrl}
-                className="h-full w-full object-cover"
+                className="absolute inset-0 h-full w-full object-cover"
                 controlsList="nodownload noplaybackrate nofullscreen"
                 disablePictureInPicture
                 disableRemotePlayback
                 playsInline
-                preload="none"
+                preload="metadata"
                 onLoadedMetadata={handleMetadata}
                 onTimeUpdate={handleTimeUpdate}
                 onPlay={() => setIsPlaying(true)}
@@ -362,7 +337,7 @@ function DirectReelUploadPage() {
             <button
               type="button"
               onClick={() => void chooseVideo()}
-              disabled={preparingVideo || optimizingVideo}
+              disabled={publishing}
               className="mx-auto flex aspect-[9/16] w-full max-w-sm flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-white/20 bg-zinc-900 text-center transition hover:border-pink-400/70 hover:bg-zinc-800"
             >
               <span className="grid h-14 w-14 place-items-center rounded-full bg-pink-500/15 text-pink-300">
@@ -379,29 +354,9 @@ function DirectReelUploadPage() {
             accept="video/*"
             className="hidden"
             onChange={(event) => {
-              const nextFile = event.target.files?.[0];
-              if (nextFile && uploadOriginalOnNextChooseRef.current) {
-                uploadOriginalOnNextChooseRef.current = false;
-                if (nextFile.type.startsWith("video/")) {
-                  markVideoBlobAsUploadReady(nextFile);
-                }
-              }
-              handleFileChange(nextFile);
+              handleFileChange(event.target.files?.[0]);
             }}
           />
-
-          {(preparingVideo || optimizingVideo) && (
-            <div
-              className="mx-auto flex w-full max-w-sm items-center justify-center gap-2 rounded-xl border border-pink-400/20 bg-pink-500/10 px-4 py-3 text-sm text-pink-100"
-              role="status"
-              aria-live="polite"
-            >
-              <Loader2 className="h-4 w-4 animate-spin" />
-              {optimizingVideo
-                ? `Optimizing video... ${optimizationProgress}%`
-                : "Choose a video to optimize"}
-            </div>
-          )}
 
           {duration != null && (
             <div className="mx-auto inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-400">
