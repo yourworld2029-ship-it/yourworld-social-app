@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   CheckCircle2,
   Download,
+  Loader2,
   Pause,
   Play,
   Upload,
@@ -19,9 +20,7 @@ import {
   announceOptimisticPost,
   removeOptimisticPost,
 } from "@/lib/published-feed";
-import {
-  generateVideoThumbnail,
-} from "@/lib/video-frames";
+import { generateVideoThumbnail } from "@/lib/video-frames";
 
 const MIN_REEL_SECONDS = 5;
 const MAX_REEL_SECONDS = 90;
@@ -50,6 +49,7 @@ function DirectReelUploadPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewThumbnail, setPreviewThumbnail] = useState<Blob | null>(null);
   const [previewThumbnailUrl, setPreviewThumbnailUrl] = useState<string | null>(null);
   const [duration, setDuration] = useState<number | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
@@ -66,13 +66,31 @@ function DirectReelUploadPage() {
   useEffect(() => {
     if (!file) {
       setPreviewUrl(null);
+      setPreviewThumbnail(null);
       setPreviewThumbnailUrl(null);
       return;
     }
     const url = URL.createObjectURL(file);
+    let cancelled = false;
+    let thumbnailUrl: string | null = null;
     setPreviewUrl(url);
+    setPreviewThumbnail(null);
     setPreviewThumbnailUrl(null);
-    return () => URL.revokeObjectURL(url);
+    void generateVideoThumbnail(file, 1)
+      .then((thumbnail) => {
+        if (!thumbnail || cancelled) return;
+        thumbnailUrl = URL.createObjectURL(thumbnail);
+        setPreviewThumbnail(thumbnail);
+        setPreviewThumbnailUrl(thumbnailUrl);
+      })
+      .catch(() => {
+        // The inline video preview remains available if thumbnail capture fails.
+      });
+    return () => {
+      cancelled = true;
+      URL.revokeObjectURL(url);
+      if (thumbnailUrl) URL.revokeObjectURL(thumbnailUrl);
+    };
   }, [file]);
 
   const resetVideo = () => {
@@ -82,6 +100,7 @@ function DirectReelUploadPage() {
     setCurrentTime(0);
     setIsPlaying(false);
     setError(null);
+    setPreviewThumbnail(null);
     setPreviewThumbnailUrl(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
@@ -118,19 +137,6 @@ function DirectReelUploadPage() {
       setError(`Reels must be between ${MIN_REEL_SECONDS} and ${MAX_REEL_SECONDS} seconds.`);
     } else {
       setError(null);
-    }
-    if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-      void generateVideoThumbnail(file ?? new Blob(), 1).then((thumbnail) => {
-        if (thumbnail) {
-          const nextUrl = URL.createObjectURL(thumbnail);
-          setPreviewThumbnailUrl((currentUrl) => {
-            if (currentUrl) URL.revokeObjectURL(currentUrl);
-            return nextUrl;
-          });
-        }
-      }).catch(() => {
-        // The inline video preview remains available if thumbnail capture fails.
-      });
     }
   };
 
@@ -228,6 +234,7 @@ function DirectReelUploadPage() {
           durationSeconds: duration,
           originalWidth: dimensions.width || null,
           originalHeight: dimensions.height || null,
+          thumbnail: previewThumbnail,
           optimisticId: optimisticId ?? undefined,
           onProgress,
           signal,
@@ -283,7 +290,9 @@ function DirectReelUploadPage() {
                 <img
                   src={previewThumbnailUrl}
                   alt=""
-                  className="absolute inset-0 h-full w-full object-cover"
+                  className={`pointer-events-none absolute inset-0 z-[1] h-full w-full object-cover transition-opacity ${
+                    isPlaying ? "opacity-0" : "opacity-100"
+                  }`}
                 />
               ) : null}
               <video
@@ -304,7 +313,7 @@ function DirectReelUploadPage() {
               <button
                 type="button"
                 onClick={togglePlayback}
-                className="absolute inset-0 flex items-center justify-center text-white transition-opacity duration-300"
+                className="absolute inset-0 z-[2] flex items-center justify-center text-white transition-opacity duration-300"
                 aria-label={isPlaying ? "Pause preview" : "Play preview"}
               >
                 <span className="flex h-14 w-14 items-center justify-center rounded-full border border-white/20 bg-black/40 text-white shadow-xl backdrop-blur-md transition-all duration-300 hover:scale-105 hover:bg-black/55 active:scale-95">
@@ -318,11 +327,11 @@ function DirectReelUploadPage() {
               <button
                 type="button"
                 onClick={resetVideo}
-                className="absolute right-3 top-3 rounded-full border border-white/15 bg-black/60 px-3.5 py-1.5 text-xs font-medium text-white/90 backdrop-blur-md transition hover:bg-black/80"
+                className="absolute right-3 top-3 z-[2] rounded-full border border-white/15 bg-black/60 px-3.5 py-1.5 text-xs font-medium text-white/90 backdrop-blur-md transition hover:bg-black/80"
               >
                 Replace
               </button>
-              <div className="pointer-events-none absolute inset-x-4 bottom-4 h-1 overflow-hidden rounded-full bg-white/20">
+              <div className="pointer-events-none absolute inset-x-4 bottom-4 z-[2] h-1 overflow-hidden rounded-full bg-white/20">
                 <div
                   className="h-full rounded-full bg-white shadow-[0_0_12px_rgba(255,255,255,0.7)] transition-[width] duration-150"
                   style={{
@@ -421,7 +430,7 @@ function DirectReelUploadPage() {
           <button
             type="button"
             onClick={publish}
-            disabled={publishing || preparingVideo || optimizingVideo || !file || duration == null || duration < MIN_REEL_SECONDS || duration > MAX_REEL_SECONDS}
+            disabled={publishing || !file || duration == null || duration < MIN_REEL_SECONDS || duration > MAX_REEL_SECONDS}
             className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-violet-600 via-fuchsia-600 to-pink-600 px-4 py-3.5 text-sm font-bold text-white shadow-lg shadow-fuchsia-500/20 transition hover:brightness-110 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {publishing ? (

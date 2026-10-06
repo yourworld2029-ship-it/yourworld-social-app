@@ -1328,7 +1328,7 @@ export async function publishReel(opts: {
   return { error: error?.message ?? null };
 }
 
-/** Uploads a safely optimized Reel when local video encoding is supported. */
+/** Uploads the selected Reel file directly to Supabase Storage. */
 export async function publishDirectReel(opts: {
   file: File;
   title: string;
@@ -1371,18 +1371,10 @@ export async function publishDirectReel(opts: {
     }
   }
 
-  let uploadedWidth = opts.originalWidth ?? null;
-  let uploadedHeight = opts.originalHeight ?? null;
-  const uploadBlob = await optimizeVideoBlob(
-    opts.file,
-    (percent, detail) => opts.onProgress?.(Math.round(percent * 0.12), detail),
-    (dimensions) => {
-      uploadedWidth = dimensions.width;
-      uploadedHeight = dimensions.height;
-    },
-  );
-  if (opts.signal?.aborted) return { error: "Upload cancelled" };
-  const uploadType = uploadBlob.type || opts.file.type || "video/mp4";
+  const uploadedWidth = opts.originalWidth ?? null;
+  const uploadedHeight = opts.originalHeight ?? null;
+  const uploadBlob = opts.file;
+  const uploadType = uploadBlob.type || "video/mp4";
   const extension =
     uploadType.split("/")[1]?.split(";")[0]?.toLowerCase() ||
     opts.file.name.split(".").pop()?.toLowerCase() ||
@@ -1391,7 +1383,6 @@ export async function publishDirectReel(opts: {
   const {
     url: mediaUrl,
     storagePath,
-    streamUid,
     durationSeconds,
     error: uploadError,
   } = await uploadWithProgress(
@@ -1400,12 +1391,10 @@ export async function publishDirectReel(opts: {
     uploadBlob,
     uploadType,
     (percent, detail) =>
-      opts.onProgress?.(Math.min(88, 12 + Math.round(percent * 0.76)), detail),
+      opts.onProgress?.(Math.min(88, Math.round(percent * 0.88)), detail),
     IMMUTABLE_MEDIA_CACHE_CONTROL,
     {
-      cloudflareStream: true,
-      requireSignedURLs: false,
-      fallbackToStorage: true,
+      cloudflareStream: false,
       signal: opts.signal,
     },
   );
@@ -1438,7 +1427,7 @@ export async function publishDirectReel(opts: {
       kind: "reel",
       is_reel: true,
       media_url: mediaUrl,
-      cloudflare_stream_uid: streamUid ?? null,
+      cloudflare_stream_uid: null,
       video_url: `${STORAGE_BUCKETS.reels}/${storagePath}`,
       media_type: "video",
       thumbnail_url: thumbnailUrl,
