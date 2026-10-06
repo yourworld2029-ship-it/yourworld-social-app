@@ -60,7 +60,9 @@ import {
 } from "@/lib/auto-delete";
 import { historyBackOr } from "@/lib/navigation";
 import {
+  isNativeAndroid,
   listenForAndroidCaptureEvents,
+  shouldHideAndroidChatUntilSecure,
   useAndroidChatSecureFlag,
 } from "@/lib/native-privacy";
 import {
@@ -1886,10 +1888,16 @@ function NativeChatThreadPage() {
     }
   };
 
-  // Do not hold the conversation behind a blank screen while settings load.
-  // If protection is explicitly enabled, keep the content hidden until FLAG_SECURE
-  // has been applied; otherwise show the thread and composer immediately.
-  if (protectChatEnabled && !chatScreenSecurityReady) {
+  // On Android, fail closed while the local protection preference is unresolved.
+  // If enabled, keep the conversation black until FLAG_SECURE is applied natively.
+  if (
+    shouldHideAndroidChatUntilSecure(
+      isNativeAndroid(),
+      chatProtectionDecisionReady,
+      protectChatEnabled,
+      chatScreenSecurityReady,
+    )
+  ) {
     return (
       <div
         aria-hidden="true"

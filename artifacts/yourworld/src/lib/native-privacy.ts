@@ -28,6 +28,15 @@ export function isNativeAndroid() {
   return Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
 }
 
+export function shouldHideAndroidChatUntilSecure(
+  isAndroid: boolean,
+  decisionReady: boolean,
+  protectionEnabled: boolean,
+  screenSecurityReady: boolean,
+) {
+  return isAndroid && (!decisionReady || (protectionEnabled && !screenSecurityReady));
+}
+
 export function requestStartupRuntimePermissionsOnce(): Promise<void> {
   if (typeof window === "undefined" || !isNativeAndroid()) {
     return Promise.resolve();
