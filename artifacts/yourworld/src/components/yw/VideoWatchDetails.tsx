@@ -44,6 +44,8 @@ type Props = {
   onDownload: (choice: DownloadChoice) => void | Promise<void>;
   onSelectVideo: (video: LongVideo) => void;
   recommendationsFooter?: ReactNode;
+  initialCommentsOpen?: boolean;
+  initialCommentId?: string;
 };
 
 function useResolvedMediaUrl(
@@ -171,6 +173,8 @@ export function VideoWatchDetails({
   onDownload,
   onSelectVideo,
   recommendationsFooter,
+  initialCommentsOpen = false,
+  initialCommentId,
 }: Props) {
   const [commentCount, setCommentCount] = useState(video.commentCount);
   const [downloadOpen, setDownloadOpen] = useState(false);
@@ -335,9 +339,12 @@ export function VideoWatchDetails({
 
       <section aria-label="Comments" className="mt-2 border-b border-white/[0.08] pb-2">
         <CommentsSheet
+          key={video.id}
           postId={video.id}
           commentsDisabled={Boolean(video.commentsOff)}
           onCountChange={setCommentCount}
+          initialOpen={initialCommentsOpen}
+          initialCommentId={initialCommentId}
         >
           <button
             type="button"

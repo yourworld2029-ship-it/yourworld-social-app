@@ -16,10 +16,12 @@ import {
   BadgeCheck,
   Coins,
   Bell,
+  AtSign,
   type LucideIcon,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { STORAGE_BUCKETS } from "@/lib/storage-upload";
+import { resolveMediaUrl } from "@/lib/social-data";
 const liveDb = supabase as unknown as {
   from: (table: "likes" | "comments" | "posts" | "messages") => ReturnType<typeof supabase.from>;
 };
@@ -27,6 +29,7 @@ const liveDb = supabase as unknown as {
 export type NotificationKind =
   | "like"
   | "comment"
+  | "mention"
   | "follower"
   | "message"
   | "channel"
@@ -39,6 +42,9 @@ export type NotificationItem = {
   kind: NotificationKind;
   title: string;
   actorId?: string;
+  actorName?: string;
+  activity?: string;
+  actorAvatarUrls?: Array<string | null>;
   body?: string;
   /** epoch ms */
   at: number;
@@ -61,6 +67,7 @@ export type KindMeta = {
 export const NOTIFICATION_KINDS: KindMeta[] = [
   { id: "like", label: "Likes", emoji: "", icon: Heart, tint: "text-rose-400" },
   { id: "comment", label: "Comments", emoji: "", icon: MessageSquare, tint: "text-sky-400" },
+  { id: "mention", label: "Mentions", emoji: "", icon: AtSign, tint: "text-violet-400" },
   { id: "follower", label: "New Followers", emoji: "", icon: UserPlus, tint: "text-violet-400" },
   { id: "message", label: "Messages", emoji: "", icon: Mail, tint: "text-blue-400" },
   { id: "channel", label: "Channel Updates", emoji: "", icon: Megaphone, tint: "text-orange-400" },
@@ -96,14 +103,41 @@ const NotificationsContext = createContext<Ctx | null>(null);
 
 const ts = (v: string) => new Date(v).getTime();
 
+function normalizeNotificationKind(value: string): NotificationKind {
+  const kind = value.trim().toLowerCase();
+  if (kind === "follow") return "follower";
+  if (
+    kind === "like" ||
+    kind === "comment" ||
+    kind === "mention" ||
+    kind === "follower" ||
+    kind === "message" ||
+    kind === "channel" ||
+    kind === "verification" ||
+    kind === "monetization"
+  ) {
+    return kind;
+  }
+  return "system";
+}
+
 /** Builds the whole notification feed from real database activity. */
 async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
   const { data: auth } = await supabase.auth.getUser();
   const me = auth.user?.id;
   if (!me) return [];
 
-  const { data: myPostRows } = await liveDb.from("posts").select("id,kind").eq("user_id", me);
-  const myPosts = ((myPostRows ?? []) as { id: string; kind: string }[]).filter(
+  const { data: myPostRows } = await liveDb
+    .from("posts")
+    .select("id,kind,thumbnail_url,media_url,media_type")
+    .eq("user_id", me);
+  const myPosts = ((myPostRows ?? []) as {
+    id: string;
+    kind: string;
+    thumbnail_url?: string | null;
+    media_url?: string | null;
+    media_type?: string | null;
+  }[]).filter(
     (post) => post.kind !== "moment",
   );
   const postIds = myPosts.map((p) => p.id);
@@ -214,32 +248,81 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
     ]),
   ];
 
-  const names: Record<string, string> = {};
+  const people: Record<string, { name: string; avatarUrl: string | null }> = {};
   if (peerIds.length) {
     const { data } = await supabase.rpc("get_public_profiles", { ids: peerIds });
     for (const p of (data ?? []) as {
       id: string;
       username: string | null;
       display_name: string | null;
+      avatar_url?: string | null;
     }[]) {
-      names[p.id] = p.display_name ?? p.username ?? "Someone";
+      people[p.id] = {
+        name: p.display_name ?? p.username ?? "Someone",
+        avatarUrl: p.avatar_url ?? null,
+      };
     }
   }
-  const nameOf = (id: string) => names[id] ?? "Someone";
+  const nameOf = (id: string) => people[id]?.name ?? "Someone";
+  const avatarOf = (id: string) => people[id]?.avatarUrl ?? null;
   const postKind = new Map(myPosts.map((p) => [p.id, p.kind]));
-  const contentLink = (id: string, kind: string | null | undefined, focusComments = false) => {
+  const previewPostIds = new Set([
+    ...rows.likes.map((row) => row.post_id),
+    ...rows.comments.map((row) => row.post_id),
+    ...rows.momentNotifications.flatMap((notification) => {
+      const entityType = notification.entity_type?.trim().toLowerCase() ?? "";
+      if (
+        ["post", "video", "reel"].includes(entityType) &&
+        notification.entity_id
+      ) {
+        return [notification.entity_id];
+      }
+      const metadata = notification.metadata ?? {};
+      for (const key of ["post_id", "video_id", "reel_id"]) {
+        const value = metadata[key];
+        if (typeof value === "string" && value.trim()) return [value.trim()];
+      }
+      return [];
+    }),
+  ]);
+  const postThumbnails = new Map<string, string>();
+  await Promise.all(myPosts.filter((post) => previewPostIds.has(post.id)).map(async (post) => {
+    const imageOnlyMedia = post.media_type?.toLowerCase().startsWith("image")
+      ? post.media_url
+      : null;
+    const source = post.thumbnail_url ?? imageOnlyMedia;
+    if (!source) return;
+    try {
+      const resolved = await resolveMediaUrl(source, post.kind === "reel" ? "reels" : "videos");
+      if (resolved) postThumbnails.set(post.id, resolved);
+    } catch {
+      postThumbnails.set(post.id, source);
+    }
+  }));
+  const contentLink = (
+    id: string,
+    kind: string | null | undefined,
+    focusComments = false,
+    commentId?: string,
+  ) => {
     const cleanId = id.trim();
     if (!cleanId) return undefined;
-    const suffix = focusComments ? "?focusComments=true" : "";
+    const search = new URLSearchParams();
+    if (focusComments) search.set("focusComments", "true");
+    if (commentId?.trim()) search.set("commentId", commentId.trim());
     if (kind === "reel") {
-      return `/reels?initialVideoId=${encodeURIComponent(cleanId)}${focusComments ? "&focusComments=true" : ""}`;
+      search.set("initialVideoId", cleanId);
+      return `/reels?${search.toString()}`;
     }
+    const query = search.toString();
+    const suffix = query ? `?${query}` : "";
     if (kind === "post" || kind === "video") return `/video/${encodeURIComponent(cleanId)}${suffix}`;
     if (kind === "moment") return `/moment/${encodeURIComponent(cleanId)}`;
     if (kind === "user" || kind === "profile") return `/u/${encodeURIComponent(cleanId)}`;
     return undefined;
   };
-  const postLink = (id: string, focusComments = false) => contentLink(id, postKind.get(id), focusComments);
+  const postLink = (id: string, focusComments = false, commentId?: string) =>
+    contentLink(id, postKind.get(id), focusComments, commentId);
   const metadataId = (metadata: Record<string, unknown> | null, ...keys: string[]) => {
     for (const key of keys) {
       const value = metadata?.[key];
@@ -262,9 +345,39 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       const followerId = notification.actor_id?.trim() || (type === "user" || type === "profile" ? id : "");
       return followerId ? contentLink(followerId, "user") : undefined;
     }
+    const metadataCommentId = metadataId(
+      notification.metadata,
+      "comment_id",
+      "target_comment_id",
+    );
+    if (type === "comment") {
+      const commentId = id || metadataCommentId;
+      const postId =
+        metadataId(notification.metadata, "post_id", "video_id", "reel_id") ||
+        rows.comments.find((comment) => comment.id === commentId)?.post_id ||
+        "";
+      const contentKind =
+        metadataId(notification.metadata, "content_kind", "post_kind", "media_kind") ||
+        (metadataId(notification.metadata, "reel_id") ? "reel" : "") ||
+        (metadataId(notification.metadata, "video_id") ? "video" : "") ||
+        postKind.get(postId);
+      return postId
+        ? contentLink(postId, contentKind, true, commentId || undefined)
+        : undefined;
+    }
     if (type === "moment") return id ? contentLink(id, "moment") : undefined;
     if (type === "post" || type === "video" || type === "reel") {
-      return id ? contentLink(id, type, notification.kind === "comment") : undefined;
+      const commentId =
+        metadataCommentId ||
+        metadataId(notification.metadata, "target_id");
+      return id
+        ? contentLink(
+            id,
+            type,
+            notification.kind === "comment" || (notification.kind === "mention" && !!commentId),
+            commentId || undefined,
+          )
+        : undefined;
     }
     if (type === "user" || type === "profile") return id ? contentLink(id, type) : undefined;
     return undefined;
@@ -306,26 +419,63 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
 
   const out: Omit<NotificationItem, "read">[] = [];
 
-  for (const r of rows.likes)
+  const likesByPost = new Map<string, typeof rows.likes>();
+  for (const row of rows.likes) {
+    const group = likesByPost.get(row.post_id) ?? [];
+    group.push(row);
+    likesByPost.set(row.post_id, group);
+  }
+
+  for (const [postId, group] of likesByPost) {
+    const latest = group.reduce((newest, row) =>
+      ts(row.created_at) > ts(newest.created_at) ? row : newest,
+    );
+    const actorName = nameOf(latest.user_id);
+    const otherCount = group.length - 1;
+    const contentLabel = postKind.get(postId) === "reel"
+      ? "reel"
+      : postKind.get(postId) === "video"
+        ? "video"
+        : "post";
+    const activity = otherCount
+      ? `and ${otherCount} ${otherCount === 1 ? "other" : "others"} liked your ${contentLabel}`
+      : `liked your ${contentLabel}`;
     out.push({
-      id: `like-${r.id}`,
+      id: `likes-${postId}-${ts(latest.created_at)}`,
       kind: "like",
-      title: `${nameOf(r.user_id)} liked your post`,
-      actorId: r.user_id,
-      at: ts(r.created_at),
-      to: postLink(r.post_id),
+      title: `${actorName} ${activity}`,
+      actorId: latest.user_id,
+      actorName,
+      activity,
+      actorAvatarUrls: group.slice(0, 3).map((row) => avatarOf(row.user_id)),
+      at: ts(latest.created_at),
+      to: postLink(postId),
+      thumbnailUrl: postThumbnails.get(postId) ?? null,
     });
+  }
 
   for (const r of rows.comments)
+  {
+    const actorName = nameOf(r.user_id);
+    const contentLabel = postKind.get(r.post_id) === "reel"
+      ? "your reel"
+      : postKind.get(r.post_id) === "video"
+        ? "your video"
+        : "your post";
     out.push({
       id: `comment-${r.id}`,
       kind: "comment",
-      title: `${nameOf(r.user_id)} commented on your post`,
+      title: `${actorName} commented on ${contentLabel}`,
       actorId: r.user_id,
+      actorName,
+      activity: `commented on ${contentLabel}`,
+      actorAvatarUrls: [avatarOf(r.user_id)],
       body: r.content,
       at: ts(r.created_at),
-      to: postLink(r.post_id, true),
+      to: postLink(r.post_id, true, r.id),
+      thumbnailUrl: postThumbnails.get(r.post_id) ?? null,
     });
+  }
 
   for (const r of rows.dms)
     out.push({
@@ -338,21 +488,69 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       to: `/chat/dm_${[r.sender_id, r.receiver_id].sort().join("_")}`,
     });
 
-  for (const r of rows.momentNotifications)
+  for (const r of rows.momentNotifications) {
+    const kind = normalizeNotificationKind(r.kind);
+    const entityType = r.entity_type?.trim().toLowerCase() ?? "";
+    const contentId =
+      ["post", "video", "reel"].includes(entityType) && r.entity_id
+        ? r.entity_id
+        : metadataId(r.metadata, "post_id", "video_id", "reel_id");
+    const commentId = metadataId(r.metadata, "comment_id", "target_comment_id") ||
+      (entityType === "comment" ? r.entity_id ?? "" : "");
+    const duplicateLike =
+      kind === "like" &&
+      entityType !== "moment" &&
+      rows.likes.some((like) => {
+        const likeId = metadataId(r.metadata, "like_id", "interaction_id");
+        return (
+          (likeId && like.id === likeId) ||
+          (!!contentId &&
+            like.post_id === contentId &&
+            r.actor_id === like.user_id &&
+            Math.abs(ts(like.created_at) - ts(r.created_at)) < 120_000)
+        );
+      });
+    const duplicateComment =
+      kind === "comment" &&
+      !!commentId &&
+      rows.comments.some((comment) => comment.id === commentId);
+    if (
+      duplicateLike ||
+      duplicateComment
+    ) {
+      continue;
+    }
+    const actorName = r.actor_id ? nameOf(r.actor_id) : undefined;
+    const activity =
+      kind === "follower"
+        ? "started following you"
+        : kind === "mention"
+          ? "mentioned you"
+          : kind === "like" && entityType === "moment"
+            ? "liked your Moment"
+            : undefined;
     out.push({
       id: `notification-${r.id}`,
-      kind: r.kind === "like" ? "like" : "system",
+      kind,
       title:
-        r.entity_type === "moment" && r.actor_id
-          ? `${nameOf(r.actor_id)} liked your Moment`
+        activity && actorName
+          ? `${actorName} ${activity}`
           : r.title,
+      actorName,
+      activity,
       actorId: r.actor_id ?? undefined,
+      actorAvatarUrls: r.actor_id ? [avatarOf(r.actor_id)] : undefined,
       body: r.body ?? undefined,
       at: ts(r.created_at),
       to: notificationLink(r),
       thumbnailUrl:
-        r.entity_type === "moment" && r.entity_id ? momentMedia.get(r.entity_id) ?? null : null,
+        entityType === "moment" && r.entity_id
+          ? momentMedia.get(r.entity_id) ?? null
+          : contentId
+            ? postThumbnails.get(contentId) ?? null
+            : null,
     });
+  }
 
   return out.sort((a, b) => b.at - a.at).slice(0, 120);
 }

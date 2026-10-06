@@ -41,6 +41,11 @@ type VideoRouteData = {
   fallbackUrls?: string[];
 };
 
+type VideoRouteSearch = {
+  focusComments?: boolean;
+  commentId?: string;
+};
+
 function isRestrictedAudience(row: Record<string, unknown>) {
   if (row.is_private === true || row.is_followers_only === true || row.close_friends_only === true) {
     return true;
@@ -79,6 +84,13 @@ function isCloudflareStreamManifest(value: string) {
 }
 
 export const Route = createFileRoute("/video/$videoId")({
+  validateSearch: (search: Record<string, unknown>): VideoRouteSearch => ({
+    focusComments: search.focusComments === true || search.focusComments === "true",
+    commentId:
+      typeof search.commentId === "string" && search.commentId.trim()
+        ? search.commentId.trim()
+        : undefined,
+  }),
   component: VideoRouteComponent,
 });
 
@@ -187,6 +199,7 @@ async function loadVideoForPlayback(videoId: string): Promise<VideoRouteData> {
 
 function VideoRouteComponent() {
   const { videoId } = Route.useParams();
+  const { focusComments, commentId } = Route.useSearch();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { activeVideo, activateVideo, closeVideo, isPlaying } = useVideoPlayback();
@@ -632,6 +645,8 @@ function VideoRouteComponent() {
       sourceMediaUrl={isCurrentVideo ? query.data?.url ?? null : null}
       sourceQualityTier={video.sourceQualityTier}
       qualityMediaUrls={isCurrentVideo ? query.data?.qualityMediaUrls ?? null : null}
+      initialCommentsOpen={focusComments}
+      initialCommentId={commentId}
       onLike={() => void handleLike()}
       onDislike={handleDislike}
       onFollow={handleFollow}

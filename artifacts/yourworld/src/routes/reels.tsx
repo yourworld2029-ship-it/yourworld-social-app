@@ -106,6 +106,7 @@ type ReelsSearch = {
   userId?: string;
   initialVideoId?: string;
   focusComments?: boolean;
+  commentId?: string;
   returnTo?: "profile" | "public";
 };
 
@@ -116,6 +117,10 @@ export const Route = createFileRoute("/reels")({
     const initialVideoId =
       typeof search.initialVideoId === "string" ? search.initialVideoId.trim() : "";
     const focusComments = search.focusComments === true || search.focusComments === "true";
+    const commentId =
+      typeof search.commentId === "string" && search.commentId.trim()
+        ? search.commentId.trim()
+        : undefined;
     const returnTo = search.returnTo === "profile" || search.returnTo === "public"
       ? search.returnTo
       : undefined;
@@ -124,6 +129,7 @@ export const Route = createFileRoute("/reels")({
       userId: userId || undefined,
       initialVideoId: initialVideoId || undefined,
       focusComments,
+      commentId,
       returnTo,
     };
   },
@@ -146,10 +152,15 @@ export const Route = createFileRoute("/reels")({
 });
 
 function ReelsPage() {
+  const { initialVideoId, reelId } = Route.useSearch();
+  const hasDirectTarget = Boolean(initialVideoId || reelId);
   return (
     <main
       id="yw-reels-scroller"
-      className="yw-media-scroll-surface no-scrollbar h-[calc(100dvh-4.75rem)] snap-y snap-mandatory overflow-y-scroll overscroll-y-contain bg-background [-webkit-overflow-scrolling:touch] [scroll-snap-stop:always] [scroll-behavior:smooth]"
+      className={cn(
+        "yw-media-scroll-surface no-scrollbar h-[calc(100dvh-4.75rem)] snap-y snap-mandatory overflow-y-scroll overscroll-y-contain bg-background [-webkit-overflow-scrolling:touch] [scroll-snap-stop:always]",
+        hasDirectTarget ? "[scroll-behavior:auto]" : "[scroll-behavior:smooth]",
+      )}
       aria-label="Reels"
     >
       <ReelsList />
@@ -193,16 +204,18 @@ function PendingReelPreview({
 }
 
 function ReelsList() {
-  const { reelId, userId, initialVideoId, focusComments, returnTo } = Route.useSearch();
+  const { reelId, userId, initialVideoId, focusComments, commentId, returnTo } = Route.useSearch();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { toggleFollow } = useYw();
   const scoped = Boolean(userId);
   const initialId = initialVideoId || reelId;
-   const [active, setActive] = useState(-1);
+  const [active, setActive] = useState(-1);
   // Start with sound on, and keep the viewer's choice as the active reel changes.
   const [reelsMuted, setReelsMuted] = useState(false);
   const nodes = useRef<(HTMLElement | null)[]>([]);
+  const initialTargetPositionedRef = useRef(false);
+  const initialFocusIdRef = useRef<string | null>(initialId ?? null);
   const longVideoTarget = useQuery({
     queryKey: ["reel-target-long-video", initialId],
     enabled: Boolean(initialId),
@@ -277,10 +290,13 @@ function ReelsList() {
     void navigate({
       to: "/video/$videoId",
       params: { videoId: initialId },
-      search: { focusComments: focusComments || undefined },
+      search: {
+        focusComments: focusComments || undefined,
+        commentId,
+      },
       replace: true,
     });
-  }, [focusComments, initialId, navigate, openingLongVideo]);
+  }, [commentId, focusComments, initialId, navigate, openingLongVideo]);
   useResumeAuthAction("reel-like", "*", (action) =>
     toggleDbLike(action.targetId),
   );
@@ -446,18 +462,28 @@ function ReelsList() {
   }, [prefetchTargets]);
 
   useEffect(() => {
-    if (!initialId || loading) return;
+    if (initialFocusIdRef.current !== (initialId ?? null)) {
+      initialFocusIdRef.current = initialId ?? null;
+      initialTargetPositionedRef.current = !initialId;
+    }
+    if (!initialId || loading || initialTargetPositionedRef.current) return;
     const targetIndex = dbReels.findIndex((reel) => reel.id === initialId);
     if (targetIndex < 0) return;
-    requestAnimationFrame(() => {
-      nodes.current[targetIndex]?.scrollIntoView({ block: "start", behavior: "auto" });
+    setActive(targetIndex);
+    const frame = requestAnimationFrame(() => {
+      const targetNode = nodes.current[targetIndex];
+      if (!targetNode) return;
+      targetNode.scrollIntoView({ block: "start", behavior: "auto" });
+      initialTargetPositionedRef.current = true;
     });
+    return () => cancelAnimationFrame(frame);
   }, [dbReels, initialId, loading]);
 
   useEffect(() => {
     const scroller = document.getElementById("yw-reels-scroller");
     const ratios = new Map<number, number>();
     const selectVisible = () => {
+      if (initialId && !initialTargetPositionedRef.current) return;
       let bestIndex = -1;
       let bestRatio = 0.5;
       if (document.visibilityState !== "hidden") {
@@ -483,7 +509,7 @@ function ReelsList() {
       io.disconnect();
       document.removeEventListener("visibilitychange", selectVisible);
     };
-  }, [items.length]);
+  }, [items.length, initialId]);
 
   useEffect(() => {
     const scroller = document.getElementById("yw-reels-scroller");
@@ -568,6 +594,9 @@ function ReelsList() {
                 hideLikeCount={!!dbReels[i]?.hide_like_count}
                 hideShareCount={!!dbReels[i]?.hide_share_count}
                 initialCommentsOpen={focusComments && reel.id === initialId && i === active}
+                initialCommentId={
+                  focusComments && reel.id === initialId ? commentId : undefined
+                }
                 onDbLike={() => toggleDbLike(reel.id)}
                 onView={() => recordView(reel.id)}
                 onRepost={
@@ -938,6 +967,7 @@ function ReelItem({
   hideLikeCount = false,
   hideShareCount = false,
   initialCommentsOpen = false,
+  initialCommentId,
   onDbLike,
   onView,
   onRepost,
@@ -964,6 +994,7 @@ function ReelItem({
   hideLikeCount?: boolean;
   hideShareCount?: boolean;
   initialCommentsOpen?: boolean;
+  initialCommentId?: string;
   onDbLike?: () => void | Promise<unknown>;
   onView?: () => void | Promise<unknown>;
   onRepost?: () => void;
@@ -1743,6 +1774,7 @@ function ReelItem({
           postId={reel.id}
           commentsDisabled={commentsDisabled}
           initialOpen={initialCommentsOpen}
+          initialCommentId={initialCommentId}
         >
           <Action label={formatCount(reel.commentCount)}>
             <MessageCircle strokeWidth={1.9} className="h-5 w-5" />

@@ -71,12 +71,14 @@ export function CommentsSheet({
   onCountChange,
   commentsDisabled = false,
   initialOpen = false,
+  initialCommentId,
 }: {
   children: ReactNode;
   postId: string;
   onCountChange?: (count: number) => void;
   commentsDisabled?: boolean;
   initialOpen?: boolean;
+  initialCommentId?: string;
 }) {
   const real = usePostComments(postId);
   const { profile, userId } = useMyProfile();
@@ -86,8 +88,11 @@ export function CommentsSheet({
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
   const [open, setOpen] = useState(initialOpen);
+  const [highlightedCommentId, setHighlightedCommentId] = useState<string | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const handledTargetRef = useRef<string | null>(null);
+  const highlightTimerRef = useRef<number | null>(null);
   const router = useRouter();
 
   const scrollToLatest = () => {
@@ -149,6 +154,51 @@ export function CommentsSheet({
     replies.push(comment);
     repliesByParent.set(comment.parentCommentId, replies);
   });
+
+  useEffect(() => {
+    if (!open || !initialCommentId || real.loading) return;
+    const targetKey = `${postId}:${initialCommentId}`;
+    if (handledTargetRef.current === targetKey) return;
+
+    const target = list.find((comment) => comment.id === initialCommentId);
+    if (!target) return;
+    if (
+      target.parentCommentId &&
+      !expandedThreads.has(target.parentCommentId)
+    ) {
+      setExpandedThreads((current) => new Set(current).add(target.parentCommentId!));
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      const targetNode = Array.from(
+        listRef.current?.querySelectorAll<HTMLElement>("[data-comment-id]") ?? [],
+      ).find((node) => node.dataset.commentId === initialCommentId);
+      if (!targetNode) return;
+
+      handledTargetRef.current = targetKey;
+      targetNode.scrollIntoView({ block: "center", behavior: "smooth" });
+      setHighlightedCommentId(initialCommentId);
+      if (highlightTimerRef.current !== null) {
+        window.clearTimeout(highlightTimerRef.current);
+      }
+      highlightTimerRef.current = window.setTimeout(() => {
+        setHighlightedCommentId(null);
+        highlightTimerRef.current = null;
+      }, 1500);
+    }, 80);
+
+    return () => window.clearTimeout(timer);
+  }, [expandedThreads, initialCommentId, list, open, postId, real.loading]);
+
+  useEffect(
+    () => () => {
+      if (highlightTimerRef.current !== null) {
+        window.clearTimeout(highlightTimerRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     onCountChange?.(real.comments.length);
@@ -267,7 +317,17 @@ export function CommentsSheet({
     const replies = repliesByParent.get(c.id) ?? [];
     const expanded = expandedThreads.has(c.id);
     return (
-      <li key={c.id} className={c.pinned ? "rounded-xl bg-secondary/40 p-2" : ""} style={{ marginLeft: Math.min(depth, 3) * 18 }}>
+      <li
+        key={c.id}
+        data-comment-id={c.id}
+        className={[
+          c.pinned ? "rounded-xl bg-secondary/40 p-2" : "",
+          highlightedCommentId === c.id
+            ? "rounded-xl bg-sky-400/10 shadow-[0_0_0_2px_rgba(56,189,248,0.72),0_0_24px_rgba(56,189,248,0.24)] transition-shadow duration-200"
+            : "",
+        ].join(" ")}
+        style={{ marginLeft: Math.min(depth, 3) * 18 }}
+      >
         <div className="flex gap-3">
           {isRealUser(c.user.id) && !c.mine ? (
             <Link
