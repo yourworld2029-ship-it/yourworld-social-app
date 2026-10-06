@@ -1,0 +1,25 @@
+Overhaul the entire Notification system into a modern, ultra-premium experience (Instagram-level UI + instant direct deep-linking). Strict rule: Do NOT modify any other feature (video compression, Supabase configs, reels playback, or uploads).
+
+1. Instagram-Style Premium Feed UI:
+- Edge-to-edge dark theme layout (remove bulky cards, heavy borders, and transparent overlapping sheets).
+- Top Bar: Sleek Back button, "Notifications" header, and a muted settings/bell icon at top right.
+- Category Chips: Horizontal scrollable pills ("All", "People you follow", "Comments", "Mentions") with clean padding-right so chips never clip at the screen boundary.
+- Time Grouping: Group notifications cleanly under section headers ("Today", "Yesterday", "Last 7 days", "Older").
+- Row Design:
+  * Left: Crisp circular user avatar (support stacked/overlapping mini avatars for aggregated likes).
+  * Center: Bold username, readable activity summary (e.g. "and 5 others liked your reel"), and lightweight timestamp ("2h", "1d").
+  * Right Action: If a new follow event, display an inline "Follow back" / "Following" button. If a post/reel/video interaction, show a compact rounded square media thumbnail preview.
+
+2. Instant Direct Deep-Linking (Zero Lag / Zero Scrolling Delay):
+- Eliminate the intermediate feed jump or auto-scrolling lag when tapping a notification.
+- Direct Comment Navigation:
+  * Mount the target post or reel immediately by direct ID.
+  * Instantly open the comments sheet with the referenced comment pre-scrolled into center view.
+  * Apply an elegant 1.5-second accent highlight glow to the target comment so the user immediately knows what was referenced.
+- Direct Like Navigation:
+  * Immediately render the targeted video/reel with instant playback without any blank transition screens.
+
+3. Complete Isolation:
+- Ensure this update strictly touches Notification UI and routing components. Keep all existing media upload, compression, and profile logic 100% intact.
+
+Apply all notification updates, rebuild the Debug APK, and provide the direct download link.
