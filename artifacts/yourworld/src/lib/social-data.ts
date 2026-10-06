@@ -270,11 +270,15 @@ function storageBucketFrom(url: string, fallbackBucket: string): string {
  * Handles bare storage paths and expired signed URLs by re-signing, and falls
  * back to the bucket's public URL.
  */
-export async function resolveMediaUrl(url: string, bucket = "reels"): Promise<string> {
+export async function resolveMediaUrl(
+  url: string,
+  bucket = "reels",
+  forceRefresh = false,
+): Promise<string> {
   if (!url) return url;
   if (/^(blob:|data:)/.test(url)) return url;
   const cached = signedCache.get(url);
-  if (cached && cached.expiresAt > Date.now()) return cached.url;
+  if (!forceRefresh && cached && cached.expiresAt > Date.now()) return cached.url;
   if (cached) signedCache.delete(url);
 
   const resolvedBucket = storageBucketFrom(url, bucket);

@@ -15,6 +15,8 @@ import {
 import { needsProtectionWarning, PLATFORM_PROTECTION_WARNING_TITLE, PLATFORM_PROTECTION_WARNING_BODY } from "@/lib/chat-compliance";
 import { LazyImage } from "@/components/yw/LazyImage";
 import { HoldToRevealButton } from "@/components/yw/HoldToRevealButton";
+import { ChatCameraCapture } from "@/components/yw/ChatCameraCapture";
+import { ProfileAvatar } from "@/components/yw/ProfileAvatar";
 import {
   ProtectedCanvasImage,
   ProtectedCanvasText,
@@ -408,11 +410,13 @@ function SharedMediaMessageCard({
   onOpen: (media: SharedMediaPreview) => void;
 }) {
   const [poster, setPoster] = useState<string | null>(null);
+  const posterRetryRef = useRef(0);
 
   useEffect(() => {
     let alive = true;
+    posterRetryRef.current = 0;
+    setPoster(null);
     if (!media.thumbnailUrl) {
-      setPoster(null);
       return () => {
         alive = false;
       };
@@ -447,7 +451,29 @@ function SharedMediaMessageCard({
             src={poster}
             alt=""
             aria-hidden="true"
-            onError={() => setPoster(null)}
+            loading="eager"
+            decoding="async"
+            onError={() => {
+              if (posterRetryRef.current > 0) {
+                setPoster(null);
+                return;
+              }
+              posterRetryRef.current += 1;
+              const thumbnailUrl = media.thumbnailUrl;
+              if (!thumbnailUrl) {
+                setPoster(null);
+                return;
+              }
+              void resolveMediaUrl(
+                thumbnailUrl,
+                media.thumbnailBucket,
+                true,
+              )
+                .then((freshUrl) => {
+                  setPoster(freshUrl && freshUrl !== poster ? freshUrl : null);
+                })
+                .catch(() => setPoster(null));
+            }}
             className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
           />
         ) : (
@@ -621,6 +647,9 @@ function NativeChatThreadPage() {
   const navigate = useNavigate();
   const router = useRouter();
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [recordedVideo, setRecordedVideo] = useState<{ file: File; url: string } | null>(null);
+  const [isSendingCameraVideo, setIsSendingCameraVideo] = useState(false);
   const [protectionWarning, setProtectionWarning] = useState<string | null>(null);
   const [caption, setCaption] = useState("");
   const [isHD, setIsHD] = useState(true);
@@ -642,7 +671,7 @@ function NativeChatThreadPage() {
   const [viewOnceOpen, setViewOnceOpen] = useState<{
     id: string;
     url: string;
-    kind: "image" | "audio";
+    kind: "image" | "video" | "audio";
     revokeUrl: boolean;
   } | null>(null);
   const [sentMediaViewer, setSentMediaViewer] = useState<{
@@ -715,7 +744,11 @@ function NativeChatThreadPage() {
     ) {
       return;
     }
-    const kind = message.audio ? "audio" : message.image ? "image" : null;
+    const kind = message.audio
+      ? "audio"
+      : message.image
+        ? messageAttachmentKind(message)
+        : null;
     const source = message.audio ?? message.image;
     if (!kind || !source) {
       toast.error("This view-once media is unavailable.");
@@ -776,7 +809,6 @@ function NativeChatThreadPage() {
   const keepScrollRef = useRef<number | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
 
   const [message, setMessage] = useState("");
@@ -1807,6 +1839,10 @@ function NativeChatThreadPage() {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
+    await prepareImageFile(file);
+  };
+
+  const prepareImageFile = async (file: File) => {
     try {
       // Compress on-device first so sending/uploading is near-instant.
       const compressed = await compressImageFile(file, { maxDim: 1600, quality: 0.82 });
@@ -1817,6 +1853,63 @@ function NativeChatThreadPage() {
     } catch (cause) {
       console.error("[chat-media] image compression failed", cause);
       toast.error("Couldn't prepare that image. Please try another.");
+    }
+  };
+
+  const handleCapturedVideo = (file: File) => {
+    setCaption("");
+    setRecordedVideo({ file, url: URL.createObjectURL(file) });
+  };
+
+  useEffect(() => {
+    if (!recordedVideo) return;
+    return () => URL.revokeObjectURL(recordedVideo.url);
+  }, [recordedVideo]);
+
+  const sendRecordedVideo = async () => {
+    if (!recordedVideo || isSendingCameraVideo) return;
+    if (!currentUserId) {
+      toast.error("Sign in to send messages.");
+      return;
+    }
+    setIsSendingCameraVideo(true);
+    try {
+      const mimeType = recordedVideo.file.type || "video/webm";
+      const extension = mimeType.toLowerCase().includes("mp4") ? "mp4" : "webm";
+      const path = `${currentUserId}/${threadId}/camera-${Date.now()}.${extension}`;
+      const uploaded = await uploadWithProgress(
+        STORAGE_BUCKETS.messages,
+        path,
+        recordedVideo.file,
+        mimeType,
+      );
+      if (uploaded.error || !uploaded.url) {
+        toast.error(uploaded.error ?? "Video upload failed.");
+        return;
+      }
+      const sent = await sendToDb({
+        media_url: uploaded.url,
+        content: caption.trim(),
+        metadata: {
+          ...(replyTo ? { reply_to: replyTo } : {}),
+          media_bucket: STORAGE_BUCKETS.messages,
+          media_path: path,
+          media_type: mimeType.split(";")[0],
+        },
+        viewOnce: settings.viewOnce,
+        expiringMedia: settings.viewOnce,
+      });
+      if (sent.error) {
+        toast.error(sent.error);
+        return;
+      }
+      setReplyTo(null);
+      setCaption("");
+      setRecordedVideo(null);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Video upload failed.");
+    } finally {
+      setIsSendingCameraVideo(false);
     }
   };
 
@@ -1914,7 +2007,6 @@ function NativeChatThreadPage() {
       className="fixed inset-0 z-50 flex h-[100dvh] max-h-[100dvh] w-screen flex-col overflow-hidden bg-black font-sans text-white"
     >
       <input type="file" ref={fileInputRef} accept="image/*" className="hidden" onChange={handleImageSelect} />
-      <input type="file" ref={cameraInputRef} accept="image/*" capture="environment" className="hidden" onChange={handleImageSelect} />
 
       {/* TOP HEADER */}
       <div
@@ -1936,7 +2028,9 @@ function NativeChatThreadPage() {
             onClick={openPeerProfile.go}
           >
             <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-pink-500 to-purple-600 flex items-center justify-center font-bold text-white shadow-md">
-              {(displayName || "U").charAt(0).toUpperCase()}
+              <ProfileAvatar
+                user={{ full_name: displayName, avatar_url: peer.avatarUrl }}
+              />
             </div>
             <span
               className={`absolute bottom-0 right-0 w-3 h-3 border-2 border-black rounded-full ${
@@ -2382,11 +2476,13 @@ function NativeChatThreadPage() {
               <HoldToRevealButton
                 disabled={openingViewOnceId === m.id}
                 onReveal={() => void openViewOnce(m)}
-                ariaLabel="Press and hold to view this photo once"
+                ariaLabel={`Press and hold to view this ${messageAttachmentKind(m)} once`}
                 className="max-w-[75%] flex items-center gap-2 rounded-2xl border border-emerald-600/60 bg-emerald-950/30 px-4 py-3 text-xs font-bold text-emerald-400"
               >
                 <span className="w-5 h-5 rounded-full border border-emerald-500 flex items-center justify-center">1</span>
-                {openingViewOnceId === m.id ? "Opening…" : "Hold to view once"}
+                {openingViewOnceId === m.id
+                  ? "Opening…"
+                  : `Hold to view ${messageAttachmentKind(m)} once`}
               </HoldToRevealButton>
             ) : m.image &&
               !m.momentId &&
@@ -2499,14 +2595,26 @@ function NativeChatThreadPage() {
             )}
 
             <span className="text-[10px] text-zinc-500 mt-1 px-1 flex items-center gap-1">
-              {formatChatRelativeTime(m.ts, relativeNow)}
+              <time
+                title={new Date(m.ts).toLocaleString()}
+              >
+                {m.image || m.audio || m.sharedMedia
+                  ? fmtTime(m.ts)
+                  : formatChatRelativeTime(m.ts, relativeNow)}
+              </time>
               {m.sender === "me" && (
                 m.local ? (
-                  <Check size={12} className="text-zinc-500" />
+                  <span role="img" aria-label="Sending" title="Sending">
+                    <Check size={12} className="text-zinc-500" aria-hidden="true" />
+                  </span>
                 ) : m.read ? (
-                   <CheckCheck size={12} className="text-emerald-500" />
+                  <span role="img" aria-label="Read" title="Read">
+                    <CheckCheck size={12} className="text-emerald-500" aria-hidden="true" />
+                  </span>
                 ) : (
-                  <CheckCheck size={12} className="text-zinc-500" />
+                  <span role="img" aria-label="Sent" title="Sent">
+                    <CheckCheck size={12} className="text-zinc-500" aria-hidden="true" />
+                  </span>
                 )
               )}
             </span>
@@ -2629,7 +2737,7 @@ function NativeChatThreadPage() {
                 aria-label="Open camera"
                 title="Camera"
                 className="mr-2 grid h-9 w-9 shrink-0 place-items-center rounded-full bg-blue-600 text-white"
-                onClick={() => cameraInputRef.current?.click()}
+                onClick={() => setCameraOpen(true)}
               >
                 <Camera size={18} />
               </button>
@@ -2683,6 +2791,14 @@ function NativeChatThreadPage() {
 
 
     </div>
+    {cameraOpen && (!secretLock || chatUnlocked) && (
+      <ChatCameraCapture
+        onClose={() => setCameraOpen(false)}
+        onPhoto={(file) => void prepareImageFile(file)}
+        onVideo={handleCapturedVideo}
+        onError={(message) => toast.error(message)}
+      />
+    )}
     {/* WhatsApp / Instagram Style Full Screen Editor */}
 {sentMediaViewer && (
   <div
@@ -2735,6 +2851,11 @@ function NativeChatThreadPage() {
       <button
         type="button"
         onClick={() => {
+          if (viewOnceOpen.kind === "video") {
+            void purgeViewedMedia(viewOnceOpen.id).then((cleanup) => {
+              if (cleanup.error) toast.error("Media opened, but secure cleanup is retrying.");
+            });
+          }
           setViewOnceOpen(null);
         }}
         className="p-2 bg-zinc-800/80 rounded-full"
@@ -2751,6 +2872,22 @@ function NativeChatThreadPage() {
           aria-label="View-once voice note"
           className="w-full max-w-md"
           onEnded={() => setViewOnceOpen(null)}
+        />
+      ) : viewOnceOpen.kind === "video" ? (
+        <video
+          src={viewOnceOpen.url}
+          controls
+          autoPlay
+          playsInline
+          preload="metadata"
+          aria-label="View-once video"
+          className="max-h-full max-w-full rounded-lg object-contain"
+          onEnded={() => {
+            void purgeViewedMedia(viewOnceOpen.id).then((cleanup) => {
+              if (cleanup.error) toast.error("Media opened, but secure cleanup is retrying.");
+            });
+            setViewOnceOpen(null);
+          }}
         />
       ) : (
         <ProtectedCanvasImage
@@ -3044,6 +3181,65 @@ function NativeChatThreadPage() {
           className="w-12 h-12 rounded-full bg-emerald-500 flex items-center justify-center text-white shadow-lg active:scale-95 transition-all"
         >
           <Send size={20} className="ml-0.5" />
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+{recordedVideo && (!secretLock || chatUnlocked) && (
+  <div className="fixed inset-0 z-[85] flex flex-col bg-black p-4 text-white">
+    <div className="flex items-center justify-between pt-[calc(env(safe-area-inset-top,24px)_+_0.5rem)]">
+      <button
+        type="button"
+        aria-label="Discard recorded video"
+        onClick={() => {
+          setRecordedVideo(null);
+          setCaption("");
+        }}
+        className="grid h-10 w-10 place-items-center rounded-full bg-zinc-800"
+      >
+        <X size={20} />
+      </button>
+      <span className="text-sm font-semibold">Preview video</span>
+      {settings.viewOnce ? (
+        <span className="rounded-full bg-emerald-950/70 px-2.5 py-1 text-[11px] font-semibold text-emerald-300">
+          View once
+        </span>
+      ) : (
+        <span className="w-14" />
+      )}
+    </div>
+    <div className="flex min-h-0 flex-1 items-center justify-center py-5">
+      <video
+        src={recordedVideo.url}
+        controls
+        playsInline
+        autoPlay
+        aria-label="Recorded chat video preview"
+        className="max-h-full max-w-full rounded-2xl object-contain"
+      />
+    </div>
+    <div className="flex flex-col gap-3 pb-[calc(env(safe-area-inset-bottom,16px)_+_0.75rem)]">
+      <input
+        type="text"
+        aria-label="Video caption"
+        placeholder="Add a caption..."
+        value={caption}
+        onChange={(event) => setCaption(event.target.value)}
+        className="w-full rounded-full border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm text-white outline-none"
+      />
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-zinc-400">
+          {settings.viewOnce ? "Disappears after it is viewed once" : "Sent in this chat"}
+        </span>
+        <button
+          type="button"
+          aria-label="Send recorded video"
+          disabled={isSendingCameraVideo}
+          onClick={() => void sendRecordedVideo()}
+          className="grid h-12 w-12 place-items-center rounded-full bg-emerald-500 text-white shadow-lg disabled:opacity-50"
+        >
+          <Send size={20} />
         </button>
       </div>
     </div>
