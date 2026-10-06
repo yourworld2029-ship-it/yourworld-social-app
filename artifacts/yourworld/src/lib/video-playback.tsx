@@ -412,6 +412,17 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const fallbackAttemptRef = useRef<string | null>(null);
   const activeSourceRef = useRef<{ id: string; url: string } | null>(null);
   const playbackAttemptRef = useRef(0);
+  const pendingPlaybackReadyRef = useRef<{
+    video: HTMLVideoElement;
+    attempt: number;
+    listener: () => void;
+  } | null>(null);
+  const forcePlaybackReloadRef = useRef(false);
+  const automaticPlaybackRetryRef = useRef<{
+    sourceKey: string;
+    retries: number;
+    timer: number | null;
+  }>({ sourceKey: "", retries: 0, timer: null });
   const hlsRef = useRef<Hls | null>(null);
   activeVideoRef.current = activeVideo;
   const activeVideoId = activeVideo?.id;
@@ -426,6 +437,50 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     ? `${activeVideo.id}\u0000${activeVideo.thumbnailUrl ?? ""}`
     : "";
 
+  const clearPendingPlaybackReady = useCallback(() => {
+    const pending = pendingPlaybackReadyRef.current;
+    if (!pending) return;
+    pending.video.removeEventListener("loadeddata", pending.listener);
+    pending.video.removeEventListener("canplay", pending.listener);
+    pendingPlaybackReadyRef.current = null;
+  }, []);
+
+  const scheduleAutomaticPlaybackRetry = useCallback(
+    (source: { id: string; url: string }, attempt: number) => {
+      const sourceKey = `${source.id}\u0000${source.url}`;
+      let retry = automaticPlaybackRetryRef.current;
+      if (retry.sourceKey !== sourceKey) {
+        if (retry.timer !== null) window.clearTimeout(retry.timer);
+        retry = { sourceKey, retries: 0, timer: null };
+        automaticPlaybackRetryRef.current = retry;
+      }
+      if (retry.timer !== null) return true;
+      if (retry.retries >= 3) return false;
+
+      retry.retries += 1;
+      clearPendingPlaybackReady();
+      setMediaError(null);
+      setIsBuffering(true);
+      setIsPlaying(false);
+      retry.timer = window.setTimeout(() => {
+        if (automaticPlaybackRetryRef.current !== retry) return;
+        retry.timer = null;
+        const activeSource = activeSourceRef.current;
+        if (
+          playbackAttemptRef.current !== attempt ||
+          activeSource?.id !== source.id ||
+          activeSource.url !== source.url
+        ) {
+          return;
+        }
+        forcePlaybackReloadRef.current = true;
+        setPlaybackRetryKey((key) => key + 1);
+      }, 1000);
+      return true;
+    },
+    [clearPendingPlaybackReady],
+  );
+
   const reportMediaError = useCallback(
     (source: { id: string; url: string }, attempt: number) => {
       const activeSource = activeSourceRef.current;
@@ -436,12 +491,13 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       ) {
         return;
       }
+      clearPendingPlaybackReady();
       setIsPlaying(false);
       setIsBuffering(false);
       setMediaError({ id: source.id, url: source.url });
       videoRef.current?.pause();
     },
-    [],
+    [clearPendingPlaybackReady],
   );
 
   const attemptStorageFallback = useCallback(
@@ -500,16 +556,28 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
         readyState: event.currentTarget.readyState,
       });
       const attempt = playbackAttemptRef.current;
+      if (scheduleAutomaticPlaybackRetry(source, attempt)) return;
       if (attemptStorageFallback(source)) return;
       reportMediaError(source, attempt);
     },
-    [attemptStorageFallback, reportMediaError],
+    [attemptStorageFallback, reportMediaError, scheduleAutomaticPlaybackRetry],
   );
 
   const requestPlayback = useCallback(
     (source: { id: string; url: string }, attempt: number, retryMuted: boolean) => {
       const video = videoRef.current;
       if (!video) return;
+
+      const performPlayback = () => {
+        if (
+          playbackAttemptRef.current !== attempt ||
+          activeSourceRef.current?.id !== source.id ||
+          activeSourceRef.current.url !== source.url
+        ) {
+          return;
+        }
+
+        if (!video.paused && !video.ended) return;
 
       const handleRejectedPlay = (error: unknown, mayRetryMuted: boolean) => {
         if (
@@ -539,6 +607,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
           return;
         }
 
+        if (scheduleAutomaticPlaybackRetry(source, attempt)) return;
         if (attemptStorageFallback(source)) return;
         reportMediaError(source, attempt);
       };
@@ -546,8 +615,32 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       void attemptVideoPlay(video).catch((error: unknown) => {
         handleRejectedPlay(error, true);
       });
+      };
+
+      if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+        const pending = pendingPlaybackReadyRef.current;
+        if (pending?.video === video && pending.attempt === attempt) return;
+        clearPendingPlaybackReady();
+        const listener = () => {
+          if (pendingPlaybackReadyRef.current?.listener === listener) {
+            clearPendingPlaybackReady();
+          }
+          performPlayback();
+        };
+        pendingPlaybackReadyRef.current = { video, attempt, listener };
+        video.addEventListener("loadeddata", listener);
+        video.addEventListener("canplay", listener);
+        return;
+      }
+
+      performPlayback();
     },
-    [attemptStorageFallback, reportMediaError],
+    [
+      attemptStorageFallback,
+      clearPendingPlaybackReady,
+      reportMediaError,
+      scheduleAutomaticPlaybackRetry,
+    ],
   );
 
   useEffect(() => {
@@ -782,6 +875,15 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
 
   const retryPlayback = useCallback(() => {
     if (!activeVideo) return;
+    clearPendingPlaybackReady();
+    const currentRetry = automaticPlaybackRetryRef.current;
+    if (currentRetry.timer !== null) window.clearTimeout(currentRetry.timer);
+    automaticPlaybackRetryRef.current = {
+      sourceKey: `${activeVideo.id}\u0000${activeVideoUrl ?? activeVideo.url}`,
+      retries: 0,
+      timer: null,
+    };
+    forcePlaybackReloadRef.current = false;
     playbackAttemptRef.current += 1;
     setMediaError(null);
     hlsRef.current?.destroy();
@@ -790,7 +892,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     fallbackAttemptRef.current = null;
     setPlaybackSourceOverride(null);
     setPlaybackRetryKey((key) => key + 1);
-  }, [activeVideo]);
+  }, [activeVideo, activeVideoUrl, clearPendingPlaybackReady]);
 
   const goBackFromPlayerError = useCallback(() => {
     if (typeof window !== "undefined" && window.history.length > 1) {
@@ -882,10 +984,30 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !activeVideoId || !activeVideoUrl) return;
+    if (!video || !activeVideoId || !activeVideoUrl) {
+      clearPendingPlaybackReady();
+      const retryState = automaticPlaybackRetryRef.current;
+      if (retryState.timer !== null) window.clearTimeout(retryState.timer);
+      automaticPlaybackRetryRef.current = { sourceKey: "", retries: 0, timer: null };
+      return;
+    }
 
     const source = activeSourceRef.current;
-    if (source?.id === activeVideoId && source.url === activeVideoUrl) return;
+    const sameSource = source?.id === activeVideoId && source.url === activeVideoUrl;
+    if (sameSource && !forcePlaybackReloadRef.current) return;
+    forcePlaybackReloadRef.current = false;
+
+    clearPendingPlaybackReady();
+    const sourceKey = `${activeVideoId}\u0000${activeVideoUrl}`;
+    const retryState = automaticPlaybackRetryRef.current;
+    if (retryState.sourceKey !== sourceKey) {
+      if (retryState.timer !== null) window.clearTimeout(retryState.timer);
+      automaticPlaybackRetryRef.current = {
+        sourceKey,
+        retries: 0,
+        timer: null,
+      };
+    }
 
     const attempt = ++playbackAttemptRef.current;
     setMediaError(null);
@@ -957,11 +1079,14 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               responseCode: data.response?.code ?? null,
               fatal: data.fatal,
             });
-            const usingStorageFallback = attemptStorageFallback(
-              { id: activeVideoId, url: activeVideoUrl },
-            );
+            const source = { id: activeVideoId, url: activeVideoUrl };
+            const shouldRetry = scheduleAutomaticPlaybackRetry(source, attempt);
             if (hlsRef.current === hls) hlsRef.current = null;
             hls.destroy();
+            if (shouldRetry) return;
+            const usingStorageFallback = attemptStorageFallback(
+              source,
+            );
             if (usingStorageFallback) return;
             if (supportsNativeHls(video)) {
               activeSourceRef.current = null;
@@ -998,18 +1123,30 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     }
     return () => {
       video.removeEventListener("loadedmetadata", restorePlayback);
+      clearPendingPlaybackReady();
     };
   }, [
     activeVideoId,
     activeVideoInitialTime,
     activeVideoUrl,
     attemptStorageFallback,
+    clearPendingPlaybackReady,
     playbackRetryKey,
     reportMediaError,
     requestPlayback,
+    scheduleAutomaticPlaybackRetry,
     setCurrentTime,
     setDuration,
   ]);
+
+  useEffect(
+    () => () => {
+      clearPendingPlaybackReady();
+      const retryState = automaticPlaybackRetryRef.current;
+      if (retryState.timer !== null) window.clearTimeout(retryState.timer);
+    },
+    [clearPendingPlaybackReady],
+  );
 
   useEffect(
     () => () => {
@@ -2145,13 +2282,23 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               ref={videoRef}
               poster={activeResolvedPoster ?? activeVideo.thumbnailUrl ?? VIDEO_POSTER_FALLBACK}
               controls={false}
-              autoPlay
               loop={loopVideo}
               muted={isMuted}
               playsInline
-              preload="metadata"
+              preload="auto"
               onLoadedMetadata={handleLoadedMetadata}
               onLoadedData={(event) => {
+                const source = activeSourceRef.current;
+                if (source) {
+                  const retryState = automaticPlaybackRetryRef.current;
+                  if (retryState.sourceKey === `${source.id}\u0000${source.url}`) {
+                    if (retryState.timer !== null) {
+                      window.clearTimeout(retryState.timer);
+                      retryState.timer = null;
+                    }
+                    retryState.retries = 0;
+                  }
+                }
                 setHasVideoFrame(true);
                 if (activeVideoUrl) {
                   cacheVideoPoster(event.currentTarget, activeVideoUrl);

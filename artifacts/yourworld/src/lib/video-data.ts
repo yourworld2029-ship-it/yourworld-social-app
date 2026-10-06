@@ -389,6 +389,47 @@ const BRAND_PROMO_HINTS = [
   "use my code",
 ];
 
+async function verifyUploadedVideoUrl(
+  url: string,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  try {
+    const parsedUrl = new URL(url);
+    if (parsedUrl.protocol !== "https:" && parsedUrl.protocol !== "http:") {
+      return "The uploaded video did not return a valid watch URL.";
+    }
+  } catch {
+    return "The uploaded video did not return a valid watch URL.";
+  }
+
+  let lastStatus: number | null = null;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    if (signal?.aborted) return "Upload cancelled";
+    try {
+      const response = await fetch(url, {
+        method: "HEAD",
+        cache: "no-store",
+        signal,
+      });
+      if (response.ok) return null;
+      lastStatus = response.status;
+    } catch (error) {
+      if (signal?.aborted || (error instanceof Error && error.name === "AbortError")) {
+        return "Upload cancelled";
+      }
+    }
+
+    if (attempt < 3) {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 1000));
+    }
+  }
+
+  console.warn("Uploaded video URL was not available after propagation checks", {
+    status: lastStatus,
+  });
+  return "The video uploaded, but its watch link is not ready yet. Please retry in a moment.";
+}
+
 export async function publishLongVideo(opts: {
   fileUrl: string;
   file?: Blob | null;
@@ -544,6 +585,10 @@ export async function publishLongVideo(opts: {
     uploadedStreamUid = uploadedMedia.streamUid;
     uploadedDurationSeconds = uploadedMedia.durationSeconds;
     if (!thumb && uploadedMedia.posterUrl) thumb = uploadedMedia.posterUrl;
+
+    opts.onProgress?.(98, "Checking video playback availability");
+    const playbackUrlError = await verifyUploadedVideoUrl(mediaUrl, opts.signal);
+    if (playbackUrlError) return { error: playbackUrlError };
   }
 
   if (!thumb && !generatedThumbnail) {
@@ -696,13 +741,13 @@ export async function publishLongVideo(opts: {
     };
   }
 
-  opts.onProgress?.(100);
   if (insertError) console.error("Long-video database insert failed", insertError);
   else {
     rememberLocalMedia(mediaUrl, opts.fileUrl);
     if (!opts.scheduledAt && !needsReview) {
       announcePublishedPost({ id: postId, kind: "video", mediaType: "video" });
     }
+    opts.onProgress?.(100);
   }
   return { error: insertError?.message ?? null };
 }

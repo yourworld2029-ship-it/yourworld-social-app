@@ -24,8 +24,6 @@ import {
   useVideoResumeEntries,
 } from "@/lib/video-resume";
 import { getAppScrollContainer } from "@/lib/app-scroll-container";
-import { PendingLongVideoUploadCard } from "@/components/yw/PendingLongVideoUploadCard";
-import { useUploadTasks, type UploadTask } from "@/lib/upload-progress";
 
 type FeedItem =
   | {
@@ -147,8 +145,6 @@ type HomeVideoFeedProps = Pick<
   loading: boolean;
   videos: LongVideo[];
   resumeEntry: VideoResumeEntry | null;
-  pendingVideoUploadCount: number;
-  pendingVideoUpload: UploadTask | null;
 };
 
 const HomeVideoFeed = React.memo(function HomeVideoFeed({
@@ -163,8 +159,6 @@ const HomeVideoFeed = React.memo(function HomeVideoFeed({
   reload,
   isFetchingNextPage,
   resumeEntry,
-  pendingVideoUploadCount,
-  pendingVideoUpload,
 }: HomeVideoFeedProps) {
   const navigate = useNavigate();
   const onDeleted = React.useCallback(() => {
@@ -229,16 +223,11 @@ const HomeVideoFeed = React.memo(function HomeVideoFeed({
 
         return (
           <main className="feed-post-list flex flex-col gap-[10px] max-w-lg mx-auto px-2 sm:px-4 pt-0 pb-4">
-            {pendingVideoUpload ? (
-              <PendingLongVideoUploadCard task={pendingVideoUpload} />
-            ) : null}
             {!hydrated || loading ? (
-              pendingVideoUploadCount === 0 ? (
-                <div className="text-center py-12 text-neutral-500 text-sm">
-                  Loading feed...
-                </div>
-              ) : null
-            ) : videos.length === 0 && !resumeEntry && pendingVideoUploadCount === 0 ? (
+              <div className="text-center py-12 text-neutral-500 text-sm">
+                Loading feed...
+              </div>
+            ) : videos.length === 0 && !resumeEntry ? (
               <div className="text-center py-12 text-neutral-500 text-sm">
                 No videos yet. Be the first to share!
               </div>
@@ -306,19 +295,6 @@ function HomePage() {
     resumeCandidates.find((entry) => entry.id === resumeVideo?.id) ?? null;
   const { moments } = useMoments();
   const { user } = useAuth();
-  const uploadTasks = useUploadTasks();
-  const pendingVideoUploads = React.useMemo(
-    () =>
-      uploadTasks.filter(
-        (task) =>
-          task.kind === "video" &&
-          task.ownerId === user?.id &&
-          (task.status === "uploading" || task.status === "processing"),
-      ),
-    [uploadTasks, user?.id],
-  );
-  const pendingVideoUploadCount = pendingVideoUploads.length;
-  const pendingVideoUpload = pendingVideoUploads.at(-1) ?? null;
   const { streams: liveStreams } = useActiveLiveStreams();
   const { count: alertCount } = useAlertsCount();
   React.useEffect(() => setHydrated(true), []);
@@ -597,8 +573,6 @@ function HomePage() {
         reload={reload}
         isFetchingNextPage={isFetchingNextPage}
         resumeEntry={resumeEntry}
-        pendingVideoUploadCount={pendingVideoUploadCount}
-        pendingVideoUpload={pendingVideoUpload}
       />
     </div>
   );
