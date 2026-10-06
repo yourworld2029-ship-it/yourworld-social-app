@@ -16,6 +16,7 @@ import { needsProtectionWarning, PLATFORM_PROTECTION_WARNING_TITLE, PLATFORM_PRO
 import { LazyImage } from "@/components/yw/LazyImage";
 import { HoldToRevealButton } from "@/components/yw/HoldToRevealButton";
 import { ChatCameraCapture } from "@/components/yw/ChatCameraCapture";
+import { ChatVideoPlayer } from "@/components/yw/ChatVideoPlayer";
 import { ProfileAvatar } from "@/components/yw/ProfileAvatar";
 import {
   ProtectedCanvasImage,
@@ -84,6 +85,7 @@ type Message = {
   image?: string;
   audio?: string;
   mediaKind?: "image" | "video" | "audio";
+  mediaMimeType?: string;
   sharedMedia?: SharedMediaPreview;
   sender: "me" | "them";
   system?: boolean;
@@ -557,6 +559,21 @@ function mediaKindFromMetadata(
   return mediaUrl ? "image" : undefined;
 }
 
+function mediaMimeTypeFromMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+  mediaUrl?: string | null,
+) {
+  const declared = [metadata?.media_type, metadata?.mime_type, metadata?.content_type]
+    .find((value): value is string => typeof value === "string")
+    ?.toLowerCase();
+  if (declared?.startsWith("video/")) return declared;
+  if (mediaUrl && /\.mp4(?:[?#]|$)/i.test(mediaUrl)) return "video/mp4";
+  if (mediaUrl && /\.webm(?:[?#]|$)/i.test(mediaUrl)) return "video/webm";
+  if (mediaUrl && /\.mov(?:[?#]|$)/i.test(mediaUrl)) return "video/quicktime";
+  if (mediaUrl && /\.m4v(?:[?#]|$)/i.test(mediaUrl)) return "video/x-m4v";
+  return undefined;
+}
+
 function messageAttachmentKind(message: Message): "image" | "video" {
   return message.mediaKind === "video" ||
     Boolean(message.image && /\.(mp4|m4v|mov|webm)(?:[?#]|$)/i.test(message.image))
@@ -673,10 +690,12 @@ function NativeChatThreadPage() {
     url: string;
     kind: "image" | "video" | "audio";
     revokeUrl: boolean;
+    mimeType?: string;
   } | null>(null);
   const [sentMediaViewer, setSentMediaViewer] = useState<{
     url: string;
     kind: "image" | "video";
+    mimeType?: string;
   } | null>(null);
   const [openingViewOnceId, setOpeningViewOnceId] = useState<string | null>(null);
 
@@ -781,7 +800,13 @@ function NativeChatThreadPage() {
           toast.error("The voice note could not be prepared locally; it will expire shortly.");
         }
       } else {
-        setViewOnceOpen({ id: message.id, url: source, kind, revokeUrl: false });
+        setViewOnceOpen({
+          id: message.id,
+          url: source,
+          kind,
+          revokeUrl: false,
+          mimeType: kind === "video" ? message.mediaMimeType : undefined,
+        });
       }
     } catch (error) {
       toast.error(
@@ -884,6 +909,7 @@ function NativeChatThreadPage() {
             image: typeof m?.media_url === "string" ? m.media_url : undefined,
             audio: typeof m?.voice_note_url === "string" ? m.voice_note_url : undefined,
             mediaKind: mediaKindFromMetadata(metadata, m?.media_url, m?.voice_note_url),
+            mediaMimeType: mediaMimeTypeFromMetadata(metadata, m?.media_url),
             sharedMedia: sharedMediaFromMetadata(metadata),
             sender: m?.sender_id === currentUserId ? "me" : "them",
             system: m?.is_system_message === true || CALL_LOG_PATTERN.test(text ?? ""),
@@ -2501,6 +2527,7 @@ function NativeChatThreadPage() {
                   setSentMediaViewer({
                     url: m.image!,
                     kind: messageAttachmentKind(m),
+                    mimeType: m.mediaMimeType,
                   });
                 }}
                 className="group relative block max-w-[75%] overflow-hidden rounded-2xl border border-zinc-800 text-left shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
@@ -2806,7 +2833,10 @@ function NativeChatThreadPage() {
     aria-modal="true"
     aria-label={`Full-screen chat ${sentMediaViewer.kind}`}
     onClick={() => setSentMediaViewer(null)}
-    className="fixed inset-0 z-[150] flex flex-col bg-black/95 p-3 text-white"
+    className={`fixed inset-0 flex flex-col p-3 text-white ${
+      sentMediaViewer.kind === "video" ? "z-[9999] bg-black" : "z-[150] bg-black/95"
+    }`}
+    style={sentMediaViewer.kind === "video" ? { backgroundColor: "#000", zIndex: 9999 } : undefined}
   >
     <div className="flex items-center justify-between px-1 py-2">
       <span className="text-xs font-semibold uppercase tracking-[0.14em] text-white/60">
@@ -2826,13 +2856,13 @@ function NativeChatThreadPage() {
       onClick={(event) => event.stopPropagation()}
     >
       {sentMediaViewer.kind === "video" ? (
-        <video
+        <ChatVideoPlayer
           src={sentMediaViewer.url}
-          controls
-          playsInline
-          preload="metadata"
-          aria-label="Chat video"
-          className="max-h-full max-w-full rounded-lg object-contain"
+          mimeType={sentMediaViewer.mimeType}
+          label="Chat video"
+          preload="auto"
+          className="h-full w-full"
+          onError={() => toast.error("This chat video could not be loaded.")}
         />
       ) : (
         <ProtectedCanvasImage
@@ -2845,7 +2875,12 @@ function NativeChatThreadPage() {
   </div>
 )}
 {viewOnceOpen && (
-  <div className="fixed inset-0 z-[95] bg-black flex flex-col">
+  <div
+    className={`fixed inset-0 flex flex-col bg-black ${
+      viewOnceOpen.kind === "video" ? "z-[9999]" : "z-[95]"
+    }`}
+    style={viewOnceOpen.kind === "video" ? { backgroundColor: "#000", zIndex: 9999 } : undefined}
+  >
     <div className="flex items-center justify-between p-4 text-white">
       <span className="text-xs font-bold text-emerald-400 flex items-center gap-2"><EyeOff size={14} /> View once</span>
       <button
@@ -2874,14 +2909,14 @@ function NativeChatThreadPage() {
           onEnded={() => setViewOnceOpen(null)}
         />
       ) : viewOnceOpen.kind === "video" ? (
-        <video
+        <ChatVideoPlayer
           src={viewOnceOpen.url}
-          controls
+          mimeType={viewOnceOpen.mimeType}
+          label="View-once video"
           autoPlay
-          playsInline
-          preload="metadata"
-          aria-label="View-once video"
-          className="max-h-full max-w-full rounded-lg object-contain"
+          preload="auto"
+          className="h-full w-full"
+          onError={() => toast.error("This view-once video could not be loaded.")}
           onEnded={() => {
             void purgeViewedMedia(viewOnceOpen.id).then((cleanup) => {
               if (cleanup.error) toast.error("Media opened, but secure cleanup is retrying.");
@@ -3187,7 +3222,10 @@ function NativeChatThreadPage() {
   </div>
 )}
 {recordedVideo && (!secretLock || chatUnlocked) && (
-  <div className="fixed inset-0 z-[85] flex flex-col bg-black p-4 text-white">
+  <div
+    className="fixed inset-0 z-[9999] flex flex-col bg-black p-4 text-white"
+    style={{ backgroundColor: "#000", zIndex: 9999 }}
+  >
     <div className="flex items-center justify-between pt-[calc(env(safe-area-inset-top,24px)_+_0.5rem)]">
       <button
         type="button"
@@ -3210,13 +3248,14 @@ function NativeChatThreadPage() {
       )}
     </div>
     <div className="flex min-h-0 flex-1 items-center justify-center py-5">
-      <video
+      <ChatVideoPlayer
         src={recordedVideo.url}
-        controls
-        playsInline
+        mimeType={recordedVideo.file.type}
+        label="Recorded chat video preview"
         autoPlay
-        aria-label="Recorded chat video preview"
-        className="max-h-full max-w-full rounded-2xl object-contain"
+        preload="auto"
+        className="h-full w-full"
+        onError={() => toast.error("The recorded video could not be loaded.")}
       />
     </div>
     <div className="flex flex-col gap-3 pb-[calc(env(safe-area-inset-bottom,16px)_+_0.75rem)]">

@@ -7,6 +7,7 @@
 - [Orval integer schemas](orval-integer-schemas.md) — OpenAPI integer currently emits invalid top-level `zod.int()`; use number for numeric counts.
 - [Reel editor performance](reel-editor-performance.md) — keep thumbnail generation source-keyed and off the trim-drag hot path; use worker encoding with a local fallback.
 - [Video frame capture event order](video-frame-capture-event-order.md) — attach metadata and seek listeners before setting a local video source or seeking, or fast Blob playback may outrun thumbnail extraction.
+- [Chat camera stream lifecycle](chat-camera-stream-lifecycle.md) — stop and detach old camera tracks before reacquiring, and preserve the selected MediaRecorder MIME type through preview.
 - [Unique interaction counting](unique-interaction-counting.md) — use one database-enforced key per user/content/type and an atomic insert-before-increment RPC for views.
 - [Video playback and downloads](video-playback-downloads.md) — centered autoplay starts muted; authentic posters share a two-decoder budget and must not bypass access checks.
 - [Video source retention](video-source-retention.md) — never publish HLS video without persisting the owner-scoped MP4 path needed for authorized downloads and deletion.
