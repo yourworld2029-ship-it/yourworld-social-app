@@ -5,11 +5,13 @@ import type {
   UploadRequestProgress,
 } from "@/lib/storage-upload-request";
 import {
+  createTusFileFingerprint,
   createTusProgressReporter,
   getTusRetryDelayMs,
   isRetryableTusError,
   getStorageResumableUploadEndpoint,
   RESUMABLE_UPLOAD_CHUNK_SIZE,
+  TUS_RETRY_DELAYS,
 } from "@/lib/storage-upload-tus-utils";
 
 export type TusUploadProgress = UploadRequestProgress;
@@ -39,10 +41,18 @@ export async function uploadLargeStorageObjectWithTus(options: {
     return { error: readableUploadError(error) };
   }
 
-  const { Upload } = await import("tus-js-client");
+  const tusClient = await import("tus-js-client");
+  if (!tusClient.canStoreURLs || !tusClient.defaultOptions.urlStorage) {
+    return {
+      error:
+        "This device cannot persist resumable upload sessions. Enable local storage and retry.",
+    };
+  }
+  const { Upload } = tusClient;
 
   return new Promise((resolve) => {
     let settled = false;
+    let uploadUrlWasCreated = false;
     let retryAttempt = 0;
     let lastPercent = 0;
     let lastByteProgress: UploadByteProgress | null | undefined =
@@ -95,76 +105,90 @@ export async function uploadLargeStorageObjectWithTus(options: {
         return;
       }
       const upload = new Upload(options.file, {
-      endpoint,
-      chunkSize: RESUMABLE_UPLOAD_CHUNK_SIZE,
-      retryDelays: [0, 3000, 5000, 10_000, 20_000, 30_000, 60_000],
-      uploadDataDuringCreation: true,
-      fingerprint: () =>
-        Promise.resolve(
-          `yourworld:${endpoint}:${options.bucket}/${options.path}:${options.file.size}:${options.file.type}`,
-        ),
-      storeFingerprintForResuming: true,
-      removeFingerprintOnSuccess: true,
-      headers: { apikey: publishableKey },
-      metadata: {
-        bucketName: options.bucket,
-        objectName: options.path,
-        contentType: options.contentType,
-        cacheControl: options.cacheControl,
-      },
-      onBeforeRequest: async (request) => {
-        const { data, error } = await supabase.auth.getSession();
-        if (error) throw error;
-        const accessToken = data.session?.access_token;
-        if (!accessToken) throw new Error("Your sign-in expired. Sign in and try again.");
-        request.setHeader("Authorization", `Bearer ${accessToken}`);
-        request.setHeader("apikey", publishableKey);
-      },
-      onAfterResponse: async (_request, response) => {
-        if (response.getStatus() === 401) {
-          await supabase.auth.refreshSession();
-        }
-      },
-      onProgress: (bytesUploaded, bytesTotal) => {
-        const percent =
-          bytesTotal > 0 ? Math.min(99, Math.round((bytesUploaded / bytesTotal) * 100)) : 0;
-        retryAttempt = 0;
-        lastPercent = percent;
-        lastByteProgress = options.reportByteProgress
-          ? bytesTotal > 0
-            ? { bytesUploaded, bytesTotal }
-            : null
-          : undefined;
-        reportProgress(percent, "Uploading", lastByteProgress);
-      },
-      onError: (error) => {
-        activeUpload = null;
-        if (options.signal?.aborted) finish("Upload cancelled");
-        else recoverFromTransientFailure(error);
-      },
-      onSuccess: () => {
-        activeUpload = null;
-        if (options.signal?.aborted) {
-          finish("Upload cancelled");
-          return;
-        }
-        lastByteProgress = options.reportByteProgress
-          ? {
-              bytesUploaded: options.file.size,
-              bytesTotal: options.file.size,
-            }
-          : undefined;
-        reportProgress(100, "Upload complete", lastByteProgress);
-        finish(null);
-      },
+        endpoint,
+        chunkSize: RESUMABLE_UPLOAD_CHUNK_SIZE,
+        retryDelays: TUS_RETRY_DELAYS,
+        uploadDataDuringCreation: true,
+        urlStorage: tusClient.defaultOptions.urlStorage,
+        fingerprint: () =>
+          Promise.resolve(
+            createTusFileFingerprint(
+              `yourworld:${endpoint}:${options.bucket}/${options.path}`,
+              options.file,
+              options.path.split("/").pop() || "upload",
+            ),
+          ),
+        storeFingerprintForResuming: true,
+        removeFingerprintOnSuccess: true,
+        headers: { apikey: publishableKey },
+        metadata: {
+          bucketName: options.bucket,
+          objectName: options.path,
+          contentType: options.contentType,
+          cacheControl: options.cacheControl,
+        },
+        onBeforeRequest: async (request) => {
+          const { data, error } = await supabase.auth.getSession();
+          if (error) throw error;
+          const accessToken = data.session?.access_token;
+          if (!accessToken) throw new Error("Your sign-in expired. Sign in and try again.");
+          request.setHeader("Authorization", `Bearer ${accessToken}`);
+          request.setHeader("apikey", publishableKey);
+        },
+        onAfterResponse: async (_request, response) => {
+          if (response.getStatus() === 401) {
+            await supabase.auth.refreshSession();
+          }
+        },
+        onUploadUrlAvailable: () => {
+          uploadUrlWasCreated = true;
+        },
+        onProgress: (bytesUploaded, bytesTotal) => {
+          const percent =
+            bytesTotal > 0 ? Math.min(99, Math.round((bytesUploaded / bytesTotal) * 100)) : 0;
+          if (percent > lastPercent) retryAttempt = 0;
+          lastPercent = Math.max(lastPercent, percent);
+          lastByteProgress = options.reportByteProgress
+            ? bytesTotal > 0
+              ? { bytesUploaded, bytesTotal }
+              : null
+            : undefined;
+          reportProgress(lastPercent, "Uploading", lastByteProgress);
+        },
+        onError: (error) => {
+          activeUpload = null;
+          if (options.signal?.aborted) finish("Upload cancelled");
+          else recoverFromTransientFailure(error);
+        },
+        onSuccess: () => {
+          activeUpload = null;
+          if (options.signal?.aborted) {
+            finish("Upload cancelled");
+            return;
+          }
+          lastByteProgress = options.reportByteProgress
+            ? {
+                bytesUploaded: options.file.size,
+                bytesTotal: options.file.size,
+              }
+            : undefined;
+          reportProgress(100, "Upload complete", lastByteProgress);
+          finish(null);
+        },
       });
       activeUpload = upload;
 
       try {
-        const previousUploads = await upload.findPreviousUploads().catch(() => []);
+        const previousUploads = await upload.findPreviousUploads();
         if (settled) return;
-        if (previousUploads.length > 0) {
-          upload.resumeFromPreviousUpload(previousUploads[0]);
+        const previousUpload = previousUploads.find((entry) => Boolean(entry.uploadUrl));
+        if (previousUpload) {
+          upload.resumeFromPreviousUpload(previousUpload);
+        } else if (previousUploads.length > 0 || uploadUrlWasCreated) {
+          finish(
+            "The saved upload session is unavailable. Refusing to restart this upload from 0%.",
+          );
+          return;
         }
         upload.start();
       } catch (error) {

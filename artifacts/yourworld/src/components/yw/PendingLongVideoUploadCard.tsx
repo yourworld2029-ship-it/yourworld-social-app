@@ -10,7 +10,6 @@ export const PendingLongVideoUploadCard = memo(function PendingLongVideoUploadCa
 }: {
   task: UploadTask;
 }) {
-  const progress = Math.max(0, Math.min(100, Math.round(task.progress)));
   const status = task.status === "processing" ? "Finalizing video" : "Uploading video";
   const byteProgress = formatUploadByteProgress(task.bytesUploaded, task.bytesTotal);
 
@@ -58,17 +57,6 @@ export const PendingLongVideoUploadCard = memo(function PendingLongVideoUploadCa
         {task.caption ? (
           <p className="line-clamp-2 text-xs text-neutral-400">{task.caption}</p>
         ) : null}
-        <div className="flex items-center gap-2">
-          <progress
-            className="h-1.5 flex-1 overflow-hidden rounded-full accent-fuchsia-500"
-            value={progress}
-            max={100}
-            aria-label={`Video upload progress: ${progress}%`}
-          />
-          <span className="min-w-9 text-right text-[11px] tabular-nums text-neutral-400">
-            {progress}%
-          </span>
-        </div>
         <p className="text-[10px] text-neutral-500">
           {byteProgress ?? "Only you can see this while the video is being uploaded."}
         </p>

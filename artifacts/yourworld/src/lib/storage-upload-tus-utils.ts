@@ -3,8 +3,32 @@ import type {
   UploadRequestProgress,
 } from "./storage-upload-request";
 
-export const RESUMABLE_UPLOAD_CHUNK_SIZE = 6 * 1024 * 1024;
-export const CLOUDFLARE_TUS_CHUNK_SIZE = 6 * 1024 * 1024;
+export const RESUMABLE_UPLOAD_CHUNK_SIZE = 3 * 1024 * 1024;
+export const RESUMABLE_UPLOAD_THRESHOLD = 6 * 1024 * 1024;
+export const CLOUDFLARE_TUS_CHUNK_SIZE = 3 * 1024 * 1024;
+export const TUS_RETRY_DELAYS = [0, 1000, 3000, 5000, 10000];
+
+export function createTusFileFingerprint(
+  namespace: string,
+  file: Blob,
+  fallbackName: string,
+) {
+  const fileMetadata = file as Blob & {
+    name?: unknown;
+    lastModified?: unknown;
+  };
+  const fileName =
+    typeof fileMetadata.name === "string" && fileMetadata.name.length > 0
+      ? fileMetadata.name
+      : fallbackName;
+  const lastModified =
+    typeof fileMetadata.lastModified === "number" &&
+    Number.isFinite(fileMetadata.lastModified)
+      ? fileMetadata.lastModified
+      : 0;
+
+  return `${namespace}:${encodeURIComponent(fileName)}:${file.size}:${lastModified}`;
+}
 
 export function getTusRetryDelayMs(attempt: number) {
   const safeAttempt = Math.max(0, Math.floor(Number.isFinite(attempt) ? attempt : 0));
@@ -124,7 +148,7 @@ export function createTusProgressReporter(
 }
 
 export function shouldUseResumableStorageUpload(fileSize: number) {
-  return Number.isSafeInteger(fileSize) && fileSize > RESUMABLE_UPLOAD_CHUNK_SIZE;
+  return Number.isSafeInteger(fileSize) && fileSize > RESUMABLE_UPLOAD_THRESHOLD;
 }
 
 export function getStorageResumableUploadEndpoint(projectUrl: string) {

@@ -7,10 +7,12 @@ import type {
 } from "@/lib/storage-upload-request";
 import {
   CLOUDFLARE_TUS_CHUNK_SIZE,
+  createTusFileFingerprint,
   createTusProgressReporter,
   canFallbackAfterCloudflareTusFailure,
   getTusRetryDelayMs,
   isRetryableTusError,
+  TUS_RETRY_DELAYS,
 } from "@/lib/storage-upload-tus-utils";
 
 const CLOUDFLARE_TUS_ENDPOINT = "/api/media/cloudflare-tus-upload";
@@ -39,9 +41,9 @@ export async function uploadCloudflareStreamWithTus(options: {
     };
   }
 
-  let Upload: typeof import("tus-js-client").Upload;
+  let tusClient: typeof import("tus-js-client");
   try {
-    ({ Upload } = await import("tus-js-client"));
+    tusClient = await import("tus-js-client");
   } catch (error) {
     return {
       streamUid: null,
@@ -50,11 +52,21 @@ export async function uploadCloudflareStreamWithTus(options: {
         canFallbackAfterCloudflareTusFailure(error) || !options.requireSignedURLs,
     };
   }
+  if (!tusClient.canStoreURLs || !tusClient.defaultOptions.urlStorage) {
+    return {
+      streamUid: null,
+      error:
+        "This device cannot persist resumable upload sessions. Enable local storage and retry.",
+      fallbackAllowed: false,
+    };
+  }
+  const { Upload } = tusClient;
   const endpoint = new URL(mediaApiUrl(CLOUDFLARE_TUS_ENDPOINT), window.location.origin).toString();
   const filename = options.path.split("/").pop() || "video";
 
   return new Promise((resolve) => {
     let settled = false;
+    let uploadUrlWasCreated = false;
     let streamUid: string | null = null;
     let retryAttempt = 0;
     let lastPercent = 0;
@@ -101,7 +113,7 @@ export async function uploadCloudflareStreamWithTus(options: {
         return;
       }
       if (options.bucket === "videos" && retryAttempt >= MAX_VIDEO_TUS_RESUMES) {
-        finish(readableUploadError(error), true);
+        finish(readableUploadError(error), false);
         return;
       }
       const delay = getTusRetryDelayMs(retryAttempt++);
@@ -121,17 +133,19 @@ export async function uploadCloudflareStreamWithTus(options: {
       const upload = new Upload(options.file, {
         endpoint,
         chunkSize: CLOUDFLARE_TUS_CHUNK_SIZE,
+        urlStorage: tusClient.defaultOptions.urlStorage,
         uploadDataDuringCreation: false,
         fingerprint: () =>
           Promise.resolve(
-            `yourworld:cloudflare:${options.bucket}/${options.path}:${options.file.size}:${options.contentType}`,
+            createTusFileFingerprint(
+              `yourworld:cloudflare:${options.bucket}/${options.path}`,
+              options.file,
+              filename,
+            ),
           ),
         storeFingerprintForResuming: true,
         removeFingerprintOnSuccess: true,
-        retryDelays:
-          options.bucket === "videos"
-            ? [0, 1000, 3000]
-            : [0, 3000, 5000, 10_000, 20_000, 30_000, 60_000],
+        retryDelays: TUS_RETRY_DELAYS,
         metadata: {
           bucketName: options.bucket,
           objectName: options.path,
@@ -188,6 +202,9 @@ export async function uploadCloudflareStreamWithTus(options: {
             streamUid = headerValue;
           }
         },
+        onUploadUrlAvailable: () => {
+          uploadUrlWasCreated = true;
+        },
         onProgress: (bytesUploaded, bytesTotal) => {
           const percent =
             bytesTotal > 0 ? Math.min(99, Math.round((bytesUploaded / bytesTotal) * 100)) : 0;
@@ -231,10 +248,16 @@ export async function uploadCloudflareStreamWithTus(options: {
       activeUpload = upload;
 
       try {
-        const previousUploads = await upload.findPreviousUploads().catch(() => []);
+        const previousUploads = await upload.findPreviousUploads();
         if (settled) return;
-        if (previousUploads.length > 0) {
-          upload.resumeFromPreviousUpload(previousUploads[0]);
+        const previousUpload = previousUploads.find((entry) => Boolean(entry.uploadUrl));
+        if (previousUpload) {
+          upload.resumeFromPreviousUpload(previousUpload);
+        } else if (previousUploads.length > 0 || uploadUrlWasCreated) {
+          finish(
+            "The saved upload session is unavailable. Refusing to restart this upload from 0%.",
+          );
+          return;
         }
         upload.start();
       } catch (error) {

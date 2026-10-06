@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  createTusFileFingerprint,
   getStorageResumableUploadEndpoint,
   CLOUDFLARE_TUS_CHUNK_SIZE,
   getTusRetryDelayMs,
   isRetryableTusError,
   RESUMABLE_UPLOAD_CHUNK_SIZE,
+  RESUMABLE_UPLOAD_THRESHOLD,
+  TUS_RETRY_DELAYS,
   canFallbackAfterCloudflareTusFailure,
   createTusProgressReporter,
   shouldUseStoragePlaybackFallback,
@@ -13,17 +16,41 @@ import {
 } from "./storage-upload-tus-utils";
 
 test("large uploads use the documented resumable chunk size threshold", () => {
-  assert.equal(shouldUseResumableStorageUpload(RESUMABLE_UPLOAD_CHUNK_SIZE), false);
-  assert.equal(shouldUseResumableStorageUpload(RESUMABLE_UPLOAD_CHUNK_SIZE + 1), true);
+  assert.equal(shouldUseResumableStorageUpload(RESUMABLE_UPLOAD_THRESHOLD), false);
+  assert.equal(shouldUseResumableStorageUpload(RESUMABLE_UPLOAD_THRESHOLD + 1), true);
   assert.equal(shouldUseResumableStorageUpload(Number.POSITIVE_INFINITY), false);
 });
 
-test("TUS uploads use 6 MiB chunks and keep retrying with a bounded backoff", () => {
-  assert.equal(RESUMABLE_UPLOAD_CHUNK_SIZE, 6 * 1024 * 1024);
-  assert.equal(CLOUDFLARE_TUS_CHUNK_SIZE, 6 * 1024 * 1024);
+test("TUS uploads use 3 MiB chunks and the configured transient retry schedule", () => {
+  assert.equal(RESUMABLE_UPLOAD_CHUNK_SIZE, 3 * 1024 * 1024);
+  assert.equal(CLOUDFLARE_TUS_CHUNK_SIZE, 3 * 1024 * 1024);
+  assert.deepEqual(TUS_RETRY_DELAYS, [0, 1_000, 3_000, 5_000, 10_000]);
   assert.equal(getTusRetryDelayMs(0), 1_000);
   assert.equal(getTusRetryDelayMs(4), 16_000);
   assert.equal(getTusRetryDelayMs(20), 60_000);
+});
+
+test("TUS fingerprints include filename, size, and last-modified time", () => {
+  const file = Object.assign(new Blob(["video"]), {
+    name: "my video.mp4",
+    lastModified: 1_700_000_000_000,
+  });
+
+  assert.equal(
+    createTusFileFingerprint("videos/path-1", file, "fallback.mp4"),
+    "videos/path-1:my%20video.mp4:5:1700000000000",
+  );
+  assert.notEqual(
+    createTusFileFingerprint(
+      "videos/path-1",
+      Object.assign(new Blob(["video"]), {
+        name: "my video.mp4",
+        lastModified: 1_700_000_000_001,
+      }),
+      "fallback.mp4",
+    ),
+    "videos/path-1:my%20video.mp4:5:1700000000000",
+  );
 });
 
 test("TUS progress reports byte counts and can clear them at a transfer boundary", () => {

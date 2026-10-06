@@ -268,6 +268,9 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   const startUpload = useCallback<Ctx["startUpload"]>(
     async (meta, runner, onStarted) => {
       const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      let hasRun = false;
+      let highestProgress = 0;
+      let lastByteProgress: UploadByteProgress | null | undefined;
       liveTaskIds.current.add(id);
       if (meta.previewUrl) previewVideoObjectUrls.current.set(id, meta.previewUrl);
       setTasks((prev) => [
@@ -281,6 +284,8 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       }
 
       const run = async (): Promise<UploadRunResult> => {
+        const isRetry = hasRun;
+        hasRun = true;
         const previousTimer = timers.current.get(id);
         if (previousTimer) {
           clearTimeout(previousTimer);
@@ -289,15 +294,18 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         const controller = new AbortController();
         abortControllers.current.set(id, controller);
         const isLongVideo = meta.kind === "video";
-        patch(id, {
-          progress: 0,
-          bytesUploaded: null,
-          bytesTotal: null,
+        const runState: Partial<UploadTask> = {
           status: isLongVideo ? "uploading" : "processing",
           error: null,
-          detail: isLongVideo ? "Starting upload" : null,
+          detail: isLongVideo ? (isRetry ? "Resuming upload" : "Starting upload") : null,
           retry: undefined,
-        });
+        };
+        if (!isRetry) {
+          runState.progress = 0;
+          runState.bytesUploaded = null;
+          runState.bytesTotal = null;
+        }
+        patch(id, runState);
 
         let result: UploadRunResult = { error: null };
         let nativeGuard: NativeVideoUploadGuard | null = null;
@@ -332,13 +340,26 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         try {
           if (meta.kind === "video" || meta.isVideo) {
             nativeGuard = await startNativeVideoUploadGuard(id, meta.label);
+            if (isRetry && highestProgress > 0) {
+              nativeGuard?.update(highestProgress, "Resuming upload", lastByteProgress);
+            }
           }
           if (controller.signal.aborted) {
             result = { error: null, cancelled: true };
           } else {
             result = await runner((p, detail, byteProgress) => {
-              nativeGuard?.update(p, detail, byteProgress);
-              pendingProgress = { percent: p, detail, byteProgress };
+              highestProgress = Math.max(
+                highestProgress,
+                Math.min(100, Math.max(0, Math.round(p))),
+              );
+              if (byteProgress != null) lastByteProgress = byteProgress;
+              else if (lastByteProgress === undefined) lastByteProgress = byteProgress;
+              nativeGuard?.update(highestProgress, detail, lastByteProgress);
+              pendingProgress = {
+                percent: highestProgress,
+                detail,
+                byteProgress: lastByteProgress,
+              };
               const remaining = 200 - (Date.now() - lastProgressAt);
               if (remaining <= 0) {
                 if (progressTimer) clearTimeout(progressTimer);
@@ -449,6 +470,20 @@ function UploadProgressStack() {
   const t = selectVisibleUploadTask(tasks);
   if (!t) return null;
   const byteProgress = formatUploadByteProgress(t.bytesUploaded, t.bytesTotal);
+  const subtitle =
+    t.status === "error"
+      ? t.error
+      : t.status === "done"
+        ? t.label
+        : t.kind === "video"
+          ? t.label || "Video upload"
+          : t.kind === "reel"
+            ? "Uploading reel..."
+            : t.status === "processing"
+              ? "Finishing up…"
+              : byteProgress
+                ? `${byteProgress}${t.detail && t.detail !== "Uploading" ? ` · ${t.detail}` : ""}`
+                : t.detail || t.label;
 
   return (
     <div className="pointer-events-none fixed inset-x-0 top-0 z-[70] flex flex-col items-center gap-2 px-3 pt-3">
@@ -483,21 +518,7 @@ function UploadProgressStack() {
                       ? t.label || "New reel"
                       : TITLE[t.kind]}
               </p>
-              <p className="truncate text-[11px] text-zinc-400">
-                {t.status === "error"
-                  ? t.error
-                  : t.status === "done"
-                    ? t.label
-                    : t.kind === "reel"
-                      ? "Uploading reel..."
-                    : byteProgress
-                      ? `${t.progress}% · ${byteProgress}${t.detail && t.detail !== "Uploading" ? ` · ${t.detail}` : ""}`
-                    : t.detail
-                      ? `${t.progress}% · ${t.detail}`
-                    : t.status === "processing"
-                      ? "Finishing up…"
-                      : `${t.progress}% · ${t.label}`}
-              </p>
+              <p className="truncate text-[11px] text-zinc-400">{subtitle}</p>
             </div>
 
             {t.status === "done" ? (
