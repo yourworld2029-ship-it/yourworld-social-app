@@ -30,9 +30,9 @@ import {
   resolveNormalProfileCategories,
 } from "@/lib/profile-category";
 import { useVerifiedSportsIdentity } from "@/lib/sports-identity";
-import { DownloadedVideoList } from "@/components/yw/DownloadedVideoList";
 import type { DownloadedVideo } from "@/lib/yw-download";
 import { getPublicNationalAwardBadge } from "@/lib/national-award.data";
+import { formatDuration as formatLongVideoDuration, type LongVideo } from "@/lib/video-data";
 import {
   nationalAwardLabel,
   type NationalAwardPublicBadge,
@@ -61,6 +61,9 @@ export type ProfileTemplateProps = {
   reels: DbPost[];
   downloads?: DownloadedVideo[];
   downloadsLoading?: boolean;
+  savedVideos?: LongVideo[];
+  savedVideosLoading?: boolean;
+  savedVideosError?: boolean;
   mediaLoading: boolean;
   counts: Pick<FollowCounts, "followers" | "following">;
   sportsProfile: SportsProfileInfo | null;
@@ -84,8 +87,10 @@ export type ProfileTemplateProps = {
   onOpenDownload?: (video: DownloadedVideo) => void;
   onDeleteDownload?: (video: DownloadedVideo) => Promise<void> | void;
   onOpenDownloadAthlete?: (video: DownloadedVideo) => void;
-  selectedTab?: "videos" | "reels" | "downloads";
-  onTabChange?: (tab: "videos" | "reels" | "downloads") => void;
+  onOpenSavedVideo?: (video: LongVideo) => void;
+  onOpenOfflineDownloads?: () => void;
+  selectedTab?: "videos" | "reels" | "saved" | "downloads";
+  onTabChange?: (tab: "videos" | "reels" | "saved" | "downloads") => void;
   hasMoreMedia?: boolean;
   onLoadMoreMedia?: () => void;
   mediaSrc?: (url: string) => string;
@@ -94,7 +99,7 @@ export type ProfileTemplateProps = {
   children?: ReactNode;
 };
 
-type ProfileTab = "videos" | "reels" | "downloads";
+type ProfileTab = "videos" | "reels" | "saved" | "downloads";
 
 const ownerEditButtonClass =
   "h-8 rounded-lg border-0 bg-gradient-to-r from-fuchsia-500 to-violet-500 px-3 text-xs font-semibold text-white shadow-[0_8px_20px_-10px_rgba(217,70,239,0.9)] hover:from-fuchsia-400 hover:to-violet-400";
@@ -112,8 +117,9 @@ export function ProfileTemplate({
   posts,
   grid,
   reels,
-  downloads = [],
-  downloadsLoading = false,
+  savedVideos = [],
+  savedVideosLoading = false,
+  savedVideosError = false,
   mediaLoading,
   counts,
   sportsProfile,
@@ -134,9 +140,8 @@ export function ProfileTemplate({
   onShare,
   onOpen,
   onManage,
-  onOpenDownload,
-  onDeleteDownload,
-  onOpenDownloadAthlete,
+  onOpenSavedVideo,
+  onOpenOfflineDownloads,
   selectedTab,
   onTabChange,
   hasMoreMedia = false,
@@ -369,7 +374,7 @@ export function ProfileTemplate({
       <Tabs
         value={activeTab}
         onValueChange={(value) => {
-          if (value === "videos" || value === "reels") {
+          if (value === "videos" || value === "reels" || value === "saved") {
             setInternalTab(value);
             onTabChange?.(value);
           } else if (isOwner && value === "downloads") {
@@ -387,8 +392,8 @@ export function ProfileTemplate({
              Reels
           </TabsTrigger>
           {isOwner ? (
-            <TabsTrigger value="downloads" className="min-w-20 rounded-none border-b-2 border-transparent bg-transparent px-1 py-3 text-xs font-semibold text-white/60 shadow-none data-[state=active]:border-white data-[state=active]:bg-transparent data-[state=active]:text-white data-[state=active]:shadow-none" aria-label="Downloads">
-              Downloads
+            <TabsTrigger value="saved" className="min-w-20 rounded-none border-b-2 border-transparent bg-transparent px-1 py-3 text-xs font-semibold text-white/60 shadow-none data-[state=active]:border-white data-[state=active]:bg-transparent data-[state=active]:text-white data-[state=active]:shadow-none" aria-label="Saved">
+              Saved
             </TabsTrigger>
           ) : null}
         </TabsList>
@@ -418,13 +423,21 @@ export function ProfileTemplate({
           ) : null}
         </TabsContent>
         {isOwner ? (
-          <TabsContent value="downloads" className="mt-0">
-            <DownloadedVideoList
-              videos={downloads}
-              loading={downloadsLoading}
-              onOpen={onOpenDownload ?? (() => undefined)}
-              onDelete={onDeleteDownload ?? (() => undefined)}
-              onOpenAthlete={onOpenDownloadAthlete}
+          <TabsContent value="saved" className="mt-0">
+            <div className="flex justify-end px-3 py-2 sm:px-4">
+              <button
+                type="button"
+                onClick={onOpenOfflineDownloads}
+                className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:bg-white/[0.06] hover:text-foreground"
+              >
+                Device downloads
+              </button>
+            </div>
+            <SavedLongVideoGrid
+              videos={savedVideos}
+              loading={savedVideosLoading}
+              error={savedVideosError}
+              onOpen={onOpenSavedVideo}
             />
           </TabsContent>
         ) : null}
@@ -449,6 +462,62 @@ function sortPinned(list: DbPost[]) {
 
 function Empty({ text }: { text: string }) {
   return <p data-testid="status-profile-empty" className="px-4 py-14 text-center text-sm text-muted-foreground">{text}</p>;
+}
+
+function SavedLongVideoGrid({
+  videos,
+  loading,
+  error,
+  onOpen,
+}: {
+  videos: LongVideo[];
+  loading: boolean;
+  error: boolean;
+  onOpen?: (video: LongVideo) => void;
+}) {
+  if (loading) return <ProfileMediaSkeleton />;
+  if (error) return <Empty text="Couldn't load saved videos. Please try again." />;
+  if (videos.length === 0) return <Empty text="No saved long videos yet." />;
+
+  return (
+    <ul className="grid grid-cols-3 gap-1.5 bg-transparent px-3 pb-3 sm:px-4">
+      {videos.map((video) => (
+        <li key={video.id} className="relative aspect-square overflow-hidden rounded-lg bg-secondary">
+          <button
+            type="button"
+            aria-label={`Play ${video.title || "saved video"}`}
+            onClick={() => onOpen?.(video)}
+            className="group absolute inset-0 h-full w-full text-left"
+          >
+            <div className="absolute inset-0 grid place-items-center bg-gradient-to-br from-violet-950 via-zinc-900 to-zinc-950">
+              <Play className="h-8 w-8 fill-white text-white" aria-hidden="true" />
+            </div>
+            {video.thumbnailUrl ? (
+              <img
+                src={video.thumbnailUrl}
+                alt=""
+                loading="lazy"
+                className="absolute inset-0 h-full w-full object-cover"
+                onError={(event) => {
+                  event.currentTarget.style.display = "none";
+                }}
+              />
+            ) : null}
+            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-2 pb-2 pt-6">
+              <p className="line-clamp-2 text-[10px] font-semibold text-white sm:text-xs">
+                {video.title || "Saved video"}
+              </p>
+            </div>
+            {video.durationSeconds != null ? (
+              <span className="absolute right-1.5 top-1.5 rounded bg-black/75 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                {formatLongVideoDuration(video.durationSeconds)}
+              </span>
+            ) : null}
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 function ProfileMediaSkeleton() {

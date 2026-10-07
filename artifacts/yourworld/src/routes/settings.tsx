@@ -1,14 +1,17 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   User, BarChart2, Lock, Bell, HelpCircle, Info, LogOut, ChevronRight, ArrowLeft, X, Wallet,
+  Star, Search,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-store";
 import { historyBackOr } from "@/lib/navigation";
 import { supabase } from "@/integrations/supabase/client";
 import { resolveMediaUrl, setUserBlock } from "@/lib/social-data";
+import { useFollowList } from "@/lib/follow-data";
+import { setLongVideoCreatorHidden } from "@/lib/long-video-preferences";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({
@@ -31,7 +34,13 @@ export const Route = createFileRoute("/settings")({
   component: SettingsPage,
 });
 
-type PanelId = "privacy" | "notifications" | "help" | "about";
+type PanelId =
+  | "privacy"
+  | "notifications"
+  | "help"
+  | "about"
+  | "close-friends"
+  | "hidden-creators";
 
 type BlockedAccount = {
   id: string;
@@ -45,6 +54,13 @@ type PublicProfile = {
   username: string | null;
   display_name: string | null;
   avatar_url: string | null;
+};
+
+type ManagedCreator = {
+  id: string;
+  username: string;
+  displayName: string;
+  avatarUrl: string | null;
 };
 
 function SettingsPage() {
@@ -233,6 +249,23 @@ function SettingsPage() {
           <ChevronRight className="text-muted-foreground" size={18} />
         </div>
 
+        <button
+          type="button"
+          onClick={() => setPanel("close-friends")}
+          className="flex w-full items-center justify-between rounded-xl p-3.5 text-left hover:bg-muted/50"
+        >
+          <div className="flex items-center gap-4">
+            <Star className="text-muted-foreground" size={20} />
+            <span>
+              <span className="block text-sm font-semibold">Close Friends</span>
+              <span className="block text-[11px] text-muted-foreground">
+                Manage your 15 close friends
+              </span>
+            </span>
+          </div>
+          <ChevronRight className="text-muted-foreground" size={18} />
+        </button>
+
         {/* Creator analytics */}
         <div 
           onClick={() => navigate({ to: "/channel/analytics" })}
@@ -348,6 +381,40 @@ function SettingsPage() {
             hint="Manage people you have blocked"
             onClick={() => setBlockedAccountsOpen(true)}
           />
+          <Row
+            label="Hidden Creators"
+            hint="Manage creators you don't recommend"
+            onClick={() => setPanel("hidden-creators")}
+          />
+        </Panel>
+      )}
+
+      {panel === "close-friends" && (
+        <Panel title="⭐ Close Friends" onClose={() => setPanel(null)}>
+          {user ? (
+            <CloseFriendsManager userId={user.id} />
+          ) : (
+            <div className="px-3 py-10 text-center text-sm text-muted-foreground">
+              Sign in to manage Close Friends.
+            </div>
+          )}
+        </Panel>
+      )}
+
+      {panel === "hidden-creators" && (
+        <Panel
+          title="Hidden Creators"
+          onClose={() => setPanel(null)}
+          backLabel="Back to Privacy & Downloads"
+          onBack={() => setPanel("privacy")}
+        >
+          {user ? (
+            <HiddenCreatorsManager userId={user.id} />
+          ) : (
+            <div className="px-3 py-10 text-center text-sm text-muted-foreground">
+              Sign in to manage Hidden Creators.
+            </div>
+          )}
         </Panel>
       )}
 
@@ -562,16 +629,406 @@ function SettingsPage() {
   );
 }
 
+function CloseFriendsManager({ userId }: { userId: string }) {
+  const following = useFollowList(userId, "following", true);
+  const followers = useFollowList(userId, "followers", true);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectionLoading, setSelectionLoading] = useState(true);
+  const [selectionError, setSelectionError] = useState(false);
+  const [search, setSearch] = useState("");
+  const [relationFilter, setRelationFilter] = useState<
+    "all" | "following" | "followers"
+  >("all");
+  const [savingFriendId, setSavingFriendId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setSelectionLoading(true);
+    setSelectionError(false);
+    void (async () => {
+      const { data, error } = await supabase
+        .from("user_close_friends")
+        .select("friend_id")
+        .eq("user_id", userId);
+      if (error) throw error;
+      if (!active) return;
+      setSelectedIds(new Set((data ?? []).map((row) => row.friend_id)));
+      setSelectionLoading(false);
+    })().catch((error: unknown) => {
+      if (!active) return;
+      console.error("[settings] Could not load close friends", error);
+      setSelectionError(true);
+      setSelectionLoading(false);
+    });
+    return () => {
+      active = false;
+    };
+  }, [userId]);
+
+  const people = useMemo(() => {
+    const byId = new Map<
+      string,
+      {
+        id: string;
+        username: string;
+        displayName: string;
+        avatarUrl: string | null;
+        isFollowing: boolean;
+        isFollower: boolean;
+      }
+    >();
+
+    for (const person of following.users) {
+      byId.set(person.id, {
+        id: person.id,
+        username: person.username || "user",
+        displayName: person.display_name || person.username || "YourWorld user",
+        avatarUrl: person.avatar_url,
+        isFollowing: true,
+        isFollower: false,
+      });
+    }
+    for (const person of followers.users) {
+      const existing = byId.get(person.id);
+      byId.set(person.id, {
+        id: person.id,
+        username: person.username || "user",
+        displayName: person.display_name || person.username || "YourWorld user",
+        avatarUrl: person.avatar_url,
+        isFollowing: existing?.isFollowing ?? false,
+        isFollower: true,
+      });
+    }
+    return [...byId.values()].sort((left, right) =>
+      left.displayName.localeCompare(right.displayName),
+    );
+  }, [followers.users, following.users]);
+
+  const visiblePeople = useMemo(() => {
+    const normalizedSearch = search.trim().replace(/^@/, "").toLowerCase();
+    return people.filter((person) => {
+      const relationMatches =
+        relationFilter === "all" ||
+        (relationFilter === "following" && person.isFollowing) ||
+        (relationFilter === "followers" && person.isFollower);
+      const searchMatches =
+        !normalizedSearch ||
+        person.username.toLowerCase().includes(normalizedSearch) ||
+        person.displayName.toLowerCase().includes(normalizedSearch);
+      return relationMatches && searchMatches;
+    });
+  }, [people, relationFilter, search]);
+
+  const toggleFriend = async (friendId: string) => {
+    if (savingFriendId) return;
+    const wasSelected = selectedIds.has(friendId);
+    if (!wasSelected && selectedIds.size >= 15) {
+      toast.error("Maximum 15 Close Friends allowed");
+      return;
+    }
+
+    const previous = selectedIds;
+    const next = new Set(selectedIds);
+    if (wasSelected) next.delete(friendId);
+    else next.add(friendId);
+    setSelectedIds(next);
+    setSavingFriendId(friendId);
+    try {
+      const result = wasSelected
+        ? await supabase
+            .from("user_close_friends")
+            .delete()
+            .eq("user_id", userId)
+            .eq("friend_id", friendId)
+        : await supabase.from("user_close_friends").upsert(
+            { user_id: userId, friend_id: friendId },
+            {
+              onConflict: "user_id,friend_id",
+              ignoreDuplicates: true,
+            },
+          );
+      if (result.error) throw result.error;
+    } catch (error) {
+      setSelectedIds(previous);
+      const message = error instanceof Error ? error.message : "";
+      if (message.includes("Maximum 15 Close Friends allowed")) {
+        toast.error("Maximum 15 Close Friends allowed");
+      } else {
+        toast.error(message || "Couldn't update Close Friends");
+      }
+    } finally {
+      setSavingFriendId(null);
+    }
+  };
+
+  const loading = selectionLoading || following.loading || followers.loading;
+  const loadError = selectionError || !!following.error || !!followers.error;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between px-3 pt-1">
+        <span className="text-xs text-muted-foreground">
+          {selectedIds.size} of 15 selected
+        </span>
+      </div>
+      <label className="relative block px-3">
+        <Search
+          size={16}
+          className="pointer-events-none absolute left-6 top-1/2 -translate-y-1/2 text-muted-foreground"
+        />
+        <input
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Search followers and following"
+          className="w-full rounded-xl border border-border bg-background py-2.5 pl-9 pr-3 text-sm outline-none placeholder:text-muted-foreground focus:border-ring"
+        />
+      </label>
+      <div className="flex gap-2 px-3">
+        {(["all", "following", "followers"] as const).map((filter) => (
+          <button
+            key={filter}
+            type="button"
+            aria-pressed={relationFilter === filter}
+            onClick={() => setRelationFilter(filter)}
+            className={`rounded-full px-3 py-1.5 text-xs font-semibold capitalize ${
+              relationFilter === filter
+                ? "bg-primary text-primary-foreground"
+                : "bg-muted text-muted-foreground"
+            }`}
+          >
+            {filter === "all" ? "All" : filter}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div className="px-3 py-10 text-center text-sm text-muted-foreground">
+          Loading your connections…
+        </div>
+      ) : loadError ? (
+        <div className="px-3 py-10 text-center text-sm text-muted-foreground">
+          Could not load your followers and following.
+        </div>
+      ) : visiblePeople.length === 0 ? (
+        <div className="px-3 py-10 text-center text-sm text-muted-foreground">
+          {people.length === 0
+            ? "Follow people or get followers to add Close Friends."
+            : "No people found."}
+        </div>
+      ) : (
+        <div className="max-h-[52vh] space-y-1 overflow-y-auto px-1">
+          {visiblePeople.map((person) => {
+            const selected = selectedIds.has(person.id);
+            const relation = [
+              person.isFollowing ? "Following" : "",
+              person.isFollower ? "Follower" : "",
+            ]
+              .filter(Boolean)
+              .join(" · ");
+            return (
+              <div
+                key={person.id}
+                className="flex items-center gap-3 rounded-xl p-2 hover:bg-muted/50"
+              >
+                {person.avatarUrl ? (
+                  <img
+                    src={person.avatarUrl}
+                    alt=""
+                    className="h-10 w-10 shrink-0 rounded-full object-cover"
+                  />
+                ) : (
+                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary/15 text-sm font-semibold text-primary">
+                    {person.displayName.slice(0, 1).toUpperCase()}
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-semibold">
+                    {person.displayName}
+                  </div>
+                  <div className="truncate text-xs text-muted-foreground">
+                    @{person.username} · {relation}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  aria-label={
+                    selected
+                      ? `Remove ${person.displayName} from Close Friends`
+                      : `Add ${person.displayName} to Close Friends`
+                  }
+                  aria-pressed={selected}
+                  onClick={() => void toggleFriend(person.id)}
+                  className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-amber-400 transition hover:bg-muted"
+                >
+                  {savingFriendId === person.id ? (
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-amber-400/30 border-t-amber-400" />
+                  ) : (
+                    <Star size={20} fill={selected ? "currentColor" : "none"} />
+                  )}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HiddenCreatorsManager({ userId }: { userId: string }) {
+  const [creators, setCreators] = useState<ManagedCreator[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setLoadError(false);
+    void (async () => {
+      const { data: rows, error } = await supabase
+        .from("user_hidden_creators")
+        .select("creator_id,created_at")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      const creatorIds = [...new Set((rows ?? []).map((row) => row.creator_id))];
+      if (creatorIds.length === 0) {
+        if (active) {
+          setCreators([]);
+          setLoading(false);
+        }
+        return;
+      }
+      const { data: profiles, error: profilesError } = await supabase.rpc(
+        "get_public_profiles",
+        { ids: creatorIds },
+      );
+      if (profilesError) throw profilesError;
+      const profileById = new Map(
+        ((profiles as PublicProfile[] | null) ?? []).map((profile) => [
+          profile.id,
+          profile,
+        ]),
+      );
+      const next = await Promise.all(
+        creatorIds.map(async (creatorId) => {
+          const profile = profileById.get(creatorId);
+          return {
+            id: creatorId,
+            username: profile?.username?.trim() || "user",
+            displayName:
+              profile?.display_name?.trim() ||
+              profile?.username?.trim() ||
+              "YourWorld user",
+            avatarUrl: profile?.avatar_url
+              ? await resolveMediaUrl(profile.avatar_url, "avatars")
+              : null,
+          };
+        }),
+      );
+      if (active) {
+        setCreators(next);
+        setLoading(false);
+      }
+    })().catch((error: unknown) => {
+      if (!active) return;
+      console.error("[settings] Could not load hidden creators", error);
+      setLoadError(true);
+      setLoading(false);
+    });
+    return () => {
+      active = false;
+    };
+  }, [userId]);
+
+  const unhideCreator = async (creator: ManagedCreator) => {
+    if (removingId) return;
+    setRemovingId(creator.id);
+    try {
+      await setLongVideoCreatorHidden(userId, creator.id, false);
+      setCreators((current) => current.filter((item) => item.id !== creator.id));
+      toast.success("Creator unhidden");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't unhide creator");
+    } finally {
+      setRemovingId(null);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="px-3 py-10 text-center text-sm text-muted-foreground">
+        Loading hidden creators…
+      </div>
+    );
+  }
+  if (loadError) {
+    return (
+      <div className="px-3 py-10 text-center text-sm text-muted-foreground">
+        Could not load Hidden Creators. Please try again.
+      </div>
+    );
+  }
+  if (creators.length === 0) {
+    return (
+      <div className="px-3 py-10 text-center">
+        <div className="text-sm font-semibold">No hidden creators</div>
+        <div className="mt-1 text-xs text-muted-foreground">
+          Creators you hide from long-video recommendations will appear here.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-h-[60vh] space-y-1 overflow-y-auto">
+      {creators.map((creator) => (
+        <div
+          key={creator.id}
+          className="flex items-center gap-3 rounded-xl p-2 hover:bg-muted/50"
+        >
+          {creator.avatarUrl ? (
+            <img
+              src={creator.avatarUrl}
+              alt=""
+              className="h-10 w-10 shrink-0 rounded-full object-cover"
+            />
+          ) : (
+            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary/15 text-sm font-semibold text-primary">
+              {creator.displayName.slice(0, 1).toUpperCase()}
+            </div>
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-semibold">{creator.displayName}</div>
+            <div className="truncate text-xs text-muted-foreground">@{creator.username}</div>
+          </div>
+          <button
+            type="button"
+            disabled={removingId === creator.id}
+            onClick={() => void unhideCreator(creator)}
+            className="rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-foreground transition hover:bg-muted disabled:opacity-50"
+          >
+            {removingId === creator.id ? "Removing…" : "Remove"}
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Panel({
   title,
   onClose,
   children,
   backLabel,
+  onBack,
 }: {
   title: string;
   onClose: () => void;
   children: React.ReactNode;
   backLabel?: string;
+  onBack?: () => void;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center sm:justify-center">
@@ -585,7 +1042,7 @@ function Panel({
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-base font-bold">{title}</h2>
           <button
-            onClick={onClose}
+            onClick={backLabel ? onBack ?? onClose : onClose}
             aria-label={backLabel ?? "Close"}
             className="p-1.5 text-muted-foreground hover:text-foreground"
           >

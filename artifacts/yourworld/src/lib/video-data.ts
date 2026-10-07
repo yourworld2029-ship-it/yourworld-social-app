@@ -54,6 +54,10 @@ import {
   VIDEO_FEED_SUPPRESSION_EVENT,
   type VideoFeedSuppressionDetail,
 } from "@/lib/video-context-actions";
+import {
+  LONG_VIDEO_CREATOR_VISIBILITY_EVENT,
+  type LongVideoCreatorVisibilityDetail,
+} from "@/lib/long-video-preferences";
 
 const liveLikesTable = () => supabase.from("likes");
 
@@ -937,26 +941,41 @@ export async function loadLongVideosByIds(ids: readonly string[]): Promise<LongV
   );
 }
 
+export async function loadSavedLongVideos(userId: string): Promise<LongVideo[]> {
+  const { data, error } = await supabase
+    .from("post_saves")
+    .select("post_id,created_at")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return loadLongVideosByIds((data ?? []).map((row) => row.post_id));
+}
+
 async function filterSuppressedLongVideos(
   videos: LongVideo[],
   userId: string | null,
 ): Promise<LongVideo[]> {
   if (!userId || videos.length === 0) return videos;
   const postIds = videos.map((video) => video.id);
-  const [preferencesResult, mutedCreatorsResult] = await Promise.all([
+  const [preferencesResult, mutedCreatorsResult, hiddenCreatorsResult] = await Promise.all([
     supabase
       .from("user_post_preferences")
       .select("post_id")
       .eq("user_id", userId)
       .in("post_id", postIds),
     supabase.from("user_muted_creators").select("creator_id").eq("user_id", userId),
+    supabase.from("user_hidden_creators").select("creator_id").eq("user_id", userId),
   ]);
   if (preferencesResult.error) throw preferencesResult.error;
   if (mutedCreatorsResult.error) throw mutedCreatorsResult.error;
+  if (hiddenCreatorsResult.error) throw hiddenCreatorsResult.error;
   const hiddenPostIds = new Set((preferencesResult.data ?? []).map((row) => row.post_id));
-  const mutedCreatorIds = new Set((mutedCreatorsResult.data ?? []).map((row) => row.creator_id));
+  const suppressedCreatorIds = new Set([
+    ...(mutedCreatorsResult.data ?? []).map((row) => row.creator_id),
+    ...(hiddenCreatorsResult.data ?? []).map((row) => row.creator_id),
+  ]);
   return videos.filter(
-    (video) => !hiddenPostIds.has(video.id) && !mutedCreatorIds.has(video.userId),
+    (video) => !hiddenPostIds.has(video.id) && !suppressedCreatorIds.has(video.userId),
   );
 }
 
@@ -1063,8 +1082,33 @@ export function useLongVideos() {
           : current,
       );
     };
+    const onLongVideoCreatorVisibilityChange = (event: Event) => {
+      const detail = (event as CustomEvent<LongVideoCreatorVisibilityDetail>).detail;
+      if (!detail?.creatorId) return;
+      if (!detail.hidden) {
+        void queryClient.invalidateQueries({ queryKey });
+        return;
+      }
+      queryClient.setQueryData<InfiniteData<LongVideoPage, number>>(queryKey, (current) =>
+        current
+          ? {
+              ...current,
+              pages: current.pages.map((page) => ({
+                ...page,
+                videos: page.videos.filter(
+                  (video) => video.userId !== detail.creatorId,
+                ),
+              })),
+            }
+          : current,
+      );
+    };
     window.addEventListener(PUBLISHED_POST_EVENT, onPublishedPost);
     window.addEventListener(VIDEO_FEED_SUPPRESSION_EVENT, onVideoFeedSuppression);
+    window.addEventListener(
+      LONG_VIDEO_CREATOR_VISIBILITY_EVENT,
+      onLongVideoCreatorVisibilityChange,
+    );
     let channel: ReturnType<typeof supabase.channel> | null = null;
     const boot = window.setTimeout(() => {
       channel = supabase
@@ -1080,6 +1124,10 @@ export function useLongVideos() {
       unsubscribeFromDeletes();
       window.removeEventListener(PUBLISHED_POST_EVENT, onPublishedPost);
       window.removeEventListener(VIDEO_FEED_SUPPRESSION_EVENT, onVideoFeedSuppression);
+      window.removeEventListener(
+        LONG_VIDEO_CREATOR_VISIBILITY_EVENT,
+        onLongVideoCreatorVisibilityChange,
+      );
       if (channel) void supabase.removeChannel(channel);
     };
   }, [queryClient, queryKey]);

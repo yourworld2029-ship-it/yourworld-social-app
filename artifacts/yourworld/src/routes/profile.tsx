@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -83,6 +83,7 @@ import {
   type DownloadedVideo,
   type DownloadedVideoMetadata,
 } from "@/lib/yw-download";
+import { loadSavedLongVideos } from "@/lib/video-data";
 import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadSheet";
 import {
   effectiveDownloadSourceQuality,
@@ -109,7 +110,10 @@ import {
 export const Route = createFileRoute("/profile")({
   validateSearch: (
     search: Record<string, unknown>,
-  ): { connections?: "followers" | "following"; tab?: "videos" | "reels" | "downloads" } => ({
+  ): {
+    connections?: "followers" | "following";
+    tab?: "videos" | "reels" | "saved" | "downloads";
+  } => ({
     connections:
       search.connections === "following"
         ? "following"
@@ -119,11 +123,13 @@ export const Route = createFileRoute("/profile")({
       tab:
         search.tab === "reels"
           ? "reels"
-          : search.tab === "downloads"
-            ? "downloads"
-          : search.tab === "videos"
-              ? "videos"
-              : undefined,
+          : search.tab === "saved"
+            ? "saved"
+            : search.tab === "downloads"
+              ? "downloads"
+              : search.tab === "videos"
+                ? "videos"
+                : undefined,
   }),
   head: () => ({
     meta: [
@@ -166,6 +172,15 @@ function ProfilePage() {
   const navigate = useNavigate();
   const { isMediaDownloadInProgress } = useMediaConcurrency();
   const { connections, tab } = Route.useSearch();
+  const savedVideosQuery = useQuery({
+    queryKey: ["saved-long-videos", userId],
+    queryFn: () => {
+      if (!userId) throw new Error("Sign in to load saved videos");
+      return loadSavedLongVideos(userId);
+    },
+    enabled: Boolean(userId && tab === "saved"),
+    staleTime: 0,
+  });
   const { activateVideo } = useVideoPlayback();
   const [downloads, setDownloads] = useState<DownloadedVideo[]>([]);
   const [downloadsLoading, setDownloadsLoading] = useState(false);
@@ -982,6 +997,9 @@ function ProfilePage() {
       reels={reels}
       downloads={downloads}
       downloadsLoading={downloadsLoading}
+      savedVideos={savedVideosQuery.data ?? []}
+      savedVideosLoading={savedVideosQuery.isLoading}
+      savedVideosError={savedVideosQuery.isError}
       mediaLoading={mediaLoading}
       counts={counts}
       sportsProfile={sportsProfile}
@@ -1029,6 +1047,19 @@ function ProfilePage() {
       onManage={openManage}
       onOpenDownload={(record) => void openDownloadedVideo(record)}
       onDeleteDownload={deleteDownloadedVideo}
+      onOpenSavedVideo={(video) =>
+        void navigate({
+          to: "/video/$videoId",
+          params: { videoId: video.id },
+        })
+      }
+      onOpenOfflineDownloads={() =>
+        void navigate({
+          to: "/profile",
+          search: { connections: undefined, tab: "downloads" },
+          replace: true,
+        })
+      }
       onOpenDownloadAthlete={(record) => {
         if (record.creatorId) {
           void navigate({ to: "/u/$userId", params: { userId: record.creatorId } });

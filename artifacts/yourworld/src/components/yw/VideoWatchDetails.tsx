@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import {
-  Download,
+  Bookmark,
   MessageCircle,
   Share2,
   ThumbsDown,
@@ -24,12 +24,7 @@ import {
 import { formatVideoDuration } from "@/lib/video-duration";
 import { formatCount } from "@/lib/yw-data";
 import { buildWatchShareUrl } from "@/lib/watch-links";
-import {
-  isMediaDownloadLocked,
-  showMediaDownloadBusyToast,
-  useMediaConcurrency,
-  type MediaDownloadLease,
-} from "@/lib/media-concurrency";
+import type { MediaDownloadLease } from "@/lib/media-concurrency";
 
 type Props = {
   video: LongVideo;
@@ -40,6 +35,9 @@ type Props = {
   isOwner: boolean;
   isSwitching: boolean;
   isLiking: boolean;
+  isSaved: boolean;
+  isSaving: boolean;
+  isSaveStateLoading: boolean;
   isDownloading: boolean;
   sourceMediaUrl: string | null;
   sourceQualityTier?: VideoQualityTier | null;
@@ -47,6 +45,7 @@ type Props = {
   onLike: () => void;
   onDislike: () => void;
   onFollow: () => void;
+  onToggleSave: () => void;
   onDownload: (
     choice: DownloadChoice,
     onProgress?: (percent: number) => void,
@@ -173,7 +172,9 @@ export function VideoWatchDetails({
   isOwner,
   isSwitching,
   isLiking,
-  isDownloading,
+  isSaved,
+  isSaving,
+  isSaveStateLoading,
   sourceMediaUrl,
   sourceQualityTier,
   qualityMediaUrls,
@@ -181,6 +182,7 @@ export function VideoWatchDetails({
   onDislike,
   onFollow,
   onDownload,
+  onToggleSave,
   onSelectVideo,
   recommendationsFooter,
   initialCommentsOpen = false,
@@ -188,7 +190,6 @@ export function VideoWatchDetails({
 }: Props) {
   const [commentCount, setCommentCount] = useState(video.commentCount);
   const [downloadOpen, setDownloadOpen] = useState(false);
-  const { isMediaDownloadInProgress } = useMediaConcurrency();
   const shareUrl =
     typeof window === "undefined"
       ? undefined
@@ -320,35 +321,24 @@ export function VideoWatchDetails({
 
           <button
             type="button"
-            data-testid="button-download-video"
-            aria-label="Download video"
-            aria-disabled={
-              isSwitching ||
-              isDownloading ||
-              !sourceMediaUrl ||
-              isMediaDownloadInProgress
-            }
-            disabled={isSwitching || !sourceMediaUrl}
-            onClick={() => {
-              if (isMediaDownloadLocked()) {
-                showMediaDownloadBusyToast();
-                return;
-              }
-              if (!isDownloading) setDownloadOpen(true);
-            }}
-            className="inline-flex h-9 w-full min-w-0 items-center justify-center gap-0.5 rounded-full border border-white/10 bg-white/10 px-1 text-[9px] font-semibold tracking-tight text-white shadow-sm backdrop-blur-md transition-all hover:bg-white/20 disabled:opacity-50 sm:text-[10px]"
-            style={
-              isMediaDownloadInProgress || isDownloading
-                ? { opacity: 0.5, cursor: "not-allowed" }
-                : undefined
-            }
+            data-testid="button-save-video"
+            aria-label={isSaved ? "Remove video from saved" : "Save video"}
+            aria-pressed={isSaved}
+            disabled={isSwitching || isSaving || isSaveStateLoading}
+            onClick={onToggleSave}
+            className={`inline-flex h-9 w-full min-w-0 items-center justify-center gap-0.5 rounded-full border border-white/10 bg-white/10 px-1 text-[9px] font-semibold tracking-tight shadow-sm backdrop-blur-md transition-all hover:bg-white/20 disabled:opacity-50 sm:text-[10px] ${
+              isSaved ? "text-pink-300" : "text-white"
+            }`}
           >
-            {isDownloading ? (
+            {isSaving ? (
               <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/25 border-t-white" />
             ) : (
-              <Download className="h-3.5 w-3.5 shrink-0" />
+              <Bookmark
+                className="h-3.5 w-3.5 shrink-0"
+                fill={isSaved ? "currentColor" : "none"}
+              />
             )}
-            <span>{isDownloading ? "Saving…" : "Download"}</span>
+            <span>{isSaving ? "Saving…" : isSaved ? "Saved" : "Save"}</span>
           </button>
         </div>
 

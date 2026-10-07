@@ -4,6 +4,10 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import {
+  getPostFavoriteState,
+  togglePostFavorite,
+} from "@/lib/video-context-actions";
+import {
   loadLongVideosByIds,
   resolveLongVideoUrl,
   useLongVideos,
@@ -213,6 +217,11 @@ function VideoRouteComponent() {
   const loadMoreTargetRef = useRef<HTMLDivElement | null>(null);
   const [lastPlayableData, setLastPlayableData] = useState<VideoRouteData | null>(null);
   const [isLiking, setIsLiking] = useState(false);
+  const [savedVideoState, setSavedVideoState] = useState<{
+    videoId: string;
+    saved: boolean | null;
+  } | null>(null);
+  const [isSavingVideo, setIsSavingVideo] = useState(false);
   const [disliked, setDisliked] = useState(false);
   const [likeOverride, setLikeOverride] = useState<{
     videoId: string;
@@ -246,6 +255,39 @@ function VideoRouteComponent() {
   const visibleData =
     currentData ?? lastRouteData ?? cachedRouteData ?? lastPlayableData;
   const video = visibleData?.video ?? null;
+  const isSaved = Boolean(
+    savedVideoState &&
+      savedVideoState.videoId === video?.id &&
+      savedVideoState.saved === true,
+  );
+  const isSaveStateLoading =
+    !!video &&
+    !!user?.id &&
+    (savedVideoState?.videoId !== video.id || savedVideoState.saved === null);
+
+  useEffect(() => {
+    if (!video?.id) {
+      setSavedVideoState(null);
+      return;
+    }
+    if (!user?.id) {
+      setSavedVideoState({ videoId: video.id, saved: false });
+      return;
+    }
+    let active = true;
+    setSavedVideoState({ videoId: video.id, saved: null });
+    void getPostFavoriteState(user.id, video.id)
+      .then((saved) => {
+        if (active) setSavedVideoState({ videoId: video.id, saved });
+      })
+      .catch((error) => {
+        console.warn("Couldn't load saved video state", error);
+        if (active) setSavedVideoState({ videoId: video.id, saved: false });
+      });
+    return () => {
+      active = false;
+    };
+  }, [user?.id, video?.id]);
   const hasResolvedRouteData = Boolean(currentData || lastRouteData);
   const isCurrentVideo = video?.id === videoId && Boolean(currentData);
   const isSwitching = query.isFetching || (!!video && video.id !== videoId);
@@ -560,6 +602,30 @@ function VideoRouteComponent() {
     }
   };
 
+  const handleToggleSavedVideo = async () => {
+    if (!video?.id || !user?.id || isSavingVideo) {
+      if (!user?.id) toast.error("Sign in to save videos");
+      return;
+    }
+    setIsSavingVideo(true);
+    try {
+      const currentSaved =
+        savedVideoState?.videoId === video.id && savedVideoState.saved !== null
+          ? savedVideoState.saved
+          : await getPostFavoriteState(user.id, video.id);
+      const nextSaved = await togglePostFavorite(user.id, video.id, currentSaved);
+      setSavedVideoState({ videoId: video.id, saved: nextSaved });
+      toast.success(nextSaved ? "Saved to your list" : "Removed from saved");
+      void queryClient.invalidateQueries({
+        queryKey: ["saved-long-videos", user.id],
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't update saved videos");
+    } finally {
+      setIsSavingVideo(false);
+    }
+  };
+
   const handleSelectVideo = (nextVideo: LongVideo) => {
     const scrollContainers = [
       ...document.querySelectorAll<HTMLElement>(
@@ -654,6 +720,9 @@ function VideoRouteComponent() {
       isOwner={isOwner}
       isSwitching={isSwitching}
       isLiking={isLiking}
+      isSaved={isSaved}
+      isSaving={isSavingVideo}
+      isSaveStateLoading={isSaveStateLoading}
       isDownloading={isDownloading}
       sourceMediaUrl={isCurrentVideo ? query.data?.url ?? null : null}
       sourceQualityTier={video.sourceQualityTier}
@@ -663,6 +732,7 @@ function VideoRouteComponent() {
       onLike={() => void handleLike()}
       onDislike={handleDislike}
       onFollow={handleFollow}
+      onToggleSave={() => void handleToggleSavedVideo()}
       onDownload={handleDownload}
       onSelectVideo={handleSelectVideo}
       recommendationsFooter={

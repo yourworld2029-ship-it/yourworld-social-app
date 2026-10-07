@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import {
   Eye, Heart, Clock, MessageCircle, Send,
-  MoreHorizontal, Link2, Trash2, EyeOff, Pencil, Flag, UserX, VolumeX, Star,
+  MoreHorizontal, Trash2, EyeOff, Flag, UserX, VolumeX,
 } from "lucide-react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
@@ -29,7 +29,6 @@ import { formatCount } from "@/lib/yw-data";
 import { useYw } from "@/lib/yw-store";
 import { useAuth, useResumeAuthAction } from "@/lib/auth-store";
 import { cn } from "@/lib/utils";
-import { PostEditDialog } from "@/components/yw/PostEditDialog";
 import { resolveMediaUrl, type DbPost } from "@/lib/social-data";
 import { buildWatchShareUrl } from "@/lib/watch-links";
 import { requestVideoResume } from "@/lib/video-resume";
@@ -37,13 +36,11 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   announceVideoCreatorMuted,
   announceVideoPostSuppressed,
-  copyShareLink,
-  getPostFavoriteState,
   markPostNotInterested,
   muteVideoCreator,
   submitVideoReport,
-  togglePostFavorite,
 } from "@/lib/video-context-actions";
+import { setLongVideoCreatorHidden } from "@/lib/long-video-preferences";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -113,7 +110,6 @@ export function LongVideoCard({
   currentUserId = null,
   initialResumeTime,
   onDeleted,
-  onEdited,
 }: Props) {
   const navigate = useNavigate();
   const previewId = `feed:${video.id}:${useId()}`;
@@ -133,14 +129,11 @@ export function LongVideoCard({
   const { user, requestAuthAction } = useAuth();
   const [hidden, setHidden] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [editOpen, setEditOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportReason, setReportReason] = useState("Inappropriate content");
   const [reporting, setReporting] = useState(false);
   const [contextActionBusy, setContextActionBusy] = useState(false);
-  const [isFavorite, setIsFavorite] = useState(false);
-  const [favoriteLoaded, setFavoriteLoaded] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [commentCount, setCommentCount] = useState(video.commentCount);
   const [liking, setLiking] = useState(false);
@@ -150,29 +143,6 @@ export function LongVideoCard({
   const isFollowing = !!following[video.userId];
   const shareUrl =
     typeof window !== "undefined" ? buildWatchShareUrl(video.id, "video") : undefined;
-
-  useEffect(() => {
-    setFavoriteLoaded(false);
-    setIsFavorite(false);
-  }, [video.id, viewerId]);
-
-  useEffect(() => {
-    if (!menuOpen || !viewerId) return;
-    let alive = true;
-    void getPostFavoriteState(viewerId, video.id)
-      .then((saved) => {
-        if (alive) {
-          setIsFavorite(saved);
-          setFavoriteLoaded(true);
-        }
-      })
-      .catch((error) => {
-        console.warn("Unable to load video favorite state", error);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [menuOpen, video.id, viewerId]);
 
   const handleLike = async () => {
     if (!user?.id && !currentUserId) {
@@ -207,16 +177,6 @@ export function LongVideoCard({
     void toggleFollow(video.userId);
   });
 
-  const copyLink = async () => {
-    setMenuOpen(false);
-    try {
-      await copyShareLink(shareUrl ?? "");
-      toast.success("Link copied to clipboard");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not copy link");
-    }
-  };
-
   const handleNotInterested = async () => {
     setMenuOpen(false);
     if (!viewerId || contextActionBusy) {
@@ -227,6 +187,24 @@ export function LongVideoCard({
     try {
       await markPostNotInterested(viewerId, video.id);
       announceVideoPostSuppressed(video.id);
+      setHidden(true);
+      toast.success("We'll show fewer posts like this");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't update your feed");
+    } finally {
+      setContextActionBusy(false);
+    }
+  };
+
+  const handleDontRecommendCreator = async () => {
+    setMenuOpen(false);
+    if (!viewerId || contextActionBusy) {
+      if (!viewerId) toast.error("Sign in to update your feed");
+      return;
+    }
+    setContextActionBusy(true);
+    try {
+      await setLongVideoCreatorHidden(viewerId, video.userId, true);
       setHidden(true);
       toast.success("We'll show fewer posts like this");
     } catch (error) {
@@ -250,28 +228,6 @@ export function LongVideoCard({
       toast.success("Creator muted");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Couldn't mute this creator");
-    } finally {
-      setContextActionBusy(false);
-    }
-  };
-
-  const handleFavorite = async () => {
-    setMenuOpen(false);
-    if (!viewerId || contextActionBusy) {
-      if (!viewerId) toast.error("Sign in to save videos");
-      return;
-    }
-    setContextActionBusy(true);
-    try {
-      const currentSaved = favoriteLoaded
-        ? isFavorite
-        : await getPostFavoriteState(viewerId, video.id);
-      const nextSaved = await togglePostFavorite(viewerId, video.id, currentSaved);
-      setIsFavorite(nextSaved);
-      setFavoriteLoaded(true);
-      toast.success(nextSaved ? "Added to Favorites" : "Removed from Favorites");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Couldn't update Favorites");
     } finally {
       setContextActionBusy(false);
     }
@@ -320,27 +276,6 @@ export function LongVideoCard({
     } finally {
       setDeleting(false);
     }
-  };
-
-  const editPost: DbPost = {
-    id: video.id,
-    user_id: video.userId,
-    kind: "video",
-    title: video.title,
-    media_url: video.mediaUrl,
-    video_url: video.mediaUrl,
-    media_type: video.videoType ?? "video/mp4",
-    thumbnail_url: video.thumbnailUrl,
-    duration_seconds: video.durationSeconds,
-    original_width: video.originalWidth,
-    original_height: video.originalHeight,
-    caption: video.caption,
-    hashtags: video.hashtags,
-    location: null,
-    audio: null,
-    allow_download: true,
-    created_at: video.createdAt,
-    comments_off: video.commentsOff,
   };
 
   const upcoming =
@@ -480,16 +415,13 @@ export function LongVideoCard({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-52">
-              <DropdownMenuItem onClick={() => void copyLink()}>
-                <Link2 className="mr-2 h-4 w-4" /> Copy Link
-              </DropdownMenuItem>
               {!isMine && (
                 <DropdownMenuItem onClick={() => void handleNotInterested()}>
                   <EyeOff className="mr-2 h-4 w-4" /> Not Interested
                 </DropdownMenuItem>
               )}
               {!isMine && (
-                <DropdownMenuItem onClick={() => void handleMuteCreator()}>
+                <DropdownMenuItem onClick={() => void handleDontRecommendCreator()}>
                   <UserX className="mr-2 h-4 w-4" /> Don't Recommend Creator
                 </DropdownMenuItem>
               )}
@@ -506,20 +438,6 @@ export function LongVideoCard({
                   }}
                 >
                   <Flag className="mr-2 h-4 w-4" /> Report
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem onClick={() => void handleFavorite()}>
-                <Star className="mr-2 h-4 w-4" />
-                {isFavorite ? "Remove from Favorites" : "Add to Favorites"}
-              </DropdownMenuItem>
-              {isMine && (
-                <DropdownMenuItem
-                  onClick={() => {
-                    setMenuOpen(false);
-                    setEditOpen(true);
-                  }}
-                >
-                  <Pencil className="mr-2 h-4 w-4" /> Edit video
                 </DropdownMenuItem>
               )}
               {isMine && (
@@ -613,13 +531,6 @@ export function LongVideoCard({
         </div>
       </div>
     </article>
-    <PostEditDialog
-      open={editOpen}
-      post={editPost}
-      userId={video.userId}
-      onOpenChange={setEditOpen}
-      onSaved={(post) => onEdited?.(post)}
-    />
     <AlertDialog open={reportOpen} onOpenChange={(open) => !reporting && setReportOpen(open)}>
       <AlertDialogContent>
         <AlertDialogHeader>
