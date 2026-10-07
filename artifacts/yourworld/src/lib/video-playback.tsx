@@ -1966,7 +1966,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   );
 
   const handlePlayerSurfaceClick = useCallback(
-    (event: ReactMouseEvent<HTMLDivElement>) => {
+    (event: ReactMouseEvent<HTMLElement>) => {
       if (!isDetailPlayer) return;
       if (Date.now() < suppressSyntheticClickUntilRef.current) return;
       const target = event.target;
@@ -2080,7 +2080,6 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       };
       if (isFullscreen && zone !== "navigation") {
         event.stopPropagation();
-        if (event.cancelable) event.preventDefault();
       }
     },
     [isAndroidApp, isDetailPlayer, isFullscreen, mediaVolume, screenLocked, zoom],
@@ -2225,8 +2224,8 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       if (!gesture) return;
       if (gesture.zone !== "navigation") {
         event.stopPropagation();
-        if (event.cancelable) event.preventDefault();
         if (gesture.moved) {
+          if (event.cancelable) event.preventDefault();
           suppressSyntheticClickUntilRef.current = Date.now() + 500;
         }
         return;
@@ -2651,7 +2650,11 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                 data-player-surface
                 data-testid="video-playback-surface"
                 aria-label={controlsVisible ? "Hide player controls" : "Show player controls"}
-                className="absolute inset-0 z-[30] block w-full cursor-pointer bg-transparent p-0 focus-visible:outline-none"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handlePlayerSurfaceClick(event);
+                }}
+                className="pointer-events-auto absolute inset-0 z-[30] block w-full cursor-pointer bg-transparent p-0 focus-visible:outline-none"
               />
             ) : null}
 
