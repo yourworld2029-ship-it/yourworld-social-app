@@ -33,6 +33,7 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        registerPlugin(DeviceFingerprintPlugin.class);
         registerPlugin(PrivacyBridgePlugin.class);
         registerPlugin(CallAudioRoutingPlugin.class);
         registerPlugin(CallPushPlugin.class);

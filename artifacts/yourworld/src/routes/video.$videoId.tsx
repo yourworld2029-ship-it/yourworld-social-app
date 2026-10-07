@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
@@ -11,6 +11,7 @@ import {
 } from "@/lib/video-data";
 import { isPlayableMediaUrl } from "@/lib/video-playback-engine";
 import { useVideoPlayback } from "@/lib/video-playback";
+import { useValidatedVideoViewTracker } from "@/lib/video-view-validation";
 import { consumeVideoResumeRequest } from "@/lib/video-resume";
 import {
   downloadAudioOnly,
@@ -203,8 +204,8 @@ function VideoRouteComponent() {
   const { focusComments, commentId } = Route.useSearch();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { activeVideo, activateVideo, closeVideo, isPlaying } = useVideoPlayback();
-  const { videos, countView, loadMore, hasNextPage, isFetchingNextPage } = useLongVideos();
+  const { activeVideo, activateVideo, closeVideo, isPlaying, videoRef } = useVideoPlayback();
+  const { videos, loadMore, hasNextPage, isFetchingNextPage } = useLongVideos();
   const { user, requestAuthAction } = useAuth();
   const { following, toggleFollow } = useYw();
   const resumeTimeRef = useRef<number | null>(null);
@@ -256,6 +257,26 @@ function VideoRouteComponent() {
     ? Number(likeOverride?.count ?? video?.likeCount ?? 0)
     : Number(video?.likeCount ?? 0);
   const isOwner = Boolean(video && user?.id === video.userId);
+  const getVideoElement = useCallback(() => videoRef.current, [videoRef]);
+  const handleValidatedView = useCallback(() => {
+    queryClient.setQueryData<VideoRouteData>(
+      ["long-video-playback", videoId],
+      (current) =>
+        current
+          ? { ...current, video: { ...current.video, views: current.video.views + 1 } }
+          : current,
+    );
+    void queryClient.invalidateQueries({ queryKey: ["long-videos"] });
+  }, [queryClient, videoId]);
+
+  useValidatedVideoViewTracker({
+    videoId,
+    ownerId: video?.userId,
+    currentUserId: user?.id,
+    enabled: isPlaying && activeVideo?.id === videoId && isCurrentVideo,
+    getVideoElement,
+    onCounted: handleValidatedView,
+  });
 
   useEffect(() => {
     resumeTimeRef.current = consumeVideoResumeRequest(videoId);
@@ -329,22 +350,6 @@ function VideoRouteComponent() {
     query.isError,
     validVideoId,
   ]);
-
-  useEffect(() => {
-    if (!isPlaying || activeVideo?.id !== videoId || !isCurrentVideo) return;
-    void countView(videoId)
-      .then((counted) => {
-        if (!counted) return;
-        queryClient.setQueryData<VideoRouteData>(
-          ["long-video-playback", videoId],
-          (current) =>
-            current
-              ? { ...current, video: { ...current.video, views: current.video.views + 1 } }
-              : current,
-        );
-      })
-      .catch(() => {});
-  }, [activeVideo?.id, countView, isCurrentVideo, isPlaying, queryClient, videoId]);
 
   useEffect(() => {
     if (!hasNextPage || isFetchingNextPage || !loadMoreTargetRef.current) return;

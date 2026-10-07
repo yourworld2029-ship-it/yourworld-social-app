@@ -113,6 +113,20 @@
       "when": 1788522400000,
       "tag": "0023_real_follows_and_unique_views",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1791350000000,
+      "tag": "0080_video_view_ledger_dual_key",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1791350001000,
+      "tag": "0081_preserve_legacy_post_view_behavior",
+      "breakpoints": true
     }
   ]
 }

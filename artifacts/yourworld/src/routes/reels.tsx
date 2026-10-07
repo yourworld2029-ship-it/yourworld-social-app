@@ -99,6 +99,7 @@ import {
   removeVideoResumeEntry,
   saveVideoResumeEntry,
 } from "@/lib/video-resume";
+import { useValidatedVideoViewTracker } from "@/lib/video-view-validation";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -245,7 +246,6 @@ function ReelsList() {
   const {
     posts: dbReels,
     toggleLike: toggleDbLike,
-    countView,
     currentUserId,
     removePost,
     loading,
@@ -313,11 +313,11 @@ function ReelsList() {
   });
   const viewedRef = useRef(new Set<string>());
   const recordView = useCallback(async (id: string) => {
-    if (viewedRef.current.has(id) || !currentUserId) return false;
-    const counted = await countView(id);
-    if (counted) viewedRef.current.add(id);
-    return counted;
-  }, [countView, currentUserId]);
+    if (viewedRef.current.has(id)) return false;
+    viewedRef.current.add(id);
+    void queryClient.invalidateQueries({ queryKey: ["social-posts"] });
+    return true;
+  }, [queryClient]);
 
   const handleBack = useCallback(() => {
     if (!scoped) return;
@@ -1043,11 +1043,22 @@ function ReelItem({
   const seekRaf = useRef<number | null>(null);
   const pendingSeek = useRef<number | null>(null);
   const playedSeconds = useRef(0);
-  const lastPlaybackTime = useRef<number | null>(null);
-  const viewRecorded = useRef(false);
   const lastResumeSavedAt = useRef(0);
   const resumeRemoved = useRef(false);
   const resumeApplied = useRef(false);
+  const getVideoElement = useCallback(() => (
+    mediaRef.current instanceof HTMLVideoElement ? mediaRef.current : null
+  ), []);
+
+  useValidatedVideoViewTracker({
+    videoId: reel.id,
+    ownerId: reel.userId,
+    currentUserId: viewer?.id ?? currentUserId,
+    enabled: active && !paused && mediaType === "video",
+    allowAutomaticLoop: true,
+    getVideoElement,
+    onCounted: onView,
+  });
 
   useEffect(() => {
     const wasPaused = previousPaused.current;
@@ -1057,8 +1068,26 @@ function ReelItem({
 
   useEffect(() => {
     playedSeconds.current = 0;
-    lastPlaybackTime.current = null;
-    viewRecorded.current = false;
+  }, [reel.id]);
+
+  useEffect(() => {
+    if (!active || paused || mediaType !== "video") return;
+    const timer = window.setInterval(() => {
+      const video = mediaRef.current instanceof HTMLVideoElement ? mediaRef.current : null;
+      if (
+        video &&
+        !video.paused &&
+        !video.seeking &&
+        video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+        document.visibilityState !== "hidden"
+      ) {
+        playedSeconds.current += 1;
+      }
+    }, 1_000);
+    return () => window.clearInterval(timer);
+  }, [active, mediaType, paused]);
+
+  useEffect(() => {
     lastResumeSavedAt.current = 0;
     resumeRemoved.current = false;
     resumeApplied.current = false;
@@ -1148,21 +1177,7 @@ function ReelItem({
       setProgress(Math.min(100, Math.max(0, (nextTime / video.duration) * 100)));
     }
     if (active) persistResumeAt(video);
-    const previous = lastPlaybackTime.current;
-    lastPlaybackTime.current = nextTime;
-    const delta = previous === null ? 0 : nextTime - previous;
-    if (active && !viewRecorded.current && delta > 0 && delta <= 2) {
-      playedSeconds.current += delta;
-      if (playedSeconds.current >= 3 && onView) {
-        viewRecorded.current = true;
-        void Promise.resolve(onView()).then((result) => {
-          if (result === false) viewRecorded.current = false;
-        }).catch(() => {
-          viewRecorded.current = false;
-        });
-      }
-    }
-  }, [active, onView, persistResumeAt]);
+  }, [active, persistResumeAt]);
 
   const handleEnded = useCallback((event: React.SyntheticEvent<HTMLVideoElement>) => {
     const video = event.currentTarget;
