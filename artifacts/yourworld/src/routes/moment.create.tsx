@@ -62,7 +62,15 @@ import { splitMomentIntoParts } from "@/lib/moment-parts";
 import { adaptiveCameraCaptureAttempts } from "@/lib/adaptive-performance";
 import { useAuth } from "@/lib/auth-store";
 import { useFollowList } from "@/lib/follow-data";
+import { resolveMediaUrl } from "@/lib/social-data";
+import { resolveLongVideoUrl } from "@/lib/video-data";
+import {
+  clearPendingMomentShare,
+  readPendingMomentShare,
+  type PendingMomentShare,
+} from "@/lib/moment-share";
 import { ProfileAvatar } from "@/components/yw/ProfileAvatar";
+import { SharedMomentPill } from "@/components/yw/SharedMomentPill";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/moment/create")({
@@ -291,17 +299,50 @@ function MomentCreatePage() {
   // MEDIA
   // =====================================================
 
+  const [sharedContent, setSharedContent] =
+    useState<PendingMomentShare | null>(() => readPendingMomentShare());
+
   const [step, setStep] =
-    useState<0 | 1 | 2>(0);
+    useState<0 | 1 | 2>(() => (sharedContent ? 1 : 0));
 
   const [mediaUrl, setMediaUrl] =
-    useState<string | null>(null);
+    useState<string | null>(() => sharedContent?.mediaUrl ?? null);
 
   const [, setMediaBlob] =
     useState<Blob | null>(null);
 
   const [isVideo, setIsVideo] =
-    useState(false);
+    useState(() => Boolean(sharedContent));
+
+  useEffect(() => {
+    if (!sharedContent) return;
+    clearPendingMomentShare();
+    if (/^(https?:\/\/|blob:|data:)/i.test(sharedContent.mediaUrl)) return;
+    let active = true;
+    void (async () => {
+      try {
+        const resolved =
+          sharedContent.mediaBucket === "videos"
+            ? await resolveLongVideoUrl(sharedContent.mediaUrl)
+            : await resolveMediaUrl(sharedContent.mediaUrl, "reels");
+        if (!active) return;
+        if (resolved) {
+          setMediaUrl(resolved);
+        } else {
+          setMediaUrl(null);
+          toast.error("Couldn't load the shared video preview.");
+        }
+      } catch (error) {
+        if (!active) return;
+        console.error("Could not resolve shared Moment media", error);
+        setMediaUrl(null);
+        toast.error("Couldn't load the shared video preview.");
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [sharedContent]);
 
   // =====================================================
   // EDITOR
@@ -958,12 +999,25 @@ function MomentCreatePage() {
       streamRef.current = stream;
 
       if (videoRef.current) {
-        videoRef.current.srcObject =
-          stream;
-
-        await videoRef.current
-          .play()
-          .catch(() => {});
+        const preview = videoRef.current;
+        preview.srcObject = stream;
+        await preview.play().catch(() => {});
+        if (preview.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || !preview.videoWidth) {
+          await new Promise<void>((resolve) => {
+            let settled = false;
+            const finish = () => {
+              if (settled) return;
+              settled = true;
+              window.clearTimeout(timeout);
+              preview.removeEventListener("loadeddata", finish);
+              preview.removeEventListener("playing", finish);
+              resolve();
+            };
+            const timeout = window.setTimeout(finish, 4000);
+            preview.addEventListener("loadeddata", finish, { once: true });
+            preview.addEventListener("playing", finish, { once: true });
+          });
+        }
       }
 
       const track =
@@ -1620,6 +1674,7 @@ function MomentCreatePage() {
   // =====================================================
 
   const resetEditor = () => {
+    setSharedContent(null);
     setSelectedFilter("normal");
     setBrightness(100);
     setContrast(100);
@@ -2178,114 +2233,27 @@ function MomentCreatePage() {
     return canvas;
   };
 
-  const renderEditorVideo = async () => {
-    if (!mediaUrl || !frameRef.current || !HTMLCanvasElement.prototype.captureStream) {
-      return null;
-    }
-
-    const frame = frameRef.current.getBoundingClientRect();
-    const width = Math.max(1, frame.width);
-    const height = Math.max(1, frame.height);
-    const pixelRatio = Math.min(2, window.devicePixelRatio || 1);
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.round(width * pixelRatio);
-    canvas.height = Math.round(height * pixelRatio);
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-
-    const source = document.createElement("video");
-    source.src = mediaUrl;
-    source.preload = "auto";
-    source.playsInline = true;
-    source.crossOrigin = "anonymous";
-
-    await new Promise<void>((resolve, reject) => {
-      source.onloadedmetadata = () => resolve();
-      source.onerror = () => reject(new Error("Could not load video render source"));
-    });
-
-    const canvasStream = canvas.captureStream(30);
-    let audioContext: AudioContext | null = null;
-    try {
-      audioContext = new AudioContext();
-      const audioSource = audioContext.createMediaElementSource(source);
-      const audioDestination = audioContext.createMediaStreamDestination();
-      audioSource.connect(audioDestination);
-      audioDestination.stream
-        .getAudioTracks()
-        .forEach((track) => canvasStream.addTrack(track));
-    } catch {
-      audioContext = null;
-    }
-
-    const mimeType = [
-      "video/webm;codecs=vp8,opus",
-      "video/webm",
-    ].find((type) => MediaRecorder.isTypeSupported(type));
-    if (!mimeType) {
-      audioContext?.close();
-      return null;
-    }
-
-    const recorder = new MediaRecorder(canvasStream, { mimeType });
-    const chunks: Blob[] = [];
-    const finished = new Promise<Blob>((resolve) => {
-      recorder.ondataavailable = (event) => {
-        if (event.data.size) chunks.push(event.data);
-      };
-      recorder.onstop = () => {
-        resolve(new Blob(chunks, { type: mimeType }));
-      };
-    });
-
-    const stop = () => {
-      if (recorder.state !== "inactive") recorder.stop();
-      source.pause();
-      audioContext?.close();
-    };
-
-    await source.play();
-    recorder.start();
-
-    const drawFrame = () => {
-      drawEditorFrame(
-        ctx,
-        width,
-        height,
-        pixelRatio,
-        source,
-        source.videoWidth,
-        source.videoHeight,
-      );
-      if (
-        source.ended ||
-        (Number.isFinite(source.duration) &&
-          source.currentTime >= source.duration - 0.05)
-      ) {
-        stop();
-      } else {
-        requestAnimationFrame(drawFrame);
-      }
-    };
-
-    drawFrame();
-    const blob = await finished;
-    const url = URL.createObjectURL(blob);
-    registerBlob(url, blob);
-    return url;
-  };
-
   const openFinalPreview = async () => {
+    if (isVideo) {
+      setRenderedPreviewUrl(null);
+      if (renderedMediaUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(renderedMediaUrl);
+        unregisterBlob(renderedMediaUrl);
+      }
+      setRenderedMediaUrl(null);
+      setIsRenderingPreview(false);
+      setShowFinalPreview(true);
+      return;
+    }
     setIsRenderingPreview(true);
     try {
       const canvas = await renderEditorToCanvas();
       setRenderedPreviewUrl(canvas?.toDataURL("image/jpeg", 0.96) ?? null);
       if (renderedMediaUrl?.startsWith("blob:")) {
         URL.revokeObjectURL(renderedMediaUrl);
+        unregisterBlob(renderedMediaUrl);
       }
-      if (isVideo) {
-        setRenderedMediaUrl(await renderEditorVideo());
-      } else if (canvas) {
+      if (canvas) {
         const blob = await new Promise<Blob | null>((resolve) =>
           canvas.toBlob(resolve, "image/jpeg", 0.96),
         );
@@ -2422,12 +2390,11 @@ function MomentCreatePage() {
 
     // Keep one uploaded source and expose contiguous 30-second trim windows.
     // The viewer seeks these windows directly, so the source is not re-encoded.
+    const sourceDuration = isVideo ? await readVideoDuration(mediaUrl) : 0;
     const parts = isVideo
-      ? splitMomentIntoParts(
-          await readVideoDuration(
-            mediaUrl
-          )
-        )
+      ? sharedContent
+        ? [{ start: 0, end: Math.min(20, sourceDuration || 20) }]
+        : splitMomentIntoParts(sourceDuration)
       : [{ start: 0, end: 0 }];
 
     const base = {
@@ -2498,6 +2465,15 @@ function MomentCreatePage() {
       showLocation,
 
       allowSharing,
+      sharedContent: sharedContent
+        ? {
+            kind: sharedContent.kind,
+            id: sharedContent.id,
+            title: sharedContent.title,
+            creatorName: sharedContent.creatorName,
+            creatorUsername: sharedContent.creatorUsername,
+          }
+        : undefined,
     };
 
     const newMoments = parts.map(
@@ -2578,6 +2554,7 @@ function MomentCreatePage() {
           (!isVideo && audioUrl
             ? { start: 0, end: photoSeconds }
             : undefined),
+        sharedContent: part.sharedContent,
 
         mentions: [],
         mentionedUserIds:
@@ -2681,12 +2658,16 @@ function MomentCreatePage() {
           playsInline
           muted
           preload="none"
-          className={`gpu-layer absolute inset-0 w-full h-full object-cover ${
+          controls={false}
+          disablePictureInPicture
+          poster="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="
+          className={`gpu-layer pointer-events-none absolute inset-0 w-full h-full object-cover transition-opacity duration-150 ${
             facingMode === "user"
               ? "scale-x-[-1]"
               : ""
           }`}
           style={{
+            opacity: cameraReady ? 1 : 0,
             filter: isNightMode
               ? "brightness(1.2) contrast(1.1)"
               : undefined,
@@ -3064,12 +3045,24 @@ function MomentCreatePage() {
                     data-editor-video
                     src={mediaUrl}
                     autoPlay
-                    loop
+                    loop={!sharedContent}
                     playsInline
-                    preload="none"
+                    preload="auto"
+                    poster={sharedContent?.thumbnailUrl ?? undefined}
+                    controls={false}
                     muted={videoMuted}
                     className="h-full w-full object-contain"
                     style={getMediaRenderTransform()}
+                    onTimeUpdate={
+                      sharedContent
+                        ? (event) => {
+                            if (event.currentTarget.currentTime >= 20) {
+                              event.currentTarget.currentTime = 20;
+                              event.currentTarget.pause();
+                            }
+                          }
+                        : undefined
+                    }
                   />
                 ) : (
                   <img
@@ -3080,6 +3073,12 @@ function MomentCreatePage() {
                   />
                 ))}
             </div>
+
+            {sharedContent && (
+              <div className="pointer-events-none absolute bottom-20 left-1/2 z-50 -translate-x-1/2">
+                <SharedMomentPill content={sharedContent} className="max-w-[90vw]" />
+              </div>
+            )}
 
             {isMediaTransforming && (
               <div className="pointer-events-none absolute left-1/2 top-20 z-40 -translate-x-1/2 rounded-full border border-white/15 bg-black/45 px-3 py-1.5 font-mono text-[10px] font-bold text-white/75 backdrop-blur-xl">
@@ -4087,11 +4086,22 @@ function MomentCreatePage() {
                     className="w-full h-full object-contain"
                     style={getMediaRenderTransform()}
                     autoPlay
-                    loop
+                    loop={!sharedContent}
                     playsInline
-                    preload="none"
+                    preload="auto"
+                    poster={sharedContent?.thumbnailUrl ?? undefined}
                     controls
                     muted={videoMuted}
+                    onTimeUpdate={
+                      sharedContent
+                        ? (event) => {
+                            if (event.currentTarget.currentTime >= 20) {
+                              event.currentTarget.currentTime = 20;
+                              event.currentTarget.pause();
+                            }
+                          }
+                        : undefined
+                    }
                   />
                 ) : mediaUrl ? (
                   <img
@@ -4101,6 +4111,12 @@ function MomentCreatePage() {
                     style={getMediaRenderTransform()}
                   />
                 ) : null}
+
+                {sharedContent && (
+                  <div className="pointer-events-none absolute bottom-16 left-1/2 z-20 -translate-x-1/2">
+                    <SharedMomentPill content={sharedContent} className="max-w-[90vw]" />
+                  </div>
+                )}
 
                 {caption && (
                   <div className="absolute bottom-4 left-4 right-4 text-center text-sm font-semibold bg-black/60 backdrop-blur-xl rounded-2xl px-4 py-2">

@@ -1959,6 +1959,17 @@ function ReelItem({
           mediaKind={mediaType === "video" ? "video" : "photo"}
           contentId={mediaType === "video" ? reel.id : undefined}
           contentKind={mediaType === "video" ? "reel" : undefined}
+          momentShare={
+            mediaType === "video"
+              ? {
+                  kind: mediaBucket === "videos" ? "video" : "reel",
+                  creatorName: author?.name ?? "Creator",
+                  creatorUsername: author?.username ?? "",
+                  mediaBucket: mediaBucket === "videos" ? "videos" : "reels",
+                  thumbnailUrl: reel.thumbnailUrl,
+                }
+              : undefined
+          }
           thumbnailUrl={reel.thumbnailUrl}
           thumbnailBucket="thumbnails"
         >

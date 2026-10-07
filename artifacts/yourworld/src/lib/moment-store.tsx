@@ -15,6 +15,8 @@ import { isAuthSessionMissing } from "@/lib/auth-errors";
 import { missingTable, writeCompat } from "@/lib/supabase-compat";
 import { getRegisteredBlob } from "@/lib/blob-registry";
 import { dmThreadId, ensureThreadConversation, resolveMediaUrl } from "@/lib/social-data";
+import { loadLongVideosByIds, resolveLongVideoUrl } from "@/lib/video-data";
+import { parseSharedMomentContent, type SharedMomentContent } from "@/lib/moment-share";
 import {
   normalizeAutoDeleteSetting,
 } from "@/lib/auto-delete";
@@ -90,6 +92,8 @@ export type MyMoment = {
   mentions: string[];
   /** Profile IDs tagged in this Moment. Persisted in mentioned_user_ids. */
   mentionedUserIds?: string[];
+  /** Optional Reel or long-video source; media remains a playable preview. */
+  sharedContent?: SharedMomentContent;
   privacy: MomentPrivacy;
   /** Explicit recipients for a targeted Moment; stored in the existing payload JSON. */
   recipientUserIds?: string[];
@@ -375,6 +379,7 @@ function rowToMoment(
         : Array.isArray(p.mentionedUserIds)
           ? p.mentionedUserIds.filter((id): id is string => typeof id === "string")
           : [],
+    sharedContent: parseSharedMomentContent(p.sharedContent),
     privacy,
     recipientUserIds: Array.isArray(p.recipientUserIds)
       ? p.recipientUserIds.filter((id): id is string => typeof id === "string")
@@ -436,6 +441,7 @@ function payloadOf(m: NewMoment) {
     location: m.location ?? null,
     mentions: m.mentions ?? [],
     mentioned_user_ids: m.mentionedUserIds ?? [],
+    sharedContent: m.sharedContent ?? null,
     effect: m.effect ?? "none",
     ai: m.ai ?? {},
     allowReactions: m.allowReactions ?? true,
@@ -512,7 +518,59 @@ async function uploadMomentMedia(
 
 /** Signs media and music paths so any allowed viewer can play the moment. */
 async function signMomentMedia(list: MyMoment[]) {
-  const values = list.flatMap((m) => [m.media, m.musicUrl]).filter(
+  const withRefreshedShares = await Promise.all(
+    list.map(async (moment) => {
+      const shared = moment.sharedContent;
+      if (!shared) return moment;
+      try {
+        if (shared.kind === "video") {
+          const video = (await loadLongVideosByIds([shared.id]))[0];
+          if (!video || video.access !== "public" || Number(video.price ?? 0) > 0) {
+            return { ...moment, media: "" };
+          }
+          const media = await resolveLongVideoUrl(video.mediaUrl);
+          return media ? { ...moment, media } : moment;
+        }
+
+        const { data, error } = await supabase
+          .from("posts")
+          .select("*")
+          .eq("id", shared.id)
+          .maybeSingle();
+        if (error) throw error;
+        const row = data as unknown as Record<string, unknown> | null;
+        if (!row || row.archived === true || row.is_hidden === true) {
+          return { ...moment, media: "" };
+        }
+        const access = String(row.access ?? row.visibility ?? row.privacy ?? "public")
+          .trim()
+          .toLowerCase()
+          .replace(/[\s-]+/g, "_");
+        if (
+          access !== "public" ||
+          Number(row.price ?? 0) > 0 ||
+          row.is_private === true ||
+          row.is_followers_only === true
+        ) {
+          return { ...moment, media: "" };
+        }
+        const source = row.video_url ?? row.media_url;
+        if (typeof source !== "string" || !source) return { ...moment, media: "" };
+        const media = await resolveMediaUrl(source, "reels");
+        return media ? { ...moment, media } : moment;
+      } catch (error) {
+        console.warn("Could not refresh shared video for Moment", {
+          id: shared.id,
+          error: error instanceof Error ? error.message : "unknown error",
+        });
+        return moment;
+      }
+    }),
+  );
+  const values = withRefreshedShares.flatMap((m) => [
+    m.sharedContent ? null : m.media,
+    m.musicUrl,
+  ]).filter(
     (value): value is string => !!value && !/^(data:|blob:)/.test(value),
   );
   const valueToPath = new Map(
@@ -522,14 +580,17 @@ async function signMomentMedia(list: MyMoment[]) {
     }),
   );
   const paths = [...new Set(valueToPath.values())];
-  if (!paths.length) return list;
+  if (!paths.length) return withRefreshedShares;
   const { data, error } = await supabase.storage
     .from(STORAGE_BUCKETS.moments)
     .createSignedUrls(paths, 60 * 60 * 6);
   if (error) {
-    return list.map((moment) => ({
+    return withRefreshedShares.map((moment) => ({
       ...moment,
-      media: moment.media && valueToPath.has(moment.media) ? "" : moment.media,
+      media:
+        !moment.sharedContent && moment.media && valueToPath.has(moment.media)
+          ? ""
+          : moment.media,
       musicUrl:
         moment.musicUrl && valueToPath.has(moment.musicUrl)
           ? undefined
@@ -541,8 +602,8 @@ async function signMomentMedia(list: MyMoment[]) {
       .filter((d) => d.signedUrl && d.path)
       .map((d) => [d.path as string, d.signedUrl as string]),
   );
-  return list.map((m) => {
-    const mediaPath = m.media ? valueToPath.get(m.media) : undefined;
+  return withRefreshedShares.map((m) => {
+    const mediaPath = !m.sharedContent && m.media ? valueToPath.get(m.media) : undefined;
     const musicPath = m.musicUrl ? valueToPath.get(m.musicUrl) : undefined;
     return {
       ...m,

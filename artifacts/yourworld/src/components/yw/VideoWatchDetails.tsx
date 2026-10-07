@@ -300,10 +300,21 @@ export function VideoWatchDetails({
           <ShareSheet
             title={video.title}
             url={shareUrl}
-            media={video.mediaUrl}
+          media={sourceMediaUrl ?? video.mediaUrl}
             mediaKind="video"
             contentId={video.id}
             contentKind="video"
+          momentShare={
+            video.access === "public" && Number(video.price ?? 0) <= 0
+              ? {
+                  kind: "video",
+                  creatorName: video.author.name,
+                  creatorUsername: video.author.username,
+                  mediaBucket: "videos",
+                  thumbnailUrl: video.thumbnailUrl,
+                }
+              : undefined
+          }
             thumbnailUrl={video.thumbnailUrl}
             thumbnailBucket="thumbnails"
           >

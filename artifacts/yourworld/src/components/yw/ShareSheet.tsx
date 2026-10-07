@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Check, Link2, LoaderCircle, Search, Share2, Sparkles, X } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAuth } from "@/lib/auth-store";
+import { useNavigate } from "@tanstack/react-router";
 import { dmThreadId, useThreadMessages } from "@/lib/social-data";
 import { supabase } from "@/integrations/supabase/client";
 import { useMoments } from "@/lib/moment-context";
@@ -11,6 +12,7 @@ import { useFollowList } from "@/lib/follow-data";
 import { hiddenThreadIds, loadHiddenDirectThreads } from "@/lib/chat-delete";
 import { buildPublicAppUrl } from "@/lib/public-app-url";
 import { sharePublicContent } from "@/lib/share-public";
+import { writePendingMomentShare, type SharedMomentKind, type SharedMomentBucket } from "@/lib/moment-share";
 
 interface ShareSheetProps {
   /** Caption or title of the shared item. */
@@ -23,6 +25,14 @@ interface ShareSheetProps {
   /** Content identity for an interactive Reel or video card in chat. */
   contentId?: string;
   contentKind?: "video" | "reel";
+  /** Enables the editor-based Watch-full Moment share for public content. */
+  momentShare?: {
+    kind: SharedMomentKind;
+    creatorName: string;
+    creatorUsername: string;
+    mediaBucket: SharedMomentBucket;
+    thumbnailUrl?: string | null;
+  };
   /** Stored thumbnail reference; the thread resolves it when rendering the card. */
   thumbnailUrl?: string | null;
   thumbnailBucket?: "reels" | "videos" | "thumbnails";
@@ -221,6 +231,7 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
   mediaKind = "photo",
   contentId,
   contentKind,
+  momentShare,
   thumbnailUrl,
   thumbnailBucket = "thumbnails",
   children,
@@ -240,6 +251,7 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
   >({});
   const deliverySequence = useRef(0);
   const { user } = useAuth();
+  const navigate = useNavigate();
   const { addMoment } = useMoments();
   const hasSearchTerm = Boolean(search.trim().replace(/^@+/, ""));
   const {
@@ -413,6 +425,34 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
   const toMoment = () => {
     if (!media) {
       toast.error("Nothing to add");
+      return;
+    }
+    if (contentId && contentKind) {
+      if (!momentShare || !user?.id) {
+        toast.error(
+          user?.id
+            ? "This video cannot be shared to a Moment."
+            : "Sign in to share a video to your Moment.",
+        );
+        return;
+      }
+      try {
+        writePendingMomentShare({
+          kind: momentShare.kind,
+          id: contentId,
+          title: title || (momentShare.kind === "reel" ? "Reel" : "Video"),
+          creatorName: momentShare.creatorName,
+          creatorUsername: momentShare.creatorUsername,
+          mediaUrl: media,
+          mediaBucket: momentShare.mediaBucket,
+          thumbnailUrl: momentShare.thumbnailUrl ?? thumbnailUrl ?? null,
+        });
+        setOpen(false);
+        void navigate({ to: "/moment/create" });
+      } catch (error) {
+        console.error("Could not open Moment editor for shared video", error);
+        toast.error("Could not open the Moment editor.");
+      }
       return;
     }
     void addMoment({
@@ -637,7 +677,7 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
               )}
             </div>
 
-            {media ? (
+            {media && (!contentId || !contentKind || momentShare) ? (
               <div className="mx-4 mt-4">
                 <button
                   type="button"
@@ -650,10 +690,12 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
                     </span>
                     <span>
                       <span className="block text-xs font-semibold text-white/90">
-                        Add to Moment
+                        {momentShare ? "Share to Moment" : "Add to Moment"}
                       </span>
                       <span className="mt-0.5 block text-[10px] text-white/40">
-                        Share it with your audience
+                        {momentShare
+                          ? "Preview it with a link to the full video"
+                          : "Share it with your audience"}
                       </span>
                     </span>
                   </span>

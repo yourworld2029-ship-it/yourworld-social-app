@@ -23,6 +23,7 @@ import {
 import { downloadMomentMedia, downloadOriginalMomentMedia } from "@/lib/yw-download";
 import { toast } from "sonner";
 import { SportsIdentityMark } from "@/components/yw/SportsIdentityBadge";
+import { SharedMomentPill } from "@/components/yw/SharedMomentPill";
 import { historyBackOr } from "@/lib/navigation";
 import {
   ProtectedCanvasImage,
@@ -504,6 +505,29 @@ function MomentViewRoute() {
             </div>
           ) : null}
         </div>
+
+        {current.sharedContent ? (
+          <div className="absolute bottom-20 left-1/2 z-[10004] -translate-x-1/2">
+            <SharedMomentPill
+              content={current.sharedContent}
+              onClick={() => {
+                const shared = current.sharedContent;
+                if (!shared) return;
+                if (shared.kind === "reel") {
+                  void navigate({
+                    to: "/reel/$reelId",
+                    params: { reelId: shared.id },
+                  });
+                } else {
+                  void navigate({
+                    to: "/video/$videoId",
+                    params: { videoId: shared.id },
+                  });
+                }
+              }}
+            />
+          </div>
+        ) : null}
 
         {/* POLL */}
         {current.poll ? (
