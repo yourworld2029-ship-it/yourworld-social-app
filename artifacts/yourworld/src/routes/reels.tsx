@@ -2090,16 +2090,6 @@ function ReelItem({
                   <Flag strokeWidth={1.6} className="h-[17px] w-[17px] text-muted-foreground" />
                   Report
                 </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  disabled={contextActionBusy}
-                  onClick={() => void handleMuteCreator()}
-                  className="flex w-full items-center gap-3 px-4 py-3 text-left text-[13px] font-medium transition-colors hover:bg-foreground/10 disabled:opacity-60"
-                >
-                  <VolumeX strokeWidth={1.6} className="h-[17px] w-[17px] text-muted-foreground" />
-                  Mute Creator
-                </button>
               </>
             ) : null}
             <button

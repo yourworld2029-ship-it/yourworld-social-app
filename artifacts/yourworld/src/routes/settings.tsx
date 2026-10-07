@@ -249,23 +249,6 @@ function SettingsPage() {
           <ChevronRight className="text-muted-foreground" size={18} />
         </div>
 
-        <button
-          type="button"
-          onClick={() => setPanel("close-friends")}
-          className="flex w-full items-center justify-between rounded-xl p-3.5 text-left hover:bg-muted/50"
-        >
-          <div className="flex items-center gap-4">
-            <Star className="text-muted-foreground" size={20} />
-            <span>
-              <span className="block text-sm font-semibold">Close Friends</span>
-              <span className="block text-[11px] text-muted-foreground">
-                Manage your 15 close friends
-              </span>
-            </span>
-          </div>
-          <ChevronRight className="text-muted-foreground" size={18} />
-        </button>
-
         {/* Creator analytics */}
         <div 
           onClick={() => navigate({ to: "/channel/analytics" })}
@@ -308,7 +291,7 @@ function SettingsPage() {
           <div className="flex items-center gap-4">
             <Lock className="text-muted-foreground" size={20} />
             <div>
-              <div className="font-semibold text-sm">Privacy & Downloads</div>
+              <div className="font-semibold text-sm">Privacy</div>
               <div className="text-[11px] text-muted-foreground">Blocked accounts</div>
             </div>
           </div>
@@ -372,9 +355,8 @@ function SettingsPage() {
       </div>
 
       {panel === "privacy" && (
-        <Panel title="Privacy & Downloads" onClose={() => setPanel(null)}>
+        <Panel title="Privacy" onClose={() => setPanel(null)}>
           <Toggle label="Private account" hint="Only approved followers can see your posts" on={toggles.privateAccount} onClick={() => flip("privateAccount")} />
-          <Toggle label="Allow downloads" hint="Let others save your reels with watermark" on={toggles.allowDownloads} onClick={() => flip("allowDownloads")} />
           <Toggle label="Show activity status" hint="Display when you were last active" on={toggles.activityStatus} onClick={() => flip("activityStatus")} />
           <Row
             label="Blocked accounts"
@@ -405,7 +387,7 @@ function SettingsPage() {
         <Panel
           title="Hidden Creators"
           onClose={() => setPanel(null)}
-          backLabel="Back to Privacy & Downloads"
+          backLabel="Back to Privacy"
           onBack={() => setPanel("privacy")}
         >
           {user ? (
@@ -422,7 +404,7 @@ function SettingsPage() {
         <Panel
           title="Blocked Accounts"
           onClose={() => setBlockedAccountsOpen(false)}
-          backLabel="Back to Privacy & Downloads"
+          backLabel="Back to Privacy"
         >
           {blockedAccountsLoading ? (
             <div className="px-3 py-10 text-center text-sm text-muted-foreground">Loading blocked accounts…</div>
