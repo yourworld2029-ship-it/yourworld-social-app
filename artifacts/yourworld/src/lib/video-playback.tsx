@@ -70,6 +70,7 @@ import {
   bindHlsNetworkAwareLevelCap,
   createVideoHlsConfig,
 } from "@/lib/video-hls-config";
+import { toast } from "sonner";
 
 const QUALITY_OPTIONS = [
   { id: "auto", label: "Auto", description: "Recommended", shortSide: null },
@@ -100,7 +101,6 @@ function levelForQuality(levels: Hls["levels"], quality: Exclude<QualityId, "aut
     candidates
       .filter((level) => level.height <= target)
       .sort((a, b) => b.height - a.height)[0]?.index ??
-    candidates.sort((a, b) => a.height - b.height)[0]?.index ??
     -1
   );
 }
@@ -172,6 +172,12 @@ const videoBrightness =
 type FloatingPosition = {
   left: number;
   top: number;
+};
+
+type PlayerMenuPlacement = {
+  left: number;
+  top: number;
+  maxHeight: number;
 };
 
 type FloatingDrag = FloatingPosition & {
@@ -402,6 +408,8 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const isAndroidApp =
     Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
   const [settingsMenu, setSettingsMenu] = useState<"closed" | "root" | "speed" | "quality">("closed");
+  const [settingsMenuPlacement, setSettingsMenuPlacement] =
+    useState<PlayerMenuPlacement | null>(null);
   const [longVideoPlayerMenuActions, setLongVideoPlayerMenuActionsState] =
     useState<LongVideoPlayerMenuActions | null>(null);
   const [playbackRate, setPlaybackRate] = useState(1);
@@ -441,6 +449,8 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const settingsMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const settingsMenuRef = useRef<HTMLDivElement | null>(null);
   const activeVideoRef = useRef<PersistentVideo | null>(null);
   const fallbackAttemptRef = useRef<string | null>(null);
   const activeSourceRef = useRef<{ id: string; url: string } | null>(null);
@@ -812,6 +822,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   );
 
   const detailVideoId = getDetailVideoId(location.pathname);
+  const isLongVideoWatchRoute = detailVideoId !== null;
   const downloadDetailPath = getDownloadDetailPath(location.pathname);
   const isDetailPlayer = Boolean(
     activeVideo &&
@@ -830,6 +841,81 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     /^(https?:|data:|blob:)/i.test(activeVideo.thumbnailUrl)
       ? activeVideo.thumbnailUrl
       : null);
+
+  useEffect(() => {
+    if (!isLongVideoWatchRoute || settingsMenu === "closed") {
+      setSettingsMenuPlacement(null);
+      return;
+    }
+
+    const placeSettingsMenu = () => {
+      const trigger = settingsMenuButtonRef.current;
+      const menu = settingsMenuRef.current;
+      if (!trigger || !menu) return;
+
+      const triggerRect = trigger.getBoundingClientRect();
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const edge = 12;
+      const gap = 8;
+      const menuWidth = menu.offsetWidth || 208;
+      const naturalHeight = menu.scrollHeight;
+      const maxViewportHeight = Math.max(120, viewportHeight - edge * 2);
+      const desiredHeight = Math.min(naturalHeight, maxViewportHeight);
+      const roomBelow = viewportHeight - edge - triggerRect.bottom - gap;
+      const roomAbove = triggerRect.top - edge - gap;
+
+      let top: number;
+      let maxHeight: number;
+      if (desiredHeight <= roomBelow) {
+        top = triggerRect.bottom + gap;
+        maxHeight = desiredHeight;
+      } else if (desiredHeight <= roomAbove) {
+        top = triggerRect.top - gap - desiredHeight;
+        maxHeight = desiredHeight;
+      } else if (roomBelow >= roomAbove) {
+        top = triggerRect.bottom + gap;
+        maxHeight = Math.max(120, roomBelow);
+      } else {
+        top = edge;
+        maxHeight = maxViewportHeight;
+      }
+
+      top = clamp(
+        top,
+        edge,
+        Math.max(edge, viewportHeight - edge - Math.min(desiredHeight, maxHeight)),
+      );
+      const left = clamp(
+        triggerRect.right - menuWidth,
+        edge,
+        Math.max(edge, viewportWidth - menuWidth - edge),
+      );
+
+      setSettingsMenuPlacement((current) => {
+        if (
+          current &&
+          Math.abs(current.left - left) < 1 &&
+          Math.abs(current.top - top) < 1 &&
+          Math.abs(current.maxHeight - maxHeight) < 1
+        ) {
+          return current;
+        }
+        return { left, top, maxHeight };
+      });
+    };
+
+    const frame = window.requestAnimationFrame(placeSettingsMenu);
+    window.addEventListener("resize", placeSettingsMenu, { passive: true });
+    window.addEventListener("orientationchange", placeSettingsMenu, { passive: true });
+    window.addEventListener("scroll", placeSettingsMenu, true);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("resize", placeSettingsMenu);
+      window.removeEventListener("orientationchange", placeSettingsMenu);
+      window.removeEventListener("scroll", placeSettingsMenu, true);
+    };
+  }, [isLongVideoWatchRoute, longVideoPlayerMenuActions, settingsMenu]);
 
   const activateVideo = useCallback((video: PersistentVideo) => {
     const source = activeSourceRef.current;
@@ -1245,7 +1331,11 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       } else {
         const levels = hlsLevels.length > 0 ? hlsLevels : hls.levels;
         const nextLevel = levelForQuality(levels, nextQuality);
-        if (nextLevel >= 0) hls.currentLevel = nextLevel;
+        if (nextLevel < 0) {
+          toast.error(`${nextQuality} quality is not available for this video.`);
+          return;
+        }
+        hls.currentLevel = nextLevel;
       }
       setQuality(nextQuality);
       setSettingsMenu("closed");
@@ -1254,7 +1344,15 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     }
 
     const nextUrl = nextQuality === "auto" ? activeVideoUrl : activeVideo.qualityUrls?.[nextQuality];
-    if (!nextUrl || nextUrl === activeSourceRef.current?.url) {
+    if (!nextUrl) {
+      toast.error(
+        nextQuality === "auto"
+          ? "Automatic quality is not available for this video."
+          : `${nextQuality} quality is not available for this video.`,
+      );
+      return;
+    }
+    if (nextUrl === activeSourceRef.current?.url) {
       setQuality(nextQuality);
       setSettingsMenu("closed");
       markControlsActivity();
@@ -1270,24 +1368,58 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       }
     };
     video.pause();
+    video.addEventListener("loadedmetadata", onMetadata, { once: true });
     activeSourceRef.current = { id: activeVideo.id, url: nextUrl };
     video.src = nextUrl;
     video.load();
-    video.addEventListener("loadedmetadata", onMetadata, { once: true });
     setQuality(nextQuality);
     setSettingsMenu("closed");
     markControlsActivity();
   }, [activeVideo, activeVideoUrl, hlsLevels, markControlsActivity, requestPlayback]);
 
   const togglePictureInPicture = useCallback(() => {
-    if (!videoRef.current) return;
-    setPictureInPicture(true);
-    setFloatingPosition(null);
-    setFloatingWidth(null);
-    syncNativePipState(true, !videoRef.current.paused);
-    if (isFullscreen) void teardownFullscreen(true);
+    const video = videoRef.current;
+    if (!video) return;
+
     setSettingsMenu("closed");
     markControlsActivity();
+
+    const pipDocument = document as Document & {
+      pictureInPictureElement?: Element | null;
+      exitPictureInPicture?: () => Promise<void>;
+    };
+    if (
+      pipDocument.pictureInPictureElement === video &&
+      typeof pipDocument.exitPictureInPicture === "function"
+    ) {
+      void pipDocument.exitPictureInPicture().catch((error: unknown) => {
+        console.warn("Could not exit picture-in-picture playback.", error);
+      });
+      return;
+    }
+
+    const enterAppPictureInPicture = () => {
+      if (videoRef.current !== video) return;
+      setPictureInPicture(true);
+      setFloatingPosition(null);
+      setFloatingWidth(null);
+      syncNativePipState(true, !video.paused);
+      if (isFullscreen) void teardownFullscreen(true);
+    };
+
+    if (typeof video.requestPictureInPicture === "function") {
+      try {
+        void video.requestPictureInPicture().catch((error: unknown) => {
+          console.warn("Native picture-in-picture is unavailable; using the in-app player.", error);
+          enterAppPictureInPicture();
+        });
+        return;
+      } catch (error) {
+        console.warn("Native picture-in-picture could not be started.", error);
+      }
+    }
+
+    enterAppPictureInPicture();
   }, [isFullscreen, markControlsActivity, syncNativePipState, teardownFullscreen]);
 
   const startFloatingDrag = useCallback((
@@ -2820,6 +2952,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               <>
                 <button
                   type="button"
+                  ref={settingsMenuButtonRef}
                   onClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
@@ -2838,13 +2971,46 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                 </button>
 
                 {settingsMenu !== "closed" ? (
+                  isLongVideoWatchRoute ? (
+                    <button
+                      type="button"
+                      className="fixed inset-0 z-[115] cursor-default bg-transparent"
+                      aria-label="Close player settings"
+                      data-testid="video-player-settings-backdrop"
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setSettingsMenu("closed");
+                        markControlsActivity();
+                      }}
+                    />
+                  ) : null
+                ) : null}
+
+                {settingsMenu !== "closed" ? (
                   <div
                     role="menu"
+                    ref={settingsMenuRef}
                     onPointerDown={(event) => event.stopPropagation()}
                     onClick={(event) => event.stopPropagation()}
-                    className={`absolute right-3 z-[120] max-h-[70vh] w-52 overflow-y-auto overscroll-contain rounded-xl border border-white/15 bg-black/90 p-1.5 text-white shadow-2xl backdrop-blur-xl ${
-                      isFullscreen ? "top-14" : "bottom-20"
-                    }`}
+                    className={`${
+                      isLongVideoWatchRoute
+                        ? "fixed z-[120] w-52 max-h-[80dvh] overflow-y-auto overscroll-contain"
+                        : `absolute right-3 z-[120] max-h-[70vh] overflow-y-auto overscroll-contain ${
+                            isFullscreen ? "top-14" : "bottom-20"
+                          }`
+                    } rounded-xl border border-white/15 bg-black/90 p-1.5 text-white shadow-2xl backdrop-blur-xl`}
+                    style={
+                      isLongVideoWatchRoute
+                        ? {
+                            left: settingsMenuPlacement?.left ?? 12,
+                            top: settingsMenuPlacement?.top ?? 12,
+                            maxHeight: settingsMenuPlacement?.maxHeight ?? "calc(100dvh - 24px)",
+                            visibility: settingsMenuPlacement ? "visible" : "hidden",
+                          }
+                        : undefined
+                    }
                     data-testid="video-player-settings-menu"
                   >
                     {settingsMenu === "root" ? (
@@ -2889,8 +3055,11 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                         <button
                           type="button"
                           role="menuitem"
+                          aria-pressed={loopVideo}
                           onClick={() => {
-                            setLoopVideo((current) => !current);
+                            const nextLoopState = !loopVideo;
+                            if (videoRef.current) videoRef.current.loop = nextLoopState;
+                            setLoopVideo(nextLoopState);
                             setSettingsMenu("closed");
                           }}
                           className="flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs transition hover:bg-white/10"
@@ -2899,7 +3068,18 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                             <Repeat className="h-4 w-4 text-white/70" />
                             Loop video
                           </span>
-                          <span className="text-[11px] text-white/60">{loopVideo ? "On" : "Off"}</span>
+                          <span
+                            aria-hidden="true"
+                            className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${
+                              loopVideo ? "bg-violet-500" : "bg-white/25"
+                            }`}
+                          >
+                            <span
+                              className={`absolute left-0.5 top-0.5 h-3 w-3 rounded-full bg-white transition-transform ${
+                                loopVideo ? "translate-x-3" : ""
+                              }`}
+                            />
+                          </span>
                         </button>
                       </>
                     ) : settingsMenu === "speed" ? (
