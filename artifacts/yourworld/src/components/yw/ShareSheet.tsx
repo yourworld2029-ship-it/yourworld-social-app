@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
-import { Check, Link2, LoaderCircle, Search, Share2, Sparkles, X } from "lucide-react";
+import { Check, Link2, LoaderCircle, Search, Send, Share2, Sparkles, X } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAuth } from "@/lib/auth-store";
 import { useNavigate } from "@tanstack/react-router";
@@ -246,10 +246,14 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
   const [recentError, setRecentError] = useState<string | null>(null);
   const [defaultLoaded, setDefaultLoaded] = useState(false);
   const [delivery, setDelivery] = useState<{ person: SharePerson; threadId: string } | null>(null);
+  const [deliveryQueue, setDeliveryQueue] = useState<SharePerson[]>([]);
   const [deliveryStatus, setDeliveryStatus] = useState<
     Record<string, "sending" | "sent">
   >({});
+  const [selectedPeople, setSelectedPeople] = useState<SharePerson[]>([]);
+  const [momentSelected, setMomentSelected] = useState(false);
   const deliverySequence = useRef(0);
+  const pendingMomentAfterDelivery = useRef(false);
   const { user } = useAuth();
   const navigate = useNavigate();
   const { addMoment } = useMoments();
@@ -377,9 +381,13 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
     setRecentPeople([]);
     setRecentError(null);
     setRecentLoading(false);
-    setDelivery(null);
-    setDeliveryStatus({});
-  }, [open]);
+    setSelectedPeople([]);
+    setMomentSelected(false);
+    if (!delivery) {
+      setDeliveryQueue([]);
+      setDeliveryStatus({});
+    }
+  }, [delivery, open]);
 
   const copyText = async (value: string) => {
     if (navigator.clipboard?.writeText) {
@@ -476,15 +484,49 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
     setOpen(false);
   };
 
-  const sendToPerson = (person: SharePerson) => {
+  const togglePersonSelection = (person: SharePerson) => {
     if (!user?.id) {
       toast.error("Sign in to send this in a chat.");
       return;
     }
-    if (delivery || deliveryStatus[person.id]) return;
-    deliverySequence.current += 1;
-    setDeliveryStatus((current) => ({ ...current, [person.id]: "sending" }));
-    setDelivery({ person, threadId: dmThreadId(user.id, person.id) });
+    if (delivery || deliveryQueue.length) return;
+    setSelectedPeople((current) =>
+      current.some((selected) => selected.id === person.id)
+        ? current.filter((selected) => selected.id !== person.id)
+        : [...current, person],
+    );
+  };
+
+  const confirmSelection = () => {
+    const recipients = [...selectedPeople];
+    const includeMoment = momentSelected;
+    if (!recipients.length && !includeMoment) return;
+    if (!user?.id) {
+      toast.error("Sign in to send this in a chat.");
+      return;
+    }
+
+    setOpen(false);
+    setSelectedPeople([]);
+    setMomentSelected(false);
+
+    if (recipients.length) {
+      pendingMomentAfterDelivery.current = includeMoment;
+      setDeliveryQueue(recipients.slice(1));
+      setDeliveryStatus(
+        Object.fromEntries(recipients.map((person) => [person.id, "sending"])),
+      );
+      deliverySequence.current += 1;
+      setDelivery({
+        person: recipients[0],
+        threadId: dmThreadId(user.id, recipients[0].id),
+      });
+      return;
+    }
+
+    pendingMomentAfterDelivery.current = false;
+    toast.success("Opening Moment editor");
+    toMoment();
   };
 
   const completeDelivery = (error: string | null) => {
@@ -503,15 +545,40 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
         `Sent to @${delivery.person.username || delivery.person.display_name || "user"}`,
       );
     }
+
+    const nextPerson = deliveryQueue[0];
+    if (nextPerson && user?.id) {
+      setDeliveryQueue((current) => current.slice(1));
+      deliverySequence.current += 1;
+      setDelivery({
+        person: nextPerson,
+        threadId: dmThreadId(user.id, nextPerson.id),
+      });
+      return;
+    }
+
     setDelivery(null);
+    setDeliveryQueue([]);
+    if (pendingMomentAfterDelivery.current) {
+      pendingMomentAfterDelivery.current = false;
+      toast.success("Opening Moment editor");
+      toMoment();
+    }
   };
 
   return (
     <>
       <span
         onClick={() => {
+          if (delivery || deliveryQueue.length) {
+            toast.info("Your share is still being sent.");
+            return;
+          }
           setDefaultLoaded(false);
           setRecentLoading(true);
+          setSelectedPeople([]);
+          setMomentSelected(false);
+          setDeliveryStatus({});
           setOpen(true);
         }}
         className="contents"
@@ -619,6 +686,9 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
                 <div className="grid max-h-56 grid-cols-5 gap-x-1 gap-y-4 overflow-y-auto overscroll-contain py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   {people.map((person) => {
                     const status = deliveryStatus[person.id];
+                    const selected = selectedPeople.some(
+                      (selectedPerson) => selectedPerson.id === person.id,
+                    );
                     const handle = person.username
                       ? `@${person.username.replace(/^@/, "")}`
                       : person.display_name || "YourWorld user";
@@ -630,16 +700,16 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
                         key={person.id}
                         type="button"
                         data-testid={`share-recipient-${person.id}`}
-                        aria-label={`Send to ${handle}`}
-                        aria-pressed={status === "sent"}
-                        disabled={Boolean(delivery) || status === "sent"}
-                        onClick={() => sendToPerson(person)}
+                        aria-label={`${selected ? "Deselect" : "Select"} ${handle}`}
+                        aria-pressed={selected}
+                        disabled={Boolean(delivery) || deliveryQueue.length > 0 || status === "sent"}
+                        onClick={() => togglePersonSelection(person)}
                         className="group flex min-w-0 flex-col items-center gap-1.5 rounded-xl px-0.5 py-1 transition-colors hover:bg-white/[0.035] disabled:cursor-default"
                       >
                         <span className="relative block">
                           <Avatar
                             className={`h-12 w-12 border border-white/10 ring-2 ring-offset-2 ring-offset-[#08090d] transition-all group-hover:ring-fuchsia-300/50 ${
-                              status ? "ring-fuchsia-300/75" : "ring-transparent"
+                                selected || status ? "ring-fuchsia-300/75" : "ring-transparent"
                             }`}
                           >
                             <AvatarImage src={person.avatar_url ?? undefined} alt="" />
@@ -647,7 +717,7 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
                               {initials}
                             </AvatarFallback>
                           </Avatar>
-                          {status ? (
+                          {selected || status ? (
                             <span className="absolute -bottom-1 -right-1 grid h-5 w-5 place-items-center rounded-full border-2 border-[#08090d] bg-fuchsia-300 text-[#140b18] shadow-lg">
                               {status === "sending" ? (
                                 <LoaderCircle className="h-3 w-3 animate-spin" />
@@ -681,8 +751,18 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
               <div className="mx-4 mt-4">
                 <button
                   type="button"
-                  onClick={toMoment}
-                  className="flex w-full items-center justify-between rounded-2xl border border-white/[0.08] bg-white/[0.035] px-3.5 py-2.5 text-left transition-colors hover:bg-white/[0.07] active:scale-[0.99]"
+                  data-testid="share-to-moment-option"
+                  aria-pressed={momentShare ? momentSelected : undefined}
+                  onClick={() =>
+                    momentShare
+                      ? setMomentSelected((selected) => !selected)
+                      : toMoment()
+                  }
+                  className={`flex w-full items-center justify-between rounded-2xl border px-3.5 py-2.5 text-left transition-colors active:scale-[0.99] ${
+                    momentShare && momentSelected
+                      ? "border-fuchsia-300/70 bg-fuchsia-400/10"
+                      : "border-white/[0.08] bg-white/[0.035] hover:bg-white/[0.07]"
+                  }`}
                 >
                   <span className="flex items-center gap-2.5">
                     <span className="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-orange-400/20 to-pink-500/20 text-pink-200">
@@ -699,7 +779,13 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
                       </span>
                     </span>
                   </span>
-                  <span className="text-lg leading-none text-white/35">›</span>
+                  {momentShare && momentSelected ? (
+                    <span className="grid h-6 w-6 place-items-center rounded-full bg-fuchsia-300 text-[#140b18]">
+                      <Check className="h-3.5 w-3.5" strokeWidth={3} />
+                    </span>
+                  ) : (
+                    <span className="text-lg leading-none text-white/35">›</span>
+                  )}
                 </button>
               </div>
             ) : null}
@@ -729,6 +815,24 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
                 ))}
               </div>
             </div>
+
+            {selectedPeople.length || momentSelected ? (
+              <div className="sticky bottom-0 z-20 mt-3 border-t border-white/[0.08] bg-[#08090d]/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-xl">
+                <button
+                  type="button"
+                  data-testid="share-confirm-send"
+                  aria-label={`Send to ${selectedPeople.length} people${momentSelected ? " and share to Moment" : ""}`}
+                  onClick={confirmSelection}
+                  className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-fuchsia-500 to-pink-500 text-sm font-bold text-white shadow-lg shadow-fuchsia-950/35 transition active:scale-[0.99]"
+                >
+                  <Send className="h-4 w-4" />
+                  <span>Send</span>
+                  <span className="rounded-full bg-black/15 px-2 py-0.5 text-[11px] font-semibold">
+                    {selectedPeople.length + (momentSelected ? 1 : 0)}
+                  </span>
+                </button>
+              </div>
+            ) : null}
           </section>
         </div>,
           document.body,
