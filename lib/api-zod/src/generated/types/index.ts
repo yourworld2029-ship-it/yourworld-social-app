@@ -8,6 +8,7 @@
 
 export * from './apiError';
 export * from './callPushInput';
+export * from './callPushInputAction';
 export * from './callPushRegistrationInput';
 export * from './callPushRegistrationResponse';
 export * from './callPushResponse';

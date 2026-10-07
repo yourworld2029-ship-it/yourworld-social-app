@@ -275,10 +275,71 @@ test("FCM call pushes use data-only high-priority delivery with a short TTL", as
   });
   assert.deepEqual(message.android, {
     priority: "HIGH",
-    ttl: "45s",
+    ttl: "30s",
     collapseKey: `yourworld-call-${callId}`,
   });
   assert.deepEqual(Object.keys(message).sort(), ["android", "data", "token"]);
+});
+
+test("call dismissal reaches the other participant with a high-priority FCM data message", async (t) => {
+  setEnvironment(t, { FCM_SERVICE_ACCOUNT_JSON: privateKeyServiceAccount() });
+  const baseUrl = await startServer(t);
+  const captured: {
+    fcmMessage: Record<string, unknown> | null;
+    recipientFilter: string | null;
+  } = { fcmMessage: null, recipientFilter: null };
+  t.mock.method(
+    globalThis,
+    "fetch",
+    async (
+      input: Parameters<typeof fetch>[0],
+      init?: Parameters<typeof fetch>[1],
+    ) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/auth/v1/user") return jsonResponse({ id: callerId });
+      if (url.pathname === "/rest/v1/calls") {
+        return jsonResponse([{ ...incomingCall(), status: "cancelled" }]);
+      }
+      if (url.pathname === "/rest/v1/call_push_subscriptions") {
+        captured.recipientFilter = url.searchParams.get("user_id");
+        return jsonResponse([{
+          id: "subscription-1",
+          endpoint: "fcm:test-fcm-device-token-123456789",
+          subscription: { token: "test-fcm-device-token-123456789" },
+        }]);
+      }
+      if (url.hostname === "oauth2.googleapis.com") {
+        return jsonResponse({ access_token: "test-google-oauth-token", expires_in: 3600 });
+      }
+      if (url.hostname === "fcm.googleapis.com") {
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        captured.fcmMessage = body.message as Record<string, unknown>;
+        return jsonResponse({ name: "projects/yourworld-test-project/messages/2" });
+      }
+      throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url.href}`);
+    },
+  );
+
+  const response = await nativeFetch(`${baseUrl}/calls/push`, {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer test-user-session",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ callId, action: "dismiss" }),
+  });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { delivered: 1, suppressed: false });
+  assert.equal(captured.recipientFilter, `eq.${receiverId}`);
+  assert.ok(captured.fcmMessage);
+  const message = captured.fcmMessage as Record<string, unknown>;
+  assert.deepEqual(message.data, { type: "call-dismiss", callId });
+  assert.deepEqual(message.android, {
+    priority: "HIGH",
+    ttl: "30s",
+    collapseKey: `yourworld-call-${callId}`,
+  });
 });
 
 test("a different authenticated user cannot send the caller's call push", async (t) => {

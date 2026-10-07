@@ -12,6 +12,7 @@ import android.os.Build;
 import android.os.PowerManager;
 
 import androidx.core.app.NotificationCompat;
+import androidx.core.app.NotificationManagerCompat;
 import androidx.core.app.Person;
 
 import com.google.firebase.messaging.FirebaseMessagingService;
@@ -38,8 +39,18 @@ public class IncomingCallMessagingService extends FirebaseMessagingService {
     public void onMessageReceived(RemoteMessage message) {
         Map<String, String> data = message.getData();
         String type = data.get("type");
-        if (MainActivity.isAppForeground()) return;
+        if ("call-dismiss".equals(type)) {
+            String callId = data.get("callId");
+            if (callId != null && UUID_PATTERN.matcher(callId).matches()) {
+                NotificationManagerCompat.from(this).cancel(notificationTag(callId), callId.hashCode());
+            }
+            return;
+        }
         if (!"call".equals(type) && !"message".equals(type)) return;
+        if (MainActivity.isAppForeground()) return;
+        // Realtime is the in-app delivery path; do not wake the screen or post
+        // OS notifications when the recipient has disabled notifications.
+        if (!NotificationManagerCompat.from(this).areNotificationsEnabled()) return;
 
         PowerManager powerManager = getSystemService(PowerManager.class);
         PowerManager.WakeLock wakeLock = null;
@@ -116,7 +127,7 @@ public class IncomingCallMessagingService extends FirebaseMessagingService {
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setOngoing(true)
                 .setAutoCancel(false)
-                .setTimeoutAfter(45_000)
+                .setTimeoutAfter(30_000)
                 .setStyle(NotificationCompat.CallStyle.forIncomingCall(
                         caller,
                         declinePendingIntent,

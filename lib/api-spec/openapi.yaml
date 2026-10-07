@@ -415,7 +415,7 @@ paths:
     post:
       operationId: sendIncomingCallPush
       tags: [calls]
-      summary: Send an authenticated, Secret-Lock-aware incoming call push
+      summary: Send or dismiss an authenticated incoming call push
       security:
         - SupabaseBearer: []
       requestBody:
@@ -715,6 +715,9 @@ components:
         callId:
           type: string
           pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+        action:
+          type: string
+          enum: [ring, dismiss]
       required:
         - callId
     CallPushResponse:

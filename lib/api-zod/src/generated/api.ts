@@ -178,13 +178,14 @@ export const GetPublicLiveStreamResponse = zod.object({
 
 
 /**
- * @summary Send an authenticated, Secret-Lock-aware incoming call push
+ * @summary Send or dismiss an authenticated incoming call push
  */
 export const sendIncomingCallPushBodyCallIdRegExp = new RegExp('^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$');
 
 
 export const SendIncomingCallPushBody = zod.object({
-  "callId": zod.string().regex(sendIncomingCallPushBodyCallIdRegExp)
+  "callId": zod.string().regex(sendIncomingCallPushBodyCallIdRegExp),
+  "action": zod.enum(['ring', 'dismiss']).optional()
 })
 
 export const sendIncomingCallPushResponseDeliveredMin = 0;

@@ -224,6 +224,14 @@ self.addEventListener("push", (event) => {
   const data = payload.data || {};
   const notification = payload.notification || {};
   const merged = { ...notification, ...data, ...payload };
+  if (merged.type === "call-dismiss" && merged.callId) {
+    event.waitUntil(
+      self.registration
+        .getNotifications({ tag: `yw-call-${merged.callId}` })
+        .then((notifications) => notifications.forEach((item) => item.close())),
+    );
+    return;
+  }
   const isCall = merged.type === "call" || merged.callId;
   // Message-push producers must pass the recipient-specific lock state. Keep
   // ordinary notifications unchanged, but never show a locked-chat push.

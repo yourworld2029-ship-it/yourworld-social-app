@@ -11,6 +11,7 @@ import {
 } from "react";
 import { Bell, Mic, MicOff, PhoneOff, Phone, Video, VideoOff, SwitchCamera, Zap, ZapOff, Volume2, X, LockKeyhole, Sparkles, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { mediaApiUrl } from "@/lib/media-api-url";
 import {
   dmThreadId,
   ensureThreadConversation,
@@ -77,11 +78,44 @@ const callDb = supabase as unknown as {
    from: (table: "calls" | "messages" | "user_blocks" | "call_push_subscriptions") => any;
 };
 
+const CALL_RING_TIMEOUT_MS = 30_000;
+
+async function requestCallPushAction(callId: string, action: "ring" | "dismiss") {
+  const { data, error } = await supabase.auth.getSession();
+  const accessToken = data.session?.access_token;
+  if (error || !accessToken) return;
+
+  const response = await fetch(mediaApiUrl("/api/calls/push"), {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(action === "ring" ? { callId } : { callId, action }),
+    keepalive: true,
+  });
+  if (!response.ok) throw new Error(`Call push request failed (${response.status}).`);
+}
+
+function dismissRemoteCallNotifications(callId: string) {
+  void requestCallPushAction(callId, "dismiss").catch(() => {
+    console.debug("[call-notifications] FCM dismissal delivery pending");
+  });
+  void supabase.functions
+    .invoke("send-call-push", { body: { callId, action: "dismiss" } })
+    .then(({ error }) => {
+      if (error) console.debug("[call-notifications] Web Push dismissal delivery pending");
+    })
+    .catch(() => {
+      console.debug("[call-notifications] Web Push dismissal delivery pending");
+    });
+}
+
 async function syncAndroidCallPushToken(userId: string, token: string) {
   const { data, error } = await supabase.auth.getSession();
   if (error || data.session?.user.id !== userId) return;
 
-  const response = await fetch("/api/calls/push/register", {
+  const response = await fetch(mediaApiUrl("/api/calls/push/register"), {
     method: "POST",
     headers: {
       Authorization: `Bearer ${data.session.access_token}`,
@@ -1034,7 +1068,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       signal({ type: "END_CALL", reason: "timeout" });
       stopAllRingtones();
       teardown();
-    }, 45_000);
+    }, CALL_RING_TIMEOUT_MS);
     return () => window.clearTimeout(t);
   }, [phase, teardown, signal]);
 
@@ -1410,7 +1444,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     const ring = async (raw: unknown) => {
       const row = raw as CallRow;
       if (!alive || row.receiver_id !== me2 || row.status !== "ringing" || seenCalls.current.has(row.id)) return;
-      if (Date.now() - new Date(row.created_at).getTime() > 45_000) return;
+      if (Date.now() - new Date(row.created_at).getTime() > CALL_RING_TIMEOUT_MS) return;
       markSeen(row.id);
       if (await blocked(row.caller_id)) {
         void callDb.from("calls").update({ status: "declined", ended_at: new Date().toISOString() }).eq("id", row.id);
@@ -1717,27 +1751,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
           }
         })();
 
-        void supabase.auth
-          .getSession()
-          .then(({ data: sessionData, error: sessionError }) => {
-            const accessToken = sessionData.session?.access_token;
-            if (sessionError || !accessToken) return;
-            return fetch("/api/calls/push", {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${accessToken}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({ callId }),
-            }).then((response) => {
-              if (!response.ok) {
-                console.debug("[call-notifications] Android push delivery pending");
-              }
-            });
-          })
-          .catch(() => {
-            // FCM is best-effort; realtime remains the source of truth.
-          });
+        void requestCallPushAction(callId, "ring").catch(() => {
+          // FCM is best-effort; realtime remains the source of truth.
+          console.debug("[call-notifications] Android push delivery pending");
+        });
         const nextCall = {
           callId,
           mode,
@@ -1761,24 +1778,26 @@ export function CallProvider({ children }: { children: ReactNode }) {
           signal({ type: "ICE_CANDIDATE", candidate });
         }
 
-        // Stop ringing after 45s instead of hanging on the calling screen.
+        // Stop ringing after 30s instead of hanging on the calling screen.
         if (ringTimer.current) window.clearTimeout(ringTimer.current);
         ringTimer.current = window.setTimeout(() => {
           ringTimer.current = null;
-          if (phaseRef.current !== "outgoing") return;
+          if (!callId || phaseRef.current !== "outgoing") return;
           toast.message("No answer");
           signal({ type: "END_CALL", reason: "timeout" });
           stopAllRingtones();
           void callDb.from("calls").update({ status: "cancelled", ended_at: new Date().toISOString() }).eq("id", callId);
+          dismissRemoteCallNotifications(callId);
           void logCallOutcome("missed");
           teardown();
-        }, 45_000);
+        }, CALL_RING_TIMEOUT_MS);
       } catch (error) {
         if (callId) {
           void callDb
             .from("calls")
             .update({ status: "cancelled", ended_at: new Date().toISOString() })
             .eq("id", callId);
+          dismissRemoteCallNotifications(callId);
         }
         toast.error(`Call could not start: ${error instanceof Error ? error.message : "unexpected setup error"}`);
         teardown();
@@ -1908,6 +1927,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     const callId = call.callId;
     const channel = sigRef.current;
     const wasConnected = connectedAt.current !== null;
+    if (!call.incoming && !wasConnected) dismissRemoteCallNotifications(callId);
     const broadcastPromise = broadcastEndCall(callId);
     const dbPromise = callDb
       .from("calls")

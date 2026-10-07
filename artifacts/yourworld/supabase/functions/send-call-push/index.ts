@@ -9,6 +9,7 @@ const corsHeaders = {
 
 type CallPushRequest = {
   callId?: string;
+  action?: "ring" | "dismiss";
   receiverId?: string;
   mode?: "audio" | "video";
   peerName?: string;
@@ -52,11 +53,15 @@ Deno.serve(async (request) => {
   } catch {
     return response({ error: "Invalid JSON body" }, 400);
   }
+  const action = payload.action ?? "ring";
+  if (!payload.callId || (action !== "ring" && action !== "dismiss")) {
+    return response({ error: "callId and a valid call action are required" }, 400);
+  }
   if (
-    !payload.callId ||
-    !payload.receiverId ||
-    !payload.peerName ||
-    (payload.mode !== "audio" && payload.mode !== "video")
+    action === "ring" &&
+    (!payload.receiverId ||
+      !payload.peerName ||
+      (payload.mode !== "audio" && payload.mode !== "video"))
   ) {
     return response({ error: "callId, receiverId, peerName, and mode are required" }, 400);
   }
@@ -66,74 +71,84 @@ Deno.serve(async (request) => {
     .select("id, caller_id, receiver_id, call_type, status")
     .eq("id", payload.callId)
     .maybeSingle();
-  if (
-    callError ||
-    !call ||
-    call.caller_id !== authData.user.id ||
-    call.receiver_id !== payload.receiverId ||
-    call.status !== "ringing"
-  ) {
+  if (callError || !call) {
     return response({ error: "Call is not available" }, 404);
   }
+  if (action === "ring") {
+    if (
+      call.caller_id !== authData.user.id ||
+      call.receiver_id !== payload.receiverId ||
+      call.status !== "ringing"
+    ) {
+      return response({ error: "Call is not available" }, 404);
+    }
+  } else if (authData.user.id !== call.caller_id && authData.user.id !== call.receiver_id) {
+    return response({ error: "Call is not available" }, 404);
+  }
+  const recipientId = authData.user.id === call.caller_id ? call.receiver_id : call.caller_id;
 
   // A Secret Lock is recipient-specific. Suppress the OS push before it can
   // wake the service worker, reveal caller details, or vibrate the device.
-  const { data: conversations, error: conversationError } = await admin
-    .from("conversations")
-    .select("id")
-    .or(
-      `and(participant_one_id.eq.${call.receiver_id},participant_two_id.eq.${call.caller_id}),and(participant_two_id.eq.${call.receiver_id},participant_one_id.eq.${call.caller_id})`,
-    );
-  if (conversationError) {
-    return response({ error: "Could not verify recipient chat privacy" }, 503);
-  }
-  const conversationIds = (conversations ?? []).map((conversation) => conversation.id);
-  if (conversationIds.length) {
-    const { data: preferences, error: preferenceError } = await admin
-      .from("conversation_preferences")
-      .select("is_locked,secret_pin_salt,secret_pin_hash")
-      .in("conversation_id", conversationIds)
-      .eq("user_id", call.receiver_id)
-      .eq("is_locked", true);
-    if (preferenceError) {
+  if (action === "ring") {
+    const { data: conversations, error: conversationError } = await admin
+      .from("conversations")
+      .select("id")
+      .or(
+        `and(participant_one_id.eq.${call.receiver_id},participant_two_id.eq.${call.caller_id}),and(participant_two_id.eq.${call.receiver_id},participant_one_id.eq.${call.caller_id})`,
+      );
+    if (conversationError) {
       return response({ error: "Could not verify recipient chat privacy" }, 503);
     }
-    const hasLockedPreference = (preferences ?? []).some(
-      (preference) =>
-        typeof preference.secret_pin_salt === "string" &&
-        preference.secret_pin_salt.length > 0 &&
-        typeof preference.secret_pin_hash === "string" &&
-        preference.secret_pin_hash.length > 0,
-    );
-    if (hasLockedPreference) {
-      return response({ delivered: 0, attempted: 0, suppressed: true });
+    const conversationIds = (conversations ?? []).map((conversation) => conversation.id);
+    if (conversationIds.length) {
+      const { data: preferences, error: preferenceError } = await admin
+        .from("conversation_preferences")
+        .select("is_locked,secret_pin_salt,secret_pin_hash")
+        .in("conversation_id", conversationIds)
+        .eq("user_id", call.receiver_id)
+        .eq("is_locked", true);
+      if (preferenceError) {
+        return response({ error: "Could not verify recipient chat privacy" }, 503);
+      }
+      const hasLockedPreference = (preferences ?? []).some(
+        (preference) =>
+          typeof preference.secret_pin_salt === "string" &&
+          preference.secret_pin_salt.length > 0 &&
+          typeof preference.secret_pin_hash === "string" &&
+          preference.secret_pin_hash.length > 0,
+      );
+      if (hasLockedPreference) {
+        return response({ delivered: 0, attempted: 0, suppressed: true });
+      }
     }
   }
 
   const { data: subscriptions, error: subscriptionsError } = await admin
     .from("call_push_subscriptions")
     .select("id, subscription")
-    .eq("user_id", payload.receiverId)
+    .eq("user_id", recipientId)
     .eq("provider", "webpush");
   if (subscriptionsError) return response({ error: "Could not load push subscriptions" }, 500);
 
   webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
   const pushPayload = JSON.stringify({
-    data: {
-      type: "call",
-      callId: payload.callId,
-      mode: payload.mode,
-      peerName: payload.peerName,
-      avatarUrl: payload.avatarUrl ?? null,
-      url: "/",
-    },
+    data: action === "dismiss"
+      ? { type: "call-dismiss", callId: payload.callId, url: "/" }
+      : {
+          type: "call",
+          callId: payload.callId,
+          mode: payload.mode,
+          peerName: payload.peerName,
+          avatarUrl: payload.avatarUrl ?? null,
+          url: "/",
+        },
   });
   let delivered = 0;
   await Promise.all(
     (subscriptions ?? []).map(async (row) => {
       try {
         await webpush.sendNotification(row.subscription, pushPayload, {
-          TTL: 45,
+          TTL: 30,
           urgency: "high",
         });
         delivered += 1;

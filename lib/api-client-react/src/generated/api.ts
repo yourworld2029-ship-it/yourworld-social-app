@@ -806,7 +806,7 @@ export const getSendIncomingCallPushUrl = () => {
 }
 
 /**
- * @summary Send an authenticated, Secret-Lock-aware incoming call push
+ * @summary Send or dismiss an authenticated incoming call push
  */
 export const sendIncomingCallPush = async (callPushInput: CallPushInput, options?: Parameters<typeof customFetch>[1]): Promise<CallPushResponse> => {
 
@@ -855,7 +855,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type SendIncomingCallPushMutationError = ErrorType<ApiError>
 
     /**
- * @summary Send an authenticated, Secret-Lock-aware incoming call push
+ * @summary Send or dismiss an authenticated incoming call push
  */
 export const useSendIncomingCallPush = <TError = ErrorType<ApiError>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendIncomingCallPush>>, TError,{data: BodyType<CallPushInput>}, TContext>, request?: SecondParameter<typeof customFetch>}

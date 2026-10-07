@@ -120,9 +120,18 @@ export interface PublicLiveStream {
   peak_viewer_count: number;
 }
 
+export type CallPushInputAction = typeof CallPushInputAction[keyof typeof CallPushInputAction];
+
+
+export const CallPushInputAction = {
+  ring: 'ring',
+  dismiss: 'dismiss',
+} as const;
+
 export interface CallPushInput {
   /** @pattern ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$ */
   callId: string;
+  action?: CallPushInputAction;
 }
 
 export interface CallPushResponse {

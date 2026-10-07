@@ -34,6 +34,7 @@ type CallRow = {
   call_type: "audio" | "video";
   status: string;
 };
+type CallPushAction = "ring" | "dismiss";
 type ConversationRow = { id: string };
 type PreferenceRow = {
   is_muted?: boolean | null;
@@ -288,7 +289,8 @@ async function sendFcmCall(
   accessToken: string,
   deviceToken: string,
   call: CallRow,
-  peerName: string,
+  peerName: string | null,
+  action: CallPushAction,
 ) {
   const endpoint = `https://fcm.googleapis.com/v1/projects/${encodeURIComponent(account.project_id)}/messages:send`;
   const response = await fetch(endpoint, {
@@ -300,15 +302,17 @@ async function sendFcmCall(
     body: JSON.stringify({
       message: {
         token: deviceToken,
-        data: {
-          type: "call",
-          callId: call.id,
-          mode: call.call_type,
-          peerName,
-        },
+        data: action === "dismiss"
+          ? { type: "call-dismiss", callId: call.id }
+          : {
+              type: "call",
+              callId: call.id,
+              mode: call.call_type,
+              peerName: peerName ?? "YourWorld caller",
+            },
         android: {
           priority: "HIGH",
-          ttl: "45s",
+          ttl: "30s",
           collapseKey: `yourworld-call-${call.id}`,
         },
       },
@@ -423,13 +427,12 @@ router.post("/calls/push", async (req, res): Promise<void> => {
     return;
   }
 
+  const action: CallPushAction = parsedBody.data.action ?? "ring";
   let call: CallRow | undefined;
   try {
     const calls = await readRows<CallRow>(config, "calls", {
       select: "id,caller_id,receiver_id,call_type,status",
       id: `eq.${parsedBody.data.callId}`,
-      caller_id: `eq.${callerId}`,
-      status: "eq.ringing",
       limit: "1",
     });
     call = calls[0];
@@ -440,51 +443,57 @@ router.post("/calls/push", async (req, res): Promise<void> => {
   }
   if (
     !call ||
+    !UUID_PATTERN.test(call.caller_id) ||
     !UUID_PATTERN.test(call.receiver_id) ||
-    (call.call_type !== "audio" && call.call_type !== "video")
+    (call.call_type !== "audio" && call.call_type !== "video") ||
+    (action === "ring" && (call.caller_id !== callerId || call.status !== "ringing")) ||
+    (action === "dismiss" && callerId !== call.caller_id && callerId !== call.receiver_id)
   ) {
     res.status(404).json({ error: "Call is not available." });
     return;
   }
 
-  let conversations: ConversationRow[];
-  try {
-    conversations = await readRows<ConversationRow>(config, "conversations", {
-      select: "id",
-      or: `and(participant_one_id.eq.${call.receiver_id},participant_two_id.eq.${call.caller_id}),and(participant_two_id.eq.${call.receiver_id},participant_one_id.eq.${call.caller_id})`,
-      limit: "20",
-    });
-  } catch (cause) {
-    req.log.error({ cause }, "Could not verify incoming call chat privacy");
-    res.status(503).json({ error: "Could not verify chat privacy." });
-    return;
-  }
+  const recipientId = callerId === call.caller_id ? call.receiver_id : call.caller_id;
 
-  if (conversations.length > 0) {
-    let preferences: PreferenceRow[];
+  if (action === "ring") {
+    let conversations: ConversationRow[];
     try {
-      preferences = await readRows<PreferenceRow>(config, "conversation_preferences", {
-        select: "secret_pin_salt,secret_pin_hash",
-        conversation_id: `in.(${conversations.map((row) => row.id).join(",")})`,
-        user_id: `eq.${call.receiver_id}`,
-        is_locked: "eq.true",
+      conversations = await readRows<ConversationRow>(config, "conversations", {
+        select: "id",
+        or: `and(participant_one_id.eq.${call.receiver_id},participant_two_id.eq.${call.caller_id}),and(participant_two_id.eq.${call.receiver_id},participant_one_id.eq.${call.caller_id})`,
         limit: "20",
       });
     } catch (cause) {
-      req.log.error({ cause }, "Could not verify incoming call Secret Lock state");
+      req.log.error({ cause }, "Could not verify incoming call chat privacy");
       res.status(503).json({ error: "Could not verify chat privacy." });
       return;
     }
-    const hasSecretLock = preferences.some(
-      (preference) =>
-        typeof preference.secret_pin_salt === "string" &&
-        preference.secret_pin_salt.length > 0 &&
-        typeof preference.secret_pin_hash === "string" &&
-        preference.secret_pin_hash.length > 0,
-    );
-    if (hasSecretLock) {
-      res.json(SendIncomingCallPushResponse.parse({ delivered: 0, suppressed: true }));
-      return;
+    if (conversations.length > 0) {
+      let preferences: PreferenceRow[];
+      try {
+        preferences = await readRows<PreferenceRow>(config, "conversation_preferences", {
+          select: "secret_pin_salt,secret_pin_hash",
+          conversation_id: `in.(${conversations.map((row) => row.id).join(",")})`,
+          user_id: `eq.${call.receiver_id}`,
+          is_locked: "eq.true",
+          limit: "20",
+        });
+      } catch (cause) {
+        req.log.error({ cause }, "Could not verify incoming call Secret Lock state");
+        res.status(503).json({ error: "Could not verify chat privacy." });
+        return;
+      }
+      const hasSecretLock = preferences.some(
+        (preference) =>
+          typeof preference.secret_pin_salt === "string" &&
+          preference.secret_pin_salt.length > 0 &&
+          typeof preference.secret_pin_hash === "string" &&
+          preference.secret_pin_hash.length > 0,
+      );
+      if (hasSecretLock) {
+        res.json(SendIncomingCallPushResponse.parse({ delivered: 0, suppressed: true }));
+        return;
+      }
     }
   }
 
@@ -496,21 +505,21 @@ router.post("/calls/push", async (req, res): Promise<void> => {
   }
 
   let subscriptions: SubscriptionRow[];
-  let profiles: ProfileRow[];
+  let profiles: ProfileRow[] = [];
   try {
-    [subscriptions, profiles] = await Promise.all([
-      readRows<SubscriptionRow>(config, "call_push_subscriptions", {
+    subscriptions = await readRows<SubscriptionRow>(config, "call_push_subscriptions", {
         select: "id,endpoint,subscription",
-        user_id: `eq.${call.receiver_id}`,
+        user_id: `eq.${recipientId}`,
         provider: "eq.fcm",
         limit: "50",
-      }),
-      readRows<ProfileRow>(config, "profiles", {
+      });
+    if (action === "ring") {
+      profiles = await readRows<ProfileRow>(config, "profiles", {
         select: "display_name,username",
         id: `eq.${call.caller_id}`,
         limit: "1",
-      }),
-    ]);
+      });
+    }
   } catch (cause) {
     req.log.error({ cause }, "Could not load incoming call push recipients");
     res.status(502).json({ error: "Could not load call notification devices." });
@@ -529,10 +538,9 @@ router.post("/calls/push", async (req, res): Promise<void> => {
     return;
   }
 
-  const peerName =
-    profiles[0]?.display_name?.trim() ||
-    profiles[0]?.username?.trim() ||
-    "YourWorld caller";
+  const peerName = action === "ring"
+    ? profiles[0]?.display_name?.trim() || profiles[0]?.username?.trim() || "YourWorld caller"
+    : null;
 
   let accessToken: string;
   try {
@@ -547,7 +555,7 @@ router.post("/calls/push", async (req, res): Promise<void> => {
   await Promise.all(
     deviceTokens.map(async (deviceToken) => {
       try {
-        const result = await sendFcmCall(account, accessToken, deviceToken, call, peerName);
+        const result = await sendFcmCall(account, accessToken, deviceToken, call, peerName, action);
         if (result.delivered) {
           delivered += 1;
         } else if (result.unregistered) {
@@ -558,7 +566,7 @@ router.post("/calls/push", async (req, res): Promise<void> => {
         } else {
           req.log.warn(
             { status: result.status },
-            "FCM did not accept an incoming call push",
+            "FCM did not accept a call push",
           );
         }
       } catch (cause) {

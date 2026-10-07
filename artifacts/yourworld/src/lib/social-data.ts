@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { mediaApiUrl } from "@/lib/media-api-url";
 import {
   announcePostDeletedFromRealtime,
   isPostDeleted,
@@ -85,7 +86,7 @@ async function requestChatMessagePush(messageId: string) {
   const accessToken = data.session?.access_token;
   if (error || !accessToken) return;
 
-  const response = await fetch("/api/messages/push", {
+  const response = await fetch(mediaApiUrl("/api/messages/push"), {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
