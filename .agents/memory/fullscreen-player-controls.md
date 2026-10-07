@@ -32,3 +32,9 @@ Keep player requests limited to the explicitly requested player behavior and the
 **Why:** The user set a strict scope boundary to avoid regressions in unrelated app features.
 
 **How to apply:** Restrict changes to the shared player and necessary Android fullscreen support; verify the changed-file list before finishing.
+
+Fullscreen detail-player gestures reserve the left 40% for brightness, the right 40% for volume, and the center 20% for next/previous swipes. Android brightness is a per-window override that must restore the previous value on fullscreen exit; browsers use a visual overlay.
+
+**Why:** Edge gestures must not accidentally navigate to a different video, and brightness adjustments must not persist after leaving the player.
+
+**How to apply:** Classify the gesture from its starting position, suppress page/player navigation for both side zones, and restore the native window brightness from every fullscreen cleanup path.

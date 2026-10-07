@@ -19,6 +19,10 @@ import { Capacitor, registerPlugin } from "@capacitor/core";
 import { ScreenOrientation } from "@capacitor/screen-orientation";
 import { getAppScrollContainer } from "@/lib/app-scroll-container";
 import type { VideoQualityTier } from "@/lib/video-quality";
+import {
+  getFullscreenGestureZone,
+  isVerticalAdjustmentGesture,
+} from "@/lib/video-player-gestures";
 import { getAdjacentVideo } from "@/lib/video-queue";
 import { resolveMediaUrl } from "@/lib/social-data";
 import { VideoPlayerErrorBoundary } from "@/components/yw/VideoPlayerErrorBoundary";
@@ -1894,14 +1898,19 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
           startedAt,
           width: rect.width,
           moved: true,
+          zone: "multi",
           swipeAxis: null,
           adjustmentKind: null,
           initialVolume: isAndroidApp ? mediaVolume : videoRef.current?.volume ?? 1,
+          initialBrightness: gestureBrightnessRef.current,
           initialDistance: touchDistance(event.touches),
           initialZoom: zoom,
         };
         return;
       }
+      const zone = isFullscreen
+        ? getFullscreenGestureZone(startX, rect.width)
+        : "navigation";
       touchGestureRef.current = {
         startX,
         originX: firstTouch.clientX,
@@ -1909,12 +1918,18 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
         startedAt,
         width: rect.width,
         moved: false,
+        zone,
         swipeAxis: null,
         adjustmentKind: null,
         initialVolume: isAndroidApp ? mediaVolume : videoRef.current?.volume ?? 1,
+        initialBrightness: gestureBrightnessRef.current,
         initialDistance: null,
         initialZoom: zoom,
       };
+      if (isFullscreen && zone !== "navigation") {
+        event.stopPropagation();
+        if (event.cancelable) event.preventDefault();
+      }
     },
     [isAndroidApp, isDetailPlayer, isFullscreen, mediaVolume, screenLocked, zoom],
   );
@@ -1940,6 +1955,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (event.touches.length >= 2 && gesture.initialDistance) {
+        event.stopPropagation();
         event.preventDefault();
         gesture.swipeAxis = null;
         const distance = touchDistance(event.touches);
@@ -1960,28 +1976,40 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       if (!firstTouch) return;
       const deltaX = firstTouch.clientX - gesture.originX;
       const deltaY = firstTouch.clientY - gesture.originY;
+      if (gesture.zone !== "navigation") {
+        event.stopPropagation();
+        if (event.cancelable) event.preventDefault();
+        if (gesture.zone === "multi") {
+          gesture.moved = true;
+          return;
+        }
+        if (!isVerticalAdjustmentGesture(deltaX, deltaY)) {
+          if (Math.hypot(deltaX, deltaY) >= 8) gesture.moved = true;
+          return;
+        }
+
+        gesture.moved = true;
+        if (gesture.zone === "brightness") {
+          const nextBrightness = clamp(gesture.initialBrightness - deltaY / 280, 0.02, 1);
+          gesture.adjustmentKind = "brightness";
+          applyGestureBrightness(nextBrightness);
+          showGestureFeedback(
+            "brightness",
+            nextBrightness,
+            `${Math.round(nextBrightness * 100)}%`,
+          );
+        } else {
+          const nextVolume = clamp(gesture.initialVolume - deltaY / 280, 0, 1);
+          gesture.adjustmentKind = "volume";
+          applyGestureVolume(nextVolume);
+          showGestureFeedback("volume", nextVolume, `${Math.round(nextVolume * 100)}%`);
+        }
+        return;
+      }
+
       const swipeAxis = isVerticalVideo ? "x" : "y";
       const primaryDelta = swipeAxis === "x" ? deltaX : deltaY;
       const crossDelta = swipeAxis === "x" ? deltaY : deltaX;
-
-      if (
-        !gesture.swipeAxis &&
-        !gesture.adjustmentKind &&
-        gesture.startX >= gesture.width / 2 &&
-        Math.abs(deltaY) >= 8 &&
-        Math.abs(deltaY) >= Math.abs(deltaX) * 1.1
-      ) {
-        gesture.adjustmentKind = "volume";
-      }
-
-      if (gesture.adjustmentKind) {
-        gesture.moved = true;
-        if (event.cancelable) event.preventDefault();
-        const nextVolume = clamp(gesture.initialVolume - deltaY / 280, 0, 1);
-        applyGestureVolume(nextVolume);
-        showGestureFeedback("volume", nextVolume, `${Math.round(nextVolume * 100)}%`);
-        return;
-      }
 
       if (
         !gesture.swipeAxis &&
@@ -2011,6 +2039,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       if (Math.hypot(deltaX, deltaY) >= 8) gesture.moved = true;
     },
     [
+      applyGestureBrightness,
       applyGestureVolume,
       isDetailPlayer,
       isFullscreen,
@@ -2042,6 +2071,14 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       const gesture = touchGestureRef.current;
       touchGestureRef.current = null;
       if (!gesture) return;
+      if (gesture.zone !== "navigation") {
+        event.stopPropagation();
+        if (event.cancelable) event.preventDefault();
+        if (gesture.moved) {
+          suppressSyntheticClickUntilRef.current = Date.now() + 500;
+        }
+        return;
+      }
       if (gesture.swipeAxis) {
         suppressSyntheticClickUntilRef.current = Date.now() + 500;
         const finalTouch = event.changedTouches.item(0);
@@ -2411,6 +2448,22 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               }}
             />
 
+            {showDetailChrome &&
+            isFullscreen &&
+            !isAndroidApp &&
+            Math.abs(gestureBrightness - 0.5) > 0.005 ? (
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 z-[25]"
+                style={{
+                  backgroundColor:
+                    gestureBrightness < 0.5
+                      ? `rgba(0,0,0,${(0.5 - gestureBrightness) * 1.2})`
+                      : `rgba(255,255,255,${(gestureBrightness - 0.5) * 0.9})`,
+                }}
+              />
+            ) : null}
+
             {showDetailChrome && (!activeVideo.url || !hasVideoFrame) ? (
               <div
                 role="status"
@@ -2629,6 +2682,26 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                       />
                     </div>
                     <span className="text-[10px] font-semibold">{gestureFeedback.label}</span>
+                  </div>
+                ) : null}
+
+                {gestureFeedback?.kind === "brightness" ? (
+                  <div
+                    aria-label={`Brightness ${gestureFeedback.label}`}
+                    className="pointer-events-none absolute left-5 top-1/2 flex -translate-y-1/2 flex-col items-center gap-2 rounded-full bg-black/60 px-2.5 py-3 text-white backdrop-blur-sm"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    <Sun className="h-4 w-4" />
+                    <div className="flex h-24 w-1.5 items-end overflow-hidden rounded-full bg-white/25">
+                      <div
+                        className="w-full rounded-full bg-white transition-[height]"
+                        style={{ height: `${gestureFeedback.value * 100}%` }}
+                      />
+                    </div>
+                    <span className="text-[10px] font-semibold">
+                      {gestureFeedback.label}
+                    </span>
                   </div>
                 ) : null}
 
