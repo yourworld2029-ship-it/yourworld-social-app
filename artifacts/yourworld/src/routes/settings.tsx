@@ -205,6 +205,7 @@ function SettingsPage() {
     comments: true,
     followers: true,
     messages: true,
+    calls: true,
     channel: true,
     system: true,
   });
@@ -476,9 +477,14 @@ function SettingsPage() {
           <Toggle label="Comments" on={toggles.comments} onClick={() => flip("comments")} />
           <Toggle label="New followers" on={toggles.followers} onClick={() => flip("followers")} />
           <Toggle label="Messages" on={toggles.messages} onClick={() => flip("messages")} />
+          <Toggle
+            label="Calls"
+            hint="Audio & video call rings and alerts"
+            on={toggles.calls}
+            onClick={() => flip("calls")}
+          />
           <Toggle label="Channel & monetization" on={toggles.channel} onClick={() => flip("channel")} />
           <Toggle label="System alerts" on={toggles.system} onClick={() => flip("system")} />
-          <Row label="Open activity feed" onClick={() => navigate({ to: "/notifications" })} />
         </Panel>
       )}
 
