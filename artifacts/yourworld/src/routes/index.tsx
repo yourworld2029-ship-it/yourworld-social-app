@@ -137,7 +137,7 @@ type VideoResumeEntry = ReturnType<typeof getUnfinishedVideoResumes>[number];
 
 type HomeVideoFeedProps = Pick<
   LongVideoQuery,
-  "currentUserId" | "countView" | "toggleLike" | "reload" | "isFetchingNextPage"
+  "currentUserId" | "isFetchingNextPage"
 > & {
   feedItems: FeedItem[];
   feedAutoplayDisabled: boolean;
@@ -154,16 +154,10 @@ const HomeVideoFeed = React.memo(function HomeVideoFeed({
   loading,
   videos,
   currentUserId,
-  countView,
-  toggleLike,
-  reload,
   isFetchingNextPage,
   resumeEntry,
 }: HomeVideoFeedProps) {
   const navigate = useNavigate();
-  const onDeleted = React.useCallback(() => {
-    void reload();
-  }, [reload]);
   const renderFeedItem = React.useCallback(
     (item: FeedItem) => {
       if (item.kind === "vertical-shelf") {
@@ -195,19 +189,13 @@ const HomeVideoFeed = React.memo(function HomeVideoFeed({
               ? resumeEntry.currentTime
               : undefined
           }
-          onView={countView}
-          onLike={toggleLike}
-          onDeleted={onDeleted}
         />
       );
     },
     [
-      countView,
       currentUserId,
       navigate,
-      onDeleted,
       resumeEntry,
-      toggleLike,
     ],
   );
 
@@ -260,9 +248,6 @@ function HomePage() {
     videos,
     loading,
     currentUserId,
-    countView,
-    toggleLike,
-    reload,
     loadMore,
     hasNextPage,
     isFetchingNextPage,
@@ -568,9 +553,6 @@ function HomePage() {
         loading={loading}
         videos={videos}
         currentUserId={currentUserId}
-        countView={countView}
-        toggleLike={toggleLike}
-        reload={reload}
         isFetchingNextPage={isFetchingNextPage}
         resumeEntry={resumeEntry}
       />
