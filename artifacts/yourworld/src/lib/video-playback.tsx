@@ -55,6 +55,7 @@ import {
   Play,
   Repeat,
   Settings2,
+  Sun,
   Volume2,
   VolumeX,
   X,
@@ -102,7 +103,7 @@ function levelForQuality(levels: Hls["levels"], quality: Exclude<QualityId, "aut
 
 type GestureFeedback = {
   id: number;
-  kind: "seek" | "volume" | "zoom";
+  kind: "seek" | "volume" | "brightness" | "zoom";
   value: number;
   label: string;
 };
@@ -116,9 +117,11 @@ type TouchGesture = {
   startedAt: number;
   width: number;
   moved: boolean;
+  zone: "brightness" | "volume" | "navigation" | "multi";
   swipeAxis: "x" | "y" | null;
-  adjustmentKind: "volume" | null;
+  adjustmentKind: "volume" | "brightness" | null;
   initialVolume: number;
+  initialBrightness: number;
   initialDistance: number | null;
   initialZoom: number;
 };
@@ -141,6 +144,12 @@ type SystemVideoPipPlugin = {
   setMediaVolume(options: { value: number }): Promise<void>;
 };
 
+type VideoBrightnessPlugin = {
+  getBrightness(): Promise<{ value: number }>;
+  setBrightness(options: { value: number }): Promise<void>;
+  restoreBrightness(): Promise<void>;
+};
+
 const globalSystemVideoPip = globalThis as typeof globalThis & {
   __yourWorldSystemVideoPip?: SystemVideoPipPlugin;
 };
@@ -148,6 +157,13 @@ const systemVideoPip =
   globalSystemVideoPip.__yourWorldSystemVideoPip ??
   (globalSystemVideoPip.__yourWorldSystemVideoPip =
     registerPlugin<SystemVideoPipPlugin>("SystemVideoPip"));
+const globalVideoBrightness = globalThis as typeof globalThis & {
+  __yourWorldVideoBrightness?: VideoBrightnessPlugin;
+};
+const videoBrightness =
+  globalVideoBrightness.__yourWorldVideoBrightness ??
+  (globalVideoBrightness.__yourWorldVideoBrightness =
+    registerPlugin<VideoBrightnessPlugin>("VideoBrightness"));
 
 type FloatingPosition = {
   left: number;
@@ -359,6 +375,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const [controlsActivity, setControlsActivity] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [gestureFeedback, setGestureFeedback] = useState<GestureFeedback | null>(null);
+  const [gestureBrightness, setGestureBrightness] = useState(0.5);
   const [lockedUnlockVisible, setLockedUnlockVisible] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [displayMode, setDisplayMode] = useState<"fit" | "fill">("fit");
@@ -668,6 +685,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const endedHandlerRef = useRef<(() => void) | null>(null);
   const seekActivityRef = useRef(false);
   const touchGestureRef = useRef<TouchGesture | null>(null);
+  const gestureBrightnessRef = useRef(0.5);
+  const pendingNativeBrightnessRef = useRef<number | null>(null);
+  const brightnessUpdateFrameRef = useRef<number | null>(null);
   const lastTapRef = useRef<{ time: number; side: TapSide } | null>(null);
   const suppressSyntheticClickUntilRef = useRef(0);
   const feedbackTimerRef = useRef<number | null>(null);
@@ -682,6 +702,34 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const swipeNavigationRef = useRef<SwipeNavigation | null>(null);
   const swipeNavigateTimerRef = useRef<number | null>(null);
   const swipeTransformCleanupTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!isAndroidApp || !isFullscreen) return;
+    let active = true;
+    void videoBrightness
+      .getBrightness()
+      .then(({ value }) => {
+        if (!active || !Number.isFinite(value)) return;
+        const brightness = clamp(value, 0.02, 1);
+        gestureBrightnessRef.current = brightness;
+        setGestureBrightness(brightness);
+      })
+      .catch((error: unknown) => {
+        console.warn("Could not read Android screen brightness.", error);
+      });
+
+    return () => {
+      active = false;
+      if (brightnessUpdateFrameRef.current !== null) {
+        window.cancelAnimationFrame(brightnessUpdateFrameRef.current);
+        brightnessUpdateFrameRef.current = null;
+      }
+      pendingNativeBrightnessRef.current = null;
+      void videoBrightness.restoreBrightness().catch((error: unknown) => {
+        console.warn("Could not restore Android screen brightness.", error);
+      });
+    };
+  }, [isAndroidApp, isFullscreen]);
 
   useEffect(() => {
     lastTapRef.current = null;
@@ -1374,6 +1422,28 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       } else if (videoRef.current) {
         videoRef.current.volume = value;
       }
+    },
+    [isAndroidApp],
+  );
+
+  const applyGestureBrightness = useCallback(
+    (nextBrightness: number) => {
+      const value = clamp(nextBrightness, 0.02, 1);
+      gestureBrightnessRef.current = value;
+      setGestureBrightness(value);
+      if (!isAndroidApp) return;
+
+      pendingNativeBrightnessRef.current = value;
+      if (brightnessUpdateFrameRef.current !== null) return;
+      brightnessUpdateFrameRef.current = window.requestAnimationFrame(() => {
+        brightnessUpdateFrameRef.current = null;
+        const pending = pendingNativeBrightnessRef.current;
+        pendingNativeBrightnessRef.current = null;
+        if (pending === null) return;
+        void videoBrightness.setBrightness({ value: pending }).catch((error: unknown) => {
+          console.warn("Could not update Android screen brightness.", error);
+        });
+      });
     },
     [isAndroidApp],
   );
