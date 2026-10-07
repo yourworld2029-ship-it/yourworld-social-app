@@ -38,3 +38,9 @@ Fullscreen detail-player gestures reserve the left 40% for brightness, the right
 **Why:** Edge gestures must not accidentally navigate to a different video, and brightness adjustments must not persist after leaving the player.
 
 **How to apply:** Classify the gesture from its starting position, suppress page/player navigation for both side zones, and restore the native window brightness from every fullscreen cleanup path.
+
+Do not call `preventDefault()` on touch start or end for a fullscreen side-zone tap unless the touch actually moved into a gesture. Cancel the browser click only after movement has been established.
+
+**Why:** Preventing the default on a stationary touch can suppress Android WebView's synthesized click, so tapping the surface cannot show or hide player controls.
+
+**How to apply:** Keep stationary edge taps eligible for the viewport click handler. Stop propagation as needed, then prevent default and suppress synthetic clicks only for moved brightness/volume gestures.
