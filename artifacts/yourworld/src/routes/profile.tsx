@@ -83,7 +83,8 @@ import {
   type DownloadedVideo,
   type DownloadedVideoMetadata,
 } from "@/lib/yw-download";
-import { loadSavedLongVideos } from "@/lib/video-data";
+import { loadSavedLongVideos, type LongVideo } from "@/lib/video-data";
+import { togglePostFavorite } from "@/lib/video-context-actions";
 import { DownloadSheet, type DownloadChoice } from "@/components/yw/DownloadSheet";
 import {
   effectiveDownloadSourceQuality,
@@ -181,6 +182,31 @@ function ProfilePage() {
     enabled: Boolean(userId && tab === "saved"),
     staleTime: 0,
   });
+  const removeSavedLongVideo = async (video: LongVideo) => {
+    if (!userId) return;
+    const queryKey = ["saved-long-videos", userId] as const;
+    const savedVideos = queryClient.getQueryData<LongVideo[]>(queryKey) ?? [];
+    const originalIndex = savedVideos.findIndex((saved) => saved.id === video.id);
+    if (originalIndex < 0) return;
+
+    queryClient.setQueryData<LongVideo[]>(queryKey, (current) =>
+      (current ?? []).filter((saved) => saved.id !== video.id),
+    );
+    try {
+      await togglePostFavorite(userId, video.id, true);
+      toast.success("Removed from saved");
+    } catch (error) {
+      queryClient.setQueryData<LongVideo[]>(queryKey, (current) => {
+        const latest = current ?? [];
+        if (latest.some((saved) => saved.id === video.id)) return latest;
+        const insertAt = Math.min(originalIndex, latest.length);
+        return [...latest.slice(0, insertAt), video, ...latest.slice(insertAt)];
+      });
+      toast.error(
+        error instanceof Error ? error.message : "Couldn't remove this video from Saved.",
+      );
+    }
+  };
   const { activateVideo } = useVideoPlayback();
   const [downloads, setDownloads] = useState<DownloadedVideo[]>([]);
   const [downloadsLoading, setDownloadsLoading] = useState(false);
@@ -1053,13 +1079,7 @@ function ProfilePage() {
           params: { videoId: video.id },
         })
       }
-      onOpenOfflineDownloads={() =>
-        void navigate({
-          to: "/profile",
-          search: { connections: undefined, tab: "downloads" },
-          replace: true,
-        })
-      }
+      onRemoveSavedVideo={removeSavedLongVideo}
       onOpenDownloadAthlete={(record) => {
         if (record.creatorId) {
           void navigate({ to: "/u/$userId", params: { userId: record.creatorId } });

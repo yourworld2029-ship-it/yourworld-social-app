@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   ArrowLeft,
+  BookmarkX,
   Link2,
   Medal,
   MapPin,
@@ -12,6 +13,12 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Bio } from "@/components/yw/Bio";
 import { FollowListDialog } from "@/components/yw/FollowListDialog";
 import {
@@ -32,7 +39,11 @@ import {
 import { useVerifiedSportsIdentity } from "@/lib/sports-identity";
 import type { DownloadedVideo } from "@/lib/yw-download";
 import { getPublicNationalAwardBadge } from "@/lib/national-award.data";
-import { formatDuration as formatLongVideoDuration, type LongVideo } from "@/lib/video-data";
+import {
+  formatDuration as formatLongVideoDuration,
+  timeAgo,
+  type LongVideo,
+} from "@/lib/video-data";
 import {
   nationalAwardLabel,
   type NationalAwardPublicBadge,
@@ -88,7 +99,7 @@ export type ProfileTemplateProps = {
   onDeleteDownload?: (video: DownloadedVideo) => Promise<void> | void;
   onOpenDownloadAthlete?: (video: DownloadedVideo) => void;
   onOpenSavedVideo?: (video: LongVideo) => void;
-  onOpenOfflineDownloads?: () => void;
+  onRemoveSavedVideo?: (video: LongVideo) => Promise<void> | void;
   selectedTab?: "videos" | "reels" | "saved" | "downloads";
   onTabChange?: (tab: "videos" | "reels" | "saved" | "downloads") => void;
   hasMoreMedia?: boolean;
@@ -141,7 +152,7 @@ export function ProfileTemplate({
   onOpen,
   onManage,
   onOpenSavedVideo,
-  onOpenOfflineDownloads,
+  onRemoveSavedVideo,
   selectedTab,
   onTabChange,
   hasMoreMedia = false,
@@ -424,20 +435,12 @@ export function ProfileTemplate({
         </TabsContent>
         {isOwner ? (
           <TabsContent value="saved" className="mt-0">
-            <div className="flex justify-end px-3 py-2 sm:px-4">
-              <button
-                type="button"
-                onClick={onOpenOfflineDownloads}
-                className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:bg-white/[0.06] hover:text-foreground"
-              >
-                Device downloads
-              </button>
-            </div>
             <SavedLongVideoGrid
               videos={savedVideos}
               loading={savedVideosLoading}
               error={savedVideosError}
               onOpen={onOpenSavedVideo}
+              onRemove={onRemoveSavedVideo}
             />
           </TabsContent>
         ) : null}
@@ -469,53 +472,128 @@ function SavedLongVideoGrid({
   loading,
   error,
   onOpen,
+  onRemove,
 }: {
   videos: LongVideo[];
   loading: boolean;
   error: boolean;
   onOpen?: (video: LongVideo) => void;
+  onRemove?: (video: LongVideo) => Promise<void> | void;
 }) {
-  if (loading) return <ProfileMediaSkeleton />;
+  if (loading) {
+    return (
+      <ul
+        className="space-y-2 px-3 py-4 sm:px-4"
+        role="status"
+        aria-label="Loading saved videos"
+        aria-busy="true"
+      >
+        {[0, 1, 2].map((item) => (
+          <li
+            key={item}
+            className="flex items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.025] p-2"
+          >
+            <div className="aspect-video w-[40%] max-w-44 shrink-0 animate-pulse rounded-lg bg-white/[0.08]" />
+            <div className="min-w-0 flex-1 space-y-2">
+              <div className="h-3.5 w-4/5 animate-pulse rounded bg-white/[0.08]" />
+              <div className="h-3 w-3/5 animate-pulse rounded bg-white/[0.06]" />
+              <div className="h-3 w-2/5 animate-pulse rounded bg-white/[0.06]" />
+            </div>
+          </li>
+        ))}
+      </ul>
+    );
+  }
   if (error) return <Empty text="Couldn't load saved videos. Please try again." />;
   if (videos.length === 0) return <Empty text="No saved long videos yet." />;
 
   return (
-    <ul className="grid grid-cols-3 gap-1.5 bg-transparent px-3 pb-3 sm:px-4">
-      {videos.map((video) => (
-        <li key={video.id} className="relative aspect-square overflow-hidden rounded-lg bg-secondary">
-          <button
-            type="button"
-            aria-label={`Play ${video.title || "saved video"}`}
-            onClick={() => onOpen?.(video)}
-            className="group absolute inset-0 h-full w-full text-left"
+    <ul
+      data-testid="list-profile-saved-videos"
+      className="space-y-2 px-3 py-4 sm:px-4"
+    >
+      {videos.map((video) => {
+        const title = video.title.trim() || "Saved video";
+        const creatorName =
+          video.author.name.trim() ||
+          (video.author.username ? `@${video.author.username}` : "YourWorld creator");
+
+        return (
+          <li
+            key={video.id}
+            data-testid={`card-saved-long-video-${video.id}`}
+            className="flex min-w-0 items-center gap-2 rounded-xl border border-white/[0.07] bg-white/[0.035] p-2 transition-colors hover:border-white/[0.13] hover:bg-white/[0.055]"
           >
-            <div className="absolute inset-0 grid place-items-center bg-gradient-to-br from-violet-950 via-zinc-900 to-zinc-950">
-              <Play className="h-8 w-8 fill-white text-white" aria-hidden="true" />
-            </div>
-            {video.thumbnailUrl ? (
-              <img
-                src={video.thumbnailUrl}
-                alt=""
-                loading="lazy"
-                className="absolute inset-0 h-full w-full object-cover"
-                onError={(event) => {
-                  event.currentTarget.style.display = "none";
-                }}
-              />
-            ) : null}
-            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-2 pb-2 pt-6">
-              <p className="line-clamp-2 text-[10px] font-semibold text-white sm:text-xs">
-                {video.title || "Saved video"}
-              </p>
-            </div>
-            {video.durationSeconds != null ? (
-              <span className="absolute right-1.5 top-1.5 rounded bg-black/75 px-1.5 py-0.5 text-[10px] font-medium text-white">
-                {formatLongVideoDuration(video.durationSeconds)}
+            <button
+              type="button"
+              aria-label={`Play ${title}`}
+              onClick={() => onOpen?.(video)}
+              className="flex min-w-0 flex-1 items-center gap-3 text-left"
+            >
+              <span className="relative aspect-video w-[40%] max-w-44 min-w-24 shrink-0 overflow-hidden rounded-lg bg-zinc-900">
+                <span className="absolute inset-0 grid place-items-center bg-gradient-to-br from-violet-950 via-zinc-900 to-zinc-950">
+                  <Play className="h-6 w-6 fill-white text-white" aria-hidden="true" />
+                </span>
+                {video.thumbnailUrl ? (
+                  <img
+                    src={video.thumbnailUrl}
+                    alt=""
+                    loading="lazy"
+                    className="absolute inset-0 h-full w-full object-cover"
+                    onError={(event) => {
+                      event.currentTarget.style.display = "none";
+                    }}
+                  />
+                ) : null}
+                {video.durationSeconds != null ? (
+                  <span className="absolute bottom-1.5 right-1.5 rounded bg-black/80 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-white">
+                    {formatLongVideoDuration(video.durationSeconds)}
+                  </span>
+                ) : null}
               </span>
-            ) : null}
-          </button>
-        </li>
-      ))}
+              <span className="min-w-0 flex-1 self-stretch py-0.5">
+                <span className="line-clamp-2 font-display text-[13px] font-semibold leading-[1.25] text-white sm:text-sm">
+                  {title}
+                </span>
+                <span className="mt-1.5 block truncate text-[11px] text-zinc-400">
+                  {creatorName}
+                  {video.author.name.trim() && video.author.username
+                    ? ` · @${video.author.username}`
+                    : ""}
+                </span>
+                <span className="mt-1 block truncate text-[10px] text-zinc-500">
+                  {formatCount(video.views)} views
+                  <span aria-hidden="true"> • </span>
+                  {timeAgo(video.createdAt)}
+                </span>
+              </span>
+            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={`More actions for ${title}`}
+                  className="grid h-9 w-8 shrink-0 place-items-center rounded-full text-zinc-400 transition-colors hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                >
+                  <MoreVertical className="h-[18px] w-[18px]" aria-hidden="true" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                className="w-48 border-white/10 bg-zinc-950 text-white"
+              >
+                <DropdownMenuItem
+                  onClick={() => void onRemove?.(video)}
+                  className="gap-2 focus:bg-white/10 focus:text-white"
+                >
+                  <BookmarkX className="h-4 w-4" aria-hidden="true" />
+                  Remove from Saved
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </li>
+        );
+      })}
     </ul>
   );
 }
