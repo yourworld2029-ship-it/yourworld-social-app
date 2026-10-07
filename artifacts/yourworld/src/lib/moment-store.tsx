@@ -88,8 +88,10 @@ export type MyMoment = {
   };
   location?: string;
   mentions: string[];
+  /** Profile IDs tagged in this Moment. Persisted in mentioned_user_ids. */
+  mentionedUserIds?: string[];
   privacy: MomentPrivacy;
-  /** Explicit recipients for a Close Friends Moment; stored in the existing payload JSON. */
+  /** Explicit recipients for a targeted Moment; stored in the existing payload JSON. */
   recipientUserIds?: string[];
   /** hours until the Moment expires */
   duration: number;
@@ -204,6 +206,7 @@ type DbMoment = {
   allow_download: boolean;
   screenshot_alert: boolean;
   poll: MomentPoll | null;
+  mentioned_user_ids?: string[] | null;
   archived: boolean;
   created_at: string;
   expires_at?: string | null;
@@ -268,6 +271,9 @@ function postRowToMoment(row: Record<string, unknown>): DbMoment {
   const recipientUserIds = Array.isArray(row.viewer_user_ids)
     ? row.viewer_user_ids.filter((id): id is string => typeof id === "string")
     : [];
+  const mentionedUserIds = Array.isArray(row.mentioned_user_ids)
+    ? row.mentioned_user_ids.filter((id): id is string => typeof id === "string")
+    : [];
   return {
     id: String(row.id),
     user_id: String(row.user_id),
@@ -276,12 +282,16 @@ function postRowToMoment(row: Record<string, unknown>): DbMoment {
     media_type: typeof row.media_type === "string" ? row.media_type : null,
     text: typeof row.caption === "string" ? row.caption : "",
     text_bg: "",
-    payload: recipientUserIds.length ? { recipientUserIds } : null,
+    payload:
+      recipientUserIds.length || mentionedUserIds.length
+        ? { recipientUserIds, mentioned_user_ids: mentionedUserIds }
+        : null,
     privacy: typeof row.audience === "string" ? row.audience : "everyone",
     duration: durationHours,
     allow_download: row.allow_download !== false,
     screenshot_alert: false,
     poll: null,
+    mentioned_user_ids: mentionedUserIds,
     archived: row.archived === true,
     created_at: createdAt,
     expires_at: new Date(
@@ -358,6 +368,13 @@ function rowToMoment(
     mentions: Array.isArray(p.mentions)
       ? p.mentions.filter((mention): mention is string => typeof mention === "string")
       : [],
+    mentionedUserIds: Array.isArray(row.mentioned_user_ids)
+      ? row.mentioned_user_ids.filter((id): id is string => typeof id === "string")
+      : Array.isArray(p.mentioned_user_ids)
+        ? p.mentioned_user_ids.filter((id): id is string => typeof id === "string")
+        : Array.isArray(p.mentionedUserIds)
+          ? p.mentionedUserIds.filter((id): id is string => typeof id === "string")
+          : [],
     privacy,
     recipientUserIds: Array.isArray(p.recipientUserIds)
       ? p.recipientUserIds.filter((id): id is string => typeof id === "string")
@@ -390,6 +407,19 @@ function rowToMoment(
   };
 }
 
+/** Loads a still-active Moment by ID for a recipient action when it is not in the current feed cache. */
+export async function fetchMomentById(id: string): Promise<MyMoment | null> {
+  const { data, error } = await momentDb
+    .from("moments")
+    .select("*")
+    .eq("id", id);
+  const row = (data?.[0] ?? null) as DbMoment | null;
+  if (error || !row) return null;
+  const moment = rowToMoment(row, [], [], undefined, null);
+  const [signedMoment] = await signMomentMedia([moment]);
+  return signedMoment ?? moment;
+}
+
 function payloadOf(m: NewMoment) {
   return {
     music: m.music ?? null,
@@ -405,6 +435,7 @@ function payloadOf(m: NewMoment) {
     crop: m.crop ?? null,
     location: m.location ?? null,
     mentions: m.mentions ?? [],
+    mentioned_user_ids: m.mentionedUserIds ?? [],
     effect: m.effect ?? "none",
     ai: m.ai ?? {},
     allowReactions: m.allowReactions ?? true,
@@ -1016,6 +1047,7 @@ export function MomentProvider({ children }: { children: ReactNode }) {
                 text: m.text ?? "",
                 text_bg: m.textBg ?? "",
                 payload: payloadOf({ ...m, musicUrl }),
+                 mentioned_user_ids: m.mentionedUserIds ?? [],
                 audio_url: musicUrl ?? null,
                 music_title: m.musicTitle ?? m.music ?? null,
                 music_artist: m.musicArtist ?? null,
@@ -1040,6 +1072,7 @@ export function MomentProvider({ children }: { children: ReactNode }) {
                   caption: m.text ?? "",
                   audience: m.privacy,
                   viewer_user_ids: m.recipientUserIds ?? [],
+                  mentioned_user_ids: m.mentionedUserIds ?? [],
                   duration_seconds: hours,
                   allow_download: m.allowDownload,
                   audio: musicUrl ?? null,

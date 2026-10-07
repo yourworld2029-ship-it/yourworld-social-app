@@ -22,6 +22,9 @@ import { cn } from "@/lib/utils";
 import { historyBackLink } from "@/lib/navigation";
 import { SportsIdentityMark } from "@/components/yw/SportsIdentityBadge";
 import { useYw } from "@/lib/yw-store";
+import { useMoments } from "@/lib/moment-context";
+import { fetchMomentById, type NewMoment } from "@/lib/moment-store";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/notifications")({
   head: () => ({
@@ -79,9 +82,80 @@ function NotificationsPage() {
   } =
     useNotifications();
   const { following, toggleFollow } = useYw();
+  const { moments, addMoment } = useMoments();
   const [filter, setFilter] = useState<Filter>("all");
   const [tuning, setTuning] = useState(false);
+  const [resharingMomentId, setResharingMomentId] = useState<string | null>(null);
   const navigate = useNavigate();
+
+  const addMentionedMomentToMyMoments = async (item: NotificationItem) => {
+    if (!item.canReshareMoment || !item.momentId || resharingMomentId) return;
+    setResharingMomentId(item.momentId);
+    let temporaryMediaUrl: string | null = null;
+    try {
+      const source =
+        moments.find((moment) => moment.id === item.momentId) ??
+        (await fetchMomentById(item.momentId));
+      if (!source) {
+        throw new Error("This Moment is no longer available to add.");
+      }
+      if (typeof source.expiresAt === "number" && source.expiresAt <= Date.now()) {
+        throw new Error("This Moment has expired and can no longer be added.");
+      }
+      let media = "";
+      let mediaType = source.mediaType;
+      if (source.kind !== "text") {
+        if (!source.media) throw new Error("This Moment has no media to share.");
+        const response = await fetch(source.media);
+        if (!response.ok) throw new Error("This Moment is no longer available to add.");
+        const blob = await response.blob();
+        if (!blob.size) throw new Error("This Moment's media could not be loaded.");
+        mediaType ||= blob.type || undefined;
+        temporaryMediaUrl = URL.createObjectURL(blob);
+        media = temporaryMediaUrl;
+      }
+
+      const copy: NewMoment = {
+        kind: source.kind,
+        media,
+        mediaType,
+        text: source.text,
+        textBg: source.textBg,
+        stickers: source.stickers,
+        drawing: source.drawing,
+        trim: source.trim,
+        crop: source.crop,
+        mentions: [],
+        mentionedUserIds: [],
+        privacy: "followers",
+        recipientUserIds: undefined,
+        duration: source.duration,
+        effect: source.effect,
+        ai: source.ai,
+        allowDownload: source.allowDownload,
+        screenshotAlert: false,
+        allowReactions: source.allowReactions,
+        allowReplies: source.allowReplies,
+        allowSharing: source.allowSharing,
+        showLocation: false,
+        saveToArchive: false,
+        poll: null,
+      };
+      const result = await addMoment(copy);
+      if (result.error) throw new Error(result.error);
+      markRead(item.id);
+      toast.success("Added to your Moment");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Couldn't add this Moment. It may no longer be available.",
+      );
+    } finally {
+      if (temporaryMediaUrl) URL.revokeObjectURL(temporaryMediaUrl);
+      setResharingMomentId(null);
+    }
+  };
 
   /** Message alerts are hidden here because they already live in the Chats inbox. */
   const items = useMemo(
@@ -279,6 +353,8 @@ function NotificationsPage() {
                         if (item.to) navigate({ to: item.to });
                       }}
                       onDismiss={() => remove(item.id)}
+                      onAddToMoment={() => void addMentionedMomentToMyMoments(item)}
+                      resharePending={resharingMomentId === item.momentId}
                       onToggleFollow={() => {
                         if (item.actorId) void toggleFollow(item.actorId);
                       }}
@@ -299,12 +375,16 @@ function NotificationRow({
   following,
   onOpen,
   onDismiss,
+  onAddToMoment,
+  resharePending,
   onToggleFollow,
 }: {
   item: NotificationItem;
   following: boolean;
   onOpen: () => void;
   onDismiss: () => void;
+  onAddToMoment: () => void;
+  resharePending: boolean;
   onToggleFollow: () => void;
 }) {
   const meta = kindMeta(item.kind);
@@ -381,6 +461,20 @@ function NotificationRow({
           />
         </span>
       ) : null}
+      {item.canReshareMoment ? (
+        <button
+          type="button"
+          disabled={resharePending}
+          onClick={(event) => {
+            event.stopPropagation();
+            onAddToMoment();
+          }}
+          data-testid={`button-add-mentioned-moment-${item.momentId}`}
+          className="h-8 shrink-0 whitespace-nowrap rounded-lg bg-gradient-to-r from-cyan-500 to-pink-500 px-2 text-[10px] font-semibold text-white disabled:opacity-60"
+        >
+          {resharePending ? "Adding…" : "Add to your moment"}
+        </button>
+      ) : null}
       <button
         type="button"
         onClick={onDismiss}
@@ -442,12 +536,10 @@ function Chip({
   active,
   onClick,
   label,
-  count,
 }: {
   active: boolean;
   onClick: () => void;
   label: string;
-  count?: number;
 }) {
   return (
     <button

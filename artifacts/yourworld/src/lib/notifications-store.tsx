@@ -23,7 +23,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { STORAGE_BUCKETS } from "@/lib/storage-upload";
 import { resolveMediaUrl } from "@/lib/social-data";
 const liveDb = supabase as unknown as {
-  from: (table: "likes" | "comments" | "posts" | "messages") => ReturnType<typeof supabase.from>;
+  from: (table: "likes" | "comments" | "posts" | "messages" | "moments") => ReturnType<typeof supabase.from>;
 };
 
 export type NotificationKind =
@@ -53,6 +53,9 @@ export type NotificationItem = {
   to?: string;
   /** Optional preview image for content notifications. */
   thumbnailUrl?: string | null;
+  /** Reshare action supplied by a Moment mention notification. */
+  canReshareMoment?: boolean;
+  momentId?: string;
 };
 
 export type KindMeta = {
@@ -405,6 +408,16 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
     .map((n) => n.entity_id as string);
   const momentMedia = new Map<string, string>();
   if (momentIds.length) {
+    const { data: dedicatedMoments } = await liveDb
+      .from("moments")
+      .select("id,media_url")
+      .in("id", [...new Set(momentIds)]);
+    for (const moment of (dedicatedMoments ?? []) as Array<{
+      id: string;
+      media_url: string | null;
+    }>) {
+      if (moment.media_url) momentMedia.set(moment.id, moment.media_url);
+    }
     const { data: moments } = await liveDb
       .from("posts")
       .select("id,media_url,thumbnail_url")
@@ -414,6 +427,7 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       media_url: string | null;
       thumbnail_url: string | null;
     }>) {
+      if (momentMedia.has(moment.id)) continue;
       const url = moment.thumbnail_url ?? moment.media_url;
       if (url) momentMedia.set(moment.id, url);
     }
@@ -509,6 +523,14 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
   for (const r of rows.momentNotifications) {
     const kind = normalizeNotificationKind(r.kind);
     const entityType = r.entity_type?.trim().toLowerCase() ?? "";
+    const momentId =
+      entityType === "moment"
+        ? r.entity_id ?? metadataId(r.metadata, "moment_id")
+        : metadataId(r.metadata, "moment_id");
+    const isMomentMention =
+      kind === "mention" &&
+      r.metadata?.source === "moment_mention" &&
+      !!momentId;
     const contentId =
       ["post", "video", "reel"].includes(entityType) && r.entity_id
         ? r.entity_id
@@ -539,8 +561,9 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       continue;
     }
     const actorName = r.actor_id ? nameOf(r.actor_id) : undefined;
-    const activity =
-      kind === "follower"
+    const activity = isMomentMention
+      ? undefined
+      : kind === "follower"
         ? "started following you"
         : kind === "mention"
           ? "mentioned you"
@@ -551,16 +574,20 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       id: `notification-${r.id}`,
       kind,
       title:
-        activity && actorName
+        isMomentMention
+          ? r.body ?? r.title
+          : activity && actorName
           ? `${actorName} ${activity}`
           : r.title,
       actorName,
       activity,
       actorId: r.actor_id ?? undefined,
       actorAvatarUrls: r.actor_id ? [avatarOf(r.actor_id)] : undefined,
-      body: r.body ?? undefined,
+      body: isMomentMention ? undefined : r.body ?? undefined,
       at: ts(r.created_at),
       to: notificationLink(r),
+      canReshareMoment: isMomentMention,
+      momentId: isMomentMention ? momentId : undefined,
       thumbnailUrl:
         entityType === "moment" && r.entity_id
           ? momentMedia.get(r.entity_id) ?? null
