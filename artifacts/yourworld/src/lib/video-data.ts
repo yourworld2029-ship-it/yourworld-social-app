@@ -50,6 +50,10 @@ import {
 } from "@/lib/video-quality";
 import { readVideoDurationSeconds } from "@/lib/video-duration";
 import { cloudflareStreamPosterUrl } from "@/lib/cloudflare-stream-media";
+import {
+  VIDEO_FEED_SUPPRESSION_EVENT,
+  type VideoFeedSuppressionDetail,
+} from "@/lib/video-context-actions";
 
 const liveLikesTable = () => supabase.from("likes");
 
@@ -926,9 +930,33 @@ export async function loadLongVideosByIds(ids: readonly string[]): Promise<LongV
   const uniqueIds = [...new Set(ids.filter(Boolean))];
   if (uniqueIds.length === 0) return [];
   const page = await loadLongVideoPage(0, uniqueIds.length, uniqueIds);
+  const visibleVideos = await filterSuppressedLongVideos(page.videos, page.currentUserId);
   const priority = new Map(uniqueIds.map((id, index) => [id, index]));
-  return page.videos.sort(
+  return visibleVideos.sort(
     (left, right) => (priority.get(left.id) ?? Infinity) - (priority.get(right.id) ?? Infinity),
+  );
+}
+
+async function filterSuppressedLongVideos(
+  videos: LongVideo[],
+  userId: string | null,
+): Promise<LongVideo[]> {
+  if (!userId || videos.length === 0) return videos;
+  const postIds = videos.map((video) => video.id);
+  const [preferencesResult, mutedCreatorsResult] = await Promise.all([
+    supabase
+      .from("user_post_preferences")
+      .select("post_id")
+      .eq("user_id", userId)
+      .in("post_id", postIds),
+    supabase.from("user_muted_creators").select("creator_id").eq("user_id", userId),
+  ]);
+  if (preferencesResult.error) throw preferencesResult.error;
+  if (mutedCreatorsResult.error) throw mutedCreatorsResult.error;
+  const hiddenPostIds = new Set((preferencesResult.data ?? []).map((row) => row.post_id));
+  const mutedCreatorIds = new Set((mutedCreatorsResult.data ?? []).map((row) => row.creator_id));
+  return videos.filter(
+    (video) => !hiddenPostIds.has(video.id) && !mutedCreatorIds.has(video.userId),
   );
 }
 
@@ -940,9 +968,10 @@ export function useLongVideos() {
     initialPageParam: 0,
     queryFn: async ({ pageParam }) => {
       const page = await loadLongVideoPage(pageParam, VIDEO_PAGE_SIZE);
+      const visibleVideos = await filterSuppressedLongVideos(page.videos, page.currentUserId);
       return {
         ...page,
-        videos: page.videos.filter((video) => !isPostDeleted(video.id)),
+        videos: visibleVideos.filter((video) => !isPostDeleted(video.id)),
       };
     },
     getNextPageParam: (lastPage) => lastPage.nextOffset ?? undefined,
@@ -1015,7 +1044,27 @@ export function useLongVideos() {
           void queryClient.invalidateQueries({ queryKey });
         });
     };
+    const onVideoFeedSuppression = (event: Event) => {
+      const detail = (event as CustomEvent<VideoFeedSuppressionDetail>).detail;
+      if (!detail?.postId && !detail?.creatorId) return;
+      queryClient.setQueryData<InfiniteData<LongVideoPage, number>>(queryKey, (current) =>
+        current
+          ? {
+              ...current,
+              pages: current.pages.map((page) => ({
+                ...page,
+                videos: page.videos.filter(
+                  (video) =>
+                    !(detail.postId && video.id === detail.postId) &&
+                    !(detail.creatorId && video.userId === detail.creatorId),
+                ),
+              })),
+            }
+          : current,
+      );
+    };
     window.addEventListener(PUBLISHED_POST_EVENT, onPublishedPost);
+    window.addEventListener(VIDEO_FEED_SUPPRESSION_EVENT, onVideoFeedSuppression);
     let channel: ReturnType<typeof supabase.channel> | null = null;
     const boot = window.setTimeout(() => {
       channel = supabase
@@ -1030,6 +1079,7 @@ export function useLongVideos() {
       window.clearTimeout(timer);
       unsubscribeFromDeletes();
       window.removeEventListener(PUBLISHED_POST_EVENT, onPublishedPost);
+      window.removeEventListener(VIDEO_FEED_SUPPRESSION_EVENT, onVideoFeedSuppression);
       if (channel) void supabase.removeChannel(channel);
     };
   }, [queryClient, queryKey]);

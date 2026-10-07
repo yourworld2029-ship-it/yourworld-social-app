@@ -1042,12 +1042,52 @@ export type Database = {
         }
         Relationships: []
       }
+      user_muted_creators: {
+        Row: {
+          created_at: string
+          creator_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          creator_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          creator_id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_post_preferences: {
+        Row: {
+          created_at: string
+          post_id: string
+          preference: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          post_id: string
+          preference?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          post_id?: string
+          preference?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_reports: {
         Row: {
           created_at: string
           id: string
           message_id: string | null
           reason: string
+          reported_post_id: string | null
           reported_user_id: string
           reporter_id: string
           surface: string
@@ -1058,6 +1098,7 @@ export type Database = {
           id?: string
           message_id?: string | null
           reason?: string
+          reported_post_id?: string | null
           reported_user_id: string
           reporter_id: string
           surface: string
@@ -1068,6 +1109,7 @@ export type Database = {
           id?: string
           message_id?: string | null
           reason?: string
+          reported_post_id?: string | null
           reported_user_id?: string
           reporter_id?: string
           surface?: string

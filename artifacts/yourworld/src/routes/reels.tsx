@@ -24,6 +24,7 @@ import {
   Music2,
   Volume2,
   MoreVertical,
+  Link2,
   EyeOff,
   UserX,
   Flag,
@@ -100,6 +101,16 @@ import {
   saveVideoResumeEntry,
 } from "@/lib/video-resume";
 import { useValidatedVideoViewTracker } from "@/lib/video-view-validation";
+import {
+  announceVideoCreatorMuted,
+  announceVideoPostSuppressed,
+  copyShareLink,
+  getPostFavoriteState,
+  markPostNotInterested,
+  muteVideoCreator,
+  submitVideoReport,
+  togglePostFavorite,
+} from "@/lib/video-context-actions";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1027,6 +1038,37 @@ function ReelItem({
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportReason, setReportReason] = useState("Inappropriate content");
+  const [reporting, setReporting] = useState(false);
+  const [contextActionBusy, setContextActionBusy] = useState(false);
+  const [isFavorite, setIsFavorite] = useState(false);
+  const [favoriteLoaded, setFavoriteLoaded] = useState(false);
+  const viewerId = viewer?.id ?? currentUserId ?? null;
+  const shareUrl = buildWatchShareUrl(reel.id, "reel");
+
+  useEffect(() => {
+    setFavoriteLoaded(false);
+    setIsFavorite(false);
+  }, [reel.id, viewerId]);
+
+  useEffect(() => {
+    if (!menuOpen || !viewerId) return;
+    let alive = true;
+    void getPostFavoriteState(viewerId, reel.id)
+      .then((saved) => {
+        if (alive) {
+          setIsFavorite(saved);
+          setFavoriteLoaded(true);
+        }
+      })
+      .catch((error) => {
+        console.warn("Unable to load Reel favorite state", error);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [menuOpen, reel.id, viewerId]);
 
   // ---- playback timeline -------------------------------------------------
   const [progress, setProgress] = useState(0); // 0..100
@@ -1665,11 +1707,102 @@ function ReelItem({
       });
       setDeleteOpen(false);
       onDeleted?.();
-      toast.success("Post deleted");
+      toast.success("Video deleted successfully");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Couldn't delete this media");
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const handleCopyLink = async () => {
+    setMenuOpen(false);
+    try {
+      await copyShareLink(shareUrl);
+      toast.success("Link copied to clipboard");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not copy link");
+    }
+  };
+
+  const handleNotInterested = async () => {
+    setMenuOpen(false);
+    if (!viewerId || contextActionBusy) {
+      if (!viewerId) toast.error("Sign in to update your feed");
+      return;
+    }
+    setContextActionBusy(true);
+    try {
+      await markPostNotInterested(viewerId, reel.id);
+      announceVideoPostSuppressed(reel.id);
+      toast.success("We'll show fewer posts like this");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't update your feed");
+    } finally {
+      setContextActionBusy(false);
+    }
+  };
+
+  const handleMuteCreator = async () => {
+    setMenuOpen(false);
+    if (!viewerId || contextActionBusy) {
+      if (!viewerId) toast.error("Sign in to mute creators");
+      return;
+    }
+    setContextActionBusy(true);
+    try {
+      await muteVideoCreator(viewerId, reel.userId);
+      announceVideoCreatorMuted(reel.userId);
+      toast.success("Creator muted");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't mute this creator");
+    } finally {
+      setContextActionBusy(false);
+    }
+  };
+
+  const handleFavorite = async () => {
+    setMenuOpen(false);
+    if (!viewerId || contextActionBusy) {
+      if (!viewerId) toast.error("Sign in to save videos");
+      return;
+    }
+    setContextActionBusy(true);
+    try {
+      const currentSaved = favoriteLoaded
+        ? isFavorite
+        : await getPostFavoriteState(viewerId, reel.id);
+      const nextSaved = await togglePostFavorite(viewerId, reel.id, currentSaved);
+      setIsFavorite(nextSaved);
+      setFavoriteLoaded(true);
+      toast.success(nextSaved ? "Added to Favorites" : "Removed from Favorites");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't update Favorites");
+    } finally {
+      setContextActionBusy(false);
+    }
+  };
+
+  const handleReport = async () => {
+    setMenuOpen(false);
+    if (!viewerId || reporting) {
+      if (!viewerId) toast.error("Sign in to report videos");
+      return;
+    }
+    setReporting(true);
+    try {
+      await submitVideoReport({
+        reporterId: viewerId,
+        creatorId: reel.userId,
+        postId: reel.id,
+        reason: reportReason,
+      });
+      setReportOpen(false);
+      toast.success("Report submitted. Thank you for keeping our community safe.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't submit this report");
+    } finally {
+      setReporting(false);
     }
   };
 
@@ -1821,7 +1954,7 @@ function ReelItem({
 
         <ShareSheet
           title={reel.caption}
-          url={mediaType === "video" ? buildWatchShareUrl(reel.id, "reel") : undefined}
+          url={mediaType === "video" ? shareUrl : undefined}
           media={mediaUrl ?? reel.poster}
           mediaKind={mediaType === "video" ? "video" : "photo"}
           contentId={mediaType === "video" ? reel.id : undefined}
@@ -1867,6 +2000,15 @@ function ReelItem({
             role="menu"
             className="absolute bottom-16 right-3 z-50 w-56 overflow-hidden rounded-2xl border border-border/60 bg-background/85 shadow-2xl backdrop-blur-xl animate-rise"
           >
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => void handleCopyLink()}
+              className="flex w-full items-center gap-3 border-b border-border/50 px-4 py-3 text-left text-[13px] font-medium transition-colors hover:bg-foreground/10"
+            >
+              <Link2 strokeWidth={1.6} className="h-[17px] w-[17px] text-muted-foreground" />
+              Copy Link
+            </button>
             {reel.allowDownload ? (
               <button
                 type="button"
@@ -1903,26 +2045,65 @@ function ReelItem({
                 Download to Gallery
               </button>
             ) : null}
-            {[
-              { icon: EyeOff, label: "Not Interested" },
-              { icon: UserX, label: "Don't Recommend Creator" },
-              { icon: Flag, label: "Report" },
-              { icon: VolumeX, label: "Mute Creator" },
-              { icon: Star, label: "Add to Favorites" },
-            ].map(({ icon: Icon, label }) => (
-              <button
-                key={label}
-                role="menuitem"
-                onClick={() => {
-                  setMenuOpen(false);
-                  toast(label);
-                }}
-                className="flex w-full items-center gap-3 px-4 py-3 text-left text-[13px] font-medium transition-colors hover:bg-foreground/10"
-              >
-                <Icon strokeWidth={1.6} className="h-[17px] w-[17px] text-muted-foreground" />
-                {label}
-              </button>
-            ))}
+            {!canDelete ? (
+              <>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={contextActionBusy}
+                  onClick={() => void handleNotInterested()}
+                  className="flex w-full items-center gap-3 px-4 py-3 text-left text-[13px] font-medium transition-colors hover:bg-foreground/10 disabled:opacity-60"
+                >
+                  <EyeOff strokeWidth={1.6} className="h-[17px] w-[17px] text-muted-foreground" />
+                  Not Interested
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={contextActionBusy}
+                  onClick={() => void handleMuteCreator()}
+                  className="flex w-full items-center gap-3 px-4 py-3 text-left text-[13px] font-medium transition-colors hover:bg-foreground/10 disabled:opacity-60"
+                >
+                  <UserX strokeWidth={1.6} className="h-[17px] w-[17px] text-muted-foreground" />
+                  Don't Recommend Creator
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setReportOpen(true);
+                  }}
+                  className="flex w-full items-center gap-3 px-4 py-3 text-left text-[13px] font-medium transition-colors hover:bg-foreground/10"
+                >
+                  <Flag strokeWidth={1.6} className="h-[17px] w-[17px] text-muted-foreground" />
+                  Report
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={contextActionBusy}
+                  onClick={() => void handleMuteCreator()}
+                  className="flex w-full items-center gap-3 px-4 py-3 text-left text-[13px] font-medium transition-colors hover:bg-foreground/10 disabled:opacity-60"
+                >
+                  <VolumeX strokeWidth={1.6} className="h-[17px] w-[17px] text-muted-foreground" />
+                  Mute Creator
+                </button>
+              </>
+            ) : null}
+            <button
+              type="button"
+              role="menuitem"
+              disabled={contextActionBusy}
+              onClick={() => void handleFavorite()}
+              className="flex w-full items-center gap-3 px-4 py-3 text-left text-[13px] font-medium transition-colors hover:bg-foreground/10 disabled:opacity-60"
+            >
+              <Star
+                strokeWidth={1.6}
+                className={`h-[17px] w-[17px] ${isFavorite ? "fill-amber-400 text-amber-400" : "text-muted-foreground"}`}
+              />
+              {isFavorite ? "Remove from Favorites" : "Add to Favorites"}
+            </button>
             {canDelete ? (
               <button
                 type="button"
@@ -1997,6 +2178,40 @@ function ReelItem({
         enforceSourceQualityLimit={false}
         onDownload={handleDownload}
       />
+      <AlertDialog open={reportOpen} onOpenChange={(open) => !reporting && setReportOpen(open)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Report this Reel</AlertDialogTitle>
+            <AlertDialogDescription>
+              Choose the reason that best describes this Reel.
+            </AlertDialogDescription>
+            <select
+              aria-label="Report reason"
+              value={reportReason}
+              onChange={(event) => setReportReason(event.target.value)}
+              className="mt-3 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+            >
+              <option>Inappropriate content</option>
+              <option>Spam or misleading</option>
+              <option>Harassment or hate</option>
+              <option>Violence or dangerous acts</option>
+              <option>Other</option>
+            </select>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={reporting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={reporting}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleReport();
+              }}
+            >
+              {reporting ? "Submitting…" : "Submit report"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <AlertDialog
         open={deleteOpen}
         onOpenChange={(open) => {
@@ -2005,9 +2220,9 @@ function ReelItem({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete this {mediaBucket === "reels" ? "reel" : "video"}?</AlertDialogTitle>
+            <AlertDialogTitle>Delete this video?</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete this post? This action cannot be undone.
+              Are you sure you want to delete this video?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

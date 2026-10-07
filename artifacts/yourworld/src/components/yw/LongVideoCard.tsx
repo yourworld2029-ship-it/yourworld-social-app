@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import {
   Eye, Heart, Clock, MessageCircle, Send,
-  MoreHorizontal, Link2, Trash2, EyeOff, Pencil,
+  MoreHorizontal, Link2, Trash2, EyeOff, Pencil, Flag, UserX, VolumeX, Star,
 } from "lucide-react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
@@ -34,6 +34,16 @@ import { resolveMediaUrl, type DbPost } from "@/lib/social-data";
 import { buildWatchShareUrl } from "@/lib/watch-links";
 import { requestVideoResume } from "@/lib/video-resume";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  announceVideoCreatorMuted,
+  announceVideoPostSuppressed,
+  copyShareLink,
+  getPostFavoriteState,
+  markPostNotInterested,
+  muteVideoCreator,
+  submitVideoReport,
+  togglePostFavorite,
+} from "@/lib/video-context-actions";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -124,14 +134,45 @@ export function LongVideoCard({
   const [hidden, setHidden] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportReason, setReportReason] = useState("Inappropriate content");
+  const [reporting, setReporting] = useState(false);
+  const [contextActionBusy, setContextActionBusy] = useState(false);
+  const [isFavorite, setIsFavorite] = useState(false);
+  const [favoriteLoaded, setFavoriteLoaded] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [commentCount, setCommentCount] = useState(video.commentCount);
   const [liking, setLiking] = useState(false);
   const likingRef = useRef(false);
-  const isMine = currentUserId === video.userId;
+  const viewerId = currentUserId ?? user?.id ?? null;
+  const isMine = viewerId === video.userId;
   const isFollowing = !!following[video.userId];
   const shareUrl =
     typeof window !== "undefined" ? buildWatchShareUrl(video.id, "video") : undefined;
+
+  useEffect(() => {
+    setFavoriteLoaded(false);
+    setIsFavorite(false);
+  }, [video.id, viewerId]);
+
+  useEffect(() => {
+    if (!menuOpen || !viewerId) return;
+    let alive = true;
+    void getPostFavoriteState(viewerId, video.id)
+      .then((saved) => {
+        if (alive) {
+          setIsFavorite(saved);
+          setFavoriteLoaded(true);
+        }
+      })
+      .catch((error) => {
+        console.warn("Unable to load video favorite state", error);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [menuOpen, video.id, viewerId]);
 
   const handleLike = async () => {
     if (!user?.id && !currentUserId) {
@@ -167,16 +208,100 @@ export function LongVideoCard({
   });
 
   const copyLink = async () => {
+    setMenuOpen(false);
     try {
-      await navigator.clipboard.writeText(shareUrl ?? "");
-       toast.success("Link copied to clipboard");
-    } catch {
-      toast.error("Could not copy link");
+      await copyShareLink(shareUrl ?? "");
+      toast.success("Link copied to clipboard");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not copy link");
+    }
+  };
+
+  const handleNotInterested = async () => {
+    setMenuOpen(false);
+    if (!viewerId || contextActionBusy) {
+      if (!viewerId) toast.error("Sign in to update your feed");
+      return;
+    }
+    setContextActionBusy(true);
+    try {
+      await markPostNotInterested(viewerId, video.id);
+      announceVideoPostSuppressed(video.id);
+      setHidden(true);
+      toast.success("We'll show fewer posts like this");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't update your feed");
+    } finally {
+      setContextActionBusy(false);
+    }
+  };
+
+  const handleMuteCreator = async () => {
+    setMenuOpen(false);
+    if (!viewerId || contextActionBusy) {
+      if (!viewerId) toast.error("Sign in to mute creators");
+      return;
+    }
+    setContextActionBusy(true);
+    try {
+      await muteVideoCreator(viewerId, video.userId);
+      announceVideoCreatorMuted(video.userId);
+      setHidden(true);
+      toast.success("Creator muted");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't mute this creator");
+    } finally {
+      setContextActionBusy(false);
+    }
+  };
+
+  const handleFavorite = async () => {
+    setMenuOpen(false);
+    if (!viewerId || contextActionBusy) {
+      if (!viewerId) toast.error("Sign in to save videos");
+      return;
+    }
+    setContextActionBusy(true);
+    try {
+      const currentSaved = favoriteLoaded
+        ? isFavorite
+        : await getPostFavoriteState(viewerId, video.id);
+      const nextSaved = await togglePostFavorite(viewerId, video.id, currentSaved);
+      setIsFavorite(nextSaved);
+      setFavoriteLoaded(true);
+      toast.success(nextSaved ? "Added to Favorites" : "Removed from Favorites");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't update Favorites");
+    } finally {
+      setContextActionBusy(false);
+    }
+  };
+
+  const handleReport = async () => {
+    setMenuOpen(false);
+    if (!viewerId || reporting) {
+      if (!viewerId) toast.error("Sign in to report videos");
+      return;
+    }
+    setReporting(true);
+    try {
+      await submitVideoReport({
+        reporterId: viewerId,
+        creatorId: video.userId,
+        postId: video.id,
+        reason: reportReason,
+      });
+      setReportOpen(false);
+      toast.success("Report submitted. Thank you for keeping our community safe.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't submit this report");
+    } finally {
+      setReporting(false);
     }
   };
 
   const handleDelete = async () => {
-    if (deleting) return;
+    if (!isMine || deleting) return;
     setDeleting(true);
     try {
       await deleteMyPost({
@@ -189,7 +314,7 @@ export function LongVideoCard({
       setHidden(true);
       onDeleted?.(video.id);
       setDeleteOpen(false);
-      toast.success("Post deleted");
+      toast.success("Video deleted successfully");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Couldn't delete this video");
     } finally {
@@ -344,7 +469,7 @@ export function LongVideoCard({
               {isFollowing ? "Following" : "Follow"}
             </button>
           )}
-          <DropdownMenu>
+          <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
             <DropdownMenuTrigger asChild>
               <button
                 aria-label="More options"
@@ -355,22 +480,54 @@ export function LongVideoCard({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-52">
-              <DropdownMenuItem onClick={copyLink}>
-                <Link2 className="mr-2 h-4 w-4" /> Copy link
+              <DropdownMenuItem onClick={() => void copyLink()}>
+                <Link2 className="mr-2 h-4 w-4" /> Copy Link
               </DropdownMenuItem>
               {!isMine && (
-                <DropdownMenuItem onClick={() => setHidden(true)}>
-                  <EyeOff className="mr-2 h-4 w-4" /> Not interested
+                <DropdownMenuItem onClick={() => void handleNotInterested()}>
+                  <EyeOff className="mr-2 h-4 w-4" /> Not Interested
                 </DropdownMenuItem>
               )}
+              {!isMine && (
+                <DropdownMenuItem onClick={() => void handleMuteCreator()}>
+                  <UserX className="mr-2 h-4 w-4" /> Don't Recommend Creator
+                </DropdownMenuItem>
+              )}
+              {!isMine && (
+                <DropdownMenuItem onClick={() => void handleMuteCreator()}>
+                  <VolumeX className="mr-2 h-4 w-4" /> Mute Creator
+                </DropdownMenuItem>
+              )}
+              {!isMine && (
+                <DropdownMenuItem
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setReportOpen(true);
+                  }}
+                >
+                  <Flag className="mr-2 h-4 w-4" /> Report
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem onClick={() => void handleFavorite()}>
+                <Star className="mr-2 h-4 w-4" />
+                {isFavorite ? "Remove from Favorites" : "Add to Favorites"}
+              </DropdownMenuItem>
               {isMine && (
-                <DropdownMenuItem onClick={() => setEditOpen(true)}>
+                <DropdownMenuItem
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setEditOpen(true);
+                  }}
+                >
                   <Pencil className="mr-2 h-4 w-4" /> Edit video
                 </DropdownMenuItem>
               )}
               {isMine && (
                 <DropdownMenuItem
-                  onClick={() => setDeleteOpen(true)}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setDeleteOpen(true);
+                  }}
                   className="text-destructive focus:text-destructive"
                 >
                   <Trash2 className="mr-2 h-4 w-4" /> Delete video
@@ -463,12 +620,46 @@ export function LongVideoCard({
       onOpenChange={setEditOpen}
       onSaved={(post) => onEdited?.(post)}
     />
+    <AlertDialog open={reportOpen} onOpenChange={(open) => !reporting && setReportOpen(open)}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Report this video</AlertDialogTitle>
+          <AlertDialogDescription>
+            Choose the reason that best describes this video.
+          </AlertDialogDescription>
+          <select
+            aria-label="Report reason"
+            value={reportReason}
+            onChange={(event) => setReportReason(event.target.value)}
+            className="mt-3 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+          >
+            <option>Inappropriate content</option>
+            <option>Spam or misleading</option>
+            <option>Harassment or hate</option>
+            <option>Violence or dangerous acts</option>
+            <option>Other</option>
+          </select>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={reporting}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={reporting}
+            onClick={(event) => {
+              event.preventDefault();
+              void handleReport();
+            }}
+          >
+            {reporting ? "Submitting…" : "Submit report"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     <AlertDialog open={deleteOpen} onOpenChange={(open) => !deleting && setDeleteOpen(open)}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete this post?</AlertDialogTitle>
+          <AlertDialogTitle>Delete this video?</AlertDialogTitle>
           <AlertDialogDescription>
-            Are you sure you want to delete this post? This action cannot be undone.
+            Are you sure you want to delete this video?
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

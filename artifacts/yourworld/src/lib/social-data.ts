@@ -40,6 +40,10 @@ import type { User } from "@/lib/yw-data";
 import { missingColumn, normalizePostRow, postKind, writeCompat } from "@/lib/supabase-compat";
 import { registerUniqueView } from "@/lib/unique-views";
 import {
+  VIDEO_FEED_SUPPRESSION_EVENT,
+  type VideoFeedSuppressionDetail,
+} from "@/lib/video-context-actions";
+import {
   MAX_REEL_DURATION_MESSAGE,
   MAX_REEL_DURATION_SECONDS,
   MIN_REEL_DURATION_MESSAGE,
@@ -400,6 +404,25 @@ export async function loadSocialPosts(
   };
 }
 
+async function filterSuppressedVideoPosts(
+  posts: SocialPost[],
+  userId: string | null,
+): Promise<SocialPost[]> {
+  if (!userId || posts.length === 0) return posts;
+  const [preferencesResult, mutedResult] = await Promise.all([
+    supabase.from("user_post_preferences").select("post_id").eq("user_id", userId),
+    supabase.from("user_muted_creators").select("creator_id").eq("user_id", userId),
+  ]);
+  if (preferencesResult.error) throw preferencesResult.error;
+  if (mutedResult.error) throw mutedResult.error;
+
+  const hiddenPostIds = new Set((preferencesResult.data ?? []).map((row) => row.post_id));
+  const mutedCreatorIds = new Set((mutedResult.data ?? []).map((row) => row.creator_id));
+  return posts.filter(
+    (post) => !hiddenPostIds.has(post.id) && !mutedCreatorIds.has(post.user_id),
+  );
+}
+
 /** Loads one post/reel for the dedicated media viewer without inventing a
  * second data model. The profile grid and the public viewer now share the
  * same live likes/comments rows. */
@@ -550,9 +573,13 @@ export function useSocialPosts(
         pageParam,
         SOCIAL_PAGE_SIZE,
       );
+      const visiblePosts = await filterSuppressedVideoPosts(
+        page.posts.filter((post) => !isPostDeleted(post.id)),
+        page.currentUserId,
+      );
       return {
         ...page,
-        posts: page.posts.filter((post) => !isPostDeleted(post.id)),
+        posts: visiblePosts,
       };
     },
     getNextPageParam: (lastPage, _allPages, lastPageParam) =>
@@ -637,8 +664,9 @@ export function useSocialPosts(
       if (!matchesKind) return;
 
       void loadSocialPosts(kind, supabase, userId, 0, 1, [detail.id])
-        .then(({ posts }) => {
-          const publishedPost = posts[0];
+        .then(async (page) => {
+          const visiblePosts = await filterSuppressedVideoPosts(page.posts, page.currentUserId);
+          const publishedPost = visiblePosts[0];
           if (!publishedPost) {
             void queryClient.invalidateQueries({ queryKey });
             return;
@@ -665,7 +693,38 @@ export function useSocialPosts(
           void queryClient.invalidateQueries({ queryKey });
         });
     };
+    const onVideoFeedSuppression = (event: Event) => {
+      const detail = (event as CustomEvent<VideoFeedSuppressionDetail>).detail;
+      if (!detail?.postId && !detail?.creatorId) return;
+      const cached = queryClient.getQueryData<InfiniteData<SocialPage, number>>(queryKey);
+      if (!cached) return;
+      const suppressedIds = new Set<string>();
+      for (const page of cached.pages) {
+        for (const post of page.posts) {
+          if (
+            (detail.postId && post.id === detail.postId) ||
+            (detail.creatorId && post.user_id === detail.creatorId)
+          ) {
+            suppressedIds.add(post.id);
+            removedRef.current.add(post.id);
+          }
+        }
+      }
+      if (!suppressedIds.size) return;
+      queryClient.setQueryData<InfiniteData<SocialPage, number>>(queryKey, (current) =>
+        current
+          ? {
+              ...current,
+              pages: current.pages.map((page) => ({
+                ...page,
+                posts: page.posts.filter((post) => !suppressedIds.has(post.id)),
+              })),
+            }
+          : current,
+      );
+    };
     window.addEventListener(PUBLISHED_POST_EVENT, onPublishedPost);
+    window.addEventListener(VIDEO_FEED_SUPPRESSION_EVENT, onVideoFeedSuppression);
     let channel: ReturnType<typeof supabase.channel> | null = null;
     // Subscribe after first paint so the socket handshake doesn't delay render.
     const boot = window.setTimeout(() => {
@@ -682,6 +741,7 @@ export function useSocialPosts(
       unsubscribeFromDeletes();
       window.removeEventListener(OPTIMISTIC_POST_EVENT, onOptimisticPost);
       window.removeEventListener(PUBLISHED_POST_EVENT, onPublishedPost);
+      window.removeEventListener(VIDEO_FEED_SUPPRESSION_EVENT, onVideoFeedSuppression);
       if (channel) void supabase.removeChannel(channel);
     };
   }, [kind, queryClient, queryKey, userId]);
