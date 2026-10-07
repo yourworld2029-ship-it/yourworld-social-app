@@ -8,6 +8,7 @@ type ChatVideoPlayerProps = {
   className?: string;
   autoPlay?: boolean;
   preload?: "none" | "metadata" | "auto";
+  showLargePlayButton?: boolean;
   onEnded?: () => void;
   onError?: () => void;
 };
@@ -25,6 +26,7 @@ export function ChatVideoPlayer({
   className = "",
   autoPlay = false,
   preload = "metadata",
+  showLargePlayButton = true,
   onEnded,
   onError,
 }: ChatVideoPlayerProps) {
@@ -109,7 +111,7 @@ export function ChatVideoPlayer({
         <source src={src} type={mimeType || undefined} />
       </video>
 
-      {!playing && !loadFailed ? (
+      {showLargePlayButton && !playing && !loadFailed ? (
         <button
           type="button"
           aria-label={`Play ${label.toLowerCase()}`}

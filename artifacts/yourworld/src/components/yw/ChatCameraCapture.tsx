@@ -56,26 +56,47 @@ async function requestCameraStream(facing: CameraFacing) {
     : new Error("Couldn't open the camera. Check camera permissions and try again.");
 }
 
-function trackSupportsTorch(track: MediaStreamTrack | undefined) {
-  if (
-    !track ||
-    !navigator.mediaDevices ||
-    typeof track.getCapabilities !== "function"
-  ) {
-    return false;
-  }
+async function trackSupportsTorch(track: MediaStreamTrack | undefined) {
+  if (!track) return false;
+
   try {
-    const supportedConstraints = navigator.mediaDevices.getSupportedConstraints?.() as
-      | (MediaTrackSupportedConstraints & { torch?: boolean })
+    const capabilities = track.getCapabilities?.() as
+      | (MediaTrackCapabilities & { torch?: boolean })
       | undefined;
-    if (supportedConstraints?.torch === false) return false;
-    const capabilities = track.getCapabilities() as MediaTrackCapabilities & {
-      torch?: boolean;
-    };
-    return capabilities.torch === true;
+    if (capabilities?.torch === true) return true;
+    if (capabilities?.torch === false) return false;
   } catch {
-    return false;
+    // Some Android WebViews expose ImageCapture capabilities without track capabilities.
   }
+
+  try {
+    type PhotoCapabilities = {
+      torch?: boolean;
+      fillLightMode?: string[];
+    };
+    type ImageCaptureLike = {
+      getPhotoCapabilities?: () => Promise<PhotoCapabilities>;
+    };
+    type ImageCaptureConstructor = new (track: MediaStreamTrack) => ImageCaptureLike;
+    const ImageCaptureApi = (
+      globalThis as unknown as { ImageCapture?: ImageCaptureConstructor }
+    ).ImageCapture;
+    if (ImageCaptureApi) {
+      const photoCapabilities = await new ImageCaptureApi(track).getPhotoCapabilities?.();
+      if (photoCapabilities?.torch === true) return true;
+      if (
+        photoCapabilities?.fillLightMode?.some(
+          (mode) => mode === "torch" || mode === "flash",
+        )
+      ) {
+        return true;
+      }
+    }
+  } catch {
+    // Capability discovery is best-effort; unsupported devices keep the control unavailable.
+  }
+
+  return false;
 }
 
 function captureFrozenPreview(
@@ -178,6 +199,9 @@ export function ChatCameraCapture({
     releaseCameraStream();
     try {
       const result = await requestCameraStream(nextFacing);
+      const videoTrack = result.stream.getVideoTracks()[0];
+      const canUseTorch =
+        nextFacing === "environment" && (await trackSupportsTorch(videoTrack));
       if (!mountedRef.current || requestId !== streamRequestIdRef.current) {
         result.stream.getTracks().forEach((track) => track.stop());
         return;
@@ -187,10 +211,7 @@ export function ChatCameraCapture({
       facingRef.current = nextFacing;
       setFacing(nextFacing);
       setHasAudio(result.hasAudio);
-      setTorchAvailable(
-        nextFacing === "environment" &&
-          trackSupportsTorch(result.stream.getVideoTracks()[0]),
-      );
+      setTorchAvailable(canUseTorch);
     } catch (error) {
       if (mountedRef.current && requestId === streamRequestIdRef.current) {
         onErrorRef.current(
@@ -387,21 +408,6 @@ export function ChatCameraCapture({
     }
 
     const useScreenFlash = facing === "user" && frontFlashOn;
-    const backTorchTrack =
-      facing === "environment" && torchOnRef.current
-        ? streamRef.current?.getVideoTracks()[0]
-        : undefined;
-    if (backTorchTrack && trackSupportsTorch(backTorchTrack)) {
-      try {
-        await backTorchTrack.applyConstraints({
-          advanced: [{ torch: true } as MediaTrackConstraintSet],
-        });
-      } catch {
-        torchOnRef.current = false;
-        setTorchOn(false);
-        setTorchAvailable(false);
-      }
-    }
     if (useScreenFlash) {
       setScreenFlash(true);
       await new Promise((resolve) => window.setTimeout(resolve, 120));
@@ -485,7 +491,7 @@ export function ChatCameraCapture({
     }
     const track = streamRef.current?.getVideoTracks()[0];
     if (!track) return;
-    if (!trackSupportsTorch(track)) {
+    if (!(await trackSupportsTorch(track))) {
       torchCommandIdRef.current += 1;
       torchOnRef.current = false;
       setTorchAvailable(false);

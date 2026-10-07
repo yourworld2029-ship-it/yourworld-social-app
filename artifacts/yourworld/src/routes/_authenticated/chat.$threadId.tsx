@@ -3276,6 +3276,7 @@ function NativeChatThreadPage() {
         label="Recorded chat video preview"
         autoPlay
         preload="auto"
+        showLargePlayButton={false}
         className="h-full w-full"
         onError={() => toast.error("The recorded video could not be loaded.")}
       />
