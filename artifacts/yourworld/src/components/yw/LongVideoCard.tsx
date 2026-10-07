@@ -6,7 +6,6 @@ import {
   timeAgo,
   type LongVideo,
 } from "@/lib/video-data";
-import { formatVideoDuration } from "@/lib/video-duration";
 import {
   FeedVideoPreview,
   useFeedVideoAutoplay,
@@ -92,8 +91,6 @@ export function LongVideoCard({
     void toggleFollow(video.userId);
   });
 
-  const formattedDuration = formatVideoDuration(video.durationSeconds);
-
   const openVideo = () => {
     if (typeof video.id !== "string" || !video.id.trim()) return;
     stopCandidate(previewId);
@@ -137,14 +134,6 @@ export function LongVideoCard({
             onOpen={openVideo}
             className="m-0 select-none p-0"
           />
-          {formattedDuration && (
-            <span
-              data-testid={`badge-video-duration-${video.id}`}
-              className="pointer-events-none absolute bottom-2 left-2 right-auto rounded-md bg-black/80 px-1.5 py-0.5 text-[11px] font-semibold"
-            >
-              {formattedDuration}
-            </span>
-          )}
         </div>
       </div>
       </div>

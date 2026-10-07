@@ -1,12 +1,27 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
 import {
+  announceVideoPostSuppressed,
   getPostFavoriteState,
+  markPostNotInterested,
+  submitVideoReport,
   togglePostFavorite,
 } from "@/lib/video-context-actions";
+import { setLongVideoCreatorHidden } from "@/lib/long-video-preferences";
+import { deleteMyPost } from "@/lib/profile-data";
 import {
   loadLongVideosByIds,
   resolveLongVideoUrl,
@@ -14,7 +29,10 @@ import {
   type LongVideo,
 } from "@/lib/video-data";
 import { isPlayableMediaUrl } from "@/lib/video-playback-engine";
-import { useVideoPlayback } from "@/lib/video-playback";
+import {
+  useVideoPlayback,
+  type LongVideoPlayerMenuActions,
+} from "@/lib/video-playback";
 import { useValidatedVideoViewTracker } from "@/lib/video-view-validation";
 import { consumeVideoResumeRequest } from "@/lib/video-resume";
 import {
@@ -208,7 +226,14 @@ function VideoRouteComponent() {
   const { focusComments, commentId } = Route.useSearch();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { activeVideo, activateVideo, closeVideo, isPlaying, videoRef } = useVideoPlayback();
+  const {
+    activeVideo,
+    activateVideo,
+    closeVideo,
+    isPlaying,
+    videoRef,
+    setLongVideoPlayerMenuActions,
+  } = useVideoPlayback();
   const { videos, loadMore, hasNextPage, isFetchingNextPage } = useLongVideos();
   const { user, requestAuthAction } = useAuth();
   const { following, toggleFollow } = useYw();
@@ -229,6 +254,13 @@ function VideoRouteComponent() {
     count: number;
   } | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [isContextActionBusy, setIsContextActionBusy] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportReason, setReportReason] = useState("Inappropriate content");
+  const [isReporting, setIsReporting] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const longVideoMenuActionsRef = useRef<LongVideoPlayerMenuActions | null>(null);
   const validVideoId =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(videoId);
   const query = useQuery({
@@ -626,6 +658,145 @@ function VideoRouteComponent() {
     }
   };
 
+  const leaveWatchRoute = () => {
+    closeVideo();
+    void navigate({ to: "/" });
+  };
+
+  const handleNotInterested = async () => {
+    if (!video || !isCurrentVideo || isContextActionBusy) return;
+    if (!user?.id) {
+      toast.error("Sign in to update your feed");
+      return;
+    }
+
+    setIsContextActionBusy(true);
+    let shouldLeave = false;
+    try {
+      await markPostNotInterested(user.id, video.id);
+      announceVideoPostSuppressed(video.id);
+      toast.success("We'll show fewer posts like this");
+      shouldLeave = true;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't update your feed");
+    } finally {
+      setIsContextActionBusy(false);
+    }
+    if (shouldLeave) leaveWatchRoute();
+  };
+
+  const handleDontRecommendCreator = async () => {
+    if (!video || !isCurrentVideo || isContextActionBusy) return;
+    if (!user?.id) {
+      toast.error("Sign in to update your feed");
+      return;
+    }
+
+    setIsContextActionBusy(true);
+    let shouldLeave = false;
+    try {
+      await setLongVideoCreatorHidden(user.id, video.userId, true);
+      toast.success("We won't recommend this creator");
+      shouldLeave = true;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't hide this creator");
+    } finally {
+      setIsContextActionBusy(false);
+    }
+    if (shouldLeave) leaveWatchRoute();
+  };
+
+  const handleOpenReport = () => {
+    if (!video || !isCurrentVideo) return;
+    if (!user?.id) {
+      toast.error("Sign in to report videos");
+      return;
+    }
+    setReportOpen(true);
+  };
+
+  const handleSubmitReport = async () => {
+    if (!video || !isCurrentVideo || !user?.id || isReporting) return;
+    setIsReporting(true);
+    try {
+      await submitVideoReport({
+        reporterId: user.id,
+        creatorId: video.userId,
+        postId: video.id,
+        reason: reportReason,
+      });
+      setReportOpen(false);
+      toast.success("Report submitted. Thank you for keeping our community safe.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't submit this report");
+    } finally {
+      setIsReporting(false);
+    }
+  };
+
+  const handleDeleteVideo = async () => {
+    if (!video || !isCurrentVideo || !isOwner || isDeleting) return;
+    setIsDeleting(true);
+    let shouldLeave = false;
+    try {
+      await deleteMyPost({
+        id: video.id,
+        user_id: video.userId,
+        media_url: video.mediaUrl,
+        thumbnail_url: video.thumbnailUrl,
+        kind: "video",
+      });
+      void queryClient.invalidateQueries({ queryKey: ["long-videos"] });
+      if (user?.id) {
+        void queryClient.invalidateQueries({
+          queryKey: ["saved-long-videos", user.id],
+        });
+      }
+      void queryClient.removeQueries({
+        queryKey: ["long-video-playback", video.id],
+      });
+      setDeleteOpen(false);
+      toast.success("Video deleted successfully");
+      shouldLeave = true;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't delete this video");
+    } finally {
+      setIsDeleting(false);
+    }
+    if (shouldLeave) leaveWatchRoute();
+  };
+
+  longVideoMenuActionsRef.current = {
+    onNotInterested: () => void handleNotInterested(),
+    onDontRecommendCreator: () => void handleDontRecommendCreator(),
+    onReport: handleOpenReport,
+    ...(isOwner ? { onDelete: () => setDeleteOpen(true) } : {}),
+  };
+
+  const registeredLongVideoMenuActions = useMemo<LongVideoPlayerMenuActions>(() => {
+    const actions: LongVideoPlayerMenuActions = {
+      onNotInterested: () => longVideoMenuActionsRef.current?.onNotInterested(),
+      onDontRecommendCreator: () =>
+        longVideoMenuActionsRef.current?.onDontRecommendCreator(),
+      onReport: () => longVideoMenuActionsRef.current?.onReport(),
+    };
+    if (isOwner) {
+      actions.onDelete = () => longVideoMenuActionsRef.current?.onDelete?.();
+    }
+    return actions;
+  }, [isOwner]);
+
+  useEffect(() => {
+    setLongVideoPlayerMenuActions(
+      isCurrentVideo ? registeredLongVideoMenuActions : null,
+    );
+    return () => setLongVideoPlayerMenuActions(null);
+  }, [
+    isCurrentVideo,
+    registeredLongVideoMenuActions,
+    setLongVideoPlayerMenuActions,
+  ]);
+
   const handleSelectVideo = (nextVideo: LongVideo) => {
     const scrollContainers = [
       ...document.querySelectorAll<HTMLElement>(
@@ -711,47 +882,113 @@ function VideoRouteComponent() {
   const recommendations = videos.filter((item) => !recommendationIds.has(item.id));
 
   return (
-    <VideoWatchDetails
-      video={video}
-      recommendations={recommendations}
-      liked={liked}
-      disliked={disliked}
-      following={Boolean(following[video.userId])}
-      isOwner={isOwner}
-      isSwitching={isSwitching}
-      isLiking={isLiking}
-      isSaved={isSaved}
-      isSaving={isSavingVideo}
-      isSaveStateLoading={isSaveStateLoading}
-      isDownloading={isDownloading}
-      sourceMediaUrl={isCurrentVideo ? query.data?.url ?? null : null}
-      sourceQualityTier={video.sourceQualityTier}
-      qualityMediaUrls={isCurrentVideo ? query.data?.qualityMediaUrls ?? null : null}
-      initialCommentsOpen={focusComments}
-      initialCommentId={commentId}
-      onLike={() => void handleLike()}
-      onDislike={handleDislike}
-      onFollow={handleFollow}
-      onToggleSave={() => void handleToggleSavedVideo()}
-      onDownload={handleDownload}
-      onSelectVideo={handleSelectVideo}
-      recommendationsFooter={
-        <div className="pb-3 pt-2 text-center">
-          <div ref={loadMoreTargetRef} className="h-px w-full" aria-hidden="true" />
-          {isFetchingNextPage ? (
-            <p className="py-3 text-xs text-zinc-400" role="status">Loading more videos…</p>
-          ) : hasNextPage ? (
-            <button
-              type="button"
-              onClick={() => void loadMore()}
-              className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-white/[0.08]"
+    <>
+      <VideoWatchDetails
+        video={video}
+        recommendations={recommendations}
+        liked={liked}
+        disliked={disliked}
+        following={Boolean(following[video.userId])}
+        isOwner={isOwner}
+        isSwitching={isSwitching}
+        isLiking={isLiking}
+        isSaved={isSaved}
+        isSaving={isSavingVideo}
+        isSaveStateLoading={isSaveStateLoading}
+        isDownloading={isDownloading}
+        sourceMediaUrl={isCurrentVideo ? query.data?.url ?? null : null}
+        sourceQualityTier={video.sourceQualityTier}
+        qualityMediaUrls={isCurrentVideo ? query.data?.qualityMediaUrls ?? null : null}
+        initialCommentsOpen={focusComments}
+        initialCommentId={commentId}
+        onLike={() => void handleLike()}
+        onDislike={handleDislike}
+        onFollow={handleFollow}
+        onToggleSave={() => void handleToggleSavedVideo()}
+        onDownload={handleDownload}
+        onSelectVideo={handleSelectVideo}
+        recommendationsFooter={
+          <div className="pb-3 pt-2 text-center">
+            <div ref={loadMoreTargetRef} className="h-px w-full" aria-hidden="true" />
+            {isFetchingNextPage ? (
+              <p className="py-3 text-xs text-zinc-400" role="status">Loading more videos…</p>
+            ) : hasNextPage ? (
+              <button
+                type="button"
+                onClick={() => void loadMore()}
+                className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-white/[0.08]"
+              >
+                Load more videos
+              </button>
+            ) : null}
+          </div>
+        }
+      />
+
+      <AlertDialog
+        open={reportOpen}
+        onOpenChange={(open) => !isReporting && setReportOpen(open)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Report this video</AlertDialogTitle>
+            <AlertDialogDescription>
+              Choose the reason that best describes this video.
+            </AlertDialogDescription>
+            <select
+              aria-label="Report reason"
+              value={reportReason}
+              onChange={(event) => setReportReason(event.target.value)}
+              className="mt-3 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
             >
-              Load more videos
-            </button>
-          ) : null}
-        </div>
-      }
-    />
+              <option>Inappropriate content</option>
+              <option>Spam or misleading</option>
+              <option>Harassment or hate</option>
+              <option>Violence or dangerous acts</option>
+              <option>Other</option>
+            </select>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isReporting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isReporting}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleSubmitReport();
+              }}
+            >
+              {isReporting ? "Submitting…" : "Submit report"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={deleteOpen}
+        onOpenChange={(open) => !isDeleting && setDeleteOpen(open)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this video?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this video?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isDeleting}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleDeleteVideo();
+              }}
+            >
+              {isDeleting ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 

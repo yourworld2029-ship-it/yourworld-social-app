@@ -217,6 +217,13 @@ export type PersistentVideo = {
   initialTime?: number;
 };
 
+export type LongVideoPlayerMenuActions = {
+  onNotInterested: () => void;
+  onDontRecommendCreator: () => void;
+  onReport: () => void;
+  onDelete?: () => void;
+};
+
 type VideoPlaybackContextValue = {
   activeVideo: PersistentVideo | null;
   isDetailPlayer: boolean;
@@ -224,6 +231,9 @@ type VideoPlaybackContextValue = {
   isPlaying: boolean;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   activateVideo: (video: PersistentVideo) => void;
+  setLongVideoPlayerMenuActions: (
+    actions: LongVideoPlayerMenuActions | null,
+  ) => void;
   setTimeUpdateHandler: (
     handler: ((currentTime: number, duration: number, wasSeeking: boolean) => void) | null,
   ) => void;
@@ -392,6 +402,8 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const isAndroidApp =
     Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
   const [settingsMenu, setSettingsMenu] = useState<"closed" | "root" | "speed" | "quality">("closed");
+  const [longVideoPlayerMenuActions, setLongVideoPlayerMenuActionsState] =
+    useState<LongVideoPlayerMenuActions | null>(null);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [loopVideo, setLoopVideo] = useState(false);
   const [quality, setQuality] = useState<QualityId>("auto");
@@ -890,6 +902,13 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     endedHandlerRef.current = handler;
   }, []);
 
+  const setLongVideoPlayerMenuActions = useCallback(
+    (actions: LongVideoPlayerMenuActions | null) => {
+      setLongVideoPlayerMenuActionsState(actions);
+    },
+    [],
+  );
+
   const closeVideo = useCallback(() => {
     syncNativePipState(false, false);
     playbackAttemptRef.current += 1;
@@ -914,6 +933,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     setFloatingDragging(false);
     floatingDragRef.current = null;
     setSettingsMenu("closed");
+    setLongVideoPlayerMenuActionsState(null);
     setIsPlaying(false);
     setControlsVisible(true);
     setCurrentTime(0);
@@ -2232,6 +2252,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       isPlaying,
       videoRef,
       activateVideo,
+      setLongVideoPlayerMenuActions,
       setTimeUpdateHandler,
       setEndedHandler,
       closeVideo,
@@ -2243,6 +2264,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       isDetailPlayer,
       isVerticalVideo,
       isPlaying,
+      setLongVideoPlayerMenuActions,
       setEndedHandler,
       setTimeUpdateHandler,
     ],
@@ -2827,6 +2849,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                   >
                     {settingsMenu === "root" ? (
                       <>
+                        <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-white/45">
+                          Video Tools
+                        </p>
                         <button
                           type="button"
                           role="menuitem"
@@ -2887,7 +2912,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                           <ArrowLeft className="h-4 w-4" />
                           Playback speed
                         </button>
-                        {[0.25, 0.5, 0.75, 1, 1.25, 1.5, 2].map((rate) => (
+                        {[0.5, 1, 1.25, 1.5, 2].map((rate) => (
                           <button
                             key={rate}
                             type="button"
@@ -2929,6 +2954,64 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                         ))}
                       </>
                     )}
+                    {settingsMenu === "root" && longVideoPlayerMenuActions ? (
+                      <>
+                        <div
+                          aria-hidden="true"
+                          role="separator"
+                          className="my-1.5 border-t border-white/15"
+                        />
+                        <p className="px-2.5 pb-1 pt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-white/45">
+                          Feedback &amp; Safety
+                        </p>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setSettingsMenu("closed");
+                            longVideoPlayerMenuActions.onNotInterested();
+                          }}
+                          className="w-full rounded-lg px-2.5 py-1.5 text-left text-xs transition hover:bg-white/10"
+                        >
+                          Not Interested
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setSettingsMenu("closed");
+                            longVideoPlayerMenuActions.onDontRecommendCreator();
+                          }}
+                          className="w-full rounded-lg px-2.5 py-1.5 text-left text-xs transition hover:bg-white/10"
+                        >
+                          Don&apos;t Recommend Creator
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setSettingsMenu("closed");
+                            longVideoPlayerMenuActions.onReport();
+                          }}
+                          className="w-full rounded-lg px-2.5 py-1.5 text-left text-xs transition hover:bg-white/10"
+                        >
+                          Report
+                        </button>
+                        {longVideoPlayerMenuActions.onDelete ? (
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              setSettingsMenu("closed");
+                              longVideoPlayerMenuActions.onDelete?.();
+                            }}
+                            className="w-full rounded-lg px-2.5 py-1.5 text-left text-xs text-red-300 transition hover:bg-white/10"
+                          >
+                            Delete Video
+                          </button>
+                        ) : null}
+                      </>
+                    ) : null}
                   </div>
                 ) : null}
               </>
