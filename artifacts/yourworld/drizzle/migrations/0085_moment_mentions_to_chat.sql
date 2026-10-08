@@ -85,13 +85,13 @@ BEGIN
       greatest(actor_id::text, recipient_id::text);
 
     INSERT INTO public.conversations (
-      canonical_thread_id,
+      thread_id,
       participant_one_id,
       participant_two_id,
       auto_delete_setting
     )
     VALUES (
-      thread_id,
+      canonical_thread_id,
       least(actor_id, recipient_id),
       greatest(actor_id, recipient_id),
       'off'
