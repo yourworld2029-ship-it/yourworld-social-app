@@ -117,7 +117,7 @@ BEGIN
       FROM public.messages m
       WHERE m.sender_id = actor_id
         AND m.receiver_id = recipient_id
-        AND m.moment_id = source_moment_id
+        AND m.metadata ->> 'moment_id' = source_moment_id::text
         AND m.metadata ->> 'source' = 'moment_mention'
     ) THEN
       INSERT INTO public.messages (
@@ -129,10 +129,7 @@ BEGIN
         conversation_id,
         is_system_message,
         auto_delete_setting,
-        auto_delete_mode,
-        moment_id,
-        moment_media_url,
-        moment_created_at
+        auto_delete_mode
       )
       VALUES (
         actor_id,
@@ -158,10 +155,7 @@ BEGIN
         conversation_id,
         false,
         retention_setting,
-        retention_setting,
-        source_moment_id,
-        media_url,
-        moment_created_at
+        retention_setting
       );
     END IF;
   END LOOP;
