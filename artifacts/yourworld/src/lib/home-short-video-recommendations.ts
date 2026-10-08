@@ -1,6 +1,6 @@
 import { VIDEO_CATEGORIES, type LongVideo } from "./video-data";
 
-export const HOME_SHORTS_INTERVAL = 7;
+export const HOME_SHORTS_INTERVAL = 6;
 export const HOME_SHORTS_SHELF_BATCH_SIZE = 8;
 
 const EPISODE_PATTERN = /\b(part|pt|episode|ep)\s*\.?\s*#?\s*(\d+)\b/i;
