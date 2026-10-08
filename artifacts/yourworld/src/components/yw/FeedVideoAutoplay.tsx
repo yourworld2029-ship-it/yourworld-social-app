@@ -611,7 +611,7 @@ export function FeedVideoPreview({
         loop
         preload="metadata"
         aria-label={video.title}
-        onLoadedData={(event) => {
+        onLoadedData={() => {
           setVideoReady(true);
         }}
         onTimeUpdate={(event) => {

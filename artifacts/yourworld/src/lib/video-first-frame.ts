@@ -14,7 +14,7 @@ type Job = {
 const jobs: Job[] = [];
 let running = false;
 
-/** Paused metadata/0.1-second seeks, serialized across every visible card. */
+/** Paused metadata/seeks to requested poster frames, serialized across visible cards. */
 export function requestVideoFirstFrame(
   url: string,
   signal: AbortSignal,
