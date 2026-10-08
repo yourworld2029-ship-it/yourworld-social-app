@@ -69,7 +69,6 @@ import {
   readPendingMomentShare,
   type PendingMomentShare,
 } from "@/lib/moment-share";
-import { ProfileAvatar } from "@/components/yw/ProfileAvatar";
 import { SharedMomentPill } from "@/components/yw/SharedMomentPill";
 import { toast } from "sonner";
 
@@ -405,14 +404,6 @@ function MomentCreatePage() {
     useState(false);
   const [panel, setPanel] =
     useState<null | "sticker" | "filter">(null);
-  const [showFinalPreview, setShowFinalPreview] =
-    useState(false);
-  const [renderedPreviewUrl, setRenderedPreviewUrl] =
-    useState<string | null>(null);
-  const [renderedMediaUrl, setRenderedMediaUrl] =
-    useState<string | null>(null);
-  const [isRenderingPreview, setIsRenderingPreview] =
-    useState(false);
   const [photoSeconds, setPhotoSeconds] =
     useState(15);
 
@@ -496,9 +487,6 @@ function MomentCreatePage() {
   const [isMediaTransforming, setIsMediaTransforming] =
     useState(false);
 
-  const [editorTimeLabel, setEditorTimeLabel] =
-    useState("Now");
-
   const updateActiveText = (
     patch: Partial<TextLayer>
   ) =>
@@ -546,44 +534,6 @@ function MomentCreatePage() {
 
   const isDrawing =
     useRef(false);
-
-  const userMetadata =
-    (user?.user_metadata ?? {}) as Record<string, unknown>;
-
-  const editorName =
-    (typeof userMetadata.full_name === "string"
-      ? userMetadata.full_name
-      : typeof userMetadata.name === "string"
-        ? userMetadata.name
-        : typeof userMetadata.username === "string"
-          ? userMetadata.username
-          : null) || "Sandeep Poonia";
-
-  const editorUsername =
-    (typeof userMetadata.username === "string"
-      ? userMetadata.username
-      : typeof user?.email === "string"
-        ? user.email.split("@")[0]
-        : null) || "yourworld";
-
-  const editorAvatarUrl =
-    typeof userMetadata.avatar_url === "string"
-      ? userMetadata.avatar_url
-      : typeof userMetadata.profile_pic === "string"
-        ? userMetadata.profile_pic
-        : typeof userMetadata.profile_image === "string"
-          ? userMetadata.profile_image
-          : null;
-
-  useEffect(() => {
-    if (step !== 1) return;
-    setEditorTimeLabel(
-      new Intl.DateTimeFormat(undefined, {
-        hour: "numeric",
-        minute: "2-digit",
-      }).format(new Date()),
-    );
-  }, [step]);
 
   const updateMediaTransform = (
     next: MediaTransform,
@@ -860,21 +810,25 @@ function MomentCreatePage() {
           }}
           className="h-4 w-4 shrink-0 accent-pink-500"
         />
-        {person.avatar_url ? (
-          <img
-            src={person.avatar_url}
-            alt=""
-            data-testid={`img-mentioned-person-${person.id}`}
-            className="h-10 w-10 rounded-full object-cover"
-          />
-        ) : (
+        <span className="relative h-10 w-10 shrink-0 overflow-hidden rounded-full bg-white/10">
           <span
             aria-hidden="true"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-sm font-bold text-white"
+            className="absolute inset-0 flex items-center justify-center text-sm font-bold text-white"
           >
             {(person.display_name.trim()[0] ?? "?").toUpperCase()}
           </span>
-        )}
+          {person.avatar_url ? (
+            <img
+              src={person.avatar_url}
+              alt=""
+              data-testid={`img-mentioned-person-${person.id}`}
+              className="relative z-10 h-full w-full rounded-full object-cover"
+              onError={(event) => {
+                event.currentTarget.style.display = "none";
+              }}
+            />
+          ) : null}
+        </span>
         <span className="min-w-0 flex-1">
           <span
             data-testid={`text-mentioned-person-name-${person.id}`}
@@ -2098,229 +2052,11 @@ function MomentCreatePage() {
     mediaUrl,
   ]);
 
-  const drawEditorFrame = (
-    ctx: CanvasRenderingContext2D,
-    width: number,
-    height: number,
-    pixelRatio: number,
-    source: CanvasImageSource,
-    sourceWidth: number,
-    sourceHeight: number,
-  ) => {
-    const fit = Math.min(width / sourceWidth, height / sourceHeight);
-    const mediaWidth = sourceWidth * fit;
-    const mediaHeight = sourceHeight * fit;
-    const transform = mediaTransformRef.current;
-
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, width * pixelRatio, height * pixelRatio);
-    ctx.scale(pixelRatio, pixelRatio);
-    ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, width, height);
-    ctx.save();
-    ctx.translate(
-      width / 2 + transform.x,
-      height / 2 + transform.y,
-    );
-    ctx.rotate((transform.rotation * Math.PI) / 180);
-    ctx.scale(transform.scale, transform.scale);
-    ctx.filter = `${FILTERS[selectedFilter].css} brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%)`;
-    ctx.drawImage(
-      source,
-      -mediaWidth / 2,
-      -mediaHeight / 2,
-      mediaWidth,
-      mediaHeight,
-    );
-    ctx.restore();
-    ctx.filter = "none";
-
-    const drawing = drawingCanvasRef.current;
-    if (drawing) {
-      ctx.drawImage(drawing, 0, 0, width, height);
-    }
-
-    textLayers.forEach((layer) => {
-      ctx.save();
-      ctx.translate(
-        (layer.x / 100) * width,
-        (layer.y / 100) * height,
-      );
-      ctx.rotate((layer.rotation * Math.PI) / 180);
-      ctx.font = `900 ${layer.size}px sans-serif`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.shadowColor = "rgba(0,0,0,.72)";
-      ctx.shadowBlur = 8;
-      ctx.fillStyle = layer.color;
-      ctx.fillText(layer.text || " ", 0, 0);
-      ctx.restore();
-    });
-
-    stickers.forEach((sticker) => {
-      ctx.save();
-      ctx.translate(
-        (sticker.x / 100) * width,
-        (sticker.y / 100) * height,
-      );
-      ctx.font = `${sticker.size}px sans-serif`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(sticker.emoji, 0, 0);
-      ctx.restore();
-    });
-
-    if (caption) {
-      ctx.font = "600 14px sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      const captionY = height - 30;
-      ctx.fillStyle = "rgba(0,0,0,.62)";
-      ctx.fillRect(16, captionY - 18, width - 32, 36);
-      ctx.fillStyle = "#fff";
-      ctx.fillText(caption, width / 2, captionY);
-    }
+  const openShareOptions = () => {
+    // Keep this transition free of canvas encoding; prepare media when the
+    // user actually posts so the share controls appear immediately.
+    setStep(2);
   };
-
-  const renderEditorToCanvas = async () => {
-    if (!mediaUrl || !frameRef.current) return null;
-
-    const frame = frameRef.current.getBoundingClientRect();
-    const width = Math.max(1, frame.width);
-    const height = Math.max(1, frame.height);
-    const pixelRatio = Math.min(3, window.devicePixelRatio || 2);
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.round(width * pixelRatio);
-    canvas.height = Math.round(height * pixelRatio);
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-
-    let source: CanvasImageSource;
-    let sourceWidth = 0;
-    let sourceHeight = 0;
-
-    if (isVideo) {
-      const video = document.querySelector(
-        "video[data-editor-video]",
-      ) as HTMLVideoElement | null;
-      if (!video || !video.videoWidth || !video.videoHeight) return null;
-      source = video;
-      sourceWidth = video.videoWidth;
-      sourceHeight = video.videoHeight;
-    } else {
-      const image = new Image();
-      image.src = mediaUrl;
-      await new Promise<void>((resolve, reject) => {
-        image.onload = () => resolve();
-        image.onerror = () => reject(new Error("Could not render media"));
-      });
-      source = image;
-      sourceWidth = image.naturalWidth;
-      sourceHeight = image.naturalHeight;
-    }
-
-    drawEditorFrame(
-      ctx,
-      width,
-      height,
-      pixelRatio,
-      source,
-      sourceWidth,
-      sourceHeight,
-    );
-
-    return canvas;
-  };
-
-  const openFinalPreview = async () => {
-    if (isVideo) {
-      setRenderedPreviewUrl(null);
-      if (renderedMediaUrl?.startsWith("blob:")) {
-        URL.revokeObjectURL(renderedMediaUrl);
-        unregisterBlob(renderedMediaUrl);
-      }
-      setRenderedMediaUrl(null);
-      setIsRenderingPreview(false);
-      setShowFinalPreview(true);
-      return;
-    }
-    setIsRenderingPreview(true);
-    try {
-      const canvas = await renderEditorToCanvas();
-      setRenderedPreviewUrl(canvas?.toDataURL("image/jpeg", 0.96) ?? null);
-      if (renderedMediaUrl?.startsWith("blob:")) {
-        URL.revokeObjectURL(renderedMediaUrl);
-        unregisterBlob(renderedMediaUrl);
-      }
-      if (canvas) {
-        const blob = await new Promise<Blob | null>((resolve) =>
-          canvas.toBlob(resolve, "image/jpeg", 0.96),
-        );
-        if (blob) {
-          const url = URL.createObjectURL(blob);
-          registerBlob(url, blob);
-          setRenderedMediaUrl(url);
-        } else {
-          setRenderedMediaUrl(null);
-        }
-      }
-    } catch (error) {
-      console.error("Could not render Moment preview", error);
-      setRenderedPreviewUrl(null);
-      setRenderedMediaUrl(null);
-    } finally {
-      setIsRenderingPreview(false);
-      setShowFinalPreview(true);
-    }
-  };
-
-  // =====================================================
-  // DOWNLOAD PHOTO
-  // =====================================================
-
-  const downloadPhotoWithEdits =
-    async () => {
-      if (!mediaUrl || isVideo) return;
-      const canvas = await renderEditorToCanvas();
-      if (!canvas) return;
-
-      const link =
-        document.createElement(
-          "a"
-        );
-
-      link.href = canvas.toDataURL("image/jpeg", 0.98);
-
-      link.download = `yourworld-moment-${Date.now()}.jpg`;
-
-      link.click();
-    };
-
-  // =====================================================
-  // DOWNLOAD
-  // =====================================================
-
-  const handleDownload =
-    async () => {
-      if (!mediaUrl) return;
-
-      if (!isVideo) {
-        await downloadPhotoWithEdits();
-        return;
-      }
-
-      const link =
-        document.createElement(
-          "a"
-        );
-
-      link.href = mediaUrl;
-
-      link.download = `yourworld-moment-${Date.now()}.webm`;
-
-      link.click();
-    };
 
   // =====================================================
   // RETAKE
@@ -2364,10 +2100,53 @@ function MomentCreatePage() {
       toast.error("Choose at least one friend to mention.");
       return;
     }
-    const publishMediaUrl =
-      renderedMediaUrl
-        ? renderedMediaUrl
-        : mediaUrl;
+    const publishMediaUrl = mediaUrl;
+    const editorFrame = frameRef.current?.getBoundingClientRect();
+    const savedMediaTransform = {
+      xPercent: editorFrame?.width
+        ? (mediaTransform.x / editorFrame.width) * 100
+        : 0,
+      yPercent: editorFrame?.height
+        ? (mediaTransform.y / editorFrame.height) * 100
+        : 0,
+      scale: mediaTransform.scale,
+      rotation: mediaTransform.rotation,
+    };
+    const savedStickers = [
+      ...stickers.map((sticker) => ({
+        id: String(sticker.id),
+        content: sticker.emoji,
+        type: "emoji" as const,
+        x: sticker.x / 100,
+        y: sticker.y / 100,
+        scale: sticker.size / 36,
+      })),
+      ...textLayers
+        .filter((layer) => layer.text.trim())
+        .map((layer) => ({
+          id: String(layer.id),
+          content: layer.text,
+          type: "text" as const,
+          x: layer.x / 100,
+          y: layer.y / 100,
+          scale: layer.size / 22,
+          rotation: layer.rotation,
+          color: layer.color,
+        })),
+    ];
+    const drawingCanvas = drawingCanvasRef.current;
+    const savedDrawing =
+      drawingCanvas && drawingHistory.current.length > 0
+        ? drawingCanvas.toDataURL("image/png")
+        : undefined;
+    const savedVisualFilter = [
+      FILTERS[selectedFilter]?.css ?? "none",
+      `brightness(${brightness}%)`,
+      `contrast(${contrast}%)`,
+      `saturate(${saturation}%)`,
+    ]
+      .filter((value) => value && value !== "none")
+      .join(" ");
 
     const createdAt =
       new Date();
@@ -2404,10 +2183,7 @@ function MomentCreatePage() {
         ? "video"
         : "image",
 
-      caption:
-        caption ||
-        textLayers[0]?.text ||
-        overlayText,
+      caption: caption || (textLayers.length ? "" : overlayText),
 
       audio:
         selectedAudio,
@@ -2442,6 +2218,14 @@ function MomentCreatePage() {
       cropRatio,
 
       rotation: mediaTransform.rotation,
+
+      mediaTransform: savedMediaTransform,
+
+      visualFilter: savedVisualFilter,
+
+      stickers: savedStickers,
+
+      drawing: savedDrawing,
 
       videoSpeed,
 
@@ -2548,7 +2332,10 @@ function MomentCreatePage() {
         musicVolume: audioUrl
           ? audioVolume
           : undefined,
-        stickers: [],
+        stickers: savedStickers,
+        drawing: savedDrawing,
+        mediaTransform: savedMediaTransform,
+        visualFilter: savedVisualFilter,
         trim:
           part.trim ??
           (!isVideo && audioUrl
@@ -3223,35 +3010,14 @@ function MomentCreatePage() {
 
         {/* TOP */}
 
-        <div className="absolute left-3 right-3 top-3 z-50 flex items-start justify-between">
-          <div className="flex min-w-0 items-center gap-2">
-            <button
-              onClick={retake}
-              aria-label="Close editor"
-              className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-black/55 backdrop-blur-xl"
-            >
-              <X size={20} />
-            </button>
-            <div className="flex min-w-0 items-center gap-2 rounded-full bg-black/45 py-1.5 pl-1.5 pr-3 backdrop-blur-xl">
-              <span className="h-8 w-8 flex-shrink-0 overflow-hidden rounded-full border border-white/30 bg-gradient-to-br from-pink-500 to-cyan-400">
-                <ProfileAvatar
-                  user={{
-                    full_name: editorName,
-                    username: editorUsername,
-                    avatar_url: editorAvatarUrl,
-                  }}
-                />
-              </span>
-              <span className="min-w-0">
-                <span className="block max-w-32 truncate text-[11px] font-bold">
-                  {editorName}
-                </span>
-                <span className="block truncate text-[9px] text-white/55">
-                  @{editorUsername} · Today {editorTimeLabel}
-                </span>
-              </span>
-            </div>
-          </div>
+        <div className="absolute left-3 right-3 top-3 z-50 flex items-center justify-between">
+          <button
+            onClick={retake}
+            aria-label="Close editor"
+            className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-black/55 backdrop-blur-xl"
+          >
+            <X size={20} />
+          </button>
 
           <button
             onClick={() => {
@@ -3267,13 +3033,6 @@ function MomentCreatePage() {
             {selectedAudio || "Add a Sound"}
           </button>
 
-          <div className="flex gap-2">
-            {isVideo && (
-              <div className="rounded-full bg-black/55 px-3 py-2 text-[10px] font-bold backdrop-blur-xl">
-                VIDEO
-              </div>
-            )}
-          </div>
         </div>
 
         {/* RIGHT TOOLS DOCK */}
@@ -4026,146 +3785,16 @@ function MomentCreatePage() {
         >
 
           <button
-            onClick={handleDownload}
-            aria-label="Download"
-            className="w-12 h-12 rounded-full bg-black/60 backdrop-blur-xl border border-white/15 flex items-center justify-center active:scale-95"
-          >
-            <Download size={20} />
-          </button>
-
-            <button
-              onClick={openFinalPreview}
-              disabled={isRenderingPreview}
-            className="px-5 py-3 rounded-full bg-zinc-800/90 backdrop-blur-xl border border-white/10 text-sm font-bold active:scale-95"
-          >
-              {isRenderingPreview ? "Rendering…" : "+ Stories"}
-          </button>
-
-          <button
-              onClick={openFinalPreview}
-              disabled={isRenderingPreview}
+              onClick={openShareOptions}
             className="px-6 py-3 rounded-full bg-gradient-to-r from-cyan-400 via-pink-500 to-pink-600 font-black text-sm flex items-center gap-1.5 active:scale-95"
           >
-              {isRenderingPreview ? "Rendering…" : "Send to"}
+              Send to
             <ChevronRight
               size={18}
             />
           </button>
         </div>
         )}
-
-        {/* FINAL PREVIEW */}
-
-        {showFinalPreview && (
-          <div className="fixed inset-0 z-[120] bg-black flex flex-col">
-            <div className="flex items-center justify-between px-4 pt-5 pb-3">
-              <button
-                onClick={() => setShowFinalPreview(false)}
-                className="w-11 h-11 rounded-full bg-white/10 flex items-center justify-center"
-                aria-label="Back to editor"
-              >
-                <X size={18} />
-              </button>
-              <span className="text-sm font-black uppercase tracking-wide">
-                Preview
-              </span>
-              <span className="w-11" />
-            </div>
-
-            <div className="flex-1 min-h-0 flex items-center justify-center px-4">
-              <div className="relative w-full h-full max-h-full rounded-2xl overflow-hidden bg-zinc-900">
-                {renderedPreviewUrl ? (
-                  <img
-                    src={renderedPreviewUrl}
-                    alt="Rendered Moment preview"
-                    className="h-full w-full object-contain"
-                  />
-                ) : mediaUrl && isVideo ? (
-                  <video
-                    src={mediaUrl}
-                    className="w-full h-full object-contain"
-                    style={getMediaRenderTransform()}
-                    autoPlay
-                    loop={!sharedContent}
-                    playsInline
-                    preload="auto"
-                    poster={sharedContent?.thumbnailUrl ?? undefined}
-                    controls
-                    muted={videoMuted}
-                    onTimeUpdate={
-                      sharedContent
-                        ? (event) => {
-                            if (event.currentTarget.currentTime >= 20) {
-                              event.currentTarget.currentTime = 20;
-                              event.currentTarget.pause();
-                            }
-                          }
-                        : undefined
-                    }
-                  />
-                ) : mediaUrl ? (
-                  <img
-                    src={mediaUrl}
-                    alt="Moment preview"
-                    className="w-full h-full object-contain"
-                    style={getMediaRenderTransform()}
-                  />
-                ) : null}
-
-                {sharedContent && (
-                  <div className="pointer-events-none absolute bottom-16 left-1/2 z-20 -translate-x-1/2">
-                    <SharedMomentPill content={sharedContent} className="max-w-[90vw]" />
-                  </div>
-                )}
-
-                {caption && (
-                  <div className="absolute bottom-4 left-4 right-4 text-center text-sm font-semibold bg-black/60 backdrop-blur-xl rounded-2xl px-4 py-2">
-                    {caption}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="px-4 pb-6 pt-3 space-y-3">
-              {selectedAudio && (
-                <p className="text-xs text-white/70 font-semibold">
-                  {selectedAudio}
-                </p>
-              )}
-
-              {!isVideo && audioUrl && (
-                <div>
-                  <div className="flex items-center justify-between text-xs font-bold mb-1">
-                    <span>Photo duration</span>
-                    <span>{photoSeconds}s</span>
-                  </div>
-                  <input
-                    type="range"
-                    min={5}
-                    max={40}
-                    step={1}
-                    value={photoSeconds}
-                    onChange={(e) =>
-                      setPhotoSeconds(Number(e.target.value))
-                    }
-                    className="w-full accent-pink-500"
-                  />
-                </div>
-              )}
-
-              <button
-                onClick={() => {
-                  setShowFinalPreview(false);
-                  setStep(2);
-                }}
-                className="w-full py-3.5 rounded-full bg-gradient-to-r from-cyan-400 via-pink-500 to-pink-600 font-black text-sm active:scale-95"
-              >
-                Continue
-              </button>
-            </div>
-          </div>
-        )}
-
 
       </div>
     );
@@ -4201,13 +3830,7 @@ function MomentCreatePage() {
 
         {mediaUrl && (
           <div className="relative mx-auto mb-2 h-28 w-20 overflow-hidden rounded-2xl">
-            {renderedPreviewUrl ? (
-              <img
-                src={renderedPreviewUrl}
-                className="h-full w-full object-cover"
-                alt="Rendered Moment"
-              />
-            ) : isVideo ? (
+            {isVideo ? (
               <video
                 src={mediaUrl}
                 muted
@@ -4222,6 +3845,24 @@ function MomentCreatePage() {
                 alt="Moment"
               />
             )}
+          </div>
+        )}
+
+        {!isVideo && audioUrl && (
+          <div className="mb-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2">
+            <div className="mb-1 flex items-center justify-between text-xs font-bold">
+              <span>Photo duration</span>
+              <span>{photoSeconds}s</span>
+            </div>
+            <input
+              type="range"
+              min={5}
+              max={40}
+              step={1}
+              value={photoSeconds}
+              onChange={(event) => setPhotoSeconds(Number(event.target.value))}
+              className="w-full accent-pink-500"
+            />
           </div>
         )}
 

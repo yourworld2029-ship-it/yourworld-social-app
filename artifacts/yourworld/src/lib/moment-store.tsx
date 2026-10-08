@@ -88,6 +88,14 @@ export type MyMoment = {
     frameW: number;
     frameH: number;
   };
+  /** Editor framing and non-destructive visual treatment, stored in the existing payload JSON. */
+  mediaTransform?: {
+    xPercent: number;
+    yPercent: number;
+    scale: number;
+    rotation: number;
+  };
+  visualFilter?: string;
   location?: string;
   mentions: string[];
   /** Profile IDs tagged in this Moment. Persisted in mentioned_user_ids. */
@@ -368,6 +376,12 @@ function rowToMoment(
     drawing: typeof p.drawing === "string" ? p.drawing : undefined,
     trim: p.trim as MyMoment["trim"],
     crop: p.crop as MyMoment["crop"],
+    mediaTransform:
+      p.mediaTransform && typeof p.mediaTransform === "object"
+        ? (p.mediaTransform as MyMoment["mediaTransform"])
+        : undefined,
+    visualFilter:
+      typeof p.visualFilter === "string" ? p.visualFilter : undefined,
     location: typeof p.location === "string" ? p.location : undefined,
     mentions: Array.isArray(p.mentions)
       ? p.mentions.filter((mention): mention is string => typeof mention === "string")
@@ -438,6 +452,8 @@ function payloadOf(m: NewMoment) {
     drawing: m.drawing ?? null,
     trim: m.trim ?? null,
     crop: m.crop ?? null,
+    mediaTransform: m.mediaTransform ?? null,
+    visualFilter: m.visualFilter ?? null,
     location: m.location ?? null,
     mentions: m.mentions ?? [],
     mentioned_user_ids: m.mentionedUserIds ?? [],

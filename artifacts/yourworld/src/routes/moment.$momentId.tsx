@@ -384,7 +384,22 @@ function MomentViewRoute() {
 
   if (!current) return null;
 
-  const filter = aiFilterCss(current.ai, current.effect);
+  const filter = [
+    aiFilterCss(current.ai, current.effect),
+    current.visualFilter,
+  ]
+    .filter((value) => typeof value === "string" && value.trim() && value !== "none")
+    .join(" ") || "none";
+  const mediaTransform = current.mediaTransform;
+  const mediaStyle = {
+    filter,
+    ...(mediaTransform
+      ? {
+          transform: `translate3d(${Number.isFinite(mediaTransform.xPercent) ? mediaTransform.xPercent : 0}%, ${Number.isFinite(mediaTransform.yPercent) ? mediaTransform.yPercent : 0}%, 0) scale(${Number.isFinite(mediaTransform.scale) ? mediaTransform.scale : 1}) rotate(${Number.isFinite(mediaTransform.rotation) ? mediaTransform.rotation : 0}deg)`,
+          transformOrigin: "center center",
+        }
+      : {}),
+  };
   const displayMomentText = current.text.replace(/\s+\(\d+\/\d+\)\s*$/, "");
   const segments = items.length;
   const likeCount = current.viewers.filter((v) => v.liked).length;
@@ -424,7 +439,7 @@ function MomentViewRoute() {
                 playsInline
                 muted={muted}
                 preload="none"
-                style={{ filter }}
+                style={mediaStyle}
                 className="h-full w-full object-cover opacity-0"
                 onTimeUpdate={(e) => {
                   const v = e.currentTarget;
@@ -447,7 +462,7 @@ function MomentViewRoute() {
                 key={current.id}
                 videoRef={videoRef}
                 className="absolute inset-0 h-full w-full object-cover"
-                style={{ filter }}
+                style={mediaStyle}
               />
             </div>
           ) : current.kind === "photo" && current.media ? (
@@ -455,7 +470,7 @@ function MomentViewRoute() {
               key={current.id}
               src={current.media}
               alt=""
-              style={{ filter }}
+              style={mediaStyle}
               className="h-full w-full object-cover"
             />
           ) : (
