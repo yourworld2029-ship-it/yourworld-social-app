@@ -1366,18 +1366,19 @@ html[data-theme="midnight"] {
   display: flex;
   flex-direction: row;
   flex-wrap: nowrap;
-  gap: 0 !important;
+  gap: 12px !important;
   padding-bottom: 0 !important;
 }
 
 .feed-video-card {
-  width: 140px !important;
-  min-width: 140px !important;
+  flex: 0 0 calc((100% - 12px) / 2) !important;
+  width: calc((100% - 12px) / 2) !important;
+  min-width: calc((100% - 12px) / 2) !important;
   aspect-ratio: 9 / 16 !important;
   height: auto !important;
-  border-radius: 12px !important;
+  border-radius: 16px !important;
   overflow: hidden !important;
-  margin: 0 6px !important;
+  margin: 0 !important;
   position: relative !important;
 }
 

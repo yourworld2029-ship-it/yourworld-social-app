@@ -505,6 +505,7 @@ export function FeedVideoPreview({
   onOpen,
   interactive = true,
   showPlayFallback = false,
+  showFallbackIcon = true,
   previewTestId,
 }: {
   video: LongVideo;
@@ -514,6 +515,7 @@ export function FeedVideoPreview({
   onOpen: () => void;
   interactive?: boolean;
   showPlayFallback?: boolean;
+  showFallbackIcon?: boolean;
   previewTestId?: string;
 }) {
   const { activeCandidateId, muted, registerCandidate, attachVideo, stopCandidate } = useFeedVideoAutoplay();
@@ -585,7 +587,7 @@ export function FeedVideoPreview({
         authorName={video.author.name}
         authorAvatarUrl={video.author.avatarUrl}
         showPlayFallback={showPlayFallback}
-        showFallbackIcon
+        showFallbackIcon={showFallbackIcon}
         bucket="thumbnails"
         className="pointer-events-none m-0 select-none p-0 [&_img]:block"
         allowFrameCapture={!active}

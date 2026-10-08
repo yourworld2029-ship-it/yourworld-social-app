@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { MoreVertical } from "lucide-react";
 import type { LongVideo } from "@/lib/video-data";
+import { getHomeShortVideoSeriesBadge } from "@/lib/home-short-video-recommendations";
 
 type FeedVideoTrayProps = {
   videos: LongVideo[];
@@ -33,11 +34,12 @@ export function FeedVideoTray({
       >
         {videos.map((video) => {
           const title = video.title || "Untitled video";
+          const seriesBadge = getHomeShortVideoSeriesBadge(video);
 
           return (
             <article
               key={video.id}
-              className="feed-video-card relative shrink-0 snap-start overflow-hidden bg-[#111116] ring-1 ring-white/[0.08]"
+              className="feed-video-card relative shrink-0 snap-start overflow-hidden rounded-2xl bg-[#111116] ring-1 ring-white/[0.08]"
               data-testid={`feed-video-card-${video.id}`}
             >
               <button
@@ -49,9 +51,24 @@ export function FeedVideoTray({
               >
                 {renderPreview(video)}
 
+                {seriesBadge ? (
+                  <span className="pointer-events-none absolute left-2 top-2 z-20 max-w-[70%] truncate rounded-full bg-black/60 px-2 py-1 text-[10px] font-semibold leading-none text-white backdrop-blur-sm">
+                    {seriesBadge}
+                  </span>
+                ) : null}
+
                 <span
                   aria-hidden="true"
-                  className="pointer-events-none absolute right-2 top-2 rounded-full bg-black/45 p-1 text-white/90 backdrop-blur-sm"
+                  className="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/85 via-black/40 to-transparent px-3 pb-3 pt-14"
+                >
+                  <span className="line-clamp-2 block text-left text-sm font-semibold leading-snug text-white">
+                    {title}
+                  </span>
+                </span>
+
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute right-2 top-2 z-20 rounded-full bg-black/45 p-1 text-white/90 backdrop-blur-sm"
                 >
                   <MoreVertical className="h-3.5 w-3.5" />
                 </span>

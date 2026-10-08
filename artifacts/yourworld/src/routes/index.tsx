@@ -24,6 +24,11 @@ import {
   useVideoResumeEntries,
 } from "@/lib/video-resume";
 import { getAppScrollContainer } from "@/lib/app-scroll-container";
+import {
+  buildHomeVerticalVideoShelfBatches,
+  HOME_SHORTS_INTERVAL,
+  rankHomeVerticalVideos,
+} from "@/lib/home-short-video-recommendations";
 
 type FeedItem =
   | {
@@ -39,7 +44,11 @@ type FeedItem =
     };
 
 function estimateFeedItemHeight(item: FeedItem) {
-  if (item.kind === "vertical-shelf") return 260;
+  if (item.kind === "vertical-shelf") {
+    const viewportWidth = typeof window === "undefined" ? 402 : window.innerWidth;
+    const shelfCardWidth = Math.max(0, Math.min(viewportWidth, 512) - 52) / 2;
+    return Math.max(240, Math.ceil(shelfCardWidth * (16 / 9)));
+  }
   return item.video.orientation === "portrait" ? 920 : 660;
 }
 
@@ -400,17 +409,57 @@ function HomePage() {
     }
     return { regularVideos: regular, verticalVideos: vertical };
   }, [resumeVideo, videos]);
+  const recentVideoInteractions = React.useMemo(() => {
+    const interactions: LongVideo[] = [];
+    const seen = new Set<string>();
+    const addInteraction = (video: LongVideo) => {
+      if (seen.has(video.id)) return;
+      seen.add(video.id);
+      interactions.push(video);
+    };
+
+    if (resumeVideo) addInteraction(resumeVideo);
+    const likedVideos = videos
+      .filter((video) => video.likedByMe)
+      .sort((left, right) => {
+        const leftDate = Date.parse(left.createdAt);
+        const rightDate = Date.parse(right.createdAt);
+        return (
+          (Number.isFinite(rightDate) ? rightDate : 0) -
+          (Number.isFinite(leftDate) ? leftDate : 0)
+        );
+      });
+    for (const video of likedVideos) {
+      if (interactions.length >= 12) break;
+      addInteraction(video);
+    }
+    return interactions;
+  }, [resumeVideo, videos]);
+  const verticalVideoGroups = React.useMemo(
+    () => rankHomeVerticalVideos(verticalVideos, recentVideoInteractions),
+    [recentVideoInteractions, verticalVideos],
+  );
+  const verticalShelfBatches = React.useMemo(
+    () =>
+      buildHomeVerticalVideoShelfBatches(
+        verticalVideoGroups,
+        regularVideos.length,
+        hasNextPage,
+      ),
+    [hasNextPage, regularVideos.length, verticalVideoGroups],
+  );
   const feedItems = React.useMemo<FeedItem[]>(() => {
     const items: FeedItem[] = [];
     if (regularVideos.length === 0) {
-      if (verticalVideos.length > 0) {
+      verticalShelfBatches.forEach((batch, index) => {
         items.push({
           kind: "vertical-shelf",
-          key: "vertical-video-shelf",
-          videos: verticalVideos,
+          key: `vertical-video-shelf-${index}`,
+          videos: batch,
         });
-      }
+      });
     } else {
+      let shelfIndex = 0;
       regularVideos.forEach((video, index) => {
         const immediateNextVideo = regularVideos[index + 1];
         const prefetchNextVideos =
@@ -428,22 +477,25 @@ function HomePage() {
           prefetchNextVideos,
         });
 
-        const regularVideoCount = index + 1;
-        if (
-          verticalVideos.length > 0 &&
-          regularVideoCount === Math.min(2, regularVideos.length)
-        ) {
+        const reachedInterval = (index + 1) % HOME_SHORTS_INTERVAL === 0;
+        const finalShortShelf =
+          !hasNextPage &&
+          regularVideos.length < HOME_SHORTS_INTERVAL &&
+          index === regularVideos.length - 1;
+        const nextBatch = verticalShelfBatches[shelfIndex];
+        if ((reachedInterval || finalShortShelf) && nextBatch?.length) {
           items.push({
             kind: "vertical-shelf",
-            key: "vertical-video-shelf",
-            videos: verticalVideos,
+            key: `vertical-video-shelf-${shelfIndex}`,
+            videos: nextBatch,
           });
+          shelfIndex += 1;
         }
       });
     }
 
     return items;
-  }, [regularVideos, verticalVideos]);
+  }, [hasNextPage, regularVideos, verticalShelfBatches]);
 
   return (
     <div className="yw-media-scroll-surface min-h-screen bg-black text-white pb-24">
