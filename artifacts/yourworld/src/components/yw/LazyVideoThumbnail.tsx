@@ -24,6 +24,9 @@ type Props = {
   fetchPriority?: "high" | "low" | "auto";
   onPosterResolved?: (url: string) => void;
   allowFrameCapture?: boolean;
+  showFrameStatus?: boolean;
+  preferGeneratedFallback?: boolean;
+  frameCaptureTimeSeconds?: number;
 };
 
 /** Direct image loading avoids fetch/canvas CORS failures on Android WebViews. */
@@ -31,6 +34,7 @@ export function LazyVideoThumbnail({
   thumbnailUrl, mediaUrl, streamId, alt, className,
   showPlayFallback = false, showFallbackIcon = false, bucket,
   loading = "lazy", fetchPriority = "auto", onPosterResolved, allowFrameCapture = true,
+  showFrameStatus = true, preferGeneratedFallback = false, frameCaptureTimeSeconds = 0.1,
 }: Props) {
   const [resolved, setResolved] = useState<{ key: string; urls: string[] } | null>(null);
   const [failed, setFailed] = useState<string[]>([]);
@@ -77,18 +81,23 @@ export function LazyVideoThumbnail({
   }, []);
   const primary = resolved?.key === key ? resolved.urls : [];
   const cloudflare = cloudflareStreamPosterUrl(mediaUrl, streamId);
-  const source = [...primary, cloudflare, cached].find((url) => !!url && !failed.includes(url)) ?? null;
+  const generatePreferredFrame = preferGeneratedFallback && !thumbnailUrl?.trim();
+  const sourceCandidates = generatePreferredFrame
+    ? [...primary, cached, cloudflare]
+    : [...primary, cloudflare, cached];
+  const source = sourceCandidates.find((url) => !!url && !failed.includes(url)) ?? null;
   useEffect(() => {
-    if (source || !mediaUrl || !inView || !allowFrameCapture || frameFailed) return;
+    if ((source && !generatePreferredFrame) || !mediaUrl || !inView ||
+        !allowFrameCapture || frameFailed || (generatePreferredFrame && cached)) return;
     const controller = new AbortController();
     requestVideoFirstFrame(mediaUrl, controller.signal, (frame) => {
       if (frame) setCached(frame); else setFrameFailed(true);
-    });
+    }, frameCaptureTimeSeconds);
     return () => controller.abort();
-  }, [source, mediaUrl, inView, allowFrameCapture, frameFailed]);
+  }, [source, mediaUrl, inView, allowFrameCapture, frameFailed, generatePreferredFrame, cached, frameCaptureTimeSeconds]);
   useEffect(() => { if (source) onPosterResolved?.(source); }, [source, onPosterResolved]);
   return <div ref={containerRef} className={cn("relative h-full w-full overflow-hidden bg-transparent", className)}>
-    {!source && <span data-testid={frameFailed ? "video-frame-error" : "video-frame-loading"} role="status"
+    {showFrameStatus && !source && <span data-testid={frameFailed ? "video-frame-error" : "video-frame-loading"} role="status"
       className="absolute inset-0 grid place-items-center px-3 text-center text-xs text-white/70">
       {frameFailed || !mediaUrl ? "Video preview unavailable" : "Loading video frame…"}
     </span>}

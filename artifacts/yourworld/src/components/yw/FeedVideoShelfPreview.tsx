@@ -22,6 +22,9 @@ export function FeedVideoShelfPreview({
       interactive={false}
       showPlayFallback={false}
       showFallbackIcon={false}
+      showThumbnailStatus={false}
+      preferCaptureWhenMissing
+      thumbnailCaptureTimeSeconds={2.5}
       previewTestId={`feed-video-preview-${video.id}`}
       className={className}
     />

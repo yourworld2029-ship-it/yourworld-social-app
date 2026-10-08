@@ -5,15 +5,25 @@ import { cacheVideoPoster, getVideoPoster } from "./video-prefetch";
 import { resolveLongVideoUrl } from "./video-data";
 import { isHlsMediaUrl, supportsNativeHls } from "./video-playback-engine";
 
-type Job = { url: string; signal: AbortSignal; done: (frame: string | null) => void };
+type Job = {
+  url: string;
+  signal: AbortSignal;
+  done: (frame: string | null) => void;
+  timeSeconds: number;
+};
 const jobs: Job[] = [];
 let running = false;
 
 /** Paused metadata/0.1-second seeks, serialized across every visible card. */
-export function requestVideoFirstFrame(url: string, signal: AbortSignal, done: Job["done"]) {
+export function requestVideoFirstFrame(
+  url: string,
+  signal: AbortSignal,
+  done: Job["done"],
+  timeSeconds = 0.1,
+) {
   const cached = getVideoPoster(url);
   if (cached) { done(cached); return; }
-  jobs.push({ url, signal, done });
+  jobs.push({ url, signal, done, timeSeconds });
   pump();
 }
 
@@ -35,6 +45,8 @@ function pump() {
   const video = document.createElement("video");
   let hls: Hls | null = null;
   let finished = false;
+  const requestedTime = Number.isFinite(job.timeSeconds) ? Math.max(0, job.timeSeconds) : 0.1;
+  let targetTime = requestedTime;
   const finish = (frame: string | null) => {
     if (finished) return;
     finished = true;
@@ -62,23 +74,37 @@ function pump() {
   };
   video.addEventListener("loadedmetadata", () => {
     if (finished) return;
-    video.currentTime = Math.min(0.1, Number.isFinite(video.duration) ? video.duration / 2 : 0.1);
+    targetTime = Math.min(
+      requestedTime,
+      Number.isFinite(video.duration) ? Math.max(0, video.duration - 0.1) : requestedTime,
+    );
+    if (targetTime <= 0.05) {
+      capture();
+      return;
+    }
+    try {
+      video.currentTime = targetTime;
+    } catch {
+      finish(null);
+    }
   });
   video.addEventListener("seeked", capture);
-  video.addEventListener("loadeddata", () => { if (video.currentTime >= 0.05) capture(); });
+  video.addEventListener("loadeddata", () => {
+    if (targetTime <= 0.05 || video.currentTime >= targetTime - 0.05) capture();
+  });
   video.addEventListener("error", () => finish(null), { once: true });
   void resolveLongVideoUrl(job.url).then((url) => {
     if (finished || job.signal.aborted) return;
     if (!url) { finish(null); return; }
     if (isHlsMediaUrl(url) && !supportsNativeHls(video)) {
       if (!Hls.isSupported()) { finish(null); return; }
-      hls = new Hls({ startPosition: 0.1, maxBufferLength: 1, maxMaxBufferLength: 1, maxBufferSize: 2 * 1024 * 1024 });
+      hls = new Hls({ startPosition: requestedTime, maxBufferLength: 1, maxMaxBufferLength: 1, maxBufferSize: 2 * 1024 * 1024 });
       hls.on(Hls.Events.ERROR, (_event, data) => { if (data.fatal) finish(null); });
       hls.loadSource(url);
       hls.attachMedia(video);
     } else {
       const source = new URL(url, window.location.href);
-      source.hash = "t=0.1";
+      source.hash = `t=${requestedTime}`;
       video.src = source.toString();
       video.load();
     }

@@ -132,6 +132,9 @@ export function LongVideoCard({
             candidateId={previewId}
             prefetchNextVideos={prefetchNextVideos}
             onOpen={openVideo}
+            showThumbnailStatus={false}
+            preferCaptureWhenMissing
+            thumbnailCaptureTimeSeconds={2.5}
             className="m-0 select-none p-0"
           />
         </div>

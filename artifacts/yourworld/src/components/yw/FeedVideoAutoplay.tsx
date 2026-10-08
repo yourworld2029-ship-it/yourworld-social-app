@@ -506,6 +506,9 @@ export function FeedVideoPreview({
   interactive = true,
   showPlayFallback = false,
   showFallbackIcon = true,
+  showThumbnailStatus = true,
+  preferCaptureWhenMissing = false,
+  thumbnailCaptureTimeSeconds = 0.1,
   previewTestId,
 }: {
   video: LongVideo;
@@ -516,6 +519,9 @@ export function FeedVideoPreview({
   interactive?: boolean;
   showPlayFallback?: boolean;
   showFallbackIcon?: boolean;
+  showThumbnailStatus?: boolean;
+  preferCaptureWhenMissing?: boolean;
+  thumbnailCaptureTimeSeconds?: number;
   previewTestId?: string;
 }) {
   const { activeCandidateId, muted, registerCandidate, attachVideo, stopCandidate } = useFeedVideoAutoplay();
@@ -588,6 +594,9 @@ export function FeedVideoPreview({
         authorAvatarUrl={video.author.avatarUrl}
         showPlayFallback={showPlayFallback}
         showFallbackIcon={showFallbackIcon}
+        showFrameStatus={showThumbnailStatus}
+        preferGeneratedFallback={preferCaptureWhenMissing}
+        frameCaptureTimeSeconds={thumbnailCaptureTimeSeconds}
         bucket="thumbnails"
         className="pointer-events-none m-0 select-none p-0 [&_img]:block"
         allowFrameCapture={!active}
@@ -604,7 +613,13 @@ export function FeedVideoPreview({
         aria-label={video.title}
         onLoadedData={(event) => {
           setVideoReady(true);
-          cacheVideoPoster(event.currentTarget, video.mediaUrl);
+        }}
+        onTimeUpdate={(event) => {
+          const player = event.currentTarget;
+          const captureAt = Number.isFinite(player.duration)
+            ? Math.min(2.5, Math.max(0, player.duration - 0.1))
+            : 2.5;
+          if (player.currentTime >= captureAt) cacheVideoPoster(player, video.mediaUrl);
         }}
         onEmptied={() => {
           setVideoReady(false);
