@@ -6,7 +6,7 @@ import {
   ArrowLeft, Phone, Video, MoreVertical, ChevronRight, Palette, Image as ImageIcon,
   Mic, Send, Smile, Play, Pause, X,
   Pencil, Lock, EyeOff, Clock, Camera, BellOff, UserX, Flag, Shield, Maximize2,
-  Trash2, CheckCheck, Check, Crop, Type, Sparkles 
+  Trash2, CheckCheck, Check, Crop, Type, Sparkles, Repeat2
 } from "lucide-react";
 import {
   PHOTO_FILTERS, TEXT_COLORS, STICKER_EMOJIS, cropImage, renderPhoto,
@@ -368,7 +368,7 @@ function MomentReplyCard({
   return (
     <div
       data-testid="moment-reply-strip"
-      className="mb-2 w-full rounded-xl border border-white/10 bg-white/[0.06] p-1.5"
+      className="mx-auto mb-2 w-full max-w-[260px] overflow-hidden rounded-2xl border border-white/15 bg-zinc-950/45 shadow-lg shadow-black/25 backdrop-blur-xl"
     >
       <button
         type="button"
@@ -377,14 +377,14 @@ function MomentReplyCard({
           event.stopPropagation();
           if (canOpen) onOpen(message);
         }}
-        className={`group flex w-full items-center gap-2.5 rounded-lg p-1 text-left focus:outline-none focus:ring-2 focus:ring-white/60 ${
+        className={`group relative block aspect-[4/5] w-full overflow-hidden bg-zinc-900 text-left focus:outline-none focus:ring-2 focus:ring-white/70 ${
           canOpen
-            ? "transition hover:bg-white/[0.06]"
-            : "cursor-default opacity-80"
+            ? "cursor-pointer"
+            : "cursor-default"
         }`}
-        aria-label={canOpen ? "Open shared Moment" : "Moment unavailable"}
+        aria-label={canOpen ? "Open mentioned Moment" : "Moment unavailable"}
       >
-        <span className="relative grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-lg bg-zinc-900 text-[9px] text-zinc-400 ring-1 ring-white/15">
+        <span className="absolute inset-0 grid place-items-center bg-zinc-900 text-xs text-zinc-400">
           {canOpen && renderedMediaUrl ? (
             preview.kind === "video" ? (
               <video
@@ -396,55 +396,63 @@ function MomentReplyCard({
                 onError={() =>
                   setFailedUrl(renderedMediaUrl ?? preview.mediaUrl)
                 }
-                className="h-full w-full object-cover"
+                className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.02]"
               />
             ) : (
               <img
                 src={renderedPosterUrl ?? renderedMediaUrl}
-                alt=""
+                alt="Moment preview"
                 loading="lazy"
                 decoding="async"
                 onError={() =>
                   setFailedUrl(renderedMediaUrl ?? preview.mediaUrl)
                 }
-                className="h-full w-full object-cover"
+                className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.02]"
               />
             )
           ) : canOpen && preview.kind === "text" ? (
-            <Type size={17} aria-hidden="true" />
+            <span className="flex h-full w-full flex-col items-center justify-center gap-3 bg-gradient-to-br from-fuchsia-950 via-violet-950 to-zinc-950 px-6 text-center text-white">
+              <Type size={24} aria-hidden="true" />
+              <span className="line-clamp-4 text-sm font-medium leading-6">
+                Text Moment
+              </span>
+            </span>
           ) : (
             <span aria-hidden="true">Moment unavailable</span>
           )}
-          {canOpen && (
-            <span className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/10 to-transparent" />
-          )}
         </span>
-        <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-white/90">
-          {canOpen
-            ? message.isMomentMention
-              ? "Moment preview"
-              : `Replying to ${
-                  preview.kind === "video" ? "video" : preview.kind === "photo" ? "photo" : ""
-                } Moment`.replace("  ", " ")
-            : "Moment unavailable"}
-        </span>
-        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-white/55 transition group-hover:translate-x-0.5 group-hover:text-white/80">
-          <ChevronRight size={16} aria-hidden="true" />
+        {canOpen && (
+          <>
+            <span className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/25 via-transparent to-black/55" />
+            <span className="pointer-events-none absolute left-3 top-3 rounded-full border border-white/20 bg-black/30 px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.16em] text-white/90 shadow-sm backdrop-blur-md">
+              Moment
+            </span>
+            <span className="pointer-events-none absolute bottom-3 left-3 right-3 flex items-center justify-between gap-2 text-left text-xs font-semibold text-white drop-shadow">
+              <span>Open moment</span>
+              <ChevronRight size={16} aria-hidden="true" />
+            </span>
+          </>
+        )}
+        <span className="sr-only">
+          {canOpen ? "Open the Moment shared with you" : "Moment unavailable"}
         </span>
       </button>
       {canReshare ? (
-        <button
-          type="button"
-          disabled={resharing}
-          onClick={(event) => {
-            event.stopPropagation();
-            onReshare?.(message);
-          }}
-          className="mt-1 flex w-full items-center justify-center gap-1.5 rounded-lg bg-white/10 px-3 py-2 text-[11px] font-semibold text-white transition hover:bg-white/15 disabled:cursor-wait disabled:opacity-60"
-          data-testid="button-add-mentioned-moment"
-        >
-          {resharing ? "Adding…" : "Add to your moment"}
-        </button>
+        <div className="border-t border-white/10 bg-white/[0.035] p-2.5">
+          <button
+            type="button"
+            disabled={resharing}
+            onClick={(event) => {
+              event.stopPropagation();
+              onReshare?.(message);
+            }}
+            className="flex w-full items-center justify-center gap-2 rounded-full bg-white px-4 py-2.5 text-xs font-bold text-zinc-950 shadow-md shadow-black/20 transition hover:bg-zinc-100 active:scale-[0.98] disabled:cursor-wait disabled:opacity-60"
+            data-testid="button-add-mentioned-moment"
+          >
+            <Repeat2 size={15} strokeWidth={2.5} aria-hidden="true" />
+            {resharing ? "Adding…" : "Add to your moment"}
+          </button>
+        </div>
       ) : null}
     </div>
   );
@@ -2764,11 +2772,21 @@ function NativeChatThreadPage() {
             )}
             {(m.text || m.isMomentReply || m.momentId || m.sharedMedia) && (
               <div className={`max-w-[78%] rounded-2xl text-sm leading-relaxed ${
-                m.sharedMedia ? "w-[300px] p-2.5" : "px-4 py-2.5"
+                m.sharedMedia || m.isMomentMention ? "w-[300px] p-2.5" : "px-4 py-2.5"
               } ${
                 m.sender === "me" ? `${ownMessageBubbleThemeClass} text-white rounded-br-xs` : "bg-zinc-800/90 text-zinc-100 rounded-bl-xs border border-zinc-700/50"
-              }`}>
+              } ${m.isMomentMention ? "hyphens-none break-normal" : ""}`}>
                 {m.replyTo && <ReplyQuote reply={m.replyTo} className="mb-2 rounded-lg" />}
+                {m.isMomentMention && m.text ? (
+                  <div className="mb-2 px-1 text-[13px] font-medium leading-5 text-white/95 hyphens-none break-normal">
+                    <ChatMessageText
+                      text={m.text}
+                      onOpenLink={(url, event) =>
+                        handleMessageUrlClick(url, m.id, event)
+                      }
+                    />
+                  </div>
+                ) : null}
                 {m.isMomentReply || m.momentId ? (
                   <MomentReplyCard
                     message={m}
@@ -2782,7 +2800,7 @@ function NativeChatThreadPage() {
                     )}
                   />
                 ) : null}
-                {m.text && !m.sharedMedia ? (
+                {m.text && !m.sharedMedia && !m.isMomentMention ? (
                   <ChatMessageText
                     text={m.text}
                     onOpenLink={(url, event) =>
