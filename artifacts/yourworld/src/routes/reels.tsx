@@ -1553,6 +1553,7 @@ function ReelItem({
                   }
                 },
                 selectedTier && !selection?.isSourceFallback ? selectedTier : undefined,
+                reel.durationSeconds,
               );
               break;
             } catch (error) {

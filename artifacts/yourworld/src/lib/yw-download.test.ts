@@ -6,7 +6,13 @@ import {
   readDeviceOfflineVideosIndex,
   writeDeviceOfflineVideosIndex,
 } from "./device-offline-videos";
-import { fetchVideoBlob, reelWatermarkText, toDownloadedVideo } from "./yw-download";
+import {
+  fetchVideoBlob,
+  reelExportDurationMatches,
+  reelExportReachedExpectedEnd,
+  reelWatermarkText,
+  toDownloadedVideo,
+} from "./yw-download";
 
 const sourceBytes = Uint8Array.from({ length: 100 }, (_, index) => index);
 
@@ -14,6 +20,14 @@ test("Reel watermark text uses the creator handle exactly once", () => {
   assert.equal(reelWatermarkText("creator"), "YourWorld • @creator");
   assert.equal(reelWatermarkText("@creator"), "YourWorld • @creator");
   assert.equal(reelWatermarkText(""), "YourWorld • @user");
+});
+
+test("Reel export rejects a short stream instead of saving a truncated video", () => {
+  assert.equal(reelExportDurationMatches(16, 16), true);
+  assert.equal(reelExportDurationMatches(15.6, 16), true);
+  assert.equal(reelExportDurationMatches(3, 16), false);
+  assert.equal(reelExportReachedExpectedEnd(15.6, 16), true);
+  assert.equal(reelExportReachedExpectedEnd(3, 16), false);
 });
 
 test("native offline video files stay under the ID-based app data folder", () => {

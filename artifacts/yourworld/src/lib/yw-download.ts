@@ -772,6 +772,8 @@ async function downloadWatermarkedVideoCore(
           },
           targetQuality,
           watermarkPlacement,
+          false,
+          metadata?.durationSeconds,
         );
       } finally {
         if (sourceBlob) URL.revokeObjectURL(sourceUrl);
@@ -945,6 +947,7 @@ export async function createWatermarkedReelMp4Blob(
   creatorUsername: string,
   onProgress?: (percent: number) => void,
   targetQuality?: VideoQualityTier,
+  expectedDurationSeconds?: number,
 ) {
   const { blob } = await renderWatermarkedVideo(
     src,
@@ -953,6 +956,7 @@ export async function createWatermarkedReelMp4Blob(
     targetQuality,
     "reel",
     true,
+    expectedDurationSeconds,
   );
   if (!blob.type.toLowerCase().startsWith("video/mp4")) {
     throw new Error("This device could not create the watermarked MP4 for the gallery.");
@@ -967,6 +971,7 @@ async function renderWatermarkedVideo(
   targetQuality?: VideoQualityTier,
   watermarkPlacement: WatermarkPlacement = "standard",
   requireMp4 = false,
+  expectedDurationSeconds?: number,
 ) {
   const exportLabel = watermark
     ? "watermarked video"
@@ -982,7 +987,18 @@ async function renderWatermarkedVideo(
   const Ctx = audioContextConstructor();
   if (!Ctx) throw new Error("This browser cannot preserve audio during video export");
 
-  const video = await loadVideoForExport(src);
+  const video = await loadVideoForExport(src, watermarkPlacement === "reel");
+  const expectedDuration =
+    Number.isFinite(expectedDurationSeconds) && (expectedDurationSeconds ?? 0) > 0
+      ? expectedDurationSeconds!
+      : video.duration;
+  if (
+    watermarkPlacement === "reel" &&
+    !reelExportDurationMatches(video.duration, expectedDuration)
+  ) {
+    releaseExportVideo(video);
+    throw new Error("The Reel source duration does not match the full video.");
+  }
   if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
     await new Promise<void>((resolve, reject) => {
       const timeout = window.setTimeout(() => {
@@ -1177,6 +1193,15 @@ async function renderWatermarkedVideo(
       }
     };
     const stopOnEnd = () => {
+      if (
+        watermarkPlacement === "reel" &&
+        !reelExportReachedExpectedEnd(video.currentTime, expectedDuration)
+      ) {
+        rejectRecording?.(
+          new Error("The Reel stream ended before its full duration was exported."),
+        );
+      }
+      drawFrame();
       if (recorder?.state !== "inactive") recorder?.stop();
     };
     const failOnMediaError = () => {
@@ -1244,7 +1269,7 @@ function releaseExportVideo(video: HTMLVideoElement) {
   video.load();
 }
 
-async function loadVideoForExport(src: string) {
+async function loadVideoForExport(src: string, reelExport = false) {
   const video = document.createElement("video");
   video.crossOrigin = "anonymous";
   video.playsInline = true;
@@ -1266,7 +1291,12 @@ async function loadVideoForExport(src: string) {
         if (/\.m3u8(?:$|\?)/i.test(src) && !video.canPlayType("application/vnd.apple.mpegurl")) {
           const { default: Hls } = await import("hls.js");
           if (!Hls.isSupported()) throw new Error("This browser cannot export this video stream.");
-          const hls = new Hls({ maxBufferLength: 3, maxMaxBufferLength: 6, startLevel: -1 });
+          const hls = new Hls({
+            maxBufferLength: reelExport ? 18 : 3,
+            maxMaxBufferLength: reelExport ? 24 : 6,
+            maxBufferSize: reelExport ? 48 * 1024 * 1024 : undefined,
+            startLevel: -1,
+          });
           exportVideoStreams.set(video, hls);
           hls.on(Hls.Events.ERROR, (_event, data) => { if (data.fatal) finish(new Error("The video stream could not be read.")); });
           hls.loadSource(src);
@@ -1286,6 +1316,36 @@ async function loadVideoForExport(src: string) {
     throw new Error("The video duration is unavailable");
   }
   return video;
+}
+
+export function reelExportDurationMatches(
+  actualDuration: number,
+  expectedDuration: number,
+) {
+  if (
+    !Number.isFinite(actualDuration) ||
+    actualDuration <= 0 ||
+    !Number.isFinite(expectedDuration) ||
+    expectedDuration <= 0
+  ) {
+    return false;
+  }
+  return Math.abs(actualDuration - expectedDuration) <= Math.max(1, expectedDuration * 0.05);
+}
+
+export function reelExportReachedExpectedEnd(
+  currentTime: number,
+  expectedDuration: number,
+) {
+  if (
+    !Number.isFinite(currentTime) ||
+    !Number.isFinite(expectedDuration) ||
+    currentTime < 0 ||
+    expectedDuration <= 0
+  ) {
+    return false;
+  }
+  return currentTime + Math.max(0.5, expectedDuration * 0.02) >= expectedDuration;
 }
 
 function audioContextConstructor() {
