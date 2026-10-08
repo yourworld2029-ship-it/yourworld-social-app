@@ -46,6 +46,8 @@
 - [Capacitor native detection](capacitor-native-detection.md) — `window.Capacitor` also exists in browsers; use native platform signals and wait for client resolution before gating routes.
 - [Creator monetization settlement](creator-monetization-settlement.md) — keep buyer surcharge, creator/platform splits, single TDS deduction, and terms gates server-authoritative.
 - [Moment expiry cleanup](moment-expiry-cleanup.md) — storage-aware expiry needs a privileged Edge Function plus a scheduled pg_cron/pg_net invocation; clients still filter strictly by expires_at.
+- [Moment mention delivery](moment-mention-delivery.md) — deliver Moment mentions as 1:1 chat DMs with a preview and reshare action, not visible Notifications feed items.
+- [Artifact-scoped builds](artifact-scoped-builds.md) — for a one-artifact change, validate that package directly before treating unrelated workspace build failures as blockers.
 - [Session and email OTP security](session-and-email-2fa-security.md) — revoke Auth session state before deleting the app row; email OTP must gate the final sign-in session.
 - [Android system-bar insets](android-system-bar-insets.md) — SDK 35+ forces edge-to-edge on Android 15+, so keep bars visible and inset WebView content natively.
 - [Android Gradle JDK selection](android-gradle-jdk-selection.md) — Android release builds need Gradle runtime and compiler detection explicitly aligned to JDK 21.

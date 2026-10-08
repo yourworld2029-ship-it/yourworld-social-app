@@ -71,6 +71,7 @@ import {
 } from "@/lib/moment-share";
 import { SharedMomentPill } from "@/components/yw/SharedMomentPill";
 import { toast } from "sonner";
+import { ProfileAvatar } from "@/components/yw/ProfileAvatar";
 
 export const Route = createFileRoute("/moment/create")({
   component: MomentCreatePage,
@@ -744,6 +745,30 @@ function MomentCreatePage() {
   );
   const mentionLoading = followersLoading || followingLoading;
   const mentionError = followersError || followingError;
+  const [resolvedMentionAvatarUrls, setResolvedMentionAvatarUrls] =
+    useState<Record<string, string>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all(
+      mentionOptions.map(async (person) => {
+        if (!person.avatar_url) return [person.id, ""] as const;
+        try {
+          return [
+            person.id,
+            await resolveMediaUrl(person.avatar_url, "avatars"),
+          ] as const;
+        } catch {
+          return [person.id, person.avatar_url] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (!cancelled) setResolvedMentionAvatarUrls(Object.fromEntries(entries));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [mentionOptions]);
 
   useEffect(() => {
     if (!user?.id) {
@@ -810,24 +835,18 @@ function MomentCreatePage() {
           }}
           className="h-4 w-4 shrink-0 accent-pink-500"
         />
-        <span className="relative h-10 w-10 shrink-0 overflow-hidden rounded-full bg-white/10">
-          <span
-            aria-hidden="true"
-            className="absolute inset-0 flex items-center justify-center text-sm font-bold text-white"
-          >
-            {(person.display_name.trim()[0] ?? "?").toUpperCase()}
-          </span>
-          {person.avatar_url ? (
-            <img
-              src={person.avatar_url}
-              alt=""
-              data-testid={`img-mentioned-person-${person.id}`}
-              className="relative z-10 h-full w-full rounded-full object-cover"
-              onError={(event) => {
-                event.currentTarget.style.display = "none";
-              }}
-            />
-          ) : null}
+        <span
+          data-testid={`img-mentioned-person-${person.id}`}
+          className="relative h-10 w-10 shrink-0 overflow-hidden rounded-full bg-white/10"
+        >
+          <ProfileAvatar
+            user={{
+              username: person.username,
+              full_name: person.display_name,
+              avatar_url:
+                resolvedMentionAvatarUrls[person.id] ?? person.avatar_url,
+            }}
+          />
         </span>
         <span className="min-w-0 flex-1">
           <span

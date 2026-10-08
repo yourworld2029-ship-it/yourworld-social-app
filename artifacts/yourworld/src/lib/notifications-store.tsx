@@ -174,7 +174,7 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
         : Promise.resolve({ data: [] }),
       supabase
         .from("messages" as never)
-        .select("id,sender_id,receiver_id,conversation_id,content,media_url,voice_note_url,created_at" as never)
+        .select("id,sender_id,receiver_id,conversation_id,content,media_url,voice_note_url,metadata,created_at" as never)
         .eq("receiver_id", me)
         .order("created_at", { ascending: false })
         .limit(40),
@@ -223,8 +223,11 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       content: string;
       media_url: string | null;
       voice_note_url: string | null;
+      metadata: Record<string, unknown> | null;
       created_at: string;
     }[]).filter((message) =>
+      message.metadata?.source !== "moment_mention" &&
+      message.metadata?.type !== "moment_mention" &&
       !blockedPeerIds.has(message.sender_id) &&
       !mutedConversationIds.has(message.conversation_id ?? ""),
     ),
@@ -531,6 +534,7 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       kind === "mention" &&
       r.metadata?.source === "moment_mention" &&
       !!momentId;
+    if (isMomentMention) continue;
     const contentId =
       ["post", "video", "reel"].includes(entityType) && r.entity_id
         ? r.entity_id

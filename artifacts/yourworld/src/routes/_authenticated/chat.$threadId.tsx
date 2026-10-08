@@ -39,6 +39,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useThreadPresence } from "@/lib/presence";
 import { registerActiveChatView } from "@/lib/active-chat";
 import { useCall } from "@/lib/call-store";
+import { fetchMomentById, type NewMoment } from "@/lib/moment-store";
 import { useMoments } from "@/lib/moment-context";
 import { formatChatRelativeTime } from "@/lib/chat-time";
 import { useChatNames, setChatNameLocal } from "@/lib/chat-names";
@@ -98,9 +99,12 @@ type Message = {
   viewOnce?: boolean;
   opened?: boolean;
   isMomentReply?: boolean;
+  isMomentMention?: boolean;
   momentId?: string;
   momentMediaUrl?: string;
+  momentThumbnailUrl?: string;
   momentCreatedAt?: string;
+  momentExpiresAt?: string;
   momentKind?: "photo" | "video" | "text";
   deletingAt?: number;
   replyTo?: ReplyPreview;
@@ -172,6 +176,7 @@ type MomentReplyMoment = {
 type MomentReplyPreview = {
   available: boolean;
   mediaUrl: string | null;
+  posterUrl: string | null;
   kind?: "photo" | "video" | "text";
 };
 
@@ -183,7 +188,8 @@ function safeMomentMediaUrl(value: unknown): string | null {
     /^https?:\/\//i.test(url) ||
     /^blob:/i.test(url) ||
     /^data:(?:image|video)\//i.test(url) ||
-    url.startsWith("/storage/v1/object/")
+    url.startsWith("/storage/v1/object/") ||
+    (!/^[a-z][a-z\d+.-]*:/i.test(url) && !url.startsWith("/") && !url.startsWith("//"))
   ) {
     return url;
   }
@@ -198,23 +204,31 @@ function resolveMomentReplyPreview(
   const moment = message.momentId
     ? moments.find((candidate) => candidate.id === message.momentId)
     : undefined;
+  const snapshotExpiresAt = message.momentExpiresAt
+    ? Date.parse(message.momentExpiresAt)
+    : Number.NaN;
   const expiresAt = moment?.expiresAt;
   const mediaUrl =
     safeMomentMediaUrl(message.momentMediaUrl) ??
     safeMomentMediaUrl(moment?.media);
-  const available = Boolean(
-    moment &&
-      !moment.archived &&
+  const kind = message.momentKind ?? moment?.kind;
+  const activeMoment = moment
+    ? !moment.archived &&
       typeof expiresAt === "number" &&
       Number.isFinite(expiresAt) &&
-      expiresAt > now &&
-      mediaUrl,
-  );
+      expiresAt > now
+    : message.isMomentMention &&
+      Number.isFinite(snapshotExpiresAt) &&
+      snapshotExpiresAt > now;
+  const available = Boolean(activeMoment && (mediaUrl || kind === "text"));
 
   return {
     available,
     mediaUrl: available ? mediaUrl : null,
-    kind: message.momentKind ?? moment?.kind,
+    posterUrl: available
+      ? safeMomentMediaUrl(message.momentThumbnailUrl)
+      : null,
+    kind,
   };
 }
 
@@ -222,72 +236,217 @@ function MomentReplyCard({
   message,
   preview,
   onOpen,
+  onReshare,
+  resharing,
 }: {
   message: Message;
   preview: MomentReplyPreview;
   onOpen: (message: Message) => void;
+  onReshare?: (message: Message) => void;
+  resharing?: boolean;
 }) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  const [renderedMediaUrl, setRenderedMediaUrl] = useState<string | null>(
+    preview.mediaUrl,
+  );
+  const [renderedPosterUrl, setRenderedPosterUrl] = useState<string | null>(
+    preview.posterUrl,
+  );
+  useEffect(() => {
+    let active = true;
+    setFailedUrl(null);
+    if (!message.isMomentMention) {
+      setRenderedMediaUrl(preview.mediaUrl);
+      setRenderedPosterUrl(null);
+      return () => {
+        active = false;
+      };
+    }
+    setRenderedMediaUrl(
+      preview.mediaUrl &&
+        (/^[a-z][a-z\d+.-]*:/i.test(preview.mediaUrl) ||
+          preview.mediaUrl.startsWith("/"))
+        ? preview.mediaUrl
+        : null,
+    );
+    setRenderedPosterUrl(
+      preview.posterUrl &&
+        (/^[a-z][a-z\d+.-]*:/i.test(preview.posterUrl) ||
+          preview.posterUrl.startsWith("/"))
+        ? preview.posterUrl
+        : null,
+    );
+    if (preview.mediaUrl) {
+      void resolveMediaUrl(preview.mediaUrl, "moments")
+        .then((url) => {
+          if (active) setRenderedMediaUrl(url);
+        })
+        .catch(() => {
+          if (active) setRenderedMediaUrl(preview.mediaUrl);
+        });
+    }
+    if (preview.posterUrl) {
+      void resolveMediaUrl(preview.posterUrl, "moments")
+        .then((url) => {
+          if (active) setRenderedPosterUrl(url);
+        })
+        .catch(() => {
+          if (active) setRenderedPosterUrl(preview.posterUrl);
+        });
+    }
+    return () => {
+      active = false;
+    };
+  }, [message.isMomentMention, preview.mediaUrl, preview.posterUrl]);
+
   const canOpen =
     preview.available &&
-    Boolean(preview.mediaUrl) &&
-    failedUrl !== preview.mediaUrl;
+    (Boolean(renderedMediaUrl) || preview.kind === "text") &&
+    failedUrl !== (renderedMediaUrl ?? preview.mediaUrl);
+  const canReshare =
+    Boolean(message.isMomentMention && message.sender === "them" && preview.available && onReshare);
+
+  if (!message.isMomentMention) {
+    return (
+      <button
+        type="button"
+        disabled={!canOpen}
+        onClick={(event) => {
+          event.stopPropagation();
+          if (canOpen) onOpen(message);
+        }}
+        data-testid="moment-reply-strip"
+        className={`group mb-2 flex w-full items-center gap-2.5 rounded-xl border border-white/10 bg-white/[0.06] p-1.5 text-left focus:outline-none focus:ring-2 focus:ring-white/60 ${
+          canOpen
+            ? "transition hover:border-white/20 hover:bg-white/[0.09]"
+            : "cursor-default opacity-80"
+        }`}
+        aria-label={canOpen ? "Open replied Moment" : "Moment unavailable"}
+      >
+        <span className="relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-lg bg-zinc-900 text-[9px] text-zinc-400 ring-1 ring-white/15">
+          {canOpen && renderedMediaUrl ? (
+            preview.kind === "video" ? (
+              <video
+                src={renderedMediaUrl}
+                muted
+                playsInline
+                preload="none"
+                onError={() => setFailedUrl(preview.mediaUrl)}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <img
+                src={renderedMediaUrl}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                onError={() => setFailedUrl(preview.mediaUrl)}
+                className="h-full w-full object-cover"
+              />
+            )
+          ) : (
+            <span aria-hidden="true">Unavailable</span>
+          )}
+          {canOpen && (
+            <span className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/10 to-transparent" />
+          )}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-white/90">
+          {canOpen
+            ? `Replying to ${
+                preview.kind === "video" ? "video" : preview.kind === "photo" ? "photo" : ""
+              } Moment`.replace("  ", " ")
+            : "Moment unavailable"}
+        </span>
+        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-white/55 transition group-hover:translate-x-0.5 group-hover:text-white/80">
+          <ChevronRight size={16} aria-hidden="true" />
+        </span>
+      </button>
+    );
+  }
 
   return (
-    <button
-      type="button"
-      disabled={!canOpen}
-      onClick={(event) => {
-        event.stopPropagation();
-        if (canOpen) onOpen(message);
-      }}
+    <div
       data-testid="moment-reply-strip"
-      className={`group mb-2 flex w-full items-center gap-2.5 rounded-xl border border-white/10 bg-white/[0.06] p-1.5 text-left focus:outline-none focus:ring-2 focus:ring-white/60 ${
-        canOpen
-          ? "transition hover:border-white/20 hover:bg-white/[0.09]"
-          : "cursor-default opacity-80"
-      }`}
-      aria-label={canOpen ? "Open replied Moment" : "Moment unavailable"}
+      className="mb-2 w-full rounded-xl border border-white/10 bg-white/[0.06] p-1.5"
     >
-      <span className="relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-lg bg-zinc-900 text-[9px] text-zinc-400 ring-1 ring-white/15">
-        {canOpen && preview.mediaUrl ? (
-          preview.kind === "video" ? (
-            <video
-              src={preview.mediaUrl}
-              muted
-              playsInline
-              preload="none"
-              onError={() => setFailedUrl(preview.mediaUrl)}
-              className="h-full w-full object-cover"
-            />
+      <button
+        type="button"
+        disabled={!canOpen}
+        onClick={(event) => {
+          event.stopPropagation();
+          if (canOpen) onOpen(message);
+        }}
+        className={`group flex w-full items-center gap-2.5 rounded-lg p-1 text-left focus:outline-none focus:ring-2 focus:ring-white/60 ${
+          canOpen
+            ? "transition hover:bg-white/[0.06]"
+            : "cursor-default opacity-80"
+        }`}
+        aria-label={canOpen ? "Open shared Moment" : "Moment unavailable"}
+      >
+        <span className="relative grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-lg bg-zinc-900 text-[9px] text-zinc-400 ring-1 ring-white/15">
+          {canOpen && renderedMediaUrl ? (
+            preview.kind === "video" ? (
+              <video
+                src={renderedMediaUrl}
+                poster={renderedPosterUrl ?? undefined}
+                muted
+                playsInline
+                preload="metadata"
+                onError={() =>
+                  setFailedUrl(renderedMediaUrl ?? preview.mediaUrl)
+                }
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <img
+                src={renderedPosterUrl ?? renderedMediaUrl}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                onError={() =>
+                  setFailedUrl(renderedMediaUrl ?? preview.mediaUrl)
+                }
+                className="h-full w-full object-cover"
+              />
+            )
+          ) : canOpen && preview.kind === "text" ? (
+            <Type size={17} aria-hidden="true" />
           ) : (
-            <img
-              src={preview.mediaUrl}
-              alt=""
-              loading="lazy"
-              decoding="async"
-              onError={() => setFailedUrl(preview.mediaUrl)}
-              className="h-full w-full object-cover"
-            />
-          )
-        ) : (
-          <span aria-hidden="true">Unavailable</span>
-        )}
-        {canOpen && (
-          <span className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/10 to-transparent" />
-        )}
-      </span>
-      <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-white/90">
-        {canOpen
-          ? `Replying to ${
-              preview.kind === "video" ? "video" : preview.kind === "photo" ? "photo" : ""
-            } Moment`.replace("  ", " ")
-          : "Moment unavailable"}
-      </span>
-      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-white/55 transition group-hover:translate-x-0.5 group-hover:text-white/80">
-        <ChevronRight size={16} aria-hidden="true" />
+            <span aria-hidden="true">Moment unavailable</span>
+          )}
+          {canOpen && (
+            <span className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/10 to-transparent" />
+          )}
         </span>
-    </button>
+        <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-white/90">
+          {canOpen
+            ? message.isMomentMention
+              ? "Moment preview"
+              : `Replying to ${
+                  preview.kind === "video" ? "video" : preview.kind === "photo" ? "photo" : ""
+                } Moment`.replace("  ", " ")
+            : "Moment unavailable"}
+        </span>
+        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-white/55 transition group-hover:translate-x-0.5 group-hover:text-white/80">
+          <ChevronRight size={16} aria-hidden="true" />
+        </span>
+      </button>
+      {canReshare ? (
+        <button
+          type="button"
+          disabled={resharing}
+          onClick={(event) => {
+            event.stopPropagation();
+            onReshare?.(message);
+          }}
+          className="mt-1 flex w-full items-center justify-center gap-1.5 rounded-lg bg-white/10 px-3 py-2 text-[11px] font-semibold text-white transition hover:bg-white/15 disabled:cursor-wait disabled:opacity-60"
+          data-testid="button-add-mentioned-moment"
+        >
+          {resharing ? "Adding…" : "Add to your moment"}
+        </button>
+      ) : null}
+    </div>
   );
 }
 
@@ -660,7 +819,7 @@ function ChatThreadPage() {
 
 function NativeChatThreadPage() {
   const { profile: myProfile } = useMyProfile();
-  const { moments } = useMoments();
+  const { moments, addMoment } = useMoments();
   const currentUserName = myProfile.display_name || myProfile.username || "YourWorld user";
   const navigate = useNavigate();
   const router = useRouter();
@@ -669,8 +828,10 @@ function NativeChatThreadPage() {
   const [recordedVideo, setRecordedVideo] = useState<{ file: File; url: string } | null>(null);
   const [isSendingCameraPhoto, setIsSendingCameraPhoto] = useState(false);
   const [isSendingCameraVideo, setIsSendingCameraVideo] = useState(false);
+  const [resharingMomentId, setResharingMomentId] = useState<string | null>(null);
   const cameraPhotoSendInFlightRef = useRef(false);
   const cameraVideoSendInFlightRef = useRef(false);
+  const momentReshareInFlightRef = useRef<string | null>(null);
   const [protectionWarning, setProtectionWarning] = useState<string | null>(null);
   const [caption, setCaption] = useState("");
   const [isHD, setIsHD] = useState(true);
@@ -900,6 +1061,9 @@ function NativeChatThreadPage() {
         const expiresAt =
           typeof m?.expires_at === "string" ? Date.parse(m.expires_at) : Number.NaN;
         const vanishDelay = vanishDelaySecondsFromMetadata(metadata);
+        const isMomentMention =
+          metadata?.type === "moment_mention" ||
+          metadata?.source === "moment_mention";
         const viewedAt =
           typeof m?.viewed_at === "string" ? Date.parse(m.viewed_at) : Number.NaN;
         const vanishExpiresAt =
@@ -934,8 +1098,10 @@ function NativeChatThreadPage() {
             opened: m?.is_viewed === true,
             isMomentReply:
               metadata?.type === "moment_reply" ||
+              isMomentMention ||
               typeof m?.moment_id === "string" ||
               typeof m?.moment_media_url === "string",
+            isMomentMention,
             momentId:
               typeof m?.moment_id === "string"
                 ? m.moment_id
@@ -950,11 +1116,21 @@ function NativeChatThreadPage() {
                 : typeof previewMetadata?.media_url === "string"
                   ? previewMetadata.media_url
                     : undefined,
+            momentThumbnailUrl:
+              typeof previewMetadata?.thumbnail_url === "string"
+                ? previewMetadata.thumbnail_url
+                : undefined,
             momentCreatedAt:
               typeof m?.moment_created_at === "string"
                 ? m.moment_created_at
                 : typeof metadata?.moment_created_at === "string"
                   ? metadata.moment_created_at
+                  : undefined,
+            momentExpiresAt:
+              typeof metadata?.moment_expires_at === "string"
+                ? metadata.moment_expires_at
+                : typeof previewMetadata?.expires_at === "string"
+                  ? previewMetadata.expires_at
                   : undefined,
             replyTo: replyPreviewFromMetadata(metadata),
             momentKind:
@@ -1016,6 +1192,81 @@ function NativeChatThreadPage() {
       to: "/moment/$momentId",
       params: { momentId: message.momentId },
     });
+  };
+
+  const addMentionedMomentToMyMoments = async (message: Message) => {
+    const momentId = message.momentId;
+    if (!message.isMomentMention || !momentId || momentReshareInFlightRef.current) return;
+    momentReshareInFlightRef.current = momentId;
+    setResharingMomentId(momentId);
+    let temporaryMediaUrl: string | null = null;
+    try {
+      const source =
+        moments.find((moment) => moment.id === momentId) ??
+        (await fetchMomentById(momentId));
+      if (!source || source.archived) {
+        throw new Error("This Moment is no longer available to add.");
+      }
+      if (typeof source.expiresAt === "number" && source.expiresAt <= Date.now()) {
+        throw new Error("This Moment has expired and can no longer be added.");
+      }
+
+      let media = "";
+      let mediaType = source.mediaType;
+      if (source.kind !== "text") {
+        if (!source.media) throw new Error("This Moment has no media to share.");
+        const response = await fetch(source.media);
+        if (!response.ok) throw new Error("This Moment is no longer available to add.");
+        const blob = await response.blob();
+        if (!blob.size) throw new Error("This Moment's media could not be loaded.");
+        mediaType ||= blob.type || undefined;
+        temporaryMediaUrl = URL.createObjectURL(blob);
+        media = temporaryMediaUrl;
+      }
+
+      const copy: NewMoment = {
+        kind: source.kind,
+        media,
+        mediaType,
+        text: source.text,
+        textBg: source.textBg,
+        stickers: source.stickers,
+        drawing: source.drawing,
+        trim: source.trim,
+        crop: source.crop,
+        mediaTransform: source.mediaTransform,
+        visualFilter: source.visualFilter,
+        sharedContent: source.sharedContent,
+        mentions: [],
+        mentionedUserIds: [],
+        privacy: "followers",
+        recipientUserIds: undefined,
+        duration: source.duration,
+        effect: source.effect,
+        ai: source.ai,
+        allowDownload: source.allowDownload,
+        screenshotAlert: false,
+        allowReactions: source.allowReactions,
+        allowReplies: source.allowReplies,
+        allowSharing: source.allowSharing,
+        showLocation: false,
+        saveToArchive: false,
+        poll: null,
+      };
+      const result = await addMoment(copy);
+      if (result.error) throw new Error(result.error);
+      toast.success("Added to your Moment");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Couldn't add this Moment. It may no longer be available.",
+      );
+    } finally {
+      if (temporaryMediaUrl) URL.revokeObjectURL(temporaryMediaUrl);
+      momentReshareInFlightRef.current = null;
+      setResharingMomentId(null);
+    }
   };
 
   useEffect(() => {
@@ -2523,6 +2774,12 @@ function NativeChatThreadPage() {
                     message={m}
                     preview={resolveMomentReplyPreview(m, moments)}
                     onOpen={openMomentReply}
+                    onReshare={(message) =>
+                      void addMentionedMomentToMyMoments(message)
+                    }
+                    resharing={Boolean(
+                      m.momentId && resharingMomentId === m.momentId,
+                    )}
                   />
                 ) : null}
                 {m.text && !m.sharedMedia ? (
