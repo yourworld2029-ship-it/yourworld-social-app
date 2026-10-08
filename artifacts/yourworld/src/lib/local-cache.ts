@@ -40,3 +40,13 @@ export function cacheSet<T>(key: string, value: T) {
     /* quota full — cache is best-effort */
   }
 }
+
+/** Remove a local cache entry even when protected-chat policy blocks writes. */
+export function cacheDelete(key: string) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(PREFIX + key);
+  } catch {
+    /* best-effort */
+  }
+}

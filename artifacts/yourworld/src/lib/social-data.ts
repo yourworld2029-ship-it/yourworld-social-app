@@ -19,13 +19,14 @@ import {
   removeOptimisticPost,
   type OptimisticPostDetail,
 } from "@/lib/published-feed";
-import { cacheGet, cacheSet } from "@/lib/local-cache";
+import { cacheDelete, cacheGet, cacheSet } from "@/lib/local-cache";
 import { useThreadCachePolicy } from "@/lib/chat-cache-security";
 import {
   loadCachedThread,
   loadCachedThreadSync,
   PAGE_SIZE,
   saveCachedThread,
+  clearCachedThread,
 } from "@/lib/chat-db";
 import {
   IMMUTABLE_MEDIA_CACHE_CONTROL,
@@ -2064,18 +2065,24 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
   const clearChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const deletionChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const clearGenerationRef = useRef(0);
+  const threadCacheGeneration = clearGenerationRef.current;
   const afterViewTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const exitCleanupTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   useEffect(() => {
-    if (messagesThreadId !== threadId || threadIdRef.current !== threadId) return;
+    if (
+      threadCacheGeneration !== clearGenerationRef.current ||
+      messagesThreadId !== threadId ||
+      threadIdRef.current !== threadId
+    ) return;
     messagesRef.current = messages;
     const retained = messages.filter((m) => !m.id.startsWith("tmp-")).slice(-40);
     cacheSet(`thread:${threadId}`, retained);
     saveCachedThread(`social:${threadId}`, retained);
-  }, [cacheProtection, messages, messagesThreadId, threadId]);
+  }, [cacheProtection, messages, messagesThreadId, threadId, threadCacheGeneration]);
 
   useEffect(() => {
     let cancelled = false;
+    const cacheReadGeneration = clearGenerationRef.current;
     const cachedRows = normalizeCachedThreadRows(
       loadCachedThreadSync<unknown>(`social:${threadId}`) ??
         cacheGet<unknown>(`thread:${threadId}`) ??
@@ -2097,6 +2104,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     void loadCachedThread<unknown>(`social:${threadId}`).then((rows) => {
       if (
         cancelled ||
+        cacheReadGeneration !== clearGenerationRef.current ||
         threadIdRef.current !== threadId ||
         messagesThreadIdRef.current !== threadId ||
         !rows?.length
@@ -2104,6 +2112,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       const safeRows = normalizeCachedThreadRows(rows, pair, meRef.current);
       setMessages((current) => {
         if (
+          cacheReadGeneration !== clearGenerationRef.current ||
           threadIdRef.current !== threadId ||
           messagesThreadIdRef.current !== threadId ||
           current.length
@@ -2123,6 +2132,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
   useEffect(() => {
     if (cacheProtection.phase !== "plain" && cacheProtection.phase !== "protected") return;
     let cancelled = false;
+    const cacheReadGeneration = clearGenerationRef.current;
     const cachedSync = normalizeCachedThreadRows(
       loadCachedThreadSync<unknown>(`social:${threadId}`) ??
         cacheGet<unknown>(`thread:${threadId}`) ??
@@ -2136,6 +2146,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     void loadCachedThread<unknown>(`social:${threadId}`).then((rows) => {
       if (
         cancelled ||
+        cacheReadGeneration !== clearGenerationRef.current ||
         threadIdRef.current !== threadId ||
         messagesThreadIdRef.current !== threadId ||
         !rows?.length
@@ -2143,6 +2154,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       const safeRows = normalizeCachedThreadRows(rows, pair, meRef.current);
       setMessages((current) => {
         if (
+          cacheReadGeneration !== clearGenerationRef.current ||
           threadIdRef.current !== threadId ||
           messagesThreadIdRef.current !== threadId ||
           current.length
@@ -2489,8 +2501,10 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
         messagesRef.current = [];
         setMessages([]);
         setHasMore(false);
-        cacheSet(`thread:${threadId}`, []);
-        saveCachedThread(`social:${threadId}`, []);
+        cacheDelete(`thread:${threadId}`);
+        void clearCachedThread(`social:${threadId}`, meRef.current).catch((cause) => {
+          console.error("[social-chat] remote clear cache cleanup failed", cause);
+        });
       },
       (channel) => {
         clearChannelRef.current = channel;
@@ -2934,8 +2948,12 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
     messagesRef.current = [];
     setMessages([]);
     setHasMore(false);
-    cacheSet(`thread:${threadId}`, []);
-    saveCachedThread(`social:${threadId}`, []);
+    cacheDelete(`thread:${threadId}`);
+    try {
+      await clearCachedThread(`social:${threadId}`, me);
+    } catch (cause) {
+      console.error("[social-chat] local cache clear failed after server clear", cause);
+    }
     const channel = clearChannelRef.current;
     if (channel) {
       await channel.send({

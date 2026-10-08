@@ -372,5 +372,28 @@ export const clearSocialConversationWithMedia = createServerFn({ method: "POST" 
       { _conversation_id: data.conversationId } as never,
     );
     if (clearError) throw new Error(clearError.message);
+
+    const pairFilter =
+      `and(sender_id.eq.${conversation.participant_one_id},receiver_id.eq.${conversation.participant_two_id}),` +
+      `and(sender_id.eq.${conversation.participant_two_id},receiver_id.eq.${conversation.participant_one_id})`;
+    const [remainingByConversation, remainingByPair] = await Promise.all([
+      fetchAllPages<Pick<SocialClearRow, "id">>((from, to) =>
+        context.supabase
+          .from("messages" as never)
+          .select("id" as never)
+          .eq("conversation_id" as never, data.conversationId)
+          .range(from, to) as never,
+      ),
+      fetchAllPages<Pick<SocialClearRow, "id">>((from, to) =>
+        context.supabase
+          .from("messages" as never)
+          .select("id" as never)
+          .or(pairFilter)
+          .range(from, to) as never,
+      ),
+    ]);
+    if (remainingByConversation.length || remainingByPair.length) {
+      throw new Error("The server did not confirm that every message was cleared.");
+    }
     return { cleared: true };
   });
