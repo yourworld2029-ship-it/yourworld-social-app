@@ -937,7 +937,10 @@ function NativeChatThreadPage() {
           message.is_system_message !== true,
       )?.id ?? null
     : null;
-  const initialUnreadMessageRef = useRef<{ threadId: string; messageId: string | null }>({
+  const initialUnreadMessageRef = useRef<{
+    threadId: string;
+    messageId: string | null;
+  } | null>({
     threadId,
     messageId: cachedFirstUnreadId,
   });
