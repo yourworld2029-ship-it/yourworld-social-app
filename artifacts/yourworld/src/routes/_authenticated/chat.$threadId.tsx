@@ -925,6 +925,7 @@ function NativeChatThreadPage() {
   } = useThreadMessages(threadId, { staleTime: Infinity });
   const initialUnreadMessageRef = useRef<{ threadId: string; messageId: string | null } | null>(null);
   const [initialUnreadReadyKey, setInitialUnreadReadyKey] = useState<string | null>(null);
+  const [initialUnreadTargetRevision, setInitialUnreadTargetRevision] = useState(0);
   const openViewOnce = useCallback(async (message: Message) => {
     if (
       !message.viewOnce ||
@@ -1278,18 +1279,24 @@ function NativeChatThreadPage() {
   };
 
   useEffect(() => {
-    if (!currentUserId || initialUnreadMessageRef.current?.threadId === threadId) return;
-    const firstUnread = dbMessages.find(
-      (message) =>
-        message.receiver_id === currentUserId &&
-        message.sender_id !== currentUserId &&
-        message.is_read !== true &&
-        message.is_system_message !== true,
-    );
-    if (firstUnread) {
-      initialUnreadMessageRef.current = { threadId, messageId: firstUnread.id };
+    if (!currentUserId || messagesLoading) return;
+    if (initialUnreadMessageRef.current?.threadId !== threadId) {
+      const firstUnread = dbMessages.find(
+        (message) =>
+          message.receiver_id === currentUserId &&
+          message.sender_id !== currentUserId &&
+          message.is_read !== true &&
+          message.is_system_message !== true,
+      );
+      initialUnreadMessageRef.current = {
+        threadId,
+        messageId: firstUnread?.id ?? null,
+      };
     }
-  }, [dbMessages, currentUserId, threadId]);
+    // Cached messages can position the reader immediately; the server read
+    // sync below corrects this target if a newer unread state is returned.
+    setInitialUnreadReadyKey(`${threadId}:${currentUserId}`);
+  }, [dbMessages, currentUserId, messagesLoading, threadId]);
 
   // Read receipts: any visible incoming message is marked read.
   useEffect(() => {
@@ -1328,10 +1335,18 @@ function NativeChatThreadPage() {
     void markThreadRead()
       .then((result) => {
         if (!active) return;
+        const previousMessageId =
+          initialUnreadMessageRef.current?.threadId === threadId
+            ? initialUnreadMessageRef.current.messageId
+            : null;
+        const firstUnreadMessageId = result.firstUnreadMessageId ?? null;
         initialUnreadMessageRef.current = {
           threadId,
-          messageId: result.firstUnreadMessageId ?? null,
+          messageId: firstUnreadMessageId,
         };
+        if (previousMessageId !== firstUnreadMessageId) {
+          setInitialUnreadTargetRevision((revision) => revision + 1);
+        }
         setInitialUnreadReadyKey(readyKey);
       })
       .catch((cause) => {
@@ -1764,6 +1779,7 @@ function NativeChatThreadPage() {
   const lastScrollThreadIdRef = useRef(threadId);
   const pendingScrollFrameRef = useRef<number | null>(null);
   const initialUnreadLoadCursorRef = useRef<string | null>(null);
+  const lastScrolledInitialUnreadIdRef = useRef<string | null>(null);
   const scrollToLatest = useCallback((messageId: string | null = null, initial = false) => {
     if (pendingScrollFrameRef.current !== null) {
       window.cancelAnimationFrame(pendingScrollFrameRef.current);
@@ -1777,6 +1793,16 @@ function NativeChatThreadPage() {
         try {
           let unreadElement: HTMLElement | null = null;
           if (messageId) {
+            for (const element of container.querySelectorAll<HTMLElement>(
+              "[data-chat-new-messages-divider]",
+            )) {
+              if (element.dataset.chatNewMessagesDivider === messageId) {
+                unreadElement = element;
+                break;
+              }
+            }
+          }
+          if (messageId && !unreadElement) {
             for (const element of container.querySelectorAll<HTMLElement>("[data-chat-message-id]")) {
               if (element.dataset.chatMessageId === messageId) {
                 unreadElement = element;
@@ -1799,7 +1825,6 @@ function NativeChatThreadPage() {
           didFirstScroll.current = true;
           if (initial) {
             didInitialThreadScroll.current = true;
-            initialUnreadMessageRef.current = null;
           }
         } catch (cause) {
           console.warn("[chat] auto-scroll failed", cause);
@@ -1831,7 +1856,20 @@ function NativeChatThreadPage() {
       didInitialThreadScroll.current = false;
       initialUnreadMessageRef.current = null;
       initialUnreadLoadCursorRef.current = null;
+      lastScrolledInitialUnreadIdRef.current = null;
       keepScrollRef.current = null;
+    }
+
+    const currentInitialUnreadId =
+      initialUnreadMessageRef.current?.threadId === threadId
+        ? initialUnreadMessageRef.current.messageId
+        : null;
+    if (
+      didInitialThreadScroll.current &&
+      initialUnreadTargetRevision > 0 &&
+      currentInitialUnreadId !== lastScrolledInitialUnreadIdRef.current
+    ) {
+      didInitialThreadScroll.current = false;
     }
 
     const newest = messages[messages.length - 1];
@@ -1872,6 +1910,7 @@ function NativeChatThreadPage() {
       }
       keepScrollRef.current = null;
       scrollToLatest(targetIsLoaded ? targetMessageId : null, true);
+      lastScrolledInitialUnreadIdRef.current = targetIsLoaded ? targetMessageId : null;
       return;
     }
 
@@ -1892,6 +1931,7 @@ function NativeChatThreadPage() {
     currentUserId,
     hasMore,
     initialUnreadReadyKey,
+    initialUnreadTargetRevision,
     loadOlder,
     loadingMore,
     messages,
@@ -2734,7 +2774,21 @@ function NativeChatThreadPage() {
           </div>
         )}
         {messages.map((m) => (
-          <ChatMessageErrorBoundary key={`${threadId}:${m.id}`}>
+          <React.Fragment key={`${threadId}:${m.id}`}>
+          {initialUnreadReadyKey === `${threadId}:${currentUserId}` &&
+          initialUnreadMessageRef.current?.threadId === threadId &&
+          initialUnreadMessageRef.current.messageId === m.id ? (
+            <div
+              data-chat-new-messages-divider={m.id}
+              data-testid={`divider-new-messages-${m.id}`}
+              className="flex items-center gap-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-pink-300/80"
+            >
+              <span className="h-px flex-1 bg-pink-400/20" />
+              <span>New Messages</span>
+              <span className="h-px flex-1 bg-pink-400/20" />
+            </div>
+          ) : null}
+          <ChatMessageErrorBoundary>
           {m.system ? (
           missedCallTypeFromText(m.text) ? (
             <MissedCallPill text={m.text} timestamp={m.ts} now={relativeNow} />
@@ -2971,6 +3025,7 @@ function NativeChatThreadPage() {
           </div>
           )}
           </ChatMessageErrorBoundary>
+          </React.Fragment>
         ))}
          {peerTyping ? (
            <div className="flex items-end gap-2" aria-live="polite" aria-label="The other person is typing">

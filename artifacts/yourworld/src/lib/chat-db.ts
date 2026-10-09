@@ -22,7 +22,7 @@ function threadIdFromKey(key: string) {
 /** How many messages we keep on device per conversation. */
 export const CACHE_LIMIT = 200;
 /** Page size for server fetches / infinite scroll. */
-export const PAGE_SIZE = 40;
+export const PAGE_SIZE = 30;
 
 export async function loadCachedThread<T>(key: string): Promise<T[] | null> {
   const threadId = threadIdFromKey(key);

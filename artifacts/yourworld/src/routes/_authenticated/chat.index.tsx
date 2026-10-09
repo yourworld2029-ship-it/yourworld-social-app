@@ -61,15 +61,33 @@ function normalizeChatThreads(value: unknown): ChatThread[] {
   });
 }
 
+function chatThreadsCacheKey(userId: string) {
+  return `chat-threads:${userId}`;
+}
+
+function cacheChatThreads(userId: string | null, threads: ChatThread[]) {
+  if (!userId) return;
+  cacheSet(chatThreadsCacheKey(userId), threads.slice(0, 30));
+  cacheSet("chat-threads-owner", userId);
+}
+
 function ChatListPage() {
   return <NativeChatListPage />;
 }
 
 function NativeChatListPage() {
   // Paint the cached list immediately, then refresh from the network.
-  const [threads, setThreads] = useState<ChatThread[]>(
-    () => normalizeChatThreads(cacheGet<unknown>("chat-threads")),
-  );
+  const [threadsOwnerId, setThreadsOwnerId] = useState<string | null>(() => {
+    const owner = cacheGet<unknown>("chat-threads-owner");
+    return typeof owner === "string" ? owner : null;
+  });
+  const threadsOwnerRef = useRef(threadsOwnerId);
+  const [threads, setThreads] = useState<ChatThread[]>(() => {
+    const owner = cacheGet<unknown>("chat-threads-owner");
+    return typeof owner === "string"
+      ? normalizeChatThreads(cacheGet<unknown>(chatThreadsCacheKey(owner)))
+      : [];
+  });
   const [searchQuery, setSearchQuery] = useState("");
   const [searchRevision, setSearchRevision] = useState(0);
   const [newChatOpen, setNewChatOpen] = useState(false);
@@ -124,8 +142,15 @@ function NativeChatListPage() {
 
         if (!me) {
           setThreads([]);
+          threadsOwnerRef.current = null;
+          setThreadsOwnerId(null);
           setLoadError("Sign in to view your chats.");
           return;
+        }
+        if (threadsOwnerRef.current !== me) {
+          threadsOwnerRef.current = me;
+          setThreadsOwnerId(me);
+          setThreads(normalizeChatThreads(cacheGet<unknown>(chatThreadsCacheKey(me))));
         }
         let hiddenForUser = hiddenThreadIds();
         let hiddenLoadError: string | null = null;
@@ -203,7 +228,7 @@ function NativeChatListPage() {
           if (!isCurrent()) return;
           const safeResolved = normalizeChatThreads(resolved);
           setThreads(safeResolved);
-          cacheSet("chat-threads", safeResolved.slice(0, 30));
+          cacheChatThreads(me, safeResolved);
         } else if (error) {
           setLoadError(error.message);
         }
@@ -322,13 +347,13 @@ function NativeChatListPage() {
 
   const revealedPeers = new Set(revealed);
   const normalizedQuery = searchQuery.toLocaleLowerCase();
-  const visibleThreads = secretChatsReady && me
+  const visibleThreads = secretChatsReady && me && threadsOwnerId === me
     ? threads.filter((thread) => !hidden.includes(thread.id))
     : [];
   const visiblePeers = new Set(
     visibleThreads.flatMap((thread) => thread.peerId ? [thread.peerId] : []),
   );
-  const missingRevealedThreads: ChatThread[] = secretChatsReady && me
+  const missingRevealedThreads: ChatThread[] = secretChatsReady && me && threadsOwnerId === me
     ? revealed
         .filter((peerId) => !visiblePeers.has(peerId))
         .map((peerId) => ({
@@ -370,7 +395,7 @@ function NativeChatListPage() {
     setHidden((prev) => [...prev, ...ids]);
     setThreads((prev) => {
       const next = prev.filter((t) => !ids.includes(t.id));
-      cacheSet("chat-threads", next.slice(0, 30));
+      cacheChatThreads(me, next);
       return next;
     });
     const result = await deleteDirectThreads(ids);
@@ -381,7 +406,7 @@ function NativeChatListPage() {
       setThreads((prev) => {
         const restored = [...prev, ...removedThreads];
         restored.sort((a, b) => Date.parse(b.lastMessageAt ?? "") - Date.parse(a.lastMessageAt ?? ""));
-        cacheSet("chat-threads", restored.slice(0, 30));
+        cacheChatThreads(me, restored);
         return restored;
       });
     }
@@ -483,9 +508,7 @@ function NativeChatListPage() {
       {/* Chat List */}
       <div className="flex-1 overflow-y-auto space-y-2">
          {loadError ? <p role="alert" className="rounded-xl border border-red-900 bg-red-950/40 p-3 text-xs text-red-300">{loadError}</p> : null}
-        {!secretChatsReady || !me ? (
-          <p className="py-6 text-center text-sm text-gray-500">Loading chats…</p>
-        ) : filteredThreads.length === 0 ? (
+        {!secretChatsReady || !me ? null : filteredThreads.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-40 text-gray-500">
             <MessageSquare className="h-10 w-10 mb-2 opacity-50" />
             <p className="text-sm">No chats found. Click top icon to start!</p>
@@ -564,7 +587,7 @@ function NativeChatListPage() {
                       const next = prev.map((thread) =>
                         thread.id === chat.id ? { ...thread, unreadCount: 0 } : thread,
                       );
-                      cacheSet("chat-threads", next.slice(0, 30));
+                      cacheChatThreads(me, next);
                       return next;
                     });
                     window.dispatchEvent(

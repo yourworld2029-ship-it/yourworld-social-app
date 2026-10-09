@@ -2034,15 +2034,17 @@ function maintainChatBroadcastSubscription(
 export function useThreadMessages(threadId: string, _opts: { staleTime?: number } = {}) {
   const pair = useMemo(() => dmThreadPair(threadId), [threadId]);
   const cacheProtection = useThreadCachePolicy(threadId);
-  const [messages, setMessages] = useState<DbMessage[]>(
-    () =>
-      normalizeCachedThreadRows(
-        loadCachedThreadSync<unknown>(`social:${threadId}`) ??
-          cacheGet<unknown>(`thread:${threadId}`) ??
-          [],
-        pair,
-      ),
-  );
+  const initialCachedMessagesRef = useRef<DbMessage[] | null>(null);
+  if (initialCachedMessagesRef.current === null) {
+    initialCachedMessagesRef.current = normalizeCachedThreadRows(
+      loadCachedThreadSync<unknown>(`social:${threadId}`) ??
+        cacheGet<unknown>(`thread:${threadId}`) ??
+        [],
+      pair,
+    ).slice(-PAGE_SIZE);
+  }
+  const initialCachedMessages = initialCachedMessagesRef.current ?? [];
+  const [messages, setMessages] = useState<DbMessage[]>(initialCachedMessages);
   const [messagesThreadId, setMessagesThreadId] = useState(threadId);
   const messagesThreadIdRef = useRef(threadId);
   const threadIdRef = useRef(threadId);
@@ -2055,7 +2057,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
   const conversationIdRef = useRef<string | null>(conversationId);
   conversationIdRef.current = conversationId;
   const [me, setMe] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(initialCachedMessages.length === 0);
   const [loadingMore, setLoadingMore] = useState(false);
   const loadingMoreLockRef = useRef<symbol | null>(null);
   const [hasMore, setHasMore] = useState(true);
@@ -2075,7 +2077,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
       threadIdRef.current !== threadId
     ) return;
     messagesRef.current = messages;
-    const retained = messages.filter((m) => !m.id.startsWith("tmp-")).slice(-40);
+    const retained = messages.filter((m) => !m.id.startsWith("tmp-")).slice(-PAGE_SIZE);
     cacheSet(`thread:${threadId}`, retained);
     saveCachedThread(`social:${threadId}`, retained);
   }, [cacheProtection, messages, messagesThreadId, threadId, threadCacheGeneration]);
@@ -2088,12 +2090,12 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
         cacheGet<unknown>(`thread:${threadId}`) ??
         [],
       pair,
-    );
+    ).slice(-PAGE_SIZE);
     messagesThreadIdRef.current = threadId;
     setMessagesThreadId(threadId);
     messagesRef.current = cachedRows;
     setMessages(cachedRows);
-    setLoading(false);
+    setLoading(cachedRows.length === 0);
     setLoadingMore(false);
     loadingMoreLockRef.current = null;
     setHasMore(true);
@@ -2109,7 +2111,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
         messagesThreadIdRef.current !== threadId ||
         !rows?.length
       ) return;
-      const safeRows = normalizeCachedThreadRows(rows, pair, meRef.current);
+      const safeRows = normalizeCachedThreadRows(rows, pair, meRef.current).slice(-PAGE_SIZE);
       setMessages((current) => {
         if (
           cacheReadGeneration !== clearGenerationRef.current ||
@@ -2138,7 +2140,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
         cacheGet<unknown>(`thread:${threadId}`) ??
         [],
       pair,
-    );
+    ).slice(-PAGE_SIZE);
     if (cachedSync.length && !messagesRef.current.length) {
       messagesRef.current = cachedSync;
       setMessages((current) => current.length ? current : cachedSync);
@@ -2151,7 +2153,7 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
         messagesThreadIdRef.current !== threadId ||
         !rows?.length
       ) return;
-      const safeRows = normalizeCachedThreadRows(rows, pair, meRef.current);
+      const safeRows = normalizeCachedThreadRows(rows, pair, meRef.current).slice(-PAGE_SIZE);
       setMessages((current) => {
         if (
           cacheReadGeneration !== clearGenerationRef.current ||
@@ -2204,11 +2206,12 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
             `and(sender_id.eq.${pair[0]},receiver_id.eq.${pair[1]}),and(sender_id.eq.${pair[1]},receiver_id.eq.${pair[0]})`,
           );
         }
-        // Expiry is always derived from created_at (or viewed_at for View Once);
-        // expires_at is a server compatibility field and must not be trusted.
+        if (before) query = query.lt("created_at" as never, before as never);
+        // Equality on conversation_id plus created_at ordering/cursor allows
+        // Postgres to use the conversation/time index while fetching one page.
+        // Expiry remains derived from created_at (or viewed_at for View Once).
         if (withDeletedFilter) query = query.eq("is_deleted", false);
         query = query.order("created_at", { ascending: false }).limit(PAGE_SIZE);
-        if (before) query = query.lt("created_at", before);
         return await query;
       };
 
