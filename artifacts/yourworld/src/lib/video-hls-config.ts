@@ -1,5 +1,6 @@
 import Hls from "hls.js";
 import { getAdaptivePerformanceSnapshot } from "@/lib/adaptive-performance";
+import { HlsPrefetchCacheLoader } from "@/lib/hls-prefetch-cache";
 
 type NetworkConnection = EventTarget & {
   downlink?: number;
@@ -12,20 +13,27 @@ function getNetworkConnection() {
   return (navigator as Navigator & { connection?: NetworkConnection }).connection ?? null;
 }
 
-export function getHlsNetworkHeightCap() {
+export function getHlsNetworkHeightCap(measuredBandwidthBps?: number | null) {
   const connection = getNetworkConnection();
   const networkQuality = getAdaptivePerformanceSnapshot().networkQuality;
   const effectiveType = connection?.effectiveType?.toLowerCase();
   const downlink = connection?.downlink;
 
   if (
+    (typeof measuredBandwidthBps === "number" &&
+      Number.isFinite(measuredBandwidthBps) &&
+      measuredBandwidthBps > 0 &&
+      measuredBandwidthBps < 1_000_000) ||
     connection?.saveData ||
     effectiveType === "slow-2g" ||
     effectiveType === "2g" ||
     networkQuality === "weak" ||
     networkQuality === "offline" ||
-    (typeof downlink === "number" && downlink < 1.5)
+    (typeof downlink === "number" && downlink < 1)
   ) {
+    return 360;
+  }
+  if (typeof downlink === "number" && downlink < 1.5) {
     return 480;
   }
   if (
@@ -36,6 +44,24 @@ export function getHlsNetworkHeightCap() {
     return 720;
   }
   return 1080;
+}
+
+export function selectHlsLevelIndex(
+  levels: readonly { height: number }[],
+  heightCap: number,
+) {
+  const available = levels
+    .map((level, index) => ({ index, height: Number(level.height) }))
+    .filter((level) => Number.isFinite(level.height) && level.height > 0);
+  const underCap = available.filter((level) => level.height <= heightCap);
+  const candidates = underCap.length ? underCap : available;
+  if (!candidates.length) return -1;
+  return candidates.reduce((best, candidate) => {
+    if (underCap.length) {
+      return candidate.height > best.height ? candidate : best;
+    }
+    return candidate.height < best.height ? candidate : best;
+  }).index;
 }
 
 function getInitialBandwidthEstimate() {
@@ -51,6 +77,7 @@ function getInitialBandwidthEstimate() {
 
 export function createVideoHlsConfig() {
   return {
+    loader: HlsPrefetchCacheLoader,
     enableWorker: true,
     lowLatencyMode: true,
     autoStartLoad: true,
@@ -69,25 +96,50 @@ export function createVideoHlsConfig() {
 export function bindHlsNetworkAwareLevelCap(hls: Hls) {
   const connection = getNetworkConnection();
   let disposed = false;
+  let measuredBandwidthBps: number | null = null;
+  let healthyFragments = 0;
   const update = () => {
-    const cap = getHlsNetworkHeightCap();
-    let bestIndex = -1;
-    let bestHeight = 0;
-    hls.levels.forEach((level, index) => {
-      if (level.height > 0 && level.height <= cap && level.height > bestHeight) {
-        bestHeight = level.height;
-        bestIndex = index;
-      }
-    });
-    hls.autoLevelCapping = bestIndex;
+    const cap = getHlsNetworkHeightCap(measuredBandwidthBps);
+    const capIndex = selectHlsLevelIndex(hls.levels, cap);
+    hls.autoLevelCapping = capIndex;
+
+    // Set only the next automatic fragment. Existing buffered media and the
+    // currentTime remain intact while HLS.js moves down to a smaller rendition.
+    if (
+      cap <= 360 &&
+      capIndex >= 0 &&
+      hls.autoLevelEnabled &&
+      hls.currentLevel > capIndex
+    ) {
+      hls.nextAutoLevel = capIndex;
+    }
+  };
+  const updateFromBandwidthEstimate = () => {
+    const estimate = Number(hls.bandwidthEstimate);
+    if (!Number.isFinite(estimate) || estimate <= 0) return;
+    if (estimate < 1_000_000) {
+      measuredBandwidthBps = estimate;
+      healthyFragments = 0;
+    } else if (estimate >= 1_250_000) {
+      healthyFragments += 1;
+      if (healthyFragments >= 2) measuredBandwidthBps = null;
+    } else {
+      healthyFragments = 0;
+    }
+    update();
   };
   const dispose = () => {
     if (disposed) return;
     disposed = true;
     connection?.removeEventListener("change", update);
+    hls.off(Hls.Events.FRAG_LOADED, updateFromBandwidthEstimate);
+    hls.off(Hls.Events.MANIFEST_PARSED, update);
+    hls.off(Hls.Events.LEVELS_UPDATED, update);
+    hls.off(Hls.Events.DESTROYING, dispose);
   };
 
   connection?.addEventListener("change", update);
+  hls.on(Hls.Events.FRAG_LOADED, updateFromBandwidthEstimate);
   hls.on(Hls.Events.MANIFEST_PARSED, update);
   hls.on(Hls.Events.LEVELS_UPDATED, update);
   hls.on(Hls.Events.DESTROYING, dispose);

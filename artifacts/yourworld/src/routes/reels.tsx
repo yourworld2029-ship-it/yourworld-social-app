@@ -436,12 +436,7 @@ function ReelsList() {
         });
       }
     };
-    for (let index = active + 1; index <= Math.min(items.length - 1, active + 4); index += 1) {
-      addTarget(index);
-    }
-    for (let index = active - 1; index >= Math.max(0, active - 2); index -= 1) {
-      addTarget(index);
-    }
+    addTarget(active + 1);
     return targets;
   }, [active, items]);
 

@@ -1,4 +1,5 @@
 import { getHlsNetworkHeightCap } from "@/lib/video-hls-config";
+import { VIDEO_HLS_SEGMENT_CACHE } from "@/lib/hls-prefetch-cache";
 
 // Prefetch is limited to the next video's initial window and a strict byte cap.
 const PREFETCH_TARGET_SECONDS = 3;
@@ -9,11 +10,12 @@ const MAX_SEEN_PREFETCHES = 64;
 const MAX_POSTER_CACHE_ENTRIES = 24;
 const MAX_RESOLVED_COVER_ENTRIES = 24;
 const VIDEO_PREFIX_CACHE = "yourworld-video-prefixes-v1";
-const HLS_SEGMENT_CACHE = "yourworld-video-hls-prefixes-v1";
 const PREFIX_TTL_MS = 10 * 60 * 1000;
-const MAX_PREFIX_ENTRIES = 6;
-const MAX_HLS_SEGMENT_ENTRIES = 12;
+const MAX_PREFIX_ENTRIES = 4;
+const MAX_PREFIX_CACHE_BYTES = 6 * 1024 * 1024;
+const MAX_HLS_SEGMENT_ENTRIES = 8;
 const MAX_HLS_SEGMENT_BYTES = 2 * 1024 * 1024;
+const MAX_HLS_SEGMENT_CACHE_BYTES = 6 * 1024 * 1024;
 const VIDEO_POSTER_READY_EVENT = "yourworld:video-poster-ready";
 
 type PrefetchJob = {
@@ -61,6 +63,52 @@ async function prefixCacheKey(url: string) {
   return new URL(`/__yourworld-video-prefix/${hash}`, window.location.origin).toString();
 }
 
+async function makeCacheRoom(
+  cache: Cache,
+  key: string,
+  incomingBytes: number,
+  maxEntries: number,
+  maxBytes: number,
+  createdHeader: string,
+  expiresHeader: string,
+) {
+  if (!Number.isFinite(incomingBytes) || incomingBytes <= 0 || incomingBytes > maxBytes) {
+    return false;
+  }
+  const now = Date.now();
+  const entries = await cache.keys();
+  const existing: Array<{ request: Request; bytes: number; created: number }> = [];
+
+  for (const request of entries) {
+    const response = await cache.match(request);
+    const expires = Number(response?.headers.get(expiresHeader) ?? 0);
+    if (!response || !Number.isFinite(expires) || expires <= now) {
+      await cache.delete(request);
+      continue;
+    }
+    if (request.url === key) continue;
+    const declaredSize = Number(response.headers.get("Content-Length"));
+    const bytes = Number.isSafeInteger(declaredSize) && declaredSize > 0
+      ? declaredSize
+      : (await response.clone().blob()).size;
+    existing.push({
+      request,
+      bytes,
+      created: Number(response.headers.get(createdHeader) ?? 0),
+    });
+  }
+
+  existing.sort((left, right) => left.created - right.created);
+  let totalBytes = existing.reduce((sum, entry) => sum + entry.bytes, 0);
+  while (existing.length + 1 > maxEntries || totalBytes + incomingBytes > maxBytes) {
+    const oldest = existing.shift();
+    if (!oldest) return false;
+    await cache.delete(oldest.request);
+    totalBytes -= oldest.bytes;
+  }
+  return true;
+}
+
 async function cachePrefix(
   url: string,
   body: Blob,
@@ -72,59 +120,27 @@ async function cachePrefix(
   if (!key) return;
   const cache = await caches.open(VIDEO_PREFIX_CACHE);
   const now = Date.now();
-  const entries = await cache.keys();
-  await Promise.all(
-    entries.map(async (entry) => {
-      const response = await cache.match(entry);
-      const expires = Number(response?.headers.get("X-YW-Prefix-Expires") ?? 0);
-      if (!response || !Number.isFinite(expires) || expires <= now) {
-        await cache.delete(entry);
-      }
-    }),
-  );
-  const freshEntries = await cache.keys();
-  if (freshEntries.length >= MAX_PREFIX_ENTRIES && !(await cache.match(key))) {
-    const oldest = await Promise.all(
-      freshEntries.map(async (entry) => {
-        const response = await cache.match(entry);
-        return {
-          entry,
-          created: Number(response?.headers.get("X-YW-Prefix-Created") ?? 0),
-        };
-      }),
-    );
-    oldest.sort((a, b) => a.created - b.created);
-    await cache.delete(oldest[0]?.entry ?? freshEntries[0]);
-  }
+  const headers = new Headers({
+    "Content-Type": contentType || "video/mp4",
+    "Cache-Control": "private, no-transform",
+    "Content-Length": String(body.size),
+    "X-YW-Prefix-Created": String(now),
+    "X-YW-Prefix-Expires": String(now + PREFIX_TTL_MS),
+    "X-YW-Prefix-Total": String(total),
+  });
+  if (!(await makeCacheRoom(
+    cache,
+    key,
+    body.size,
+    MAX_PREFIX_ENTRIES,
+    MAX_PREFIX_CACHE_BYTES,
+    "X-YW-Prefix-Created",
+    "X-YW-Prefix-Expires",
+  ))) return;
   await cache.put(
     key,
-    new Response(body, {
-      status: 200,
-      headers: {
-        "Content-Type": contentType || "video/mp4",
-        "Cache-Control": "private, no-transform",
-        "X-YW-Prefix-Created": String(now),
-        "X-YW-Prefix-Expires": String(now + PREFIX_TTL_MS),
-        "X-YW-Prefix-Total": String(total),
-      },
-    }),
+    new Response(body, { status: 200, headers }),
   );
-  const allEntries = await cache.keys();
-  if (allEntries.length > MAX_PREFIX_ENTRIES) {
-    const oldest = await Promise.all(
-      allEntries.map(async (entry) => {
-        const response = await cache.match(entry);
-        return {
-          entry,
-          created: Number(response?.headers.get("X-YW-Prefix-Created") ?? 0),
-        };
-      }),
-    );
-    oldest.sort((a, b) => a.created - b.created);
-    for (const entry of oldest.slice(0, allEntries.length - MAX_PREFIX_ENTRIES)) {
-      await cache.delete(entry.entry);
-    }
-  }
 }
 
 function pump() {
@@ -151,7 +167,7 @@ export async function canPrefetchVideo() {
   if (typeof window === "undefined" || typeof navigator === "undefined") return false;
 
   const browserNavigator = navigator as Navigator & {
-    connection?: { effectiveType?: string; saveData?: boolean };
+    connection?: { effectiveType?: string; saveData?: boolean; downlink?: number };
     getBattery?: () => Promise<{ charging: boolean; level: number }>;
   };
   const connection = browserNavigator.connection;
@@ -159,7 +175,8 @@ export async function canPrefetchVideo() {
     connection?.saveData ||
     connection?.effectiveType === "slow-2g" ||
     connection?.effectiveType === "2g" ||
-    connection?.effectiveType === "3g"
+    connection?.effectiveType === "3g" ||
+    (typeof connection?.downlink === "number" && connection.downlink < 1)
   ) {
     return false;
   }
@@ -256,50 +273,40 @@ async function readBoundedBlob(response: Response, maxBytes: number) {
   );
 }
 
-async function cacheHlsSegment(url: string, response: Response, blob: Blob) {
+async function cacheHlsSegment(
+  url: string,
+  response: Response,
+  blob: Blob,
+  loadDurationMs: number,
+) {
   if (typeof caches === "undefined" || response.type === "opaque") return;
-  const cache = await caches.open(HLS_SEGMENT_CACHE);
+  const cache = await caches.open(VIDEO_HLS_SEGMENT_CACHE);
   const now = Date.now();
-  const existing = await cache.keys();
-  await Promise.all(
-    existing.map(async (entry) => {
-      const cached = await cache.match(entry);
-      const expiry = Number(cached?.headers.get("X-YW-Hls-Prefetch-Expires") || 0);
-      if (!cached || !Number.isSafeInteger(expiry) || expiry <= now) {
-        await cache.delete(entry);
-      }
-    }),
-  );
-  const entries = await cache.keys();
-  if (entries.length >= MAX_HLS_SEGMENT_ENTRIES && !(await cache.match(url))) {
-    const oldest = await Promise.all(
-      entries.map(async (entry) => {
-        const cached = await cache.match(entry);
-        return {
-          entry,
-          created: Number(cached?.headers.get("X-YW-Hls-Prefetch-Created") || 0),
-        };
-      }),
-    );
-    oldest.sort((left, right) => left.created - right.created);
-    if (oldest[0]) await cache.delete(oldest[0].entry);
-  }
+  if (!(await makeCacheRoom(
+    cache,
+    url,
+    blob.size,
+    MAX_HLS_SEGMENT_ENTRIES,
+    MAX_HLS_SEGMENT_CACHE_BYTES,
+    "X-YW-Hls-Prefetch-Created",
+    "X-YW-Hls-Prefetch-Expires",
+  ))) return;
   const headers = new Headers(response.headers);
   headers.delete("Content-Encoding");
   headers.delete("Content-Range");
   headers.delete("Accept-Ranges");
   headers.set("X-YW-Hls-Prefetch-Created", String(now));
   headers.set("X-YW-Hls-Prefetch-Expires", String(now + PREFIX_TTL_MS));
+  headers.set("X-YW-Hls-Prefetch-Load-Ms", String(Math.max(50, loadDurationMs)));
   headers.set("Content-Length", String(blob.size));
-  headers.set("Cache-Control", "public, max-age=600");
+  headers.set("Cache-Control", "private, max-age=600, no-transform");
   await cache.put(url, new Response(blob, { status: 200, headers }));
 }
 
 async function prefetchHlsStart(url: string, controller: AbortController) {
   if (
     !cloudflareStreamUrl(url) ||
-    typeof caches === "undefined" ||
-    !navigator.serviceWorker?.controller
+    typeof caches === "undefined"
   ) return;
   const manifestResponse = await fetch(url, {
     signal: controller.signal,
@@ -357,6 +364,7 @@ async function prefetchHlsStart(url: string, controller: AbortController) {
   let totalBytes = 0;
   for (const segment of [...initSegment, ...selected]) {
     if (controller.signal.aborted || totalBytes >= MAX_HLS_SEGMENT_BYTES) return;
+    const loadStartedAt = performance.now();
     const response = await fetch(segment.url, {
       signal: controller.signal,
       cache: "no-store",
@@ -365,7 +373,12 @@ async function prefetchHlsStart(url: string, controller: AbortController) {
     const remaining = MAX_HLS_SEGMENT_BYTES - totalBytes;
     const blob = await readBoundedBlob(response, remaining);
     if (!blob || blob.size < 1) continue;
-    await cacheHlsSegment(segment.url, response, blob);
+    await cacheHlsSegment(
+      segment.url,
+      response,
+      blob,
+      performance.now() - loadStartedAt,
+    );
     totalBytes += blob.size;
     // HLS segments cannot be time-sliced safely; at most two segments and 2 MiB
     // are cached to cover the next video's initial playback window.
