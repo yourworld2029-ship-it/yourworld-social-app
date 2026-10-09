@@ -631,7 +631,7 @@ function MomentViewRoute() {
 
         {/* PROGRESS */}
         <div
-          className="pointer-events-none absolute left-2 right-2 top-2 z-50 flex gap-1"
+          className="pointer-events-none absolute left-2 right-2 top-[max(env(safe-area-inset-top,0px),28px)] z-50 flex gap-1"
         >
           {Array.from({ length: segments }).map((_, idx) => (
             <div
@@ -654,7 +654,7 @@ function MomentViewRoute() {
         {/* HEADER */}
         <div
           className={cn(
-            "absolute inset-x-0 top-0 z-[10002] flex items-center justify-between bg-transparent px-3 pb-5 pt-7 transition-opacity duration-300",
+            "absolute inset-x-0 top-0 z-[10002] flex items-center justify-between bg-transparent px-3 pb-5 pt-[max(env(safe-area-inset-top,0px),28px)] transition-opacity duration-300",
             paused ? "pointer-events-none opacity-0" : "opacity-100",
           )}
         >

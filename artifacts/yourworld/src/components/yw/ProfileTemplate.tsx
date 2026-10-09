@@ -239,7 +239,7 @@ export function ProfileTemplate({
   return (
     <main className="relative min-h-[100dvh] overflow-hidden bg-black pb-8">
       <header
-        className="profile-header header-lux sticky top-0 z-40 flex items-center justify-between gap-3 px-3.5 pt-[calc(env(safe-area-inset-top,0px)+1.5rem)] pb-4 sm:px-6"
+        className="profile-header header-lux sticky top-0 z-40 flex items-center justify-between gap-3 px-3.5 pt-[env(safe-area-inset-top,24px)] pb-4 sm:px-6"
       >
         <div className="flex min-w-0 items-center gap-2">
           {onBack ? (

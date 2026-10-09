@@ -1547,19 +1547,9 @@ header,
 nav.top-nav,
 .chat-header,
 .video-header {
-  padding-top: 0 !important;
   min-height: 70px !important;
   display: flex;
   align-items: center;
-}
-
-.profile-header,
-.settings-header {
-  padding-top: 0 !important;
-}
-
-.feed-header {
-  padding-top: 0 !important;
 }
 
 @media (orientation: portrait) {
