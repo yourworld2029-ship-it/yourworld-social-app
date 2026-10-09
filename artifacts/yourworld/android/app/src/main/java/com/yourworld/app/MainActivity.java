@@ -9,6 +9,8 @@ import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 import android.util.Rational;
+import android.view.View;
+import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -48,6 +50,7 @@ public class MainActivity extends BridgeActivity {
         prepareForIncomingCall(getIntent());
         CallPushPlugin.captureNotificationAction(getIntent());
         configureSystemBars();
+        configureRootSystemInsets();
 
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
@@ -58,7 +61,9 @@ public class MainActivity extends BridgeActivity {
 
         WebView webView = getBridge() != null ? getBridge().getWebView() : null;
         if (webView != null) {
-            applyWebViewInsets(webView);
+            if (requiresManualSystemInsets()) {
+                applyWebViewInsets(webView);
+            }
             webView.getSettings().setCacheMode(WebSettings.LOAD_DEFAULT);
             webView.getSettings().setDomStorageEnabled(true);
         }
@@ -315,8 +320,28 @@ public class MainActivity extends BridgeActivity {
         controller.setAppearanceLightStatusBars(false);
         controller.setAppearanceLightNavigationBars(false);
         getWindow().setStatusBarColor(Color.BLACK);
+        getWindow().setNavigationBarColor(Color.BLACK);
         getWindow().getDecorView().setBackgroundColor(Color.BLACK);
         controller.show(WindowInsetsCompat.Type.systemBars());
+    }
+
+    private boolean requiresManualSystemInsets() {
+        // Android 15+ enforces edge-to-edge for apps targeting SDK 35+, so the
+        // WebView must receive explicit insets there instead of fitting twice.
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM;
+    }
+
+    private void configureRootSystemInsets() {
+        View content = findViewById(android.R.id.content);
+        if (content instanceof ViewGroup) {
+            ViewGroup contentGroup = (ViewGroup) content;
+            if (contentGroup.getChildCount() > 0) {
+                View appRoot = contentGroup.getChildAt(0);
+                // Let the native root reserve system-bar space on older Android.
+                // Android 15+ uses explicit WebView insets to handle enforced edge-to-edge.
+                appRoot.setFitsSystemWindows(!requiresManualSystemInsets());
+            }
+        }
     }
 
     private void applyWebViewInsets(WebView webView) {
