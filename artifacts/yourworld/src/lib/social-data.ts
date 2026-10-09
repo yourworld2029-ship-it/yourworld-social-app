@@ -2031,7 +2031,11 @@ function maintainChatBroadcastSubscription(
 }
 
 /** Live public.messages records for the canonical two-person route id. */
-export function useThreadMessages(threadId: string, _opts: { staleTime?: number } = {}) {
+export function useThreadMessages(
+  threadId: string,
+  _opts: { staleTime?: number; initialUserId?: string | null } = {},
+) {
+  const initialUserId = _opts.initialUserId ?? null;
   const pair = useMemo(() => dmThreadPair(threadId), [threadId]);
   const cacheProtection = useThreadCachePolicy(threadId);
   const initialCachedMessagesRef = useRef<DbMessage[] | null>(null);
@@ -2056,14 +2060,14 @@ export function useThreadMessages(threadId: string, _opts: { staleTime?: number 
   const conversationId = conversationState.threadId === threadId ? conversationState.id : null;
   const conversationIdRef = useRef<string | null>(conversationId);
   conversationIdRef.current = conversationId;
-  const [me, setMe] = useState<string | null>(null);
+  const [me, setMe] = useState<string | null>(initialUserId);
   const [loading, setLoading] = useState(initialCachedMessages.length === 0);
   const [loadingMore, setLoadingMore] = useState(false);
   const loadingMoreLockRef = useRef<symbol | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState<string | null>(pair ? null : "Invalid chat address.");
   const messagesRef = useRef<DbMessage[]>([]);
-  const meRef = useRef<string | null>(null);
+  const meRef = useRef<string | null>(initialUserId);
   const clearChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const deletionChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const clearGenerationRef = useRef(0);

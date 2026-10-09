@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect, useRef } from "react";
 import { Search, SquarePen, MessageSquare, X, Check, Trash2 } from "lucide-react";
+import { useAuth } from "@/lib/auth-store";
 import { supabase } from "@/integrations/supabase/client";
 import {
   cleanupChatRealtimeChannel,
@@ -76,15 +77,17 @@ function ChatListPage() {
 }
 
 function NativeChatListPage() {
+  const { user } = useAuth();
+  const authUserId = user?.id ?? null;
   // Paint the cached list immediately, then refresh from the network.
   const [threadsOwnerId, setThreadsOwnerId] = useState<string | null>(() => {
     const owner = cacheGet<unknown>("chat-threads-owner");
-    return typeof owner === "string" ? owner : null;
+    return typeof owner === "string" && owner === authUserId ? owner : null;
   });
   const threadsOwnerRef = useRef(threadsOwnerId);
   const [threads, setThreads] = useState<ChatThread[]>(() => {
     const owner = cacheGet<unknown>("chat-threads-owner");
-    return typeof owner === "string"
+    return typeof owner === "string" && owner === authUserId
       ? normalizeChatThreads(cacheGet<unknown>(chatThreadsCacheKey(owner)))
       : [];
   });
@@ -95,7 +98,7 @@ function NativeChatListPage() {
   const [people, setPeople] = useState<DiscoverProfile[]>([]);
   const [peopleLoading, setPeopleLoading] = useState(false);
   const [peopleError, setPeopleError] = useState<string | null>(null);
-  const [me, setMe] = useState<string | null>(null);
+  const [me, setMe] = useState<string | null>(authUserId);
   const navigate = useNavigate();
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
@@ -110,7 +113,20 @@ function NativeChatListPage() {
   const { isHidden, revealed, ready: secretChatsReady } = useSecretChats(
     searchQuery,
     searchRevision,
+    authUserId,
   );
+
+  useEffect(() => {
+    setMe(authUserId);
+    if (threadsOwnerRef.current === authUserId) return;
+    threadsOwnerRef.current = authUserId;
+    setThreadsOwnerId(authUserId);
+    setThreads(
+      authUserId
+        ? normalizeChatThreads(cacheGet<unknown>(chatThreadsCacheKey(authUserId)))
+        : [],
+    );
+  }, [authUserId]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setRelativeNow(Date.now()), 30_000);
@@ -187,7 +203,7 @@ function NativeChatListPage() {
             if (!existing) {
               map.set(id, {
                 id,
-                name: "Loading…",
+                name: "Chat",
                 peerId,
                 lastMessage:
                   (typeof msg.content === "string" && msg.content) ||

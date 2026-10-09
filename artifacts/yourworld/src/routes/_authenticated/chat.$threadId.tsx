@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
 import { AppLauncher } from "@capacitor/app-launcher";
 import { Capacitor } from "@capacitor/core";
@@ -27,6 +27,7 @@ import { ChatMessageText } from "@/components/yw/ChatRichLinkCard";
 import { ChatMessageErrorBoundary } from "@/components/yw/ChatMessageErrorBoundary";
 import { compressImageFile } from "@/lib/image-compress";
 import { useMyProfile } from "@/lib/profile-data";
+import { useAuth } from "@/lib/auth-store";
 import {
   cleanupChatRealtimeChannel,
   useThreadMessages,
@@ -826,6 +827,7 @@ function ChatThreadPage() {
 }
 
 function NativeChatThreadPage() {
+  const { user: authUser } = useAuth();
   const { profile: myProfile } = useMyProfile();
   const { moments, addMoment } = useMoments();
   const currentUserName = myProfile.display_name || myProfile.username || "YourWorld user";
@@ -922,9 +924,26 @@ function NativeChatThreadPage() {
     loadingMore,
     hasMore,
     loadOlder,
-  } = useThreadMessages(threadId, { staleTime: Infinity });
-  const initialUnreadMessageRef = useRef<{ threadId: string; messageId: string | null } | null>(null);
-  const [initialUnreadReadyKey, setInitialUnreadReadyKey] = useState<string | null>(null);
+  } = useThreadMessages(threadId, {
+    staleTime: Infinity,
+    initialUserId: authUser?.id ?? null,
+  });
+  const cachedFirstUnreadId = currentUserId
+    ? dbMessages.find(
+        (message) =>
+          message.receiver_id === currentUserId &&
+          message.sender_id !== currentUserId &&
+          message.is_read !== true &&
+          message.is_system_message !== true,
+      )?.id ?? null
+    : null;
+  const initialUnreadMessageRef = useRef<{ threadId: string; messageId: string | null }>({
+    threadId,
+    messageId: cachedFirstUnreadId,
+  });
+  const [initialUnreadReadyKey, setInitialUnreadReadyKey] = useState<string | null>(() =>
+    currentUserId ? `${threadId}:${currentUserId}` : null,
+  );
   const [initialUnreadTargetRevision, setInitialUnreadTargetRevision] = useState(0);
   const openViewOnce = useCallback(async (message: Message) => {
     if (
@@ -1777,79 +1796,56 @@ function NativeChatThreadPage() {
   const didInitialThreadScroll = useRef(false);
   const lastMessageKeyRef = useRef<string | null>(null);
   const lastScrollThreadIdRef = useRef(threadId);
-  const pendingScrollFrameRef = useRef<number | null>(null);
   const initialUnreadLoadCursorRef = useRef<string | null>(null);
   const lastScrolledInitialUnreadIdRef = useRef<string | null>(null);
   const scrollToLatest = useCallback((messageId: string | null = null, initial = false) => {
-    if (pendingScrollFrameRef.current !== null) {
-      window.cancelAnimationFrame(pendingScrollFrameRef.current);
-    }
-    pendingScrollFrameRef.current = window.requestAnimationFrame(() => {
-      pendingScrollFrameRef.current = window.requestAnimationFrame(() => {
-        pendingScrollFrameRef.current = null;
-        const target = messagesEndRef.current;
-        const container = scrollRef.current;
-        if (!target?.isConnected || !container?.isConnected) return;
-        try {
-          let unreadElement: HTMLElement | null = null;
-          if (messageId) {
-            for (const element of container.querySelectorAll<HTMLElement>(
-              "[data-chat-new-messages-divider]",
-            )) {
-              if (element.dataset.chatNewMessagesDivider === messageId) {
-                unreadElement = element;
-                break;
-              }
-            }
+    const target = messagesEndRef.current;
+    const container = scrollRef.current;
+    if (!target?.isConnected || !container?.isConnected) return;
+    try {
+      let unreadElement: HTMLElement | null = null;
+      if (messageId) {
+        for (const element of container.querySelectorAll<HTMLElement>(
+          "[data-chat-new-messages-divider]",
+        )) {
+          if (element.dataset.chatNewMessagesDivider === messageId) {
+            unreadElement = element;
+            break;
           }
-          if (messageId && !unreadElement) {
-            for (const element of container.querySelectorAll<HTMLElement>("[data-chat-message-id]")) {
-              if (element.dataset.chatMessageId === messageId) {
-                unreadElement = element;
-                break;
-              }
-            }
-          }
-          const top = unreadElement
-            ? Math.max(
-                0,
-                container.scrollTop +
-                  unreadElement.getBoundingClientRect().top -
-                  container.getBoundingClientRect().top,
-              )
-            : container.scrollHeight;
-          container.scrollTo({
-            top,
-            behavior: initial ? "auto" : didFirstScroll.current ? "smooth" : "auto",
-          });
-          didFirstScroll.current = true;
-          if (initial) {
-            didInitialThreadScroll.current = true;
-          }
-        } catch (cause) {
-          console.warn("[chat] auto-scroll failed", cause);
         }
+      }
+      if (messageId && !unreadElement) {
+        for (const element of container.querySelectorAll<HTMLElement>("[data-chat-message-id]")) {
+          if (element.dataset.chatMessageId === messageId) {
+            unreadElement = element;
+            break;
+          }
+        }
+      }
+      const top = unreadElement
+        ? Math.max(
+            0,
+            container.scrollTop +
+              unreadElement.getBoundingClientRect().top -
+              container.getBoundingClientRect().top,
+          )
+        : container.scrollHeight;
+      container.scrollTo({
+        top,
+        behavior: initial ? "auto" : didFirstScroll.current ? "smooth" : "auto",
       });
-    });
+      didFirstScroll.current = true;
+      if (initial) {
+        didInitialThreadScroll.current = true;
+      }
+    } catch (cause) {
+      console.warn("[chat] auto-scroll failed", cause);
+    }
   }, []);
 
-  useEffect(
-    () => () => {
-      if (pendingScrollFrameRef.current !== null) {
-        window.cancelAnimationFrame(pendingScrollFrameRef.current);
-        pendingScrollFrameRef.current = null;
-      }
-    },
-    [],
-  );
-
-  useEffect(() => {
+  useLayoutEffect(() => {
     const threadChanged = lastScrollThreadIdRef.current !== threadId;
     if (threadChanged) {
-      if (pendingScrollFrameRef.current !== null) {
-        window.cancelAnimationFrame(pendingScrollFrameRef.current);
-        pendingScrollFrameRef.current = null;
-      }
       lastScrollThreadIdRef.current = threadId;
       lastMessageKeyRef.current = null;
       didFirstScroll.current = false;
@@ -1885,10 +1881,6 @@ function NativeChatThreadPage() {
         initialUnreadReadyKey !== readyKey ||
         loadingMore
       ) {
-        if (pendingScrollFrameRef.current !== null) {
-          window.cancelAnimationFrame(pendingScrollFrameRef.current);
-          pendingScrollFrameRef.current = null;
-        }
         return;
       }
 
@@ -2752,27 +2744,9 @@ function NativeChatThreadPage() {
         <div
           className="relative min-h-full space-y-3.5"
         >
-        {messagesLoading && messages.length > 0 ? (
-          <p className="flex items-center justify-center gap-2 py-1 text-[11px] text-zinc-500" aria-live="polite">
-            <span className="h-3 w-3 animate-spin rounded-full border border-zinc-600 border-t-zinc-300" />
-            Syncing messages…
-          </p>
-        ) : null}
         {loadingMore ? (
           <p className="py-1 text-center text-[11px] text-zinc-500">Loading older messages…</p>
         ) : null}
-        {messagesLoading && messages.length === 0 && (
-          <div className="space-y-3.5" aria-hidden>
-            {[0, 1, 2, 3, 4, 5].map((i) => (
-              <div key={i} className={`flex ${i % 2 ? "justify-end" : "justify-start"}`}>
-                <div
-                  className="h-10 animate-pulse rounded-2xl bg-gradient-to-r from-zinc-800/70 via-zinc-700/60 to-zinc-800/70 bg-[length:200%_100%]"
-                  style={{ width: `${45 + ((i * 37) % 30)}%` }}
-                />
-              </div>
-            ))}
-          </div>
-        )}
         {messages.map((m) => (
           <React.Fragment key={`${threadId}:${m.id}`}>
           {initialUnreadReadyKey === `${threadId}:${currentUserId}` &&

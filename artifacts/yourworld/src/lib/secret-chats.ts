@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { isValidSecretCode, verifyPin } from "@/lib/secret-pin";
+import { cacheGet, cacheSet } from "@/lib/local-cache";
 
 export { hashPin, isValidSecretCode, randomPinSalt, verifyPin } from "@/lib/secret-pin";
 
@@ -13,6 +14,17 @@ export { hashPin, isValidSecretCode, randomPinSalt, verifyPin } from "@/lib/secr
 
 const unlockGrantTtlMs = 60_000;
 const unlockGrants = new Map<string, number>();
+
+function lockedPeerCacheKey(ownerId: string) {
+  return `secret-chat-peer-ids:${ownerId}`;
+}
+
+function readCachedLockedPeerIds(ownerId?: string | null): string[] | null {
+  if (!ownerId) return null;
+  const value = cacheGet<unknown>(lockedPeerCacheKey(ownerId));
+  if (!Array.isArray(value)) return null;
+  return [...new Set(value.filter((peerId): peerId is string => typeof peerId === "string" && !!peerId))];
+}
 
 function unlockGrantKey(ownerId: string, peerId: string) {
   return `${ownerId}\u0000${peerId}`;
@@ -48,9 +60,12 @@ export type LockedChat = {
 };
 
 async function fetchLocked(expectedOwnerId?: string): Promise<LockedChat[]> {
-  const { data: auth, error: authError } = await supabase.auth.getUser();
-  if (authError) throw authError;
-  const me = auth.user?.id;
+  let me = expectedOwnerId;
+  if (!me) {
+    const { data: auth, error: authError } = await supabase.auth.getUser();
+    if (authError) throw authError;
+    me = auth.user?.id;
+  }
   if (!me) return [];
   if (expectedOwnerId && expectedOwnerId !== me) return [];
 
@@ -109,28 +124,71 @@ export async function isSecretChatLockedWith(ownerId: string, peerId: string) {
  * @param query current text in the message search bar — an exact Secret Code match
  *              temporarily reveals the matching locked chat(s).
  */
-export function useSecretChats(query: string, queryRevision = 0) {
-  const [locked, setLocked] = useState<LockedChat[]>([]);
+export function useSecretChats(
+  query: string,
+  queryRevision = 0,
+  ownerId?: string | null,
+) {
+  const normalizedOwnerId = ownerId ?? null;
+  const cachedPeerIds = useMemo(
+    () => readCachedLockedPeerIds(normalizedOwnerId),
+    [normalizedOwnerId],
+  );
+  const [lockSnapshot, setLockSnapshot] = useState<{
+    ownerId: string | null;
+    rows: LockedChat[];
+    peerIds: string[];
+    ready: boolean;
+  }>(() => ({
+    ownerId: normalizedOwnerId,
+    rows: [],
+    peerIds: cachedPeerIds ?? [],
+    ready: cachedPeerIds !== null,
+  }));
   const [verifiedQuery, setVerifiedQuery] = useState<{
     query: string;
     queryRevision: number;
     peerIds: string[];
   } | null>(null);
-  const [ready, setReady] = useState(false);
+  const snapshot =
+    lockSnapshot.ownerId === normalizedOwnerId
+      ? lockSnapshot
+      : {
+          ownerId: normalizedOwnerId,
+          rows: [],
+          peerIds: cachedPeerIds ?? [],
+          ready: cachedPeerIds !== null,
+        };
+  const locked = snapshot.rows;
+  const lockedIds = snapshot.peerIds;
+  const ready = snapshot.ready;
 
   useEffect(() => {
     let alive = true;
+    if (lockSnapshot.ownerId !== normalizedOwnerId) {
+      setLockSnapshot({
+        ownerId: normalizedOwnerId,
+        rows: [],
+        peerIds: cachedPeerIds ?? [],
+        ready: cachedPeerIds !== null,
+      });
+    }
     const refresh = () => {
-      setReady(false);
-      void fetchLocked()
+      void fetchLocked(normalizedOwnerId ?? undefined)
         .then((rows) => {
           if (!alive) return;
-          setLocked(rows);
-          setReady(true);
+          const peerIds = [...new Set(rows.map((row) => row.peerId))];
+          if (normalizedOwnerId) cacheSet(lockedPeerCacheKey(normalizedOwnerId), peerIds);
+          setLockSnapshot({
+            ownerId: normalizedOwnerId,
+            rows,
+            peerIds,
+            ready: true,
+          });
         })
         .catch(() => {
-          // Keep chat lists hidden when lock state cannot be confirmed.
-          if (alive) setReady(false);
+          // Keep a previously confirmed, user-scoped cache visible during a
+          // transient refresh failure; a cold cache still stays gated.
         });
     };
     refresh();
@@ -151,7 +209,7 @@ export function useSecretChats(query: string, queryRevision = 0) {
       document.removeEventListener("visibilitychange", refresh);
       void supabase.removeChannel(channel);
     };
-  }, []);
+  }, [cachedPeerIds, lockSnapshot.ownerId, normalizedOwnerId]);
 
   useEffect(() => {
     let alive = true;
@@ -203,8 +261,6 @@ export function useSecretChats(query: string, queryRevision = 0) {
         : [],
     [verifiedQuery, query, queryRevision],
   );
-  const lockedIds = useMemo(() => locked.map((l) => l.peerId), [locked]);
-
   /** True when this chat must stay out of the list/search results. */
   const isHidden = useCallback(
     (peerId?: string | null) =>
