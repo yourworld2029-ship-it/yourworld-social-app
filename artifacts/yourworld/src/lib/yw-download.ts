@@ -773,7 +773,7 @@ async function downloadWatermarkedVideoCore(
           targetQuality,
           watermarkPlacement,
           false,
-          metadata?.durationSeconds,
+          metadata?.durationSeconds ?? undefined,
         );
       } finally {
         if (sourceBlob) URL.revokeObjectURL(sourceUrl);
