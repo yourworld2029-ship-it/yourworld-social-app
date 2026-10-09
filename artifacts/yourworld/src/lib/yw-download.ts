@@ -938,7 +938,28 @@ export async function downloadVideoForOfflineInBackground(
 }
 
 export function reelWatermarkText(creatorUsername: string) {
-  return `YourWorld • @${creatorUsername.trim().replace(/^@+/, "") || "user"}`;
+  return `YourWorld | @${creatorUsername.trim().replace(/^@+/, "") || "user"}`;
+}
+
+export function reelWatermarkCornerForTime(
+  currentTime: number,
+  duration: number,
+): "top-left" | "bottom-right" {
+  return Number.isFinite(duration) && duration > 0 && currentTime >= duration / 2
+    ? "bottom-right"
+    : "top-left";
+}
+
+async function loadReelWatermarkIcon() {
+  const icon = new Image();
+  icon.decoding = "async";
+  icon.src = new URL("/icon-512.png", window.location.origin).toString();
+  try {
+    await icon.decode();
+    return icon.naturalWidth > 0 ? icon : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Creates a crop-resistant, burned-in MP4 watermark for the Android Reel gallery export. */
@@ -1050,22 +1071,37 @@ async function renderWatermarkedVideo(
 
   const fontSize = Math.max(14, Math.round(canvas.height * 0.016));
   const padding = Math.max(10, Math.round(fontSize * 0.8));
+  const reelWatermarkIcon =
+    watermarkPlacement === "reel" && watermark ? await loadReelWatermarkIcon() : null;
   const drawFrame = () => {
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
     if (!watermark) return;
     context.save();
-    context.font = `600 ${fontSize}px system-ui, sans-serif`;
     if (watermarkPlacement === "reel") {
-      const centerX = canvas.width / 2;
-      const centerY = canvas.height * 0.82;
-      const maxWidth = canvas.width * 0.82;
-      const pillHeight = fontSize + padding;
-      const pillWidth = Math.min(
-        maxWidth,
-        context.measureText(watermark).width + padding * 2,
+      context.font = `700 ${fontSize}px system-ui, sans-serif`;
+      const horizontalPadding = Math.max(12, Math.round(fontSize * 0.72));
+      const verticalPadding = Math.max(8, Math.round(fontSize * 0.34));
+      const iconSize = Math.max(22, Math.round(fontSize * 1.12));
+      const iconGap = Math.max(8, Math.round(fontSize * 0.48));
+      const labelWidth = context.measureText(watermark).width;
+      const safeMargin = Math.max(
+        24,
+        Math.round(Math.min(canvas.width, canvas.height) * 0.018),
       );
-      const left = centerX - pillWidth / 2;
-      const top = centerY - pillHeight / 2;
+      const pillHeight = Math.max(iconSize, fontSize) + verticalPadding * 2;
+      const pillWidth = Math.min(
+        canvas.width - safeMargin * 2,
+        horizontalPadding * 2 + iconSize + iconGap + labelWidth,
+      );
+      const corner = reelWatermarkCornerForTime(video.currentTime, video.duration);
+      const left =
+        corner === "top-left"
+          ? safeMargin
+          : canvas.width - safeMargin - pillWidth;
+      const top =
+        corner === "top-left"
+          ? safeMargin
+          : canvas.height - safeMargin - pillHeight;
       const radius = pillHeight / 2;
       context.beginPath();
       context.moveTo(left + radius, top);
@@ -1084,17 +1120,53 @@ async function renderWatermarkedVideo(
       context.lineTo(left, top + radius);
       context.arcTo(left, top, left + radius, top, radius);
       context.closePath();
-      context.globalAlpha = 0.48;
-      context.fillStyle = "#05070b";
+      context.fillStyle = "rgba(0,0,0,0.55)";
       context.fill();
-      context.globalAlpha = 0.94;
-      context.textAlign = "center";
+      context.strokeStyle = "rgba(255,255,255,0.18)";
+      context.lineWidth = Math.max(1, Math.round(fontSize * 0.045));
+      context.stroke();
+
+      const iconX = left + horizontalPadding;
+      const iconY = top + (pillHeight - iconSize) / 2;
+      const iconCenter = iconX + iconSize / 2;
+      context.save();
+      context.beginPath();
+      context.arc(iconCenter, iconY + iconSize / 2, iconSize / 2, 0, Math.PI * 2);
+      context.clip();
+      if (reelWatermarkIcon) {
+        context.drawImage(reelWatermarkIcon, iconX, iconY, iconSize, iconSize);
+      } else {
+        const iconGradient = context.createLinearGradient(
+          iconX,
+          iconY,
+          iconX + iconSize,
+          iconY + iconSize,
+        );
+        iconGradient.addColorStop(0, "#ff2f8b");
+        iconGradient.addColorStop(1, "#5935ff");
+        context.fillStyle = iconGradient;
+        context.fillRect(iconX, iconY, iconSize, iconSize);
+        context.fillStyle = "#ffffff";
+        context.font = `700 ${Math.round(iconSize * 0.43)}px system-ui, sans-serif`;
+        context.textAlign = "center";
+        context.textBaseline = "middle";
+        context.fillText("YW", iconCenter, iconY + iconSize / 2);
+      }
+      context.restore();
+
+      const textX = iconX + iconSize + iconGap;
+      const availableTextWidth =
+        left + pillWidth - horizontalPadding - textX;
+      context.font = `700 ${fontSize}px system-ui, sans-serif`;
+      context.globalAlpha = 1;
+      context.textAlign = "left";
       context.textBaseline = "middle";
       context.fillStyle = "#ffffff";
-      context.shadowColor = "rgba(0,0,0,0.75)";
-      context.shadowBlur = Math.max(3, Math.round(fontSize * 0.24));
-      context.fillText(watermark, centerX, centerY, maxWidth - padding);
+      context.shadowColor = "rgba(0,0,0,0.65)";
+      context.shadowBlur = Math.max(2, Math.round(fontSize * 0.12));
+      context.fillText(watermark, textX, top + pillHeight / 2, availableTextWidth);
     } else {
+      context.font = `600 ${fontSize}px system-ui, sans-serif`;
       context.globalAlpha = 0.72;
       context.textAlign = "left";
       context.textBaseline = "bottom";

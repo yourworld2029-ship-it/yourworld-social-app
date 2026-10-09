@@ -10,6 +10,7 @@ import {
   fetchVideoBlob,
   reelExportDurationMatches,
   reelExportReachedExpectedEnd,
+  reelWatermarkCornerForTime,
   reelWatermarkText,
   toDownloadedVideo,
 } from "./yw-download";
@@ -17,9 +18,17 @@ import {
 const sourceBytes = Uint8Array.from({ length: 100 }, (_, index) => index);
 
 test("Reel watermark text uses the creator handle exactly once", () => {
-  assert.equal(reelWatermarkText("creator"), "YourWorld • @creator");
-  assert.equal(reelWatermarkText("@creator"), "YourWorld • @creator");
-  assert.equal(reelWatermarkText(""), "YourWorld • @user");
+  assert.equal(reelWatermarkText("creator"), "YourWorld | @creator");
+  assert.equal(reelWatermarkText("@creator"), "YourWorld | @creator");
+  assert.equal(reelWatermarkText(""), "YourWorld | @user");
+});
+
+test("Reel watermark alternates from top-left to bottom-right halfway through", () => {
+  assert.equal(reelWatermarkCornerForTime(0, 16), "top-left");
+  assert.equal(reelWatermarkCornerForTime(7.9, 16), "top-left");
+  assert.equal(reelWatermarkCornerForTime(8, 16), "bottom-right");
+  assert.equal(reelWatermarkCornerForTime(15.9, 16), "bottom-right");
+  assert.equal(reelWatermarkCornerForTime(4, 0), "top-left");
 });
 
 test("Reel export rejects a short stream instead of saving a truncated video", () => {
