@@ -1467,12 +1467,27 @@ body,
   inset: 0;
   height: 100vh;
   height: 100dvh;
+  padding-top: max(env(safe-area-inset-top, 0px), 0px);
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
   will-change: transform;
   transform: translateZ(0);
+}
+
+/* Capacitor already applies native status/cutout insets to the WebView. */
+html[data-yw-native-app="true"] .yw-app-scroll-container {
+  padding-top: 0;
+}
+
+html:not([data-yw-native-app="true"]) .yw-detail-video-player {
+  top: max(env(safe-area-inset-top, 0px), 0px);
+}
+
+.yw-horizontal-video-detail-player {
+  height: min(56.25vw, 40vh);
+  height: min(56.25vw, 40dvh);
 }
 
 #yw-reels-scroller,
@@ -1532,7 +1547,7 @@ header,
 nav.top-nav,
 .chat-header,
 .video-header {
-  padding-top: max(env(safe-area-inset-top, 0px), 36px) !important;
+  padding-top: 0 !important;
   min-height: 70px !important;
   display: flex;
   align-items: center;
@@ -1540,11 +1555,11 @@ nav.top-nav,
 
 .profile-header,
 .settings-header {
-  padding-top: max(env(safe-area-inset-top, 0px), 28px) !important;
+  padding-top: 0 !important;
 }
 
 .feed-header {
-  padding-top: max(env(safe-area-inset-top, 0px), 40px) !important;
+  padding-top: 0 !important;
 }
 
 @media (orientation: portrait) {

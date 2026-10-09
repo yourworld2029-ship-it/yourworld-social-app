@@ -313,9 +313,10 @@ public class MainActivity extends BridgeActivity {
                 getWindow().getDecorView()
         );
         controller.setAppearanceLightStatusBars(false);
+        controller.setAppearanceLightNavigationBars(false);
         getWindow().setStatusBarColor(Color.BLACK);
         getWindow().getDecorView().setBackgroundColor(Color.BLACK);
-        controller.show(WindowInsetsCompat.Type.statusBars());
+        controller.show(WindowInsetsCompat.Type.systemBars());
     }
 
     private void applyWebViewInsets(WebView webView) {

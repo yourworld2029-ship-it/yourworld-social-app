@@ -19,7 +19,7 @@ export const BottomNav = memo(function BottomNav({ onOpenCreate }: BottomNavProp
     <nav 
       aria-label="Main Navigation"
       className="fixed bottom-0 left-0 right-0 z-50 bg-black/95 backdrop-blur-md border-t border-neutral-900 select-none pointer-events-auto"
-      style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 8px)" }}
+      style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 16px)" }}
     >
       <div className="flex w-full items-center justify-around h-14 max-w-md mx-auto px-2">
         <Link

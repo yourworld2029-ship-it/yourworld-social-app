@@ -218,6 +218,10 @@ function RootComponent() {
     const environment = detectCapacitorEnvironment();
     setIsNativeApp(environment.isNative);
     setIsPlatformResolved(true);
+    document.documentElement.dataset.ywNativeApp = environment.isNative ? "true" : "false";
+    return () => {
+      delete document.documentElement.dataset.ywNativeApp;
+    };
   }, []);
 
   useEffect(() => {

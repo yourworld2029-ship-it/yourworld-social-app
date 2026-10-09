@@ -2445,7 +2445,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                     ? `fixed inset-0 z-50 max-w-none bg-black ${
                         needsAndroidPortraitSafeArea ? "yw-android-video-safe-area" : ""
                       }`
-                    : `sticky top-0 z-50 order-1 mx-auto block aspect-video w-full max-w-lg shrink-0 bg-black ${
+                    : `yw-detail-video-player sticky top-0 z-50 order-1 mx-auto block ${
+                        isVerticalVideo ? "aspect-video" : "yw-horizontal-video-detail-player"
+                      } w-full max-w-lg shrink-0 bg-black ${
                         needsAndroidPortraitSafeArea ? "yw-android-video-safe-area" : ""
                       }`
                   : isPlayerRoute
