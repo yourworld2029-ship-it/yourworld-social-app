@@ -8,7 +8,14 @@ import {
   Scripts,
   useNavigate,
 } from "@tanstack/react-router";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type TouchEvent as ReactTouchEvent,
+} from "react";
 import { toast } from "sonner";
 import { Capacitor } from "@capacitor/core";
 import { App } from "@capacitor/app";
@@ -34,6 +41,7 @@ import { AdaptiveMediaController } from "@/lib/adaptive-performance";
 import { VideoPlaybackProvider } from "@/lib/video-playback";
 import { MediaConcurrencyProvider } from "@/lib/media-concurrency";
 import { APP_SCROLL_RESTORATION_ID } from "@/lib/app-scroll-container";
+import { resolveTabSwipeDestination } from "@/lib/tab-swipe";
 
 function NotFoundComponent() {
   return (
@@ -189,16 +197,95 @@ function detectCapacitorEnvironment() {
   return { isNative, isAndroid: isNative && platform === "android" };
 }
 
+function shouldIgnoreTabSwipeTarget(
+  target: EventTarget | null,
+  boundary: HTMLElement,
+) {
+  if (!(target instanceof Element)) return true;
+  if (
+    target.closest(
+      "button, input, textarea, select, video, audio, [contenteditable='true'], [role='slider'], [role='dialog'], [data-radix-popper-content-wrapper]",
+    )
+  ) {
+    return true;
+  }
+
+  let element: HTMLElement | null =
+    target instanceof HTMLElement ? target : target.parentElement;
+  while (element && boundary.contains(element)) {
+    const overflowX = window.getComputedStyle(element).overflowX;
+    if (
+      (overflowX === "auto" || overflowX === "scroll") &&
+      element.scrollWidth > element.clientWidth + 1
+    ) {
+      return true;
+    }
+    if (element === boundary) break;
+    element = element.parentElement;
+  }
+
+  return false;
+}
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const { pathname } = useLocation();
   const navigate = useNavigate();
+  const tabSwipeStart = useRef<{
+    x: number;
+    y: number;
+    pathname: string;
+  } | null>(null);
+  const handleTabSwipeStart = useCallback(
+    (event: ReactTouchEvent<HTMLDivElement>) => {
+      const touch = event.touches[0];
+      const isSwipeTab =
+        pathname === "/" || pathname === "/chat" || pathname === "/chat/";
+      if (
+        !isSwipeTab ||
+        event.touches.length !== 1 ||
+        !touch ||
+        shouldIgnoreTabSwipeTarget(event.target, event.currentTarget)
+      ) {
+        tabSwipeStart.current = null;
+        return;
+      }
+
+      tabSwipeStart.current = {
+        x: touch.clientX,
+        y: touch.clientY,
+        pathname,
+      };
+    },
+    [pathname],
+  );
+  const handleTabSwipeEnd = useCallback(
+    (event: ReactTouchEvent<HTMLDivElement>) => {
+      const start = tabSwipeStart.current;
+      tabSwipeStart.current = null;
+      const touch = event.changedTouches[0];
+      if (!start || !touch) return;
+
+      const destination = resolveTabSwipeDestination(
+        start.pathname,
+        touch.clientX - start.x,
+        touch.clientY - start.y,
+      );
+      if (destination === "/chat") {
+        void navigate({ to: "/chat" });
+      } else if (destination === "/") {
+        void navigate({ to: "/" });
+      }
+    },
+    [navigate],
+  );
   const [createOpen, setCreateOpen] = useState(false);
   const openCreate = useCallback(() => setCreateOpen(true), []);
   const [isPlatformResolved, setIsPlatformResolved] = useState(false);
   const [isNativeApp, setIsNativeApp] = useState(false);
   const isWatchPreview = pathname.startsWith("/watch/");
-  const isChatConversation = pathname.startsWith("/chat/");
+  const isChatList = pathname === "/chat" || pathname === "/chat/";
+  const isChatConversation = pathname.startsWith("/chat/") && !isChatList;
   const isMomentViewer =
     pathname.startsWith("/moment/") &&
     pathname !== "/moment/" &&
@@ -346,6 +433,11 @@ function RootComponent() {
                                             hideNav ? "" : "pb-20",
                                           )}
                                           data-scroll-restoration-id={APP_SCROLL_RESTORATION_ID}
+                                          onTouchStart={handleTabSwipeStart}
+                                          onTouchEnd={handleTabSwipeEnd}
+                                          onTouchCancel={() => {
+                                            tabSwipeStart.current = null;
+                                          }}
                                         >
                                           <Outlet />
                                         </div>

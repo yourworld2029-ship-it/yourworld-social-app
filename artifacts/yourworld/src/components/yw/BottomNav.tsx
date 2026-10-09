@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { Link } from "@tanstack/react-router";
+import { Link, useLocation } from "@tanstack/react-router";
 import { Home, Film, PlusSquare, MessageSquare, User } from "lucide-react";
 import { useUnreadMessageCount } from "@/lib/social-data";
 
@@ -8,7 +8,7 @@ interface BottomNavProps {
 }
 
 export const BottomNav = memo(function BottomNav({ onOpenCreate }: BottomNavProps) {
-  const currentPath = typeof window !== "undefined" ? window.location.pathname : "/";
+  const { pathname: currentPath } = useLocation();
   const unreadChatCount = useUnreadMessageCount();
   const chatLabel =
     unreadChatCount > 0
