@@ -102,6 +102,11 @@ export type MyMoment = {
   mentionedUserIds?: string[];
   /** Optional Reel or long-video source; media remains a playable preview. */
   sharedContent?: SharedMomentContent;
+  /** Shared upload ID for moments that are consecutive trims of one source video. */
+  partGroupId?: string;
+  /** 1-based index and total count for consecutive video Moment segments. */
+  partIndex?: number;
+  partCount?: number;
   privacy: MomentPrivacy;
   /** Explicit recipients for a targeted Moment; stored in the existing payload JSON. */
   recipientUserIds?: string[];
@@ -375,6 +380,15 @@ function rowToMoment(
     stickers: Array.isArray(p.stickers) ? (p.stickers as Sticker[]) : [],
     drawing: typeof p.drawing === "string" ? p.drawing : undefined,
     trim: p.trim as MyMoment["trim"],
+    partGroupId: typeof p.partGroupId === "string" ? p.partGroupId : undefined,
+    partIndex:
+      typeof p.partIndex === "number" && Number.isInteger(p.partIndex) && p.partIndex > 0
+        ? p.partIndex
+        : undefined,
+    partCount:
+      typeof p.partCount === "number" && Number.isInteger(p.partCount) && p.partCount > 0
+        ? p.partCount
+        : undefined,
     crop: p.crop as MyMoment["crop"],
     mediaTransform:
       p.mediaTransform && typeof p.mediaTransform === "object"
@@ -451,6 +465,9 @@ function payloadOf(m: NewMoment) {
     stickers: m.stickers ?? [],
     drawing: m.drawing ?? null,
     trim: m.trim ?? null,
+    partGroupId: m.partGroupId ?? null,
+    partIndex: m.partIndex ?? null,
+    partCount: m.partCount ?? null,
     crop: m.crop ?? null,
     mediaTransform: m.mediaTransform ?? null,
     visualFilter: m.visualFilter ?? null,

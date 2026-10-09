@@ -58,7 +58,10 @@ import {
 } from "@tanstack/react-router";
 import { useMoments } from "@/lib/moment-context";
 import { useUploadActions } from "@/lib/upload-progress";
-import { splitMomentIntoParts } from "@/lib/moment-parts";
+import {
+  MAX_MOMENT_PART_SECONDS,
+  splitMomentIntoParts,
+} from "@/lib/moment-parts";
 import { adaptiveCameraCaptureAttempts } from "@/lib/adaptive-performance";
 import { useAuth } from "@/lib/auth-store";
 import { useFollowList } from "@/lib/follow-data";
@@ -2189,11 +2192,16 @@ function MomentCreatePage() {
     // Keep one uploaded source and expose contiguous 30-second trim windows.
     // The viewer seeks these windows directly, so the source is not re-encoded.
     const sourceDuration = isVideo ? await readVideoDuration(mediaUrl) : 0;
+    if (isVideo && !sharedContent && sourceDuration <= 0) {
+      toast.error("Couldn't read this video's duration. Please select it again.");
+      return;
+    }
     const parts = isVideo
       ? sharedContent
-        ? [{ start: 0, end: Math.min(20, sourceDuration || 20) }]
+        ? [{ start: 0, end: Math.min(MAX_MOMENT_PART_SECONDS, sourceDuration || MAX_MOMENT_PART_SECONDS) }]
         : splitMomentIntoParts(sourceDuration)
       : [{ start: 0, end: 0 }];
+    const partGroupId = isVideo ? newId(parts.length) : undefined;
 
     const base = {
       mediaUrl: publishMediaUrl,
@@ -2283,14 +2291,15 @@ function MomentCreatePage() {
       (part, index) => ({
         ...base,
         id: newId(index),
+        partGroupId,
+        partIndex: isVideo ? index + 1 : undefined,
+        partCount: isVideo ? parts.length : undefined,
         trim: isVideo
           ? {
               start: part.start,
               end: part.end,
             }
           : undefined,
-        partIndex: index + 1,
-        partCount: parts.length,
         caption: base.caption,
       })
     );
@@ -2329,6 +2338,9 @@ function MomentCreatePage() {
           : "photo",
         media: publishMediaUrl,
         mediaType: part.mediaType,
+        partGroupId: part.partGroupId,
+        partIndex: part.partIndex,
+        partCount: part.partCount,
         text: part.caption ?? "",
         textBg: "",
         music:
@@ -2862,8 +2874,8 @@ function MomentCreatePage() {
                     onTimeUpdate={
                       sharedContent
                         ? (event) => {
-                            if (event.currentTarget.currentTime >= 20) {
-                              event.currentTarget.currentTime = 20;
+                            if (event.currentTarget.currentTime >= MAX_MOMENT_PART_SECONDS) {
+                              event.currentTarget.currentTime = MAX_MOMENT_PART_SECONDS;
                               event.currentTarget.pause();
                             }
                           }

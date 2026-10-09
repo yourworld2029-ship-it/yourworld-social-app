@@ -9,7 +9,7 @@ type Props = {
 };
 
 export function SharedMomentPill({ content, onClick, className = "" }: Props) {
-  const title = content.kind === "reel" ? "Watch full reel" : "Watch full video";
+  const title = content.kind === "reel" ? "Watch Full Reel" : "Watch Full Video";
   const detail =
     content.kind === "reel"
       ? content.creatorUsername

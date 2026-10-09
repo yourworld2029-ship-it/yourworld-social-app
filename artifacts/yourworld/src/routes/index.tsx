@@ -323,10 +323,18 @@ function HomePage() {
     );
   }, [videos]);
 
-  const myLatest = React.useMemo(
-    () => moments.find((m) => m.mine),
-    [moments],
-  );
+  const myLatest = React.useMemo(() => {
+    const newest = moments.find((moment) => moment.mine);
+    if (!newest?.partGroupId) return newest;
+    return (
+      moments.find(
+        (moment) =>
+          moment.mine &&
+          moment.partGroupId === newest.partGroupId &&
+          moment.partIndex === 1,
+      ) ?? newest
+    );
+  }, [moments]);
   const userMetadata = (user?.user_metadata ?? {}) as Record<string, unknown>;
   const myUsername =
     myLatest?.author?.username ||
@@ -361,13 +369,22 @@ function HomePage() {
       if (!uid) continue;
       if (!seen.has(uid)) {
         seen.add(uid);
+        const storyStart =
+          m.partGroupId
+            ? moments.find(
+                (part) =>
+                  part.author?.id === uid &&
+                  part.partGroupId === m.partGroupId &&
+                  part.partIndex === 1,
+              ) ?? m
+            : m;
         list.push({
           userId: uid,
           username: m.author?.username ?? "user",
           displayName: m.author?.name || m.author?.username || "user",
           avatarUrl: m.author?.avatar ?? undefined,
           hasUnseen: true,
-          momentId: m.id,
+          momentId: storyStart.id,
           liveStreamId: liveStreams.find(
             (stream) => stream.broadcaster_id === uid,
           )?.id,
@@ -503,60 +520,58 @@ function HomePage() {
       <FeedTopBar alertCount={alertCount} />
 
       {/* Stories / Moments Tray */}
-      <div className="flex items-center gap-3 px-4 py-3 overflow-x-auto no-scrollbar border-b border-neutral-900/60 bg-black">
-        <div className="flex flex-col items-center gap-1 shrink-0">
-          <button
-            onClick={() => {
-              if (myActiveLiveStream) {
-                navigate({
-                  to: "/live/$streamId",
-                  params: { streamId: myActiveLiveStream.id },
-                });
-              } else if (myLatest) {
-                navigate({ to: "/moment/$momentId", params: { momentId: myLatest.id } });
-              } else {
-                navigate({ to: "/moment/create" });
-              }
-            }}
-            className={`relative w-16 h-16 rounded-full p-[2px] bg-gradient-to-tr ${
-              myActiveLiveStream
-                ? "live-avatar-ring from-rose-300 via-red-500 to-fuchsia-500"
-                : "from-pink-500 to-purple-600"
-            } flex items-center justify-center`}
-            aria-label={myActiveLiveStream ? "Open your live broadcast" : "Open your moment"}
-          >
-            <div className="w-full h-full rounded-full bg-neutral-900 border-2 border-black overflow-hidden flex items-center justify-center">
-              <MomentAvatar
-                username={myUsername}
-                fullName={myLatest?.author?.name}
-                src={myAvatarUrl}
-              />
-            </div>
-            {/* Always-on "add another moment" badge (Snapchat-style) */}
-            <span
-              role="button"
-              aria-label="Add another moment"
-              onClick={(e) => {
-                e.stopPropagation();
-                navigate({ to: "/moment/create" });
+      <div className="flex snap-x snap-proximity items-center gap-3 overflow-x-auto overscroll-x-contain touch-pan-x scroll-smooth px-4 py-3 no-scrollbar border-b border-neutral-900/60 bg-black">
+        <div className="flex min-w-[72px] snap-start flex-col items-center gap-1">
+          <div className="relative">
+            <button
+              onClick={() => {
+                if (myActiveLiveStream) {
+                  navigate({
+                    to: "/live/$streamId",
+                    params: { streamId: myActiveLiveStream.id },
+                  });
+                } else if (myLatest) {
+                  navigate({ to: "/moment/$momentId", params: { momentId: myLatest.id } });
+                } else {
+                  navigate({ to: "/moment/create" });
+                }
               }}
-              className="absolute -bottom-0.5 -right-0.5 grid h-5 w-5 place-items-center rounded-full bg-pink-500 border-2 border-black"
+              className={`relative flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-tr p-[2px] shadow-[0_0_18px_rgba(217,70,239,0.18)] ${
+                myActiveLiveStream
+                  ? "live-avatar-ring from-rose-300 via-red-500 to-fuchsia-500"
+                  : "from-pink-400 via-fuchsia-500 to-violet-600"
+              }`}
+              aria-label={myActiveLiveStream ? "Open your live broadcast" : "Open your moment"}
             >
-              <Plus className="h-3 w-3 text-white" strokeWidth={3} />
-            </span>
-          </button>
+              <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-full border-2 border-black bg-neutral-900">
+                <MomentAvatar
+                  username={myUsername}
+                  fullName={myLatest?.author?.name}
+                  src={myAvatarUrl}
+                />
+              </div>
+            </button>
+            <button
+              type="button"
+              aria-label="Add another moment"
+              onClick={() => navigate({ to: "/moment/create" })}
+              className="absolute -bottom-0.5 -right-0.5 grid h-5 w-5 place-items-center rounded-full border-2 border-black bg-fuchsia-500 text-white shadow-md shadow-fuchsia-500/30 transition-transform active:scale-90"
+            >
+              <Plus className="h-3 w-3" strokeWidth={3} />
+            </button>
+          </div>
           {myActiveLiveStream && (
             <span className="live-avatar-badge -mt-1 rounded-full border border-rose-200/40 bg-gradient-to-r from-red-600 via-rose-600 to-pink-600 px-2 py-0.5 text-[8px] font-black tracking-[0.14em] text-white shadow-lg shadow-rose-500/40">
               LIVE
             </span>
           )}
-          <span className="text-xs text-neutral-300 font-medium truncate max-w-[68px]">
+          <span className="max-w-[70px] truncate text-xs font-medium text-white/90">
             Your moment
           </span>
         </div>
 
         {stories.map((s) => (
-          <div key={s.userId} className="flex flex-col items-center gap-1 shrink-0">
+          <div key={s.userId} className="flex min-w-[72px] snap-start flex-col items-center gap-1">
             <button
               onClick={() => {
                 if (s.liveStreamId) {
@@ -568,18 +583,18 @@ function HomePage() {
                   navigate({ to: "/moment/$momentId", params: { momentId: s.momentId } });
                 }
               }}
-              className={`relative w-16 h-16 rounded-full p-[2px] bg-gradient-to-tr ${
+              className={`relative flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-tr p-[2px] shadow-[0_0_18px_rgba(217,70,239,0.18)] ${
                 s.liveStreamId
                   ? "live-avatar-ring from-rose-300 via-red-500 to-fuchsia-500"
-                  : "from-pink-500 via-purple-500 to-yellow-500"
-              } flex items-center justify-center`}
+                  : "from-yellow-300 via-fuchsia-500 to-violet-600"
+              }`}
               aria-label={
                 s.liveStreamId
                   ? `Watch ${s.displayName} live`
                   : `Open ${s.displayName}'s moment`
               }
             >
-              <div className="w-full h-full rounded-full bg-neutral-900 border-2 border-black overflow-hidden">
+              <div className="h-full w-full overflow-hidden rounded-full border-2 border-black bg-neutral-900">
                 <MomentAvatar
                   username={s.username}
                   fullName={s.displayName}
@@ -592,8 +607,8 @@ function HomePage() {
                 LIVE
               </span>
             )}
-            <span className="text-xs text-neutral-400 truncate max-w-[68px]">
-              <span className="truncate">{s.displayName}</span>
+            <span className="max-w-[70px] truncate text-xs font-medium text-white/90">
+              {s.displayName}
             </span>
           </div>
         ))}

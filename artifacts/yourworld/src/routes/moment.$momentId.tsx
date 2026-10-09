@@ -24,6 +24,7 @@ import { downloadMomentMedia, downloadOriginalMomentMedia } from "@/lib/yw-downl
 import { toast } from "sonner";
 import { SportsIdentityMark } from "@/components/yw/SportsIdentityBadge";
 import { SharedMomentPill } from "@/components/yw/SharedMomentPill";
+import { MAX_MOMENT_PART_SECONDS } from "@/lib/moment-parts";
 import { historyBackOr } from "@/lib/navigation";
 import {
   ProtectedCanvasImage,
@@ -91,8 +92,32 @@ function MomentViewRoute() {
       if (list) list.push(m);
       else byAuthor.set(key, [m]);
     }
+    const orderedSequence = (list: MyMoment[]) => {
+      const bundles = new Map<string, MyMoment[]>();
+      for (const moment of list) {
+        const key = moment.partGroupId
+          ? `parts:${moment.partGroupId}`
+          : `moment:${moment.id}`;
+        const bundle = bundles.get(key);
+        if (bundle) bundle.push(moment);
+        else bundles.set(key, [moment]);
+      }
+      return [...bundles.values()]
+        .sort(
+          (a, b) =>
+            Math.min(...a.map((moment) => moment.createdAt)) -
+            Math.min(...b.map((moment) => moment.createdAt)),
+        )
+        .flatMap((bundle) =>
+          bundle.sort(
+            (a, b) =>
+              (a.partIndex ?? 0) - (b.partIndex ?? 0) ||
+              a.createdAt - b.createdAt,
+          ),
+        );
+    };
     return [...byAuthor.values()]
-      .map((list) => [...list].sort((a, b) => a.createdAt - b.createdAt))
+      .map(orderedSequence)
       .sort((a, b) => (b[0]?.createdAt ?? 0) - (a[0]?.createdAt ?? 0));
   }, [moments]);
 
@@ -441,12 +466,37 @@ function MomentViewRoute() {
                 preload="none"
                 style={mediaStyle}
                 className="h-full w-full object-cover opacity-0"
+                onLoadedMetadata={(event) => {
+                  const video = event.currentTarget;
+                  const requestedStart = Number(current.trim?.start ?? 0);
+                  const start = Number.isFinite(requestedStart)
+                    ? Math.min(Math.max(0, requestedStart), Math.max(0, video.duration - 0.05))
+                    : 0;
+                  if (Math.abs(video.currentTime - start) > 0.2) {
+                    video.currentTime = start;
+                  }
+                }}
                 onTimeUpdate={(e) => {
                   const v = e.currentTarget;
-                  if (!v.duration || Number.isNaN(v.duration)) return;
-                  setProgress(Math.min(100, Math.max(0, (v.currentTime / v.duration) * 100)));
+                  if (!v.duration || !Number.isFinite(v.duration)) return;
+                  const requestedStart = Number(current.trim?.start ?? 0);
+                  const start = Number.isFinite(requestedStart)
+                    ? Math.min(Math.max(0, requestedStart), v.duration)
+                    : 0;
+                  const requestedEnd = Number(current.trim?.end ?? v.duration);
+                  const storedEnd =
+                    Number.isFinite(requestedEnd) && requestedEnd > start
+                      ? Math.min(v.duration, requestedEnd)
+                      : v.duration;
+                  const end = current.sharedContent
+                    ? Math.min(storedEnd, start + MAX_MOMENT_PART_SECONDS)
+                    : storedEnd;
+                  const span = Math.max(0.05, end - start);
+                  setProgress(
+                    Math.min(100, Math.max(0, ((v.currentTime - start) / span) * 100)),
+                  );
                   const boundaryKey = String(current.id);
-                  if (v.currentTime >= v.duration - 0.05 && boundaryHandledRef.current !== boundaryKey) {
+                  if (v.currentTime >= end - 0.05 && boundaryHandledRef.current !== boundaryKey) {
                     boundaryHandledRef.current = boundaryKey;
                     goNext();
                   }
@@ -522,7 +572,10 @@ function MomentViewRoute() {
         </div>
 
         {current.sharedContent ? (
-          <div className="absolute bottom-20 left-1/2 z-[10004] -translate-x-1/2">
+          <div
+            className="absolute left-1/2 z-[10004] -translate-x-1/2"
+            style={{ bottom: "calc(env(safe-area-inset-bottom, 16px) + 5rem)" }}
+          >
             <SharedMomentPill
               content={current.sharedContent}
               onClick={() => {
