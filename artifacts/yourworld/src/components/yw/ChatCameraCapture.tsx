@@ -20,9 +20,9 @@ async function requestCameraStream(facing: CameraFacing) {
   const videoConstraints: Array<MediaTrackConstraints | boolean> = [
     {
       facingMode: { ideal: facing },
-      width: { ideal: 1920, min: 1280 },
-      height: { ideal: 1080, min: 720 },
-      frameRate: { ideal: 30, min: 24 },
+      width: { ideal: 3840, min: 1920 },
+      height: { ideal: 2160, min: 1080 },
+      frameRate: { ideal: 60, min: 30 },
     },
     {
       facingMode: { ideal: facing },
@@ -34,10 +34,15 @@ async function requestCameraStream(facing: CameraFacing) {
     { width: { ideal: 1280 }, height: { ideal: 720 } },
     true,
   ];
+  const audioConstraints: MediaTrackConstraints = {
+    echoCancellation: true,
+    noiseSuppression: true,
+    sampleRate: 48_000,
+  };
   let lastError: unknown;
 
   for (const video of videoConstraints) {
-    for (const audio of [true, false]) {
+    for (const audio of [audioConstraints, true, false] as const) {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video, audio });
         if (stream.getVideoTracks().length > 0) {
