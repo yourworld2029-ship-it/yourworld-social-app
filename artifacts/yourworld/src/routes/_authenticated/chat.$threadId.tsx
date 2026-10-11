@@ -2786,7 +2786,7 @@ function NativeChatThreadPage() {
             onPointerCancel={() => endMessageGesture(m)}
             onContextMenu={(e) => { e.preventDefault(); if (!selectMode) setActionSheetId(m.id); }}
             onClick={() => selectMode && toggleSelect(m.id)}
-            className={`w-full! flex! flex-col ${m.sender === "me" ? "items-end" : "items-start"} ${
+            className={`w-full flex ${m.sender === "me" ? "justify-end" : "justify-start"} ${
               selectMode && selectedIds.includes(m.id) ? "rounded-2xl bg-purple-500/10 ring-1 ring-purple-500/40" : ""
             } ${selectMode ? "cursor-pointer select-none px-1 py-1" : "touch-pan-y"}`}
             style={{
@@ -2802,7 +2802,7 @@ function NativeChatThreadPage() {
               </span>
             )}
             {(m.text || m.isMomentReply || m.momentId || m.sharedMedia) && (
-              <div className={`max-w-[78%] w-fit break-words whitespace-pre-wrap px-4 py-2 rounded-2xl text-sm leading-relaxed ${
+              <div className={`w-fit max-w-[75%] px-4 py-2.5 rounded-2xl break-words whitespace-pre-wrap text-sm leading-relaxed ${
                 m.sender === "me" ? `${ownMessageBubbleThemeClass} text-white rounded-br-xs` : "bg-zinc-800/90 text-zinc-100 rounded-bl-xs border border-zinc-700/50"
               } ${m.isMomentMention ? "hyphens-none" : ""}`}>
                 {m.replyTo && <ReplyQuote reply={m.replyTo} className="mb-2 rounded-lg" />}
