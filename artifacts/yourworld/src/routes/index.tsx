@@ -292,7 +292,11 @@ function HomePage() {
   const { user } = useAuth();
   const { streams: liveStreams } = useActiveLiveStreams();
   const { count: alertCount } = useAlertsCount();
-  const homeSwipeStartRef = React.useRef<{ x: number; y: number } | null>(null);
+  const homeSwipeStartRef = React.useRef<{
+    x: number;
+    y: number;
+    direction: "undecided" | "horizontal" | "vertical";
+  } | null>(null);
   React.useEffect(() => setHydrated(true), []);
 
   const handleHomeTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
@@ -305,17 +309,54 @@ function HomePage() {
       homeSwipeStartRef.current = null;
       return;
     }
-    homeSwipeStartRef.current = { x: touch.clientX, y: touch.clientY };
+    homeSwipeStartRef.current = {
+      x: touch.clientX,
+      y: touch.clientY,
+      direction: "undecided",
+    };
+    event.currentTarget.style.transition = "none";
+    event.currentTarget.style.transform = "translate3d(0, 0, 0)";
+  };
+  const handleHomeTouchMove = (event: React.TouchEvent<HTMLDivElement>) => {
+    const gesture = homeSwipeStartRef.current;
+    const touch = event.touches[0];
+    if (!gesture || !touch) return;
+    const deltaX = touch.clientX - gesture.x;
+    const deltaY = touch.clientY - gesture.y;
+    if (
+      gesture.direction === "undecided" &&
+      Math.max(Math.abs(deltaX), Math.abs(deltaY)) >= 8
+    ) {
+      gesture.direction =
+        Math.abs(deltaX) > Math.abs(deltaY) ? "horizontal" : "vertical";
+    }
+    if (gesture.direction === "horizontal") {
+      const feedbackX = Math.max(-18, Math.min(0, deltaX * 0.08));
+      event.currentTarget.style.transform = `translate3d(${feedbackX}px, 0, 0)`;
+    } else if (gesture.direction === "vertical") {
+      event.currentTarget.style.transform = "translate3d(0, 0, 0)";
+    }
   };
   const handleHomeTouchEnd = (event: React.TouchEvent<HTMLDivElement>) => {
-    const start = homeSwipeStartRef.current;
+    const gesture = homeSwipeStartRef.current;
     homeSwipeStartRef.current = null;
     const touch = event.changedTouches[0];
-    if (!start || !touch) return;
-    const deltaX = touch.clientX - start.x;
-    const deltaY = touch.clientY - start.y;
-    if (deltaX <= -60 && Math.abs(deltaX) > Math.abs(deltaY) * 1.25) {
+    event.currentTarget.style.transition =
+      "transform 0.25s cubic-bezier(0.25, 1, 0.5, 1)";
+    if (!gesture || !touch) {
+      event.currentTarget.style.transform = "translate3d(0, 0, 0)";
+      return;
+    }
+    const deltaX = touch.clientX - gesture.x;
+    const deltaY = touch.clientY - gesture.y;
+    if (
+      gesture.direction === "horizontal" &&
+      deltaX <= -50 &&
+      Math.abs(deltaX) > Math.abs(deltaY) * 1.25
+    ) {
       void navigate({ to: "/reels" });
+    } else {
+      event.currentTarget.style.transform = "translate3d(0, 0, 0)";
     }
   };
 
@@ -543,10 +584,19 @@ function HomePage() {
   return (
     <div
       className="yw-media-scroll-surface min-h-screen bg-black text-white pb-24"
+      style={{
+        willChange: "transform",
+        transform: "translate3d(0, 0, 0)",
+        transition: "transform 0.25s cubic-bezier(0.25, 1, 0.5, 1)",
+      }}
       onTouchStartCapture={handleHomeTouchStart}
+      onTouchMoveCapture={handleHomeTouchMove}
       onTouchEndCapture={handleHomeTouchEnd}
-      onTouchCancelCapture={() => {
+      onTouchCancelCapture={(event) => {
         homeSwipeStartRef.current = null;
+        event.currentTarget.style.transition =
+          "transform 0.25s cubic-bezier(0.25, 1, 0.5, 1)";
+        event.currentTarget.style.transform = "translate3d(0, 0, 0)";
       }}
     >
       <FeedTopBar alertCount={alertCount} />
