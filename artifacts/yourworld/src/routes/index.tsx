@@ -292,7 +292,32 @@ function HomePage() {
   const { user } = useAuth();
   const { streams: liveStreams } = useActiveLiveStreams();
   const { count: alertCount } = useAlertsCount();
+  const homeSwipeStartRef = React.useRef<{ x: number; y: number } | null>(null);
   React.useEffect(() => setHydrated(true), []);
+
+  const handleHomeTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+    const touch = event.touches[0];
+    const target = event.target;
+    if (
+      !touch ||
+      (target instanceof Element && target.closest(".touch-pan-x, [data-swipe-navigation-ignore]"))
+    ) {
+      homeSwipeStartRef.current = null;
+      return;
+    }
+    homeSwipeStartRef.current = { x: touch.clientX, y: touch.clientY };
+  };
+  const handleHomeTouchEnd = (event: React.TouchEvent<HTMLDivElement>) => {
+    const start = homeSwipeStartRef.current;
+    homeSwipeStartRef.current = null;
+    const touch = event.changedTouches[0];
+    if (!start || !touch) return;
+    const deltaX = touch.clientX - start.x;
+    const deltaY = touch.clientY - start.y;
+    if (deltaX <= -60 && Math.abs(deltaX) > Math.abs(deltaY) * 1.25) {
+      void navigate({ to: "/reels" });
+    }
+  };
 
   React.useEffect(() => {
     if (!hasNextPage || isFetchingNextPage) return;
@@ -516,7 +541,14 @@ function HomePage() {
   }, [hasNextPage, regularVideos, verticalShelfBatches]);
 
   return (
-    <div className="yw-media-scroll-surface min-h-screen bg-black text-white pb-24">
+    <div
+      className="yw-media-scroll-surface min-h-screen bg-black text-white pb-24"
+      onTouchStartCapture={handleHomeTouchStart}
+      onTouchEndCapture={handleHomeTouchEnd}
+      onTouchCancelCapture={() => {
+        homeSwipeStartRef.current = null;
+      }}
+    >
       <FeedTopBar alertCount={alertCount} />
 
       {/* Stories / Moments Tray */}
