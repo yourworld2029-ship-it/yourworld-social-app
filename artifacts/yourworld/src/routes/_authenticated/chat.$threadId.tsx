@@ -2786,7 +2786,7 @@ function NativeChatThreadPage() {
             onPointerCancel={() => endMessageGesture(m)}
             onContextMenu={(e) => { e.preventDefault(); if (!selectMode) setActionSheetId(m.id); }}
             onClick={() => selectMode && toggleSelect(m.id)}
-            className={`mb-2 w-full flex ${
+            className={`chat-message-row-override mb-2 w-full flex ${
               selectMode && selectedIds.includes(m.id) ? "rounded-2xl bg-purple-500/10 ring-1 ring-purple-500/40" : ""
             } ${m.sender === "me" ? "justify-end" : "justify-start"} ${selectMode ? "cursor-pointer select-none px-1 py-1" : "touch-pan-y"}`}
             style={{
@@ -2803,7 +2803,7 @@ function NativeChatThreadPage() {
             )}
             {(m.text || m.isMomentReply || m.momentId || m.sharedMedia) && (
               <div
-                className={`${m.text && !m.sharedMedia && !m.isMomentMention && !m.isMomentReply && !m.momentId ? "w-fit max-w-[78%] px-4 py-2.5" : m.isMomentReply || m.momentId || m.isMomentMention ? "w-[78%] min-w-0 px-4 py-2.5" : "w-fit max-w-[78%] px-4 py-2.5"} rounded-2xl break-words whitespace-pre-wrap text-sm text-left leading-relaxed ${
+                className={`${m.text && !m.sharedMedia && !m.isMomentMention && !m.isMomentReply && !m.momentId ? "chat-text-bubble-override w-fit max-w-[78%] px-4 py-2.5" : m.isMomentReply || m.momentId || m.isMomentMention ? "w-[78%] min-w-0 px-4 py-2.5" : "w-fit max-w-[78%] px-4 py-2.5"} rounded-2xl break-words whitespace-pre-wrap text-sm text-left leading-relaxed ${
                 m.sender === "me" ? `${ownMessageBubbleThemeClass} text-white rounded-br-xs` : "bg-zinc-800/90 text-zinc-100 rounded-bl-xs border border-zinc-700/50"
                 } ${m.isMomentMention ? "hyphens-none" : ""}`}
                 style={

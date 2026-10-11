@@ -1562,3 +1562,17 @@ nav.top-nav,
     height: calc(100dvh - max(env(safe-area-inset-top, 0px), 24px)) !important;
   }
 }
+
+.chat-message-row-override {
+  width: 100% !important;
+  display: flex !important;
+}
+
+.chat-text-bubble-override {
+  width: fit-content !important;
+  max-width: 78vw !important;
+  min-width: 50px !important;
+  word-break: break-word !important;
+  white-space: pre-wrap !important;
+  display: inline-block !important;
+}
