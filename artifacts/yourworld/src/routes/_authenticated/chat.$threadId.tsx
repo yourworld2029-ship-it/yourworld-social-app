@@ -2802,14 +2802,14 @@ function NativeChatThreadPage() {
               </span>
             )}
             {(m.text || m.isMomentReply || m.momentId || m.sharedMedia) && (
-              <div className={`max-w-[78%] rounded-2xl text-sm leading-relaxed ${
-                m.sharedMedia || m.isMomentMention ? "w-[300px] p-2.5" : "px-4 py-2.5"
+              <div className={`w-fit max-w-[75%] whitespace-pre-wrap break-words rounded-2xl text-sm leading-relaxed ${
+                m.sharedMedia || m.isMomentMention ? "w-[300px] p-2.5" : "px-3.5 py-2.5"
               } ${
                 m.sender === "me" ? `${ownMessageBubbleThemeClass} text-white rounded-br-xs` : "bg-zinc-800/90 text-zinc-100 rounded-bl-xs border border-zinc-700/50"
-              } ${m.isMomentMention ? "hyphens-none break-normal" : ""}`}>
+              } ${m.isMomentMention ? "hyphens-none" : ""}`}>
                 {m.replyTo && <ReplyQuote reply={m.replyTo} className="mb-2 rounded-lg" />}
                 {m.isMomentMention && m.text ? (
-                  <div className="mb-2 px-1 text-[13px] font-medium leading-5 text-white/95 hyphens-none break-normal">
+                  <div className="mb-2 px-1 text-[13px] font-medium leading-5 text-white/95 hyphens-none">
                     <ChatMessageText
                       text={m.text}
                       onOpenLink={(url, event) =>
