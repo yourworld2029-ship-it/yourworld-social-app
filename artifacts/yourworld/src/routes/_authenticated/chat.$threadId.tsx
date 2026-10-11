@@ -369,7 +369,7 @@ function MomentReplyCard({
   return (
     <div
       data-testid="moment-reply-strip"
-      className="mx-auto mb-2 w-full max-w-[260px] overflow-hidden rounded-2xl border border-white/15 bg-zinc-950/45 shadow-lg shadow-black/25 backdrop-blur-xl"
+      className="mb-2 w-full min-w-0 overflow-hidden rounded-2xl border border-white/15 bg-zinc-950/45 shadow-lg shadow-black/25 backdrop-blur-xl"
     >
       <button
         type="button"
@@ -2786,13 +2786,10 @@ function NativeChatThreadPage() {
             onPointerCancel={() => endMessageGesture(m)}
             onContextMenu={(e) => { e.preventDefault(); if (!selectMode) setActionSheetId(m.id); }}
             onClick={() => selectMode && toggleSelect(m.id)}
-            className={`mb-2 ${
+            className={`mb-2 w-full flex ${
               selectMode && selectedIds.includes(m.id) ? "rounded-2xl bg-purple-500/10 ring-1 ring-purple-500/40" : ""
-            } ${selectMode ? "cursor-pointer select-none px-1 py-1" : "touch-pan-y"}`}
+            } ${m.sender === "me" ? "justify-end" : "justify-start"} ${selectMode ? "cursor-pointer select-none px-1 py-1" : "touch-pan-y"}`}
             style={{
-              width: "100%",
-              display: "flex",
-              justifyContent: m.sender === "me" ? "flex-end" : "flex-start",
               transform: swipeState?.id === m.id ? `translateX(${swipeState.offset}px)` : undefined,
               transition: swipeState?.id === m.id ? "none" : "transform 120ms ease-out",
             }}
@@ -2806,20 +2803,15 @@ function NativeChatThreadPage() {
             )}
             {(m.text || m.isMomentReply || m.momentId || m.sharedMedia) && (
               <div
-                className={`${m.text && !m.sharedMedia && !m.isMomentMention && !m.isMomentReply && !m.momentId ? "" : "px-4 py-2.5"} rounded-2xl break-words whitespace-pre-wrap text-sm text-left leading-relaxed ${
+                className={`${m.text && !m.sharedMedia && !m.isMomentMention && !m.isMomentReply && !m.momentId ? "w-fit max-w-[78%] px-4 py-2.5" : m.isMomentReply || m.momentId || m.isMomentMention ? "w-[78%] min-w-0 px-4 py-2.5" : "w-fit max-w-[78%] px-4 py-2.5"} rounded-2xl break-words whitespace-pre-wrap text-sm text-left leading-relaxed ${
                 m.sender === "me" ? `${ownMessageBubbleThemeClass} text-white rounded-br-xs` : "bg-zinc-800/90 text-zinc-100 rounded-bl-xs border border-zinc-700/50"
                 } ${m.isMomentMention ? "hyphens-none" : ""}`}
                 style={
                   m.text && !m.sharedMedia && !m.isMomentMention && !m.isMomentReply && !m.momentId
-                    ? {
-                        width: "fit-content",
-                        maxWidth: "75%",
-                        minWidth: "40px",
-                        wordBreak: "break-word",
-                        whiteSpace: "pre-wrap",
-                        padding: "10px 14px",
-                      }
-                    : { width: "fit-content", maxWidth: "78%" }
+                    ? undefined
+                    : m.isMomentReply || m.momentId || m.isMomentMention
+                      ? { width: "78%", maxWidth: "78%" }
+                      : { width: "fit-content", maxWidth: "78%" }
                 }
               >
                 {m.replyTo && <ReplyQuote reply={m.replyTo} className="mb-2 rounded-lg" />}
