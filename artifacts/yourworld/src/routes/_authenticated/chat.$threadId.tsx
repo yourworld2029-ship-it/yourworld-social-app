@@ -2786,10 +2786,13 @@ function NativeChatThreadPage() {
             onPointerCancel={() => endMessageGesture(m)}
             onContextMenu={(e) => { e.preventDefault(); if (!selectMode) setActionSheetId(m.id); }}
             onClick={() => selectMode && toggleSelect(m.id)}
-            className={`w-full flex mb-2 ${m.sender === "me" ? "justify-end" : "justify-start"} ${
+            className={`mb-2 ${
               selectMode && selectedIds.includes(m.id) ? "rounded-2xl bg-purple-500/10 ring-1 ring-purple-500/40" : ""
             } ${selectMode ? "cursor-pointer select-none px-1 py-1" : "touch-pan-y"}`}
             style={{
+              width: "100%",
+              display: "flex",
+              justifyContent: m.sender === "me" ? "flex-end" : "flex-start",
               transform: swipeState?.id === m.id ? `translateX(${swipeState.offset}px)` : undefined,
               transition: swipeState?.id === m.id ? "none" : "transform 120ms ease-out",
             }}
@@ -2802,9 +2805,23 @@ function NativeChatThreadPage() {
               </span>
             )}
             {(m.text || m.isMomentReply || m.momentId || m.sharedMedia) && (
-              <div className={`w-fit max-w-[78%] px-4 py-2.5 rounded-2xl break-words whitespace-pre-wrap text-sm text-left leading-relaxed ${
+              <div
+                className={`${m.text && !m.sharedMedia && !m.isMomentMention && !m.isMomentReply && !m.momentId ? "" : "px-4 py-2.5"} rounded-2xl break-words whitespace-pre-wrap text-sm text-left leading-relaxed ${
                 m.sender === "me" ? `${ownMessageBubbleThemeClass} text-white rounded-br-xs` : "bg-zinc-800/90 text-zinc-100 rounded-bl-xs border border-zinc-700/50"
-              } ${m.isMomentMention ? "hyphens-none" : ""}`}>
+                } ${m.isMomentMention ? "hyphens-none" : ""}`}
+                style={
+                  m.text && !m.sharedMedia && !m.isMomentMention && !m.isMomentReply && !m.momentId
+                    ? {
+                        width: "fit-content",
+                        maxWidth: "75%",
+                        minWidth: "40px",
+                        wordBreak: "break-word",
+                        whiteSpace: "pre-wrap",
+                        padding: "10px 14px",
+                      }
+                    : { width: "fit-content", maxWidth: "78%" }
+                }
+              >
                 {m.replyTo && <ReplyQuote reply={m.replyTo} className="mb-2 rounded-lg" />}
                 {m.isMomentMention && m.text ? (
                   <div className="mb-2 px-1 text-[13px] font-medium leading-5 text-white/95 hyphens-none">
