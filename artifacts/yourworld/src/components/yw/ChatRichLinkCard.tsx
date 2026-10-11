@@ -68,8 +68,16 @@ export function ChatMessageText({
   onOpenLink: (url: string, event: ReactMouseEvent<HTMLAnchorElement>) => void;
 }) {
   const links = extractExternalTextLinks(text);
+  const textLayoutClass =
+    "w-full break-words whitespace-pre-wrap text-sm text-left leading-relaxed";
+  const textLayoutStyle = { maxWidth: "100%", wordBreak: "break-word" as const };
+
   if (links.length === 0) {
-    return <ProtectedCanvasText text={text} onUrlClick={onOpenLink} />;
+    return (
+      <div className={textLayoutClass} style={textLayoutStyle}>
+        <ProtectedCanvasText text={text} onUrlClick={onOpenLink} />
+      </div>
+    );
   }
 
   const content: ReactNode[] = [];
@@ -95,5 +103,9 @@ export function ChatMessageText({
     content.push(<ProtectedCanvasText key="text-after-links" text={after} />);
   }
 
-  return <>{content}</>;
+  return (
+    <div className={textLayoutClass} style={textLayoutStyle}>
+      {content}
+    </div>
+  );
 }
