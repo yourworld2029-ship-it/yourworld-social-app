@@ -2802,7 +2802,7 @@ function NativeChatThreadPage() {
               </span>
             )}
             {(m.text || m.isMomentReply || m.momentId || m.sharedMedia) && (
-              <div className={`w-fit max-w-[75%] px-4 py-2.5 rounded-2xl break-words whitespace-pre-wrap text-left text-sm leading-relaxed ${
+              <div className={`w-fit max-w-[78%] px-4 py-2.5 rounded-2xl break-words whitespace-pre-wrap text-sm text-left leading-relaxed ${
                 m.sender === "me" ? `${ownMessageBubbleThemeClass} text-white rounded-br-xs` : "bg-zinc-800/90 text-zinc-100 rounded-bl-xs border border-zinc-700/50"
               } ${m.isMomentMention ? "hyphens-none" : ""}`}>
                 {m.replyTo && <ReplyQuote reply={m.replyTo} className="mb-2 rounded-lg" />}
