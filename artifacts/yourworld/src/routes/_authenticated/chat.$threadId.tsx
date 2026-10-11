@@ -2750,9 +2750,6 @@ function NativeChatThreadPage() {
         {loadingMore ? (
           <p className="py-1 text-center text-[11px] text-zinc-500">Loading older messages…</p>
         ) : null}
-        <div style={{ color: "red", fontSize: "20px", textAlign: "center", zIndex: 9999 }}>
-          BUILD V128 ACTIVE
-        </div>
         {messages.map((m) => (
           <React.Fragment key={`${threadId}:${m.id}`}>
           {initialUnreadReadyKey === `${threadId}:${currentUserId}` &&
@@ -2806,26 +2803,12 @@ function NativeChatThreadPage() {
             )}
             {(m.text || m.isMomentReply || m.momentId || m.sharedMedia) && (
               <div
-                ref={(node) => {
-                  if (
-                    node &&
-                    m.text &&
-                    !m.sharedMedia &&
-                    !m.isMomentMention &&
-                    !m.isMomentReply &&
-                    !m.momentId
-                  ) {
-                    node.style.setProperty("width", "280px", "important");
-                    node.style.setProperty("min-width", "280px", "important");
-                    node.style.setProperty("max-width", "85vw", "important");
-                  }
-                }}
                 className={`${m.text && !m.sharedMedia && !m.isMomentMention && !m.isMomentReply && !m.momentId ? "chat-text-bubble-override w-fit max-w-[78%] px-4 py-2.5" : m.isMomentReply || m.momentId || m.isMomentMention ? "w-[78%] min-w-0 px-4 py-2.5" : "w-fit max-w-[78%] px-4 py-2.5"} rounded-2xl break-words whitespace-pre-wrap text-sm text-left leading-relaxed ${
                 m.sender === "me" ? `${ownMessageBubbleThemeClass} text-white rounded-br-xs` : "bg-zinc-800/90 text-zinc-100 rounded-bl-xs border border-zinc-700/50"
                 } ${m.isMomentMention ? "hyphens-none" : ""}`}
                 style={
                   m.text && !m.sharedMedia && !m.isMomentMention && !m.isMomentReply && !m.momentId
-                    ? { width: "280px", minWidth: "280px", maxWidth: "85vw" }
+                    ? { width: "fit-content", maxWidth: "76vw" }
                     : m.isMomentReply || m.momentId || m.isMomentMention
                       ? { width: "78%", maxWidth: "78%" }
                       : { width: "fit-content", maxWidth: "78%" }

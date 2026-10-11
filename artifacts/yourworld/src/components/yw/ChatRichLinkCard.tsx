@@ -69,8 +69,13 @@ export function ChatMessageText({
 }) {
   const links = extractExternalTextLinks(text);
   const textLayoutClass =
-    "w-full break-words whitespace-pre-wrap text-sm text-left leading-relaxed";
-  const textLayoutStyle = { maxWidth: "100%", wordBreak: "break-word" as const };
+    "chat-message-text-override w-fit max-w-full text-sm text-left leading-relaxed";
+  const textLayoutStyle = {
+    maxWidth: "100%",
+    wordBreak: "normal" as const,
+    whiteSpace: "pre-wrap" as const,
+    overflowWrap: "anywhere" as const,
+  };
 
   if (links.length === 0) {
     return (
