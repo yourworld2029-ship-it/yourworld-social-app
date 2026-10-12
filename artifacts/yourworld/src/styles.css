@@ -1577,7 +1577,7 @@ nav.top-nav,
   word-break: break-word !important;
   white-space: pre-wrap !important;
   overflow-wrap: anywhere !important;
-  display: inline-block !important;
+  display: block !important;
 }
 
 .chat-message-text-override {

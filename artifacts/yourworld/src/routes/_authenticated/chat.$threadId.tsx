@@ -2816,7 +2816,7 @@ function NativeChatThreadPage() {
                         width: "fit-content",
                         maxWidth: "78vw",
                         minWidth: "40px",
-                        display: "inline-block",
+                        display: "block",
                         wordBreak: "break-word",
                         overflowWrap: "anywhere",
                         whiteSpace: "pre-wrap",
