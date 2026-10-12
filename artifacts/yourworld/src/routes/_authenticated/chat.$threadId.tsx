@@ -2814,10 +2814,10 @@ function NativeChatThreadPage() {
                   m.text && !m.sharedMedia && !m.isMomentMention && !m.isMomentReply && !m.momentId
                     ? {
                         width: "fit-content",
-                        maxWidth: "75%",
+                        maxWidth: "76vw",
                         minWidth: "40px",
                         display: "inline-block",
-                        wordBreak: "normal",
+                        wordBreak: "break-word",
                         overflowWrap: "anywhere",
                         whiteSpace: "pre-wrap",
                       }
