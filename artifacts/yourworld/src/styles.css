@@ -1570,14 +1570,12 @@ nav.top-nav,
   box-sizing: border-box !important;
 }
 
-.chat-text-bubble-override {
-  display: inline-block !important;
-  width: auto !important;
-  max-width: 74% !important;
-  min-width: fit-content !important;
-  word-break: normal !important;
-  overflow-wrap: break-word !important;
-  white-space: pre-wrap !important;
+.chat-messages-container-override,
+.chat-message-list-override {
+  width: 100% !important;
+  min-width: 100% !important;
+  max-width: none !important;
+  box-sizing: border-box !important;
 }
 
 .chat-message-text-override {
