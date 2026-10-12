@@ -1570,9 +1570,9 @@ nav.top-nav,
 
 .chat-text-bubble-override {
   width: fit-content !important;
-  max-width: 78% !important;
+  max-width: 78vw !important;
   min-width: 40px !important;
-  word-break: break-word !important;
+  word-break: normal !important;
   white-space: pre-wrap !important;
   overflow-wrap: anywhere !important;
   display: inline-block !important;
