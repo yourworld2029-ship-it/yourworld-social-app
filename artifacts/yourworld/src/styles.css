@@ -1565,12 +1565,14 @@ nav.top-nav,
 
 .chat-message-row-override {
   width: 100% !important;
+  min-width: 100% !important;
   display: flex !important;
+  box-sizing: border-box !important;
 }
 
 .chat-text-bubble-override {
   width: fit-content !important;
-  max-width: 78vw !important;
+  max-width: 78% !important;
   min-width: 40px !important;
   word-break: normal !important;
   white-space: pre-wrap !important;

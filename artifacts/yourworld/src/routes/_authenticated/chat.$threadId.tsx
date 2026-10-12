@@ -2786,10 +2786,13 @@ function NativeChatThreadPage() {
             onPointerCancel={() => endMessageGesture(m)}
             onContextMenu={(e) => { e.preventDefault(); if (!selectMode) setActionSheetId(m.id); }}
             onClick={() => selectMode && toggleSelect(m.id)}
-            className={`chat-message-row-override mb-2 w-full flex ${
+            className={`chat-message-row-override w-full min-w-full flex px-3 my-1 ${
               selectMode && selectedIds.includes(m.id) ? "rounded-2xl bg-purple-500/10 ring-1 ring-purple-500/40" : ""
             } ${m.sender === "me" ? "justify-end" : "justify-start"} ${selectMode ? "cursor-pointer select-none px-1 py-1" : "touch-pan-y"}`}
             style={{
+              width: "100%",
+              minWidth: "100%",
+              display: "flex",
               transform: swipeState?.id === m.id ? `translateX(${swipeState.offset}px)` : undefined,
               transition: swipeState?.id === m.id ? "none" : "transform 120ms ease-out",
             }}
@@ -2810,7 +2813,7 @@ function NativeChatThreadPage() {
                   m.text && !m.sharedMedia && !m.isMomentMention && !m.isMomentReply && !m.momentId
                     ? {
                         width: "fit-content",
-                        maxWidth: "78vw",
+                        maxWidth: "78%",
                         minWidth: "40px",
                         wordBreak: "normal",
                         whiteSpace: "pre-wrap",
