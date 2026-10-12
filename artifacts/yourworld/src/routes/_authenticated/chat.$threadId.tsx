@@ -2808,7 +2808,13 @@ function NativeChatThreadPage() {
                 } ${m.isMomentMention ? "hyphens-none" : ""}`}
                 style={
                   m.text && !m.sharedMedia && !m.isMomentMention && !m.isMomentReply && !m.momentId
-                    ? { width: "fit-content", maxWidth: "76vw" }
+                    ? {
+                        width: "fit-content",
+                        maxWidth: "78%",
+                        minWidth: "40px",
+                        wordBreak: "break-word",
+                        whiteSpace: "pre-wrap",
+                      }
                     : m.isMomentReply || m.momentId || m.isMomentMention
                       ? { width: "78%", maxWidth: "78%" }
                       : { width: "fit-content", maxWidth: "78%" }
