@@ -2793,6 +2793,7 @@ function NativeChatThreadPage() {
               width: "100%",
               minWidth: "100%",
               display: "flex",
+              justifyContent: m.sender === "me" ? "flex-end" : "flex-start",
               transform: swipeState?.id === m.id ? `translateX(${swipeState.offset}px)` : undefined,
               transition: swipeState?.id === m.id ? "none" : "transform 120ms ease-out",
             }}
@@ -2813,11 +2814,12 @@ function NativeChatThreadPage() {
                   m.text && !m.sharedMedia && !m.isMomentMention && !m.isMomentReply && !m.momentId
                     ? {
                         width: "fit-content",
-                        maxWidth: "78%",
-                        minWidth: "40px",
+                        maxWidth: "78vw",
+                        minWidth: "48px",
+                        display: "inline-block",
                         wordBreak: "normal",
-                        whiteSpace: "pre-wrap",
                         overflowWrap: "anywhere",
+                        whiteSpace: "pre-wrap",
                       }
                     : m.isMomentReply || m.momentId || m.isMomentMention
                       ? { width: "78%", maxWidth: "78%" }
