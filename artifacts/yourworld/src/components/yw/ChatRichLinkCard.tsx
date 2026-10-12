@@ -69,7 +69,7 @@ export function ChatMessageText({
 }) {
   const links = extractExternalTextLinks(text);
   const textLayoutClass =
-    "chat-message-text-override w-full max-w-full text-sm text-left leading-relaxed";
+    "chat-message-text-override w-full min-w-0 break-words whitespace-pre-wrap text-sm text-left leading-relaxed";
   const textLayoutStyle = {
     width: "100%",
     maxWidth: "100%",

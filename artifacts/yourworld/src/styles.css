@@ -1571,10 +1571,10 @@ nav.top-nav,
 }
 
 .chat-text-bubble-override {
-  width: auto !important;
+  width: fit-content !important;
   max-width: 75vw !important;
-  min-width: 44px !important;
-  display: inline-block !important;
+  min-width: 40px !important;
+  display: block !important;
   word-break: normal !important;
   overflow-wrap: break-word !important;
   white-space: pre-wrap !important;
