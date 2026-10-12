@@ -1455,7 +1455,7 @@ function NativeChatThreadPage() {
 
   const ownMessageBubbleThemeClass =
     CHAT_BUBBLE_THEMES.find((theme) => theme.id === selectedChatBubbleTheme)?.bubbleClass ??
-    "bg-gradient-to-r from-purple-600 to-pink-600";
+    "bg-gradient-to-br from-[#7655e8] to-[#bd4be4]";
 
   // Live presence: online dot + "typing..." indicator.
   const { peerOnline, peerTyping, setTyping } = useThreadPresence(threadId, currentUserId);
@@ -2379,20 +2379,20 @@ function NativeChatThreadPage() {
     <div
       hidden={secretLock && !chatUnlocked}
       data-testid="chat-screen"
-      className="fixed inset-0 z-50 flex h-[100dvh] max-h-[100dvh] w-screen flex-col overflow-hidden bg-black font-sans text-white"
+      className="fixed inset-0 z-50 flex h-[100dvh] max-h-[100dvh] w-screen flex-col overflow-hidden bg-[#0c0d12] font-sans text-white"
     >
       <input type="file" ref={fileInputRef} accept="image/*" className="hidden" onChange={handleImageSelect} />
 
       {/* TOP HEADER */}
       <div
         data-testid="chat-header"
-        className="chat-header sticky top-0 z-50 flex min-w-0 shrink-0 items-center gap-2 border-b border-zinc-800/80 bg-zinc-950 px-3 pb-3 pt-[env(safe-area-inset-top,24px)]"
+        className="chat-header sticky top-0 z-50 flex min-w-0 shrink-0 items-center gap-2 border-b border-white/[0.07] bg-[#111218] px-3 pb-3 pt-[env(safe-area-inset-top,24px)]"
       >
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <button
             onClick={() => historyBackOr(() => void navigate({ to: "/chat" }))}
             aria-label="Back to Chat"
-            className="grid h-9 w-8 shrink-0 place-items-center rounded-full text-zinc-300 hover:text-white"
+              className="grid h-9 w-8 shrink-0 place-items-center rounded-full text-zinc-300 transition-colors hover:bg-white/[0.06] hover:text-white"
           >
             <ArrowLeft size={22} />
           </button>
@@ -2416,16 +2416,15 @@ function NativeChatThreadPage() {
 
           <div className="flex min-w-0 flex-1 flex-col">
             <span
-              className="flex min-w-0 items-center gap-1 text-sm font-bold leading-tight text-white cursor-pointer"
+              className="flex min-w-0 cursor-pointer items-center gap-1 text-[15px] font-semibold leading-tight text-white"
               onPointerDown={openPeerProfile.preload}
               onClick={openPeerProfile.go}
             >
               <span className="min-w-0 truncate">{displayName}</span>
-              <span style={{ backgroundColor: 'red', color: 'white', fontSize: '12px', padding: '2px 6px', borderRadius: '4px', zIndex: 9999 }}>BUILD-145-ACTIVE</span>
               {secretLock && <Lock size={12} className="shrink-0 text-purple-400" />}
               {muted && <BellOff size={12} className="shrink-0 text-zinc-500" />}
             </span>
-            <span className="whitespace-nowrap text-[11px] font-medium">
+            <span className="whitespace-nowrap pt-0.5 text-[11px] font-medium">
               {blocked ? (
                 <span className="text-red-400">Blocked</span>
               ) : peerTyping ? (
@@ -2742,7 +2741,7 @@ function NativeChatThreadPage() {
         aria-label="Chat messages"
         ref={scrollRef}
         onScroll={onScrollMessages}
-        className="chat-messages-container-override relative min-h-0 flex-1 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] p-4 bg-zinc-950/50"
+        className="chat-messages-container-override relative min-h-0 flex-1 overflow-y-auto overscroll-y-contain bg-[#0e0f14] p-4 [-webkit-overflow-scrolling:touch]"
         onClick={() => setShowOptionsMenu(false)}
       >
         <div
@@ -2788,8 +2787,8 @@ function NativeChatThreadPage() {
             onPointerCancel={() => endMessageGesture(m)}
             onContextMenu={(e) => { e.preventDefault(); if (!selectMode) setActionSheetId(m.id); }}
             onClick={() => selectMode && toggleSelect(m.id)}
-            className={`chat-message-row-override w-full min-w-full flex px-3 my-1 ${
-              selectMode && selectedIds.includes(m.id) ? "rounded-2xl bg-purple-500/10 ring-1 ring-purple-500/40" : ""
+            className={`chat-message-row-override my-1 flex w-full min-w-full px-3 ${
+              selectMode && selectedIds.includes(m.id) ? "rounded-2xl bg-violet-400/10 ring-1 ring-violet-300/30" : ""
             } ${m.sender === "me" ? "justify-end" : "justify-start"} ${selectMode ? "cursor-pointer select-none px-1 py-1" : "touch-pan-y"}`}
             style={{
               width: "100%",
@@ -2810,7 +2809,7 @@ function NativeChatThreadPage() {
             {(m.text || m.isMomentReply || m.momentId || m.sharedMedia) && (
               <div
                 className={`${m.text && !m.sharedMedia && !m.isMomentMention && !m.isMomentReply && !m.momentId ? "px-4 py-2.5" : m.isMomentReply || m.momentId || m.isMomentMention ? "w-[78%] min-w-0 px-4 py-2.5" : "w-fit max-w-[78%] px-4 py-2.5"} rounded-2xl break-words whitespace-pre-wrap text-sm text-left leading-relaxed ${
-                m.sender === "me" ? `${ownMessageBubbleThemeClass} text-white rounded-br-xs` : "bg-zinc-800/90 text-zinc-100 rounded-bl-xs border border-zinc-700/50"
+                m.sender === "me" ? `${ownMessageBubbleThemeClass} text-white rounded-br-xs shadow-sm shadow-black/15` : "bg-[#25262d] text-[#f4f3f7] rounded-bl-xs border border-white/[0.045]"
                 } ${m.isMomentMention ? "hyphens-none" : ""}`}
                 style={
                   m.text && !m.sharedMedia && !m.isMomentMention && !m.isMomentReply && !m.momentId
@@ -2959,7 +2958,7 @@ function NativeChatThreadPage() {
 
             {m.audio && !(m.viewOnce && (m.sender === "them" || m.opened || openedOnce.includes(m.id))) && (
               <div className={`flex items-center gap-3 px-4 py-3 rounded-2xl min-w-[200px] ${
-                m.sender === "me" ? `${ownMessageBubbleThemeClass} text-white` : "bg-zinc-800 text-white border border-zinc-700"
+                m.sender === "me" ? `${ownMessageBubbleThemeClass} text-white` : "bg-[#25262d] text-white border border-white/[0.06]"
               }`}>
                 <button
                   onClick={() => {
@@ -3080,7 +3079,7 @@ function NativeChatThreadPage() {
       <div
         id="chat-input-bar"
         data-testid="chat-input-bar"
-        className="relative z-40 mt-auto flex shrink-0 flex-col gap-2 border-t border-zinc-800/80 bg-zinc-950 px-3 pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)] pt-3"
+        className="relative z-40 mt-auto flex shrink-0 flex-col gap-2 border-t border-white/[0.07] bg-[#111218] px-3 pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)] pt-3"
       >
         {replyTo && (
           <div className="flex w-full items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900/80 px-3 py-2">
@@ -3139,7 +3138,7 @@ function NativeChatThreadPage() {
                 type="button"
                 aria-label="Open camera"
                 title="Camera"
-                className="mr-2 grid h-9 w-9 shrink-0 place-items-center rounded-full bg-blue-600 text-white"
+              className="mr-2 grid h-9 w-9 shrink-0 place-items-center rounded-full bg-gradient-to-br from-[#7655e8] to-[#bd4be4] text-white"
                 onClick={() => setCameraOpen(true)}
               >
                 <Camera size={18} />
@@ -3162,7 +3161,7 @@ function NativeChatThreadPage() {
                   }
                 }}
                 placeholder="Type a message..."
-                className="w-full min-w-0 rounded-full border border-zinc-800 bg-zinc-900 py-2.5 pl-4 pr-10 text-sm text-white focus:outline-none"
+                className="w-full min-w-0 rounded-full border border-white/[0.08] bg-[#202127] py-2.5 pl-4 pr-10 text-sm text-white placeholder:text-zinc-500 focus:border-white/20 focus:outline-none"
               />
              <button
                type="button"
@@ -3181,8 +3180,8 @@ function NativeChatThreadPage() {
               aria-label="Send message"
               title="Send message"
               onClick={handleSend}
-              className={`p-2.5 rounded-full flex items-center justify-center ${
-                message.trim() ? "bg-gradient-to-r from-pink-500 to-purple-600 text-white" : "bg-zinc-800 text-zinc-500 cursor-not-allowed"
+               className={`flex items-center justify-center rounded-full p-2.5 transition-colors ${
+                message.trim() ? "bg-gradient-to-br from-[#7655e8] to-[#bd4be4] text-white" : "bg-[#25262d] text-zinc-500 cursor-not-allowed"
               }`}
             >
               <Send size={18} />
