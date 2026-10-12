@@ -2814,8 +2814,8 @@ function NativeChatThreadPage() {
                   m.text && !m.sharedMedia && !m.isMomentMention && !m.isMomentReply && !m.momentId
                     ? {
                         width: "fit-content",
-                        maxWidth: "78vw",
-                        minWidth: "48px",
+                        maxWidth: "75%",
+                        minWidth: "40px",
                         display: "inline-block",
                         wordBreak: "normal",
                         overflowWrap: "anywhere",
