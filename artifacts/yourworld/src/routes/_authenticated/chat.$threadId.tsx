@@ -2421,6 +2421,7 @@ function NativeChatThreadPage() {
               onClick={openPeerProfile.go}
             >
               <span className="min-w-0 truncate">{displayName}</span>
+              <span style={{ backgroundColor: 'red', color: 'white', fontSize: '12px', padding: '2px 6px', borderRadius: '4px', zIndex: 9999 }}>BUILD-145-ACTIVE</span>
               {secretLock && <Lock size={12} className="shrink-0 text-purple-400" />}
               {muted && <BellOff size={12} className="shrink-0 text-zinc-500" />}
             </span>
