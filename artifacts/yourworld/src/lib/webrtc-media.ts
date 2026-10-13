@@ -64,6 +64,29 @@ function callVideoProfile(quality: NetworkQuality = getAdaptivePerformanceSnapsh
   return { width: 1280, height: 720, frameRate: 30 };
 }
 
+function callVideoCaptureProfiles(facingMode: CallFacingMode): MediaTrackConstraints[] {
+  return [
+    {
+      facingMode: { ideal: facingMode },
+      width: { ideal: 2560, min: 1920 },
+      height: { ideal: 1440, min: 1080 },
+      frameRate: { ideal: 30, min: 24 },
+    },
+    {
+      facingMode: { ideal: facingMode },
+      width: { ideal: 1280, min: 640 },
+      height: { ideal: 720, min: 480 },
+      frameRate: { ideal: 30, min: 24 },
+    },
+    {
+      facingMode: { ideal: facingMode },
+      width: { ideal: 640 },
+      height: { ideal: 480 },
+      frameRate: { ideal: 24 },
+    },
+  ];
+}
+
 export function callVideoConstraints(
   facingMode: CallFacingMode = "user",
 ): MediaTrackConstraints {
@@ -105,28 +128,21 @@ export async function getCallMedia(
     throw new Error("This device does not support call media.");
   }
 
-  const profile = callVideoProfile();
   try {
     // Let the WebView own the runtime permission request. On Android this is
     // forwarded through Capacitor's BridgeWebChromeClient to the system prompt.
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: true,
-      video: mode === "video",
-    });
+    const stream = await getFirstAvailableMedia(
+      mode === "video"
+        ? callVideoCaptureProfiles(facingMode).map((video) => ({
+            audio: true,
+            video,
+          }))
+        : [{ audio: true, video: false }],
+    );
 
     const audioTrack = stream.getAudioTracks()[0];
     if (audioTrack) {
       await audioTrack.applyConstraints(CALL_AUDIO_CONSTRAINTS).catch(() => undefined);
-    }
-
-    const videoTrack = stream.getVideoTracks()[0];
-    if (videoTrack && mode === "video") {
-      await videoTrack.applyConstraints({
-        ...callVideoConstraints(facingMode),
-        width: { ideal: profile.width },
-        height: { ideal: profile.height },
-        frameRate: { ideal: profile.frameRate },
-      }).catch(() => undefined);
     }
 
     return stream;
@@ -139,30 +155,18 @@ export async function getCallMedia(
 }
 
 /**
- * Camera replacement must not request another microphone stream. Keep the
- * existing audio sender and only reopen the selected camera at the same HD
- * profile used when the call started.
+ * Camera replacement must not request another microphone stream. Use the same
+ * 2K, HD, and SD capture profiles as initial setup.
  */
 export function getCallVideo(
   facingMode: CallFacingMode = "user",
 ): Promise<MediaStream> {
-  const profile = callVideoProfile();
-  return getFirstAvailableMedia([
-    { audio: false, video: callVideoConstraints(facingMode) },
-    {
+  return getFirstAvailableMedia(
+    callVideoCaptureProfiles(facingMode).map((video) => ({
       audio: false,
-      video: {
-        facingMode,
-        width: { ideal: profile.width },
-        height: { ideal: profile.height },
-        frameRate: { ideal: profile.frameRate },
-      },
-    },
-    {
-      audio: false,
-      video: { facingMode },
-    },
-  ]);
+      video,
+    })),
+  );
 }
 
 type TunedEncoding = RTCRtpEncodingParameters & {
