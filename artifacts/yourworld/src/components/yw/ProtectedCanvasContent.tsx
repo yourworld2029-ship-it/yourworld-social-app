@@ -177,10 +177,12 @@ function layoutLinkOverlays(
 export function ProtectedCanvasText({
   text,
   maxLines,
+  maxWidthRatio,
   onUrlClick,
 }: {
   text: string;
   maxLines?: number;
+  maxWidthRatio?: number;
   onUrlClick?: (
     href: string,
     event: ReactMouseEvent<HTMLAnchorElement>,
@@ -201,21 +203,45 @@ export function ProtectedCanvasText({
       const context = canvas.getContext("2d");
       if (!context) return;
 
-      const bubbleStyle = window.getComputedStyle(bubble);
-      const containingWidth = bubble.parentElement?.clientWidth || window.innerWidth;
+      const chatBubble =
+        maxWidthRatio === undefined
+          ? bubble
+          : bubble.closest<HTMLElement>(".chat-text-bubble-override") ?? bubble;
+      const bubbleStyle = window.getComputedStyle(chatBubble);
       const paddingX =
         (Number.parseFloat(bubbleStyle.paddingLeft) || 0) +
         (Number.parseFloat(bubbleStyle.paddingRight) || 0);
-      const declaredMaxWidth = Number.parseFloat(bubbleStyle.maxWidth);
-      const maxWidth = Math.max(
-        64,
-        Math.min(
-          440,
-          (Number.isFinite(declaredMaxWidth) && declaredMaxWidth > 0
-            ? declaredMaxWidth
-            : containingWidth * 0.78) - paddingX,
-        ),
+      const widthContainer =
+        maxWidthRatio === undefined
+          ? bubble.parentElement
+          : bubble.closest<HTMLElement>("[data-chat-message-id]") ??
+            bubble.parentElement;
+      const containerStyle = widthContainer
+        ? window.getComputedStyle(widthContainer)
+        : null;
+      const containerPaddingX =
+        (Number.parseFloat(containerStyle?.paddingLeft ?? "") || 0) +
+        (Number.parseFloat(containerStyle?.paddingRight ?? "") || 0);
+      const containingWidth = Math.max(
+        0,
+        (widthContainer?.clientWidth || window.innerWidth) - containerPaddingX,
       );
+      const declaredMaxWidth = Number.parseFloat(bubbleStyle.maxWidth);
+      const maxWidth =
+        maxWidthRatio !== undefined
+          ? Math.max(
+              64,
+              Math.min(440, containingWidth * maxWidthRatio - paddingX),
+            )
+          : Math.max(
+              64,
+              Math.min(
+                440,
+                (Number.isFinite(declaredMaxWidth) && declaredMaxWidth > 0
+                  ? declaredMaxWidth
+                  : containingWidth * 0.78) - paddingX,
+              ),
+            );
 
       context.font = `${bubbleStyle.fontWeight} ${bubbleStyle.fontSize} ${bubbleStyle.fontFamily}`;
       const lineHeight =
@@ -294,11 +320,16 @@ export function ProtectedCanvasText({
     };
 
     render();
+    const resizeTarget =
+      maxWidthRatio === undefined
+        ? bubble.parentElement
+        : bubble.closest<HTMLElement>("[data-chat-message-id]") ??
+          bubble.parentElement;
     const observer =
       typeof ResizeObserver === "undefined"
         ? null
         : new ResizeObserver(render);
-    if (bubble.parentElement) observer?.observe(bubble.parentElement);
+    if (resizeTarget) observer?.observe(resizeTarget);
     window.addEventListener("resize", render);
     void document.fonts?.ready.then(render);
 
@@ -306,7 +337,7 @@ export function ProtectedCanvasText({
       observer?.disconnect();
       window.removeEventListener("resize", render);
     };
-  }, [linkify, maxLines, text]);
+  }, [linkify, maxLines, maxWidthRatio, text]);
 
   const canvas = (
     <canvas

@@ -2813,14 +2813,7 @@ function NativeChatThreadPage() {
                 } ${m.isMomentMention ? "hyphens-none" : ""}`}
                 style={
                   m.text && !m.sharedMedia && !m.isMomentMention && !m.isMomentReply && !m.momentId
-                    ? {
-                        display: "inline-block",
-                        width: "fit-content",
-                        maxWidth: "75%",
-                        wordBreak: "normal",
-                        overflowWrap: "break-word",
-                        whiteSpace: "pre-wrap",
-                      }
+                    ? undefined
                     : m.isMomentReply || m.momentId || m.isMomentMention
                       ? { width: "78%", maxWidth: "78%" }
                       : { width: "fit-content", maxWidth: "78%" }

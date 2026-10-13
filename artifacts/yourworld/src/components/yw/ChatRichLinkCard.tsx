@@ -68,9 +68,8 @@ export function ChatMessageText({
   onOpenLink: (url: string, event: ReactMouseEvent<HTMLAnchorElement>) => void;
 }) {
   const links = extractExternalTextLinks(text);
-  const textLayoutClass = "w-full min-w-0";
+  const textLayoutClass = "min-w-0";
   const textLayoutStyle = {
-    width: "100%",
     wordBreak: "normal" as const,
     overflowWrap: "break-word" as const,
     whiteSpace: "pre-wrap" as const,
@@ -79,7 +78,11 @@ export function ChatMessageText({
   if (links.length === 0) {
     return (
       <div className={textLayoutClass} style={textLayoutStyle}>
-        <ProtectedCanvasText text={text} onUrlClick={onOpenLink} />
+        <ProtectedCanvasText
+          text={text}
+          maxWidthRatio={0.75}
+          onUrlClick={onOpenLink}
+        />
       </div>
     );
   }
@@ -90,7 +93,13 @@ export function ChatMessageText({
   for (const [index, link] of links.entries()) {
     const before = text.slice(cursor, link.start);
     if (before) {
-      content.push(<ProtectedCanvasText key={`text-${index}`} text={before} />);
+      content.push(
+        <ProtectedCanvasText
+          key={`text-${index}`}
+          text={before}
+          maxWidthRatio={0.75}
+        />,
+      );
     }
     content.push(
       <ChatRichLinkCard
@@ -104,7 +113,13 @@ export function ChatMessageText({
 
   const after = text.slice(cursor);
   if (after) {
-    content.push(<ProtectedCanvasText key="text-after-links" text={after} />);
+    content.push(
+      <ProtectedCanvasText
+        key="text-after-links"
+        text={after}
+        maxWidthRatio={0.75}
+      />,
+    );
   }
 
   return (
