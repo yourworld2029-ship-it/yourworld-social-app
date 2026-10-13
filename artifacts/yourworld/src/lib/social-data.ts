@@ -2262,6 +2262,7 @@ export function useThreadMessages(
       if (!clearedAt) return rows;
       const clearTime = Date.parse(clearedAt);
       return rows.filter((row) => {
+        if (!row || typeof row.created_at !== "string") return false;
         const createdAt = Date.parse(row.created_at);
         return Number.isFinite(createdAt) && createdAt > clearTime;
       });
@@ -2983,7 +2984,12 @@ export function useThreadMessages(
         const clearResult = await clearSocialConversationWithMedia({
           data: { conversationId },
         });
-        markThreadCleared(threadId, clearResult.clearedAt);
+        markThreadCleared(
+          threadId,
+          typeof clearResult?.clearedAt === "string"
+            ? clearResult.clearedAt
+            : new Date().toISOString(),
+        );
       } catch (clearError) {
         const message =
           clearError instanceof Error
