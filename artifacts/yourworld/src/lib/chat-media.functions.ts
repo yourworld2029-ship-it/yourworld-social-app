@@ -395,5 +395,5 @@ export const clearSocialConversationWithMedia = createServerFn({ method: "POST" 
     if (remainingByConversation.length || remainingByPair.length) {
       throw new Error("The server did not confirm that every message was cleared.");
     }
-    return { cleared: true };
+    return { cleared: true, clearedAt: new Date().toISOString() };
   });

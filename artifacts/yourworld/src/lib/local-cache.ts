@@ -3,6 +3,7 @@
 import { getThreadCachePolicy } from "@/lib/chat-cache-security";
 
 const PREFIX = "yw:cache:";
+const CLEARED_THREAD_PREFIX = `${PREFIX}thread-cleared:`;
 
 function threadIdFromCacheKey(key: string) {
   return key.startsWith("thread:") ? key.slice("thread:".length) : null;
@@ -48,5 +49,33 @@ export function cacheDelete(key: string) {
     window.localStorage.removeItem(PREFIX + key);
   } catch {
     /* best-effort */
+  }
+}
+
+/** Persist a clear boundary so legacy pair-query rows cannot resurrect a thread. */
+export function markThreadCleared(threadId: string, clearedAt = new Date().toISOString()) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      CLEARED_THREAD_PREFIX + threadId,
+      JSON.stringify({ clearedAt }),
+    );
+  } catch {
+    /* best-effort */
+  }
+}
+
+export function getThreadClearedAt(threadId: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(CLEARED_THREAD_PREFIX + threadId);
+    if (!raw) return null;
+    const value = JSON.parse(raw) as { clearedAt?: unknown };
+    return typeof value.clearedAt === "string" &&
+      Number.isFinite(Date.parse(value.clearedAt))
+      ? value.clearedAt
+      : null;
+  } catch {
+    return null;
   }
 }

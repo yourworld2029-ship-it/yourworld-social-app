@@ -19,7 +19,13 @@ import {
   removeOptimisticPost,
   type OptimisticPostDetail,
 } from "@/lib/published-feed";
-import { cacheDelete, cacheGet, cacheSet } from "@/lib/local-cache";
+import {
+  cacheDelete,
+  cacheGet,
+  cacheSet,
+  getThreadClearedAt,
+  markThreadCleared,
+} from "@/lib/local-cache";
 import { useThreadCachePolicy } from "@/lib/chat-cache-security";
 import {
   loadCachedThread,
@@ -2232,7 +2238,12 @@ export function useThreadMessages(
       ) {
         result = await fetchRows(false, false);
       }
-      if (targetConversationId && !result.error && !(result.data?.length)) {
+      if (
+        targetConversationId &&
+        !getThreadClearedAt(threadId) &&
+        !result.error &&
+        !(result.data?.length)
+      ) {
         // Older rows without a conversation link still remain reachable by the
         // indexed sender/receiver pair query.
         const fallback = await fetchRows(true, false);
@@ -2246,7 +2257,14 @@ export function useThreadMessages(
         console.error("[social-chat] message fetch failed", result.error);
         throw new Error(result.error.message);
       }
-      return (result.data ?? []) as unknown as PublicMessageRow[];
+      const rows = (result.data ?? []) as unknown as PublicMessageRow[];
+      const clearedAt = getThreadClearedAt(threadId);
+      if (!clearedAt) return rows;
+      const clearTime = Date.parse(clearedAt);
+      return rows.filter((row) => {
+        const createdAt = Date.parse(row.created_at);
+        return Number.isFinite(createdAt) && createdAt > clearTime;
+      });
     } catch (cause) {
       console.error("[social-chat] message fetch threw", cause);
       throw cause;
@@ -2518,6 +2536,12 @@ export function useThreadMessages(
       "chat clear",
       (payload) => {
         if (payload.conversationId !== conversationId) return;
+        markThreadCleared(
+          threadId,
+          typeof payload.clearedAt === "string"
+            ? payload.clearedAt
+            : new Date().toISOString(),
+        );
         clearGenerationRef.current += 1;
         afterViewTimersRef.current.forEach((timer) => clearTimeout(timer));
         afterViewTimersRef.current.clear();
@@ -2956,7 +2980,10 @@ export function useThreadMessages(
       return { error: "Chat is still syncing. Try again in a moment." };
     }
       try {
-        await clearSocialConversationWithMedia({ data: { conversationId } });
+        const clearResult = await clearSocialConversationWithMedia({
+          data: { conversationId },
+        });
+        markThreadCleared(threadId, clearResult.clearedAt);
       } catch (clearError) {
         const message =
           clearError instanceof Error
@@ -2982,7 +3009,10 @@ export function useThreadMessages(
       await channel.send({
         type: "broadcast",
         event: "chat_cleared",
-        payload: { conversationId },
+        payload: {
+          conversationId,
+          clearedAt: getThreadClearedAt(threadId),
+        },
       });
     }
     return { error: null };
