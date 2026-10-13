@@ -10,3 +10,9 @@ For recorded clips, preserve `MediaRecorder.mimeType`; if it is empty, use a non
 **Why:** Capacitor Android WebView can fail to start a second camera source while old tracks are still active, and MediaRecorder chunks may omit their MIME type.
 
 **How to apply:** Keep track teardown in camera switching and capture completion paths. Carry the resulting MIME type through local preview and chat-media upload.
+
+For Chat Camera capture, prefer 2K at 30 fps when supported, with HD/720p fallback. Keep high-resolution targets ideal rather than mandatory so unsupported or lower-end phones can open the camera promptly.
+
+**Why:** The user asked for smooth, Snapchat-like HD/2K chat capture rather than a camera that stalls on devices unable to sustain a fixed resolution or frame rate.
+
+**How to apply:** Use a short ordered set of permissive getUserMedia profiles; avoid mandatory 4K/60fps constraints and repeated combinations that delay startup.

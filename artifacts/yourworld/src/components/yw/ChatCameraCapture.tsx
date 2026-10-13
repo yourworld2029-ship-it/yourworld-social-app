@@ -17,42 +17,54 @@ async function requestCameraStream(facing: CameraFacing) {
     throw new Error("Camera access is not available on this device.");
   }
 
-  const videoConstraints: Array<MediaTrackConstraints | boolean> = [
-    {
-      facingMode: { ideal: facing },
-      width: { ideal: 3840, min: 1920 },
-      height: { ideal: 2160, min: 1080 },
-      frameRate: { ideal: 60, min: 30 },
-    },
-    {
-      facingMode: { ideal: facing },
-      width: { ideal: 1280, min: 640 },
-      height: { ideal: 720, min: 480 },
-      frameRate: { ideal: 30, min: 24 },
-    },
-    { facingMode: { ideal: facing } },
-    { width: { ideal: 1280 }, height: { ideal: 720 } },
-    true,
-  ];
   const audioConstraints: MediaTrackConstraints = {
-    echoCancellation: true,
-    noiseSuppression: true,
-    sampleRate: 48_000,
+    echoCancellation: { ideal: true },
+    noiseSuppression: { ideal: true },
+    sampleRate: { ideal: 48_000 },
   };
+  const requests: MediaStreamConstraints[] = [
+    {
+      video: {
+        facingMode: { ideal: facing },
+        width: { ideal: 2560, min: 1280 },
+        height: { ideal: 1440, min: 720 },
+        frameRate: { ideal: 30, min: 24 },
+      },
+      audio: audioConstraints,
+    },
+    {
+      video: {
+        facingMode: { ideal: facing },
+        width: { ideal: 1920, min: 1280 },
+        height: { ideal: 1080, min: 720 },
+        frameRate: { ideal: 30, min: 24 },
+      },
+      audio: true,
+    },
+    {
+      video: {
+        facingMode: { ideal: facing },
+        width: { ideal: 1280, min: 640 },
+        height: { ideal: 720, min: 480 },
+        frameRate: { ideal: 30, min: 24 },
+      },
+      audio: true,
+    },
+    { video: { facingMode: { ideal: facing } }, audio: true },
+    { video: { facingMode: { ideal: facing } }, audio: false },
+  ];
   let lastError: unknown;
 
-  for (const video of videoConstraints) {
-    for (const audio of [audioConstraints, true, false] as const) {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video, audio });
-        if (stream.getVideoTracks().length > 0) {
-          return { stream, hasAudio: stream.getAudioTracks().length > 0 };
-        }
-        stream.getTracks().forEach((track) => track.stop());
-        lastError = new Error("The camera did not provide a video track.");
-      } catch (error) {
-        lastError = error;
+  for (const constraints of requests) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      if (stream.getVideoTracks().length > 0) {
+        return { stream, hasAudio: stream.getAudioTracks().length > 0 };
       }
+      stream.getTracks().forEach((track) => track.stop());
+      lastError = new Error("The camera did not provide a video track.");
+    } catch (error) {
+      lastError = error;
     }
   }
 
