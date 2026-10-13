@@ -68,12 +68,12 @@ export function ChatMessageText({
   onOpenLink: (url: string, event: ReactMouseEvent<HTMLAnchorElement>) => void;
 }) {
   const links = extractExternalTextLinks(text);
-  const textLayoutClass = "w-full min-w-0 break-words whitespace-pre-wrap";
+  const textLayoutClass = "w-full min-w-0";
   const textLayoutStyle = {
     width: "100%",
-    maxWidth: "100%",
     wordBreak: "normal" as const,
-    overflowWrap: "anywhere" as const,
+    overflowWrap: "break-word" as const,
+    whiteSpace: "pre-wrap" as const,
   };
 
   if (links.length === 0) {

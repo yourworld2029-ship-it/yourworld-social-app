@@ -2808,18 +2808,17 @@ function NativeChatThreadPage() {
             )}
             {(m.text || m.isMomentReply || m.momentId || m.sharedMedia) && (
               <div
-                className={`${m.text && !m.sharedMedia && !m.isMomentMention && !m.isMomentReply && !m.momentId ? "px-4 py-2.5" : m.isMomentReply || m.momentId || m.isMomentMention ? "w-[78%] min-w-0 px-4 py-2.5" : "max-w-[78%] px-4 py-2.5"} rounded-2xl break-words whitespace-pre-wrap text-sm text-left leading-relaxed ${
+                className={`${m.text && !m.sharedMedia && !m.isMomentMention && !m.isMomentReply && !m.momentId ? "chat-text-bubble-override px-4 py-2" : m.isMomentReply || m.momentId || m.isMomentMention ? "w-[78%] min-w-0 px-4 py-2.5" : "max-w-[78%] px-4 py-2.5"} rounded-2xl break-words whitespace-pre-wrap text-sm text-left leading-relaxed ${
                 m.sender === "me" ? `${ownMessageBubbleThemeClass} text-white rounded-br-xs` : "bg-zinc-800/90 text-zinc-100 rounded-bl-xs border border-zinc-700/50"
                 } ${m.isMomentMention ? "hyphens-none" : ""}`}
                 style={
                   m.text && !m.sharedMedia && !m.isMomentMention && !m.isMomentReply && !m.momentId
                     ? {
-                        display: "block",
+                        display: "inline-block",
                         width: "fit-content",
-                        maxWidth: "75vw",
-                        minWidth: "min(75vw, max-content)",
+                        maxWidth: "75%",
                         wordBreak: "normal",
-                        overflowWrap: "anywhere",
+                        overflowWrap: "break-word",
                         whiteSpace: "pre-wrap",
                       }
                     : m.isMomentReply || m.momentId || m.isMomentMention
