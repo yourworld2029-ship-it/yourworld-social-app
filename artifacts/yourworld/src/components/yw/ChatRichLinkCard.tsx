@@ -69,10 +69,16 @@ export function ChatMessageText({
 }) {
   const links = extractExternalTextLinks(text);
   const textLayoutClass = "w-full min-w-0 break-words whitespace-pre-wrap";
+  const textLayoutStyle = {
+    width: "100%",
+    maxWidth: "100%",
+    wordBreak: "normal" as const,
+    overflowWrap: "anywhere" as const,
+  };
 
   if (links.length === 0) {
     return (
-      <div className={textLayoutClass}>
+      <div className={textLayoutClass} style={textLayoutStyle}>
         <ProtectedCanvasText text={text} onUrlClick={onOpenLink} />
       </div>
     );
@@ -102,7 +108,7 @@ export function ChatMessageText({
   }
 
   return (
-    <div className={textLayoutClass}>
+    <div className={textLayoutClass} style={textLayoutStyle}>
       {content}
     </div>
   );
