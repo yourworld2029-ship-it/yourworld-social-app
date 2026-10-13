@@ -9,8 +9,8 @@ Conversation message rows must use the available width, align outgoing messages 
 
 **How to apply:** When changing the active conversation message renderer or its styles, check the rendered message row and its text bubble directly; do not mistake widths on menus or unrelated chat elements for the bubble constraint.
 
-The protected canvas renderer must size chat text from the available message row, not from the bubble's current width. Measuring the bubble itself can create a min-content feedback loop that keeps long messages narrow even when CSS allows 75%.
+The protected canvas renderer must size chat text from the chat viewport, not from the bubble or message row. Measuring a constrained row can still cap long lines too early, even when CSS allows 75vw.
 
-**Why:** The canvas width was derived from an already-collapsed auto-sized bubble, so the text never received a chance to expand the bubble.
+**Why:** A screenshot showed long messages still occupying only about one-third of the viewport after row-based sizing; the canvas must use the same viewport basis as the 75vw bubble cap.
 
-**How to apply:** For chat text, derive the canvas wrap width from the full message row and the bubble's max-width ratio; keep that override opt-in so other protected-canvas text keeps its existing sizing.
+**How to apply:** For chat text, measure from the visible chat viewport and subtract bubble padding; keep that override opt-in so other protected-canvas text keeps its existing sizing.
