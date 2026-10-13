@@ -2267,8 +2267,24 @@ export function useThreadMessages(
       if (threadIdRef.current !== requestThreadId || messagesThreadIdRef.current !== requestThreadId) return;
       if (rows === null) return;
       if (generation !== clearGenerationRef.current) return;
-       merge(rows, hideConsumedAfterView);
-      setHasMore(rows.length >= PAGE_SIZE);
+      if (rows.length === 0) {
+        // An empty server result is authoritative after Clear Chat. Do not
+        // merge an old local cache back into the thread on the next visit.
+        clearGenerationRef.current += 1;
+        const pendingMessages = messagesRef.current.filter((message) =>
+          message.id.startsWith("tmp-"),
+        );
+        messagesRef.current = pendingMessages;
+        setMessages(pendingMessages);
+        cacheDelete(`thread:${threadId}`);
+        void clearCachedThread(`social:${threadId}`, meRef.current).catch((cause) => {
+          console.error("[social-chat] stale cache cleanup failed after empty sync", cause);
+        });
+        setHasMore(false);
+      } else {
+        merge(rows, hideConsumedAfterView);
+        setHasMore(rows.length >= PAGE_SIZE);
+      }
       setError(null);
     } catch (cause) {
       if (threadIdRef.current !== requestThreadId) return;

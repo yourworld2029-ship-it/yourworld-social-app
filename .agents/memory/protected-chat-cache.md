@@ -9,8 +9,8 @@ When Protect Chat is enabled, persist thread messages only as AES-GCM ciphertext
 
 **How to apply:** Gate both localStorage and IndexedDB thread-cache reads/writes on the resolved setting, finish cache migration before switching the policy to its final state, and fail closed by removing legacy plaintext if encryption cannot be completed.
 
-When “Clear for Everyone” succeeds, clear in-memory and browser-storage copies and invalidate pending cache reads and writes for that thread. Serialize cache writes with the clear so stale work cannot restore pre-clear messages; in protected mode, remove any legacy plaintext copy as well.
+When “Clear for Everyone” succeeds, clear in-memory and browser-storage copies and invalidate pending cache reads and writes for that thread. Serialize cache writes with the clear so stale work cannot restore pre-clear messages; in protected mode, remove any legacy plaintext copy as well. On a later server refresh, an empty result is authoritative: replace stale cached messages with the empty thread instead of merging an empty list into them.
 
-**Why:** Deleting server rows alone is insufficient when an older asynchronous cache read or write can repopulate the conversation after navigation or re-entry.
+**Why:** Deleting server rows alone is insufficient when an older asynchronous cache read or write can repopulate the conversation after navigation or re-entry. Merging an empty server response also leaves cached rows untouched.
 
-**How to apply:** Any shared thread-purge path should advance a per-thread cache generation before clearing rows, guard late hydration and state updates, and ensure queued old writes cannot persist after the cleared state is established.
+**How to apply:** Any shared thread-purge path should advance a per-thread cache generation before clearing rows, guard late hydration and state updates, ensure queued old writes cannot persist after the cleared state is established, and clear cached rows when the server confirms the thread is empty.
