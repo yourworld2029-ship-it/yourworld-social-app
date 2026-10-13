@@ -2806,6 +2806,11 @@ function NativeChatThreadPage() {
                 {selectedIds.includes(m.id) && <Check size={11} />}
               </span>
             )}
+            <div
+              className={`flex min-w-0 flex-1 flex-col ${
+                m.sender === "me" ? "items-end" : "items-start"
+              }`}
+            >
             {(m.text || m.isMomentReply || m.momentId || m.sharedMedia) && (
               <div
                 className={`${m.text && !m.sharedMedia && !m.isMomentMention && !m.isMomentReply && !m.momentId ? "chat-text-bubble-override px-4 py-2" : m.isMomentReply || m.momentId || m.isMomentMention ? "w-[78%] min-w-0 px-4 py-2.5" : "max-w-[78%] px-4 py-2.5"} rounded-2xl break-words whitespace-pre-wrap text-sm text-left leading-relaxed ${
@@ -3011,6 +3016,7 @@ function NativeChatThreadPage() {
                 )
               )}
             </span>
+            </div>
           </div>
           )}
           </ChatMessageErrorBoundary>

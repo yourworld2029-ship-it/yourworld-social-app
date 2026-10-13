@@ -14,3 +14,9 @@ The protected canvas renderer must size chat text from the chat viewport, not fr
 **Why:** A screenshot showed long messages still occupying only about one-third of the viewport after row-based sizing; the canvas must use the same viewport basis as the 75vw bubble cap.
 
 **How to apply:** For chat text, measure from the visible chat viewport and subtract bubble padding; keep that override opt-in so other protected-canvas text keeps its existing sizing.
+
+For chat messages, place the timestamp and sent/read indicators beneath the message content, aligned to the sender's side rather than beside the bubble.
+
+**Why:** The user asked for Instagram-style message metadata placement.
+
+**How to apply:** Keep timestamp and read-receipt logic unchanged; group message content and its metadata vertically.
