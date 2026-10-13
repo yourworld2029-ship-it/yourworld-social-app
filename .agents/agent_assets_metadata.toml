@@ -327,14 +327,14 @@ content_type = "application/octet-stream"
 id = "4bU4PDThRMta_QofN3jMS"
 uri = "file://artifacts/yourworld/android/app/build/outputs/apk/debug/app-debug.apk"
 type = "unspecified"
-title = "YourWorld Debug APK — 1.0.52"
-description = "Fresh Android Debug build (versionCode 52). Signed with the Android debug certificate for internal testing; not a production update APK."
+title = "YourWorld v1.0.146 Debug APK"
+description = "Fresh clean Android debug build. versionCode 146, versionName 1.0.146. SHA-256: 2865d04938a786e3c74358ae7ca44dda279f21865e8114090207ea8f4878f2b2"
 logical_id = "5f20feb5-b00f-4aef-b15f-8a18f5833344"
-content_hash = "sha256:02bf18d4f5f6ff92d681e168ce3557c658b2e159d3acd09dce16db921345bab9"
-size = 10919313
-mtime_ms = 1791175559286
-storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/5f20feb5-b00f-4aef-b15f-8a18f5833344/41315daf-6a9f-4ee8-bf37-f9a71fb2dace"
-storage_version_token = "1791175753763540"
+content_hash = "sha256:2865d04938a786e3c74358ae7ca44dda279f21865e8114090207ea8f4878f2b2"
+size = 10973882
+mtime_ms = 1791869990377
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/5f20feb5-b00f-4aef-b15f-8a18f5833344/ea53af93-ceab-4d98-a90a-f8f6d2b5080b"
+storage_version_token = "1791870063019095"
 content_type = "application/octet-stream"
 
 [[outputs]]
