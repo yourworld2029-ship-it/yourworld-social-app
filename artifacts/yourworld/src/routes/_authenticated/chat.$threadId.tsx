@@ -3331,12 +3331,13 @@ function NativeChatThreadPage() {
           <>
             <button
               type="button"
-              aria-label="Open gallery"
+              aria-label="Upload photo"
               title="Gallery"
               onClick={() => fileInputRef.current?.click()}
-              className="shrink-0 p-2 text-zinc-400 hover:text-white"
+              className="flex shrink-0 items-center gap-1.5 rounded-full px-2 py-2 text-xs font-medium text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
             >
               <ImageIcon size={22} />
+              <span>Photo</span>
             </button>
             <button
               type="button"
