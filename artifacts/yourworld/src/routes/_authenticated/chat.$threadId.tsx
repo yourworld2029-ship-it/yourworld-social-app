@@ -2567,25 +2567,6 @@ function NativeChatThreadPage() {
       className="fixed inset-0 z-50 flex h-[100dvh] max-h-[100dvh] w-screen flex-col overflow-hidden bg-black font-sans text-white"
     >
       <input type="file" ref={fileInputRef} accept="image/*" className="hidden" onChange={handleImageSelect} />
-      {protectChatEnabled && currentUserId ? (
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 z-40 overflow-hidden"
-        >
-          {[0, 1, 2, 3, 4].map((index) => (
-            <div
-              key={`chat-protection-watermark-${index}`}
-              className="absolute left-[-18%] w-[136%] text-center"
-              style={{ top: `${10 + index * 20}%`, transform: "rotate(-18deg)" }}
-            >
-              <span className="inline-block whitespace-nowrap rounded-full border border-white/20 bg-black/50 px-2.5 py-1 text-[9px] font-semibold tracking-wide text-white/80 shadow-[0_2px_10px_rgba(0,0,0,0.75)]">
-                {currentUserName} · YourWorld ID {currentUserId}
-              </span>
-            </div>
-          ))}
-        </div>
-      ) : null}
-
       {/* TOP HEADER */}
       <div
         data-testid="chat-header"
@@ -3244,6 +3225,14 @@ function NativeChatThreadPage() {
                 )
               )}
             </span>
+            {protectChatEnabled && currentUserId ? (
+              <span
+                className="mt-0.5 max-w-full truncate px-1 text-[8px] leading-3 text-zinc-500/80"
+                title={`${currentUserName} · YourWorld ID ${currentUserId}`}
+              >
+                {currentUserName} · YourWorld ID {currentUserId}
+              </span>
+            ) : null}
             </div>
           </div>
           )}
