@@ -3033,6 +3033,17 @@ function NativeChatThreadPage() {
 
             {!m.text && m.replyTo && <ReplyQuote reply={m.replyTo} className="mb-1 w-[75%] rounded-lg bg-zinc-800/90" />}
 
+            {m.viewOnce && (m.image || m.audio) ? (
+              <span
+                className={`mb-1 inline-flex items-center gap-1.5 self-start rounded-full border border-emerald-500/35 bg-emerald-950/70 px-2.5 py-1 text-[10px] font-semibold text-emerald-300 ${
+                  m.sender === "me" ? "self-end" : "self-start"
+                }`}
+              >
+                <EyeOff size={12} aria-hidden="true" />
+                View once
+              </span>
+            ) : null}
+
             {m.image && m.viewOnce && m.sender === "them" && !m.opened && !openedOnce.includes(m.id) ? (
               <button
                 type="button"
