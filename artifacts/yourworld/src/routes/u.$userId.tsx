@@ -10,8 +10,6 @@ import { useYw } from "@/lib/yw-store";
 import { useAuth, useResumeAuthAction } from "@/lib/auth-store";
 import { getOrCreateSportsProfile } from "@/components/yw/SportsProfile";
 import { ProfileTemplate } from "@/components/yw/ProfileTemplate";
-import { buildPublicAppUrl } from "@/lib/public-app-url";
-import { sharePublicContent } from "@/lib/share-public";
 
 const PUBLIC_PROFILE_MEDIA_PAGE_SIZE = 12;
 
@@ -286,20 +284,6 @@ function PublicProfilePage() {
     });
   });
 
-  const onShare = async () => {
-    const url = buildPublicAppUrl(`/u/${encodeURIComponent(userId)}`);
-    try {
-      const result = await sharePublicContent({
-        title: profile?.username ?? "YourWorld profile",
-        text: `View ${profile?.username ?? "this profile"} on YourWorld`,
-        url,
-      });
-      if (result === "copied") toast.success("Profile link copied");
-    } catch {
-      toast.error("Couldn't share this profile");
-    }
-  };
-
   const openViewer = (post: DbPost) => {
     const id = typeof post.id === "string" ? post.id.trim() : "";
     if (!id) {
@@ -365,7 +349,6 @@ function PublicProfilePage() {
       onListTabChange={setListTab}
       onFollow={onFollow}
       onMessage={onMessage}
-      onShare={onShare}
       onBack={onBack}
       onOpen={openViewer}
       emptyVideos={mediaError ?? (mediaLoading ? "Loading posts…" : "No posts yet.")}

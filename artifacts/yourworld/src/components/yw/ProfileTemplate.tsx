@@ -29,6 +29,7 @@ import { SportsIdentityBadge } from "@/components/yw/SportsIdentityBadge";
 import { LazyVideoThumbnail } from "@/components/yw/LazyVideoThumbnail";
 import { canReadPublicVideoPreview } from "@/lib/video-preview-access";
 import { ProfilePhotoViewer } from "@/components/yw/ProfilePhotoViewer";
+import { ShareSheet } from "@/components/yw/ShareSheet";
 import type { DbPost } from "@/lib/social-data";
 import type { FollowCounts } from "@/lib/follow-data";
 import { formatCount } from "@/lib/yw-data";
@@ -92,7 +93,6 @@ export type ProfileTemplateProps = {
   onBack?: () => void;
   onFollow?: () => void;
   onMessage?: () => void;
-  onShare: () => void;
   onOpen: (post: DbPost) => void;
   onManage?: (post: DbPost) => void;
   onOpenDownload?: (video: DownloadedVideo) => void;
@@ -148,7 +148,6 @@ export function ProfileTemplate({
   onBack,
   onFollow,
   onMessage,
-  onShare,
   onOpen,
   onManage,
   onOpenSavedVideo,
@@ -361,9 +360,14 @@ export function ProfileTemplate({
                   <Button data-testid="button-edit-profile" variant="secondary" className={ownerEditButtonClass} onClick={onEditProfile}>
                     Edit Profile
                   </Button>
-                  <Button data-testid="button-share-profile" variant="secondary" className={ownerShareButtonClass} onClick={onShare}>
-                    Share Profile
-                  </Button>
+                  <ShareSheet
+                    title={profile.username ? `@${profile.username}` : profile.display_name || "YourWorld profile"}
+                    url={`/u/${encodeURIComponent(profile.id)}`}
+                  >
+                    <Button data-testid="button-share-profile" variant="secondary" className={ownerShareButtonClass}>
+                      Share Profile
+                    </Button>
+                  </ShareSheet>
                 </>
               ) : (
                 <>
@@ -373,9 +377,14 @@ export function ProfileTemplate({
                   <Button data-testid="button-message-profile" variant="secondary" className={ownerShareButtonClass} onClick={onMessage}>
                     Message
                   </Button>
-                  <Button data-testid="button-share-profile" variant="secondary" className={ownerShareButtonClass} onClick={onShare}>
-                    Share
-                  </Button>
+                  <ShareSheet
+                    title={profile.username ? `@${profile.username}` : profile.display_name || "YourWorld profile"}
+                    url={`/u/${encodeURIComponent(profile.id)}`}
+                  >
+                    <Button data-testid="button-share-profile" variant="secondary" className={ownerShareButtonClass}>
+                      Share
+                    </Button>
+                  </ShareSheet>
                 </>
               )}
             </div>

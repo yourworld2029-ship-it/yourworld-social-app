@@ -1056,19 +1056,6 @@ function ProfilePage() {
          void navigate({ to: "/profile", search: { connections: "following" }, replace: true });
        }}
       onEditProfile={() => setEditOpen(true)}
-      onShare={async () => {
-        const url = buildPublicAppUrl(`/u/${encodeURIComponent(profile.id)}`);
-        try {
-          const result = await sharePublicContent({
-            title: profile.username || "YourWorld profile",
-            text: `View ${profile.username || "this profile"} on YourWorld`,
-            url,
-          });
-          if (result === "copied") toast.success("Profile link copied");
-        } catch {
-          toast.error("Couldn't share this profile");
-        }
-      }}
       onOpen={openViewer}
       onManage={openManage}
       onOpenDownload={(record) => void openDownloadedVideo(record)}
