@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { PointerEvent as ReactPointerEvent } from "react";
-import { Camera, SwitchCamera, X, Zap } from "lucide-react";
+import { Camera, Square, SwitchCamera, Video, X, Zap } from "lucide-react";
 
 type CameraFacing = "environment" | "user";
 type FrozenPreview = { source: string; facing: CameraFacing };
@@ -158,10 +157,8 @@ export function ChatCameraCapture({
   const mountedRef = useRef(false);
   const facingRef = useRef<CameraFacing>("environment");
   const deliverVideoOnStopRef = useRef(false);
-  const holdTimerRef = useRef<number | null>(null);
   const maxDurationTimerRef = useRef<number | null>(null);
   const elapsedTimerRef = useRef<number | null>(null);
-  const longPressTriggeredRef = useRef(false);
   const onCloseRef = useRef(onClose);
   const onPhotoRef = useRef(onPhoto);
   const onVideoRef = useRef(onVideo);
@@ -173,7 +170,6 @@ export function ChatCameraCapture({
   const [previewReady, setPreviewReady] = useState(false);
   const [recording, setRecording] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [hasAudio, setHasAudio] = useState(true);
   const [torchAvailable, setTorchAvailable] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
   const [frozenPreview, setFrozenPreview] = useState<FrozenPreview | null>(null);
@@ -227,7 +223,6 @@ export function ChatCameraCapture({
       setStream(result.stream);
       facingRef.current = nextFacing;
       setFacing(nextFacing);
-      setHasAudio(result.hasAudio);
       setTorchAvailable(canUseTorch);
     } catch (error) {
       if (mountedRef.current && requestId === streamRequestIdRef.current) {
@@ -245,7 +240,6 @@ export function ChatCameraCapture({
     return () => {
       mountedRef.current = false;
       streamRequestIdRef.current += 1;
-      if (holdTimerRef.current !== null) window.clearTimeout(holdTimerRef.current);
       if (maxDurationTimerRef.current !== null) window.clearTimeout(maxDurationTimerRef.current);
       if (elapsedTimerRef.current !== null) window.clearInterval(elapsedTimerRef.current);
       const recorder = recorderRef.current;
@@ -484,42 +478,18 @@ export function ChatCameraCapture({
     }
   };
 
-  const handleShutterDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (loading || !previewReady || !streamRef.current || recording) return;
-    event.preventDefault();
-    try {
-      event.currentTarget.setPointerCapture(event.pointerId);
-    } catch {
-      // Pointer capture is optional on older WebViews.
-    }
-    longPressTriggeredRef.current = false;
-    holdTimerRef.current = window.setTimeout(() => {
-      longPressTriggeredRef.current = true;
-      startRecording();
-    }, 350);
-  };
-
-  const handleShutterUp = () => {
-    if (holdTimerRef.current !== null) window.clearTimeout(holdTimerRef.current);
-    holdTimerRef.current = null;
-    if (longPressTriggeredRef.current) {
-      if (recorderRef.current?.state === "recording") stopRecordingRef.current(true);
-      return;
-    }
-    if (!recording) void takePhoto();
-  };
-
-  const handleShutterCancel = () => {
-    if (holdTimerRef.current !== null) window.clearTimeout(holdTimerRef.current);
-    holdTimerRef.current = null;
-    if (longPressTriggeredRef.current && recorderRef.current?.state === "recording") {
-      stopRecordingRef.current(true);
-    }
-  };
-
   const toggleFacing = () => {
     if (recording || loading) return;
     void applyStream(facing === "environment" ? "user" : "environment");
+  };
+
+  const toggleVideoRecording = () => {
+    if (loading || !previewReady || !streamRef.current) return;
+    if (recorderRef.current?.state === "recording") {
+      stopRecordingRef.current(true);
+      return;
+    }
+    startRecording();
   };
 
   const toggleFlash = async () => {
@@ -655,36 +625,45 @@ export function ChatCameraCapture({
       <div className="relative z-10 mt-auto flex flex-col items-center gap-4 px-6 pb-[calc(env(safe-area-inset-bottom,16px)_+_1.5rem)]">
         {loading && !frozenPreview ? (
           <p className="text-xs text-white/80">Opening camera…</p>
-        ) : loading ? null : hasAudio ? (
-          <p className="text-xs text-white/80">Tap for photo · hold for video</p>
-        ) : (
-          <p className="text-xs text-white/80">Tap for photo · hold for silent video · no microphone</p>
+        ) : loading ? null : (
+          <p className="text-xs text-white/80">Choose Photo or Video</p>
         )}
-        <button
-          type="button"
-          aria-label="Tap to take a photo or hold to record a video"
-          disabled={loading || !previewReady || !stream}
-          onPointerDown={handleShutterDown}
-          onPointerUp={handleShutterUp}
-          onPointerCancel={handleShutterCancel}
-          onKeyDown={(event) => {
-            if (event.repeat || (event.key !== "Enter" && event.key !== " ")) return;
-            event.preventDefault();
-            void takePhoto();
-          }}
-          onContextMenu={(event) => event.preventDefault()}
-          className={`grid h-[76px] w-[76px] touch-none place-items-center rounded-full border-[5px] border-white/90 shadow-xl disabled:opacity-50 ${
-            recording ? "bg-red-600" : "bg-white/15"
-          }`}
-        >
-          <span
-            className={`grid place-items-center rounded-full ${
-              recording ? "h-8 w-8 rounded-md bg-white" : "h-[54px] w-[54px] bg-white"
-            }`}
+        <div className="flex items-center justify-center gap-10">
+          <button
+            type="button"
+            aria-label="Take photo"
+            title="Photo"
+            disabled={loading || !previewReady || !stream || recording}
+            onClick={() => void takePhoto()}
+            className="flex min-w-20 flex-col items-center gap-2 disabled:opacity-50"
           >
-            {recording ? <span className="sr-only">Stop recording</span> : <Camera size={23} className="text-zinc-900" />}
-          </span>
-        </button>
+            <span className="grid h-[68px] w-[68px] place-items-center rounded-full border-[5px] border-white/90 bg-white shadow-xl">
+              <Camera size={25} className="text-zinc-900" />
+            </span>
+            <span className="text-sm font-medium">Photo</span>
+          </button>
+          <button
+            type="button"
+            aria-label={recording ? "Stop video recording" : "Start video recording"}
+            title={recording ? "Stop video" : "Video"}
+            disabled={loading || !previewReady || !stream}
+            onClick={toggleVideoRecording}
+            className="flex min-w-20 flex-col items-center gap-2 disabled:opacity-50"
+          >
+            <span
+              className={`grid h-[68px] w-[68px] place-items-center rounded-full border-[5px] border-white/90 shadow-xl ${
+                recording ? "bg-red-600" : "bg-black/40"
+              }`}
+            >
+              {recording ? (
+                <Square size={23} className="fill-white text-white" />
+              ) : (
+                <Video size={25} />
+              )}
+            </span>
+            <span className="text-sm font-medium">{recording ? "Stop" : "Video"}</span>
+          </button>
+        </div>
       </div>
 
       {screenFlash ? (
