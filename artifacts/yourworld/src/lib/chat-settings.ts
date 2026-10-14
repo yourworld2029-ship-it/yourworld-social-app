@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { setUserBlock } from "@/lib/social-data";
+import { shouldHydrateChatSettings } from "@/lib/chat-settings-state";
 import {
   autoDeleteSeconds,
   normalizeChatAutoDeleteSetting,
@@ -9,11 +10,9 @@ import {
 } from "@/lib/auto-delete";
 
 /**
- * Per-conversation chat options (display name, secret lock, view once, auto
- * delete, capture alerts, chat protection, mute, block) persisted in the
- * conversation-scoped `conversation_preferences` table. Blocks remain in the
- * participant-scoped `user_blocks` table, and auto-delete remains shared on
- * the conversation row.
+ * Participant-specific chat options live in `conversation_preferences`.
+ * Capture protection and auto-delete are shared on the conversation row;
+ * blocks remain in the participant-scoped `user_blocks` table.
  */
 export type ChatSettings = {
   displayName: string | null;
@@ -136,7 +135,17 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
           }
         }
         if (!alive) return;
-        if (preference || conversationSetting) {
+        // A second participant may have no private preference row and the
+        // conversation may have auto-delete turned off. Still hydrate the
+        // shared protection flag or only the participant who enabled it will
+        // apply FLAG_SECURE on their device.
+        if (
+          shouldHydrateChatSettings({
+            participantPreference: preference,
+            conversationAutoDeleteSetting: conversationSetting,
+            conversationProtection,
+          })
+        ) {
           const preferenceMode = normalizeChatAutoDeleteSetting(preference?.auto_delete_setting);
           const secretPinSalt = preference?.secret_pin_salt ?? DEFAULTS.secretPinSalt;
           const secretPinHash = preference?.secret_pin_hash ?? DEFAULTS.secretPinHash;

@@ -28,6 +28,7 @@ public class IncomingCallMessagingService extends FirebaseMessagingService {
     private static final String EXTRA_CALL_MODE = "yw_call_mode";
     private static final String EXTRA_PEER_NAME = "yw_peer_name";
     private static final String MESSAGE_CHANNEL_ID = "yourworld-messages";
+    private static final String CAPTURE_CHANNEL_ID = "yourworld-chat-security";
     private static final String EXTRA_MESSAGE_ID = "yw_message_id";
     private static final String EXTRA_CONVERSATION_ID = "yw_conversation_id";
     private static final long WAKE_LOCK_TIMEOUT_MS = 10_000L;
@@ -46,10 +47,13 @@ public class IncomingCallMessagingService extends FirebaseMessagingService {
             }
             return;
         }
-        if (!"call".equals(type) && !"message".equals(type)) return;
+        if (!"call".equals(type) && !"message".equals(type) && !"capture-alert".equals(type)) return;
         String conversationId = data.get("conversationId");
         if ("call".equals(type) && MainActivity.isAppForeground()) return;
         if ("message".equals(type)
+                && MainActivity.isAppForeground()
+                && CallPushPlugin.isConversationActive(conversationId)) return;
+        if ("capture-alert".equals(type)
                 && MainActivity.isAppForeground()
                 && CallPushPlugin.isConversationActive(conversationId)) return;
         // Realtime is the in-app delivery path; do not wake the screen or post
@@ -75,8 +79,10 @@ public class IncomingCallMessagingService extends FirebaseMessagingService {
                 String peerName = safeText(data.get("peerName"), "YourWorld caller", 80);
                 ensureCallChannel();
                 showIncomingCall(callId, mode, peerName);
-            } else {
+            } else if ("message".equals(type)) {
                 showMessage(data);
+            } else {
+                showCaptureAlert(data);
             }
         } finally {
             if (wakeLock != null && wakeLock.isHeld()) {
@@ -180,6 +186,46 @@ public class IncomingCallMessagingService extends FirebaseMessagingService {
         }
     }
 
+    private void showCaptureAlert(Map<String, String> data) {
+        String conversationId = safeText(data.get("conversationId"), "", 100);
+        String eventId = safeText(data.get("eventId"), String.valueOf(System.currentTimeMillis()), 100);
+        String actorName = safeText(data.get("actorName"), "A chat participant", 80);
+        String kind = data.get("kind");
+        if (!UUID_PATTERN.matcher(conversationId).matches()) return;
+        if (!"screenshot".equals(kind) && !"recording".equals(kind)) return;
+
+        String body = "screenshot".equals(kind)
+                ? actorName + " took a screenshot in your protected chat."
+                : actorName + " started a screen recording in your protected chat.";
+        Intent openIntent = new Intent(this, MainActivity.class);
+        openIntent.setAction("com.yourworld.app.CAPTURE_ALERT_NOTIFICATION");
+        openIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        openIntent.putExtra(EXTRA_CONVERSATION_ID, conversationId);
+        PendingIntent openPendingIntent = PendingIntent.getActivity(
+                this,
+                eventId.hashCode(),
+                openIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+
+        ensureCaptureAlertChannel();
+        NotificationCompat.Builder notification = new NotificationCompat.Builder(this, CAPTURE_CHANNEL_ID)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setContentTitle("Protected chat alert")
+                .setContentText(body)
+                .setContentIntent(openPendingIntent)
+                .setCategory(NotificationCompat.CATEGORY_STATUS)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+                .setAutoCancel(true)
+                .setOnlyAlertOnce(false);
+
+        NotificationManager manager = getSystemService(NotificationManager.class);
+        if (manager != null) {
+            manager.notify("yourworld-capture-" + eventId, eventId.hashCode(), notification.build());
+        }
+    }
+
     private Intent callIntent(String callId, String action, String mode, String peerName) {
         Intent intent = new Intent(this, MainActivity.class);
         intent.setAction("com.yourworld.app.INCOMING_CALL");
@@ -227,6 +273,28 @@ public class IncomingCallMessagingService extends FirebaseMessagingService {
                 NotificationManager.IMPORTANCE_HIGH
         );
         channel.setDescription("Alerts for new YourWorld messages.");
+        channel.enableVibration(true);
+        channel.setVibrationPattern(new long[] { 0, 250, 150, 250 });
+        Uri notificationSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+        AudioAttributes audioAttributes = new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build();
+        channel.setSound(notificationSound, audioAttributes);
+        manager.createNotificationChannel(channel);
+    }
+
+    private void ensureCaptureAlertChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+        NotificationManager manager = getSystemService(NotificationManager.class);
+        if (manager == null || manager.getNotificationChannel(CAPTURE_CHANNEL_ID) != null) return;
+
+        NotificationChannel channel = new NotificationChannel(
+                CAPTURE_CHANNEL_ID,
+                "Chat protection alerts",
+                NotificationManager.IMPORTANCE_HIGH
+        );
+        channel.setDescription("Alerts when Android reports a screenshot or screen recording in a protected chat.");
         channel.enableVibration(true);
         channel.setVibrationPattern(new long[] { 0, 250, 150, 250 });
         Uri notificationSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);

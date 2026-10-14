@@ -449,6 +449,130 @@ test("chat message pushes are high priority, generic, and delivered to active An
   assert.deepEqual(Object.keys(message).sort(), ["android", "data", "token"]);
 });
 
+test("reported protected-chat captures send high-priority alerts only to the other participant", async (t) => {
+  setEnvironment(t, { FCM_SERVICE_ACCOUNT_JSON: privateKeyServiceAccount() });
+  const baseUrl = await startServer(t);
+  const captured: { fcmBody: Record<string, unknown> | null } = { fcmBody: null };
+  t.mock.method(
+    globalThis,
+    "fetch",
+    async (
+      input: Parameters<typeof fetch>[0],
+      init?: Parameters<typeof fetch>[1],
+    ) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/auth/v1/user") return jsonResponse({ id: callerId });
+      if (url.pathname === "/rest/v1/conversations") {
+        return jsonResponse([
+          {
+            id: conversationId,
+            participant_one_id: callerId,
+            participant_two_id: receiverId,
+            protect_chat_enabled: true,
+          },
+        ]);
+      }
+      if (url.pathname === "/rest/v1/conversation_preferences") {
+        return jsonResponse([
+          {
+            is_muted: false,
+            is_locked: false,
+            screenshot_alert: true,
+            screen_recording_alert: true,
+          },
+        ]);
+      }
+      if (url.pathname === "/rest/v1/profiles") {
+        return jsonResponse([{ display_name: "Caller display name" }]);
+      }
+      if (url.pathname === "/rest/v1/call_push_subscriptions") {
+        return jsonResponse([
+          {
+            id: "capture-alert-subscription-1",
+            endpoint: "fcm:test-capture-device-token-123456789",
+            subscription: { token: "test-capture-device-token-123456789" },
+          },
+        ]);
+      }
+      if (url.hostname === "oauth2.googleapis.com") {
+        return jsonResponse({ access_token: "test-google-oauth-token", expires_in: 3600 });
+      }
+      if (url.hostname === "fcm.googleapis.com") {
+        captured.fcmBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return jsonResponse({ name: "projects/yourworld-test-project/messages/capture" });
+      }
+      throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url.href}`);
+    },
+  );
+
+  const response = await nativeFetch(`${baseUrl}/capture-alerts/push`, {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer test-user-session",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      conversationId,
+      kind: "recording",
+      eventId: `${callerId}-1700000000000`,
+    }),
+  });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { delivered: 1, suppressed: false });
+  assert.ok(captured.fcmBody);
+  const message = captured.fcmBody.message as Record<string, unknown>;
+  assert.equal(message.token, "test-capture-device-token-123456789");
+  assert.deepEqual(message.data, {
+    type: "capture-alert",
+    eventId: `${callerId}-1700000000000`,
+    conversationId,
+    kind: "recording",
+    actorName: "Caller display name",
+  });
+  assert.deepEqual(message.android, { priority: "HIGH", ttl: "60s" });
+});
+
+test("capture-alert pushes are suppressed when shared chat protection is off", async (t) => {
+  setEnvironment(t, { FCM_SERVICE_ACCOUNT_JSON: undefined });
+  const baseUrl = await startServer(t);
+  const paths: string[] = [];
+  t.mock.method(
+    globalThis,
+    "fetch",
+    async (input: Parameters<typeof fetch>[0]) => {
+      const url = new URL(String(input));
+      paths.push(url.pathname);
+      if (url.pathname === "/auth/v1/user") return jsonResponse({ id: callerId });
+      if (url.pathname === "/rest/v1/conversations") {
+        return jsonResponse([
+          {
+            id: conversationId,
+            participant_one_id: callerId,
+            participant_two_id: receiverId,
+            protect_chat_enabled: false,
+          },
+        ]);
+      }
+      throw new Error(`Unexpected request: ${url.pathname}`);
+    },
+  );
+
+  const response = await nativeFetch(`${baseUrl}/capture-alerts/push`, {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer test-user-session",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ conversationId, kind: "screenshot" }),
+  });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { delivered: 0, suppressed: true });
+  assert.ok(!paths.includes("/rest/v1/call_push_subscriptions"));
+  assert.ok(!paths.includes("https://fcm.googleapis.com"));
+});
+
 test("muted chat message pushes are suppressed before FCM device lookup", async (t) => {
   setEnvironment(t, { FCM_SERVICE_ACCOUNT_JSON: undefined });
   const baseUrl = await startServer(t);

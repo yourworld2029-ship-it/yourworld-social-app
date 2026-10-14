@@ -36,6 +36,7 @@ import {
   resolveMediaUrl,
 } from "@/lib/social-data";
 import { supabase } from "@/integrations/supabase/client";
+import { mediaApiUrl } from "@/lib/media-api-url";
 import { useThreadPresence } from "@/lib/presence";
 import { registerActiveChatView } from "@/lib/active-chat";
 import { useCall } from "@/lib/call-store";
@@ -521,6 +522,32 @@ async function sendCaptureAlertSafely(
   } catch (cause) {
     console.warn("[chat-capture] broadcast threw", cause);
     return false;
+  }
+}
+
+async function sendCaptureAlertPushSafely(payload: Record<string, unknown>) {
+  try {
+    const { data, error } = await supabase.auth.getSession();
+    const accessToken = data.session?.access_token;
+    if (error || !accessToken) return;
+    const response = await fetch(mediaApiUrl("/api/capture-alerts/push"), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        conversationId: payload.chatId,
+        kind: payload.kind,
+        eventId: payload.eventId,
+      }),
+      keepalive: true,
+    });
+    if (!response.ok) {
+      console.warn("[chat-capture] background alert delivery is pending");
+    }
+  } catch (cause) {
+    console.warn("[chat-capture] could not request background alert delivery", cause);
   }
 }
 
@@ -1995,9 +2022,7 @@ function NativeChatThreadPage() {
         kind === "screenshot"
           ? `${actorName} tried to take a screenshot!`
           : `📹 ${actorName} attempted to take a screen recording`;
-      if (kind === "screenshot") {
-        toast.warning(`${actorName} tried to take a screenshot!`);
-      }
+      toast.warning(text);
       appendSecurityNotice(text, String(payload.eventId ?? `${kind}-${Date.now()}`));
     },
     [
@@ -2127,14 +2152,14 @@ function NativeChatThreadPage() {
     if (!captureChannelName || !conversationId || !currentUserId) return;
 
     return listenForAndroidCaptureEvents((kind) => {
-      if (kind !== "screenshot") return;
       const payload = {
         chatId: conversationId,
         senderId: currentUserId,
         actorName: currentUserName,
-        kind: "screenshot",
+        kind,
         eventId: `${currentUserId}-${Date.now()}`,
       };
+      void sendCaptureAlertPushSafely(payload);
       const channel = captureChannelRef.current;
       if (captureChannelReadyRef.current && channel) {
         void sendCaptureAlertSafely(channel, "send_system_alert", payload).then((sent) => {

@@ -41,10 +41,18 @@ type PreferenceRow = {
   is_locked?: boolean | null;
   secret_pin_salt?: string | null;
   secret_pin_hash?: string | null;
+  screenshot_alert?: boolean | null;
+  screen_recording_alert?: boolean | null;
 };
 type ProfileRow = {
   display_name?: string | null;
   username?: string | null;
+};
+type CaptureConversationRow = {
+  id: string;
+  participant_one_id: string;
+  participant_two_id: string;
+  protect_chat_enabled?: boolean;
 };
 type MessageRow = {
   id: string;
@@ -819,6 +827,224 @@ router.post("/messages/push", async (req, res): Promise<void> => {
   );
 
   res.json(SendMessagePushResponse.parse({ delivered, suppressed: false }));
+});
+
+router.post("/capture-alerts/push", async (req, res): Promise<void> => {
+  const body = req.body && typeof req.body === "object" ? (req.body as JsonObject) : {};
+  const conversationId = body.conversationId;
+  const kind = body.kind;
+  const eventId = body.eventId;
+  if (
+    typeof conversationId !== "string" ||
+    !UUID_PATTERN.test(conversationId) ||
+    (kind !== "screenshot" && kind !== "recording")
+  ) {
+    res.status(400).json({ error: "Provide a valid protected chat and capture type." });
+    return;
+  }
+
+  const token = bearerToken(req.get("authorization"));
+  if (!token) {
+    res.status(401).json({ error: "Authentication is required." });
+    return;
+  }
+  const config = supabaseConfig();
+  if (!config) {
+    req.log.error("Chat capture alerts are missing Supabase configuration");
+    res.status(503).json({ error: "Chat protection alerts are not configured." });
+    return;
+  }
+
+  let senderId: string | null;
+  try {
+    senderId = await authenticateUser(config, token);
+  } catch (cause) {
+    req.log.warn({ cause }, "Supabase could not validate the chat capture alert user");
+    res.status(502).json({ error: "Could not validate the current session." });
+    return;
+  }
+  if (!senderId) {
+    res.status(401).json({ error: "The current session is no longer valid." });
+    return;
+  }
+
+  let conversation: CaptureConversationRow | undefined;
+  let recipientSettings: PreferenceRow | undefined;
+  let subscriptions: SubscriptionRow[];
+  let profiles: ProfileRow[];
+  try {
+    const conversations = await readRows<CaptureConversationRow>(config, "conversations", {
+      select: "id,participant_one_id,participant_two_id,protect_chat_enabled",
+      id: `eq.${conversationId}`,
+      limit: "1",
+    });
+    conversation = conversations[0];
+    if (
+      !conversation ||
+      (conversation.participant_one_id !== senderId &&
+        conversation.participant_two_id !== senderId)
+    ) {
+      res.status(404).json({ error: "Protected conversation is not available." });
+      return;
+    }
+    if (conversation.protect_chat_enabled !== true) {
+      res.json({ delivered: 0, suppressed: true });
+      return;
+    }
+    const recipientId =
+      conversation.participant_one_id === senderId
+        ? conversation.participant_two_id
+        : conversation.participant_one_id;
+    const preferences = await readRows<PreferenceRow>(
+      config,
+      "conversation_preferences",
+      {
+        select:
+          "is_muted,is_locked,secret_pin_salt,secret_pin_hash,screenshot_alert,screen_recording_alert",
+        conversation_id: `eq.${conversationId}`,
+        user_id: `eq.${recipientId}`,
+        limit: "1",
+      },
+    );
+    recipientSettings = preferences[0];
+    const alertEnabled =
+      kind === "screenshot"
+        ? recipientSettings?.screenshot_alert !== false
+        : recipientSettings?.screen_recording_alert !== false;
+    const secretLocked =
+      recipientSettings?.is_locked === true &&
+      typeof recipientSettings.secret_pin_salt === "string" &&
+      recipientSettings.secret_pin_salt.length > 0 &&
+      typeof recipientSettings.secret_pin_hash === "string" &&
+      recipientSettings.secret_pin_hash.length > 0;
+    if (!alertEnabled || recipientSettings?.is_muted === true || secretLocked) {
+      res.json({ delivered: 0, suppressed: true });
+      return;
+    }
+    [subscriptions, profiles] = await Promise.all([
+      readRows<SubscriptionRow>(config, "call_push_subscriptions", {
+        select: "id,endpoint,subscription",
+        user_id: `eq.${recipientId}`,
+        provider: "eq.fcm",
+        limit: "50",
+      }),
+      readRows<ProfileRow>(config, "profiles", {
+        select: "display_name,username",
+        id: `eq.${senderId}`,
+        limit: "1",
+      }),
+    ]);
+  } catch (cause) {
+    req.log.error({ cause }, "Could not validate chat capture alert delivery");
+    res.status(503).json({ error: "Could not verify chat protection alert settings." });
+    return;
+  }
+
+  const deviceTokens = Array.from(
+    new Set(
+      subscriptions
+        .map(tokenFromSubscription)
+        .filter((value): value is string => value !== null),
+    ),
+  );
+  if (deviceTokens.length === 0) {
+    res.json({ delivered: 0, suppressed: false });
+    return;
+  }
+  const account = serviceAccount();
+  if (!account) {
+    req.log.error("FCM service account is missing or invalid");
+    res.status(503).json({ error: "Chat protection alerts are not configured." });
+    return;
+  }
+
+  let accessToken: string;
+  try {
+    accessToken = await getGoogleAccessToken(account);
+  } catch (cause) {
+    req.log.error({ cause }, "Could not obtain FCM authorization for a chat capture alert");
+    res.status(502).json({ error: "Could not authorize the chat protection alert." });
+    return;
+  }
+
+  const actorName =
+    profiles[0]?.display_name?.trim() || profiles[0]?.username?.trim() || "A chat participant";
+  const safeEventId =
+    typeof eventId === "string" && /^[a-zA-Z0-9_-]{8,128}$/.test(eventId)
+      ? eventId
+      : `${senderId}-${Date.now()}`;
+  const endpoint = `https://fcm.googleapis.com/v1/projects/${encodeURIComponent(account.project_id)}/messages:send`;
+  let delivered = 0;
+  await Promise.all(
+    deviceTokens.map(async (deviceToken) => {
+      let response: FetchResponse;
+      try {
+        response = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            message: {
+              token: deviceToken,
+              data: {
+                type: "capture-alert",
+                eventId: safeEventId,
+                conversationId,
+                kind,
+                actorName,
+              },
+              android: { priority: "HIGH", ttl: "60s" },
+            },
+          }),
+          signal: AbortSignal.timeout(15_000),
+        });
+      } catch (cause) {
+        req.log.warn({ cause }, "FCM chat capture alert delivery failed");
+        return;
+      }
+
+      if (response.ok) {
+        delivered += 1;
+        return;
+      }
+      const result: unknown = await response.json().catch(() => null);
+      const error =
+        result && typeof result === "object" && "error" in result
+          ? (result as JsonObject).error
+          : null;
+      const details =
+        error && typeof error === "object" && "details" in error
+          ? (error as JsonObject).details
+          : null;
+      const unregistered =
+        Array.isArray(details) &&
+        details.some(
+          (detail) =>
+            !!detail &&
+            typeof detail === "object" &&
+            "errorCode" in detail &&
+            detail.errorCode === "UNREGISTERED",
+        );
+      if (unregistered) {
+        const subscription = subscriptions.find(
+          (row) => tokenFromSubscription(row) === deviceToken,
+        );
+        if (subscription) {
+          try {
+            await deleteSubscription(config, subscription.id);
+          } catch (cause) {
+            req.log.warn({ cause }, "Could not remove an expired capture-alert subscription");
+          }
+        }
+      } else {
+        req.log.warn({ status: response.status }, "FCM rejected a chat capture alert");
+      }
+    }),
+  );
+
+  res.json({ delivered, suppressed: false });
 });
 
 export default router;
