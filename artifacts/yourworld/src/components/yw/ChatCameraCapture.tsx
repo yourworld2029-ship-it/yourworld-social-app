@@ -343,11 +343,32 @@ export function ChatCameraCapture({
         return false;
       }
     }) ?? "";
+    const videoSettings = activeStream.getVideoTracks()[0]?.getSettings();
+    const videoPixels = (videoSettings?.width ?? 1280) * (videoSettings?.height ?? 720);
+    const videoBitsPerSecond =
+      videoPixels >= 2560 * 1440
+        ? 16_000_000
+        : videoPixels >= 1920 * 1080
+          ? 10_000_000
+          : videoPixels >= 1280 * 720
+            ? 6_000_000
+            : 3_000_000;
 
     const createAndStartRecorder = (preferredMimeType: string) => {
-      const recorder = preferredMimeType
-        ? new MediaRecorder(activeStream, { mimeType: preferredMimeType })
-        : new MediaRecorder(activeStream);
+      const recorderOptions: MediaRecorderOptions = {
+        videoBitsPerSecond,
+        audioBitsPerSecond: hasAudioTrack ? 128_000 : undefined,
+        ...(preferredMimeType ? { mimeType: preferredMimeType } : {}),
+      };
+      let recorder: MediaRecorder;
+      try {
+        recorder = new MediaRecorder(activeStream, recorderOptions);
+      } catch {
+        // Keep recording available on WebViews that reject explicit bitrate options.
+        recorder = preferredMimeType
+          ? new MediaRecorder(activeStream, { mimeType: preferredMimeType })
+          : new MediaRecorder(activeStream);
+      }
       recorderRef.current = recorder;
       chunksRef.current = [];
       deliverVideoOnStopRef.current = false;

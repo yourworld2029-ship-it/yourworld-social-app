@@ -96,6 +96,7 @@ type Message = {
   time: string;
   ts: number;
   local?: boolean;
+  uploadProgress?: number;
   read?: boolean;
   viewOnce?: boolean;
   opened?: boolean;
@@ -834,6 +835,8 @@ function NativeChatThreadPage() {
   const navigate = useNavigate();
   const router = useRouter();
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const cameraCapturedPhotoRef = useRef<File | null>(null);
+  const cameraCapturedPhotoPreviewRef = useRef<string | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [recordedVideo, setRecordedVideo] = useState<{ file: File; url: string } | null>(null);
   const [isSendingCameraPhoto, setIsSendingCameraPhoto] = useState(false);
@@ -876,6 +879,8 @@ function NativeChatThreadPage() {
 
   const handleClosePreview = () => {
     if (selectedImage?.startsWith("blob:")) { URL.revokeObjectURL(selectedImage); }
+    cameraCapturedPhotoRef.current = null;
+    cameraCapturedPhotoPreviewRef.current = null;
     setSelectedImage(null);
     setCaption("");
     setSelectedFilter("normal");
@@ -2168,6 +2173,8 @@ function NativeChatThreadPage() {
 
   const prepareImageFile = async (file: File) => {
     try {
+      cameraCapturedPhotoRef.current = null;
+      cameraCapturedPhotoPreviewRef.current = null;
       // Compress on-device first so sending/uploading is near-instant.
       const compressed = await compressImageFile(file, { maxDim: 1600, quality: 0.82 });
       setCaption("");
@@ -2178,6 +2185,18 @@ function NativeChatThreadPage() {
       console.error("[chat-media] image compression failed", cause);
       toast.error("Couldn't prepare that image. Please try another.");
     }
+  };
+
+  const handleCapturedPhoto = (file: File) => {
+    if (selectedImage?.startsWith("blob:")) URL.revokeObjectURL(selectedImage);
+    const previewUrl = URL.createObjectURL(file);
+    cameraCapturedPhotoRef.current = file;
+    cameraCapturedPhotoPreviewRef.current = previewUrl;
+    setCaption("");
+    setSelectedFilter("normal");
+    setShowFilters(false);
+    setOverlays([]);
+    setSelectedImage(previewUrl);
   };
 
   const handleCapturedVideo = (file: File) => {
@@ -2194,25 +2213,76 @@ function NativeChatThreadPage() {
     if (!selectedImage || cameraPhotoSendInFlightRef.current) return;
     cameraPhotoSendInFlightRef.current = true;
     setIsSendingCameraPhoto(true);
+    const originalSource = selectedImage;
+    const capturedFile =
+      cameraCapturedPhotoPreviewRef.current === originalSource
+        ? cameraCapturedPhotoRef.current
+        : null;
+    const uploadSource = capturedFile ? URL.createObjectURL(capturedFile) : originalSource;
+    const localPreviewUrl = capturedFile ? URL.createObjectURL(capturedFile) : originalSource;
+    const savedCaption = caption.trim();
+    const pendingId = `local-camera-image-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const createdAt = Date.now();
+    const pendingMessage: Message = {
+      id: pendingId,
+      text: savedCaption || undefined,
+      image: localPreviewUrl,
+      mediaKind: "image",
+      mediaMimeType: capturedFile?.type || "image/jpeg",
+      sender: "me",
+      time: fmtTime(new Date(createdAt).toISOString()),
+      ts: createdAt,
+      local: true,
+      uploadProgress: 0,
+    };
+    setLocalMessages((previous) => [...previous, pendingMessage]);
+    handleClosePreview();
+    let finalImage = uploadSource;
     try {
       const filterCss = filters.find((filter) => filter.id === selectedFilter)?.css ?? "none";
-      const finalImage = await renderPhoto(selectedImage, filterCss, overlays);
+      finalImage = await renderPhoto(
+        uploadSource,
+        filterCss,
+        overlays,
+        capturedFile ? { type: "image/jpeg", quality: 0.94 } : undefined,
+      );
+      setLocalMessages((previous) =>
+        previous.map((item) =>
+          item.id === pendingId ? { ...item, image: finalImage } : item,
+        ),
+      );
       if (currentUserId) {
-        const extension = finalImage.startsWith("data:image/png") ? "png" : "jpg";
+        const contentType = finalImage.startsWith("data:image/png")
+          ? "image/png"
+          : finalImage.startsWith("data:image/gif")
+            ? "image/gif"
+            : capturedFile?.type || "image/jpeg";
+        const extension = contentType === "image/png" ? "png" : contentType === "image/gif" ? "gif" : "jpg";
         const path = `${currentUserId}/${threadId}/image-${Date.now()}.${extension}`;
         const uploaded = await uploadSourceWithProgress(
           STORAGE_BUCKETS.messages,
           path,
           finalImage,
-          extension === "png" ? "image/png" : "image/jpeg",
+          contentType,
+          (percent) => {
+            setLocalMessages((previous) =>
+              previous.map((item) =>
+                item.id === pendingId ? { ...item, uploadProgress: percent } : item,
+              ),
+            );
+          },
         );
         if (uploaded.error || !uploaded.url) {
+          setLocalMessages((previous) => previous.filter((item) => item.id !== pendingId));
+          if (localPreviewUrl.startsWith("blob:")) URL.revokeObjectURL(localPreviewUrl);
+          setSelectedImage(finalImage);
+          setCaption(savedCaption);
           toast.error(uploaded.error ?? "Image upload failed");
           return;
         }
-        const sent = await sendToDb({
+        const sendPromise = sendToDb({
           media_url: uploaded.url,
-          content: caption,
+          content: savedCaption,
           metadata: {
             ...(replyTo ? { reply_to: replyTo } : {}),
             media_bucket: STORAGE_BUCKETS.messages,
@@ -2221,16 +2291,33 @@ function NativeChatThreadPage() {
           viewOnce: settings.viewOnce,
           expiringMedia: settings.viewOnce,
         });
+        setLocalMessages((previous) => previous.filter((item) => item.id !== pendingId));
+        const sent = await sendPromise;
         if (sent.error) {
+          if (localPreviewUrl.startsWith("blob:")) URL.revokeObjectURL(localPreviewUrl);
+          setSelectedImage(finalImage);
+          setCaption(savedCaption);
           toast.error(sent.error);
           return;
         }
         setReplyTo(null);
       } else {
+        setLocalMessages((previous) => previous.filter((item) => item.id !== pendingId));
+        if (localPreviewUrl.startsWith("blob:")) URL.revokeObjectURL(localPreviewUrl);
         toast.error("Sign in to send messages.");
+        setSelectedImage(finalImage);
+        setCaption(savedCaption);
+        return;
       }
-      handleClosePreview();
+      if (localPreviewUrl.startsWith("blob:")) URL.revokeObjectURL(localPreviewUrl);
+      if (uploadSource.startsWith("blob:") && uploadSource !== localPreviewUrl) {
+        URL.revokeObjectURL(uploadSource);
+      }
     } catch (error) {
+      setLocalMessages((previous) => previous.filter((item) => item.id !== pendingId));
+      if (localPreviewUrl.startsWith("blob:")) URL.revokeObjectURL(localPreviewUrl);
+      setSelectedImage(finalImage);
+      setCaption(savedCaption);
       console.error("[chat-media] camera photo send failed", error);
       toast.error("Couldn't send that photo. Please try again.");
     } finally {
@@ -2247,23 +2334,54 @@ function NativeChatThreadPage() {
     }
     cameraVideoSendInFlightRef.current = true;
     setIsSendingCameraVideo(true);
+    const file = recordedVideo.file;
+    const savedCaption = caption.trim();
+    const localPreviewUrl = URL.createObjectURL(file);
+    const pendingId = `local-camera-video-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const createdAt = Date.now();
+    const pendingMessage: Message = {
+      id: pendingId,
+      text: savedCaption || undefined,
+      image: localPreviewUrl,
+      mediaKind: "video",
+      mediaMimeType: file.type || "video/webm",
+      sender: "me",
+      time: fmtTime(new Date(createdAt).toISOString()),
+      ts: createdAt,
+      local: true,
+      uploadProgress: 0,
+    };
+    setLocalMessages((previous) => [...previous, pendingMessage]);
+    setRecordedVideo(null);
+    setCaption("");
     try {
-      const mimeType = recordedVideo.file.type || "video/webm";
+      const mimeType = file.type || "video/webm";
       const extension = mimeType.toLowerCase().includes("mp4") ? "mp4" : "webm";
       const path = `${currentUserId}/${threadId}/camera-${Date.now()}.${extension}`;
       const uploaded = await uploadWithProgress(
         STORAGE_BUCKETS.messages,
         path,
-        recordedVideo.file,
+        file,
         mimeType,
+        (percent) => {
+          setLocalMessages((previous) =>
+            previous.map((item) =>
+              item.id === pendingId ? { ...item, uploadProgress: percent } : item,
+            ),
+          );
+        },
       );
       if (uploaded.error || !uploaded.url) {
+        setLocalMessages((previous) => previous.filter((item) => item.id !== pendingId));
+        URL.revokeObjectURL(localPreviewUrl);
+        setRecordedVideo({ file, url: URL.createObjectURL(file) });
+        setCaption(savedCaption);
         toast.error(uploaded.error ?? "Video upload failed.");
         return;
       }
-      const sent = await sendToDb({
+      const sendPromise = sendToDb({
         media_url: uploaded.url,
-        content: caption.trim(),
+        content: savedCaption,
         metadata: {
           ...(replyTo ? { reply_to: replyTo } : {}),
           media_bucket: STORAGE_BUCKETS.messages,
@@ -2273,14 +2391,22 @@ function NativeChatThreadPage() {
         viewOnce: settings.viewOnce,
         expiringMedia: settings.viewOnce,
       });
+      setLocalMessages((previous) => previous.filter((item) => item.id !== pendingId));
+      const sent = await sendPromise;
       if (sent.error) {
+        URL.revokeObjectURL(localPreviewUrl);
+        setRecordedVideo({ file, url: URL.createObjectURL(file) });
+        setCaption(savedCaption);
         toast.error(sent.error);
         return;
       }
       setReplyTo(null);
-      setCaption("");
-      setRecordedVideo(null);
+      URL.revokeObjectURL(localPreviewUrl);
     } catch (error) {
+      setLocalMessages((previous) => previous.filter((item) => item.id !== pendingId));
+      URL.revokeObjectURL(localPreviewUrl);
+      setRecordedVideo({ file, url: URL.createObjectURL(file) });
+      setCaption(savedCaption);
       toast.error(error instanceof Error ? error.message : "Video upload failed.");
     } finally {
       cameraVideoSendInFlightRef.current = false;
@@ -3002,8 +3128,13 @@ function NativeChatThreadPage() {
               </time>
               {m.sender === "me" && (
                 m.local ? (
-                  <span role="img" aria-label="Sending" title="Sending">
-                    <Check size={12} className="text-zinc-500" aria-hidden="true" />
+                  <span
+                    role="status"
+                    aria-label={`Sending ${Math.round(m.uploadProgress ?? 0)} percent`}
+                    title={`Sending ${Math.round(m.uploadProgress ?? 0)}%`}
+                    className="whitespace-nowrap text-[9px] text-zinc-400"
+                  >
+                    Sending {Math.round(m.uploadProgress ?? 0)}%
                   </span>
                 ) : m.read ? (
                   <span role="img" aria-label="Read" title="Read">
@@ -3194,7 +3325,7 @@ function NativeChatThreadPage() {
     {cameraOpen && (!secretLock || chatUnlocked) && (
       <ChatCameraCapture
         onClose={() => setCameraOpen(false)}
-        onPhoto={(file) => void prepareImageFile(file)}
+        onPhoto={handleCapturedPhoto}
         onVideo={handleCapturedVideo}
         onError={(message) => toast.error(message)}
       />

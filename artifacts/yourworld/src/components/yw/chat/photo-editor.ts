@@ -76,7 +76,10 @@ export async function renderPhoto(
   src: string,
   filterCss: string,
   overlays: Overlay[],
+  output: { type?: "image/jpeg" | "image/png"; quality?: number } = {},
 ): Promise<string> {
+  if ((!filterCss || filterCss === "none") && overlays.length === 0) return src;
+
   try {
     const img = await loadImage(src);
     const canvas = document.createElement("canvas");
@@ -105,7 +108,7 @@ export async function renderPhoto(
       }
       ctx.fillText(o.value, px, py);
     }
-    return canvas.toDataURL("image/png");
+    return canvas.toDataURL(output.type ?? "image/png", output.quality ?? 0.94);
   } catch {
     return src;
   }

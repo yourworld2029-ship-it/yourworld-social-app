@@ -28,7 +28,7 @@ export function ChatVideoBubbleThumbnail({
       return;
     }
 
-    const scale = Math.min(1, 480 / video.videoWidth);
+    const scale = Math.min(1, 960 / video.videoWidth);
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
     canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
