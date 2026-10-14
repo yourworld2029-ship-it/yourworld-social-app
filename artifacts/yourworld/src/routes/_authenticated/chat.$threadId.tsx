@@ -44,6 +44,7 @@ import { fetchMomentById, type NewMoment } from "@/lib/moment-store";
 import { useMoments } from "@/lib/moment-context";
 import { formatChatRelativeTime } from "@/lib/chat-time";
 import { useChatNames, setChatNameLocal } from "@/lib/chat-names";
+import { setAndroidActiveChatConversation } from "@/lib/call-push-native";
 import { useChatSettings } from "@/lib/chat-settings";
 import { setThreadCacheProtection } from "@/lib/chat-cache-security";
 import {
@@ -876,6 +877,7 @@ function NativeChatThreadPage() {
     mimeType?: string;
   } | null>(null);
   const [openingViewOnceId, setOpeningViewOnceId] = useState<string | null>(null);
+  const [savingDisplayName, setSavingDisplayName] = useState(false);
 
   const handleClosePreview = () => {
     if (selectedImage?.startsWith("blob:")) { URL.revokeObjectURL(selectedImage); }
@@ -977,6 +979,17 @@ function NativeChatThreadPage() {
 
     setOpeningViewOnceId(message.id);
     try {
+      // Confirm the object is reachable before consuming the one-time view.
+      // A failed/deleted Storage URL must not permanently burn the recipient's view.
+      const mediaCheck = await fetch(source, {
+        headers: { Range: "bytes=0-0" },
+        cache: "no-store",
+      });
+      if (!mediaCheck.ok) {
+        throw new Error("This media could not be loaded. Ask the sender to send it again.");
+      }
+      if (mediaCheck.body) await mediaCheck.body.cancel().catch(() => undefined);
+
       const consumed = await consumeViewOnce(message.id);
       if (consumed.error) {
         toast.error(consumed.error);
@@ -1130,7 +1143,7 @@ function NativeChatThreadPage() {
               (Number.isFinite(vanishExpiresAt) || Number.isFinite(expiresAt))
                 ? Number.isFinite(vanishExpiresAt) ? vanishExpiresAt : expiresAt
                 : undefined,
-            viewOnce: metadata?.view_once === true,
+            viewOnce: metadata?.view_once === true || metadata?.view_once === "true",
             opened: m?.is_viewed === true,
             isMomentReply:
               metadata?.type === "moment_reply" ||
@@ -1493,6 +1506,17 @@ function NativeChatThreadPage() {
   }, [chatProtectionDecisionReady, currentUserId, protectChatEnabled, threadId]);
   const { nameFor } = useChatNames();
   const displayName = nameFor(peer.peerId, settings.displayName ?? peer.peerName ?? "");
+  useEffect(() => {
+    if (!conversationId) return;
+    void setAndroidActiveChatConversation(conversationId).catch((error) => {
+      console.debug("[chat-notifications] active conversation sync pending", error);
+    });
+    return () => {
+      void setAndroidActiveChatConversation(null).catch((error) => {
+        console.debug("[chat-notifications] active conversation reset pending", error);
+      });
+    };
+  }, [conversationId]);
   const openPeerProfile = {
     preload: () => {
       if (!peer.peerId) return;
@@ -1505,13 +1529,19 @@ function NativeChatThreadPage() {
   };
   const [nameDialogOpen, setNameDialogOpen] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
-  const setDisplayName = (n: string) => {
-    setChatNameLocal(peer.peerId ?? "", n);
-    void patch({ displayName: n }).then(({ error }) => {
-      if (!error) return;
-      setChatNameLocal(peer.peerId ?? "", settings.displayName);
-      toast.error(error);
-    });
+  const setDisplayName = async (n: string) => {
+    const peerId = peer.peerId;
+    if (!peerId) {
+      toast.error("Chat is still syncing. Try again in a moment.");
+      return false;
+    }
+    const result = await patch({ displayName: n || null });
+    if (result.error) {
+      toast.error(result.error);
+      return false;
+    }
+    setChatNameLocal(peerId, n || null);
+    return true;
   };
 
   const [securityFallbackThreadId, setSecurityFallbackThreadId] = useState<string | null>(null);
@@ -3787,14 +3817,24 @@ function NativeChatThreadPage() {
       <div className="mt-4 flex justify-end gap-2">
         <button className="rounded-xl px-3 py-2 text-sm text-zinc-400" onClick={() => setNameDialogOpen(false)}>Cancel</button>
         <button
+          disabled={savingDisplayName}
           className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-white"
           onClick={() => {
             const next = nameDraft.trim();
-            if (next) { setDisplayName(next); pushSystem(`Display name changed to ${next}`); }
-            setNameDialogOpen(false);
+            setSavingDisplayName(true);
+            void setDisplayName(next).then((saved) => {
+              if (!saved) return;
+              void pushSystem(
+                next
+                  ? `Display name changed to ${next}`
+                  : "Custom display name removed",
+              );
+              toast.success(next ? "Display name saved" : "Display name reset");
+              setNameDialogOpen(false);
+            }).finally(() => setSavingDisplayName(false));
           }}
         >
-          Save
+          {savingDisplayName ? "Saving…" : "Save"}
         </button>
       </div>
     </div>

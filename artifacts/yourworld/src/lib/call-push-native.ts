@@ -17,6 +17,7 @@ type NativeCallPushPlugin = {
   getStatus(): Promise<NativeCallPushStatus>;
   register(): Promise<NativeCallPushResult>;
   getToken(): Promise<{ token: string | null }>;
+  setActiveConversation(options: { conversationId: string | null }): Promise<void>;
   consumePendingAction(): Promise<{ action: CallNotificationAction | null }>;
   dismiss(options: { callId: string }): Promise<void>;
   addListener(
@@ -47,6 +48,11 @@ export async function getAndroidCallPushToken() {
   if (!isAndroidCallPushAvailable()) return null;
   const result = await NativeCallPush.getToken();
   return result.token;
+}
+
+export async function setAndroidActiveChatConversation(conversationId: string | null) {
+  if (!isAndroidCallPushAvailable()) return;
+  await NativeCallPush.setActiveConversation({ conversationId });
 }
 
 export async function consumeAndroidCallPushAction() {

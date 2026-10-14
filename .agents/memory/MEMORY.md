@@ -54,6 +54,7 @@
 - [Android Gradle JDK selection](android-gradle-jdk-selection.md) — Android release builds need Gradle runtime and compiler detection explicitly aligned to JDK 21.
 - [Production Android signing continuity](production-android-signing.md) — release APKs must retain the existing signing identity; never substitute a debug or newly generated key.
 - [Android capture protection](android-capture-protection.md) — keep FLAG_SECURE off globally; only an active chat’s explicit protection toggle may enable it, with cleanup on exit.
+- [Foreground chat push routing](foreground-chat-push-routing.md) — suppress Android message notifications only for the exact conversation currently open, not every foreground app screen.
 - [Managed Realtime table ownership](realtime-system-table-ownership.md) — do not alter Supabase-managed Realtime tables or publication through the project migration connection.
 - [Supabase media upload transport](direct-supabase-uploads.md) — use direct Storage for small files and sequential resumable TUS for large browser uploads.
 - [Cloudflare Stream downloads](cloudflare-stream-downloads.md) — prefer Cloudflare MP4, active playback, then storage; keep quality labels honest and preserve access denials.

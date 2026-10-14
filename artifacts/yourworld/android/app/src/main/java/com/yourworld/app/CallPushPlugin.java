@@ -38,6 +38,7 @@ public class CallPushPlugin extends Plugin {
 
     private static volatile CallPushPlugin activePlugin;
     private static JSObject pendingAction;
+    private static volatile String activeConversationId;
 
     @Override
     public void load() {
@@ -79,6 +80,21 @@ public class CallPushPlugin extends Plugin {
             return;
         }
         fetchToken(call);
+    }
+
+    @PluginMethod
+    public void setActiveConversation(PluginCall call) {
+        String conversationId = call.getString("conversationId");
+        if (conversationId != null && !UUID_PATTERN.matcher(conversationId).matches()) {
+            call.reject("A valid conversation ID or null is required.");
+            return;
+        }
+        activeConversationId = conversationId;
+        call.resolve();
+    }
+
+    static boolean isConversationActive(String conversationId) {
+        return conversationId != null && conversationId.equals(activeConversationId);
     }
 
     @PluginMethod

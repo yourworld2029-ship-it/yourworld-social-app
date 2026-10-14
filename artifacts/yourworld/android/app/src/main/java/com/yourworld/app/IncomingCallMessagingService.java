@@ -47,7 +47,11 @@ public class IncomingCallMessagingService extends FirebaseMessagingService {
             return;
         }
         if (!"call".equals(type) && !"message".equals(type)) return;
-        if (MainActivity.isAppForeground()) return;
+        String conversationId = data.get("conversationId");
+        if ("call".equals(type) && MainActivity.isAppForeground()) return;
+        if ("message".equals(type)
+                && MainActivity.isAppForeground()
+                && CallPushPlugin.isConversationActive(conversationId)) return;
         // Realtime is the in-app delivery path; do not wake the screen or post
         // OS notifications when the recipient has disabled notifications.
         if (!NotificationManagerCompat.from(this).areNotificationsEnabled()) return;
