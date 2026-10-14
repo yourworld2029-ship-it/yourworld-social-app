@@ -223,6 +223,8 @@ export type Database = {
           id: string
           participant_one_id: string | null
           participant_two_id: string | null
+          protect_chat_enabled: boolean
+          protect_chat_enabled_by: string | null
           thread_id: string | null
           updated_at: string | null
         }
@@ -232,6 +234,8 @@ export type Database = {
           id?: string
           participant_one_id?: string | null
           participant_two_id?: string | null
+          protect_chat_enabled?: boolean
+          protect_chat_enabled_by?: string | null
           thread_id?: string | null
           updated_at?: string | null
         }
@@ -241,6 +245,8 @@ export type Database = {
           id?: string
           participant_one_id?: string | null
           participant_two_id?: string | null
+          protect_chat_enabled?: boolean
+          protect_chat_enabled_by?: string | null
           thread_id?: string | null
           updated_at?: string | null
         }

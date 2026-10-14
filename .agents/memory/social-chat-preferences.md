@@ -1,10 +1,10 @@
 ---
 name: Social Chat preferences
-description: Social Chat settings use participant-scoped conversation preferences while auto-delete remains a shared conversation policy.
+description: Distinguish participant-private chat options from settings shared by both conversation members.
 ---
 
-Social Chat stores per-user toggles and secret-lock material in a participant-scoped conversation preference row. The effective auto-delete mode is still written to and read from the shared conversation so both participants use the same message-expiry behavior.
+Social Chat stores private controls and secret-lock material in each participant's conversation preference row. Auto-delete and capture protection are shared conversation settings so both participants follow the same policy. The participant who enables capture protection owns its off-switch.
 
-**Why:** Legacy peer-scoped Orbit settings could not reliably represent settings for a specific Social Chat conversation, while auto-delete must not diverge between participants.
+**Why:** Auto-delete must not diverge between participants, and the user explicitly requires chat capture protection enabled by either participant to apply on both devices.
 
-**How to apply:** Keep Social Chat writes conversation-scoped and preserve compatibility writes only where Orbit or display-name code still depends on the legacy settings table. Enforce block behavior in database policies/triggers, not only in the UI.
+**How to apply:** Keep unrelated controls participant-scoped. Persist shared policy on the conversation row, deliver it through realtime, and enforce any owner-only switch behavior in a database trigger rather than relying on UI state alone.

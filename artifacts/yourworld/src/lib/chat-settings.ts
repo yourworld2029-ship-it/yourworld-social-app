@@ -27,6 +27,7 @@ export type ChatSettings = {
   screenshotAlert: boolean;
   recordingAlert: boolean;
   protectChatEnabled: boolean;
+  protectChatEnabledBy: string | null;
   muted: boolean;
   blocked: boolean;
 };
@@ -42,6 +43,7 @@ const DEFAULTS: ChatSettings = {
   screenshotAlert: true,
   recordingAlert: true,
   protectChatEnabled: false,
+  protectChatEnabledBy: null,
   muted: false,
   blocked: false,
 };
@@ -109,16 +111,28 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
         if (preferenceResult.error) throw preferenceResult.error;
         const preference = preferenceResult.data as PreferenceRow | null;
         let conversationSetting: AutoDeleteSetting | null = null;
+        let conversationProtection: {
+          protect_chat_enabled?: boolean;
+          protect_chat_enabled_by?: string | null;
+        } | null = null;
         if (conversationId) {
           const conversationResult = await supabase
             .from("conversations" as never)
-            .select("auto_delete_setting" as never)
+            .select(
+              "auto_delete_setting, protect_chat_enabled, protect_chat_enabled_by" as never,
+            )
             .eq("id" as never, conversationId)
             .maybeSingle();
           if (!conversationResult.error && conversationResult.data) {
+            const conversation = conversationResult.data as {
+              auto_delete_setting?: unknown;
+              protect_chat_enabled?: boolean;
+              protect_chat_enabled_by?: string | null;
+            };
             conversationSetting = normalizeChatAutoDeleteSetting(
-              (conversationResult.data as { auto_delete_setting?: unknown }).auto_delete_setting,
+              conversation.auto_delete_setting,
             );
+            conversationProtection = conversation;
           }
         }
         if (!alive) return;
@@ -142,7 +156,12 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
             autoDelete: autoDeleteSeconds(conversationSetting ?? preferenceMode),
             screenshotAlert: preference?.screenshot_alert ?? DEFAULTS.screenshotAlert,
             recordingAlert: preference?.screen_recording_alert ?? DEFAULTS.recordingAlert,
-            protectChatEnabled: preference?.protect_chat_enabled ?? DEFAULTS.protectChatEnabled,
+            protectChatEnabled:
+              conversationProtection?.protect_chat_enabled ??
+              preference?.protect_chat_enabled ??
+              DEFAULTS.protectChatEnabled,
+            protectChatEnabledBy:
+              conversationProtection?.protect_chat_enabled_by ?? DEFAULTS.protectChatEnabledBy,
             muted: preference?.is_muted ?? DEFAULTS.muted,
             blocked: Boolean(blockedData),
           });
@@ -176,7 +195,6 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
               view_once?: boolean;
               screenshot_alert?: boolean;
               screen_recording_alert?: boolean;
-              protect_chat_enabled?: boolean;
               is_muted?: boolean;
               auto_delete_setting?: string;
             };
@@ -202,8 +220,6 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
                 viewOnce: row.view_once ?? current.viewOnce,
                 screenshotAlert: row.screenshot_alert ?? current.screenshotAlert,
                 recordingAlert: row.screen_recording_alert ?? current.recordingAlert,
-                protectChatEnabled:
-                  row.protect_chat_enabled ?? current.protectChatEnabled,
                 muted: row.is_muted ?? current.muted,
                 autoDeleteSetting: row.auto_delete_setting
                   ? normalizeChatAutoDeleteSetting(row.auto_delete_setting)
@@ -241,13 +257,23 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
             "postgres_changes",
             { event: "UPDATE", schema: "public", table: "conversations", filter: `id=eq.${conversationId}` },
             (payload) => {
-              const mode = normalizeChatAutoDeleteSetting(
-                (payload.new as { auto_delete_setting?: unknown }).auto_delete_setting,
-              );
+              const row = payload.new as {
+                auto_delete_setting?: unknown;
+                protect_chat_enabled?: boolean;
+                protect_chat_enabled_by?: string | null;
+              };
+              const mode = normalizeChatAutoDeleteSetting(row.auto_delete_setting);
               setSettings((current) => ({
                 ...current,
                 autoDeleteSetting: mode,
                 autoDelete: autoDeleteSeconds(mode),
+                protectChatEnabled: row.protect_chat_enabled ?? current.protectChatEnabled,
+                protectChatEnabledBy: Object.prototype.hasOwnProperty.call(
+                  row,
+                  "protect_chat_enabled_by",
+                )
+                  ? row.protect_chat_enabled_by ?? null
+                  : current.protectChatEnabledBy,
               }));
             },
           );
@@ -284,8 +310,24 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
       if (!conversationId && Object.keys(next).some((key) => key !== "blocked")) {
         return { error: "Chat is still syncing. Try again in a moment." };
       }
+      if (
+        next.protectChatEnabled === false &&
+        settings.protectChatEnabled &&
+        settings.protectChatEnabledBy &&
+        settings.protectChatEnabledBy !== me
+      ) {
+        return { error: "Only the user who enabled chat protection can turn it off." };
+      }
       const previous = settings;
-      const merged = { ...previous, ...next };
+      const merged = {
+        ...previous,
+        ...next,
+        ...(next.protectChatEnabled === true
+          ? { protectChatEnabledBy: me }
+          : next.protectChatEnabled === false
+            ? { protectChatEnabledBy: null }
+            : {}),
+      };
       setSettings(merged);
 
       if (conversationId) {
@@ -305,12 +347,24 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
         if (next.displayName !== undefined) {
           preferenceUpdate.display_name = merged.displayName;
         }
-        if (next.protectChatEnabled !== undefined) {
-          preferenceUpdate.protect_chat_enabled = merged.protectChatEnabled;
-        }
         const { error } = await supabase
           .from("conversation_preferences")
           .upsert(preferenceUpdate, { onConflict: "conversation_id,user_id" });
+        if (error) {
+          setSettings(previous);
+          return { error: error.message };
+        }
+      }
+
+      if (conversationId && next.protectChatEnabled !== undefined) {
+        const { error } = await supabase
+          .from("conversations" as never)
+          .update({
+            protect_chat_enabled: merged.protectChatEnabled,
+            protect_chat_enabled_by: merged.protectChatEnabledBy,
+            updated_at: new Date().toISOString(),
+          } as never)
+          .eq("id" as never, conversationId);
         if (error) {
           setSettings(previous);
           return { error: error.message };

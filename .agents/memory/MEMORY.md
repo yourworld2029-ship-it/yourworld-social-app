@@ -28,7 +28,7 @@
 - [Orbit runtime schema](orbit-runtime-schema.md) — generated Orbit types can outpace Supabase; keep the table/RPC migration and client discovery fallback aligned.
 - [WebRTC call signaling](webrtc-call-signaling.md) — persist and reuse the initial offer; realtime accept events are only an acceleration path.
 - [Orbit request workflow](orbit-request-workflow.md) — enforce the combined three-message pending cap and receiver-only acceptance in the database.
-- [Social Chat preferences](social-chat-preferences.md) — keep participant toggles conversation-scoped while auto-delete remains shared.
+- [Social Chat preferences](social-chat-preferences.md) — private options stay participant-scoped; auto-delete and capture protection are shared conversation policy.
 - [Chat message bubble sizing](chat-message-bubble-sizing.md) — keep message rows full-width and text bubbles content-fit, capped at 75%, without narrow fixed widths.
 - [Enterprise call delivery](enterprise-call-delivery.md) — browser background calls use Web Push through a JWT-protected Edge Function; native VoIP needs a mobile client.
 - [Sports document isolation](sports-document-isolation.md) — verification files require a private bucket and owner-folder policy; broad public storage policies must exclude that bucket.
@@ -53,7 +53,7 @@
 - [Android system-bar insets](android-system-bar-insets.md) — SDK 35+ forces edge-to-edge on Android 15+, so keep bars visible and inset WebView content natively.
 - [Android Gradle JDK selection](android-gradle-jdk-selection.md) — Android release builds need Gradle runtime and compiler detection explicitly aligned to JDK 21.
 - [Production Android signing continuity](production-android-signing.md) — release APKs must retain the existing signing identity; never substitute a debug or newly generated key.
-- [Android capture protection](android-capture-protection.md) — keep FLAG_SECURE off globally; only an active chat’s explicit protection toggle may enable it, with cleanup on exit.
+- [Android capture protection](android-capture-protection.md) — shared chat protection applies FLAG_SECURE to both participants' active Android chat windows; external-camera capture cannot be blocked.
 - [Foreground chat push routing](foreground-chat-push-routing.md) — suppress Android message notifications only for the exact conversation currently open, not every foreground app screen.
 - [Managed Realtime table ownership](realtime-system-table-ownership.md) — do not alter Supabase-managed Realtime tables or publication through the project migration connection.
 - [Supabase media upload transport](direct-supabase-uploads.md) — use direct Storage for small files and sequential resumable TUS for large browser uploads.

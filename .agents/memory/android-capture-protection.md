@@ -1,16 +1,10 @@
 ---
 name: Android capture protection
-description: Keep Android screenshot blocking conditional to a user toggle inside chat.
+description: Keep screenshot blocking scoped to the active chat and synchronize protection between participants.
 ---
 
-Keep `FLAG_SECURE` off globally. The current device's window must follow only that user's per-chat “Protect Chat (Block Screenshots & Recording)” toggle; do not enable it from the other participant's presence state. Clear it when the toggle turns off, when the chat identity changes, and on route unmount. Do not set the flag from `MainActivity` or non-chat routes. This is a native window-level block; separate incoming capture-alert broadcasts may remain.
+“Protect Chat” is shared conversation state. When a participant enables it, both participants' active Android chat windows must apply `FLAG_SECURE`; only the participant who enabled it may turn it off. Keep the flag off globally, clear it when leaving the protected chat, and do not set it from `MainActivity` or non-chat routes. Keep each viewer's name and user ID visibly watermarked over the protected chat.
 
-**Why:** The latest user request explicitly supersedes the earlier no-blocking preference and requires user-controlled protection limited to the active chat. A protected conversation must not render during the settings/native-flag handshake because even one visible frame can be captured.
+**Why:** The user requires one participant's protection setting to cover the other participant's device too. Android can block screenshots and screen recording on the same device with `FLAG_SECURE`, but an external camera cannot be blocked.
 
-**How to apply:** Drive the local native flag directly from locally loaded chat settings so it does not wait for or inherit peer presence. On Android, render only a full-screen black gate until this user's per-chat setting resolves; if enabled, keep the gate until the native flag call resolves. Tie flag changes to the per-chat toggle and guarantee a `false` call in cleanup. Do not change feed, Reels, profile, or call capture behavior; preserve app-wide incoming-call discovery and user-initiated per-call setup.
-
-Android does not reliably report a screenshot attempt that `FLAG_SECURE` blocks. Android 14+'s screenshot callback is not invoked for protected windows, and the older MediaStore observer only sees screenshots that were saved.
-
-**Why:** The operating system prevents the capture before the app receives an event, so there is no event to broadcast to the other participant.
-
-**How to apply:** Keep the block and alert only on captures the OS reports unless the user explicitly chooses to allow captures to enable post-capture alerts. Do not claim blocked attempts were detected or add an accessibility service without explicit approval.
+**How to apply:** Load the shared conversation setting and subscribe to its realtime updates. On Android, render a black gate until the setting resolves; if enabled, keep the gate until `FLAG_SECURE` is applied. Enforce the enabling participant as the off-switch owner in the database, and guarantee a `false` native call on chat identity change and unmount. Treat the watermark only as visible attribution/deterrence for external-camera capture, not as a guarantee or a capture-detection signal.

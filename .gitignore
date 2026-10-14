@@ -6,6 +6,8 @@ tmp
 out-tsc
 *.tsbuildinfo
 artifacts/yourworld/.output/
+# Generated APK downloads are delivered from the API during workspace testing.
+/artifacts/yourworld/public/downloads/*.apk
 .expo
 .expo-shared
 

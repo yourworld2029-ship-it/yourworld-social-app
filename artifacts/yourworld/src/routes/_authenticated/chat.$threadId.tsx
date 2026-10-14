@@ -2512,7 +2512,7 @@ function NativeChatThreadPage() {
     }
   };
 
-  // On Android, fail closed while the local protection preference is unresolved.
+  // On Android, fail closed while the shared conversation setting is unresolved.
   // If enabled, keep the conversation black until FLAG_SECURE is applied natively.
   if (
     shouldHideAndroidChatUntilSecure(
@@ -2538,6 +2538,24 @@ function NativeChatThreadPage() {
       className="fixed inset-0 z-50 flex h-[100dvh] max-h-[100dvh] w-screen flex-col overflow-hidden bg-black font-sans text-white"
     >
       <input type="file" ref={fileInputRef} accept="image/*" className="hidden" onChange={handleImageSelect} />
+      {protectChatEnabled && currentUserId ? (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 z-40 overflow-hidden"
+        >
+          {[0, 1, 2, 3, 4].map((index) => (
+            <div
+              key={`chat-protection-watermark-${index}`}
+              className="absolute left-[-18%] w-[136%] text-center"
+              style={{ top: `${10 + index * 20}%`, transform: "rotate(-18deg)" }}
+            >
+              <span className="inline-block whitespace-nowrap rounded-full border border-white/20 bg-black/50 px-2.5 py-1 text-[9px] font-semibold tracking-wide text-white/80 shadow-[0_2px_10px_rgba(0,0,0,0.75)]">
+                {currentUserName} · YourWorld ID {currentUserId}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       {/* TOP HEADER */}
       <div
@@ -2712,8 +2730,14 @@ function NativeChatThreadPage() {
                 label="Protect Chat (Block Screenshots & Recording)"
                 state={protectChatEnabled}
                 onClick={() => {
-                  if (!chatSettingsReady) {
+                  if (!chatSettingsResolvedForThread) {
                     toast.info("Chat settings are still loading.");
+                  } else if (
+                    protectChatEnabled &&
+                    settings.protectChatEnabledBy &&
+                    settings.protectChatEnabledBy !== currentUserId
+                  ) {
+                    toast.info("Only the user who enabled protection can turn it off.");
                   } else {
                     const next = !settings.protectChatEnabled;
                     void updateSetting(
