@@ -3394,6 +3394,11 @@ function NativeChatThreadPage() {
               type="button"
               aria-label="Send message"
               title="Send message"
+              onPointerDown={(event) => {
+                if (document.activeElement === messageInputRef.current) {
+                  event.preventDefault();
+                }
+              }}
               onClick={handleSend}
               className={`p-2.5 rounded-full flex items-center justify-center ${
                 message.trim() ? "bg-gradient-to-r from-pink-500 to-purple-600 text-white" : "bg-zinc-800 text-zinc-500 cursor-not-allowed"
