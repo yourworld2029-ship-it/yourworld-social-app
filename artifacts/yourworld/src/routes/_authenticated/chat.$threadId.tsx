@@ -2570,7 +2570,7 @@ function NativeChatThreadPage() {
       {/* TOP HEADER */}
       <div
         data-testid="chat-header"
-        className="chat-header sticky top-0 z-50 flex min-w-0 shrink-0 items-center gap-2 border-b border-zinc-800/80 bg-zinc-950 px-3 pb-3 pt-[env(safe-area-inset-top,24px)]"
+        className="chat-header sticky top-0 z-50 flex min-w-0 shrink-0 items-center gap-2 border-b border-zinc-800/80 bg-zinc-950 px-3 pb-3 pt-[max(env(safe-area-inset-top,0px),24px)]"
       >
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <button
