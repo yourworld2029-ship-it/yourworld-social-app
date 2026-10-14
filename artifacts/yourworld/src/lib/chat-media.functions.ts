@@ -31,6 +31,7 @@ type StorageObject = { bucket: string; path: string };
 
 const CHAT_BUCKETS = {
   image: "messages",
+  video: "messages",
   audio: "voice_notes",
 } as const;
 const CHAT_STORAGE_BUCKETS = new Set([
@@ -99,13 +100,22 @@ function objectFromUrl(
 
 function getChatStorageObject(row: ChatMediaRow) {
   if (isSharedMomentReference(row)) return null;
-  const kind = row.voice_note_url ? "audio" : row.media_url ? "image" : null;
-  if (!kind) return null;
-
-  const expectedBucket = CHAT_BUCKETS[kind];
   const metadata = row.metadata ?? {};
   const declaredBucket = metadata.media_bucket;
   const declaredPath = metadata.media_path;
+  const mediaType =
+    typeof metadata.media_type === "string" ? metadata.media_type.toLowerCase() : "";
+  const looksLikeVideo =
+    mediaType.startsWith("video/") ||
+    (typeof declaredPath === "string" && /(?:^|\/)camera-\d+\.(?:mp4|webm)$/i.test(declaredPath));
+  const kind = row.voice_note_url
+    ? "audio"
+    : row.media_url
+      ? looksLikeVideo ? "video" : "image"
+      : null;
+  if (!kind) return null;
+
+  const expectedBucket = CHAT_BUCKETS[kind];
   if (declaredBucket !== undefined && declaredBucket !== expectedBucket) {
     throw new Error("The chat media bucket does not match its media type.");
   }
@@ -122,7 +132,9 @@ function getChatStorageObject(row: ChatMediaRow) {
   const filePattern =
     kind === "audio"
       ? /^voice-\d+\.webm$/
-      : /^image-\d+\.(?:jpg|jpeg|png|webp)$/i;
+      : kind === "video"
+        ? /^camera-\d+\.(?:mp4|webm)$/i
+        : /^image-\d+\.(?:jpg|jpeg|png|webp)$/i;
 
   if (
     segments.length !== 3 ||

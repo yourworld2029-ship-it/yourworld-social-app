@@ -14,7 +14,6 @@ import {
 } from "@/components/yw/chat/photo-editor";
 import { needsProtectionWarning, PLATFORM_PROTECTION_WARNING_TITLE, PLATFORM_PROTECTION_WARNING_BODY } from "@/lib/chat-compliance";
 import { LazyImage } from "@/components/yw/LazyImage";
-import { HoldToRevealButton } from "@/components/yw/HoldToRevealButton";
 import { ChatCameraCapture } from "@/components/yw/ChatCameraCapture";
 import { ChatVideoPlayer } from "@/components/yw/ChatVideoPlayer";
 import { ChatVideoBubbleThumbnail } from "@/components/yw/ChatVideoBubbleThumbnail";
@@ -978,55 +977,55 @@ function NativeChatThreadPage() {
     }
 
     setOpeningViewOnceId(message.id);
+    let localUrl: string | null = null;
     try {
-      // Confirm the object is reachable before consuming the one-time view.
-      // A failed/deleted Storage URL must not permanently burn the recipient's view.
-      const mediaCheck = await fetch(source, {
-        headers: { Range: "bytes=0-0" },
+      // Load the complete media locally before consuming the one-time view.
+      // This prevents the server's five-second expiry from deleting a video
+      // before Android's media player has buffered its first frame.
+      const mediaResponse = await fetch(source, {
         cache: "no-store",
       });
-      if (!mediaCheck.ok) {
+      if (!mediaResponse.ok) {
         throw new Error("This media could not be loaded. Ask the sender to send it again.");
       }
-      if (mediaCheck.body) await mediaCheck.body.cancel().catch(() => undefined);
+      const mediaBlob = await mediaResponse.blob();
+      if (mediaBlob.size === 0) {
+        throw new Error("This media is empty or unavailable. Ask the sender to send it again.");
+      }
+      localUrl = URL.createObjectURL(mediaBlob);
 
       const consumed = await consumeViewOnce(message.id);
       if (consumed.error) {
+        URL.revokeObjectURL(localUrl);
+        localUrl = null;
         toast.error(consumed.error);
         return;
       }
       setOpenedOnce((current) =>
         current.includes(message.id) ? current : [...current, message.id],
       );
-
+      setViewOnceOpen({
+        id: message.id,
+        url: localUrl,
+        kind,
+        revokeUrl: true,
+        mimeType: kind === "video"
+          ? mediaBlob.type || message.mediaMimeType
+          : undefined,
+      });
+      localUrl = null;
       if (kind === "audio") {
-        try {
-          const response = await fetch(source);
-          if (!response.ok) throw new Error("Voice note download failed.");
-          const localUrl = URL.createObjectURL(await response.blob());
-          setViewOnceOpen({ id: message.id, url: localUrl, kind, revokeUrl: true });
-          const cleanup = await purgeViewedMedia(message.id);
-          if (cleanup.error) {
-            toast.error("The voice note opened, but secure media cleanup is retrying.");
-          }
-        } catch {
-          setViewOnceOpen({ id: message.id, url: source, kind, revokeUrl: false });
-          toast.error("The voice note could not be prepared locally; it will expire shortly.");
+        const cleanup = await purgeViewedMedia(message.id);
+        if (cleanup.error) {
+          toast.error("The voice note opened, but secure media cleanup is retrying.");
         }
-      } else {
-        setViewOnceOpen({
-          id: message.id,
-          url: source,
-          kind,
-          revokeUrl: false,
-          mimeType: kind === "video" ? message.mediaMimeType : undefined,
-        });
       }
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Unable to open this view-once media.",
       );
     } finally {
+      if (localUrl) URL.revokeObjectURL(localUrl);
       setOpeningViewOnceId(null);
     }
   }, [consumeViewOnce, openedOnce, openingViewOnceId, purgeViewedMedia, viewOnceOpen]);
@@ -1348,10 +1347,11 @@ function NativeChatThreadPage() {
           m.sender_id !== currentUserId &&
           ((!m.is_read &&
             (m.auto_delete_mode !== "after_view" ||
-              m.metadata?.view_once !== true ||
+               (m.metadata?.view_once !== true && m.metadata?.view_once !== "true") ||
               m.is_viewed)) ||
             (m.auto_delete_mode === "after_view" &&
               m.metadata?.view_once !== true &&
+              m.metadata?.view_once !== "true" &&
               !m.is_viewed)),
       )
       .map((m) => m.id);
@@ -3034,17 +3034,18 @@ function NativeChatThreadPage() {
             {!m.text && m.replyTo && <ReplyQuote reply={m.replyTo} className="mb-1 w-[75%] rounded-lg bg-zinc-800/90" />}
 
             {m.image && m.viewOnce && m.sender === "them" && !m.opened && !openedOnce.includes(m.id) ? (
-              <HoldToRevealButton
+              <button
+                type="button"
                 disabled={openingViewOnceId === m.id}
-                onReveal={() => void openViewOnce(m)}
-                ariaLabel={`Press and hold to view this ${messageAttachmentKind(m)} once`}
-                className="max-w-[75%] flex items-center gap-2 rounded-2xl border border-emerald-600/60 bg-emerald-950/30 px-4 py-3 text-xs font-bold text-emerald-400"
+                onClick={() => void openViewOnce(m)}
+                aria-label={`Tap to view this ${messageAttachmentKind(m)} once`}
+                className="max-w-[75%] flex items-center gap-2 rounded-2xl border border-emerald-600/60 bg-emerald-950/30 px-4 py-3 text-xs font-bold text-emerald-400 disabled:opacity-60"
               >
                 <span className="w-5 h-5 rounded-full border border-emerald-500 flex items-center justify-center">1</span>
                 {openingViewOnceId === m.id
                   ? "Opening…"
-                  : `Hold to view ${messageAttachmentKind(m)} once`}
-              </HoldToRevealButton>
+                  : `Tap to view ${messageAttachmentKind(m)} once`}
+              </button>
             ) : m.image &&
               !m.momentId &&
               !m.isMomentReply &&
@@ -3093,15 +3094,16 @@ function NativeChatThreadPage() {
             ) : null}
 
             {m.audio && m.viewOnce && m.sender === "them" && !m.opened && !openedOnce.includes(m.id) && (
-              <HoldToRevealButton
+              <button
+                type="button"
                 disabled={openingViewOnceId === m.id}
-                onReveal={() => void openViewOnce(m)}
-                ariaLabel="Press and hold to listen to this voice note once"
+                onClick={() => void openViewOnce(m)}
+                aria-label="Tap to listen to this voice note once"
                 className="max-w-[75%] flex items-center gap-2 rounded-2xl border border-emerald-600/60 bg-emerald-950/30 px-4 py-3 text-xs font-bold text-emerald-400 disabled:opacity-60"
               >
                 <span className="w-5 h-5 rounded-full border border-emerald-500 flex items-center justify-center">1</span>
-                {openingViewOnceId === m.id ? "Preparing voice note…" : "Hold to listen once"}
-              </HoldToRevealButton>
+                {openingViewOnceId === m.id ? "Preparing voice note…" : "Tap to listen once"}
+              </button>
             )}
 
             {m.viewOnce && (m.opened || openedOnce.includes(m.id)) && (
