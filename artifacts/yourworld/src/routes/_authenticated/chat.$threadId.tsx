@@ -67,6 +67,7 @@ import {
 } from "@/lib/auto-delete";
 import { historyBackOr } from "@/lib/navigation";
 import {
+  isChatProtectionDecisionReady,
   isNativeAndroid,
   listenForAndroidCaptureEvents,
   shouldHideAndroidChatUntilSecure,
@@ -1518,9 +1519,12 @@ function NativeChatThreadPage() {
     chatSettingsReady && chatSettingsReadyScopeKey === chatSettingsScopeKey;
   const protectChatEnabled =
     chatSettingsResolvedForThread && settings.protectChatEnabled;
-  const chatProtectionDecisionReady =
-    Boolean(currentUserId && peer.peerId) &&
-    chatSettingsResolvedForThread;
+  const chatProtectionDecisionReady = isChatProtectionDecisionReady(
+    currentUserId,
+    peer.peerId,
+    conversationId,
+    chatSettingsResolvedForThread,
+  );
   const chatSecurityScopeKey = JSON.stringify([currentUserId, threadId, conversationId]);
   const chatScreenSecurityReady = useAndroidChatSecureFlag(
     protectChatEnabled,

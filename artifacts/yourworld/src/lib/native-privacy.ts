@@ -37,6 +37,15 @@ export function shouldHideAndroidChatUntilSecure(
   return isAndroid && (!decisionReady || (protectionEnabled && !screenSecurityReady));
 }
 
+export function isChatProtectionDecisionReady(
+  currentUserId: string | null,
+  peerId: string | null,
+  conversationId: string | null,
+  settingsResolved: boolean,
+) {
+  return Boolean(currentUserId && peerId && conversationId && settingsResolved);
+}
+
 export function requestStartupRuntimePermissionsOnce(): Promise<void> {
   if (typeof window === "undefined" || !isNativeAndroid()) {
     return Promise.resolve();
@@ -154,6 +163,8 @@ export function useAndroidChatSecureFlag(
 
   useIsomorphicLayoutEffect(() => {
     let active = true;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let retryCount = 0;
     setAppliedState(null);
 
     if (!isNativeAndroid()) {
@@ -176,10 +187,22 @@ export function useAndroidChatSecureFlag(
       setAppliedState(null);
       void queueScreenSecurityUpdate(enabled).then(
         () => {
-          if (active) setAppliedState({ scopeKey, enabled, ready: true });
+          if (active) {
+            retryCount = 0;
+            if (retryTimer) clearTimeout(retryTimer);
+            retryTimer = null;
+            setAppliedState({ scopeKey, enabled, ready: true });
+          }
         },
         (error: unknown) => {
           console.error("[privacy-bridge] Could not update Android chat capture protection", error);
+          if (!active || retryTimer) return;
+          const delay = Math.min(5_000, 500 * 2 ** retryCount);
+          retryCount += 1;
+          retryTimer = setTimeout(() => {
+            retryTimer = null;
+            if (active) syncProtection();
+          }, delay);
         },
       );
     };
@@ -194,6 +217,7 @@ export function useAndroidChatSecureFlag(
 
     return () => {
       active = false;
+      if (retryTimer) clearTimeout(retryTimer);
       window.removeEventListener("focus", syncProtection);
       window.removeEventListener("yw-app-resume", syncProtection);
       document.removeEventListener("visibilitychange", syncWhenVisible);

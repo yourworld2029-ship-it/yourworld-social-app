@@ -239,6 +239,13 @@ public class PrivacyBridgePlugin extends Plugin {
             } else {
                 getActivity().getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE);
             }
+            boolean secureFlagApplied =
+                (getActivity().getWindow().getAttributes().flags
+                    & WindowManager.LayoutParams.FLAG_SECURE) != 0;
+            if (secureFlagApplied != enabled) {
+                call.reject("Android did not apply the requested chat capture protection.");
+                return;
+            }
             call.resolve();
         });
     }

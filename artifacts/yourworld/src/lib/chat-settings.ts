@@ -64,12 +64,43 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
   const [settings, setSettings] = useState<ChatSettings>(DEFAULTS);
   const [ready, setReady] = useState(false);
   const [readyScopeKey, setReadyScopeKey] = useState<string | null>(null);
+  const [retryAttempt, setRetryAttempt] = useState(0);
+  const retryDelayRef = useRef(1_000);
   const meRef = useRef<string | null>(null);
   const settingsChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const scopeKey = JSON.stringify([peerId, conversationId]);
 
   useEffect(() => {
     let alive = true;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let refreshTimer: ReturnType<typeof setInterval> | null = null;
+    let removeRefreshListeners: (() => void) | null = null;
+    const refreshSharedProtection = async () => {
+      if (!conversationId) return;
+      try {
+        const result = await supabase
+          .from("conversations" as never)
+          .select("protect_chat_enabled, protect_chat_enabled_by" as never)
+          .eq("id" as never, conversationId)
+          .maybeSingle();
+        if (!alive) return;
+        if (result.error || !result.data) {
+          console.warn("[chat-settings] shared protection refresh did not return a row", result.error);
+          return;
+        }
+        const row = result.data as {
+          protect_chat_enabled?: boolean;
+          protect_chat_enabled_by?: string | null;
+        };
+        setSettings((current) => ({
+          ...current,
+          protectChatEnabled: row.protect_chat_enabled === true,
+          protectChatEnabledBy: row.protect_chat_enabled_by ?? null,
+        }));
+      } catch (cause) {
+        if (alive) console.warn("[chat-settings] shared protection refresh failed", cause);
+      }
+    };
     setReady(false);
     setReadyScopeKey(null);
     setSettings(DEFAULTS);
@@ -132,6 +163,8 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
               conversation.auto_delete_setting,
             );
             conversationProtection = conversation;
+          } else {
+            throw conversationResult.error ?? new Error("Shared chat protection state is missing.");
           }
         }
         if (!alive) return;
@@ -287,20 +320,46 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
             },
           );
         }
-        const channel = channelBuilder.subscribe();
+        const channel = channelBuilder.subscribe((status) => {
+          if (status === "SUBSCRIBED") void refreshSharedProtection();
+        });
         settingsChannelRef.current = channel;
+        if (conversationId) {
+          refreshTimer = setInterval(() => void refreshSharedProtection(), 5_000);
+          const refreshWhenVisible = () => {
+            if (document.visibilityState === "visible") void refreshSharedProtection();
+          };
+          document.addEventListener("visibilitychange", refreshWhenVisible);
+          window.addEventListener("focus", refreshWhenVisible);
+          window.addEventListener("yw-app-resume", refreshWhenVisible);
+          removeRefreshListeners = () => {
+            document.removeEventListener("visibilitychange", refreshWhenVisible);
+            window.removeEventListener("focus", refreshWhenVisible);
+            window.removeEventListener("yw-app-resume", refreshWhenVisible);
+          };
+        }
+        retryDelayRef.current = 1_000;
         setReadyScopeKey(scopeKey);
         setReady(true);
       } catch (cause) {
         if (!alive) return;
-        console.error("[chat-settings] Unable to load security settings; opening with defaults", cause);
+        console.error("[chat-settings] Unable to load shared security settings; keeping protected chat closed", cause);
         setSettings(DEFAULTS);
-        setReady(true);
+        setReady(false);
+        setReadyScopeKey(null);
+        const delay = retryDelayRef.current;
+        retryDelayRef.current = Math.min(15_000, delay * 2);
+        retryTimer = setTimeout(() => {
+          if (alive) setRetryAttempt((attempt) => attempt + 1);
+        }, delay);
       }
     })();
 
     return () => {
       alive = false;
+      if (retryTimer) clearTimeout(retryTimer);
+      if (refreshTimer) clearInterval(refreshTimer);
+      removeRefreshListeners?.();
       if (settingsChannelRef.current) {
         void supabase.removeChannel(settingsChannelRef.current).catch((cause) => {
           console.error("[chat-settings] Unable to remove settings channel", cause);
@@ -308,7 +367,7 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
         settingsChannelRef.current = null;
       }
     };
-  }, [peerId, conversationId, scopeKey]);
+  }, [peerId, conversationId, scopeKey, retryAttempt]);
 
   /** Optimistic local update + persisted conversation-scoped upsert. */
   const patch = useCallback(
