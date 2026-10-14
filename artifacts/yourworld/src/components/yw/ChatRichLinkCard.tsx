@@ -62,9 +62,11 @@ function ChatRichLinkCard({ href, onClick }: ChatRichLinkCardProps) {
 
 export function ChatMessageText({
   text,
+  constrainToParent = false,
   onOpenLink,
 }: {
   text: string;
+  constrainToParent?: boolean;
   onOpenLink: (url: string, event: ReactMouseEvent<HTMLAnchorElement>) => void;
 }) {
   const links = extractExternalTextLinks(text);
@@ -77,10 +79,11 @@ export function ChatMessageText({
 
   if (links.length === 0) {
     return (
-      <div className={textLayoutClass} style={textLayoutStyle}>
+      <div className={`${textLayoutClass} ${constrainToParent ? "w-full" : ""}`} style={textLayoutStyle}>
         <ProtectedCanvasText
           text={text}
           maxWidthRatio={0.75}
+          maxWidthToParent={constrainToParent}
           onUrlClick={onOpenLink}
         />
       </div>
@@ -98,6 +101,7 @@ export function ChatMessageText({
           key={`text-${index}`}
           text={before}
           maxWidthRatio={0.75}
+          maxWidthToParent={constrainToParent}
         />,
       );
     }
@@ -118,12 +122,13 @@ export function ChatMessageText({
         key="text-after-links"
         text={after}
         maxWidthRatio={0.75}
+          maxWidthToParent={constrainToParent}
       />,
     );
   }
 
   return (
-    <div className={textLayoutClass} style={textLayoutStyle}>
+    <div className={`${textLayoutClass} ${constrainToParent ? "w-full" : ""}`} style={textLayoutStyle}>
       {content}
     </div>
   );

@@ -2952,9 +2952,10 @@ function NativeChatThreadPage() {
               >
                 {m.replyTo && <ReplyQuote reply={m.replyTo} className="mb-2 rounded-lg" />}
                 {m.isMomentMention && m.text ? (
-                  <div className="mb-2 px-1 text-[13px] font-medium leading-5 text-white/95 hyphens-none">
+                  <div className="mb-2 w-full min-w-0 px-1 text-[13px] font-medium leading-5 text-white/95 hyphens-none">
                     <ChatMessageText
                       text={m.text}
+                      constrainToParent
                       onOpenLink={(url, event) =>
                         handleMessageUrlClick(url, m.id, event)
                       }

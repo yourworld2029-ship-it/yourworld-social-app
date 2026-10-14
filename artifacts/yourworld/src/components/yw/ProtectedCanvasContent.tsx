@@ -178,11 +178,13 @@ export function ProtectedCanvasText({
   text,
   maxLines,
   maxWidthRatio,
+  maxWidthToParent = false,
   onUrlClick,
 }: {
   text: string;
   maxLines?: number;
   maxWidthRatio?: number;
+  maxWidthToParent?: boolean;
   onUrlClick?: (
     href: string,
     event: ReactMouseEvent<HTMLAnchorElement>,
@@ -204,7 +206,7 @@ export function ProtectedCanvasText({
       if (!context) return;
 
       const chatBubble =
-        maxWidthRatio === undefined
+        maxWidthRatio === undefined || maxWidthToParent
           ? bubble
           : bubble.closest<HTMLElement>(".chat-text-bubble-override") ?? bubble;
       const bubbleStyle = window.getComputedStyle(chatBubble);
@@ -212,7 +214,7 @@ export function ProtectedCanvasText({
         (Number.parseFloat(bubbleStyle.paddingLeft) || 0) +
         (Number.parseFloat(bubbleStyle.paddingRight) || 0);
       const widthContainer =
-        maxWidthRatio === undefined
+        maxWidthRatio === undefined || maxWidthToParent
           ? bubble.parentElement
           : document.getElementById("chat-messages-container") ??
             bubble.closest<HTMLElement>("[data-chat-message-id]") ??
@@ -225,14 +227,16 @@ export function ProtectedCanvasText({
         (Number.parseFloat(containerStyle?.paddingRight ?? "") || 0);
       const containingWidth = Math.max(
         0,
-        maxWidthRatio === undefined
+        maxWidthRatio === undefined || maxWidthToParent
           ? (widthContainer?.clientWidth || window.innerWidth) -
               containerPaddingX
           : window.visualViewport?.width || window.innerWidth,
       );
       const declaredMaxWidth = Number.parseFloat(bubbleStyle.maxWidth);
       const maxWidth =
-        maxWidthRatio !== undefined
+        maxWidthToParent
+          ? Math.max(64, Math.min(440, containingWidth - paddingX))
+          : maxWidthRatio !== undefined
           ? Math.max(
               64,
               Math.min(440, containingWidth * maxWidthRatio - paddingX),
@@ -325,7 +329,7 @@ export function ProtectedCanvasText({
 
     render();
     const resizeTarget =
-      maxWidthRatio === undefined
+      maxWidthRatio === undefined || maxWidthToParent
         ? bubble.parentElement
         : document.getElementById("chat-messages-container") ??
           bubble.closest<HTMLElement>("[data-chat-message-id]") ??
@@ -342,7 +346,7 @@ export function ProtectedCanvasText({
       observer?.disconnect();
       window.removeEventListener("resize", render);
     };
-  }, [linkify, maxLines, maxWidthRatio, text]);
+  }, [linkify, maxLines, maxWidthRatio, maxWidthToParent, text]);
 
   const canvas = (
     <canvas
