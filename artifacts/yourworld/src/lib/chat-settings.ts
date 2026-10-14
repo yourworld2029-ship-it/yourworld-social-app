@@ -224,6 +224,11 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
               autoDelete: autoDeleteSeconds(mode),
             }));
           });
+        channelBuilder.on("broadcast", { event: "protect_chat_updated" }, () => {
+          // Broadcasts only prompt an authenticated database refresh. Never
+          // trust a client-supplied enabled/disabled value for secure capture.
+          void refreshSharedProtection();
+        });
         channelBuilder.on(
           "postgres_changes",
           { event: "*", schema: "public", table: "conversation_preferences", filter: `user_id=eq.${me}` },
@@ -396,9 +401,22 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
             ? { protectChatEnabledBy: null }
             : {}),
       };
-      setSettings(merged);
+      const protectionTurningOff =
+        next.protectChatEnabled === false && previous.protectChatEnabled;
+      setSettings(
+        protectionTurningOff
+          ? {
+              ...merged,
+              protectChatEnabled: previous.protectChatEnabled,
+              protectChatEnabledBy: previous.protectChatEnabledBy,
+            }
+          : merged,
+      );
 
-      if (conversationId) {
+      const hasParticipantPreferenceChange = Object.keys(next).some(
+        (key) => key !== "protectChatEnabled" && key !== "blocked",
+      );
+      if (conversationId && hasParticipantPreferenceChange) {
         const preferenceUpdate: Record<string, unknown> = {
           conversation_id: conversationId,
           user_id: me,
@@ -437,6 +455,19 @@ export function useChatSettings(peerId: string | null, conversationId: string | 
           setSettings(previous);
           return { error: error.message };
         }
+        const channel = settingsChannelRef.current;
+        if (channel) {
+          void channel
+            .send({
+              type: "broadcast",
+              event: "protect_chat_updated",
+              payload: { conversationId },
+            })
+            .catch((cause) => {
+              console.warn("[chat-settings] fast protection refresh broadcast failed", cause);
+            });
+        }
+        if (protectionTurningOff) setSettings(merged);
       }
 
       if (next.blocked !== undefined && next.blocked !== previous.blocked) {
