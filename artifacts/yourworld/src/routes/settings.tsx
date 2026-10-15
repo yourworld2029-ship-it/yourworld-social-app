@@ -3,7 +3,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   User, BarChart2, Lock, Bell, HelpCircle, Info, LogOut, ChevronRight, ArrowLeft, X, Wallet,
-  Star, Search,
+  Star, Search, Gauge, MessageCircle, Clock3,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-store";
@@ -13,6 +13,8 @@ import { resolveMediaUrl, setUserBlock } from "@/lib/social-data";
 import { useFollowList } from "@/lib/follow-data";
 import { setLongVideoCreatorHidden } from "@/lib/long-video-preferences";
 import { announceVideoCreatorRestored, announceVideoPostRestored } from "@/lib/video-context-actions";
+import { useUserPreferences } from "@/lib/user-preferences";
+import { formatDailyUsage, readDailyUsageSeconds, subscribeToDailyUsage } from "@/lib/daily-usage";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({
@@ -42,7 +44,11 @@ type PanelId =
   | "about"
   | "close-friends"
   | "hidden-creators"
-  | "not-interested-posts";
+  | "not-interested-posts"
+  | "data-quality"
+  | "messages-privacy"
+  | "comments-hidden-words"
+  | "time-management";
 
 type BlockedAccount = {
   id: string;
@@ -76,6 +82,7 @@ function SettingsPage() {
   const navigate = useNavigate();
   const { signOut, user } = useAuth();
   const queryClient = useQueryClient();
+  const { preferences, savePreference } = useUserPreferences(user?.id);
   const [panel, setPanel] = useState<PanelId | null>(null);
   const [reportStep, setReportStep] = useState<"options" | "dmca" | null>(null);
   const [dmca, setDmca] = useState({ contentLink: "", originalWork: "", description: "", email: "", fullName: "" });
@@ -86,6 +93,22 @@ function SettingsPage() {
   const [blockedAccountsLoading, setBlockedAccountsLoading] = useState(false);
   const [blockedAccountsError, setBlockedAccountsError] = useState(false);
   const [unblockingId, setUnblockingId] = useState<string | null>(null);
+  const [hiddenWordDraft, setHiddenWordDraft] = useState("");
+
+  const addHiddenWord = () => {
+    const word = hiddenWordDraft.trim().replace(/\s+/g, " ").slice(0, 60);
+    if (!word) return;
+    if (preferences.hiddenWords.some((item) => item.toLowerCase() === word.toLowerCase())) {
+      toast.error("That word is already in your hidden list.");
+      return;
+    }
+    if (preferences.hiddenWords.length >= 50) {
+      toast.error("You can add up to 50 hidden words.");
+      return;
+    }
+    savePreference("hiddenWords", [...preferences.hiddenWords, word]);
+    setHiddenWordDraft("");
+  };
 
   useEffect(() => {
     if (!blockedAccountsOpen || !user) return;
@@ -291,6 +314,13 @@ function SettingsPage() {
           <ChevronRight className="text-muted-foreground" size={18} />
         </div>
 
+        <SettingsEntry
+          icon={<Gauge className="text-muted-foreground" size={20} />}
+          label="Data & Media Quality"
+          hint="Data saver and upload quality"
+          onClick={() => setPanel("data-quality")}
+        />
+
         {/* Privacy */}
         <div
           role="button"
@@ -307,6 +337,20 @@ function SettingsPage() {
           </div>
           <ChevronRight className="text-muted-foreground" size={18} />
         </div>
+
+        <SettingsEntry
+          icon={<MessageCircle className="text-muted-foreground" size={20} />}
+          label="Messages & Direct Requests"
+          hint="Who can message you and read receipts"
+          onClick={() => setPanel("messages-privacy")}
+        />
+
+        <SettingsEntry
+          icon={<Clock3 className="text-muted-foreground" size={20} />}
+          label="Time Management"
+          hint="Daily usage and break reminders"
+          onClick={() => setPanel("time-management")}
+        />
 
         {/* Notifications */}
         <div
@@ -382,6 +426,160 @@ function SettingsPage() {
             label="Not Interested Posts"
             hint="Review videos you've hidden from recommendations"
             onClick={() => setPanel("not-interested-posts")}
+          />
+          <Row
+            label="Comments & Hidden Words"
+            hint="Filter offensive comments and custom words"
+            onClick={() => setPanel("comments-hidden-words")}
+          />
+        </Panel>
+      )}
+
+      {panel === "data-quality" && (
+        <Panel
+          title="Data & Media Quality"
+          onClose={() => setPanel(null)}
+          backLabel="Back to Settings"
+        >
+          <Toggle
+            label="Data Saver"
+            hint="Start supported long videos at 480p on cellular or slow networks. Reels stay unchanged."
+            on={preferences.dataSaver}
+            onClick={() => savePreference("dataSaver", !preferences.dataSaver)}
+          />
+          <Toggle
+            label="Upload at Highest Quality"
+            hint="Keep the original long-video file when it fits the storage limit."
+            on={preferences.uploadHighestQuality}
+            onClick={() =>
+              savePreference("uploadHighestQuality", !preferences.uploadHighestQuality)
+            }
+          />
+        </Panel>
+      )}
+
+      {panel === "messages-privacy" && (
+        <Panel
+          title="Messages & Direct Requests"
+          onClose={() => setPanel(null)}
+          backLabel="Back to Settings"
+        >
+          <PreferenceChoice
+            label="Who can message you"
+            hint="Choose who may start a new direct-message conversation."
+            value={preferences.whoCanMessage}
+            options={[
+              { value: "everyone", label: "Everyone" },
+              { value: "following", label: "Only People You Follow" },
+            ]}
+            onChange={(value) =>
+              savePreference("whoCanMessage", value as "everyone" | "following")
+            }
+          />
+          <Toggle
+            label="Read Receipts"
+            hint="When off, ordinary message reads are not sent as seen receipts. View Once and after-view messages still record that they were opened."
+            on={preferences.readReceipts}
+            onClick={() => savePreference("readReceipts", !preferences.readReceipts)}
+          />
+          <p className="px-3 pb-2 text-[11px] leading-relaxed text-muted-foreground">
+            Message-request access is saved on this device; it does not change server-side access rules.
+          </p>
+        </Panel>
+      )}
+
+      {panel === "comments-hidden-words" && (
+        <Panel
+          title="Comments & Hidden Words"
+          onClose={() => setPanel(null)}
+          backLabel="Back to Privacy"
+          onBack={() => setPanel("privacy")}
+        >
+          <Toggle
+            label="Hide offensive comments"
+            hint="Hide comments containing common English profanity from your view."
+            on={preferences.hideOffensiveComments}
+            onClick={() =>
+              savePreference("hideOffensiveComments", !preferences.hideOffensiveComments)
+            }
+          />
+          <div className="space-y-2 px-3 py-2">
+            <label htmlFor="hidden-word-input" className="block text-sm font-semibold">
+              Custom hidden words
+            </label>
+            <p className="text-[11px] text-muted-foreground">
+              Matching comments and replies are hidden only from your view.
+            </p>
+            <div className="flex gap-2">
+              <input
+                id="hidden-word-input"
+                data-testid="input-hidden-word"
+                value={hiddenWordDraft}
+                onChange={(event) => setHiddenWordDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    addHiddenWord();
+                  }
+                }}
+                maxLength={60}
+                placeholder="Add a word or phrase"
+                className="min-w-0 flex-1 rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-ring"
+              />
+              <button
+                type="button"
+                data-testid="button-add-hidden-word"
+                onClick={addHiddenWord}
+                disabled={!hiddenWordDraft.trim()}
+                className="rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+              >
+                Add
+              </button>
+            </div>
+            {preferences.hiddenWords.length ? (
+              <div className="flex flex-wrap gap-2 pt-1" aria-label="Hidden words">
+                {preferences.hiddenWords.map((word) => (
+                  <span
+                    key={word.toLowerCase()}
+                    className="inline-flex items-center gap-2 rounded-full border border-border bg-muted px-3 py-1.5 text-xs"
+                  >
+                    {word}
+                    <button
+                      type="button"
+                      data-testid={`button-remove-hidden-word-${word.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                      aria-label={`Remove ${word} from hidden words`}
+                      onClick={() =>
+                        savePreference(
+                          "hiddenWords",
+                          preferences.hiddenWords.filter(
+                            (item) => item.toLowerCase() !== word.toLowerCase(),
+                          ),
+                        )
+                      }
+                      className="text-muted-foreground hover:text-foreground"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="pt-1 text-xs text-muted-foreground">No custom words added.</p>
+            )}
+          </div>
+        </Panel>
+      )}
+
+      {panel === "time-management" && (
+        <Panel
+          title="Time Management"
+          onClose={() => setPanel(null)}
+          backLabel="Back to Settings"
+        >
+          <TimeManagementPanel
+            userId={user?.id ?? "guest"}
+            limitMinutes={preferences.dailyLimitMinutes}
+            onLimitChange={(limit) => savePreference("dailyLimitMinutes", limit)}
           />
         </Panel>
       )}
@@ -1239,6 +1437,165 @@ function Panel({
     </div>
   );
 }
+
+function SettingsEntry({
+  icon,
+  label,
+  hint,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  hint: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full cursor-pointer items-center justify-between rounded-xl p-3.5 text-left hover:bg-muted/50"
+    >
+      <span className="flex min-w-0 items-center gap-4">
+        {icon}
+        <span className="min-w-0">
+          <span className="block text-sm font-semibold">{label}</span>
+          <span className="block text-[11px] text-muted-foreground">{hint}</span>
+        </span>
+      </span>
+      <ChevronRight className="shrink-0 text-muted-foreground" size={18} />
+    </button>
+  );
+}
+
+function PreferenceChoice({
+  label,
+  hint,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (value: string) => void;
+}) {
+  return (
+    <fieldset className="rounded-xl p-3">
+      <legend className="text-sm font-semibold">{label}</legend>
+      {hint ? <p className="mb-2 text-[11px] text-muted-foreground">{hint}</p> : null}
+      <div className="space-y-1">
+        {options.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            data-testid={`option-${option.value}`}
+            aria-pressed={value === option.value}
+            onClick={() => onChange(option.value)}
+            className="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-sm transition hover:bg-muted/70"
+          >
+            <span>{option.label}</span>
+            <span
+              aria-hidden="true"
+              className={`grid h-4 w-4 place-items-center rounded-full border ${
+                value === option.value ? "border-primary" : "border-muted-foreground/50"
+              }`}
+            >
+              {value === option.value ? (
+                <span className="h-2 w-2 rounded-full bg-primary" />
+              ) : null}
+            </span>
+          </button>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
+function TimeManagementPanel({
+  userId,
+  limitMinutes,
+  onLimitChange,
+}: {
+  userId: string;
+  limitMinutes: 30 | 60 | 120 | null;
+  onLimitChange: (limit: 30 | 60 | 120 | null) => void;
+}) {
+  const [usageSeconds, setUsageSeconds] = useState(0);
+
+  useEffect(() => {
+    setUsageSeconds(readDailyUsageSeconds(userId));
+    return subscribeToDailyUsage(userId, setUsageSeconds);
+  }, [userId]);
+
+  const options: { value: 30 | 60 | 120 | null; label: string }[] = [
+    { value: 30, label: "30m" },
+    { value: 60, label: "1h" },
+    { value: 120, label: "2h" },
+    { value: null, label: "Off" },
+  ];
+  const progress =
+    limitMinutes === null
+      ? 0
+      : Math.min(100, (usageSeconds / (limitMinutes * 60)) * 100);
+
+  return (
+    <div className="space-y-4 px-3 py-2">
+      <section aria-label="Daily usage" className="rounded-xl border border-border bg-background/60 p-3">
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="text-sm font-semibold">Daily usage</span>
+          <span data-testid="text-daily-usage" className="text-sm font-bold text-primary">
+            {formatDailyUsage(usageSeconds)}
+          </span>
+        </div>
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          Time YourWorld is open and visible today.
+        </p>
+        <div
+          role="progressbar"
+          aria-label="Daily usage against reminder limit"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(progress)}
+          className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted"
+        >
+          <div
+            className="h-full rounded-full bg-primary transition-[width]"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          {limitMinutes === null
+            ? "Daily limit reminder is off."
+            : `Reminder at ${limitMinutes === 60 ? "1 hour" : limitMinutes === 120 ? "2 hours" : "30 minutes"}.`}
+        </p>
+      </section>
+
+      <section aria-label="Daily limit reminder">
+        <div className="mb-2 text-sm font-semibold">Daily limit reminder</div>
+        <div className="grid grid-cols-4 gap-2">
+          {options.map((option) => (
+            <button
+              key={option.label}
+              type="button"
+              data-testid={`daily-limit-${option.label}`}
+              aria-pressed={limitMinutes === option.value}
+              onClick={() => onLimitChange(option.value)}
+              className={`rounded-xl border px-2 py-2 text-xs font-semibold transition ${
+                limitMinutes === option.value
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border bg-background text-foreground hover:bg-muted"
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function Row({ label, hint, onClick }: { label: string; hint?: string; onClick?: () => void }) {
   return (
     <button

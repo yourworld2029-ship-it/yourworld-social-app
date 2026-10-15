@@ -15,6 +15,7 @@ import { useMyProfile } from "@/lib/profile-data";
 import { ChevronDown, ChevronUp, Heart, Pin, PinOff, Reply, SendHorizonal, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth, useResumeAuthAction } from "@/lib/auth-store";
+import { commentMatchesUserFilters, useUserPreferences } from "@/lib/user-preferences";
 
 type DisplayComment = {
   id: string;
@@ -83,6 +84,7 @@ export function CommentsSheet({
   const real = usePostComments(postId);
   const { profile, userId } = useMyProfile();
   const { user, requestAuthAction } = useAuth();
+  const { preferences } = useUserPreferences(user?.id);
   const [draft, setDraft] = useState("");
   const [replyDraft, setReplyDraft] = useState("");
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
@@ -146,9 +148,19 @@ export function CommentsSheet({
     likedByMe: c.likedByMe,
   }));
 
-  const count = list.length;
+  const visibleIds = new Set(
+    list
+      .filter((comment) => !commentMatchesUserFilters(comment.body, preferences))
+      .map((comment) => comment.id),
+  );
+  const visibleList = list.filter(
+    (comment) =>
+      visibleIds.has(comment.id) &&
+      (!comment.parentCommentId || visibleIds.has(comment.parentCommentId)),
+  );
+  const count = visibleList.length;
   const repliesByParent = new Map<string, DisplayComment[]>();
-  list.forEach((comment) => {
+  visibleList.forEach((comment) => {
     if (!comment.parentCommentId) return;
     const replies = repliesByParent.get(comment.parentCommentId) ?? [];
     replies.push(comment);
@@ -160,7 +172,7 @@ export function CommentsSheet({
     const targetKey = `${postId}:${initialCommentId}`;
     if (handledTargetRef.current === targetKey) return;
 
-    const target = list.find((comment) => comment.id === initialCommentId);
+    const target = visibleList.find((comment) => comment.id === initialCommentId);
     if (!target) return;
     if (
       target.parentCommentId &&
@@ -189,7 +201,7 @@ export function CommentsSheet({
     }, 80);
 
     return () => window.clearTimeout(timer);
-  }, [expandedThreads, initialCommentId, list, open, postId, real.loading]);
+  }, [expandedThreads, initialCommentId, visibleList, open, postId, real.loading]);
 
   useEffect(
     () => () => {
@@ -201,8 +213,8 @@ export function CommentsSheet({
   );
 
   useEffect(() => {
-    onCountChange?.(real.comments.length);
-  }, [real.comments.length, onCountChange]);
+    onCountChange?.(visibleList.length);
+  }, [onCountChange, visibleList.length]);
 
   const send = () => {
     if (!draft.trim()) return;
@@ -472,10 +484,10 @@ export function CommentsSheet({
           </DrawerHeader>
 
            <ul ref={listRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pb-4">
-             {list.filter((comment) => !comment.parentCommentId).map((comment) => renderComment(comment))}
-            {!real.loading && list.length === 0 && (
+             {visibleList.filter((comment) => !comment.parentCommentId).map((comment) => renderComment(comment))}
+            {!real.loading && visibleList.length === 0 && (
               <li className="pt-10 text-center text-sm text-muted-foreground">
-                No comments yet. Be the first.
+                {list.length > 0 ? "Comments are hidden by your filters." : "No comments yet. Be the first."}
               </li>
             )}
           </ul>

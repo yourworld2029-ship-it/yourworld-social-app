@@ -47,6 +47,7 @@ import { flagChatMessage } from "@/lib/chat-compliance";
 import type { User } from "@/lib/yw-data";
 import { missingColumn, normalizePostRow, postKind, writeCompat } from "@/lib/supabase-compat";
 import { registerUniqueView } from "@/lib/unique-views";
+import { getUserPreferences } from "@/lib/user-preferences";
 import {
   VIDEO_FEED_SUPPRESSION_EVENT,
   type VideoFeedSuppressionDetail,
@@ -3055,15 +3056,25 @@ export function useThreadMessages(
   }, [conversationId, me, threadId]);
   const markRead = useCallback(async (ids: string[]) => {
     if (!me || !ids.length) return { error: null };
-    const { error: updateError } = await supabase.from("messages" as never).update({ is_read: true } as never).in("id", ids).eq("receiver_id", me);
-    if (updateError) { setError(updateError.message); return { error: updateError.message }; }
-    setMessages((prev) => prev.map((message) =>
-      ids.includes(message.id) && message.receiver_id === me
-        ? { ...message, is_read: true }
-        : message,
-    ));
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new Event("yw:chat-unread-changed"));
+    const receiptsEnabled = getUserPreferences(me).readReceipts;
+    if (receiptsEnabled) {
+      const { error: updateError } = await supabase
+        .from("messages" as never)
+        .update({ is_read: true } as never)
+        .in("id", ids)
+        .eq("receiver_id", me);
+      if (updateError) {
+        setError(updateError.message);
+        return { error: updateError.message };
+      }
+      setMessages((prev) => prev.map((message) =>
+        ids.includes(message.id) && message.receiver_id === me
+          ? { ...message, is_read: true }
+          : message,
+      ));
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("yw:chat-unread-changed"));
+      }
     }
     const { data: viewedRows, error: viewedError } = await supabase
       .from("messages" as never)
@@ -3083,7 +3094,7 @@ export function useThreadMessages(
       .map((m) => ids.includes(m.id) && m.receiver_id === me
         ? {
             ...m,
-            is_read: true,
+            is_read: receiptsEnabled ? true : m.is_read,
             is_viewed: m.auto_delete_mode === "after_view" ? true : m.is_viewed,
             viewed_at: m.auto_delete_mode === "after_view"
               ? viewedById.get(m.id)?.viewed_at ?? fallbackViewedAt

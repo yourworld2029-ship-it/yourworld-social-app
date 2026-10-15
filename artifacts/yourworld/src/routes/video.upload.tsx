@@ -24,6 +24,7 @@ import {
 } from "@/lib/video-data";
 import { useUploadActions } from "@/lib/upload-progress";
 import { useAuth } from "@/lib/auth-store";
+import { useUserPreferences } from "@/lib/user-preferences";
 import { trackEvent } from "@/lib/analytics";
 import { historyBackOr } from "@/lib/navigation";
 import { cacheVideoPoster } from "@/lib/video-prefetch";
@@ -70,6 +71,7 @@ function VideoUploadPage() {
   const navigate = useNavigate();
   const { startUpload, updatePreviewThumbnail } = useUploadActions();
   const { user } = useAuth();
+  const { preferences } = useUserPreferences(user?.id);
   const pageRef = useRef<HTMLElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const selectedFileRef = useRef<File | null>(null);
@@ -152,6 +154,24 @@ function VideoUploadPage() {
     setDuration(null);
     setCurrentTime(0);
     setDimensions(null);
+    if (
+      preferences.uploadHighestQuality &&
+      file.size < MAX_LONG_VIDEO_STORAGE_BYTES
+    ) {
+      const original: LongVideoCompressionResult = {
+        blob: file,
+        width: null,
+        height: null,
+        tier: null,
+        compressed: false,
+      };
+      compressionResultRef.current = original;
+      compressionPromiseRef.current = Promise.resolve(original);
+      markVideoBlobAsUploadReady(file);
+      setCompressionPending(false);
+      if (videoInput.current) videoInput.current.value = "";
+      return;
+    }
     const controller = new AbortController();
     compressionAbortRef.current = controller;
     setCompressionPending(

@@ -35,6 +35,7 @@ import { CallProvider } from "@/lib/call-store";
 import { UploadProvider } from "@/lib/upload-progress";
 import { Toaster } from "@/components/ui/sonner";
 import { DownloadBanner } from "@/components/yw/DownloadBanner";
+import { DailyUsageTracker } from "@/components/yw/DailyUsageTracker";
 import { EarningsCreditWatcher } from "@/lib/earnings-credit";
 import { SafeProvider } from "@/lib/safe-provider";
 import { AdaptiveMediaController } from "@/lib/adaptive-performance";
@@ -408,6 +409,7 @@ function RootComponent() {
       <MediaConcurrencyProvider>
         <AdaptiveMediaController />
         <AuthProvider>
+        <DailyUsageTracker />
         <SafeProvider name="YwStore">
           <YwStoreProvider>
             <SafeProvider name="Notifications">

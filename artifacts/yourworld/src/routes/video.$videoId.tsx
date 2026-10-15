@@ -48,6 +48,12 @@ import {
 import { useAuth, useResumeAuthAction } from "@/lib/auth-store";
 import { useYw } from "@/lib/yw-store";
 import {
+  getCurrentNetworkHints,
+  shouldUseDataSaverOnNetwork,
+  useUserPreferences,
+  type NetworkHints,
+} from "@/lib/user-preferences";
+import {
   resolveAuthorizedPlaybackRendition,
   resolveAuthorizedOfflineSource,
   resolveAuthorizedPlaybackUrl,
@@ -241,6 +247,10 @@ function VideoRouteComponent() {
   } = useVideoPlayback();
   const { videos, loadMore, hasNextPage, isFetchingNextPage } = useLongVideos();
   const { user, requestAuthAction } = useAuth();
+  const { preferences } = useUserPreferences(user?.id);
+  const [networkHints, setNetworkHints] = useState<NetworkHints | null>(
+    () => getCurrentNetworkHints(),
+  );
   const { following, toggleFollow } = useYw();
   const resumeTimeRef = useRef<number | null>(null);
   const scrollRestoreRef = useRef<Array<{ element: HTMLElement; top: number }> | null>(null);
@@ -271,6 +281,25 @@ function VideoRouteComponent() {
       resolveAuthorizedPlaybackRendition(videoId, quality),
     [videoId],
   );
+  const useDataSaverRendition = shouldUseDataSaverOnNetwork(
+    preferences.dataSaver,
+    networkHints,
+  );
+  useEffect(() => {
+    const updateNetwork = () => setNetworkHints(getCurrentNetworkHints());
+    const connection = (
+      navigator as Navigator & { connection?: EventTarget & NetworkHints }
+    ).connection;
+    connection?.addEventListener("change", updateNetwork);
+    window.addEventListener("online", updateNetwork);
+    window.addEventListener("offline", updateNetwork);
+    updateNetwork();
+    return () => {
+      connection?.removeEventListener("change", updateNetwork);
+      window.removeEventListener("online", updateNetwork);
+      window.removeEventListener("offline", updateNetwork);
+    };
+  }, []);
   const validVideoId =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(videoId);
   const query = useQuery({
@@ -396,21 +425,40 @@ function VideoRouteComponent() {
       data.video.id !== videoId
     ) return;
 
-    activateVideo({
-      id: data.video.id,
-      url: data.url,
-      title: data.video.title,
-      thumbnailUrl: data.video.thumbnailUrl,
-      fallbackUrls: data.fallbackUrls,
-      resolvePlaybackQuality: resolveLongVideoPlaybackQuality,
-      initialTime: resumeTimeRef.current ?? undefined,
-    });
-    resumeTimeRef.current = null;
+    let active = true;
+    void (async () => {
+      let playbackUrl = data.url!;
+      if (useDataSaverRendition) {
+        try {
+          playbackUrl = await resolveLongVideoPlaybackQuality("480p");
+        } catch (error) {
+          console.warn(
+            "[data-saver] 480p rendition unavailable; keeping adaptive playback",
+            error,
+          );
+        }
+      }
+      if (!active) return;
+      activateVideo({
+        id: data.video.id,
+        url: playbackUrl,
+        title: data.video.title,
+        thumbnailUrl: data.video.thumbnailUrl,
+        fallbackUrls: data.fallbackUrls,
+        resolvePlaybackQuality: resolveLongVideoPlaybackQuality,
+        initialTime: resumeTimeRef.current ?? undefined,
+      });
+      resumeTimeRef.current = null;
+    })();
+    return () => {
+      active = false;
+    };
   }, [
     activateVideo,
     query.data,
     query.isFetching,
     resolveLongVideoPlaybackQuality,
+    useDataSaverRendition,
     videoId,
   ]);
 
