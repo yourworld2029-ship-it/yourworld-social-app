@@ -1339,6 +1339,71 @@ router.post("/media/playback-source", async (req, res): Promise<void> => {
   }
 });
 
+router.post("/media/playback-rendition", async (req, res): Promise<void> => {
+  const parsed = GetVideoOfflineSourceBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "A video post ID and playback quality are required." });
+    return;
+  }
+  const requestedQuality = parsed.data.quality;
+  if (
+    requestedQuality !== "360p" &&
+    requestedQuality !== "480p" &&
+    requestedQuality !== "720p" &&
+    requestedQuality !== "1080p"
+  ) {
+    res.status(400).json({ error: "This playback quality is not supported." });
+    return;
+  }
+
+  const authorized = await authenticateAndLoadPost(req, res, parsed.data.postId);
+  if (!authorized) return;
+  const source = videoSourceObject(authorized.row, requestedQuality);
+  try {
+    if (hasQualitySpecificSource(authorized.row, requestedQuality) && source) {
+      const url = await signStorageObject(
+        authorized.config.url,
+        authorized.config.serviceRoleKey,
+        source.bucket,
+        source.objectPath,
+      );
+      res.status(200).json(
+        GetVideoOfflineSourceResponse.parse({ url, actualQuality: source.actualQuality }),
+      );
+      return;
+    }
+
+    const explicitUid =
+      authorized.row.cloudflare_stream_id ?? authorized.row.cloudflare_stream_uid;
+    const streamUid =
+      typeof explicitUid === "string" && /^[a-zA-Z0-9_-]{8,128}$/.test(explicitUid)
+        ? explicitUid
+        : streamUidFromManifest(authorized.row.hls_url ?? authorized.row.media_url);
+    const rendition = await createOnDemandQualitySource(
+      req,
+      authorized,
+      streamUid,
+      requestedQuality,
+    );
+    res.status(200).json(GetVideoOfflineSourceResponse.parse(rendition));
+  } catch (error) {
+    if (error instanceof VideoProcessingBusyError) {
+      res.status(429).json({ error: error.message });
+      return;
+    }
+    if (error instanceof VideoTooLargeError) {
+      res.status(413).json({ error: error.message });
+      return;
+    }
+    if (error instanceof QualityConversionUnavailableError) {
+      res.status(422).json({ error: error.message });
+      return;
+    }
+    req.log.error({ err: error }, "Could not prepare a playback rendition");
+    res.status(502).json({ error: "The selected playback quality could not be prepared." });
+  }
+});
+
 router.post("/media/offline-source", async (req, res): Promise<void> => {
   const parsed = GetVideoOfflineSourceBody.safeParse(req.body);
   if (!parsed.success) {

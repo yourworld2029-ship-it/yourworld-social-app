@@ -174,6 +174,65 @@ test("Cloudflare TUS creation exposes protocol headers to native WebViews", asyn
   assert.equal(response.headers.get("stream-media-id"), "stream-video-id");
 });
 
+test("playback-rendition prepares an authorized quality even when offline downloads are disabled", async (t) => {
+  setTestEnvironment(t);
+  t.mock.method(
+    globalThis,
+    "fetch",
+    async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/auth/v1/user") {
+        return jsonResponse({ id: "user-1" });
+      }
+      if (url.pathname === "/rest/v1/posts") {
+        return jsonResponse([
+          {
+            id: "post-1",
+            user_id: "user-1",
+            kind: "video",
+            media_url: "videos/user-1/source.mp4",
+            source_quality_tier: "1080p",
+            video_access: "public",
+            allow_download: false,
+            quality_urls: {
+              "480p": "videos/user-1/.quality-renditions/post-1/source-480p.mp4",
+            },
+          },
+        ]);
+      }
+      if (
+        url.pathname ===
+          "/storage/v1/object/sign/videos/user-1/.quality-renditions/post-1/source-480p.mp4" &&
+        init?.method === "POST"
+      ) {
+        return jsonResponse({
+          signedURL:
+            "/object/sign/videos/user-1/.quality-renditions/post-1/source-480p.mp4?token=test",
+        });
+      }
+      return jsonResponse({ error: `Unexpected mocked request: ${url.pathname}` }, 500);
+    },
+  );
+
+  const baseUrl = await startServer(t);
+  const response = await nativeFetch(`${baseUrl}/api/media/playback-rendition`, {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer test-user-access-token",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ postId: "post-1", quality: "480p" }),
+  });
+  const payload = (await response.json()) as {
+    url?: string;
+    actualQuality?: string;
+  };
+
+  assert.equal(response.status, 200);
+  assert.equal(payload.actualQuality, "480p");
+  assert.match(payload.url ?? "", /source-480p\.mp4\?token=test$/);
+});
+
 test("offline-source creates and caches a genuinely smaller selected rendition", async (t) => {
   setTestEnvironment(t);
   const directory = await mkdtemp(join(tmpdir(), "yourworld-offline-route-test-"));
@@ -266,6 +325,33 @@ test("offline-source creates and caches a genuinely smaller selected rendition",
   assert.match(uploadedObjectPath, /-360p-360p\.mp4$/);
   assert.ok(uploadedBytes > 0);
   assert.ok(uploadedBytes < sourceBytes.byteLength);
+
+  const playbackResponse = await nativeFetch(
+    `${baseUrl}/api/media/playback-rendition`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer test-user-access-token",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ postId: "post-1", quality: "360p" }),
+    },
+  );
+  const playbackPayload = (await playbackResponse.json()) as {
+    url?: string;
+    actualQuality?: string;
+  };
+  assert.equal(playbackResponse.status, 200);
+  assert.equal(playbackPayload.actualQuality, "360p");
+  assert.match(
+    playbackPayload.url ?? "",
+    /\/object\/sign\/videos\/user-1\/\.quality-renditions/,
+  );
+  assert.equal(
+    sourceFetchCount,
+    1,
+    "playback should reuse the cached rendition instead of converting the source again",
+  );
 
   const cachedResponse = await nativeFetch(`${baseUrl}/api/media/offline-source`, {
     method: "POST",

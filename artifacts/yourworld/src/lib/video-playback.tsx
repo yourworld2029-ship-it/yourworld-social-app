@@ -219,6 +219,9 @@ export type PersistentVideo = {
   detailRoute?: string;
   backTo?: string;
   qualityUrls?: QualityUrls;
+  resolvePlaybackQuality?: (
+    quality: Exclude<QualityId, "auto">,
+  ) => Promise<string>;
   fallbackUrls?: string[];
   initialTime?: number;
 };
@@ -415,6 +418,8 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const [playbackRate, setPlaybackRate] = useState(1);
   const [loopVideo, setLoopVideo] = useState(false);
   const [quality, setQuality] = useState<QualityId>("auto");
+  const [pendingQualitySwitch, setPendingQualitySwitch] =
+    useState<QualityId | null>(null);
   const [hlsLevels, setHlsLevels] = useState<Hls["levels"]>([]);
   const [activeHlsHeight, setActiveHlsHeight] = useState<number | null>(null);
 
@@ -455,6 +460,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
   const fallbackAttemptRef = useRef<string | null>(null);
   const activeSourceRef = useRef<{ id: string; url: string } | null>(null);
   const playbackAttemptRef = useRef(0);
+  const qualitySwitchRequestRef = useRef(0);
   const pendingPlaybackReadyRef = useRef<{
     video: HTMLVideoElement;
     attempt: number;
@@ -966,6 +972,7 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
         current.url === video.url &&
         current.title === video.title &&
         current.thumbnailUrl === video.thumbnailUrl &&
+        current.resolvePlaybackQuality === video.resolvePlaybackQuality &&
         (current.fallbackUrls ?? []).length === (video.fallbackUrls ?? []).length &&
         (current.fallbackUrls ?? []).every(
           (url, index) => url === video.fallbackUrls?.[index],
@@ -1202,6 +1209,8 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     setIsBuffering(true);
     setControlsVisible(true);
     setQuality("auto");
+    qualitySwitchRequestRef.current += 1;
+    setPendingQualitySwitch(null);
     setLoopVideo(false);
     setHlsLevels([]);
     setActiveHlsHeight(null);
@@ -1321,7 +1330,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     }
   }, [loopVideo]);
 
-  const selectQuality = useCallback((nextQuality: QualityId) => {
+  const selectQuality = useCallback(async (nextQuality: QualityId) => {
+    const requestId = ++qualitySwitchRequestRef.current;
+    setPendingQualitySwitch(null);
     const video = videoRef.current;
     if (!video || !activeVideo) return;
     const hls = hlsRef.current;
@@ -1343,7 +1354,42 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const nextUrl = nextQuality === "auto" ? activeVideoUrl : activeVideo.qualityUrls?.[nextQuality];
+    let nextUrl =
+      nextQuality === "auto"
+        ? activeVideoUrl
+        : activeVideo.qualityUrls?.[nextQuality];
+    if (
+      !nextUrl &&
+      nextQuality !== "auto" &&
+      activeVideo.resolvePlaybackQuality
+    ) {
+      setPendingQualitySwitch(nextQuality);
+      try {
+        nextUrl = await activeVideo.resolvePlaybackQuality(nextQuality);
+      } catch (error) {
+        if (
+          requestId === qualitySwitchRequestRef.current &&
+          activeVideoRef.current?.id === activeVideo.id
+        ) {
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : `Could not prepare ${nextQuality} playback.`,
+          );
+        }
+        return;
+      } finally {
+        if (requestId === qualitySwitchRequestRef.current) {
+          setPendingQualitySwitch(null);
+        }
+      }
+      if (
+        requestId !== qualitySwitchRequestRef.current ||
+        activeVideoRef.current?.id !== activeVideo.id
+      ) {
+        return;
+      }
+    }
     if (!nextUrl) {
       toast.error(
         nextQuality === "auto"
@@ -3125,16 +3171,24 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                             key={option.id}
                             type="button"
                             role="menuitem"
+                            disabled={pendingQualitySwitch !== null}
                             onClick={() => selectQuality(option.id)}
-                            className="flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70"
+                            className="flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70 disabled:cursor-wait disabled:opacity-60"
                           >
                             <span>
                               {option.label}
+                              {pendingQualitySwitch === option.id ? (
+                                <span className="ml-1 text-[11px] text-white/50">Preparing…</span>
+                              ) : null}
                               {option.description ? (
                                 <span className="ml-1 text-[11px] text-white/50">({option.description})</span>
                               ) : null}
                             </span>
-                            {quality === option.id ? <Check className="h-4 w-4" /> : null}
+                            {pendingQualitySwitch === option.id ? (
+                              <span className="h-3.5 w-3.5 animate-spin rounded-full border border-white/30 border-t-white" />
+                            ) : quality === option.id ? (
+                              <Check className="h-4 w-4" />
+                            ) : null}
                           </button>
                         ))}
                       </>

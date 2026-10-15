@@ -31,6 +31,7 @@ async function postAuthorizedMediaRequest(
   path:
     | "/api/media/playback-url"
     | "/api/media/playback-source"
+    | "/api/media/playback-rendition"
     | "/api/media/offline-source",
   body: Record<string, unknown>,
   timeoutMs = 20_000,
@@ -83,6 +84,24 @@ export async function resolveAuthorizedPlaybackUrl(
 
 export async function resolveAuthorizedStoragePlaybackUrl(postId: string) {
   const payload = await postAuthorizedMediaRequest("/api/media/playback-source", { postId });
+  return payload.url;
+}
+
+export async function resolveAuthorizedPlaybackRendition(
+  postId: string,
+  quality: Extract<AuthorizedOfflineQuality, "360p" | "480p" | "720p" | "1080p">,
+) {
+  const payload = await postAuthorizedMediaRequest(
+    "/api/media/playback-rendition",
+    { postId, quality },
+    11 * 60 * 1000,
+  );
+  if (payload.actualQuality !== quality) {
+    throw new MediaRequestError(
+      `The exact ${quality} playback rendition is unavailable.`,
+      422,
+    );
+  }
   return payload.url;
 }
 

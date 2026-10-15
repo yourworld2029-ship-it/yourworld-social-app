@@ -32,6 +32,7 @@ import { isPlayableMediaUrl } from "@/lib/video-playback-engine";
 import {
   useVideoPlayback,
   type LongVideoPlayerMenuActions,
+  type QualityId,
 } from "@/lib/video-playback";
 import { useValidatedVideoViewTracker } from "@/lib/video-view-validation";
 import { consumeVideoResumeRequest } from "@/lib/video-resume";
@@ -44,6 +45,7 @@ import {
 import { useAuth, useResumeAuthAction } from "@/lib/auth-store";
 import { useYw } from "@/lib/yw-store";
 import {
+  resolveAuthorizedPlaybackRendition,
   resolveAuthorizedOfflineSource,
   resolveAuthorizedPlaybackUrl,
   resolveAuthorizedStoragePlaybackUrl,
@@ -261,6 +263,11 @@ function VideoRouteComponent() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const longVideoMenuActionsRef = useRef<LongVideoPlayerMenuActions | null>(null);
+  const resolveLongVideoPlaybackQuality = useCallback(
+    (quality: Exclude<QualityId, "auto">) =>
+      resolveAuthorizedPlaybackRendition(videoId, quality),
+    [videoId],
+  );
   const validVideoId =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(videoId);
   const query = useQuery({
@@ -392,10 +399,17 @@ function VideoRouteComponent() {
       title: data.video.title,
       thumbnailUrl: data.video.thumbnailUrl,
       fallbackUrls: data.fallbackUrls,
+      resolvePlaybackQuality: resolveLongVideoPlaybackQuality,
       initialTime: resumeTimeRef.current ?? undefined,
     });
     resumeTimeRef.current = null;
-  }, [activateVideo, query.data, query.isFetching, videoId]);
+  }, [
+    activateVideo,
+    query.data,
+    query.isFetching,
+    resolveLongVideoPlaybackQuality,
+    videoId,
+  ]);
 
   useEffect(() => {
     if (
