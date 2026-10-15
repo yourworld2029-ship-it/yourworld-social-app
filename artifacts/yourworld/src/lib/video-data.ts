@@ -1072,6 +1072,10 @@ export function useLongVideos() {
     };
     const onVideoFeedSuppression = (event: Event) => {
       const detail = (event as CustomEvent<VideoFeedSuppressionDetail>).detail;
+      if (detail?.restoredPostId) {
+        void queryClient.invalidateQueries({ queryKey });
+        return;
+      }
       if (!detail?.postId && !detail?.creatorId) return;
       queryClient.setQueryData<InfiniteData<LongVideoPage, number>>(queryKey, (current) =>
         current

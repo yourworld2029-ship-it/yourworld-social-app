@@ -422,15 +422,20 @@ async function filterSuppressedVideoPosts(
   userId: string | null,
 ): Promise<SocialPost[]> {
   if (!userId || posts.length === 0) return posts;
-  const [preferencesResult, mutedResult] = await Promise.all([
+  const [preferencesResult, mutedResult, hiddenResult] = await Promise.all([
     supabase.from("user_post_preferences").select("post_id").eq("user_id", userId),
     supabase.from("user_muted_creators").select("creator_id").eq("user_id", userId),
+    supabase.from("user_hidden_creators").select("creator_id").eq("user_id", userId),
   ]);
   if (preferencesResult.error) throw preferencesResult.error;
   if (mutedResult.error) throw mutedResult.error;
+  if (hiddenResult.error) throw hiddenResult.error;
 
   const hiddenPostIds = new Set((preferencesResult.data ?? []).map((row) => row.post_id));
-  const mutedCreatorIds = new Set((mutedResult.data ?? []).map((row) => row.creator_id));
+  const mutedCreatorIds = new Set([
+    ...(mutedResult.data ?? []).map((row) => row.creator_id),
+    ...(hiddenResult.data ?? []).map((row) => row.creator_id),
+  ]);
   return posts.filter(
     (post) => !hiddenPostIds.has(post.id) && !mutedCreatorIds.has(post.user_id),
   );
@@ -575,6 +580,7 @@ export function useSocialPosts(
   const pendingLikes = useRef(new Set<string>());
   const viewedRef = useRef(new Set<string>());
   const removedRef = useRef(new Set<string>());
+  const suppressedByCreatorRef = useRef(new Map<string, Set<string>>());
   const feedQuery = useInfiniteQuery({
     queryKey,
     initialPageParam: 0,
@@ -708,6 +714,19 @@ export function useSocialPosts(
     };
     const onVideoFeedSuppression = (event: Event) => {
       const detail = (event as CustomEvent<VideoFeedSuppressionDetail>).detail;
+      if (detail?.restoredPostId) {
+        removedRef.current.delete(detail.restoredPostId);
+        void queryClient.invalidateQueries({ queryKey });
+        return;
+      }
+      if (detail?.restoredCreatorId) {
+        for (const postId of suppressedByCreatorRef.current.get(detail.restoredCreatorId) ?? []) {
+          removedRef.current.delete(postId);
+        }
+        suppressedByCreatorRef.current.delete(detail.restoredCreatorId);
+        void queryClient.invalidateQueries({ queryKey });
+        return;
+      }
       if (!detail?.postId && !detail?.creatorId) return;
       const cached = queryClient.getQueryData<InfiniteData<SocialPage, number>>(queryKey);
       if (!cached) return;
@@ -720,6 +739,12 @@ export function useSocialPosts(
           ) {
             suppressedIds.add(post.id);
             removedRef.current.add(post.id);
+            if (detail.creatorId && post.user_id === detail.creatorId) {
+              const creatorPostIds =
+                suppressedByCreatorRef.current.get(detail.creatorId) ?? new Set<string>();
+              creatorPostIds.add(post.id);
+              suppressedByCreatorRef.current.set(detail.creatorId, creatorPostIds);
+            }
           }
         }
       }

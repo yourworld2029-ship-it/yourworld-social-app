@@ -103,14 +103,16 @@ import {
 import { useValidatedVideoViewTracker } from "@/lib/video-view-validation";
 import {
   announceVideoCreatorMuted,
+  announceVideoPostRestored,
   announceVideoPostSuppressed,
   copyShareLink,
   getPostFavoriteState,
   markPostNotInterested,
-  muteVideoCreator,
+  removePostNotInterested,
   submitVideoReport,
   togglePostFavorite,
 } from "@/lib/video-context-actions";
+import { setLongVideoCreatorHidden } from "@/lib/long-video-preferences";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1034,7 +1036,7 @@ function ReelItem({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
-  const [reportReason, setReportReason] = useState("Inappropriate content");
+  const [reportReason, setReportReason] = useState("Inappropriate content / Nudity");
   const [reporting, setReporting] = useState(false);
   const [contextActionBusy, setContextActionBusy] = useState(false);
   const [isFavorite, setIsFavorite] = useState(false);
@@ -1731,7 +1733,25 @@ function ReelItem({
     try {
       await markPostNotInterested(viewerId, reel.id);
       announceVideoPostSuppressed(reel.id);
-      toast.success("We'll show fewer posts like this");
+      toast("Video hidden", {
+        duration: 4000,
+        position: "bottom-center",
+        action: {
+          label: "Undo",
+          onClick: () => {
+            void removePostNotInterested(viewerId, reel.id)
+              .then(() => {
+                announceVideoPostRestored(reel.id);
+                toast.success("Video restored");
+              })
+              .catch((error: unknown) => {
+                toast.error(
+                  error instanceof Error ? error.message : "Couldn't restore this video",
+                );
+              });
+          },
+        },
+      });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Couldn't update your feed");
     } finally {
@@ -1747,9 +1767,9 @@ function ReelItem({
     }
     setContextActionBusy(true);
     try {
-      await muteVideoCreator(viewerId, reel.userId);
+      await setLongVideoCreatorHidden(viewerId, reel.userId, true);
       announceVideoCreatorMuted(reel.userId);
-      toast.success("Creator muted");
+      toast.success("Won't suggest posts from this creator");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Couldn't mute this creator");
     } finally {
@@ -1794,7 +1814,7 @@ function ReelItem({
         reason: reportReason,
       });
       setReportOpen(false);
-      toast.success("Report submitted. Thank you for keeping our community safe.");
+      toast.success("Report submitted. Thank you for making our community safe.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Couldn't submit this report");
     } finally {
@@ -2201,11 +2221,10 @@ function ReelItem({
               onChange={(event) => setReportReason(event.target.value)}
               className="mt-3 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
             >
-              <option>Inappropriate content</option>
-              <option>Spam or misleading</option>
-              <option>Harassment or hate</option>
-              <option>Violence or dangerous acts</option>
-              <option>Other</option>
+              <option>Inappropriate content / Nudity</option>
+              <option>Spam or Scam</option>
+              <option>Hate speech or Harassment</option>
+              <option>Intellectual Property / Copyright</option>
             </select>
           </AlertDialogHeader>
           <AlertDialogFooter>

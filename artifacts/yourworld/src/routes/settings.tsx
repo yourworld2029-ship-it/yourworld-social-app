@@ -12,6 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { resolveMediaUrl, setUserBlock } from "@/lib/social-data";
 import { useFollowList } from "@/lib/follow-data";
 import { setLongVideoCreatorHidden } from "@/lib/long-video-preferences";
+import { announceVideoCreatorRestored, announceVideoPostRestored } from "@/lib/video-context-actions";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({
@@ -40,7 +41,8 @@ type PanelId =
   | "help"
   | "about"
   | "close-friends"
-  | "hidden-creators";
+  | "hidden-creators"
+  | "not-interested-posts";
 
 type BlockedAccount = {
   id: string;
@@ -61,6 +63,13 @@ type ManagedCreator = {
   username: string;
   displayName: string;
   avatarUrl: string | null;
+};
+
+type NotInterestedPost = {
+  id: string;
+  title: string;
+  thumbnailUrl: string | null;
+  createdAt: string | null;
 };
 
 function SettingsPage() {
@@ -369,6 +378,11 @@ function SettingsPage() {
             hint="Manage creators you don't recommend"
             onClick={() => setPanel("hidden-creators")}
           />
+          <Row
+            label="Not Interested Posts"
+            hint="Review videos you've hidden from recommendations"
+            onClick={() => setPanel("not-interested-posts")}
+          />
         </Panel>
       )}
 
@@ -396,6 +410,23 @@ function SettingsPage() {
           ) : (
             <div className="px-3 py-10 text-center text-sm text-muted-foreground">
               Sign in to manage Hidden Creators.
+            </div>
+          )}
+        </Panel>
+      )}
+
+      {panel === "not-interested-posts" && (
+        <Panel
+          title="Not Interested Posts"
+          onClose={() => setPanel(null)}
+          backLabel="Back to Privacy"
+          onBack={() => setPanel("privacy")}
+        >
+          {user ? (
+            <NotInterestedPostsManager userId={user.id} />
+          ) : (
+            <div className="px-3 py-10 text-center text-sm text-muted-foreground">
+              Sign in to manage Not Interested Posts.
             </div>
           )}
         </Panel>
@@ -874,13 +905,26 @@ function HiddenCreatorsManager({ userId }: { userId: string }) {
     setLoading(true);
     setLoadError(false);
     void (async () => {
-      const { data: rows, error } = await supabase
-        .from("user_hidden_creators")
-        .select("creator_id,created_at")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      const creatorIds = [...new Set((rows ?? []).map((row) => row.creator_id))];
+      const [hiddenResult, mutedResult] = await Promise.all([
+        supabase
+          .from("user_hidden_creators")
+          .select("creator_id,created_at")
+          .eq("user_id", userId)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("user_muted_creators")
+          .select("creator_id,created_at")
+          .eq("user_id", userId)
+          .order("created_at", { ascending: false }),
+      ]);
+      if (hiddenResult.error) throw hiddenResult.error;
+      if (mutedResult.error) throw mutedResult.error;
+      const creatorIds = [
+        ...new Set([
+          ...(hiddenResult.data ?? []).map((row) => row.creator_id),
+          ...(mutedResult.data ?? []).map((row) => row.creator_id),
+        ]),
+      ];
       if (creatorIds.length === 0) {
         if (active) {
           setCreators([]);
@@ -935,6 +979,7 @@ function HiddenCreatorsManager({ userId }: { userId: string }) {
     setRemovingId(creator.id);
     try {
       await setLongVideoCreatorHidden(userId, creator.id, false);
+      announceVideoCreatorRestored(creator.id);
       setCreators((current) => current.filter((item) => item.id !== creator.id));
       toast.success("Creator unhidden");
     } catch (error) {
@@ -963,7 +1008,7 @@ function HiddenCreatorsManager({ userId }: { userId: string }) {
       <div className="px-3 py-10 text-center">
         <div className="text-sm font-semibold">No hidden creators</div>
         <div className="mt-1 text-xs text-muted-foreground">
-          Creators you hide from long-video recommendations will appear here.
+          Creators you hide from video recommendations will appear here.
         </div>
       </div>
     );
@@ -997,7 +1042,159 @@ function HiddenCreatorsManager({ userId }: { userId: string }) {
             onClick={() => void unhideCreator(creator)}
             className="rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-foreground transition hover:bg-muted disabled:opacity-50"
           >
-            {removingId === creator.id ? "Removing…" : "Remove"}
+            {removingId === creator.id ? "Unhiding…" : "Unhide"}
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function NotInterestedPostsManager({ userId }: { userId: string }) {
+  const [posts, setPosts] = useState<NotInterestedPost[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setLoadError(false);
+    void (async () => {
+      const { data: preferences, error: preferencesError } = await supabase
+        .from("user_post_preferences")
+        .select("post_id,created_at")
+        .eq("user_id", userId)
+        .eq("preference", "not_interested")
+        .order("created_at", { ascending: false });
+      if (preferencesError) throw preferencesError;
+      const ids = [...new Set((preferences ?? []).map((row) => row.post_id))];
+      if (ids.length === 0) {
+        if (active) {
+          setPosts([]);
+          setLoading(false);
+        }
+        return;
+      }
+      const { data: postRows, error: postsError } = await supabase
+        .from("posts")
+        .select("*")
+        .in("id", ids);
+      if (postsError) throw postsError;
+      const postsById = new Map(
+        (postRows ?? []).map((post) => [post.id, post as unknown as Record<string, unknown>]),
+      );
+      const next = await Promise.all(
+        ids.map(async (id) => {
+          const post = postsById.get(id);
+          if (!post) return null;
+          const rawThumbnail =
+            (typeof post.thumbnail_url === "string" && post.thumbnail_url) ||
+            (typeof post.thumbnailUrl === "string" && post.thumbnailUrl) ||
+            "";
+          return {
+            id,
+            title:
+              (typeof post.title === "string" && post.title.trim()) ||
+              (typeof post.caption === "string" && post.caption.trim()) ||
+              "Video",
+            thumbnailUrl: rawThumbnail
+              ? await resolveMediaUrl(rawThumbnail, "thumbnails")
+              : null,
+            createdAt: typeof post.created_at === "string" ? post.created_at : null,
+          } satisfies NotInterestedPost;
+        }),
+      );
+      if (active) {
+        setPosts(next.filter((post): post is NotInterestedPost => post !== null));
+        setLoading(false);
+      }
+    })().catch((error: unknown) => {
+      if (!active) return;
+      console.error("[settings] Could not load Not Interested Posts", error);
+      setLoadError(true);
+      setLoading(false);
+    });
+    return () => {
+      active = false;
+    };
+  }, [userId]);
+
+  const removePost = async (post: NotInterestedPost) => {
+    if (removingId) return;
+    setRemovingId(post.id);
+    try {
+      const { error } = await supabase
+        .from("user_post_preferences")
+        .delete()
+        .eq("user_id", userId)
+        .eq("post_id", post.id);
+      if (error) throw error;
+      setPosts((current) => current.filter((item) => item.id !== post.id));
+      announceVideoPostRestored(post.id);
+      toast.success("Post removed from Not Interested");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't remove this post");
+    } finally {
+      setRemovingId(null);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="px-3 py-10 text-center text-sm text-muted-foreground">
+        Loading Not Interested Posts…
+      </div>
+    );
+  }
+  if (loadError) {
+    return (
+      <div className="px-3 py-10 text-center text-sm text-muted-foreground">
+        Could not load Not Interested Posts. Please try again.
+      </div>
+    );
+  }
+  if (posts.length === 0) {
+    return (
+      <div className="px-3 py-10 text-center">
+        <div className="text-sm font-semibold">No hidden videos</div>
+        <div className="mt-1 text-xs text-muted-foreground">
+          Videos you mark Not Interested will appear here.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-h-[60vh] space-y-2 overflow-y-auto">
+      {posts.map((post) => (
+        <div key={post.id} className="flex items-center gap-3 rounded-xl p-2 hover:bg-muted/50">
+          {post.thumbnailUrl ? (
+            <img
+              src={post.thumbnailUrl}
+              alt=""
+              className="h-14 w-20 shrink-0 rounded-lg bg-muted object-cover"
+            />
+          ) : (
+            <div className="grid h-14 w-20 shrink-0 place-items-center rounded-lg bg-muted text-xs text-muted-foreground">
+              Video
+            </div>
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="line-clamp-2 text-sm font-semibold">{post.title}</div>
+            {post.createdAt ? (
+              <div className="mt-1 text-xs text-muted-foreground">
+                {new Date(post.createdAt).toLocaleDateString()}
+              </div>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            disabled={removingId === post.id}
+            onClick={() => void removePost(post)}
+            className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-foreground hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {removingId === post.id ? "Removing…" : "Remove"}
           </button>
         </div>
       ))}

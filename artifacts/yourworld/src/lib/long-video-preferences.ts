@@ -26,19 +26,32 @@ export async function setLongVideoCreatorHidden(
   creatorId: string,
   hidden: boolean,
 ) {
-  const result = hidden
-    ? await supabase
-        .from("user_hidden_creators")
-        .upsert(
-          { user_id: userId, creator_id: creatorId },
-          { onConflict: "user_id,creator_id", ignoreDuplicates: true },
-        )
-    : await supabase
+  if (userId === creatorId && hidden) {
+    throw new Error("You can't hide yourself");
+  }
+  if (hidden) {
+    const { error } = await supabase
+      .from("user_hidden_creators")
+      .upsert(
+        { user_id: userId, creator_id: creatorId },
+        { onConflict: "user_id,creator_id", ignoreDuplicates: true },
+      );
+    if (error) throw error;
+  } else {
+    const [hiddenResult, mutedResult] = await Promise.all([
+      supabase
         .from("user_hidden_creators")
         .delete()
         .eq("user_id", userId)
-        .eq("creator_id", creatorId);
-
-  if (result.error) throw result.error;
+        .eq("creator_id", creatorId),
+      supabase
+        .from("user_muted_creators")
+        .delete()
+        .eq("user_id", userId)
+        .eq("creator_id", creatorId),
+    ]);
+    if (hiddenResult.error) throw hiddenResult.error;
+    if (mutedResult.error) throw mutedResult.error;
+  }
   announceLongVideoCreatorVisibilityChange(creatorId, hidden);
 }

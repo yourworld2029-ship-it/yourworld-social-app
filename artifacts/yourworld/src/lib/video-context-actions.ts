@@ -5,6 +5,8 @@ export const VIDEO_FEED_SUPPRESSION_EVENT = "yw:video-feed-suppression";
 export type VideoFeedSuppressionDetail = {
   postId?: string;
   creatorId?: string;
+  restoredPostId?: string;
+  restoredCreatorId?: string;
 };
 
 export function announceVideoPostSuppressed(postId: string) {
@@ -21,6 +23,24 @@ export function announceVideoCreatorMuted(creatorId: string) {
   window.dispatchEvent(
     new CustomEvent<VideoFeedSuppressionDetail>(VIDEO_FEED_SUPPRESSION_EVENT, {
       detail: { creatorId },
+    }),
+  );
+}
+
+export function announceVideoPostRestored(postId: string) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent<VideoFeedSuppressionDetail>(VIDEO_FEED_SUPPRESSION_EVENT, {
+      detail: { restoredPostId: postId },
+    }),
+  );
+}
+
+export function announceVideoCreatorRestored(creatorId: string) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent<VideoFeedSuppressionDetail>(VIDEO_FEED_SUPPRESSION_EVENT, {
+      detail: { restoredCreatorId: creatorId },
     }),
   );
 }
@@ -82,6 +102,15 @@ export async function markPostNotInterested(userId: string, postId: string) {
   if (error) throw error;
 }
 
+export async function removePostNotInterested(userId: string, postId: string) {
+  const { error } = await supabase
+    .from("user_post_preferences")
+    .delete()
+    .eq("user_id", userId)
+    .eq("post_id", postId);
+  if (error) throw error;
+}
+
 export async function muteVideoCreator(userId: string, creatorId: string) {
   if (userId === creatorId) throw new Error("You can't mute yourself");
   const { error } = await supabase.from("user_muted_creators").upsert(
@@ -103,7 +132,8 @@ export async function submitVideoReport(input: {
       reported_user_id: input.creatorId,
       reported_post_id: input.postId,
       surface: "social",
-      reason: `Video report: ${input.reason}`,
+      reason: input.reason,
+      created_at: new Date().toISOString(),
     },
     { onConflict: "reporter_id,reported_user_id,surface" },
   );

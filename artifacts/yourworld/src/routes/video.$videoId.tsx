@@ -14,9 +14,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
 import {
+  announceVideoCreatorMuted,
   announceVideoPostSuppressed,
+  announceVideoPostRestored,
   getPostFavoriteState,
   markPostNotInterested,
+  removePostNotInterested,
   submitVideoReport,
   togglePostFavorite,
 } from "@/lib/video-context-actions";
@@ -258,7 +261,7 @@ function VideoRouteComponent() {
   const [isDownloading, setIsDownloading] = useState(false);
   const [isContextActionBusy, setIsContextActionBusy] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
-  const [reportReason, setReportReason] = useState("Inappropriate content");
+  const [reportReason, setReportReason] = useState("Inappropriate content / Nudity");
   const [isReporting, setIsReporting] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -689,7 +692,29 @@ function VideoRouteComponent() {
     try {
       await markPostNotInterested(user.id, video.id);
       announceVideoPostSuppressed(video.id);
-      toast.success("We'll show fewer posts like this");
+      toast("Video hidden", {
+        duration: 4000,
+        position: "bottom-center",
+        action: {
+          label: "Undo",
+          onClick: () => {
+            void removePostNotInterested(user.id, video.id)
+              .then(() => {
+                announceVideoPostRestored(video.id);
+                toast.success("Video restored");
+                void navigate({
+                  to: "/video/$videoId",
+                  params: { videoId: video.id },
+                });
+              })
+              .catch((error: unknown) => {
+                toast.error(
+                  error instanceof Error ? error.message : "Couldn't restore this video",
+                );
+              });
+          },
+        },
+      });
       shouldLeave = true;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Couldn't update your feed");
@@ -710,7 +735,8 @@ function VideoRouteComponent() {
     let shouldLeave = false;
     try {
       await setLongVideoCreatorHidden(user.id, video.userId, true);
-      toast.success("We won't recommend this creator");
+      announceVideoCreatorMuted(video.userId);
+      toast.success("Won't suggest posts from this creator");
       shouldLeave = true;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Couldn't hide this creator");
@@ -740,7 +766,7 @@ function VideoRouteComponent() {
         reason: reportReason,
       });
       setReportOpen(false);
-      toast.success("Report submitted. Thank you for keeping our community safe.");
+      toast.success("Report submitted. Thank you for making our community safe.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Couldn't submit this report");
     } finally {
@@ -955,11 +981,10 @@ function VideoRouteComponent() {
               onChange={(event) => setReportReason(event.target.value)}
               className="mt-3 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
             >
-              <option>Inappropriate content</option>
-              <option>Spam or misleading</option>
-              <option>Harassment or hate</option>
-              <option>Violence or dangerous acts</option>
-              <option>Other</option>
+              <option>Inappropriate content / Nudity</option>
+              <option>Spam or Scam</option>
+              <option>Hate speech or Harassment</option>
+              <option>Intellectual Property / Copyright</option>
             </select>
           </AlertDialogHeader>
           <AlertDialogFooter>
