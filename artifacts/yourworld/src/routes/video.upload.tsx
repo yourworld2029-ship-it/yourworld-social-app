@@ -400,7 +400,10 @@ function VideoUploadPage() {
     }
     const titleSnapshot = title.trim() || "Long video";
     const descriptionSnapshot = description.trim();
-    const thumbnailUrlSnapshot = thumb ?? previewFrame;
+    // `previewFrame` is only the upload preview and may capture a black
+    // opening frame. Persist an explicit user thumbnail when provided;
+    // otherwise let publishLongVideo generate a thumbnail from the source.
+    const thumbnailUrlSnapshot = thumb;
     const localPreviewUrl = selectedFile
       ? URL.createObjectURL(selectedFile)
       : undefined;
