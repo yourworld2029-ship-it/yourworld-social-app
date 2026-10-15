@@ -572,8 +572,10 @@ export function FeedVideoPreview({
   ]);
 
   const cloudflarePoster =
-    video.access === "public" ? cloudflareStreamPosterUrl(video.mediaUrl) : null;
-  const posterUrl = cloudflarePoster ?? video.thumbnailUrl;
+    video.access === "public"
+      ? cloudflareStreamPosterUrl(video.mediaUrl, video.cloudflareStreamId)
+      : null;
+  const posterUrl = video.thumbnailUrl?.trim() || cloudflarePoster;
 
   return (
     <div

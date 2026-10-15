@@ -868,7 +868,14 @@ async function loadLongVideoPage(
                 ? "public"
                 : "paid";
         const cloudflarePoster =
-          access === "public" ? cloudflareStreamPosterUrl(post.media_url) : null;
+          access === "public"
+            ? cloudflareStreamPosterUrl(
+                post.media_url,
+                post.cloudflare_stream_id ?? post.cloudflare_stream_uid,
+              )
+            : null;
+        const savedThumbnail =
+          typeof post.thumbnail_url === "string" ? post.thumbnail_url.trim() : "";
         const profile = byId.get(post.user_id);
         const username = profile?.username ?? `user${post.user_id.slice(0, 4)}`;
         const name = profile?.display_name ?? username;
@@ -879,7 +886,7 @@ async function loadLongVideoPage(
           caption: post.caption ?? "",
           mediaUrl: post.media_url,
           cloudflareStreamId: post.cloudflare_stream_id ?? post.cloudflare_stream_uid ?? null,
-          thumbnailUrl: post.thumbnail_url ?? cloudflarePoster,
+          thumbnailUrl: savedThumbnail || cloudflarePoster,
           orientation: post.orientation === "portrait" ? "portrait" : "landscape",
           aspectRatio: metadata.aspect_ratio ?? null,
           videoType: metadata.video_type ?? null,
