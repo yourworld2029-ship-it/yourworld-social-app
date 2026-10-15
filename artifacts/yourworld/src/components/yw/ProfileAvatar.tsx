@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { resolveMediaUrl } from "@/lib/social-data";
 
 export type ProfileAvatarUser = {
   full_name?: string | null;
@@ -16,12 +17,28 @@ export function ProfileAvatar({ user }: { user?: ProfileAvatarUser | null }) {
   const initial =
     (user?.full_name || user?.username || "U").trim().charAt(0).toUpperCase() || "U";
   const [imageFailed, setImageFailed] = useState(false);
+  const [resolvedUrl, setResolvedUrl] = useState("");
 
   useEffect(() => {
+    let current = true;
     setImageFailed(false);
+    setResolvedUrl("");
+    if (!imgUrl) return () => { current = false; };
+
+    void resolveMediaUrl(imgUrl, "avatars")
+      .then((url) => {
+        if (current) setResolvedUrl(url);
+      })
+      .catch(() => {
+        if (current) setResolvedUrl(imgUrl);
+      });
+
+    return () => {
+      current = false;
+    };
   }, [imgUrl]);
 
-  if (!imgUrl || imageFailed) {
+  if (!resolvedUrl || imageFailed) {
     return (
       <span className="text-white font-semibold text-base flex h-full w-full items-center justify-center">
         {initial}
@@ -31,7 +48,7 @@ export function ProfileAvatar({ user }: { user?: ProfileAvatarUser | null }) {
 
   return (
     <img
-      src={imgUrl}
+      src={resolvedUrl}
       alt=""
       loading="lazy"
       decoding="async"

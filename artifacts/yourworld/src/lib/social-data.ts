@@ -217,6 +217,11 @@ export const toUser = (p: DbProfile | undefined, id: string): User => ({
   hue: hueFromId(id),
 });
 
+function profileAvatarUrl(profile?: DbProfile) {
+  return [profile?.avatar_url, profile?.profile_pic, profile?.profile_image]
+    .find((value) => typeof value === "string" && value.trim())?.trim() ?? null;
+}
+
 export function timeAgo(iso: string) {
   const timestamp = new Date(iso).getTime();
   if (!Number.isFinite(timestamp)) return "Just now";
@@ -399,7 +404,7 @@ export async function loadSocialPosts(
         0,
     ),
     author: toUser(profileById.get(p.user_id), p.user_id),
-    authorAvatarUrl: profileById.get(p.user_id)?.avatar_url ?? null,
+    authorAvatarUrl: profileAvatarUrl(profileById.get(p.user_id)),
     likeCount: likeRows.filter((like) => like.post_id === p.id).length,
     commentCount: commentRows.filter((comment) => comment.post_id === p.id).length,
     likedByMe: !!uid && likeRows.some((like) => like.post_id === p.id && like.user_id === uid),
@@ -486,7 +491,7 @@ export function useMediaPost(postId: string | null) {
         ...normalized,
         views: Number(normalized.views ?? normalized.views_count ?? 0),
         author: toUser(profile, normalized.user_id),
-        authorAvatarUrl: profile?.avatar_url ?? null,
+        authorAvatarUrl: profileAvatarUrl(profile),
         likeCount: likeRows.length,
         commentCount: ((comments ?? []) as Array<{ post_id: string }>).length,
         likedByMe: !!uid && likeRows.some((like) => like.user_id === uid),

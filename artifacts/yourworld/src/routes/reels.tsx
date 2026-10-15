@@ -33,7 +33,7 @@ import {
   ArrowLeft,
   Trash2,
 } from "lucide-react";
-import { YwAvatar } from "@/components/yw/Avatar";
+import { ProfileAvatar } from "@/components/yw/ProfileAvatar";
 import {
   ProtectedCanvasImage,
   ProtectedCanvasVideoMirror,
@@ -1879,7 +1879,20 @@ function ReelItem({
             params={{ userId: reel.userId }}
             className="flex min-w-0 items-center gap-2.5 transition-opacity active:opacity-70"
           >
-            <YwAvatar user={user} size={36} className="ring-2 ring-foreground/30" />
+            <div
+              className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full ring-2 ring-foreground/30"
+              style={{
+                backgroundImage: `linear-gradient(140deg, oklch(0.55 0.2 ${user.hue}), oklch(0.32 0.12 ${user.hue + 40}))`,
+              }}
+            >
+              <ProfileAvatar
+                user={{
+                  full_name: user.name,
+                  username: user.username,
+                  avatar_url: reel.authorAvatarUrl,
+                }}
+              />
+            </div>
                <span className="flex min-w-0 items-center gap-1 truncate text-sm font-semibold drop-shadow">
                {user.name}
                <span className="ml-2 text-xs font-normal text-gray-300">

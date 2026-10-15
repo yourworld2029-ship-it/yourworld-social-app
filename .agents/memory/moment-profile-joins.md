@@ -20,3 +20,9 @@ Profile avatar values can be bare Storage object paths rather than browser-loada
 **Why:** Passing a stored object path directly to `<img>` causes a failed request and the shared avatar component correctly falls back to an initial.
 
 **How to apply:** Resolve avatar paths in each existing Moment/chat data flow; do not change the profile field or create a second URL resolver.
+
+Reel author and Moment/live story rings should show the user's profile photo whenever one is available. Show the name initial only when no profile image exists or the image cannot be loaded.
+
+**Why:** The user explicitly asked for profile photos instead of initials in these rings.
+
+**How to apply:** Normalize `avatar_url`, `profile_pic`, and `profile_image`, then resolve stored paths with the existing avatar media helper. Keep the initial as an error/empty-data fallback and leave unrelated avatar layouts unchanged.
