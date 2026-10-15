@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { Check, Link2, LoaderCircle, Search, Send, Share2, Sparkles, X } from "lucide-react";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar } from "@/components/ui/avatar";
+import { ProfileAvatar } from "@/components/yw/ProfileAvatar";
 import { useAuth } from "@/lib/auth-store";
 import { useNavigate } from "@tanstack/react-router";
 import { dmThreadId, useThreadMessages } from "@/lib/social-data";
@@ -44,6 +45,8 @@ type SharePerson = {
   username: string | null;
   display_name: string | null;
   avatar_url: string | null;
+  profile_pic?: string | null;
+  profile_image?: string | null;
 };
 
 type ShareDeliveryControllerProps = {
@@ -100,6 +103,8 @@ async function loadRecentSharePeople(userId: string): Promise<SharePerson[]> {
       username?: string | null;
       display_name?: string | null;
       avatar_url?: string | null;
+      profile_pic?: string | null;
+      profile_image?: string | null;
     }>).map((profile) => [profile.id, profile]),
   );
   return peerIds.flatMap((id) => {
@@ -110,6 +115,8 @@ async function loadRecentSharePeople(userId: string): Promise<SharePerson[]> {
           username: profile.username ?? null,
           display_name: profile.display_name ?? profile.username ?? null,
           avatar_url: profile.avatar_url ?? null,
+          profile_pic: profile.profile_pic ?? null,
+          profile_image: profile.profile_image ?? null,
         }]
       : [];
   });
@@ -692,9 +699,6 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
                     const handle = person.username
                       ? `@${person.username.replace(/^@/, "")}`
                       : person.display_name || "YourWorld user";
-                    const initials = (person.display_name || person.username || "?")
-                      .slice(0, 1)
-                      .toUpperCase();
                     return (
                       <button
                         key={person.id}
@@ -708,14 +712,19 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
                       >
                         <span className="relative block">
                           <Avatar
-                            className={`h-12 w-12 border border-white/10 ring-2 ring-offset-2 ring-offset-[#08090d] transition-all group-hover:ring-fuchsia-300/50 ${
+                             className={`h-12 w-12 border border-white/10 bg-gradient-to-br from-violet-500/70 to-fuchsia-500/70 ring-2 ring-offset-2 ring-offset-[#08090d] transition-all group-hover:ring-fuchsia-300/50 ${
                                 selected || status ? "ring-fuchsia-300/75" : "ring-transparent"
                             }`}
                           >
-                            <AvatarImage src={person.avatar_url ?? undefined} alt="" />
-                            <AvatarFallback className="bg-gradient-to-br from-violet-500/70 to-fuchsia-500/70 text-sm font-bold text-white">
-                              {initials}
-                            </AvatarFallback>
+                            <ProfileAvatar
+                              user={{
+                                username: person.username,
+                                full_name: person.display_name,
+                                avatar_url: person.avatar_url,
+                                profile_pic: person.profile_pic,
+                                profile_image: person.profile_image,
+                              }}
+                            />
                           </Avatar>
                           {selected || status ? (
                             <span className="absolute -bottom-1 -right-1 grid h-5 w-5 place-items-center rounded-full border-2 border-[#08090d] bg-fuchsia-300 text-[#140b18] shadow-lg">

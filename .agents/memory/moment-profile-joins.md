@@ -26,3 +26,9 @@ Reel author and Moment/live story rings should show the user's profile photo whe
 **Why:** The user explicitly asked for profile photos instead of initials in these rings.
 
 **How to apply:** Normalize `avatar_url`, `profile_pic`, and `profile_image`, then resolve stored paths with the existing avatar media helper. Keep the initial as an error/empty-data fallback and leave unrelated avatar layouts unchanged.
+
+The ShareSheet recipient picker has its own profile-image flow. When that picker shows initials despite available photos, fix only its profile fields and avatar rendering; the user confirmed other avatar areas are already correct.
+
+**Why:** The ShareSheet was bypassing the shared image resolver and rendered raw avatar paths directly.
+
+**How to apply:** Feed recent, followed, and searched recipient image fields through the existing ProfileAvatar resolver, including `avatar_url`, `profile_pic`, and `profile_image`. Keep changes confined to ShareSheet when this specific issue is reported.

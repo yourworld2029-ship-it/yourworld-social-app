@@ -22,7 +22,7 @@
 - [Protected chat cache](protected-chat-cache.md) — encrypt protected thread caches and invalidate stale async cache work on shared chat clears.
 - [Secret Lock code policy](secret-lock-code-policy.md) — codes are 4–8 alphanumeric characters with no recovery; keep legacy numeric hashes verifiable.
 - [Destructive list mutations](destructive-list-mutations.md) — after a confirmed delete, preserve the local removal instead of applying an uncoordinated stale refresh.
-- [Profile avatar rings](moment-profile-joins.md) — show resolvable profile photos in Reel and Moment rings; keep initials only as the missing-image fallback.
+- [Profile avatar display](moment-profile-joins.md) — resolve profile photos in Reel, Moment, and ShareSheet recipient avatars; keep initials as the fallback.
 - [Chat retention and capture alerts](chat-retention-and-alerts.md) — server-enforce lifetime defaults; after-view is media-only and capture alerts are recipient-preference broadcasts.
 - [Follow and view schema](follow-and-view-schema.md) — follow mutations and unique views must use live RPCs, profile counters, and posts.views_count.
 - [Fullscreen player controls](fullscreen-player-controls.md) — gate lock state, gestures, and HUD overlays to fullscreen and keep JSX control wrappers explicit.
