@@ -406,3 +406,17 @@ mtime_ms = 1791303084962
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/bb18eea7-3bea-41aa-b8cb-6aa7b6c2c41e/67631cc3-25d0-47b2-93d0-0052feae88b4"
 storage_version_token = "1791303176834862"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "PNRNhi4PvZRdV1GlL8kJd"
+uri = "file://artifacts/yourworld/public/downloads/yourworld-20261015T150948Z-v176-debug.apk"
+type = "unspecified"
+title = "YourWorld Debug APK v1.0.176"
+description = "Fresh Android Debug APK. Built with assembleDebug; not a release build."
+logical_id = "2d63484b-d488-40a9-8c14-0637f4fedb48"
+content_hash = "sha256:5cd288704b4e7ebfe21f23864c7580cc373968cb2d2ee975ee98b1f5c1c7bfe0"
+size = 10979022
+mtime_ms = 1792076988299
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/2d63484b-d488-40a9-8c14-0637f4fedb48/2ffb3226-1085-4567-9f18-49a74bf72967"
+storage_version_token = "1792077034402526"
+content_type = "application/octet-stream"
