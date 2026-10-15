@@ -12,10 +12,12 @@ import { YwAvatar } from "@/components/yw/Avatar";
 import type { User } from "@/lib/yw-data";
 import { usePostComments, timeAgo, resolveMediaUrl, MAX_PINNED_COMMENTS } from "@/lib/social-data";
 import { useMyProfile } from "@/lib/profile-data";
-import { ChevronDown, ChevronUp, Heart, Pin, PinOff, Reply, SendHorizonal, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Heart, LoaderCircle, Pin, PinOff, Reply, SendHorizonal, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth, useResumeAuthAction } from "@/lib/auth-store";
 import { commentMatchesUserFilters, useUserPreferences } from "@/lib/user-preferences";
+import { commentMayNeedTranslation, useAppLanguage } from "@/lib/app-language";
+import { translateComment } from "@/lib/translate-comment";
 
 type DisplayComment = {
   id: string;
@@ -85,12 +87,25 @@ export function CommentsSheet({
   const { profile, userId } = useMyProfile();
   const { user, requestAuthAction } = useAuth();
   const { preferences } = useUserPreferences(user?.id);
+  const { language, t } = useAppLanguage();
   const [draft, setDraft] = useState("");
   const [replyDraft, setReplyDraft] = useState("");
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
   const [open, setOpen] = useState(initialOpen);
   const [highlightedCommentId, setHighlightedCommentId] = useState<string | null>(null);
+  const [commentTranslations, setCommentTranslations] = useState<
+    Record<
+      string,
+      {
+        language: "en" | "hi";
+        loading: boolean;
+        translatedText: string | null;
+        alreadyInTargetLanguage: boolean;
+        showing: boolean;
+      }
+    >
+  >({});
   const listRef = useRef<HTMLUListElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const handledTargetRef = useRef<string | null>(null);
@@ -126,6 +141,61 @@ export function CommentsSheet({
   const prefetchProfile = (id: string) => {
     if (!isRealUser(id)) return;
     void router.preloadRoute({ to: "/u/$userId", params: { userId: id } }).catch(() => {});
+  };
+
+  const translateOneComment = async (comment: DisplayComment) => {
+    const current = commentTranslations[comment.id];
+    if (current?.language === language && current.showing) {
+      setCommentTranslations((items) => ({
+        ...items,
+        [comment.id]: { ...current, showing: false },
+      }));
+      return;
+    }
+    if (current?.language === language && current.translatedText) {
+      setCommentTranslations((items) => ({
+        ...items,
+        [comment.id]: { ...current, showing: true },
+      }));
+      return;
+    }
+
+    const targetLanguage = language;
+    setCommentTranslations((items) => ({
+      ...items,
+      [comment.id]: {
+        language: targetLanguage,
+        loading: true,
+        translatedText: null,
+        alreadyInTargetLanguage: false,
+        showing: false,
+      },
+    }));
+    try {
+      const result = await translateComment(comment.body, targetLanguage);
+      setCommentTranslations((items) => ({
+        ...items,
+        [comment.id]: {
+          language: targetLanguage,
+          loading: false,
+          translatedText: result.translatedText,
+          alreadyInTargetLanguage: result.alreadyInTargetLanguage,
+          showing: !result.alreadyInTargetLanguage,
+        },
+      }));
+    } catch {
+      setCommentTranslations((items) => ({
+        ...items,
+        [comment.id]: {
+          language: targetLanguage,
+          loading: false,
+          translatedText: null,
+          alreadyInTargetLanguage: false,
+          showing: false,
+        },
+      }));
+      toast.error(t("translationFailed"));
+    }
   };
 
   const currentUser: User = {
@@ -328,6 +398,17 @@ export function CommentsSheet({
   const renderComment = (c: DisplayComment, depth = 0): ReactNode => {
     const replies = repliesByParent.get(c.id) ?? [];
     const expanded = expandedThreads.has(c.id);
+    const translation =
+      commentTranslations[c.id]?.language === language
+        ? commentTranslations[c.id]
+        : undefined;
+    const canOfferTranslation = translation
+      ? !translation.alreadyInTargetLanguage
+      : commentMayNeedTranslation(c.body, language);
+    const displayedBody =
+      translation?.showing && translation.translatedText
+        ? translation.translatedText
+        : c.body;
     return (
       <li
         key={c.id}
@@ -374,7 +455,27 @@ export function CommentsSheet({
               )}{" "}
               · {c.time}
             </p>
-            <p className="text-sm">{c.body}</p>
+            <p className="text-sm">{displayedBody}</p>
+            {(canOfferTranslation || translation?.loading) && (
+              <button
+                type="button"
+                onClick={() => void translateOneComment(c)}
+                disabled={translation?.loading}
+                aria-busy={translation?.loading ?? false}
+                className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground disabled:cursor-wait"
+              >
+                {translation?.loading ? (
+                  <>
+                    <LoaderCircle className="h-3 w-3 animate-spin" />
+                    {t("translationLoading")}
+                  </>
+                ) : translation?.showing ? (
+                  t("translationSeeOriginal")
+                ) : (
+                  t("translationSee")
+                )}
+              </button>
+            )}
             {c.pinned && (
               <p className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-primary">
                 <Pin className="h-3 w-3" /> Pinned

@@ -3,7 +3,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   User, BarChart2, Lock, Bell, HelpCircle, Info, LogOut, ChevronRight, ArrowLeft, X, Wallet,
-  Star, Search, Gauge, MessageCircle, Clock3,
+  Star, Search, Gauge, MessageCircle, Clock3, Languages,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-store";
@@ -15,6 +15,7 @@ import { setLongVideoCreatorHidden } from "@/lib/long-video-preferences";
 import { announceVideoCreatorRestored, announceVideoPostRestored } from "@/lib/video-context-actions";
 import { useUserPreferences } from "@/lib/user-preferences";
 import { formatDailyUsage, readDailyUsageSeconds, subscribeToDailyUsage } from "@/lib/daily-usage";
+import { useAppLanguage } from "@/lib/app-language";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({
@@ -48,7 +49,8 @@ type PanelId =
   | "data-quality"
   | "messages-privacy"
   | "comments-hidden-words"
-  | "time-management";
+  | "time-management"
+  | "app-language";
 
 type BlockedAccount = {
   id: string;
@@ -81,6 +83,7 @@ type NotInterestedPost = {
 function SettingsPage() {
   const navigate = useNavigate();
   const { signOut, user } = useAuth();
+  const { language, setLanguage, t } = useAppLanguage();
   const queryClient = useQueryClient();
   const { preferences, savePreference } = useUserPreferences(user?.id);
   const [panel, setPanel] = useState<PanelId | null>(null);
@@ -263,7 +266,7 @@ function SettingsPage() {
         >
           <ArrowLeft size={22} />
         </button>
-        <h1 className="text-xl font-bold text-foreground">Settings</h1>
+        <h1 className="text-xl font-bold text-foreground">{t("settingsTitle")}</h1>
       </header>
 
       <div className="space-y-1 rounded-2xl border border-border bg-card p-2">
@@ -277,7 +280,7 @@ function SettingsPage() {
         >
           <div className="flex items-center gap-4">
             <User className="text-muted-foreground" size={20} />
-            <span className="font-semibold text-sm">Account</span>
+            <span className="font-semibold text-sm">{t("account")}</span>
           </div>
           <ChevronRight className="text-muted-foreground" size={18} />
         </div>
@@ -290,8 +293,8 @@ function SettingsPage() {
           <div className="flex items-center gap-4">
             <BarChart2 className="text-muted-foreground" size={20} />
             <div>
-              <div className="font-semibold text-sm">Creator Analytics</div>
-              <div className="text-[11px] text-muted-foreground">Views, watch hours, followers & top content</div>
+              <div className="font-semibold text-sm">{t("creatorAnalytics")}</div>
+              <div className="text-[11px] text-muted-foreground">{t("creatorAnalyticsHint")}</div>
             </div>
           </div>
           <ChevronRight className="text-muted-foreground" size={18} />
@@ -307,8 +310,8 @@ function SettingsPage() {
           <div className="flex items-center gap-4">
             <Wallet className="text-muted-foreground" size={20} />
             <div>
-              <div className="font-semibold text-sm">Monetization & Wallet</div>
-              <div className="text-[11px] text-muted-foreground">Earnings, courses, payouts & tax invoices</div>
+              <div className="font-semibold text-sm">{t("monetizationWallet")}</div>
+              <div className="text-[11px] text-muted-foreground">{t("monetizationWalletHint")}</div>
             </div>
           </div>
           <ChevronRight className="text-muted-foreground" size={18} />
@@ -316,9 +319,15 @@ function SettingsPage() {
 
         <SettingsEntry
           icon={<Gauge className="text-muted-foreground" size={20} />}
-          label="Data & Media Quality"
-          hint="Data saver and upload quality"
+          label={t("dataMediaQuality")}
+          hint={t("dataMediaQualityHint")}
           onClick={() => setPanel("data-quality")}
+        />
+        <SettingsEntry
+          icon={<Languages className="text-muted-foreground" size={20} />}
+          label={t("appLanguage")}
+          hint={t("appLanguageHint")}
+          onClick={() => setPanel("app-language")}
         />
 
         {/* Privacy */}
@@ -331,8 +340,8 @@ function SettingsPage() {
           <div className="flex items-center gap-4">
             <Lock className="text-muted-foreground" size={20} />
             <div>
-              <div className="font-semibold text-sm">Privacy</div>
-              <div className="text-[11px] text-muted-foreground">Blocked accounts</div>
+              <div className="font-semibold text-sm">{t("privacy")}</div>
+              <div className="text-[11px] text-muted-foreground">{t("privacyHint")}</div>
             </div>
           </div>
           <ChevronRight className="text-muted-foreground" size={18} />
@@ -340,15 +349,15 @@ function SettingsPage() {
 
         <SettingsEntry
           icon={<MessageCircle className="text-muted-foreground" size={20} />}
-          label="Messages & Direct Requests"
-          hint="Who can message you and read receipts"
+          label={t("messagesDirectRequests")}
+          hint={t("messagesDirectRequestsHint")}
           onClick={() => setPanel("messages-privacy")}
         />
 
         <SettingsEntry
           icon={<Clock3 className="text-muted-foreground" size={20} />}
-          label="Time Management"
-          hint="Daily usage and break reminders"
+          label={t("timeManagement")}
+          hint={t("timeManagementHint")}
           onClick={() => setPanel("time-management")}
         />
 
@@ -362,8 +371,8 @@ function SettingsPage() {
           <div className="flex items-center gap-4">
             <Bell className="text-muted-foreground" size={20} />
             <div>
-              <div className="font-semibold text-sm">Notifications</div>
-              <div className="text-[11px] text-muted-foreground">Likes, channel & system alerts</div>
+              <div className="font-semibold text-sm">{t("notifications")}</div>
+              <div className="text-[11px] text-muted-foreground">{t("notificationsHint")}</div>
             </div>
           </div>
           <ChevronRight className="text-muted-foreground" size={18} />
@@ -378,7 +387,7 @@ function SettingsPage() {
         >
           <div className="flex items-center gap-4">
             <HelpCircle className="text-muted-foreground" size={20} />
-            <span className="font-semibold text-sm">Help & Support</span>
+            <span className="font-semibold text-sm">{t("helpSupport")}</span>
           </div>
           <ChevronRight className="text-muted-foreground" size={18} />
         </div>
@@ -392,7 +401,7 @@ function SettingsPage() {
         >
           <div className="flex items-center gap-4">
             <Info className="text-muted-foreground" size={20} />
-            <span className="font-semibold text-sm">About</span>
+            <span className="font-semibold text-sm">{t("about")}</span>
           </div>
           <ChevronRight className="text-muted-foreground" size={18} />
         </div>
@@ -403,53 +412,88 @@ function SettingsPage() {
            className="flex w-full cursor-pointer items-center gap-4 rounded-xl border-t border-border p-3.5 pt-2 text-destructive hover:bg-destructive/10"
         >
           <LogOut size={20} />
-          <span className="font-semibold text-sm">Log Out</span>
+          <span className="font-semibold text-sm">{t("logOut")}</span>
         </button>
 
       </div>
 
       {panel === "privacy" && (
-        <Panel title="Privacy" onClose={() => setPanel(null)}>
-          <Toggle label="Private account" hint="Only approved followers can see your posts" on={toggles.privateAccount} onClick={() => flip("privateAccount")} />
-          <Toggle label="Show activity status" hint="Display when you were last active" on={toggles.activityStatus} onClick={() => flip("activityStatus")} />
+        <Panel title={t("privacy")} onClose={() => setPanel(null)}>
+          <Toggle label={t("privateAccount")} hint={t("privateAccountHint")} on={toggles.privateAccount} onClick={() => flip("privateAccount")} />
+          <Toggle label={t("activityStatus")} hint={t("activityStatusHint")} on={toggles.activityStatus} onClick={() => flip("activityStatus")} />
           <Row
-            label="Blocked accounts"
-            hint="Manage people you have blocked"
+            label={t("blockedAccounts")}
+            hint={t("manageBlockedAccounts")}
             onClick={() => setBlockedAccountsOpen(true)}
           />
           <Row
-            label="Hidden Creators"
-            hint="Manage creators you don't recommend"
+            label={t("hiddenCreators")}
+            hint={t("hiddenCreatorsHint")}
             onClick={() => setPanel("hidden-creators")}
           />
           <Row
-            label="Not Interested Posts"
-            hint="Review videos you've hidden from recommendations"
+            label={t("notInterestedPosts")}
+            hint={t("notInterestedPostsHint")}
             onClick={() => setPanel("not-interested-posts")}
           />
           <Row
-            label="Comments & Hidden Words"
-            hint="Filter offensive comments and custom words"
+            label={t("commentsHiddenWords")}
+            hint={t("commentsHiddenWordsHint")}
             onClick={() => setPanel("comments-hidden-words")}
           />
         </Panel>
       )}
 
+      {panel === "app-language" && (
+        <Panel
+          title={t("appLanguage")}
+          onClose={() => setPanel(null)}
+          backLabel={t("backToSettings")}
+        >
+          <p className="px-3 pb-2 text-xs text-muted-foreground">{t("appLanguageHint")}</p>
+          <div role="radiogroup" aria-label={t("appLanguage")}>
+          {([
+            ["en", t("englishDefault")],
+            ["hi", t("hindiLanguage")],
+          ] as const).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              role="radio"
+              aria-checked={language === value}
+              onClick={() => setLanguage(value)}
+              className="flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-sm hover:bg-muted/60"
+            >
+              <span>{label}</span>
+              <span
+                aria-hidden="true"
+                className={`grid h-5 w-5 place-items-center rounded-full border ${
+                  language === value ? "border-primary" : "border-muted-foreground/50"
+                }`}
+              >
+                {language === value ? <span className="h-2.5 w-2.5 rounded-full bg-primary" /> : null}
+              </span>
+            </button>
+          ))}
+          </div>
+        </Panel>
+      )}
+
       {panel === "data-quality" && (
         <Panel
-          title="Data & Media Quality"
+          title={t("dataMediaQuality")}
           onClose={() => setPanel(null)}
-          backLabel="Back to Settings"
+          backLabel={t("backToSettings")}
         >
           <Toggle
-            label="Data Saver"
-            hint="Start supported long videos at 480p on cellular or slow networks. Reels stay unchanged."
+            label={t("dataSaver")}
+            hint={t("dataSaverHint")}
             on={preferences.dataSaver}
             onClick={() => savePreference("dataSaver", !preferences.dataSaver)}
           />
           <Toggle
-            label="Upload at Highest Quality"
-            hint="Keep the original long-video file when it fits the storage limit."
+            label={t("uploadHighestQuality")}
+            hint={t("uploadHighestQualityHint")}
             on={preferences.uploadHighestQuality}
             onClick={() =>
               savePreference("uploadHighestQuality", !preferences.uploadHighestQuality)
@@ -460,44 +504,44 @@ function SettingsPage() {
 
       {panel === "messages-privacy" && (
         <Panel
-          title="Messages & Direct Requests"
+          title={t("messagesDirectRequests")}
           onClose={() => setPanel(null)}
-          backLabel="Back to Settings"
+          backLabel={t("backToSettings")}
         >
           <PreferenceChoice
-            label="Who can message you"
-            hint="Choose who may start a new direct-message conversation."
+            label={t("whoCanMessage")}
+            hint={t("whoCanMessageHint")}
             value={preferences.whoCanMessage}
             options={[
-              { value: "everyone", label: "Everyone" },
-              { value: "following", label: "Only People You Follow" },
+              { value: "everyone", label: t("everyone") },
+              { value: "following", label: t("onlyPeopleYouFollow") },
             ]}
             onChange={(value) =>
               savePreference("whoCanMessage", value as "everyone" | "following")
             }
           />
           <Toggle
-            label="Read Receipts"
-            hint="When off, ordinary message reads are not sent as seen receipts. View Once and after-view messages still record that they were opened."
+            label={t("readReceipts")}
+            hint={t("readReceiptsHint")}
             on={preferences.readReceipts}
             onClick={() => savePreference("readReceipts", !preferences.readReceipts)}
           />
           <p className="px-3 pb-2 text-[11px] leading-relaxed text-muted-foreground">
-            Message-request access is saved on this device; it does not change server-side access rules.
+            {t("messageRequestNote")}
           </p>
         </Panel>
       )}
 
       {panel === "comments-hidden-words" && (
         <Panel
-          title="Comments & Hidden Words"
+          title={t("commentsHiddenWords")}
           onClose={() => setPanel(null)}
-          backLabel="Back to Privacy"
+          backLabel={t("backToPrivacy")}
           onBack={() => setPanel("privacy")}
         >
           <Toggle
-            label="Hide offensive comments"
-            hint="Hide comments containing common English profanity from your view."
+            label={t("hideOffensiveComments")}
+            hint={t("hideOffensiveCommentsHint")}
             on={preferences.hideOffensiveComments}
             onClick={() =>
               savePreference("hideOffensiveComments", !preferences.hideOffensiveComments)
@@ -505,10 +549,10 @@ function SettingsPage() {
           />
           <div className="space-y-2 px-3 py-2">
             <label htmlFor="hidden-word-input" className="block text-sm font-semibold">
-              Custom hidden words
+              {t("customHiddenWords")}
             </label>
             <p className="text-[11px] text-muted-foreground">
-              Matching comments and replies are hidden only from your view.
+              {t("hiddenWordsHint")}
             </p>
             <div className="flex gap-2">
               <input
@@ -523,7 +567,7 @@ function SettingsPage() {
                   }
                 }}
                 maxLength={60}
-                placeholder="Add a word or phrase"
+                placeholder={t("addWordPlaceholder")}
                 className="min-w-0 flex-1 rounded-xl border border-input bg-background px-3 py-2.5 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-ring"
               />
               <button
@@ -533,11 +577,11 @@ function SettingsPage() {
                 disabled={!hiddenWordDraft.trim()}
                 className="rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-50"
               >
-                Add
+                {t("add")}
               </button>
             </div>
             {preferences.hiddenWords.length ? (
-              <div className="flex flex-wrap gap-2 pt-1" aria-label="Hidden words">
+              <div className="flex flex-wrap gap-2 pt-1" aria-label={t("hiddenWordsAria")}>
                 {preferences.hiddenWords.map((word) => (
                   <span
                     key={word.toLowerCase()}
@@ -564,7 +608,7 @@ function SettingsPage() {
                 ))}
               </div>
             ) : (
-              <p className="pt-1 text-xs text-muted-foreground">No custom words added.</p>
+              <p className="pt-1 text-xs text-muted-foreground">{t("noCustomWords")}</p>
             )}
           </div>
         </Panel>
@@ -572,9 +616,9 @@ function SettingsPage() {
 
       {panel === "time-management" && (
         <Panel
-          title="Time Management"
+          title={t("timeManagement")}
           onClose={() => setPanel(null)}
-          backLabel="Back to Settings"
+          backLabel={t("backToSettings")}
         >
           <TimeManagementPanel
             userId={user?.id ?? "guest"}
@@ -598,16 +642,16 @@ function SettingsPage() {
 
       {panel === "hidden-creators" && (
         <Panel
-          title="Hidden Creators"
+          title={t("hiddenCreators")}
           onClose={() => setPanel(null)}
-          backLabel="Back to Privacy"
+          backLabel={t("backToPrivacy")}
           onBack={() => setPanel("privacy")}
         >
           {user ? (
             <HiddenCreatorsManager userId={user.id} />
           ) : (
             <div className="px-3 py-10 text-center text-sm text-muted-foreground">
-              Sign in to manage Hidden Creators.
+              {t("signInToManageCreators")}
             </div>
           )}
         </Panel>
@@ -615,16 +659,16 @@ function SettingsPage() {
 
       {panel === "not-interested-posts" && (
         <Panel
-          title="Not Interested Posts"
+          title={t("notInterestedPosts")}
           onClose={() => setPanel(null)}
-          backLabel="Back to Privacy"
+          backLabel={t("backToPrivacy")}
           onBack={() => setPanel("privacy")}
         >
           {user ? (
             <NotInterestedPostsManager userId={user.id} />
           ) : (
             <div className="px-3 py-10 text-center text-sm text-muted-foreground">
-              Sign in to manage Not Interested Posts.
+              {t("signInToManageNotInterested")}
             </div>
           )}
         </Panel>
@@ -632,20 +676,20 @@ function SettingsPage() {
 
       {blockedAccountsOpen && (
         <Panel
-          title="Blocked Accounts"
+          title={t("blockedAccounts")}
           onClose={() => setBlockedAccountsOpen(false)}
-          backLabel="Back to Privacy"
+          backLabel={t("backToPrivacy")}
         >
           {blockedAccountsLoading ? (
-            <div className="px-3 py-10 text-center text-sm text-muted-foreground">Loading blocked accounts…</div>
+            <div className="px-3 py-10 text-center text-sm text-muted-foreground">{t("blockedAccountsLoading")}</div>
           ) : blockedAccountsError ? (
             <div className="px-3 py-10 text-center text-sm text-muted-foreground">
-              Could not load blocked accounts. Please try again.
+              {t("blockedAccountsLoadError")}
             </div>
           ) : blockedAccounts.length === 0 ? (
             <div className="px-3 py-10 text-center">
-              <div className="text-sm font-semibold text-foreground">No blocked accounts</div>
-              <div className="mt-1 text-xs text-muted-foreground">People you block will appear here.</div>
+              <div className="text-sm font-semibold text-foreground">{t("noBlockedAccounts")}</div>
+              <div className="mt-1 text-xs text-muted-foreground">{t("blockedAccountsEmptyHint")}</div>
             </div>
           ) : (
             <div className="space-y-1">
@@ -691,7 +735,7 @@ function SettingsPage() {
                     }}
                     className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-foreground hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {unblockingId === account.id ? "Unblocking…" : "Unblock"}
+                    {unblockingId === account.id ? t("unblocking") : t("unblock")}
                   </button>
                 </div>
               ))}
@@ -701,38 +745,38 @@ function SettingsPage() {
       )}
 
       {panel === "notifications" && (
-        <Panel title="Notifications" onClose={() => setPanel(null)}>
-          <Toggle label="Likes" on={toggles.likes} onClick={() => flip("likes")} />
-          <Toggle label="Comments" on={toggles.comments} onClick={() => flip("comments")} />
-          <Toggle label="New followers" on={toggles.followers} onClick={() => flip("followers")} />
-          <Toggle label="Messages" on={toggles.messages} onClick={() => flip("messages")} />
+        <Panel title={t("notifications")} onClose={() => setPanel(null)}>
+          <Toggle label={t("likes")} on={toggles.likes} onClick={() => flip("likes")} />
+          <Toggle label={t("comments")} on={toggles.comments} onClick={() => flip("comments")} />
+          <Toggle label={t("newFollowers")} on={toggles.followers} onClick={() => flip("followers")} />
+          <Toggle label={t("messages")} on={toggles.messages} onClick={() => flip("messages")} />
           <Toggle
-            label="Calls"
-            hint="Audio & video call rings and alerts"
+            label={t("calls")}
+            hint={t("callsHint")}
             on={toggles.calls}
             onClick={() => flip("calls")}
           />
-          <Toggle label="Channel & monetization" on={toggles.channel} onClick={() => flip("channel")} />
-          <Toggle label="System alerts" on={toggles.system} onClick={() => flip("system")} />
+          <Toggle label={t("channelMonetization")} on={toggles.channel} onClick={() => flip("channel")} />
+          <Toggle label={t("systemAlerts")} on={toggles.system} onClick={() => flip("system")} />
         </Panel>
       )}
 
       {panel === "help" && (
-        <Panel title="Help & Support" onClose={() => setPanel(null)}>
+        <Panel title={t("helpSupport")} onClose={() => setPanel(null)}>
           <Row
-            label="Help center"
-            hint="Guides and troubleshooting"
+            label={t("helpCenter")}
+            hint={t("helpCenterHint")}
             onClick={() => navigate({ to: "/help-center" })}
           />
-          <Row label="Report a problem" hint="Tell us what went wrong" onClick={() => setReportStep("options")} />
+          <Row label={t("reportProblem")} hint={t("reportProblemHint")} onClick={() => setReportStep("options")} />
           <Row
-            label="Community guidelines"
-            hint="Keep YourWorld safe and positive"
+            label={t("communityGuidelines")}
+            hint={t("communityGuidelinesHint")}
             onClick={() => navigate({ to: "/community-guidelines" })}
           />
           <Row
-            label="Copyright & DMCA Policy"
-            hint="Takedown procedure & Safe Harbor"
+            label={t("copyrightPolicy")}
+            hint={t("copyrightPolicyHint")}
             onClick={() => navigate({ to: "/copyright-policy" })}
           />
           <Row
@@ -830,7 +874,7 @@ function SettingsPage() {
       )}
 
       {panel === "about" && (
-        <Panel title="About" onClose={() => setPanel(null)}>
+        <Panel title={t("about")} onClose={() => setPanel(null)}>
           <Row label="YourWorld" hint="Version 1.0.0" />
           <Row label="Terms of Service" onClick={() => navigate({ to: "/terms" })} />
           <Row label="Privacy Policy" onClick={() => navigate({ to: "/privacy" })} />
@@ -1521,6 +1565,7 @@ function TimeManagementPanel({
   limitMinutes: 30 | 60 | 120 | null;
   onLimitChange: (limit: 30 | 60 | 120 | null) => void;
 }) {
+  const { t } = useAppLanguage();
   const [usageSeconds, setUsageSeconds] = useState(0);
 
   useEffect(() => {
@@ -1532,7 +1577,7 @@ function TimeManagementPanel({
     { value: 30, label: "30m" },
     { value: 60, label: "1h" },
     { value: 120, label: "2h" },
-    { value: null, label: "Off" },
+    { value: null, label: t("off") },
   ];
   const progress =
     limitMinutes === null
@@ -1541,19 +1586,19 @@ function TimeManagementPanel({
 
   return (
     <div className="space-y-4 px-3 py-2">
-      <section aria-label="Daily usage" className="rounded-xl border border-border bg-background/60 p-3">
+      <section aria-label={t("dailyUsage")} className="rounded-xl border border-border bg-background/60 p-3">
         <div className="flex items-baseline justify-between gap-3">
-          <span className="text-sm font-semibold">Daily usage</span>
+          <span className="text-sm font-semibold">{t("dailyUsage")}</span>
           <span data-testid="text-daily-usage" className="text-sm font-bold text-primary">
             {formatDailyUsage(usageSeconds)}
           </span>
         </div>
         <p className="mt-1 text-[11px] text-muted-foreground">
-          Time YourWorld is open and visible today.
+          {t("usageTodayHint")}
         </p>
         <div
           role="progressbar"
-          aria-label="Daily usage against reminder limit"
+          aria-label={t("usageAgainstLimit")}
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={Math.round(progress)}
@@ -1566,13 +1611,20 @@ function TimeManagementPanel({
         </div>
         <p className="mt-2 text-[11px] text-muted-foreground">
           {limitMinutes === null
-            ? "Daily limit reminder is off."
-            : `Reminder at ${limitMinutes === 60 ? "1 hour" : limitMinutes === 120 ? "2 hours" : "30 minutes"}.`}
+            ? t("dailyLimitReminderOff")
+            : `${t("reminderAt")} ${
+                limitMinutes === 60
+                  ? t("oneHour")
+                  : limitMinutes === 120
+                    ? t("twoHours")
+                    : t("thirtyMinutes")
+              }.`
+          }
         </p>
       </section>
 
-      <section aria-label="Daily limit reminder">
-        <div className="mb-2 text-sm font-semibold">Daily limit reminder</div>
+      <section aria-label={t("dailyLimitReminder")}>
+        <div className="mb-2 text-sm font-semibold">{t("dailyLimitReminder")}</div>
         <div className="grid grid-cols-4 gap-2">
           {options.map((option) => (
             <button
