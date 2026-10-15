@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { mediaApiUrl } from "@/lib/media-api-url";
 import type { AppLanguage } from "@/lib/app-language";
+import { readCommentTranslationStream } from "@/lib/comment-translation-stream";
 
 export type CommentTranslation = {
   translatedText: string;
@@ -12,6 +13,7 @@ const translationCache = new Map<string, CommentTranslation>();
 export async function translateComment(
   text: string,
   targetLanguage: AppLanguage,
+  onPartial?: (translatedText: string) => void,
 ): Promise<CommentTranslation> {
   const cacheKey = `${targetLanguage}\u0000${text}`;
   const cached = translationCache.get(cacheKey);
@@ -31,8 +33,30 @@ export async function translateComment(
     },
     body: JSON.stringify({ text, targetLanguage }),
   });
+  if (!response.ok) {
+    const errorResult: unknown = await response.json().catch(() => null);
+    const errorMessage =
+      errorResult &&
+      typeof errorResult === "object" &&
+      "error" in errorResult &&
+      typeof errorResult.error === "string"
+        ? errorResult.error
+        : "The translation service could not complete the request.";
+    throw new Error(errorMessage);
+  }
+
+  if (response.headers.get("content-type")?.includes("text/event-stream")) {
+    const translation = await readCommentTranslationStream(response, onPartial);
+    translationCache.set(cacheKey, translation);
+    if (translationCache.size > 300) {
+      const oldestKey = translationCache.keys().next().value;
+      if (oldestKey) translationCache.delete(oldestKey);
+    }
+    return translation;
+  }
+
   const result: unknown = await response.json().catch(() => null);
-  if (!response.ok || !result || typeof result !== "object") {
+  if (!result || typeof result !== "object") {
     throw new Error("The translation service could not complete the request.");
   }
 

@@ -172,7 +172,30 @@ export function CommentsSheet({
       },
     }));
     try {
-      const result = await translateComment(comment.body, targetLanguage);
+      const result = await translateComment(
+        comment.body,
+        targetLanguage,
+        (translatedText) => {
+          setCommentTranslations((items) => {
+            const currentTranslation = items[comment.id];
+            if (
+              !currentTranslation ||
+              currentTranslation.language !== targetLanguage ||
+              !currentTranslation.loading
+            ) {
+              return items;
+            }
+            return {
+              ...items,
+              [comment.id]: {
+                ...currentTranslation,
+                translatedText,
+                showing: true,
+              },
+            };
+          });
+        },
+      );
       setCommentTranslations((items) => ({
         ...items,
         [comment.id]: {
