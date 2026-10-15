@@ -69,6 +69,7 @@ import Hls from "hls.js";
 import {
   bindHlsNetworkAwareLevelCap,
   createVideoHlsConfig,
+  selectHlsLevelAtOrBelow,
 } from "@/lib/video-hls-config";
 import { toast } from "sonner";
 
@@ -93,16 +94,7 @@ function qualityLabel(quality: QualityId, activeHeight?: number | null) {
 function levelForQuality(levels: Hls["levels"], quality: Exclude<QualityId, "auto">) {
   const target = QUALITY_OPTIONS.find((option) => option.id === quality)?.shortSide;
   if (!target || levels.length === 0) return -1;
-  const candidates = levels
-    .map((level, index) => ({ index, height: Number(level.height) }))
-    .filter((level) => Number.isFinite(level.height) && level.height > 0);
-  if (candidates.length === 0) return -1;
-  return (
-    candidates
-      .filter((level) => level.height <= target)
-      .sort((a, b) => b.height - a.height)[0]?.index ??
-    -1
-  );
+  return selectHlsLevelAtOrBelow(levels, target);
 }
 
 type GestureFeedback = {
@@ -1340,12 +1332,15 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       if (nextQuality === "auto") {
         hls.currentLevel = -1;
       } else {
-        const levels = hlsLevels.length > 0 ? hlsLevels : hls.levels;
-        const nextLevel = levelForQuality(levels, nextQuality);
+        // hls.levels is the source of truth at tap time; React's snapshot can
+        // lag behind manifest updates or a portrait/landscape video switch.
+        const nextLevel = levelForQuality(hls.levels, nextQuality);
         if (nextLevel < 0) {
           toast.error(`${nextQuality} quality is not available for this video.`);
           return;
         }
+        // currentLevel forces HLS.js to flush the old rendition and request
+        // the chosen level now; nextLevel would wait for the current buffer.
         hls.currentLevel = nextLevel;
       }
       setQuality(nextQuality);

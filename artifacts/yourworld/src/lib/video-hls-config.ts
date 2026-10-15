@@ -8,6 +8,46 @@ type NetworkConnection = EventTarget & {
   saveData?: boolean;
 };
 
+export type HlsQualityLevel = {
+  width?: number | null;
+  height?: number | null;
+  bitrate?: number | null;
+};
+
+export function hlsLevelResolution(level: HlsQualityLevel) {
+  const width = Number(level.width);
+  const height = Number(level.height);
+  const validWidth = Number.isFinite(width) && width > 0;
+  const validHeight = Number.isFinite(height) && height > 0;
+  if (validWidth && validHeight) return Math.min(width, height);
+  if (validHeight) return height;
+  if (validWidth) return width;
+  return 0;
+}
+
+export function selectHlsLevelAtOrBelow(
+  levels: readonly HlsQualityLevel[],
+  resolutionCap: number,
+) {
+  return levels
+    .map((level, index) => ({
+      index,
+      resolution: hlsLevelResolution(level),
+      bitrate: Number(level.bitrate) || 0,
+    }))
+    .filter(
+      (level) =>
+        Number.isFinite(level.resolution) &&
+        level.resolution > 0 &&
+        level.resolution <= resolutionCap,
+    )
+    .sort(
+      (a, b) =>
+        b.resolution - a.resolution ||
+        b.bitrate - a.bitrate,
+    )[0]?.index ?? -1;
+}
+
 function getNetworkConnection() {
   if (typeof navigator === "undefined") return null;
   return (navigator as Navigator & { connection?: NetworkConnection }).connection ?? null;
@@ -47,20 +87,30 @@ export function getHlsNetworkHeightCap(measuredBandwidthBps?: number | null) {
 }
 
 export function selectHlsLevelIndex(
-  levels: readonly { height: number }[],
+  levels: readonly HlsQualityLevel[],
   heightCap: number,
 ) {
   const available = levels
-    .map((level, index) => ({ index, height: Number(level.height) }))
-    .filter((level) => Number.isFinite(level.height) && level.height > 0);
-  const underCap = available.filter((level) => level.height <= heightCap);
+    .map((level, index) => ({
+      index,
+      resolution: hlsLevelResolution(level),
+      bitrate: Number(level.bitrate) || 0,
+    }))
+    .filter((level) => Number.isFinite(level.resolution) && level.resolution > 0);
+  const underCap = available.filter((level) => level.resolution <= heightCap);
   const candidates = underCap.length ? underCap : available;
   if (!candidates.length) return -1;
   return candidates.reduce((best, candidate) => {
     if (underCap.length) {
-      return candidate.height > best.height ? candidate : best;
+      if (candidate.resolution !== best.resolution) {
+        return candidate.resolution > best.resolution ? candidate : best;
+      }
+      return candidate.bitrate > best.bitrate ? candidate : best;
     }
-    return candidate.height < best.height ? candidate : best;
+    if (candidate.resolution !== best.resolution) {
+      return candidate.resolution < best.resolution ? candidate : best;
+    }
+    return candidate.bitrate < best.bitrate ? candidate : best;
   }).index;
 }
 

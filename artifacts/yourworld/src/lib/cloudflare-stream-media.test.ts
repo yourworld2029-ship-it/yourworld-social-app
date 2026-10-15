@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { cloudflareStreamPosterUrl, cloudflareStreamUidFromUrl } from "./cloudflare-stream-media";
-import { createVideoHlsConfig } from "./video-hls-config";
+import {
+  createVideoHlsConfig,
+  hlsLevelResolution,
+  selectHlsLevelAtOrBelow,
+  selectHlsLevelIndex,
+} from "./video-hls-config";
 
 test("HLS playback starts on automatic quality with bounded 3/6-second buffers", () => {
   const config = createVideoHlsConfig();
@@ -9,6 +14,38 @@ test("HLS playback starts on automatic quality with bounded 3/6-second buffers",
   assert.equal(config.startLevel, -1);
   assert.equal(config.maxBufferLength, 3);
   assert.equal(config.maxMaxBufferLength, 6);
+});
+
+test("HLS quality resolution uses the short side for landscape and portrait levels", () => {
+  assert.equal(hlsLevelResolution({ width: 1920, height: 1080 }), 1080);
+  assert.equal(hlsLevelResolution({ width: 1080, height: 1920 }), 1080);
+  assert.equal(hlsLevelResolution({ width: 720, height: 1280 }), 720);
+});
+
+test("manual quality selection chooses the highest matching portrait or landscape level", () => {
+  const levels = [
+    { width: 640, height: 360, bitrate: 500_000 },
+    { width: 1280, height: 720, bitrate: 1_400_000 },
+    { width: 720, height: 1280, bitrate: 1_200_000 },
+    { width: 1920, height: 1080, bitrate: 3_000_000 },
+    { width: 1080, height: 1920, bitrate: 2_800_000 },
+  ];
+
+  assert.equal(selectHlsLevelAtOrBelow(levels, 360), 0);
+  assert.equal(selectHlsLevelAtOrBelow(levels, 720), 1);
+  assert.equal(selectHlsLevelAtOrBelow(levels, 1080), 3);
+  assert.equal(selectHlsLevelAtOrBelow(levels, 300), -1);
+});
+
+test("automatic HLS caps use portrait short-side resolution", () => {
+  const portraitLevels = [
+    { width: 360, height: 640, bitrate: 400_000 },
+    { width: 720, height: 1280, bitrate: 1_200_000 },
+    { width: 1080, height: 1920, bitrate: 2_800_000 },
+  ];
+
+  assert.equal(selectHlsLevelIndex(portraitLevels, 720), 1);
+  assert.equal(selectHlsLevelIndex(portraitLevels, 300), 0);
 });
 
 test("Cloudflare Stream poster uses the first-second thumbnail", () => {
