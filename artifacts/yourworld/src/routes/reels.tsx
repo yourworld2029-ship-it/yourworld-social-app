@@ -2215,17 +2215,37 @@ function ReelItem({
             <AlertDialogDescription>
               Choose the reason that best describes this Reel.
             </AlertDialogDescription>
-            <select
+            <div
+              role="radiogroup"
               aria-label="Report reason"
-              value={reportReason}
-              onChange={(event) => setReportReason(event.target.value)}
-              className="mt-3 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+              className="mt-3 grid w-full gap-2"
             >
-              <option>Inappropriate content / Nudity</option>
-              <option>Spam or Scam</option>
-              <option>Hate speech or Harassment</option>
-              <option>Intellectual Property / Copyright</option>
-            </select>
+              {[
+                "Inappropriate content / Nudity",
+                "Spam or Scam",
+                "Hate speech or Harassment",
+                "Intellectual Property / Copyright",
+              ].map((reason) => (
+                <label
+                  key={reason}
+                  className={`flex min-h-11 cursor-pointer items-center gap-3 rounded-md border px-3 py-2 text-left text-sm text-foreground transition-colors ${
+                    reportReason === reason
+                      ? "border-violet-400 bg-violet-500/15"
+                      : "border-border bg-background/60"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="reel-report-reason"
+                    value={reason}
+                    checked={reportReason === reason}
+                    onChange={() => setReportReason(reason)}
+                    className="h-4 w-4 shrink-0 accent-violet-500"
+                  />
+                  <span>{reason}</span>
+                </label>
+              ))}
+            </div>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={reporting}>Cancel</AlertDialogCancel>
