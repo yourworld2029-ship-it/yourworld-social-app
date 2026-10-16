@@ -82,6 +82,43 @@ function formatViewerCount(viewerCount: number) {
   );
 }
 
+export async function supportsLiveCameraTorch(track: MediaStreamTrack | null) {
+  if (!track) return false;
+
+  try {
+    const capabilities = track.getCapabilities?.() as
+      | (MediaTrackCapabilities & { torch?: boolean })
+      | undefined;
+    if (capabilities?.torch === true) return true;
+  } catch {
+    // Some Android WebViews expose torch support only through ImageCapture.
+  }
+
+  try {
+    type PhotoCapabilities = {
+      torch?: boolean;
+      fillLightMode?: string[];
+    };
+    type ImageCaptureLike = {
+      getPhotoCapabilities?: () => Promise<PhotoCapabilities>;
+    };
+    type ImageCaptureConstructor = new (track: MediaStreamTrack) => ImageCaptureLike;
+    const ImageCaptureApi = (
+      globalThis as unknown as { ImageCapture?: ImageCaptureConstructor }
+    ).ImageCapture;
+    if (!ImageCaptureApi) return false;
+    const photoCapabilities = await new ImageCaptureApi(track).getPhotoCapabilities?.();
+    return (
+      photoCapabilities?.torch === true ||
+      photoCapabilities?.fillLightMode?.some(
+        (mode) => mode === "torch" || mode === "flash",
+      ) === true
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function LiveStreamHud({
   mode,
   stream,
@@ -116,6 +153,7 @@ export function LiveStreamHud({
   const microphoneMutedRef = useRef(false);
   const [flashAvailable, setFlashAvailable] = useState(false);
   const [flashOn, setFlashOn] = useState(false);
+  const [frontScreenFlashOn, setFrontScreenFlashOn] = useState(false);
   const flashOnRef = useRef(false);
   const flashCommandRef = useRef(0);
   const [beautyPanelOpen, setBeautyPanelOpen] = useState(false);
@@ -196,9 +234,17 @@ export function LiveStreamHud({
 
   const toggleFlash = async () => {
     const track = cameraTrack;
-    if (!track || isFrontCamera || !flashAvailable) {
+    if (!track) {
+      showActionToast("Camera flash is unavailable");
+      return;
+    }
+    if (isFrontCamera) {
+      setFrontScreenFlashOn((enabled) => !enabled);
+      return;
+    }
+    if (!flashAvailable) {
       showActionToast(
-        isFrontCamera ? "Switch to the rear camera to use flash" : "Flash is unavailable",
+        "Flash is unavailable on this camera",
       );
       return;
     }
@@ -246,16 +292,19 @@ export function LiveStreamHud({
     flashCommandRef.current += 1;
     flashOnRef.current = false;
     setFlashOn(false);
+    setFrontScreenFlashOn(false);
     if (!cameraTrack || isFrontCamera) {
       setFlashAvailable(false);
       return;
     }
-    const capabilities = cameraTrack.getCapabilities?.() as
-      | (MediaTrackCapabilities & { torch?: boolean })
-      | undefined;
-    setFlashAvailable(capabilities?.torch === true);
+    let cancelled = false;
+    setFlashAvailable(false);
+    void supportsLiveCameraTorch(cameraTrack).then((available) => {
+      if (!cancelled) setFlashAvailable(available);
+    });
 
     return () => {
+      cancelled = true;
       flashCommandRef.current += 1;
       if (flashOnRef.current) {
         void cameraTrack
@@ -406,7 +455,15 @@ export function LiveStreamHud({
 
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_bottom,rgba(8,5,9,0.72),transparent_26%,transparent_52%,rgba(8,5,9,0.88))]" />
 
-      <header className="absolute inset-x-0 top-0 flex items-start justify-between gap-2 px-3 pb-4 pt-[calc(env(safe-area-inset-top,0px)+0.8rem)] sm:gap-4 sm:px-6">
+      {isBroadcaster && isFrontCamera && frontScreenFlashOn && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 z-10 bg-white"
+          data-testid="overlay-live-front-screen-flash"
+        />
+      )}
+
+      <header className="absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-2 px-3 pb-4 pt-[calc(max(env(safe-area-inset-top,0px),2.25rem)+0.8rem)] sm:gap-4 sm:px-6">
         <div className="min-w-0">
           <div className="flex flex-nowrap items-center gap-1.5 sm:gap-2">
             <span
@@ -499,7 +556,7 @@ export function LiveStreamHud({
       </header>
 
       <aside
-        className="absolute right-3 top-[calc(env(safe-area-inset-top,0px)+7.1rem)] z-30 flex flex-col items-center gap-2.5 sm:right-6"
+        className="absolute right-3 top-[calc(max(env(safe-area-inset-top,0px),2.25rem)+7.1rem)] z-30 flex flex-col items-center gap-2.5 sm:right-6"
         aria-label="Live options"
       >
         {isBroadcaster && (
@@ -632,31 +689,45 @@ export function LiveStreamHud({
               <button
                 type="button"
                 onClick={() => void toggleFlash()}
-                aria-label={flashOn ? "Turn flash off" : "Turn flash on"}
-                aria-pressed={flashOn}
+                aria-label={
+                  isFrontCamera
+                    ? frontScreenFlashOn
+                      ? "Turn screen flash off"
+                      : "Turn screen flash on"
+                    : flashOn
+                      ? "Turn flash off"
+                      : "Turn flash on"
+                }
+                aria-pressed={isFrontCamera ? frontScreenFlashOn : flashOn}
                 title={
                   isFrontCamera
-                    ? "Switch to the rear camera to use flash"
+                    ? "Front camera screen flash"
                     : flashAvailable
                       ? undefined
                       : "Flash is not available on this camera"
                 }
-                disabled={!cameraTrack || isFrontCamera || !flashAvailable}
+                disabled={!cameraTrack || (!isFrontCamera && !flashAvailable)}
                 data-testid="button-live-flash"
                 className={`inline-flex h-11 w-11 items-center justify-center rounded-full border shadow-lg backdrop-blur-xl transition-transform active:scale-95 disabled:cursor-not-allowed disabled:opacity-45 ${
-                  flashOn
+                  (isFrontCamera ? frontScreenFlashOn : flashOn)
                     ? "border-amber-200/50 bg-amber-400/80 text-white"
                     : "border-white/20 bg-black/50 text-white hover:bg-black/70"
                 }`}
               >
-                {flashOn ? (
+                {(isFrontCamera ? frontScreenFlashOn : flashOn) ? (
                   <Flashlight className="h-[18px] w-[18px]" aria-hidden="true" />
                 ) : (
                   <FlashlightOff className="h-[18px] w-[18px]" aria-hidden="true" />
                 )}
               </button>
               <span className="text-[9px] font-semibold text-white/90">
-                {flashOn ? "Flash on" : "Flash"}
+                {isFrontCamera
+                  ? frontScreenFlashOn
+                    ? "Screen flash on"
+                    : "Screen flash"
+                  : flashOn
+                    ? "Flash on"
+                    : "Flash"}
               </span>
             </div>
           </>

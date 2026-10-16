@@ -8,6 +8,7 @@ import {
 } from "../../lib/live-video-effects";
 import {
   LiveStreamHud,
+  supportsLiveCameraTorch,
   type LiveStreamHudProps,
 } from "./LiveStreamHud";
 
@@ -71,6 +72,53 @@ test("Broadcaster live HUD renders camera, mute, flash, beauty, comment, send, a
     assert.match(markup, new RegExp(`data-testid="${testId}"`));
   }
   assert.doesNotMatch(markup, /button-live-more/);
+  assert.match(markup, /max\(env\(safe-area-inset-top,0px\),2\.25rem\)/);
+});
+
+test("Live torch detection accepts Android ImageCapture capability reports", async () => {
+  type ImageCaptureStub = new (track: MediaStreamTrack) => {
+    getPhotoCapabilities: () => Promise<{ torch?: boolean }>;
+  };
+  const runtime = globalThis as unknown as Record<string, unknown>;
+  const originalImageCapture = runtime.ImageCapture;
+  Object.defineProperty(globalThis, "ImageCapture", {
+    configurable: true,
+    writable: true,
+    value: class {
+    constructor(_track: MediaStreamTrack) {}
+    getPhotoCapabilities = async () => ({ torch: true });
+    } satisfies ImageCaptureStub,
+  });
+  try {
+    const track = {
+      getCapabilities: () => ({ torch: false }),
+    } as unknown as MediaStreamTrack;
+    assert.equal(await supportsLiveCameraTorch(track), true);
+  } finally {
+    if (originalImageCapture) {
+      Object.defineProperty(globalThis, "ImageCapture", {
+        configurable: true,
+        writable: true,
+        value: originalImageCapture,
+      });
+    } else {
+      delete runtime.ImageCapture;
+    }
+  }
+});
+
+test("Front camera keeps flash available as a screen-flash fallback", () => {
+  const props = {
+    ...makeProps("broadcaster"),
+    cameraTrack: { getCapabilities: () => ({}) } as unknown as MediaStreamTrack,
+    isFrontCamera: true,
+  };
+  const markup = renderToStaticMarkup(createElement(LiveStreamHud, props));
+  assert.match(markup, /aria-label="Turn screen flash on"/);
+  assert.match(markup, /title="Front camera screen flash"/);
+  const flashButton = markup.match(/<button[^>]*aria-label="Turn screen flash on"[^>]*>/)?.[0];
+  assert.ok(flashButton);
+  assert.doesNotMatch(flashButton, /\sdisabled(?:=|\s|>)/);
 });
 
 test("Viewers get share options without broadcaster-only beauty or camera controls", () => {
