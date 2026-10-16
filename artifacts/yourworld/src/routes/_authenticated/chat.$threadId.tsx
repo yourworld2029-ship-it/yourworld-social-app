@@ -148,7 +148,7 @@ type MessageTranslationState = {
 
 const pendingChatForwards = new Map<string, ForwardPayload>();
 
-function readLikedMessageIds(storageKey: string | null): string[] {
+function readHiddenMessageIds(storageKey: string | null): string[] {
   if (!storageKey) return [];
   try {
     const value: unknown = JSON.parse(window.localStorage.getItem(storageKey) ?? "[]");
@@ -159,6 +159,8 @@ function readLikedMessageIds(storageKey: string | null): string[] {
     return [];
   }
 }
+
+type SharedMessageReaction = { messageId: string; userId: string };
 
 type ChatBubbleThemeId = "sunset-rose" | "ocean-breeze" | "midnight-amethyst";
 type ChatBubbleThemeState = {
@@ -988,7 +990,6 @@ function NativeChatThreadPage() {
     currentUserId,
     send: sendToDb,
     conversationId,
-    remove: removeFromDb,
     clearForEveryone,
     markRead,
     markThreadRead,
@@ -1484,15 +1485,16 @@ function NativeChatThreadPage() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [actionSheetId, setActionSheetId] = useState<string | null>(null);
-  const reactionStorageKey = currentUserId
-    ? `yourworld:chat-message-likes:${currentUserId}:${threadId}`
+  const hiddenMessageStorageKey = currentUserId
+    ? `yourworld:chat-hidden-message-ids:${currentUserId}:${threadId}`
     : null;
-  const [messageLikeState, setMessageLikeState] = useState<{
-    storageKey: string | null;
-    ids: string[];
-  }>({ storageKey: null, ids: [] });
-  const likedMessageIds =
-    messageLikeState.storageKey === reactionStorageKey ? messageLikeState.ids : [];
+  const [messageReactions, setMessageReactions] = useState<{
+    conversationId: string | null;
+    rows: SharedMessageReaction[];
+  }>({ conversationId: null, rows: [] });
+  const likedMessageIds = messageReactions.conversationId === conversationId
+    ? [...new Set(messageReactions.rows.map((row) => row.messageId))]
+    : [];
   const [heartPopMessageId, setHeartPopMessageId] = useState<string | null>(null);
   const heartPopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [messageTranslations, setMessageTranslations] = useState<
@@ -1518,18 +1520,72 @@ function NativeChatThreadPage() {
   const messageInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const loadSavedLikes = () =>
-      setMessageLikeState({
-        storageKey: reactionStorageKey,
-        ids: readLikedMessageIds(reactionStorageKey),
+    setHiddenIds(readHiddenMessageIds(hiddenMessageStorageKey));
+    if (!currentUserId || !conversationId) return;
+    let active = true;
+    let warned = false;
+    const loadHiddenMessages = async () => {
+      const { data, error } = await supabase
+        .from("chat_message_hides" as never)
+        .select("message_id" as never)
+        .eq("conversation_id" as never, conversationId as never)
+        .eq("user_id" as never, currentUserId as never);
+      if (!active) return;
+      if (error) {
+        if (!warned) console.warn("[chat] could not load this user's hidden messages", error);
+        warned = true;
+        return;
+      }
+      const persistedIds = ((data ?? []) as unknown as Array<{ message_id: string }>)
+        .map((row) => row.message_id)
+        .filter(Boolean);
+      setHiddenIds((previous) => {
+        const merged = [...new Set([...previous, ...persistedIds])];
+        try {
+          if (hiddenMessageStorageKey) {
+            window.localStorage.setItem(hiddenMessageStorageKey, JSON.stringify(merged));
+          }
+        } catch { /* DB state remains authoritative when device storage is unavailable. */ }
+        return merged;
       });
-    loadSavedLikes();
-    const syncSavedLikes = (event: StorageEvent) => {
-      if (event.key === reactionStorageKey) loadSavedLikes();
     };
-    window.addEventListener("storage", syncSavedLikes);
-    return () => window.removeEventListener("storage", syncSavedLikes);
-  }, [reactionStorageKey]);
+    void loadHiddenMessages();
+    return () => {
+      active = false;
+    };
+  }, [conversationId, currentUserId, hiddenMessageStorageKey]);
+
+  useEffect(() => {
+    if (!currentUserId || !conversationId) {
+      setMessageReactions({ conversationId: null, rows: [] });
+      return;
+    }
+    let active = true;
+    let warned = false;
+    const loadReactions = async () => {
+      const { data, error } = await supabase
+        .from("chat_message_reactions" as never)
+        .select("message_id,user_id" as never)
+        .eq("conversation_id" as never, conversationId as never);
+      if (!active) return;
+      if (error) {
+        if (!warned) console.warn("[chat] could not load shared message reactions", error);
+        warned = true;
+        return;
+      }
+      warned = false;
+      const rows = ((data ?? []) as unknown as Array<{ message_id: string; user_id: string }>)
+        .filter((row) => row.message_id && row.user_id)
+        .map((row) => ({ messageId: row.message_id, userId: row.user_id }));
+      setMessageReactions({ conversationId, rows });
+    };
+    void loadReactions();
+    const timer = window.setInterval(() => void loadReactions(), 2500);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [conversationId, currentUserId]);
 
   useEffect(
     () => () => {
@@ -1910,20 +1966,41 @@ function NativeChatThreadPage() {
     longPressRef.current = setTimeout(() => setActionSheetId(id), 450);
   };
   const toggleLikeReaction = (id: string) => {
-    if (!reactionStorageKey) return;
-    const currentIds =
-      messageLikeState.storageKey === reactionStorageKey
-        ? messageLikeState.ids
-        : readLikedMessageIds(reactionStorageKey);
-    const nextIds = currentIds.includes(id)
-      ? currentIds.filter((messageId) => messageId !== id)
-      : [...currentIds, id];
-    setMessageLikeState({ storageKey: reactionStorageKey, ids: nextIds });
-    try {
-      window.localStorage.setItem(reactionStorageKey, JSON.stringify(nextIds));
-    } catch (cause) {
-      console.warn("[chat-reaction] could not save this device's reaction state", cause);
-      toast.error("Reaction changed, but couldn't be saved on this device.");
+    if (!currentUserId || !conversationId) return;
+    const currentRows = messageReactions.conversationId === conversationId
+      ? messageReactions.rows
+      : [];
+    const alreadyLikedByMe = currentRows.some(
+      (row) => row.messageId === id && row.userId === currentUserId,
+    );
+    const nextRows = alreadyLikedByMe
+      ? currentRows.filter((row) => !(row.messageId === id && row.userId === currentUserId))
+      : [...currentRows, { messageId: id, userId: currentUserId }];
+    setMessageReactions({ conversationId, rows: nextRows });
+    if (!id.startsWith("local-")) {
+      void (async () => {
+        const result = alreadyLikedByMe
+          ? await supabase
+              .from("chat_message_reactions" as never)
+              .delete()
+              .eq("message_id" as never, id as never)
+              .eq("user_id" as never, currentUserId as never)
+          : await supabase
+              .from("chat_message_reactions" as never)
+              .upsert(
+                {
+                  conversation_id: conversationId,
+                  message_id: id,
+                  user_id: currentUserId,
+                } as never,
+                { onConflict: "message_id,user_id", ignoreDuplicates: true },
+              );
+        if (result.error) {
+          setMessageReactions({ conversationId, rows: currentRows });
+          toast.error("Couldn't sync this reaction. Please try again.");
+          console.warn("[chat-reaction] shared reaction write failed", result.error);
+        }
+      })();
     }
     if (heartPopTimerRef.current) clearTimeout(heartPopTimerRef.current);
     setHeartPopMessageId(id);
@@ -2141,25 +2218,51 @@ function NativeChatThreadPage() {
       });
   };
   const deleteIds = async (ids: string[]) => {
-    const localIds = ids.filter((id) => id.startsWith("local-"));
-    const persistedIds = ids.filter((id) =>
-      dbMessages.some((message) => message.id === id && message.sender_id === currentUserId),
-    );
-    const allowedIds = [...new Set([...localIds, ...persistedIds])];
-    if (allowedIds.length !== ids.length) {
-      toast.message("You can only delete messages you sent.");
-    }
+    const visibleIds = new Set(messages.map((message) => message.id));
+    const allowedIds = [...new Set(ids)].filter((id) => visibleIds.has(id));
     if (!allowedIds.length) return;
+    const persistedIds = allowedIds.filter((id) => dbMessages.some((message) => message.id === id));
 
-    setLocalMessages((prev) => prev.filter((m) => !allowedIds.includes(m.id)));
     setHiddenIds((prev) => [...new Set([...prev, ...allowedIds])]);
+    try {
+      if (hiddenMessageStorageKey) {
+        const nextHiddenIds = [...new Set([
+          ...readHiddenMessageIds(hiddenMessageStorageKey),
+          ...allowedIds,
+        ])];
+        window.localStorage.setItem(hiddenMessageStorageKey, JSON.stringify(nextHiddenIds));
+      }
+    } catch {
+      // The database hide record below remains the durable source of truth.
+    }
     setSelectedIds([]);
     if (!persistedIds.length) return;
-
-    const result = await removeFromDb(persistedIds);
-    if (result.error) {
-      setHiddenIds((prev) => prev.filter((id) => !persistedIds.includes(id)));
-      toast.error(`Message deletion failed: ${result.error}`);
+    if (!currentUserId || !conversationId) {
+      setHiddenIds((prev) => prev.filter((id) => !allowedIds.includes(id)));
+      toast.error("Chat is still syncing. Try deleting the message again.");
+      return;
+    }
+    const { error } = await supabase
+      .from("chat_message_hides" as never)
+      .upsert(
+        persistedIds.map((messageId) => ({
+          conversation_id: conversationId,
+          message_id: messageId,
+          user_id: currentUserId,
+        })) as never,
+        { onConflict: "message_id,user_id", ignoreDuplicates: true },
+      );
+    if (error) {
+      setHiddenIds((prev) => prev.filter((id) => !allowedIds.includes(id)));
+      try {
+        if (hiddenMessageStorageKey) {
+          const revertedIds = readHiddenMessageIds(hiddenMessageStorageKey)
+            .filter((id) => !allowedIds.includes(id));
+          window.localStorage.setItem(hiddenMessageStorageKey, JSON.stringify(revertedIds));
+        }
+      } catch { /* Best-effort cache rollback. */ }
+      toast.error("Message couldn't be hidden from this chat. Please try again.");
+      console.warn("[chat] per-user message hide failed", error);
     }
   };
   const confirmClearForEveryone = async () => {
@@ -3657,14 +3760,12 @@ function NativeChatThreadPage() {
         <div className="fixed inset-0 z-[60] flex items-end bg-black/60 backdrop-blur-sm" onClick={() => setActionSheetId(null)}>
           <div className="w-full rounded-t-3xl border-t border-zinc-800 bg-zinc-900 p-3 pb-6" onClick={(e) => e.stopPropagation()}>
             <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-zinc-700" />
-            {messages.find((message) => message.id === actionSheetId)?.sender === "me" && (
-              <button
-                onClick={() => { deleteIds([actionSheetId]); setActionSheetId(null); }}
-                className="w-full flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold text-red-400 hover:bg-red-950/40"
-              >
-                <Trash2 size={18} /> Unsend
-              </button>
-            )}
+            <button
+              onClick={() => { deleteIds([actionSheetId]); setActionSheetId(null); }}
+              className="w-full flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold text-red-400 hover:bg-red-950/40"
+            >
+              <Trash2 size={18} /> Delete for me
+            </button>
             <button
               onClick={() => { setSelectMode(true); setSelectedIds([actionSheetId]); setActionSheetId(null); }}
               className="w-full flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold text-zinc-200 hover:bg-zinc-800"
