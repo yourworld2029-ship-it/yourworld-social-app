@@ -23,12 +23,12 @@ test("Reel watermark text uses the creator handle exactly once", () => {
   assert.equal(reelWatermarkText(""), "YourWorld | @user");
 });
 
-test("Reel watermark alternates from top-left to bottom-right halfway through", () => {
-  assert.equal(reelWatermarkCornerForTime(0, 16), "top-left");
-  assert.equal(reelWatermarkCornerForTime(7.9, 16), "top-left");
-  assert.equal(reelWatermarkCornerForTime(8, 16), "bottom-right");
-  assert.equal(reelWatermarkCornerForTime(15.9, 16), "bottom-right");
-  assert.equal(reelWatermarkCornerForTime(4, 0), "top-left");
+test("Reel watermark stays at a consistent Instagram-style lower-left position", () => {
+  assert.equal(reelWatermarkCornerForTime(0, 16), "bottom-left");
+  assert.equal(reelWatermarkCornerForTime(7.9, 16), "bottom-left");
+  assert.equal(reelWatermarkCornerForTime(8, 16), "bottom-left");
+  assert.equal(reelWatermarkCornerForTime(15.9, 16), "bottom-left");
+  assert.equal(reelWatermarkCornerForTime(4, 0), "bottom-left");
 });
 
 test("Reel export rejects a short stream instead of saving a truncated video", () => {

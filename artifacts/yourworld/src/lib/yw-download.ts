@@ -944,10 +944,10 @@ export function reelWatermarkText(creatorUsername: string) {
 export function reelWatermarkCornerForTime(
   currentTime: number,
   duration: number,
-): "top-left" | "bottom-right" {
-  return Number.isFinite(duration) && duration > 0 && currentTime >= duration / 2
-    ? "bottom-right"
-    : "top-left";
+): "bottom-left" {
+  void currentTime;
+  void duration;
+  return "bottom-left";
 }
 
 async function loadReelWatermarkIcon() {
@@ -1085,8 +1085,8 @@ async function renderWatermarkedVideo(
       const iconGap = Math.max(8, Math.round(fontSize * 0.48));
       const labelWidth = context.measureText(watermark).width;
       const safeMargin = Math.max(
-        24,
-        Math.round(Math.min(canvas.width, canvas.height) * 0.018),
+        28,
+        Math.round(Math.min(canvas.width, canvas.height) * 0.04),
       );
       const pillHeight = Math.max(iconSize, fontSize) + verticalPadding * 2;
       const pillWidth = Math.min(
@@ -1094,14 +1094,12 @@ async function renderWatermarkedVideo(
         horizontalPadding * 2 + iconSize + iconGap + labelWidth,
       );
       const corner = reelWatermarkCornerForTime(video.currentTime, video.duration);
-      const left =
-        corner === "top-left"
-          ? safeMargin
-          : canvas.width - safeMargin - pillWidth;
-      const top =
-        corner === "top-left"
-          ? safeMargin
-          : canvas.height - safeMargin - pillHeight;
+      const left = corner.endsWith("left")
+        ? safeMargin
+        : canvas.width - safeMargin - pillWidth;
+      const top = corner.startsWith("top")
+        ? safeMargin
+        : canvas.height - safeMargin - pillHeight;
       const radius = pillHeight / 2;
       context.beginPath();
       context.moveTo(left + radius, top);
