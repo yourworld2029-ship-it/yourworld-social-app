@@ -372,6 +372,12 @@ function LiveRoomSession({
     if (transferred) {
       localStreamRef.current = transferred;
       setLocalStream(transferred);
+      const actualFacingMode = transferred
+        .getVideoTracks()[0]
+        ?.getSettings().facingMode;
+      if (actualFacingMode === "user" || actualFacingMode === "environment") {
+        setFacingMode(actualFacingMode);
+      }
     }
     return () => {
       discardHandedOffLiveStream();
@@ -461,7 +467,11 @@ function LiveRoomSession({
     const audioTracks = previousStream?.getAudioTracks().filter(
       (track) => track.readyState === "live",
     ) ?? [];
-    previousStream?.getVideoTracks().forEach((track) => track.stop());
+    const previousVideoTracks = previousStream?.getVideoTracks() ?? [];
+    previousVideoTracks.forEach((track) => track.stop());
+    if (previousVideoTracks.length > 0) {
+      await new Promise((resolve) => window.setTimeout(resolve, 200));
+    }
 
     const acquireVideo = async (mode: "user" | "environment") => {
       let cameraStream: MediaStream;
@@ -471,13 +481,13 @@ function LiveRoomSession({
             width: { ideal: 1920 },
             height: { ideal: 1080 },
             frameRate: { ideal: 30 },
-            facingMode: { ideal: mode },
+            facingMode: { exact: mode },
           },
           audio: false,
         });
       } catch {
         cameraStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: mode } },
+          video: { facingMode: { exact: mode } },
           audio: false,
         });
       }
@@ -485,6 +495,11 @@ function LiveRoomSession({
       if (!videoTrack) {
         cameraStream.getTracks().forEach((track) => track.stop());
         throw new Error("The selected camera did not provide a video track.");
+      }
+      const actualFacingMode = videoTrack.getSettings().facingMode;
+      if (actualFacingMode && actualFacingMode !== mode) {
+        cameraStream.getTracks().forEach((track) => track.stop());
+        throw new Error(`The device did not open its ${mode} camera.`);
       }
       return new MediaStream([...audioTracks, videoTrack]);
     };

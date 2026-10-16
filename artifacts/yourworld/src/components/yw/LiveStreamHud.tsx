@@ -270,11 +270,21 @@ export function LiveStreamHud({
     if (!video) return;
 
     video.srcObject = stream;
-    if (stream) {
-      void video.play().catch(() => {});
-    }
+    const tryPlay = () => {
+      if (video.srcObject === stream && video.paused) {
+        void video.play().catch(() => {});
+      }
+    };
+    video.addEventListener("loadedmetadata", tryPlay);
+    video.addEventListener("canplay", tryPlay);
+    const videoTracks = stream?.getVideoTracks() ?? [];
+    videoTracks.forEach((track) => track.addEventListener("unmute", tryPlay));
+    tryPlay();
 
     return () => {
+      video.removeEventListener("loadedmetadata", tryPlay);
+      video.removeEventListener("canplay", tryPlay);
+      videoTracks.forEach((track) => track.removeEventListener("unmute", tryPlay));
       if (video.srcObject === stream) {
         video.srcObject = null;
       }
