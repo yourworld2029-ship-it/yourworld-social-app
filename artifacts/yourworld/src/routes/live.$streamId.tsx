@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft, Camera, Radio, Users, X } from "lucide-react";
 import { LiveStreamHud } from "@/components/yw/LiveStreamHud";
@@ -9,6 +9,11 @@ import {
   loadLiveStreamStatus,
   type ActiveLiveStream,
 } from "@/lib/live-data";
+import {
+  createLiveVideoEffect,
+  type LiveBeautySettings,
+  type LiveVideoEffectPipeline,
+} from "@/lib/live-video-effects";
 import { discardHandedOffLiveStream, takeHandedOffLiveStream } from "@/lib/live-stream-registry";
 import { historyBackOr } from "@/lib/navigation";
 import { useLiveRoom } from "@/lib/use-live-room";
@@ -150,6 +155,19 @@ function LiveRoomSession({
     null;
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+  const [outgoingStream, setOutgoingStream] = useState<MediaStream | null>(null);
+  const [beautySettings, setBeautySettings] = useState<LiveBeautySettings>({
+    effect: "off",
+    intensity: 60,
+  });
+  const beautySettingsRef = useRef(beautySettings);
+  const videoEffectPipelineRef = useRef<LiveVideoEffectPipeline | null>(null);
+  const pendingVideoEffectRef = useRef<{
+    sourceTrackId: string;
+    requestId: number;
+    promise: Promise<boolean>;
+  } | null>(null);
+  const videoEffectRequestIdRef = useRef(0);
   const cameraRequestIdRef = useRef(0);
   const [facingMode, setFacingMode] = useState<"user" | "environment">("user");
   const [cameraBusy, setCameraBusy] = useState(false);
@@ -172,6 +190,125 @@ function LiveRoomSession({
   );
   const endedRef = useRef(false);
 
+  const releaseLiveVideoEffect = useCallback(() => {
+    videoEffectRequestIdRef.current += 1;
+    pendingVideoEffectRef.current = null;
+    videoEffectPipelineRef.current?.stop();
+    videoEffectPipelineRef.current = null;
+  }, []);
+
+  const applyLiveBeautySettings = useCallback(
+    async (
+      sourceStream: MediaStream | null,
+      nextSettings: LiveBeautySettings,
+    ): Promise<boolean> => {
+      beautySettingsRef.current = nextSettings;
+      setBeautySettings(nextSettings);
+
+      const sourceTrack = sourceStream?.getVideoTracks()[0] ?? null;
+      if (
+        !sourceTrack ||
+        nextSettings.effect === "off" ||
+        nextSettings.intensity <= 0
+      ) {
+        releaseLiveVideoEffect();
+        setOutgoingStream(null);
+        return true;
+      }
+
+      const activePipeline = videoEffectPipelineRef.current;
+      if (activePipeline?.sourceTrackId === sourceTrack.id) {
+        activePipeline.setSettings(nextSettings);
+        return true;
+      }
+
+      const pending = pendingVideoEffectRef.current;
+      if (pending?.sourceTrackId === sourceTrack.id) {
+        return pending.promise.then((applied) => {
+          if (
+            !applied &&
+            beautySettingsRef.current === nextSettings &&
+            nextSettings.effect !== "off"
+          ) {
+            const offSettings = {
+              effect: "off" as const,
+              intensity: nextSettings.intensity,
+            };
+            beautySettingsRef.current = offSettings;
+            setBeautySettings(offSettings);
+            setOutgoingStream(null);
+          }
+          return applied;
+        });
+      }
+
+      releaseLiveVideoEffect();
+      const requestId = videoEffectRequestIdRef.current;
+      setOutgoingStream(null);
+      const pendingRecord: {
+        sourceTrackId: string;
+        requestId: number;
+        promise: Promise<boolean>;
+      } = {
+        sourceTrackId: sourceTrack.id,
+        requestId,
+        promise: Promise.resolve(false),
+      };
+
+      pendingRecord.promise = createLiveVideoEffect(sourceTrack, nextSettings)
+        .then((pipeline) => {
+          const stillCurrent =
+            pendingVideoEffectRef.current === pendingRecord &&
+            videoEffectRequestIdRef.current === requestId &&
+            beautySettingsRef.current.effect !== "off" &&
+            localStreamRef.current?.getVideoTracks()[0]?.id === sourceTrack.id;
+          if (!pipeline) return false;
+          if (!stillCurrent) {
+            pipeline.stop();
+            return false;
+          }
+
+          pipeline.setSettings(beautySettingsRef.current);
+          videoEffectPipelineRef.current = pipeline;
+          setOutgoingStream(
+            new MediaStream([
+              ...(sourceStream?.getAudioTracks() ?? []),
+              pipeline.track,
+            ]),
+          );
+          return true;
+        })
+        .catch((cause) => {
+          console.warn("[live] Could not apply the live video effect", cause);
+          return false;
+        })
+        .then((applied) => {
+          if (
+            !applied &&
+            beautySettingsRef.current === nextSettings &&
+            nextSettings.effect !== "off"
+          ) {
+            const offSettings = {
+              effect: "off" as const,
+              intensity: nextSettings.intensity,
+            };
+            beautySettingsRef.current = offSettings;
+            setBeautySettings(offSettings);
+            setOutgoingStream(null);
+          }
+          return applied;
+        })
+        .finally(() => {
+          if (pendingVideoEffectRef.current === pendingRecord) {
+            pendingVideoEffectRef.current = null;
+          }
+        });
+      pendingVideoEffectRef.current = pendingRecord;
+      return pendingRecord.promise;
+    },
+    [releaseLiveVideoEffect],
+  );
+
   const liveRoom = useLiveRoom({
     streamId: room.id,
     mode: isBroadcaster ? "broadcaster" : "viewer",
@@ -179,8 +316,16 @@ function LiveRoomSession({
     isGuestViewer,
     username: isBroadcaster ? username : room.username,
     avatarUrl: isBroadcaster ? avatarUrl : room.avatarUrl,
-    localStream,
+    localStream: isBroadcaster ? outgoingStream ?? localStream : null,
   });
+
+  useEffect(
+    () => () => {
+      releaseLiveVideoEffect();
+    },
+    [releaseLiveVideoEffect],
+  );
+
   useResumeAuthAction("live-comment", room.id, (action) => {
     const text = action.payload?.text ?? "";
     if (!text.trim()) return;
@@ -234,6 +379,17 @@ function LiveRoomSession({
   }, [isBroadcaster]);
 
   useEffect(() => {
+    if (
+      isBroadcaster &&
+      localStream &&
+      beautySettingsRef.current.effect !== "off" &&
+      beautySettingsRef.current.intensity > 0
+    ) {
+      void applyLiveBeautySettings(localStream, beautySettingsRef.current);
+    }
+  }, [applyLiveBeautySettings, isBroadcaster, localStream]);
+
+  useEffect(() => {
     const timer = window.setInterval(() => {
       setDurationSeconds(
         Math.max(
@@ -273,8 +429,10 @@ function LiveRoomSession({
     const onPageHide = () => {
       if (!isBroadcaster || endedRef.current) return;
       cameraRequestIdRef.current += 1;
+      releaseLiveVideoEffect();
       localStreamRef.current?.getTracks().forEach((track) => track.stop());
       localStreamRef.current = null;
+      setOutgoingStream(null);
       endedRef.current = true;
       liveRoom.discardLocalStream();
       void endLiveStream(room.id).catch((cause) => {
@@ -283,7 +441,7 @@ function LiveRoomSession({
     };
     window.addEventListener("pagehide", onPageHide);
     return () => window.removeEventListener("pagehide", onPageHide);
-  }, [isBroadcaster, liveRoom.discardLocalStream, room.id]);
+  }, [isBroadcaster, liveRoom.discardLocalStream, releaseLiveVideoEffect, room.id]);
 
   const changeCamera = async (
     nextFacingMode: "user" | "environment" = facingMode,
@@ -296,6 +454,8 @@ function LiveRoomSession({
     const requestId = ++cameraRequestIdRef.current;
     setCameraBusy(true);
     setCameraError("");
+    releaseLiveVideoEffect();
+    setOutgoingStream(null);
     let nextStream: MediaStream | null = null;
     const previousStream = localStreamRef.current ?? localStream;
     const audioTracks = previousStream?.getAudioTracks().filter(
@@ -344,6 +504,7 @@ function LiveRoomSession({
       localStreamRef.current = nextStream;
       setLocalStream(nextStream);
       setFacingMode(nextFacingMode);
+      void applyLiveBeautySettings(nextStream, beautySettingsRef.current);
     } catch (cause) {
       console.error("[live] Could not switch camera", cause);
       nextStream?.getVideoTracks().forEach((track) => track.stop());
@@ -357,6 +518,7 @@ function LiveRoomSession({
         await liveRoom.replaceLocalStream(restoredStream);
         localStreamRef.current = restoredStream;
         setLocalStream(restoredStream);
+        void applyLiveBeautySettings(restoredStream, beautySettingsRef.current);
         setCameraError("Could not switch cameras. Your previous camera is back on.");
       } catch (restoreCause) {
         console.error("[live] Could not restore the previous camera", restoreCause);
@@ -374,9 +536,11 @@ function LiveRoomSession({
 
     const stream = localStreamRef.current;
     cameraRequestIdRef.current += 1;
+    releaseLiveVideoEffect();
     stream?.getTracks().forEach((track) => track.stop());
     localStreamRef.current = null;
     setLocalStream(null);
+    setOutgoingStream(null);
     endedRef.current = true;
     discardHandedOffLiveStream();
     liveRoom.discardLocalStream();
@@ -434,7 +598,15 @@ function LiveRoomSession({
     <>
       <LiveStreamHud
         mode={isBroadcaster ? "broadcaster" : "viewer"}
-        stream={isBroadcaster ? localStream : liveRoom.remoteStream}
+        stream={
+          isBroadcaster
+            ? outgoingStream ?? localStream
+            : liveRoom.remoteStream
+        }
+        cameraTrack={
+          isBroadcaster ? localStream?.getVideoTracks()[0] ?? null : null
+        }
+        beautySettings={beautySettings}
         title={room.title}
         broadcasterName={room.displayName || room.username}
         broadcasterAvatarUrl={room.avatarUrl}
@@ -453,6 +625,9 @@ function LiveRoomSession({
         }
         onEnd={() => setShowEndConfirmation(true)}
         onReact={liveRoom.sendReaction}
+        onBeautySettingsChange={(settings) =>
+          applyLiveBeautySettings(localStreamRef.current, settings)
+        }
       />
 
       {!roomReady && !liveRoom.isEnded && (

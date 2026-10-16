@@ -2,9 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import {
   Check,
   Copy,
+  Flashlight,
+  FlashlightOff,
   Heart,
   LoaderCircle,
-  MoreHorizontal,
+  Mic,
+  MicOff,
   Send,
   Share2,
   Sparkles,
@@ -12,30 +15,13 @@ import {
   Users,
   X,
 } from "lucide-react";
+import {
+  LIVE_BEAUTY_EFFECTS,
+  type LiveBeautySettings,
+} from "@/lib/live-video-effects";
 import { ProfileAvatar } from "./ProfileAvatar";
 
 export type LiveStreamHudMode = "broadcaster" | "viewer";
-
-export const LIVE_BEAUTY_EFFECTS = [
-  { id: "natural", label: "Natural", filter: "none" },
-  {
-    id: "smooth",
-    label: "Smooth",
-    filter: "brightness(1.04) contrast(0.94) saturate(1.06)",
-  },
-  { id: "bright", label: "Bright", filter: "brightness(1.12) saturate(1.08)" },
-  {
-    id: "clear",
-    label: "Clear",
-    filter: "contrast(1.12) saturate(1.08) brightness(1.02)",
-  },
-] as const;
-
-export type LiveBeautyEffect = (typeof LIVE_BEAUTY_EFFECTS)[number]["id"];
-
-export function getLiveBeautyEffectFilter(effect: LiveBeautyEffect) {
-  return LIVE_BEAUTY_EFFECTS.find((preset) => preset.id === effect)?.filter ?? "none";
-}
 
 export type LiveStreamComment = {
   id: string;
@@ -51,6 +37,8 @@ export type LiveStreamReaction = {
 export type LiveStreamHudProps = {
   mode: LiveStreamHudMode;
   stream: MediaStream | null;
+  cameraTrack: MediaStreamTrack | null;
+  beautySettings: LiveBeautySettings;
   title: string;
   broadcasterName: string;
   broadcasterAvatarUrl: string | null;
@@ -67,6 +55,7 @@ export type LiveStreamHudProps = {
   onFlipCamera: () => void;
   onEnd: () => void;
   onReact: () => void;
+  onBeautySettingsChange: (settings: LiveBeautySettings) => Promise<boolean>;
 };
 
 type FloatingHeart = {
@@ -96,6 +85,8 @@ function formatViewerCount(viewerCount: number) {
 export function LiveStreamHud({
   mode,
   stream,
+  cameraTrack,
+  beautySettings,
   title,
   broadcasterName,
   broadcasterAvatarUrl,
@@ -112,6 +103,7 @@ export function LiveStreamHud({
   onFlipCamera,
   onEnd,
   onReact,
+  onBeautySettingsChange,
 }: LiveStreamHudProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const commentsRef = useRef<HTMLDivElement | null>(null);
@@ -120,9 +112,13 @@ export function LiveStreamHud({
   const heartSequence = useRef(0);
   const heartTimeouts = useRef<number[]>([]);
   const [floatingHearts, setFloatingHearts] = useState<FloatingHeart[]>([]);
-  const [beautyEffect, setBeautyEffect] = useState<LiveBeautyEffect>("natural");
+  const [microphoneMuted, setMicrophoneMuted] = useState(false);
+  const microphoneMutedRef = useRef(false);
+  const [flashAvailable, setFlashAvailable] = useState(false);
+  const [flashOn, setFlashOn] = useState(false);
+  const flashOnRef = useRef(false);
+  const flashCommandRef = useRef(0);
   const [beautyPanelOpen, setBeautyPanelOpen] = useState(false);
-  const [morePanelOpen, setMorePanelOpen] = useState(false);
   const [actionToast, setActionToast] = useState<string | null>(null);
   const actionToastTimeout = useRef<number | null>(null);
   const latestCommentId = comments[comments.length - 1]?.id;
@@ -155,7 +151,6 @@ export function LiveStreamHud({
       linkInput.remove();
       showActionToast(copied ? "Live link copied" : "Could not copy live link");
     }
-    setMorePanelOpen(false);
   };
 
   const shareLive = async () => {
@@ -166,13 +161,62 @@ export function LiveStreamHud({
           text: `${broadcasterName} is live on YourWorld`,
           url: window.location.href,
         });
-        setMorePanelOpen(false);
         return;
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") return;
       }
     }
     await copyLiveLink();
+  };
+
+  const changeBeautySettings = (settings: LiveBeautySettings) => {
+    void onBeautySettingsChange(settings).then((applied) => {
+      if (!applied && settings.effect !== "off") {
+        showActionToast("Live effects are not available on this device");
+      }
+    }).catch(() => {
+      showActionToast("Could not apply the live effect");
+    });
+  };
+
+  const toggleMicrophone = () => {
+    const audioTracks =
+      stream?.getAudioTracks().filter((track) => track.readyState === "live") ?? [];
+    if (audioTracks.length === 0) {
+      showActionToast("Microphone is unavailable");
+      return;
+    }
+    const nextMuted = !microphoneMutedRef.current;
+    microphoneMutedRef.current = nextMuted;
+    audioTracks.forEach((track) => {
+      track.enabled = !nextMuted;
+    });
+    setMicrophoneMuted(nextMuted);
+  };
+
+  const toggleFlash = async () => {
+    const track = cameraTrack;
+    if (!track || isFrontCamera || !flashAvailable) {
+      showActionToast(
+        isFrontCamera ? "Switch to the rear camera to use flash" : "Flash is unavailable",
+      );
+      return;
+    }
+    const nextFlashOn = !flashOnRef.current;
+    const commandId = ++flashCommandRef.current;
+    flashOnRef.current = nextFlashOn;
+    try {
+      await track.applyConstraints({
+        advanced: [{ torch: nextFlashOn } as MediaTrackConstraintSet],
+      });
+      if (commandId !== flashCommandRef.current || cameraTrack !== track) return;
+      setFlashOn(nextFlashOn);
+    } catch {
+      if (commandId !== flashCommandRef.current || cameraTrack !== track) return;
+      flashOnRef.current = false;
+      setFlashOn(false);
+      showActionToast("Could not change camera flash");
+    }
   };
 
   useEffect(() => {
@@ -190,6 +234,39 @@ export function LiveStreamHud({
       }
     };
   }, [stream]);
+
+  useEffect(() => {
+    if (!isBroadcaster) return;
+    stream?.getAudioTracks().forEach((track) => {
+      track.enabled = !microphoneMutedRef.current;
+    });
+  }, [isBroadcaster, stream]);
+
+  useEffect(() => {
+    flashCommandRef.current += 1;
+    flashOnRef.current = false;
+    setFlashOn(false);
+    if (!cameraTrack || isFrontCamera) {
+      setFlashAvailable(false);
+      return;
+    }
+    const capabilities = cameraTrack.getCapabilities?.() as
+      | (MediaTrackCapabilities & { torch?: boolean })
+      | undefined;
+    setFlashAvailable(capabilities?.torch === true);
+
+    return () => {
+      flashCommandRef.current += 1;
+      if (flashOnRef.current) {
+        void cameraTrack
+          .applyConstraints({
+            advanced: [{ torch: false } as MediaTrackConstraintSet],
+          })
+          .catch(() => undefined);
+      }
+      flashOnRef.current = false;
+    };
+  }, [cameraTrack, isFrontCamera]);
 
   useEffect(() => {
     const commentsElement = commentsRef.current;
@@ -305,10 +382,7 @@ export function LiveStreamHud({
         data-testid="video-live-stream"
         aria-label={isBroadcaster ? "Your live camera preview" : "Live video"}
         className="absolute inset-0 h-full w-full bg-[#120d12] object-cover"
-        style={{
-          transform: mirrorPreview ? "scaleX(-1)" : undefined,
-          filter: isBroadcaster ? getLiveBeautyEffectFilter(beautyEffect) : undefined,
-        }}
+        style={{ transform: mirrorPreview ? "scaleX(-1)" : undefined }}
       />
 
       {!stream && (
@@ -434,7 +508,6 @@ export function LiveStreamHud({
               type="button"
               onClick={() => {
                 setBeautyPanelOpen((open) => !open);
-                setMorePanelOpen(false);
               }}
               aria-label="Beauty and Face Retouch"
               aria-expanded={beautyPanelOpen}
@@ -456,16 +529,39 @@ export function LiveStreamHud({
                   <Sparkles className="h-3.5 w-3.5 text-fuchsia-300" aria-hidden="true" />
                   <p className="text-[11px] font-bold text-white">Face Retouch</p>
                 </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    changeBeautySettings({
+                      effect: "off",
+                      intensity: beautySettings.intensity,
+                    })
+                  }
+                  aria-pressed={beautySettings.effect === "off"}
+                  data-testid="button-live-beauty-off"
+                  className={`mb-2 w-full rounded-lg border px-2 py-1.5 text-left text-[10px] font-semibold ${
+                    beautySettings.effect === "off"
+                      ? "border-fuchsia-300/50 bg-fuchsia-400/20 text-white"
+                      : "border-white/10 bg-white/5 text-white/75 hover:bg-white/10"
+                  }`}
+                >
+                  Off
+                </button>
                 <div className="grid grid-cols-2 gap-1.5">
                   {LIVE_BEAUTY_EFFECTS.map((effect) => {
-                    const selected = beautyEffect === effect.id;
+                    const selected = beautySettings.effect === effect.value;
                     return (
                       <button
-                        key={effect.id}
+                        key={effect.value}
                         type="button"
-                        onClick={() => setBeautyEffect(effect.id)}
+                        onClick={() =>
+                          changeBeautySettings({
+                            ...beautySettings,
+                            effect: effect.value,
+                          })
+                        }
                         aria-pressed={selected}
-                        data-testid={`button-live-beauty-${effect.id}`}
+                        data-testid={`button-live-beauty-${effect.value}`}
                         className={`flex min-h-9 items-center justify-between gap-1 rounded-xl border px-2 text-[10px] font-semibold transition-colors ${
                           selected
                             ? "border-fuchsia-300/50 bg-fuchsia-400/20 text-white"
@@ -480,9 +576,90 @@ export function LiveStreamHud({
                     );
                   })}
                 </div>
+                <label className="mt-3 block text-[10px] font-medium text-white/75" htmlFor="live-beauty-intensity">
+                  Intensity <span className="float-right tabular-nums">{beautySettings.intensity}%</span>
+                </label>
+                <input
+                  id="live-beauty-intensity"
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={beautySettings.intensity}
+                  disabled={beautySettings.effect === "off"}
+                  aria-label="Beauty effect intensity"
+                  data-testid="input-live-beauty-intensity"
+                  onChange={(event) =>
+                    changeBeautySettings({
+                      ...beautySettings,
+                      intensity: Number(event.currentTarget.value),
+                    })
+                  }
+                  className="mt-1.5 h-2 w-full cursor-pointer accent-fuchsia-400 disabled:cursor-not-allowed disabled:opacity-40"
+                />
               </div>
             )}
           </div>
+        )}
+
+        {isBroadcaster && (
+          <>
+            <div className="flex flex-col items-center gap-1">
+              <button
+                type="button"
+                onClick={toggleMicrophone}
+                aria-label={microphoneMuted ? "Unmute microphone" : "Mute microphone"}
+                aria-pressed={microphoneMuted}
+                data-testid="button-live-microphone"
+                className={`inline-flex h-11 w-11 items-center justify-center rounded-full border shadow-lg backdrop-blur-xl transition-transform active:scale-95 ${
+                  microphoneMuted
+                    ? "border-red-300/40 bg-red-500/75 text-white"
+                    : "border-white/20 bg-black/50 text-white hover:bg-black/70"
+                }`}
+              >
+                {microphoneMuted ? (
+                  <MicOff className="h-[18px] w-[18px]" aria-hidden="true" />
+                ) : (
+                  <Mic className="h-[18px] w-[18px]" aria-hidden="true" />
+                )}
+              </button>
+              <span className="text-[9px] font-semibold text-white/90">
+                {microphoneMuted ? "Mic off" : "Mic"}
+              </span>
+            </div>
+
+            <div className="flex flex-col items-center gap-1">
+              <button
+                type="button"
+                onClick={() => void toggleFlash()}
+                aria-label={flashOn ? "Turn flash off" : "Turn flash on"}
+                aria-pressed={flashOn}
+                title={
+                  isFrontCamera
+                    ? "Switch to the rear camera to use flash"
+                    : flashAvailable
+                      ? undefined
+                      : "Flash is not available on this camera"
+                }
+                disabled={!cameraTrack || isFrontCamera || !flashAvailable}
+                data-testid="button-live-flash"
+                className={`inline-flex h-11 w-11 items-center justify-center rounded-full border shadow-lg backdrop-blur-xl transition-transform active:scale-95 disabled:cursor-not-allowed disabled:opacity-45 ${
+                  flashOn
+                    ? "border-amber-200/50 bg-amber-400/80 text-white"
+                    : "border-white/20 bg-black/50 text-white hover:bg-black/70"
+                }`}
+              >
+                {flashOn ? (
+                  <Flashlight className="h-[18px] w-[18px]" aria-hidden="true" />
+                ) : (
+                  <FlashlightOff className="h-[18px] w-[18px]" aria-hidden="true" />
+                )}
+              </button>
+              <span className="text-[9px] font-semibold text-white/90">
+                {flashOn ? "Flash on" : "Flash"}
+              </span>
+            </div>
+          </>
         )}
 
         <div className="flex flex-col items-center gap-1">
@@ -509,54 +686,6 @@ export function LiveStreamHud({
             <Copy className="h-[17px] w-[17px]" aria-hidden="true" />
           </button>
           <span className="text-[9px] font-semibold text-white/90">Copy link</span>
-        </div>
-
-        <div className="relative flex flex-col items-center gap-1">
-          <button
-            type="button"
-            onClick={() => {
-              setMorePanelOpen((open) => !open);
-              setBeautyPanelOpen(false);
-            }}
-            aria-label="More live options"
-            aria-expanded={morePanelOpen}
-            aria-controls="live-more-options"
-            data-testid="button-live-more"
-            className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-black/50 text-white shadow-lg backdrop-blur-xl transition-transform hover:bg-black/70 active:scale-95"
-          >
-            <MoreHorizontal className="h-[19px] w-[19px]" aria-hidden="true" />
-          </button>
-          <span className="text-[9px] font-semibold text-white/90">More</span>
-          {morePanelOpen && (
-            <div
-              id="live-more-options"
-              role="menu"
-              aria-label="More live options"
-              className="absolute right-0 top-[3.5rem] w-48 rounded-2xl border border-white/15 bg-[#171319]/95 p-2 shadow-2xl backdrop-blur-2xl"
-            >
-              <p className="px-2.5 pb-1.5 pt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-white/50">
-                Live options
-              </p>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => void shareLive()}
-                className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-xs font-medium text-white/90 hover:bg-white/10"
-              >
-                <Share2 className="h-4 w-4 text-white/65" aria-hidden="true" />
-                Share this live
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => void copyLiveLink()}
-                className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-xs font-medium text-white/90 hover:bg-white/10"
-              >
-                <Copy className="h-4 w-4 text-white/65" aria-hidden="true" />
-                Copy live link
-              </button>
-            </div>
-          )}
         </div>
       </aside>
 
