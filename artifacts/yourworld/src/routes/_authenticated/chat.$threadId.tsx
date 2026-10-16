@@ -990,6 +990,7 @@ function NativeChatThreadPage() {
     currentUserId,
     send: sendToDb,
     conversationId,
+    remove: removeFromDb,
     clearForEveryone,
     markRead,
     markThreadRead,
@@ -2224,6 +2225,7 @@ function NativeChatThreadPage() {
     const persistedIds = allowedIds.filter((id) => dbMessages.some((message) => message.id === id));
 
     setHiddenIds((prev) => [...new Set([...prev, ...allowedIds])]);
+    let savedOnDevice = false;
     try {
       if (hiddenMessageStorageKey) {
         const nextHiddenIds = [...new Set([
@@ -2231,15 +2233,23 @@ function NativeChatThreadPage() {
           ...allowedIds,
         ])];
         window.localStorage.setItem(hiddenMessageStorageKey, JSON.stringify(nextHiddenIds));
+        savedOnDevice = true;
       }
     } catch {
-      // The database hide record below remains the durable source of truth.
+      // Keep the current view hidden; report if neither durable store succeeds.
     }
     setSelectedIds([]);
-    if (!persistedIds.length) return;
+    if (!persistedIds.length) {
+      if (savedOnDevice) toast.success("Message deleted for you.");
+      return;
+    }
     if (!currentUserId || !conversationId) {
-      setHiddenIds((prev) => prev.filter((id) => !allowedIds.includes(id)));
-      toast.error("Chat is still syncing. Try deleting the message again.");
+      if (savedOnDevice) {
+        toast.message("Message hidden on this device; cloud sync is unavailable.");
+      } else {
+        setHiddenIds((prev) => prev.filter((id) => !allowedIds.includes(id)));
+        toast.error("Couldn't save this deletion. Please try again.");
+      }
       return;
     }
     const { error } = await supabase
@@ -2253,17 +2263,40 @@ function NativeChatThreadPage() {
         { onConflict: "message_id,user_id", ignoreDuplicates: true },
       );
     if (error) {
-      setHiddenIds((prev) => prev.filter((id) => !allowedIds.includes(id)));
-      try {
-        if (hiddenMessageStorageKey) {
-          const revertedIds = readHiddenMessageIds(hiddenMessageStorageKey)
-            .filter((id) => !allowedIds.includes(id));
-          window.localStorage.setItem(hiddenMessageStorageKey, JSON.stringify(revertedIds));
-        }
-      } catch { /* Best-effort cache rollback. */ }
-      toast.error("Message couldn't be hidden from this chat. Please try again.");
       console.warn("[chat] per-user message hide failed", error);
+      if (savedOnDevice) {
+        toast.message("Message hidden on this device; cloud sync is unavailable.");
+      } else {
+        setHiddenIds((prev) => prev.filter((id) => !allowedIds.includes(id)));
+        toast.error("Couldn't save this deletion. Please try again.");
+      }
+      return;
     }
+    toast.success("Message deleted for you.");
+  };
+  const unsendIds = async (ids: string[]) => {
+    const localIds = ids.filter((id) => id.startsWith("local-"));
+    const persistedIds = ids.filter((id) =>
+      dbMessages.some((message) => message.id === id && message.sender_id === currentUserId),
+    );
+    const allowedIds = [...new Set([...localIds, ...persistedIds])];
+    if (allowedIds.length !== ids.length) {
+      toast.message("You can only unsend messages you sent.");
+    }
+    if (!allowedIds.length) return;
+
+    setLocalMessages((previous) => previous.filter((message) => !allowedIds.includes(message.id)));
+    setHiddenIds((previous) => [...new Set([...previous, ...allowedIds])]);
+    setSelectedIds([]);
+    if (!persistedIds.length) return;
+
+    const result = await removeFromDb(persistedIds);
+    if (result.error) {
+      setHiddenIds((previous) => previous.filter((id) => !persistedIds.includes(id)));
+      toast.error(`Message unsend failed: ${result.error}`);
+      return;
+    }
+    toast.success("Message unsent.");
   };
   const confirmClearForEveryone = async () => {
     const result = await clearForEveryone();
@@ -3760,8 +3793,16 @@ function NativeChatThreadPage() {
         <div className="fixed inset-0 z-[60] flex items-end bg-black/60 backdrop-blur-sm" onClick={() => setActionSheetId(null)}>
           <div className="w-full rounded-t-3xl border-t border-zinc-800 bg-zinc-900 p-3 pb-6" onClick={(e) => e.stopPropagation()}>
             <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-zinc-700" />
+            {messages.find((message) => message.id === actionSheetId)?.sender === "me" && (
+              <button
+                onClick={() => { void unsendIds([actionSheetId]); setActionSheetId(null); }}
+                className="w-full flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold text-red-400 hover:bg-red-950/40"
+              >
+                <Trash2 size={18} /> Unsend
+              </button>
+            )}
             <button
-              onClick={() => { deleteIds([actionSheetId]); setActionSheetId(null); }}
+              onClick={() => { void deleteIds([actionSheetId]); setActionSheetId(null); }}
               className="w-full flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold text-red-400 hover:bg-red-950/40"
             >
               <Trash2 size={18} /> Delete for me
