@@ -6,7 +6,7 @@ import {
   ArrowLeft, Phone, Video, MoreVertical, ChevronRight, Palette, Image as ImageIcon,
   Mic, Send, Smile, Play, Pause, X,
   Pencil, Lock, EyeOff, Clock, Camera, BellOff, UserX, Flag, Shield, Maximize2,
-  Trash2, CheckCheck, Check, Crop, Type, Sparkles, Repeat2
+  Trash2, CheckCheck, Check, Crop, Type, Sparkles, Repeat2, Copy, Forward, Languages, Search
 } from "lucide-react";
 import {
   PHOTO_FILTERS, TEXT_COLORS, STICKER_EMOJIS, cropImage, renderPhoto,
@@ -32,6 +32,7 @@ import {
   useThreadMessages,
   useThreadPeer,
   dmThreadId,
+  resolveThreadPeer,
   reportSocialUser,
   resolveMediaUrl,
 } from "@/lib/social-data";
@@ -66,6 +67,8 @@ import {
   vanishDelaySecondsFromMetadata,
 } from "@/lib/auto-delete";
 import { historyBackOr } from "@/lib/navigation";
+import { useAppLanguage, type AppLanguage } from "@/lib/app-language";
+import { translateComment } from "@/lib/translate-comment";
 import {
   isChatProtectionDecisionReady,
   isNativeAndroid,
@@ -120,6 +123,42 @@ type ReplyPreview = {
   text?: string;
   mediaKind?: "image" | "video" | "audio";
 };
+
+type ForwardPayload = {
+  content: string;
+  media_url?: string | null;
+  voice_note_url?: string | null;
+  metadata?: Record<string, unknown> | null;
+};
+
+type ForwardRecipient = {
+  id: string;
+  threadId: string;
+  name: string;
+  avatarUrl: string | null;
+};
+
+type MessageTranslationState = {
+  language: AppLanguage;
+  text: string;
+  loading: boolean;
+  visible: boolean;
+  alreadyInTargetLanguage?: boolean;
+};
+
+const pendingChatForwards = new Map<string, ForwardPayload>();
+
+function readLikedMessageIds(storageKey: string | null): string[] {
+  if (!storageKey) return [];
+  try {
+    const value: unknown = JSON.parse(window.localStorage.getItem(storageKey) ?? "[]");
+    return Array.isArray(value)
+      ? value.filter((id): id is string => typeof id === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
 
 type ChatBubbleThemeId = "sunset-rose" | "ocean-breeze" | "midnight-amethyst";
 type ChatBubbleThemeState = {
@@ -857,6 +896,7 @@ function ChatThreadPage() {
 
 function NativeChatThreadPage() {
   const { user: authUser } = useAuth();
+  const { language } = useAppLanguage();
   const { profile: myProfile } = useMyProfile();
   const { moments, addMoment } = useMoments();
   const currentUserName = myProfile.display_name || myProfile.username || "YourWorld user";
@@ -1444,6 +1484,28 @@ function NativeChatThreadPage() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [actionSheetId, setActionSheetId] = useState<string | null>(null);
+  const reactionStorageKey = currentUserId
+    ? `yourworld:chat-message-likes:${currentUserId}:${threadId}`
+    : null;
+  const [messageLikeState, setMessageLikeState] = useState<{
+    storageKey: string | null;
+    ids: string[];
+  }>({ storageKey: null, ids: [] });
+  const likedMessageIds =
+    messageLikeState.storageKey === reactionStorageKey ? messageLikeState.ids : [];
+  const [heartPopMessageId, setHeartPopMessageId] = useState<string | null>(null);
+  const heartPopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [messageTranslations, setMessageTranslations] = useState<
+    Record<string, MessageTranslationState>
+  >({});
+  const [forwardMessageId, setForwardMessageId] = useState<string | null>(null);
+  const [forwardSearch, setForwardSearch] = useState("");
+  const [forwardRecipients, setForwardRecipients] = useState<ForwardRecipient[]>([]);
+  const [forwardLoading, setForwardLoading] = useState(false);
+  const [forwardError, setForwardError] = useState<string | null>(null);
+  const [forwardSendingTargetId, setForwardSendingTargetId] = useState<string | null>(null);
+  const forwardRecipientLoadRef = useRef(0);
+  const lastMessageTapRef = useRef<{ id: string; at: number } | null>(null);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const swipeRef = useRef<{
@@ -1455,8 +1517,114 @@ function NativeChatThreadPage() {
   } | null>(null);
   const messageInputRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    const loadSavedLikes = () =>
+      setMessageLikeState({
+        storageKey: reactionStorageKey,
+        ids: readLikedMessageIds(reactionStorageKey),
+      });
+    loadSavedLikes();
+    const syncSavedLikes = (event: StorageEvent) => {
+      if (event.key === reactionStorageKey) loadSavedLikes();
+    };
+    window.addEventListener("storage", syncSavedLikes);
+    return () => window.removeEventListener("storage", syncSavedLikes);
+  }, [reactionStorageKey]);
+
+  useEffect(
+    () => () => {
+      if (heartPopTimerRef.current) clearTimeout(heartPopTimerRef.current);
+    },
+    [],
+  );
+
   // Peer identity resolved from the thread (never hardcoded)
   const peer = useThreadPeer(threadId, currentUserId);
+  useEffect(() => {
+    if (!forwardMessageId || !currentUserId) {
+      setForwardRecipients([]);
+      setForwardError(null);
+      setForwardLoading(false);
+      return;
+    }
+    let active = true;
+    const requestId = ++forwardRecipientLoadRef.current;
+    setForwardLoading(true);
+    setForwardError(null);
+    void (async () => {
+      try {
+        const { data, error } = await supabase
+          .from("messages" as never)
+          .select("sender_id,receiver_id,created_at" as never)
+          .or(`sender_id.eq.${currentUserId},receiver_id.eq.${currentUserId}`)
+          .order("created_at", { ascending: false })
+          .limit(100);
+        if (error) throw error;
+        const rows = Array.isArray(data) ? (data as unknown as Array<Record<string, unknown>>) : [];
+        const seen = new Set<string>();
+        const peerIds: string[] = [];
+        for (const row of rows) {
+          const senderId = typeof row.sender_id === "string" ? row.sender_id : "";
+          const receiverId = typeof row.receiver_id === "string" ? row.receiver_id : "";
+          if (!senderId || !receiverId) continue;
+          const peerId: string = senderId === currentUserId ? receiverId : senderId;
+          const peerThreadId = dmThreadId(currentUserId, peerId);
+          if (
+            peerId === currentUserId ||
+            peerThreadId === threadId ||
+            seen.has(peerId)
+          ) continue;
+          seen.add(peerId);
+          peerIds.push(peerId);
+        }
+        const resolved = await Promise.all(
+          peerIds.map(async (id): Promise<ForwardRecipient | null> => {
+            try {
+              const target = await resolveThreadPeer(dmThreadId(currentUserId, id), currentUserId);
+              return {
+                id,
+                threadId: dmThreadId(currentUserId, id),
+                name: target.peerName || `User ${id.slice(0, 6)}`,
+                avatarUrl: target.avatarUrl ?? null,
+              };
+            } catch (cause) {
+              console.warn("[chat-forward] could not resolve recipient", cause);
+              return null;
+            }
+          }),
+        );
+        if (!active || requestId !== forwardRecipientLoadRef.current) return;
+        setForwardRecipients(resolved.filter((item): item is ForwardRecipient => item !== null));
+      } catch (cause) {
+        if (!active || requestId !== forwardRecipientLoadRef.current) return;
+        setForwardRecipients([]);
+        setForwardError(cause instanceof Error ? cause.message : "Couldn't load recent chats.");
+      } finally {
+        if (active && requestId === forwardRecipientLoadRef.current) setForwardLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [currentUserId, forwardMessageId, threadId]);
+
+  useEffect(() => {
+    const pendingForward = pendingChatForwards.get(threadId);
+    if (!pendingForward || !currentUserId || !conversationId) return;
+    pendingChatForwards.delete(threadId);
+    void sendToDb(pendingForward).then((result) => {
+      setForwardSendingTargetId(null);
+      if (result.error) {
+        toast.error(`Could not forward message: ${result.error}`);
+      } else {
+        toast.success("Message forwarded");
+      }
+    }).catch((cause) => {
+      setForwardSendingTargetId(null);
+      toast.error(cause instanceof Error ? cause.message : "Could not forward message.");
+    });
+  }, [conversationId, currentUserId, sendToDb, threadId]);
+
   const chatThemeStorageKey =
     currentUserId && peer.peerId
       ? `yourworld:chat-bubble-theme:${currentUserId}:${dmThreadId(currentUserId, peer.peerId)}`
@@ -1741,6 +1909,166 @@ function NativeChatThreadPage() {
     if (longPressRef.current) clearTimeout(longPressRef.current);
     longPressRef.current = setTimeout(() => setActionSheetId(id), 450);
   };
+  const toggleLikeReaction = (id: string) => {
+    if (!reactionStorageKey) return;
+    const currentIds =
+      messageLikeState.storageKey === reactionStorageKey
+        ? messageLikeState.ids
+        : readLikedMessageIds(reactionStorageKey);
+    const nextIds = currentIds.includes(id)
+      ? currentIds.filter((messageId) => messageId !== id)
+      : [...currentIds, id];
+    setMessageLikeState({ storageKey: reactionStorageKey, ids: nextIds });
+    try {
+      window.localStorage.setItem(reactionStorageKey, JSON.stringify(nextIds));
+    } catch (cause) {
+      console.warn("[chat-reaction] could not save this device's reaction state", cause);
+      toast.error("Reaction changed, but couldn't be saved on this device.");
+    }
+    if (heartPopTimerRef.current) clearTimeout(heartPopTimerRef.current);
+    setHeartPopMessageId(id);
+    heartPopTimerRef.current = setTimeout(() => {
+      setHeartPopMessageId((current) => current === id ? null : current);
+      heartPopTimerRef.current = null;
+    }, 700);
+  };
+  const handleMessageContentClick = (
+    id: string,
+    event: React.MouseEvent<HTMLDivElement>,
+  ) => {
+    if (selectMode || !currentUserId) return;
+    if (!(event.target instanceof Element) || !event.target.closest("[data-chat-like-target]")) return;
+    if (event.target instanceof Element && event.target.closest("a, button, input, textarea")) return;
+    const now = Date.now();
+    const lastTap = lastMessageTapRef.current;
+    if (lastTap?.id === id && now - lastTap.at <= 360) {
+      lastMessageTapRef.current = null;
+      event.preventDefault();
+      toggleLikeReaction(id);
+      return;
+    }
+    lastMessageTapRef.current = { id, at: now };
+  };
+  const translateMessage = async (id: string) => {
+    const target = messages.find((item) => item.id === id);
+    const text = target?.text?.trim();
+    if (!text) {
+      toast.info("This message has no text to translate.");
+      return;
+    }
+    const cached = messageTranslations[id];
+    if (cached?.language === language) {
+      if (cached.alreadyInTargetLanguage) {
+        toast.info("This message is already in your app language.");
+      } else if (!cached.loading) {
+        setMessageTranslations((previous) => ({
+          ...previous,
+          [id]: { ...cached, visible: true },
+        }));
+      }
+      return;
+    }
+    setMessageTranslations((previous) => ({
+      ...previous,
+      [id]: { language, text: "", loading: true, visible: true },
+    }));
+    try {
+      const result = await translateComment(text, language, (partial) => {
+        setMessageTranslations((previous) => {
+          const current = previous[id];
+          if (!current || current.language !== language) return previous;
+          return { ...previous, [id]: { ...current, text: partial, visible: true } };
+        });
+      });
+      setMessageTranslations((previous) => ({
+        ...previous,
+        [id]: {
+          language,
+          text: result.translatedText,
+          loading: false,
+          visible: !result.alreadyInTargetLanguage,
+          alreadyInTargetLanguage: result.alreadyInTargetLanguage,
+        },
+      }));
+      if (result.alreadyInTargetLanguage) {
+        toast.info("This message is already in your app language.");
+      }
+    } catch (cause) {
+      setMessageTranslations((previous) => {
+        const current = previous[id];
+        if (!current || current.language !== language) return previous;
+        return { ...previous, [id]: { ...current, loading: false, visible: false } };
+      });
+      toast.error(cause instanceof Error ? cause.message : "Could not translate this message.");
+    }
+  };
+  const copyMessageText = async (id: string) => {
+    const text = messages.find((item) => item.id === id)?.text;
+    setActionSheetId(null);
+    if (!text?.trim()) {
+      toast.error("This message has no text to copy.");
+      return;
+    }
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("Clipboard access isn't available in this app.");
+      }
+      await navigator.clipboard.writeText(text);
+      toast.success("Text copied to clipboard");
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Couldn't copy this message.");
+    }
+  };
+  const openForwardSheet = (id: string) => {
+    setActionSheetId(null);
+    setForwardSearch("");
+    setForwardSendingTargetId(null);
+    setForwardMessageId(id);
+  };
+  const sendForwardTo = (recipient: ForwardRecipient) => {
+    const source = messages.find((item) => item.id === forwardMessageId);
+    if (!source || !currentUserId) {
+      toast.error("This message is no longer available to forward.");
+      return;
+    }
+    if (source.viewOnce || source.opened) {
+      toast.error("View Once messages can't be forwarded.");
+      return;
+    }
+    const dbMessage = dbMessages.find((item) => item.id === source.id);
+    const mediaUrl = dbMessage?.media_url ?? source.image ?? null;
+    const voiceNoteUrl = dbMessage?.voice_note_url ?? source.audio ?? null;
+    if (mediaUrl?.startsWith("blob:") || voiceNoteUrl?.startsWith("blob:")) {
+      toast.error("This media is still uploading and can't be forwarded yet.");
+      return;
+    }
+    const metadata: Record<string, unknown> = { ...(dbMessage?.metadata ?? {}) };
+    delete metadata.view_once;
+    delete metadata.expiring_media;
+    delete metadata.vanish_delay_seconds;
+    delete metadata.reply_to;
+    delete metadata.capture_event_id;
+    metadata.forwarded = true;
+    pendingChatForwards.set(recipient.threadId, {
+      content: source.text ?? dbMessage?.content ?? "",
+      media_url: mediaUrl,
+      voice_note_url: voiceNoteUrl,
+      metadata,
+    });
+    setForwardSendingTargetId(recipient.id);
+    setForwardMessageId(null);
+    void navigate({
+      to: "/chat/$threadId",
+      params: { threadId: recipient.threadId },
+    }).catch((cause) => {
+      pendingChatForwards.delete(recipient.threadId);
+      setForwardSendingTargetId(null);
+      toast.error(cause instanceof Error ? cause.message : "Couldn't open that chat.");
+    });
+  };
+  const matchingForwardRecipients = forwardRecipients.filter((recipient) =>
+    recipient.name.toLocaleLowerCase().includes(forwardSearch.trim().toLocaleLowerCase()),
+  );
   const cancelLongPress = () => {
     if (longPressRef.current) clearTimeout(longPressRef.current);
     longPressRef.current = null;
@@ -2997,12 +3325,24 @@ function NativeChatThreadPage() {
               </span>
             )}
             <div
-              className={`flex min-w-0 flex-1 flex-col ${
+              onClick={(event) => handleMessageContentClick(m.id, event)}
+              className={`relative flex min-w-0 flex-1 flex-col ${
                 m.sender === "me" ? "items-end" : "items-start"
               }`}
             >
+            {heartPopMessageId === m.id ? (
+              <span
+                aria-hidden="true"
+                className={`pointer-events-none absolute top-8 z-20 text-5xl animate-burst ${
+                  m.sender === "me" ? "right-8" : "left-8"
+                }`}
+              >
+                ❤️
+              </span>
+            ) : null}
             {(m.text || m.isMomentReply || m.momentId || m.sharedMedia) && (
               <div
+                data-chat-like-target
                 className={`${m.text && !m.sharedMedia && !m.isMomentMention && !m.isMomentReply && !m.momentId ? "chat-text-bubble-override px-4 py-2" : m.isMomentReply || m.momentId || m.isMomentMention ? "w-[78%] min-w-0 px-4 py-2.5" : "max-w-[78%] px-4 py-2.5"} rounded-2xl break-words whitespace-pre-wrap text-sm text-left leading-relaxed ${
                 m.sender === "me" ? `${ownMessageBubbleThemeClass} text-white rounded-br-xs` : "bg-zinc-800/90 text-zinc-100 rounded-bl-xs border border-zinc-700/50"
                 } ${m.isMomentMention ? "hyphens-none" : ""}`}
@@ -3064,6 +3404,51 @@ function NativeChatThreadPage() {
                 ) : null}
               </div>
             )}
+            {m.text?.trim()
+              ? (() => {
+                  const translation = messageTranslations[m.id];
+                  if (
+                    !translation ||
+                    translation.language !== language ||
+                    translation.alreadyInTargetLanguage
+                  ) return null;
+                  return (
+                    <div className="mt-1 max-w-[78%] rounded-xl border border-white/10 bg-black/35 px-3 py-2 text-left text-xs text-zinc-200">
+                      {translation.visible && translation.text ? (
+                        <p className="whitespace-pre-wrap break-words leading-relaxed">
+                          {translation.text}
+                        </p>
+                      ) : null}
+                      {translation.loading ? (
+                        <p className="flex items-center gap-1.5 text-zinc-400">
+                          <Languages size={12} className="animate-pulse" />
+                          {language === "hi" ? "अनुवाद हो रहा है…" : "Translating…"}
+                        </p>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setMessageTranslations((previous) => ({
+                              ...previous,
+                              [m.id]: { ...translation, visible: !translation.visible },
+                            }));
+                          }}
+                          className="mt-1 text-[10px] font-semibold text-emerald-300 hover:text-emerald-200"
+                        >
+                          {translation.visible
+                            ? language === "hi"
+                              ? "अनुवादित · मूल देखें"
+                              : "Translated · See original"
+                            : language === "hi"
+                              ? "अनुवाद देखें"
+                              : "See translation"}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()
+              : null}
 
             {!m.text && m.replyTo && <ReplyQuote reply={m.replyTo} className="mb-1 w-[75%] rounded-lg bg-zinc-800/90" />}
 
@@ -3158,7 +3543,7 @@ function NativeChatThreadPage() {
             )}
 
             {m.audio && !(m.viewOnce && (m.sender === "them" || m.opened || openedOnce.includes(m.id))) && (
-              <div className={`flex items-center gap-3 px-4 py-3 rounded-2xl min-w-[200px] ${
+              <div data-chat-like-target className={`flex items-center gap-3 px-4 py-3 rounded-2xl min-w-[200px] ${
                 m.sender === "me" ? `${ownMessageBubbleThemeClass} text-white` : "bg-zinc-800 text-white border border-zinc-700"
               }`}>
                 <button
@@ -3195,6 +3580,17 @@ function NativeChatThreadPage() {
                 {formatVanishCountdown(m.deletingAt - countdownNow)}
               </span>
             )}
+            {likedMessageIds.includes(m.id) ? (
+              <span
+                aria-label="Liked"
+                title="Liked"
+                className={`relative z-10 -mt-2 mb-1 rounded-full border border-white/10 bg-zinc-950/90 px-1.5 py-0.5 text-[11px] leading-none shadow-lg ${
+                  m.sender === "me" ? "mr-2 self-end" : "ml-2 self-start"
+                }`}
+              >
+                ❤️
+              </span>
+            ) : null}
 
             <span className="text-[10px] text-zinc-500 mt-1 px-1 flex items-center gap-1">
               <time
@@ -3275,9 +3671,129 @@ function NativeChatThreadPage() {
             >
               <CheckCheck size={18} /> Select Multiple
             </button>
+            {messages.find((message) => message.id === actionSheetId)?.text?.trim() ? (
+              <button
+                type="button"
+                onClick={() => void copyMessageText(actionSheetId)}
+                className="w-full flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold text-zinc-200 hover:bg-zinc-800"
+              >
+                <Copy size={18} /> Copy
+              </button>
+            ) : null}
+            {!messages.find((message) => message.id === actionSheetId)?.viewOnce ? (
+              <button
+                type="button"
+                onClick={() => openForwardSheet(actionSheetId)}
+                className="w-full flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold text-zinc-200 hover:bg-zinc-800"
+              >
+                <Forward size={18} /> Forward
+              </button>
+            ) : null}
+            {messages.find((message) => message.id === actionSheetId)?.text?.trim() ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setActionSheetId(null);
+                  void translateMessage(actionSheetId);
+                }}
+                className="w-full flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold text-zinc-200 hover:bg-zinc-800"
+              >
+                <Languages size={18} /> {language === "hi" ? "अनुवाद करें" : "Translate"}
+              </button>
+            ) : null}
           </div>
         </div>
       )}
+
+      {forwardMessageId !== null ? (
+        <div
+          className="fixed inset-0 z-[120] flex items-end bg-black/70 backdrop-blur-sm"
+          onClick={() => setForwardMessageId(null)}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-label="Forward message"
+            onClick={(event) => event.stopPropagation()}
+            className="flex max-h-[82dvh] w-full flex-col rounded-t-3xl border border-zinc-800 bg-zinc-950 px-4 pt-4 shadow-2xl"
+            style={{ paddingBottom: "calc(24px + env(safe-area-inset-bottom, 0px))" }}
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <h2 className="text-base font-bold text-white">Forward message</h2>
+                <p className="mt-1 max-w-[78vw] truncate text-xs text-zinc-400">
+                  {messages.find((item) => item.id === forwardMessageId)?.text?.trim() ||
+                    (messages.find((item) => item.id === forwardMessageId)?.audio
+                      ? "Voice note"
+                      : messages.find((item) => item.id === forwardMessageId)?.image
+                        ? "Photo or video"
+                        : "Shared message")}
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="Close forwarding"
+                onClick={() => setForwardMessageId(null)}
+                className="rounded-full p-2 text-zinc-400 hover:bg-zinc-800 hover:text-white"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="relative mb-3">
+              <Search
+                size={16}
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500"
+                aria-hidden="true"
+              />
+              <input
+                type="search"
+                value={forwardSearch}
+                onChange={(event) => setForwardSearch(event.target.value)}
+                placeholder="Search recent chats"
+                aria-label="Search recent chats"
+                className="w-full rounded-xl border border-zinc-800 bg-zinc-900 py-2.5 pl-9 pr-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-zinc-600"
+              />
+            </div>
+            <div className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain">
+              {forwardLoading ? (
+                <p className="py-8 text-center text-sm text-zinc-400">Loading recent chats…</p>
+              ) : forwardError ? (
+                <p role="alert" className="py-8 text-center text-sm text-red-300">{forwardError}</p>
+              ) : matchingForwardRecipients.length === 0 ? (
+                <p className="py-8 text-center text-sm text-zinc-500">
+                  {forwardRecipients.length
+                    ? "No recent chats match your search."
+                    : "No recent chats to forward to yet."}
+                </p>
+              ) : (
+                matchingForwardRecipients.map((recipient) => (
+                  <div
+                    key={recipient.id}
+                    className="flex items-center gap-3 rounded-xl px-2 py-2 hover:bg-zinc-900"
+                  >
+                    <div className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full bg-zinc-800">
+                      <ProfileAvatar
+                        user={{ full_name: recipient.name, avatar_url: recipient.avatarUrl }}
+                      />
+                    </div>
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-100">
+                      {recipient.name}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={forwardSendingTargetId !== null}
+                      onClick={() => sendForwardTo(recipient)}
+                      className="rounded-full bg-emerald-600 px-4 py-2 text-xs font-bold text-white transition hover:bg-emerald-500 disabled:cursor-wait disabled:opacity-60"
+                    >
+                      {forwardSendingTargetId === recipient.id ? "Sending…" : "Send"}
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       {/* EMOJI PICKER */}
       {showEmojis && (
