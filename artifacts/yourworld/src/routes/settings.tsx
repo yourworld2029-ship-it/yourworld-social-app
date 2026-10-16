@@ -1458,13 +1458,21 @@ function Panel({
   onBack?: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center sm:justify-center">
-      <div className="absolute inset-0 bg-background/75 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
+    <div className="fixed inset-0 z-[60] flex items-end sm:items-center sm:justify-center">
+      <div
+        className="absolute inset-0 animate-in fade-in-0 duration-200 bg-background/75 backdrop-blur-[2px]"
+        onClick={onClose}
+        aria-hidden
+      />
       <div
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="relative max-h-[85vh] w-full overflow-y-auto rounded-t-3xl border border-border bg-card p-4 text-card-foreground sm:max-w-md sm:rounded-3xl"
+        className="relative h-auto max-h-[85vh] w-full shrink-0 overflow-y-auto overscroll-contain rounded-t-3xl border border-border bg-card p-4 text-card-foreground animate-in slide-in-from-bottom duration-200 sm:max-w-md sm:rounded-3xl"
+        style={{
+          maxHeight: "85dvh",
+          paddingBottom: "calc(28px + env(safe-area-inset-bottom, 0px))",
+        }}
       >
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-base font-bold">{title}</h2>
