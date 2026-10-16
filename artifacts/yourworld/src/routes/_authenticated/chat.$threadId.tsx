@@ -161,6 +161,42 @@ function readHiddenMessageIds(storageKey: string | null): string[] {
 }
 
 type SharedMessageReaction = { messageId: string; userId: string };
+type MessageReactionOverrides = Record<string, boolean>;
+
+function readLikedMessageIds(storageKey: string | null): string[] {
+  return readHiddenMessageIds(storageKey);
+}
+
+function readMessageReactionOverrides(storageKey: string | null): MessageReactionOverrides {
+  if (!storageKey) return {};
+  try {
+    const value: unknown = JSON.parse(window.localStorage.getItem(storageKey) ?? "{}");
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+    return Object.fromEntries(
+      Object.entries(value).filter((entry): entry is [string, boolean] =>
+        typeof entry[0] === "string" && typeof entry[1] === "boolean",
+      ),
+    );
+  } catch {
+    return {};
+  }
+}
+
+function applyMessageReactionOverrides(
+  rows: SharedMessageReaction[],
+  userId: string,
+  overrides: MessageReactionOverrides,
+): SharedMessageReaction[] {
+  const merged = new Map<string, SharedMessageReaction>(
+    rows.map((row) => [`${row.userId}:${row.messageId}`, row]),
+  );
+  for (const [messageId, liked] of Object.entries(overrides)) {
+    const key = `${userId}:${messageId}`;
+    if (liked) merged.set(key, { messageId, userId });
+    else merged.delete(key);
+  }
+  return [...merged.values()];
+}
 
 type ChatBubbleThemeId = "sunset-rose" | "ocean-breeze" | "midnight-amethyst";
 type ChatBubbleThemeState = {
@@ -1489,6 +1525,12 @@ function NativeChatThreadPage() {
   const hiddenMessageStorageKey = currentUserId
     ? `yourworld:chat-hidden-message-ids:${currentUserId}:${threadId}`
     : null;
+  const reactionStorageKey = currentUserId
+    ? `yourworld:chat-message-likes:${currentUserId}:${threadId}`
+    : null;
+  const reactionOverrideStorageKey = currentUserId
+    ? `yourworld:chat-message-like-overrides:${currentUserId}:${threadId}`
+    : null;
   const [messageReactions, setMessageReactions] = useState<{
     conversationId: string | null;
     rows: SharedMessageReaction[];
@@ -1498,6 +1540,11 @@ function NativeChatThreadPage() {
     : [];
   const [heartPopMessageId, setHeartPopMessageId] = useState<string | null>(null);
   const heartPopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [chatActionNotice, setChatActionNotice] = useState<{
+    text: string;
+    tone: "success" | "info" | "error";
+  } | null>(null);
+  const chatActionNoticeTimerRef = useRef<number | null>(null);
   const [messageTranslations, setMessageTranslations] = useState<
     Record<string, MessageTranslationState>
   >({});
@@ -1561,6 +1608,16 @@ function NativeChatThreadPage() {
       setMessageReactions({ conversationId: null, rows: [] });
       return;
     }
+    const offlineRows = readLikedMessageIds(reactionStorageKey)
+      .map((messageId) => ({ messageId, userId: currentUserId }));
+    setMessageReactions({
+      conversationId,
+      rows: applyMessageReactionOverrides(
+        offlineRows,
+        currentUserId,
+        readMessageReactionOverrides(reactionOverrideStorageKey),
+      ),
+    });
     let active = true;
     let warned = false;
     const loadReactions = async () => {
@@ -1578,7 +1635,14 @@ function NativeChatThreadPage() {
       const rows = ((data ?? []) as unknown as Array<{ message_id: string; user_id: string }>)
         .filter((row) => row.message_id && row.user_id)
         .map((row) => ({ messageId: row.message_id, userId: row.user_id }));
-      setMessageReactions({ conversationId, rows });
+      setMessageReactions({
+        conversationId,
+        rows: applyMessageReactionOverrides(
+          rows,
+          currentUserId,
+          readMessageReactionOverrides(reactionOverrideStorageKey),
+        ),
+      });
     };
     void loadReactions();
     const timer = window.setInterval(() => void loadReactions(), 2500);
@@ -1586,11 +1650,12 @@ function NativeChatThreadPage() {
       active = false;
       window.clearInterval(timer);
     };
-  }, [conversationId, currentUserId]);
+  }, [conversationId, currentUserId, reactionOverrideStorageKey, reactionStorageKey]);
 
   useEffect(
     () => () => {
       if (heartPopTimerRef.current) clearTimeout(heartPopTimerRef.current);
+      if (chatActionNoticeTimerRef.current) window.clearTimeout(chatActionNoticeTimerRef.current);
     },
     [],
   );
@@ -1962,6 +2027,20 @@ function NativeChatThreadPage() {
     return true;
   };
 
+  const showChatActionNotice = (
+    text: string,
+    tone: "success" | "info" | "error" = "info",
+  ) => {
+    if (chatActionNoticeTimerRef.current) {
+      window.clearTimeout(chatActionNoticeTimerRef.current);
+    }
+    setChatActionNotice({ text, tone });
+    chatActionNoticeTimerRef.current = window.setTimeout(() => {
+      setChatActionNotice(null);
+      chatActionNoticeTimerRef.current = null;
+    }, 2800);
+  };
+
   const startLongPress = (id: string) => {
     if (longPressRef.current) clearTimeout(longPressRef.current);
     longPressRef.current = setTimeout(() => setActionSheetId(id), 450);
@@ -1978,6 +2057,25 @@ function NativeChatThreadPage() {
       ? currentRows.filter((row) => !(row.messageId === id && row.userId === currentUserId))
       : [...currentRows, { messageId: id, userId: currentUserId }];
     setMessageReactions({ conversationId, rows: nextRows });
+    let savedLocally = false;
+    try {
+      const ownLikedIds = [...new Set(
+        nextRows
+          .filter((row) => row.userId === currentUserId)
+          .map((row) => row.messageId),
+      )];
+      if (reactionStorageKey) {
+        window.localStorage.setItem(reactionStorageKey, JSON.stringify(ownLikedIds));
+      }
+      if (reactionOverrideStorageKey) {
+        const overrides = readMessageReactionOverrides(reactionOverrideStorageKey);
+        overrides[id] = !alreadyLikedByMe;
+        window.localStorage.setItem(reactionOverrideStorageKey, JSON.stringify(overrides));
+      }
+      savedLocally = Boolean(reactionStorageKey && reactionOverrideStorageKey);
+    } catch {
+      // Keep the optimistic heart visible for this chat session.
+    }
     if (!id.startsWith("local-")) {
       void (async () => {
         const result = alreadyLikedByMe
@@ -1997,9 +2095,23 @@ function NativeChatThreadPage() {
                 { onConflict: "message_id,user_id", ignoreDuplicates: true },
               );
         if (result.error) {
-          setMessageReactions({ conversationId, rows: currentRows });
-          toast.error("Couldn't sync this reaction. Please try again.");
           console.warn("[chat-reaction] shared reaction write failed", result.error);
+          showChatActionNotice(
+            savedLocally
+              ? "Like kept on this device; cloud sync is unavailable."
+              : "Couldn't save this like. Please try again.",
+            savedLocally ? "info" : "error",
+          );
+          return;
+        }
+        if (reactionOverrideStorageKey) {
+          try {
+            const overrides = readMessageReactionOverrides(reactionOverrideStorageKey);
+            delete overrides[id];
+            window.localStorage.setItem(reactionOverrideStorageKey, JSON.stringify(overrides));
+          } catch {
+            // The confirmed server reaction remains available even if cleanup fails.
+          }
         }
       })();
     }
@@ -2240,15 +2352,15 @@ function NativeChatThreadPage() {
     }
     setSelectedIds([]);
     if (!persistedIds.length) {
-      if (savedOnDevice) toast.success("Message deleted for you.");
+      if (savedOnDevice) showChatActionNotice("Message deleted for you.", "success");
       return;
     }
     if (!currentUserId || !conversationId) {
       if (savedOnDevice) {
-        toast.message("Message hidden on this device; cloud sync is unavailable.");
+        showChatActionNotice("Message hidden on this device; cloud sync is unavailable.");
       } else {
         setHiddenIds((prev) => prev.filter((id) => !allowedIds.includes(id)));
-        toast.error("Couldn't save this deletion. Please try again.");
+        showChatActionNotice("Couldn't save this deletion. Please try again.", "error");
       }
       return;
     }
@@ -2265,14 +2377,14 @@ function NativeChatThreadPage() {
     if (error) {
       console.warn("[chat] per-user message hide failed", error);
       if (savedOnDevice) {
-        toast.message("Message hidden on this device; cloud sync is unavailable.");
+        showChatActionNotice("Message hidden on this device; cloud sync is unavailable.");
       } else {
         setHiddenIds((prev) => prev.filter((id) => !allowedIds.includes(id)));
-        toast.error("Couldn't save this deletion. Please try again.");
+        showChatActionNotice("Couldn't save this deletion. Please try again.", "error");
       }
       return;
     }
-    toast.success("Message deleted for you.");
+    showChatActionNotice("Message deleted for you.", "success");
   };
   const unsendIds = async (ids: string[]) => {
     const localIds = ids.filter((id) => id.startsWith("local-"));
@@ -2281,7 +2393,7 @@ function NativeChatThreadPage() {
     );
     const allowedIds = [...new Set([...localIds, ...persistedIds])];
     if (allowedIds.length !== ids.length) {
-      toast.message("You can only unsend messages you sent.");
+      showChatActionNotice("You can only unsend messages you sent.", "error");
     }
     if (!allowedIds.length) return;
 
@@ -2293,10 +2405,10 @@ function NativeChatThreadPage() {
     const result = await removeFromDb(persistedIds);
     if (result.error) {
       setHiddenIds((previous) => previous.filter((id) => !persistedIds.includes(id)));
-      toast.error(`Message unsend failed: ${result.error}`);
+      showChatActionNotice(`Message unsend failed: ${result.error}`, "error");
       return;
     }
-    toast.success("Message unsent.");
+    showChatActionNotice("Message unsent.", "success");
   };
   const confirmClearForEveryone = async () => {
     const result = await clearForEveryone();
@@ -4571,6 +4683,22 @@ function NativeChatThreadPage() {
     </div>
   </div>
 )}
+    {chatActionNotice && (!secretLock || chatUnlocked) ? (
+      <div
+        role={chatActionNotice.tone === "error" ? "alert" : "status"}
+        aria-live={chatActionNotice.tone === "error" ? "assertive" : "polite"}
+        className={`pointer-events-none fixed left-1/2 z-[250] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-xl border px-4 py-3 text-center text-sm font-medium shadow-xl ${
+          chatActionNotice.tone === "success"
+            ? "border-emerald-500/40 bg-zinc-900 text-white"
+            : chatActionNotice.tone === "error"
+              ? "border-red-500/40 bg-zinc-900 text-red-100"
+              : "border-zinc-700 bg-zinc-900 text-zinc-100"
+        }`}
+        style={{ bottom: "calc(96px + env(safe-area-inset-bottom, 0px))" }}
+      >
+        {chatActionNotice.text}
+      </div>
+    ) : null}
     <PinDialog
       open={pinMode !== null && (!secretLock || chatUnlocked)}
       title={pinMode === "remove" ? "Remove Secret Lock" : "Create Secret Code"}
