@@ -1,0 +1,23 @@
+:root {
+  color-scheme: dark;
+  --background: #000000;
+  --foreground: #f7f5fa;
+  --card: #17161b;
+  --border: rgb(255 255 255 / 14%);
+  --primary: #ed2d94;
+  --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
+}
+
+.dark {
+  color-scheme: dark;
+  --background: #000000;
+  --foreground: #f7f5fa;
+  --card: #17161b;
+  --border: rgb(255 255 255 / 14%);
+  --primary: #ed2d94;
+}
+
+.moment-mockup {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}

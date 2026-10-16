@@ -707,9 +707,12 @@ function MomentViewRoute() {
         {/* HEADER */}
         <div
           className={cn(
-            "absolute inset-x-0 top-0 z-[10002] flex items-center justify-between bg-transparent px-3 pb-5 pt-[max(env(safe-area-inset-top,0px),28px)] transition-opacity duration-300",
+            "absolute inset-x-0 top-0 z-[10002] flex items-center justify-between bg-transparent px-3 pb-5 transition-opacity duration-300",
             paused ? "pointer-events-none opacity-0" : "opacity-100",
           )}
+          style={{
+            paddingTop: "calc(max(env(safe-area-inset-top, 0px), 28px) + 14px)",
+          }}
         >
           <div
             className="pointer-events-auto flex cursor-pointer items-center gap-2.5"
@@ -794,12 +797,12 @@ function MomentViewRoute() {
             )}
           >
             {current.allowReplies === false ? (
-              <div className="flex-1 rounded-full border border-white/10 bg-black/40 px-3 py-2 text-[11px] font-medium text-white/50 backdrop-blur-md">
+              <div className="flex h-12 flex-1 items-center rounded-full border border-white/10 bg-black/40 px-3 text-[11px] font-medium text-white/50 backdrop-blur-md">
                 Replies are turned off
               </div>
             ) : (
             <form
-              className="flex min-w-0 flex-1 items-center gap-2 rounded-full border border-fuchsia-100/30 bg-gradient-to-r from-white/[0.16] via-violet-200/[0.12] to-fuchsia-200/[0.16] px-3 py-1.5 shadow-[0_10px_30px_rgba(8,5,25,0.38)] ring-1 ring-white/10 backdrop-blur-2xl transition-[border-color,box-shadow] duration-200 focus-within:border-fuchsia-100/55 focus-within:ring-fuchsia-200/20"
+              className="flex h-12 min-w-0 flex-1 items-center gap-2 rounded-full border border-fuchsia-100/30 bg-gradient-to-r from-white/[0.16] via-violet-200/[0.12] to-fuchsia-200/[0.16] px-3 shadow-[0_10px_30px_rgba(8,5,25,0.38)] ring-1 ring-white/10 backdrop-blur-2xl transition-[border-color,box-shadow] duration-200 focus-within:border-fuchsia-100/55 focus-within:ring-fuchsia-200/20"
               onSubmit={async (e) => {
                 e.preventDefault();
                 const text = reply.trim();
@@ -858,7 +861,7 @@ function MomentViewRoute() {
                 setLiked(next);
                 registerView(current.id, next);
               }}
-              className="flex shrink-0 items-center gap-1.5 rounded-full border border-white/25 bg-white/10 px-3 py-2.5 text-white shadow-lg shadow-black/10 backdrop-blur-xl transition-transform duration-150 active:scale-90"
+              className="flex h-12 min-w-[72px] shrink-0 items-center justify-center gap-1.5 rounded-full border border-white/25 bg-gradient-to-b from-white/[0.16] to-white/[0.09] px-3 text-white shadow-[0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-xl transition-[transform,border-color,background-color] duration-200 ease-out active:scale-[0.96]"
             >
               <Heart className={cn("h-5 w-5", liked && "fill-red-500 text-red-500")} />
               <span className="min-w-3 text-xs font-semibold tabular-nums">{likeCount}</span>
@@ -878,7 +881,7 @@ function MomentViewRoute() {
                     toast.error(error instanceof Error ? error.message : "Couldn't download this Moment.");
                   });
                 }}
-                className="rounded-full border border-white/25 bg-white/10 p-2.5 text-white shadow-lg shadow-black/10 backdrop-blur-xl transition-transform duration-150 active:scale-90"
+                className="grid h-12 w-12 shrink-0 place-items-center rounded-full border border-white/25 bg-gradient-to-b from-white/[0.16] to-white/[0.09] text-white shadow-[0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-xl transition-[transform,border-color,background-color] duration-200 ease-out active:scale-[0.96]"
               >
                 <Download className="h-5 w-5" />
               </button>
