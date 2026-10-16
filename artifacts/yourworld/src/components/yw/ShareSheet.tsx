@@ -18,6 +18,10 @@ import { writePendingMomentShare, type SharedMomentKind, type SharedMomentBucket
 interface ShareSheetProps {
   /** Caption or title of the shared item. */
   title?: string;
+  /** Optional controlled visibility for external share buttons. */
+  open?: boolean;
+  /** Called when a controlled share sheet is opened or dismissed. */
+  onOpenChange?: (open: boolean) => void;
   /** Absolute or relative link to the item. */
   url?: string;
   /** Media source used by the existing Add to Moment action. */
@@ -233,6 +237,8 @@ function ShareDeliveryController({
 
 export const ShareSheet: React.FC<ShareSheetProps> = ({
   title = "",
+  open: controlledOpen,
+  onOpenChange,
   url,
   media,
   mediaKind = "photo",
@@ -243,7 +249,12 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
   thumbnailBucket = "thumbnails",
   children,
 }) => {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = (nextOpen: boolean) => {
+    if (controlledOpen === undefined) setInternalOpen(nextOpen);
+    onOpenChange?.(nextOpen);
+  };
   const [search, setSearch] = useState("");
   const [searchPeople, setSearchPeople] = useState<SharePerson[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);

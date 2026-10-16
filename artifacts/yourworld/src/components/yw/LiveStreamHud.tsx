@@ -15,6 +15,7 @@ import {
   Users,
   X,
 } from "lucide-react";
+import { ShareSheet } from "./ShareSheet";
 import {
   LIVE_BEAUTY_EFFECTS,
   type LiveBeautySettings,
@@ -154,6 +155,8 @@ export function LiveStreamHud({
   const [flashAvailable, setFlashAvailable] = useState(false);
   const [flashOn, setFlashOn] = useState(false);
   const [frontScreenFlashOn, setFrontScreenFlashOn] = useState(false);
+  const [shareSheetMounted, setShareSheetMounted] = useState(false);
+  const [shareSheetOpen, setShareSheetOpen] = useState(false);
   const flashOnRef = useRef(false);
   const flashCommandRef = useRef(0);
   const [beautyPanelOpen, setBeautyPanelOpen] = useState(false);
@@ -191,20 +194,9 @@ export function LiveStreamHud({
     }
   };
 
-  const shareLive = async () => {
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: title || "YourWorld live",
-          text: `${broadcasterName} is live on YourWorld`,
-          url: window.location.href,
-        });
-        return;
-      } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") return;
-      }
-    }
-    await copyLiveLink();
+  const openShareSheet = () => {
+    setShareSheetMounted(true);
+    setShareSheetOpen(true);
   };
 
   const changeBeautySettings = (settings: LiveBeautySettings) => {
@@ -431,6 +423,18 @@ export function LiveStreamHud({
           }
         }
       `}</style>
+
+      {shareSheetMounted && (
+        <ShareSheet
+          title={
+            title
+              ? `${broadcasterName} is live: ${title}`
+              : `${broadcasterName} is live on YourWorld`
+          }
+          open={shareSheetOpen}
+          onOpenChange={setShareSheetOpen}
+        />
+      )}
 
       <video
         ref={videoRef}
@@ -746,7 +750,7 @@ export function LiveStreamHud({
         <div className="flex flex-col items-center gap-1">
           <button
             type="button"
-            onClick={() => void shareLive()}
+            onClick={openShareSheet}
             aria-label="Share live"
             data-testid="button-live-share"
             className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-black/50 text-white shadow-lg backdrop-blur-xl transition-transform hover:bg-black/70 active:scale-95"
