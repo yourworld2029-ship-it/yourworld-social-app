@@ -3,6 +3,7 @@ package com.yourworld.app;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.app.KeyguardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.media.AudioAttributes;
@@ -49,7 +50,9 @@ public class IncomingCallMessagingService extends FirebaseMessagingService {
         }
         if (!"call".equals(type) && !"message".equals(type) && !"capture-alert".equals(type)) return;
         String conversationId = data.get("conversationId");
-        if ("call".equals(type) && MainActivity.isAppForeground()) return;
+        if ("call".equals(type)
+                && MainActivity.isAppForeground()
+                && !isDeviceLockedOrScreenOff()) return;
         if ("message".equals(type)
                 && MainActivity.isAppForeground()
                 && CallPushPlugin.isConversationActive(conversationId)) return;
@@ -95,6 +98,13 @@ public class IncomingCallMessagingService extends FirebaseMessagingService {
         if (value == null || value.trim().isEmpty()) return fallback;
         String trimmed = value.trim();
         return trimmed.length() > maxLength ? trimmed.substring(0, maxLength) : trimmed;
+    }
+
+    private boolean isDeviceLockedOrScreenOff() {
+        KeyguardManager keyguardManager = getSystemService(KeyguardManager.class);
+        PowerManager powerManager = getSystemService(PowerManager.class);
+        return (keyguardManager != null && keyguardManager.isKeyguardLocked())
+                || (powerManager != null && !powerManager.isInteractive());
     }
 
     static String notificationTag(String callId) {

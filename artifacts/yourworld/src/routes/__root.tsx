@@ -205,7 +205,7 @@ function shouldIgnoreTabSwipeTarget(
   if (!(target instanceof Element)) return true;
   if (
     target.closest(
-      "button, input, textarea, select, video, audio, [contenteditable='true'], [role='slider'], [role='dialog'], [data-radix-popper-content-wrapper]",
+      "button, input, textarea, select, video, audio, [contenteditable='true'], [role='slider'], [role='dialog'], [data-radix-popper-content-wrapper], [data-tab-swipe-ignore='true']",
     )
   ) {
     return true;

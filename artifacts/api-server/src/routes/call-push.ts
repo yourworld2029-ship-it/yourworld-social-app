@@ -468,7 +468,7 @@ router.post("/calls/push", async (req, res): Promise<void> => {
     try {
       conversations = await readRows<ConversationRow>(config, "conversations", {
         select: "id",
-        or: `and(participant_one_id.eq.${call.receiver_id},participant_two_id.eq.${call.caller_id}),and(participant_two_id.eq.${call.receiver_id},participant_one_id.eq.${call.caller_id})`,
+        or: `(and(participant_one_id.eq.${call.receiver_id},participant_two_id.eq.${call.caller_id}),and(participant_two_id.eq.${call.receiver_id},participant_one_id.eq.${call.caller_id}))`,
         limit: "20",
       });
     } catch (cause) {

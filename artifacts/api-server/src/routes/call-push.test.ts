@@ -210,8 +210,9 @@ test("FCM call pushes use data-only high-priority delivery with a short TTL", as
   setEnvironment(t, { FCM_SERVICE_ACCOUNT_JSON: privateKeyServiceAccount() });
   const baseUrl = await startServer(t);
   const captured: {
+    conversationFilter: string | null;
     fcmRequest: { headers: Headers; body: Record<string, unknown> } | null;
-  } = { fcmRequest: null };
+  } = { conversationFilter: null, fcmRequest: null };
   t.mock.method(
     globalThis,
     "fetch",
@@ -222,7 +223,10 @@ test("FCM call pushes use data-only high-priority delivery with a short TTL", as
       const url = new URL(String(input));
       if (url.pathname === "/auth/v1/user") return jsonResponse({ id: callerId });
       if (url.pathname === "/rest/v1/calls") return jsonResponse([incomingCall()]);
-      if (url.pathname === "/rest/v1/conversations") return jsonResponse([]);
+      if (url.pathname === "/rest/v1/conversations") {
+        captured.conversationFilter = url.searchParams.get("or");
+        return jsonResponse([]);
+      }
       if (url.pathname === "/rest/v1/profiles") {
         return jsonResponse([{ display_name: "Caller display name" }]);
       }
@@ -260,6 +264,10 @@ test("FCM call pushes use data-only high-priority delivery with a short TTL", as
 
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { delivered: 1, suppressed: false });
+  assert.equal(
+    captured.conversationFilter,
+    `(and(participant_one_id.eq.${receiverId},participant_two_id.eq.${callerId}),and(participant_two_id.eq.${receiverId},participant_one_id.eq.${callerId}))`,
+  );
   assert.ok(captured.fcmRequest);
   assert.equal(
     captured.fcmRequest.headers.get("authorization"),

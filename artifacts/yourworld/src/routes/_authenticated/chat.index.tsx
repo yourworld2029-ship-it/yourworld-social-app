@@ -589,6 +589,7 @@ function NativeChatListPage() {
                 key={chat.id}
                 to="/chat/$threadId"
                 params={{ threadId: chat.id }}
+                data-tab-swipe-ignore="true"
                 onPointerDown={() => startPress(chat.id)}
                 onPointerUp={cancelPress}
                 onPointerLeave={cancelPress}
