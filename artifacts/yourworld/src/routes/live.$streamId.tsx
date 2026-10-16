@@ -297,46 +297,71 @@ function LiveRoomSession({
     setCameraBusy(true);
     setCameraError("");
     let nextStream: MediaStream | null = null;
+    const previousStream = localStreamRef.current ?? localStream;
+    const audioTracks = previousStream?.getAudioTracks().filter(
+      (track) => track.readyState === "live",
+    ) ?? [];
+    previousStream?.getVideoTracks().forEach((track) => track.stop());
+
+    const acquireVideo = async (mode: "user" | "environment") => {
+      let cameraStream: MediaStream;
+      try {
+        cameraStream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+            frameRate: { ideal: 30 },
+            facingMode: { ideal: mode },
+          },
+          audio: false,
+        });
+      } catch {
+        cameraStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: mode } },
+          audio: false,
+        });
+      }
+      const videoTrack = cameraStream.getVideoTracks()[0];
+      if (!videoTrack) {
+        cameraStream.getTracks().forEach((track) => track.stop());
+        throw new Error("The selected camera did not provide a video track.");
+      }
+      return new MediaStream([...audioTracks, videoTrack]);
+    };
+
     try {
-      nextStream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-          frameRate: { ideal: 60, min: 30 },
-          facingMode: nextFacingMode,
-        },
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          channelCount: 2,
-        },
-      });
+      nextStream = await acquireVideo(nextFacingMode);
       if (requestId !== cameraRequestIdRef.current || endedRef.current) {
-        nextStream.getTracks().forEach((track) => track.stop());
+        nextStream.getVideoTracks().forEach((track) => track.stop());
         return;
       }
-      const previousStream = localStreamRef.current;
       try {
         await liveRoom.replaceLocalStream(nextStream);
       } catch (cause) {
         console.error("[live] Camera track replacement needs retry", cause);
-        setCameraError("The new camera is on. Some viewers may reconnect briefly.");
+        setCameraError("The camera changed, but some viewers may reconnect briefly.");
       }
       localStreamRef.current = nextStream;
       setLocalStream(nextStream);
       setFacingMode(nextFacingMode);
-      previousStream?.getTracks().forEach((track) => track.stop());
     } catch (cause) {
       console.error("[live] Could not switch camera", cause);
-      nextStream?.getTracks().forEach((track) => track.stop());
+      nextStream?.getVideoTracks().forEach((track) => track.stop());
       if (requestId !== cameraRequestIdRef.current) return;
-      const name = cause instanceof DOMException ? cause.name : "";
-      setCameraError(
-        name === "NotAllowedError"
-          ? "Camera or microphone access was denied."
-          : "Could not start the selected camera.",
-      );
+      try {
+        const restoredStream = await acquireVideo(facingMode);
+        if (requestId !== cameraRequestIdRef.current || endedRef.current) {
+          restoredStream.getVideoTracks().forEach((track) => track.stop());
+          return;
+        }
+        await liveRoom.replaceLocalStream(restoredStream);
+        localStreamRef.current = restoredStream;
+        setLocalStream(restoredStream);
+        setCameraError("Could not switch cameras. Your previous camera is back on.");
+      } catch (restoreCause) {
+        console.error("[live] Could not restore the previous camera", restoreCause);
+        setCameraError("Could not start the selected camera. Tap the camera button to retry.");
+      }
     } finally {
       if (requestId === cameraRequestIdRef.current) setCameraBusy(false);
     }

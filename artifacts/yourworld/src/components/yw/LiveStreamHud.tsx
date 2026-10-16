@@ -269,25 +269,36 @@ export function LiveStreamHud({
             </span>
           </div>
           <div className="mt-3 flex min-w-0 items-center gap-2.5">
-            <span className="h-9 w-9 shrink-0 overflow-hidden rounded-full border border-white/45 bg-white/10 shadow-lg ring-2 ring-[#f12e50]/70">
-              <ProfileAvatar
-                user={{
-                  username: broadcasterName,
-                  avatar_url: broadcasterAvatarUrl,
-                }}
-              />
-            </span>
+            {isBroadcaster ? (
+              <span className="inline-flex h-9 shrink-0 items-center gap-2 rounded-full border border-rose-300/30 bg-gradient-to-r from-rose-500/25 to-fuchsia-500/20 px-3 text-[11px] font-bold text-white shadow-[0_6px_24px_rgba(225,29,102,0.18)] backdrop-blur-xl">
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-300 opacity-70" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-rose-300" />
+                </span>
+                You’re live
+              </span>
+            ) : (
+              <span className="h-9 w-9 shrink-0 overflow-hidden rounded-full border border-white/45 bg-white/10 shadow-lg ring-2 ring-[#f12e50]/70">
+                <ProfileAvatar
+                  user={{
+                    username: broadcasterName,
+                    avatar_url: broadcasterAvatarUrl,
+                  }}
+                />
+              </span>
+            )}
             <div className="min-w-0">
-              <p className="truncate text-[13px] font-bold tracking-[-0.01em] text-white">
-                {broadcasterName}
-              </p>
               <p
-                className="mt-0.5 max-w-[min(62vw,24rem)] truncate text-[11px] font-medium text-white/70"
+                className="max-w-[min(62vw,24rem)] truncate text-[12px] font-semibold text-white/85"
                 data-testid="text-live-title"
               >
-                {title || "YourWorld live"} <span aria-hidden="true">·</span>{" "}
-                {isBroadcaster ? "Broadcasting now" : "Live now"}
+                {title || "YourWorld live"}
               </p>
+              {!isBroadcaster && (
+                <p className="mt-0.5 truncate text-[11px] font-medium text-white/65">
+                  {broadcasterName} · Live now
+                </p>
+              )}
             </div>
           </div>
         </div>
