@@ -117,6 +117,8 @@ export function useLiveRoom({
   const profilesRef = useRef(profiles);
   const [reactions, setReactions] = useState<LiveStreamReaction[]>([]);
   const [commentText, setCommentText] = useState("");
+  const [sendingComment, setSendingComment] = useState(false);
+  const sendingCommentRef = useRef(false);
   const [connected, setConnected] = useState(false);
   const [mediaConnected, setMediaConnected] = useState(false);
   const [isEnded, setIsEnded] = useState(false);
@@ -695,7 +697,15 @@ export function useLiveRoom({
 
   const sendComment = useCallback(async () => {
     const message = commentText.trim();
-    if (!message || !userId || isEnded || isGuestViewer) return;
+    if (
+      !message ||
+      !userId ||
+      isEnded ||
+      isGuestViewer ||
+      sendingCommentRef.current
+    ) return;
+    sendingCommentRef.current = true;
+    setSendingComment(true);
     const optimisticId = `pending-${createPeerId()}`;
     const optimisticComment: LiveCommentRow = {
       id: optimisticId,
@@ -735,6 +745,9 @@ export function useLiveRoom({
           ? cause.message
           : "Your comment could not be sent.",
       );
+    } finally {
+      sendingCommentRef.current = false;
+      setSendingComment(false);
     }
   }, [addCommentRows, commentText, isEnded, isGuestViewer, streamId, userId]);
 
@@ -797,6 +810,7 @@ export function useLiveRoom({
     comments: hudComments,
     commentText,
     setCommentText,
+    sendingComment,
     sendComment,
     reactions,
     sendReaction,

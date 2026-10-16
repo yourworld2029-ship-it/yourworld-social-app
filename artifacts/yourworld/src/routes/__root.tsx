@@ -295,6 +295,7 @@ function RootComponent() {
     isWatchPreview ||
     isChatConversation ||
     isMomentViewer ||
+    pathname.startsWith("/live") ||
     pathname.startsWith("/auth") ||
     pathname.startsWith("/verify-2fa") ||
     pathname.startsWith("/create") ||

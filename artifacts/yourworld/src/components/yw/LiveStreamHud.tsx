@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Heart, Send, SwitchCamera, Users, X } from "lucide-react";
+import { Heart, LoaderCircle, Send, SwitchCamera, Users, X } from "lucide-react";
 import { ProfileAvatar } from "./ProfileAvatar";
 
 export type LiveStreamHudMode = "broadcaster" | "viewer";
@@ -19,12 +19,15 @@ export type LiveStreamHudProps = {
   mode: LiveStreamHudMode;
   stream: MediaStream | null;
   title: string;
+  broadcasterName: string;
+  broadcasterAvatarUrl: string | null;
   durationSeconds: number;
   viewerCount: number;
   isFrontCamera: boolean;
   cameraBusy: boolean;
   comments: LiveStreamComment[];
   commentText: string;
+  sendingComment: boolean;
   reactions: LiveStreamReaction[];
   onCommentTextChange: (value: string) => void;
   onSendComment: () => void;
@@ -61,12 +64,15 @@ export function LiveStreamHud({
   mode,
   stream,
   title,
+  broadcasterName,
+  broadcasterAvatarUrl,
   durationSeconds,
   viewerCount,
   isFrontCamera,
   cameraBusy,
   comments,
   commentText,
+  sendingComment,
   reactions,
   onCommentTextChange,
   onSendComment,
@@ -236,7 +242,7 @@ export function LiveStreamHud({
 
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_bottom,rgba(8,5,9,0.72),transparent_26%,transparent_52%,rgba(8,5,9,0.88))]" />
 
-      <header className="absolute inset-x-0 top-0 flex items-start justify-between gap-4 px-4 pb-4 pt-[calc(env(safe-area-inset-top,0px)+1rem)] sm:px-6">
+      <header className="absolute inset-x-0 top-0 flex items-start justify-between gap-4 px-4 pb-4 pt-[calc(env(safe-area-inset-top,0px)+0.8rem)] sm:px-6">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <span
@@ -262,15 +268,28 @@ export function LiveStreamHud({
               {formatViewerCount(viewerCount)}
             </span>
           </div>
-          <p
-            className="mt-3 max-w-[min(70vw,28rem)] truncate text-sm font-semibold tracking-[-0.01em] text-white/90"
-            data-testid="text-live-title"
-          >
-            {title || "YourWorld live"}
-          </p>
-          <p className="mt-0.5 text-[10px] font-medium uppercase tracking-[0.16em] text-white/45">
-            {isBroadcaster ? "Broadcasting now" : "Live now"}
-          </p>
+          <div className="mt-3 flex min-w-0 items-center gap-2.5">
+            <span className="h-9 w-9 shrink-0 overflow-hidden rounded-full border border-white/45 bg-white/10 shadow-lg ring-2 ring-[#f12e50]/70">
+              <ProfileAvatar
+                user={{
+                  username: broadcasterName,
+                  avatar_url: broadcasterAvatarUrl,
+                }}
+              />
+            </span>
+            <div className="min-w-0">
+              <p className="truncate text-[13px] font-bold tracking-[-0.01em] text-white">
+                {broadcasterName}
+              </p>
+              <p
+                className="mt-0.5 max-w-[min(62vw,24rem)] truncate text-[11px] font-medium text-white/70"
+                data-testid="text-live-title"
+              >
+                {title || "YourWorld live"} <span aria-hidden="true">·</span>{" "}
+                {isBroadcaster ? "Broadcasting now" : "Live now"}
+              </p>
+            </div>
+          </div>
         </div>
 
         {isBroadcaster && (
@@ -324,19 +343,19 @@ export function LiveStreamHud({
 
       <div
         ref={commentsRef}
-        className="absolute bottom-[calc(env(safe-area-inset-bottom,0px)+4.9rem)] left-0 z-10 flex max-h-[38dvh] w-[min(88vw,27rem)] flex-col gap-2 overflow-y-auto overscroll-contain px-4 pb-2 pt-8 [scrollbar-width:none] sm:px-6 [&::-webkit-scrollbar]:hidden"
+        className="absolute bottom-[calc(env(safe-area-inset-bottom,0px)+5.1rem)] left-0 z-10 flex max-h-[38dvh] w-[min(90vw,29rem)] flex-col gap-2 overflow-y-auto overscroll-contain px-4 pb-2 pt-8 [scrollbar-width:none] sm:px-6 [&::-webkit-scrollbar]:hidden"
         aria-live="polite"
         data-testid="list-live-comments"
       >
         {comments.length === 0 ? (
-          <p className="w-fit max-w-[15rem] rounded-2xl border border-white/10 bg-black/35 px-3.5 py-2.5 text-xs leading-5 text-white/60 backdrop-blur-xl">
-            The live chat is open. Say hello.
+          <p className="w-fit max-w-[16rem] rounded-2xl border border-white/10 bg-black/40 px-3.5 py-2.5 text-xs leading-5 text-white/70 shadow-lg backdrop-blur-xl">
+            Comments are open. Say hello.
           </p>
         ) : (
           comments.map((comment) => (
             <div
               key={comment.id}
-              className="flex w-fit max-w-full items-end gap-2.5 rounded-2xl border border-white/10 bg-black/45 py-2 pl-2 pr-3 backdrop-blur-xl"
+              className="flex w-fit max-w-full items-end gap-2.5 rounded-2xl border border-white/15 bg-black/50 py-2 pl-2 pr-3 shadow-lg backdrop-blur-xl"
               data-testid={`comment-live-${comment.id}`}
             >
               <span className="h-7 w-7 shrink-0 overflow-hidden rounded-full bg-[#3b2030] ring-1 ring-white/15">
@@ -361,7 +380,7 @@ export function LiveStreamHud({
       </div>
 
       <form
-        className="absolute inset-x-0 bottom-0 z-20 flex items-center gap-2 px-4 pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)] pt-3 sm:px-6"
+        className="absolute inset-x-0 bottom-0 z-20 flex items-center gap-2 px-4 pb-[calc(env(safe-area-inset-bottom,0px)+0.8rem)] pt-3 sm:px-6"
         onSubmit={(event) => {
           event.preventDefault();
           if (commentText.trim()) onSendComment();
@@ -375,23 +394,28 @@ export function LiveStreamHud({
           type="text"
           value={commentText}
           onChange={(event) => onCommentTextChange(event.currentTarget.value)}
-          placeholder="Add a comment"
+          placeholder="Comment on this live…"
           autoComplete="off"
           maxLength={500}
           data-testid="input-live-comment"
-          className="h-11 min-w-0 flex-1 rounded-full border border-white/15 bg-black/55 px-4 text-sm text-white outline-none backdrop-blur-xl transition-colors placeholder:text-white/48 focus:border-white/35 focus:bg-black/70"
+          className="h-12 min-w-0 flex-1 rounded-full border border-white/20 bg-black/60 px-4 text-sm text-white shadow-[0_8px_30px_rgba(0,0,0,0.24)] outline-none backdrop-blur-xl transition-colors placeholder:text-white/55 focus:border-white/45 focus:bg-black/75"
         />
         <button
           type="submit"
           onClick={() => {
             if (!commentText.trim()) return;
           }}
-          disabled={!commentText.trim()}
+          disabled={!commentText.trim() || sendingComment}
           data-testid="button-live-send-comment"
           aria-label="Send comment"
-          className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/12 text-white backdrop-blur-xl transition-transform hover:bg-white/20 active:scale-95 disabled:cursor-not-allowed disabled:opacity-35"
+          aria-busy={sendingComment}
+          className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#ff376c] to-[#c400e8] text-white shadow-[0_6px_22px_rgba(217,0,146,0.35)] transition-transform hover:brightness-110 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          <Send className="h-[18px] w-[18px]" aria-hidden="true" />
+          {sendingComment ? (
+            <LoaderCircle className="h-[18px] w-[18px] animate-spin" aria-hidden="true" />
+          ) : (
+            <Send className="h-[18px] w-[18px]" aria-hidden="true" />
+          )}
         </button>
         <button
           type="button"

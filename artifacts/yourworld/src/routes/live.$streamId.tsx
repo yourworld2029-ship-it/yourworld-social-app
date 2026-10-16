@@ -411,12 +411,15 @@ function LiveRoomSession({
         mode={isBroadcaster ? "broadcaster" : "viewer"}
         stream={isBroadcaster ? localStream : liveRoom.remoteStream}
         title={room.title}
+        broadcasterName={room.displayName || room.username}
+        broadcasterAvatarUrl={room.avatarUrl}
         durationSeconds={durationSeconds}
         viewerCount={liveRoom.viewerCount}
         isFrontCamera={facingMode === "user"}
         cameraBusy={cameraBusy}
         comments={liveRoom.comments}
         commentText={liveRoom.commentText}
+        sendingComment={liveRoom.sendingComment}
         reactions={liveRoom.reactions}
         onCommentTextChange={liveRoom.setCommentText}
         onSendComment={sendLiveComment}
