@@ -6,3 +6,4 @@
 
 # Do not package generated debug APKs into deployments.
 /artifacts/yourworld/public/downloads/*.apk
+/generated-artifacts/
