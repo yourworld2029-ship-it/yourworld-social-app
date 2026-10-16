@@ -1,8 +1,41 @@
 import { useEffect, useRef, useState } from "react";
-import { Heart, LoaderCircle, Send, SwitchCamera, Users, X } from "lucide-react";
+import {
+  Check,
+  Copy,
+  Heart,
+  LoaderCircle,
+  MoreHorizontal,
+  Send,
+  Share2,
+  Sparkles,
+  SwitchCamera,
+  Users,
+  X,
+} from "lucide-react";
 import { ProfileAvatar } from "./ProfileAvatar";
 
 export type LiveStreamHudMode = "broadcaster" | "viewer";
+
+export const LIVE_BEAUTY_EFFECTS = [
+  { id: "natural", label: "Natural", filter: "none" },
+  {
+    id: "smooth",
+    label: "Smooth",
+    filter: "brightness(1.04) contrast(0.94) saturate(1.06)",
+  },
+  { id: "bright", label: "Bright", filter: "brightness(1.12) saturate(1.08)" },
+  {
+    id: "clear",
+    label: "Clear",
+    filter: "contrast(1.12) saturate(1.08) brightness(1.02)",
+  },
+] as const;
+
+export type LiveBeautyEffect = (typeof LIVE_BEAUTY_EFFECTS)[number]["id"];
+
+export function getLiveBeautyEffectFilter(effect: LiveBeautyEffect) {
+  return LIVE_BEAUTY_EFFECTS.find((preset) => preset.id === effect)?.filter ?? "none";
+}
 
 export type LiveStreamComment = {
   id: string;
@@ -87,9 +120,60 @@ export function LiveStreamHud({
   const heartSequence = useRef(0);
   const heartTimeouts = useRef<number[]>([]);
   const [floatingHearts, setFloatingHearts] = useState<FloatingHeart[]>([]);
+  const [beautyEffect, setBeautyEffect] = useState<LiveBeautyEffect>("natural");
+  const [beautyPanelOpen, setBeautyPanelOpen] = useState(false);
+  const [morePanelOpen, setMorePanelOpen] = useState(false);
+  const [actionToast, setActionToast] = useState<string | null>(null);
+  const actionToastTimeout = useRef<number | null>(null);
   const latestCommentId = comments[comments.length - 1]?.id;
   const isBroadcaster = mode === "broadcaster";
   const mirrorPreview = isBroadcaster && isFrontCamera;
+
+  const showActionToast = (message: string) => {
+    if (actionToastTimeout.current !== null) {
+      window.clearTimeout(actionToastTimeout.current);
+    }
+    setActionToast(message);
+    actionToastTimeout.current = window.setTimeout(() => {
+      setActionToast(null);
+      actionToastTimeout.current = null;
+    }, 2200);
+  };
+
+  const copyLiveLink = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      showActionToast("Live link copied");
+    } catch {
+      const linkInput = document.createElement("textarea");
+      linkInput.value = window.location.href;
+      linkInput.style.position = "fixed";
+      linkInput.style.opacity = "0";
+      document.body.append(linkInput);
+      linkInput.select();
+      const copied = document.execCommand("copy");
+      linkInput.remove();
+      showActionToast(copied ? "Live link copied" : "Could not copy live link");
+    }
+    setMorePanelOpen(false);
+  };
+
+  const shareLive = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: title || "YourWorld live",
+          text: `${broadcasterName} is live on YourWorld`,
+          url: window.location.href,
+        });
+        setMorePanelOpen(false);
+        return;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+      }
+    }
+    await copyLiveLink();
+  };
 
   useEffect(() => {
     const video = videoRef.current;
@@ -158,6 +242,9 @@ export function LiveStreamHud({
   useEffect(
     () => () => {
       heartTimeouts.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
+      if (actionToastTimeout.current !== null) {
+        window.clearTimeout(actionToastTimeout.current);
+      }
     },
     [],
   );
@@ -218,7 +305,10 @@ export function LiveStreamHud({
         data-testid="video-live-stream"
         aria-label={isBroadcaster ? "Your live camera preview" : "Live video"}
         className="absolute inset-0 h-full w-full bg-[#120d12] object-cover"
-        style={{ transform: mirrorPreview ? "scaleX(-1)" : undefined }}
+        style={{
+          transform: mirrorPreview ? "scaleX(-1)" : undefined,
+          filter: isBroadcaster ? getLiveBeautyEffectFilter(beautyEffect) : undefined,
+        }}
       />
 
       {!stream && (
@@ -242,25 +332,25 @@ export function LiveStreamHud({
 
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_bottom,rgba(8,5,9,0.72),transparent_26%,transparent_52%,rgba(8,5,9,0.88))]" />
 
-      <header className="absolute inset-x-0 top-0 flex items-start justify-between gap-4 px-4 pb-4 pt-[calc(env(safe-area-inset-top,0px)+0.8rem)] sm:px-6">
+      <header className="absolute inset-x-0 top-0 flex items-start justify-between gap-2 px-3 pb-4 pt-[calc(env(safe-area-inset-top,0px)+0.8rem)] sm:gap-4 sm:px-6">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-nowrap items-center gap-1.5 sm:gap-2">
             <span
-              className="inline-flex items-center gap-2 rounded-full bg-[#f12e50] px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.17em] text-white shadow-[0_5px_22px_rgba(241,46,80,0.28)]"
+              className="inline-flex items-center gap-1.5 rounded-full bg-[#f12e50] px-2.5 py-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-white shadow-[0_5px_22px_rgba(241,46,80,0.28)] sm:gap-2 sm:px-3 sm:tracking-[0.17em]"
               data-testid="status-live"
             >
               <span className="h-1.5 w-1.5 rounded-full bg-white" aria-hidden="true" />
               Live
             </span>
             <span
-              className="rounded-full border border-white/15 bg-black/45 px-3 py-1.5 font-mono text-[11px] font-bold tabular-nums text-white backdrop-blur-xl"
+              className="rounded-full border border-white/15 bg-black/45 px-2.5 py-1.5 font-mono text-[11px] font-bold tabular-nums text-white backdrop-blur-xl sm:px-3"
               data-testid="text-live-duration"
               aria-label={`Live for ${formatDuration(durationSeconds)}`}
             >
               {formatDuration(durationSeconds)}
             </span>
             <span
-              className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-black/45 px-3 py-1.5 text-[11px] font-semibold text-white backdrop-blur-xl"
+              className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-black/45 px-2.5 py-1.5 text-[11px] font-semibold text-white backdrop-blur-xl sm:gap-1.5 sm:px-3"
               data-testid="text-live-viewer-count"
               aria-label={`${viewerCount} viewers`}
             >
@@ -304,7 +394,7 @@ export function LiveStreamHud({
         </div>
 
         {isBroadcaster && (
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
             <button
               type="button"
               onClick={onFlipCamera}
@@ -313,7 +403,7 @@ export function LiveStreamHud({
               title={isFrontCamera ? "Switch to rear camera" : "Switch to front camera"}
               disabled={cameraBusy}
               aria-busy={cameraBusy}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-black/50 text-white shadow-lg backdrop-blur-xl transition-transform hover:bg-black/70 active:scale-95 disabled:opacity-60"
+              className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/15 bg-black/50 text-white shadow-lg backdrop-blur-xl transition-transform hover:bg-black/70 active:scale-95 disabled:opacity-60"
             >
               <SwitchCamera
                 className={`h-[18px] w-[18px] ${cameraBusy ? "animate-spin" : ""}`}
@@ -325,7 +415,7 @@ export function LiveStreamHud({
               onClick={onEnd}
               data-testid="button-live-end"
               aria-label="End live broadcast"
-              className="inline-flex h-10 items-center gap-2 rounded-full bg-[#f12e50] px-3.5 text-[11px] font-extrabold uppercase tracking-[0.12em] text-white shadow-lg shadow-[#f12e50]/20 transition-transform hover:bg-[#ff4363] active:scale-95"
+              className="inline-flex h-11 items-center gap-1.5 rounded-full bg-[#f12e50] px-3 text-[10px] font-extrabold uppercase tracking-[0.1em] text-white shadow-lg shadow-[#f12e50]/20 transition-transform hover:bg-[#ff4363] active:scale-95 sm:gap-2 sm:px-3.5 sm:text-[11px] sm:tracking-[0.12em]"
             >
               <X className="h-4 w-4" strokeWidth={2.5} aria-hidden="true" />
               End
@@ -333,6 +423,142 @@ export function LiveStreamHud({
           </div>
         )}
       </header>
+
+      <aside
+        className="absolute right-3 top-[calc(env(safe-area-inset-top,0px)+7.1rem)] z-30 flex flex-col items-center gap-2.5 sm:right-6"
+        aria-label="Live options"
+      >
+        {isBroadcaster && (
+          <div className="relative flex flex-col items-center gap-1">
+            <button
+              type="button"
+              onClick={() => {
+                setBeautyPanelOpen((open) => !open);
+                setMorePanelOpen(false);
+              }}
+              aria-label="Beauty and Face Retouch"
+              aria-expanded={beautyPanelOpen}
+              aria-controls="live-beauty-options"
+              data-testid="button-live-beauty"
+              className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-black/50 text-white shadow-lg backdrop-blur-xl transition-transform hover:bg-black/70 active:scale-95"
+            >
+              <Sparkles className="h-[18px] w-[18px]" aria-hidden="true" />
+            </button>
+            <span className="text-[9px] font-semibold text-white/90">Beauty</span>
+            {beautyPanelOpen && (
+              <div
+                id="live-beauty-options"
+                role="group"
+                aria-label="Face Retouch effects"
+                className="absolute right-[3.75rem] top-0 w-44 rounded-2xl border border-white/15 bg-[#171319]/95 p-3 shadow-2xl backdrop-blur-2xl"
+              >
+                <div className="mb-2 flex items-center gap-1.5">
+                  <Sparkles className="h-3.5 w-3.5 text-fuchsia-300" aria-hidden="true" />
+                  <p className="text-[11px] font-bold text-white">Face Retouch</p>
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {LIVE_BEAUTY_EFFECTS.map((effect) => {
+                    const selected = beautyEffect === effect.id;
+                    return (
+                      <button
+                        key={effect.id}
+                        type="button"
+                        onClick={() => setBeautyEffect(effect.id)}
+                        aria-pressed={selected}
+                        data-testid={`button-live-beauty-${effect.id}`}
+                        className={`flex min-h-9 items-center justify-between gap-1 rounded-xl border px-2 text-[10px] font-semibold transition-colors ${
+                          selected
+                            ? "border-fuchsia-300/50 bg-fuchsia-400/20 text-white"
+                            : "border-white/10 bg-white/5 text-white/75 hover:bg-white/10"
+                        }`}
+                      >
+                        {effect.label}
+                        {selected && (
+                          <Check className="h-3 w-3 shrink-0 text-fuchsia-200" aria-hidden="true" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="flex flex-col items-center gap-1">
+          <button
+            type="button"
+            onClick={() => void shareLive()}
+            aria-label="Share live"
+            data-testid="button-live-share"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-black/50 text-white shadow-lg backdrop-blur-xl transition-transform hover:bg-black/70 active:scale-95"
+          >
+            <Share2 className="h-[18px] w-[18px]" aria-hidden="true" />
+          </button>
+          <span className="text-[9px] font-semibold text-white/90">Share</span>
+        </div>
+
+        <div className="flex flex-col items-center gap-1">
+          <button
+            type="button"
+            onClick={() => void copyLiveLink()}
+            aria-label="Copy live link"
+            data-testid="button-live-copy-link"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-black/50 text-white shadow-lg backdrop-blur-xl transition-transform hover:bg-black/70 active:scale-95"
+          >
+            <Copy className="h-[17px] w-[17px]" aria-hidden="true" />
+          </button>
+          <span className="text-[9px] font-semibold text-white/90">Copy link</span>
+        </div>
+
+        <div className="relative flex flex-col items-center gap-1">
+          <button
+            type="button"
+            onClick={() => {
+              setMorePanelOpen((open) => !open);
+              setBeautyPanelOpen(false);
+            }}
+            aria-label="More live options"
+            aria-expanded={morePanelOpen}
+            aria-controls="live-more-options"
+            data-testid="button-live-more"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-black/50 text-white shadow-lg backdrop-blur-xl transition-transform hover:bg-black/70 active:scale-95"
+          >
+            <MoreHorizontal className="h-[19px] w-[19px]" aria-hidden="true" />
+          </button>
+          <span className="text-[9px] font-semibold text-white/90">More</span>
+          {morePanelOpen && (
+            <div
+              id="live-more-options"
+              role="menu"
+              aria-label="More live options"
+              className="absolute right-0 top-[3.5rem] w-48 rounded-2xl border border-white/15 bg-[#171319]/95 p-2 shadow-2xl backdrop-blur-2xl"
+            >
+              <p className="px-2.5 pb-1.5 pt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-white/50">
+                Live options
+              </p>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => void shareLive()}
+                className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-xs font-medium text-white/90 hover:bg-white/10"
+              >
+                <Share2 className="h-4 w-4 text-white/65" aria-hidden="true" />
+                Share this live
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => void copyLiveLink()}
+                className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-xs font-medium text-white/90 hover:bg-white/10"
+              >
+                <Copy className="h-4 w-4 text-white/65" aria-hidden="true" />
+                Copy live link
+              </button>
+            </div>
+          )}
+        </div>
+      </aside>
 
       <div className="pointer-events-none absolute bottom-[calc(env(safe-area-inset-bottom,0px)+5.75rem)] left-0 right-0 flex justify-end px-4 sm:px-6">
         <div className="relative h-52 w-full max-w-sm">
@@ -354,7 +580,7 @@ export function LiveStreamHud({
 
       <div
         ref={commentsRef}
-        className="absolute bottom-[calc(env(safe-area-inset-bottom,0px)+5.1rem)] left-0 z-10 flex max-h-[38dvh] w-[min(90vw,29rem)] flex-col gap-2 overflow-y-auto overscroll-contain px-4 pb-2 pt-8 [scrollbar-width:none] sm:px-6 [&::-webkit-scrollbar]:hidden"
+        className="absolute bottom-[calc(env(safe-area-inset-bottom,0px)+5.1rem)] left-0 z-10 flex max-h-[38dvh] w-[min(calc(100vw-5.5rem),29rem)] flex-col gap-2 overflow-y-auto overscroll-contain px-3 pb-2 pt-8 [scrollbar-width:none] sm:px-6 [&::-webkit-scrollbar]:hidden"
         aria-live="polite"
         data-testid="list-live-comments"
       >
@@ -391,7 +617,7 @@ export function LiveStreamHud({
       </div>
 
       <form
-        className="absolute inset-x-0 bottom-0 z-20 flex items-center gap-2 px-4 pb-[calc(env(safe-area-inset-bottom,0px)+0.8rem)] pt-3 sm:px-6"
+        className="absolute inset-x-0 bottom-0 z-20 flex items-center gap-2 px-3 pb-[calc(env(safe-area-inset-bottom,0px)+0.8rem)] pt-3 sm:px-6"
         onSubmit={(event) => {
           event.preventDefault();
           if (commentText.trim()) onSendComment();
@@ -433,11 +659,21 @@ export function LiveStreamHud({
           onClick={onReact}
           data-testid="button-live-react"
           aria-label="Send a heart reaction"
-          className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#ff5578]/35 bg-[#ff5578]/15 text-[#ff7793] backdrop-blur-xl transition-transform hover:bg-[#ff5578]/25 active:scale-95"
+          className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-[#ff5578]/35 bg-[#ff5578]/15 text-[#ff7793] backdrop-blur-xl transition-transform hover:bg-[#ff5578]/25 active:scale-95"
         >
           <Heart className="h-[19px] w-[19px] fill-current" aria-hidden="true" />
         </button>
       </form>
+
+      {actionToast && (
+        <div
+          className="absolute bottom-[calc(env(safe-area-inset-bottom,0px)+4.8rem)] left-1/2 z-40 -translate-x-1/2 rounded-full border border-white/15 bg-black/75 px-3.5 py-2 text-xs font-medium text-white shadow-xl backdrop-blur-xl"
+          role="status"
+          aria-live="polite"
+        >
+          {actionToast}
+        </div>
+      )}
     </section>
   );
 }
