@@ -1470,8 +1470,9 @@ function Panel({
         aria-label={title}
         className="relative h-auto max-h-[85vh] w-full shrink-0 overflow-y-auto overscroll-contain rounded-t-3xl border border-border bg-card p-4 text-card-foreground animate-in slide-in-from-bottom duration-200 sm:max-w-md sm:rounded-3xl"
         style={{
-          maxHeight: "85dvh",
-          paddingBottom: "calc(28px + env(safe-area-inset-bottom, 0px))",
+          maxHeight: "85vh",
+          overflowY: "auto",
+          WebkitOverflowScrolling: "touch",
         }}
       >
         <div className="mb-3 flex items-center justify-between">
@@ -1484,7 +1485,12 @@ function Panel({
             {backLabel ? <ArrowLeft size={18} /> : <X size={18} />}
           </button>
         </div>
-        <div className="space-y-1">{children}</div>
+        <div
+          className="space-y-1"
+          style={{ paddingBottom: "calc(96px + env(safe-area-inset-bottom, 0px))" }}
+        >
+          {children}
+        </div>
       </div>
     </div>
   );
