@@ -131,6 +131,22 @@ test("Front camera keeps flash available as a screen-flash fallback", () => {
   assert.doesNotMatch(flashButton, /\sdisabled(?:=|\s|>)/);
 });
 
+test("Rear flash can be attempted even when Android does not report torch capabilities", () => {
+  const props = {
+    ...makeProps("broadcaster"),
+    cameraTrack: {
+      getCapabilities: () => ({ torch: false }),
+      applyConstraints: async () => {},
+    } as unknown as MediaStreamTrack,
+    isFrontCamera: false,
+  };
+  const markup = renderToStaticMarkup(createElement(LiveStreamHud, props));
+  const flashButton = markup.match(/<button[^>]*data-testid="button-live-flash"[^>]*>/)?.[0];
+  assert.ok(flashButton);
+  assert.doesNotMatch(flashButton, /\sdisabled(?:=|\s|>)/);
+  assert.match(flashButton, /title="Tap to try the rear camera flash"/);
+});
+
 test("Viewers get share options without broadcaster-only beauty or camera controls", () => {
   const markup = renderToStaticMarkup(
     createElement(LiveStreamHud, makeProps("viewer")),

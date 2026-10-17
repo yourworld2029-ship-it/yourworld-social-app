@@ -314,8 +314,8 @@ function LiveRoomSession({
     mode: isBroadcaster ? "broadcaster" : "viewer",
     userId,
     isGuestViewer,
-    username: isBroadcaster ? username : room.username,
-    avatarUrl: isBroadcaster ? avatarUrl : room.avatarUrl,
+    username: isGuestViewer ? "Guest" : username,
+    avatarUrl: isGuestViewer ? null : avatarUrl,
     localStream: isBroadcaster ? outgoingStream ?? localStream : null,
   });
 

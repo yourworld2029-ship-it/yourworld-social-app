@@ -173,6 +173,7 @@ export function LiveStreamHud({
   const [viewerListOpen, setViewerListOpen] = useState(false);
   const flashOnRef = useRef(false);
   const flashCommandRef = useRef(0);
+  const frontFlashTimeoutRef = useRef<number | null>(null);
   const [beautyPanelOpen, setBeautyPanelOpen] = useState(false);
   const [actionToast, setActionToast] = useState<string | null>(null);
   const actionToastTimeout = useRef<number | null>(null);
@@ -252,13 +253,14 @@ export function LiveStreamHud({
       return;
     }
     if (isFrontCamera) {
-      setFrontScreenFlashOn((enabled) => !enabled);
-      return;
-    }
-    if (!flashAvailable) {
-      showActionToast(
-        "Flash is unavailable on this camera",
-      );
+      if (frontFlashTimeoutRef.current !== null) {
+        window.clearTimeout(frontFlashTimeoutRef.current);
+      }
+      setFrontScreenFlashOn(true);
+      frontFlashTimeoutRef.current = window.setTimeout(() => {
+        setFrontScreenFlashOn(false);
+        frontFlashTimeoutRef.current = null;
+      }, 180);
       return;
     }
     const nextFlashOn = !flashOnRef.current;
@@ -315,6 +317,10 @@ export function LiveStreamHud({
     flashCommandRef.current += 1;
     flashOnRef.current = false;
     setFlashOn(false);
+    if (frontFlashTimeoutRef.current !== null) {
+      window.clearTimeout(frontFlashTimeoutRef.current);
+      frontFlashTimeoutRef.current = null;
+    }
     setFrontScreenFlashOn(false);
     if (!cameraTrack || isFrontCamera) {
       setFlashAvailable(false);
@@ -329,6 +335,10 @@ export function LiveStreamHud({
     return () => {
       cancelled = true;
       flashCommandRef.current += 1;
+      if (frontFlashTimeoutRef.current !== null) {
+        window.clearTimeout(frontFlashTimeoutRef.current);
+        frontFlashTimeoutRef.current = null;
+      }
       if (flashOnRef.current) {
         void cameraTrack
           .applyConstraints({
@@ -561,7 +571,7 @@ export function LiveStreamHud({
       {isBroadcaster && isFrontCamera && frontScreenFlashOn && (
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0 z-10 bg-white"
+          className="pointer-events-none absolute inset-0 z-10 bg-white/35"
           data-testid="overlay-live-front-screen-flash"
         />
       )}
@@ -822,9 +832,9 @@ export function LiveStreamHud({
                     ? "Front camera screen flash"
                     : flashAvailable
                       ? undefined
-                      : "Flash is not available on this camera"
+                      : "Tap to try the rear camera flash"
                 }
-                disabled={!cameraTrack || (!isFrontCamera && !flashAvailable)}
+                disabled={!cameraTrack}
                 data-testid="button-live-flash"
                 className={`inline-flex h-11 w-11 items-center justify-center rounded-full border shadow-lg backdrop-blur-xl transition-transform active:scale-95 disabled:cursor-not-allowed disabled:opacity-45 ${
                   (isFrontCamera ? frontScreenFlashOn : flashOn)
