@@ -208,7 +208,7 @@ function SearchPage() {
     <main className="grain relative min-h-screen pb-28">
       <div aria-hidden className="ambient-canvas" />
 
-      <header className="header-lux sticky top-0 z-40 px-4 pb-3 pt-3">
+      <header className="header-lux sticky top-0 z-40 px-4 pb-3 pt-[max(env(safe-area-inset-top,0px),3rem)]">
         <h1 className="mb-3 font-ui text-[18px] font-semibold leading-none tracking-[-0.03em] text-foreground">
           Search
         </h1>
@@ -239,21 +239,30 @@ function SearchPage() {
         </div>
 
         {hasQuery && (
-          <div className="mt-3 flex gap-1 overflow-x-auto no-scrollbar">
+          <div className="mt-3 flex gap-1.5 overflow-x-auto no-scrollbar pb-1">
             {tabs.map((item) => (
               <button
                 key={item.id}
                 onClick={() => setTab(item.id)}
                 className={cn(
-                  "flex shrink-0 items-center gap-1.5 rounded-[10px] px-3 py-1.5 font-ui text-[12px] font-medium transition-all duration-200",
+                  "flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 font-ui text-[12px] font-medium transition-all duration-200 active:scale-[0.97]",
                   tab === item.id
-                    ? "bg-[color-mix(in_oklab,var(--foreground)_12%,transparent)] text-foreground"
-                    : "text-muted-foreground",
+                    ? "border-transparent bg-gradient-to-r from-fuchsia-500 via-violet-500 to-indigo-500 text-white shadow-[0_3px_14px_rgba(168,85,247,0.28)]"
+                    : "border-white/10 bg-white/[0.035] text-muted-foreground/85 hover:border-white/20 hover:bg-white/[0.08]",
                 )}
               >
                 {item.id === "tags" && <Hash className="h-3 w-3" strokeWidth={2.2} />}
                 {item.label}
-                <span className="text-[10px] opacity-60">{counts[item.id]}</span>
+                <span
+                  className={cn(
+                    "rounded-full px-1.5 py-0.5 text-[10px] tabular-nums",
+                    tab === item.id
+                      ? "bg-black/15 text-white/85"
+                      : "bg-white/[0.06] text-muted-foreground/70",
+                  )}
+                >
+                  {counts[item.id]}
+                </span>
               </button>
             ))}
           </div>
