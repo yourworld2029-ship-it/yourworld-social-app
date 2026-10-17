@@ -131,6 +131,22 @@ test("Front camera keeps flash available as a screen-flash fallback", () => {
   assert.doesNotMatch(flashButton, /\sdisabled(?:=|\s|>)/);
 });
 
+test("Front screen flash starts hidden and uses a soft opacity transition", () => {
+  const props = {
+    ...makeProps("broadcaster"),
+    cameraTrack: { getCapabilities: () => ({}) } as unknown as MediaStreamTrack,
+    isFrontCamera: true,
+  };
+  const markup = renderToStaticMarkup(createElement(LiveStreamHud, props));
+  const flashOverlay = markup.match(/<div[^>]*data-testid="overlay-live-front-screen-flash"[^>]*>/)?.[0];
+
+  assert.ok(flashOverlay);
+  assert.match(flashOverlay, /bg-white\/25/);
+  assert.match(flashOverlay, /transition-opacity/);
+  assert.match(flashOverlay, /duration-150/);
+  assert.match(flashOverlay, /opacity-0/);
+});
+
 test("Rear flash can be attempted even when Android does not report torch capabilities", () => {
   const props = {
     ...makeProps("broadcaster"),

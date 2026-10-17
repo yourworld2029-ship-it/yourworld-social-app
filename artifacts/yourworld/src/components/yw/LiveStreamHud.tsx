@@ -260,7 +260,7 @@ export function LiveStreamHud({
       frontFlashTimeoutRef.current = window.setTimeout(() => {
         setFrontScreenFlashOn(false);
         frontFlashTimeoutRef.current = null;
-      }, 180);
+      }, 220);
       return;
     }
     const nextFlashOn = !flashOnRef.current;
@@ -568,10 +568,12 @@ export function LiveStreamHud({
 
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_bottom,rgba(8,5,9,0.72),transparent_26%,transparent_52%,rgba(8,5,9,0.88))]" />
 
-      {isBroadcaster && isFrontCamera && frontScreenFlashOn && (
+      {isBroadcaster && isFrontCamera && (
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0 z-10 bg-white/35"
+          className={`pointer-events-none absolute inset-0 z-10 bg-white/25 transition-opacity duration-150 ease-out ${
+            frontScreenFlashOn ? "opacity-100" : "opacity-0"
+          }`}
           data-testid="overlay-live-front-screen-flash"
         />
       )}
