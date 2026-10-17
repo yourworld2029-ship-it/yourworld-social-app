@@ -188,7 +188,7 @@ function NotificationsPage() {
   return (
     <main className="min-h-screen bg-zinc-950 pb-[calc(env(safe-area-inset-bottom,0px)+5.25rem)] text-white">
       <header className="sticky top-0 z-40 border-b border-white/[0.07] bg-zinc-950/95 backdrop-blur-xl">
-        <div className="flex items-center gap-2 px-4 pb-2 pt-[max(env(safe-area-inset-top,0px),3rem)]">
+        <div className="flex items-center gap-2 px-4 pb-1.5 pt-[max(env(safe-area-inset-top,0px),2rem)]">
           <Link
             to="/"
             onClick={historyBackLink}
@@ -218,7 +218,7 @@ function NotificationsPage() {
           </button>
         </div>
 
-        <div className="no-scrollbar flex min-w-0 gap-2 overflow-x-auto px-4 pb-3 pt-2">
+        <div className="no-scrollbar flex min-w-0 gap-1.5 overflow-x-auto px-4 pb-2 pt-1">
           <Chip active={filter === "all"} onClick={() => setFilter("all")} label="All" />
           <Chip
             active={filter === "following"}
@@ -316,7 +316,7 @@ function NotificationsPage() {
         </section>
       )}
 
-      <section aria-label="Activity" className="px-4 pt-3">
+      <section aria-label="Activity" className="px-4 pt-2">
         {list.length === 0 ? (
           <div className="mx-auto flex max-w-sm flex-col items-center px-5 py-20 text-center">
             <span className="mb-4 grid h-14 w-14 place-items-center rounded-full border border-white/[0.08] bg-white/[0.04] text-zinc-500">
@@ -336,10 +336,10 @@ function NotificationsPage() {
             </p>
           </div>
         ) : (
-        <div className="space-y-7">
+          <div className="space-y-5">
             {groupedItems.map((group) => (
               <section key={group.label} aria-label={group.label}>
-                <h2 className="mb-1 px-1 text-sm font-semibold text-zinc-300">
+                <h2 className="mb-1 px-1 text-[12px] font-semibold text-zinc-300">
                   {group.label}
                 </h2>
                 <ul className="divide-y divide-white/[0.07]">
@@ -395,36 +395,36 @@ function NotificationRow({
     <li
       data-testid={`row-notification-${item.id}`}
       className={cn(
-        "group flex min-h-[76px] items-center gap-3 px-1 py-3 transition-colors hover:bg-white/[0.025] active:bg-white/[0.04]",
+        "group flex min-h-[68px] items-center gap-2.5 px-1 py-2 transition-colors hover:bg-white/[0.025] active:bg-white/[0.04]",
       )}
     >
       <button
         type="button"
         onClick={onOpen}
         data-testid={`button-open-notification-${item.id}`}
-        className="flex min-w-0 flex-1 items-center gap-3 rounded-xl py-1 text-left"
+        className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl py-0.5 text-left"
       >
         <NotificationAvatar item={item} Icon={Icon} />
         <span className="min-w-0 flex-1">
             <span className="block min-w-0">
-              <span className="text-sm leading-[1.35] text-zinc-300">
+              <span className="text-[13px] leading-[1.3] text-zinc-300">
               {item.actorName && item.activity ? (
                 <>
                   <span className="font-semibold text-white">{item.actorName}</span>
                   {item.actorId ? <SportsIdentityMark userId={item.actorId} /> : null}{" "}
                   <span className="text-zinc-300">{item.activity}</span>
-                    <span className="ml-1 whitespace-nowrap text-[11px] text-zinc-500">{timeAgo(item.at)}</span>
+                    <span className="ml-1 whitespace-nowrap text-[10px] text-zinc-500">{timeAgo(item.at)}</span>
                 </>
               ) : (
                   <>
                     <span className={cn("font-medium", !item.read && "text-white")}>{item.title}</span>
-                    <span className="ml-1 whitespace-nowrap text-[11px] text-zinc-500">{timeAgo(item.at)}</span>
+                    <span className="ml-1 whitespace-nowrap text-[10px] text-zinc-500">{timeAgo(item.at)}</span>
                   </>
               )}
             </span>
           </span>
           {item.body && (
-            <span className="mt-1 block truncate text-xs leading-relaxed text-zinc-500">
+            <span className="mt-0.5 block truncate text-[11px] leading-[1.35] text-zinc-500">
               {item.body}
             </span>
           )}
@@ -451,7 +451,7 @@ function NotificationRow({
       ) : item.thumbnailUrl ? (
         <span
           data-testid={`img-notification-thumbnail-${item.id}`}
-          className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-white/[0.06]"
+          className="relative h-10 w-10 shrink-0 overflow-hidden rounded-[10px] bg-white/[0.06]"
         >
           <img
             src={item.thumbnailUrl}
@@ -500,14 +500,14 @@ function NotificationAvatar({
   const urls = item.actorAvatarUrls?.length ? item.actorAvatarUrls.slice(0, 3) : [null];
   return (
     <span
-      className={cn("relative h-14 shrink-0", urls.length > 1 ? "w-[5.25rem]" : "w-12")}
+      className={cn("relative h-12 shrink-0", urls.length > 1 ? "w-[4.25rem]" : "w-10")}
       aria-hidden="true"
     >
       {urls.map((url, index) => (
         <span
           key={`${item.id}-avatar-${index}`}
-          className="absolute top-0.5 grid h-12 w-12 place-items-center overflow-hidden rounded-full border-2 border-zinc-950 bg-zinc-800 text-xs font-semibold text-zinc-200"
-          style={{ left: `${urls.length > 1 ? index * 18 : 0}px`, zIndex: index + 1 }}
+          className="absolute top-0.5 grid h-10 w-10 place-items-center overflow-hidden rounded-full border-2 border-zinc-950 bg-zinc-800 text-xs font-semibold text-zinc-200"
+          style={{ left: `${urls.length > 1 ? index * 14 : 0}px`, zIndex: index + 1 }}
         >
           {item.actorId ? (
             <UserRound className="h-[1.15rem] w-[1.15rem] text-zinc-400" strokeWidth={1.75} />
@@ -550,7 +550,7 @@ function Chip({
       aria-pressed={active}
       data-testid={`chip-notification-${label.toLowerCase().replace(/\s+/g, "-")}`}
       className={cn(
-        "shrink-0 whitespace-nowrap rounded-full px-4 py-2.5 text-xs font-medium transition-colors active:scale-[0.98]",
+        "shrink-0 whitespace-nowrap rounded-full px-3 py-2 text-[11px] font-medium transition-colors active:scale-[0.98]",
         active
           ? "border border-white/[0.16] bg-white/[0.13] text-white"
           : "border border-white/[0.08] bg-white/[0.035] text-zinc-400 hover:bg-white/[0.08] hover:text-zinc-200",
