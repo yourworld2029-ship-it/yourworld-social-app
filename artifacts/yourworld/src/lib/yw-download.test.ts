@@ -24,18 +24,21 @@ test("Reel watermark text uses the creator handle exactly once", () => {
   assert.equal(reelWatermarkText(""), "YourWorld | @user");
 });
 
-test("Reel watermark stays at a consistent Instagram-style lower-left position", () => {
+test("Reel watermark shifts position periodically to make cropping harder", () => {
   assert.equal(reelWatermarkCornerForTime(0, 16), "bottom-left");
-  assert.equal(reelWatermarkCornerForTime(7.9, 16), "bottom-left");
-  assert.equal(reelWatermarkCornerForTime(8, 16), "bottom-left");
-  assert.equal(reelWatermarkCornerForTime(15.9, 16), "bottom-left");
+  assert.equal(reelWatermarkCornerForTime(5.9, 24), "bottom-left");
+  assert.equal(reelWatermarkCornerForTime(6, 24), "top-right");
+  assert.equal(reelWatermarkCornerForTime(12, 24), "bottom-right");
+  assert.equal(reelWatermarkCornerForTime(18, 24), "top-left");
+  assert.equal(reelWatermarkCornerForTime(24, 24), "bottom-left");
   assert.equal(reelWatermarkCornerForTime(4, 0), "bottom-left");
+  assert.equal(reelWatermarkCornerForTime(-3, 16), "bottom-left");
 });
 
-test("Reel watermark sits well above the lower edge at each video size", () => {
-  assert.equal(reelWatermarkBottomInset(1920, 43), 173);
-  assert.equal(reelWatermarkBottomInset(720, 43), 65);
-  assert.equal(reelWatermarkBottomInset(240, 28), 28);
+test("Reel watermark stays well inside each video edge", () => {
+  assert.equal(reelWatermarkBottomInset(1920, 43), 346);
+  assert.equal(reelWatermarkBottomInset(720, 43), 130);
+  assert.equal(reelWatermarkBottomInset(240, 43), 43);
 });
 
 test("Reel export rejects a short stream instead of saving a truncated video", () => {

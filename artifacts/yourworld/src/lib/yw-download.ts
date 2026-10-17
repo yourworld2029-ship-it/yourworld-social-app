@@ -944,14 +944,15 @@ export function reelWatermarkText(creatorUsername: string) {
 export function reelWatermarkCornerForTime(
   currentTime: number,
   duration: number,
-): "bottom-left" {
-  void currentTime;
+): "bottom-left" | "top-right" | "bottom-right" | "top-left" {
   void duration;
-  return "bottom-left";
+  const corners = ["bottom-left", "top-right", "bottom-right", "top-left"] as const;
+  const safeTime = Number.isFinite(currentTime) ? Math.max(0, currentTime) : 0;
+  return corners[Math.floor(safeTime / 6) % corners.length];
 }
 
 export function reelWatermarkBottomInset(videoHeight: number, safeMargin: number) {
-  return Math.max(safeMargin, Math.round(videoHeight * 0.09));
+  return Math.max(safeMargin, Math.round(videoHeight * 0.18));
 }
 
 async function loadReelWatermarkIcon() {
@@ -1103,7 +1104,7 @@ async function renderWatermarkedVideo(
         ? safeMargin
         : canvas.width - safeMargin - pillWidth;
       const top = corner.startsWith("top")
-        ? safeMargin
+        ? bottomInset
         : canvas.height - bottomInset - pillHeight;
       const radius = pillHeight / 2;
       context.beginPath();
