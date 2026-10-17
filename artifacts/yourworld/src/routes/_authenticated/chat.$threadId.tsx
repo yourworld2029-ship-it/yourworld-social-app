@@ -2803,6 +2803,14 @@ function NativeChatThreadPage() {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
+    if (
+      file.type.startsWith("video/") ||
+      /\.(mp4|mov|m4v|webm|3gp|mkv)$/i.test(file.name)
+    ) {
+      setCaption("");
+      setRecordedVideo({ file, url: URL.createObjectURL(file) });
+      return;
+    }
     await prepareImageFile(file);
   };
 
@@ -2990,9 +2998,26 @@ function NativeChatThreadPage() {
     setRecordedVideo(null);
     setCaption("");
     try {
-      const mimeType = file.type || "video/webm";
-      const extension = mimeType.toLowerCase().includes("mp4") ? "mp4" : "webm";
-      const path = `${currentUserId}/${threadId}/camera-${Date.now()}.${extension}`;
+      const filenameExtension = file.name.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase();
+      const videoFormats: Record<string, { mimeType: string; extension: string }> = {
+        mp4: { mimeType: "video/mp4", extension: "mp4" },
+        mov: { mimeType: "video/quicktime", extension: "mov" },
+        m4v: { mimeType: "video/x-m4v", extension: "m4v" },
+        webm: { mimeType: "video/webm", extension: "webm" },
+        "3gp": { mimeType: "video/3gpp", extension: "3gp" },
+        mkv: { mimeType: "video/x-matroska", extension: "mkv" },
+      };
+      const inferredFormat = filenameExtension ? videoFormats[filenameExtension] : undefined;
+      const mimeType = file.type.startsWith("video/")
+        ? file.type
+        : inferredFormat?.mimeType ?? "video/mp4";
+      const extension = inferredFormat?.extension ??
+        (mimeType.toLowerCase().includes("quicktime")
+          ? "mov"
+          : mimeType.toLowerCase().includes("webm")
+            ? "webm"
+            : "mp4");
+      const path = `${currentUserId}/${threadId}/video-${Date.now()}.${extension}`;
       const uploaded = await uploadWithProgress(
         STORAGE_BUCKETS.messages,
         path,
@@ -3142,7 +3167,7 @@ function NativeChatThreadPage() {
       data-testid="chat-screen"
       className="fixed inset-0 z-50 flex h-[100dvh] max-h-[100dvh] w-screen flex-col overflow-hidden bg-black font-sans text-white"
     >
-      <input type="file" ref={fileInputRef} accept="image/*" className="hidden" onChange={handleImageSelect} />
+      <input type="file" ref={fileInputRef} accept="image/*,video/*" className="hidden" onChange={handleImageSelect} />
       {/* TOP HEADER */}
       <div
         data-testid="chat-header"
@@ -4101,13 +4126,12 @@ function NativeChatThreadPage() {
           <>
             <button
               type="button"
-              aria-label="Upload photo"
+              aria-label="Choose photo or video"
               title="Gallery"
               onClick={() => fileInputRef.current?.click()}
-              className="flex shrink-0 items-center gap-1.5 rounded-full px-2 py-2 text-xs font-medium text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
+              className="shrink-0 rounded-full p-2 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
             >
               <ImageIcon size={22} />
-              <span>Photo</span>
             </button>
             <button
               type="button"
@@ -4124,7 +4148,7 @@ function NativeChatThreadPage() {
                 type="button"
                 aria-label="Open camera"
                 title="Camera"
-                className="mr-2 grid h-9 w-9 shrink-0 place-items-center rounded-full bg-blue-600 text-white"
+                className="mr-1 grid h-9 w-9 shrink-0 place-items-center rounded-full bg-blue-600 text-white"
                 onClick={() => setCameraOpen(true)}
               >
                 <Camera size={18} />
@@ -4614,7 +4638,7 @@ function NativeChatThreadPage() {
         </span>
         <button
           type="button"
-          aria-label="Send recorded video"
+          aria-label="Send video"
           disabled={isSendingCameraVideo}
           onPointerDown={(event) => {
             if (event.button !== 0) return;
