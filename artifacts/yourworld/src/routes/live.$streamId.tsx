@@ -627,6 +627,8 @@ function LiveRoomSession({
         broadcasterAvatarUrl={room.avatarUrl}
         durationSeconds={durationSeconds}
         viewerCount={liveRoom.viewerCount}
+        viewers={liveRoom.viewers}
+        latestJoinedViewer={liveRoom.latestJoinedViewer}
         isFrontCamera={facingMode === "user"}
         cameraBusy={cameraBusy}
         comments={liveRoom.comments}
@@ -639,6 +641,10 @@ function LiveRoomSession({
           void changeCamera(facingMode === "user" ? "environment" : "user")
         }
         onEnd={() => setShowEndConfirmation(true)}
+        onLeave={() => {
+          liveRoom.closeRoom();
+          historyBackOr(() => void navigate({ to: "/" }));
+        }}
         onReact={liveRoom.sendReaction}
         onBeautySettingsChange={(settings) =>
           applyLiveBeautySettings(localStreamRef.current, settings)

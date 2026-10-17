@@ -15,6 +15,7 @@ import {
 import type {
   LiveStreamComment,
   LiveStreamReaction,
+  LiveStreamViewer,
 } from "@/components/yw/LiveStreamHud";
 
 type RoomMode = "broadcaster" | "viewer";
@@ -102,8 +103,13 @@ export function useLiveRoom({
   const peakViewerCountRef = useRef(0);
   const isEndedRef = useRef(false);
   const seenCommentsRef = useRef(new Set<string>());
+  const knownViewerPeerIdsRef = useRef(new Set<string>());
+  const viewerPresenceInitializedRef = useRef(false);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [viewerCount, setViewerCount] = useState(0);
+  const [viewers, setViewers] = useState<LiveStreamViewer[]>([]);
+  const [latestJoinedViewer, setLatestJoinedViewer] =
+    useState<LiveStreamViewer | null>(null);
   const [peakViewerCount, setPeakViewerCount] = useState(0);
   const [comments, setComments] = useState<LiveCommentRow[]>([]);
   const [profiles, setProfiles] = useState<Map<string, LiveProfile>>(
@@ -554,6 +560,25 @@ export function useLiveRoom({
       );
       const nextCount = viewers.size;
       setViewerCount(nextCount);
+      const viewerList = [...viewers.values()].map((meta) => ({
+        peerId: meta.peer_id,
+        userId: meta.user_id,
+        username: meta.username || "YourWorld user",
+        avatarUrl: meta.avatar_url ?? null,
+      }));
+      setViewers(viewerList);
+
+      const currentPeerIds = new Set(viewerList.map((viewer) => viewer.peerId));
+      if (viewerPresenceInitializedRef.current) {
+        const newlyJoined = viewerList.filter(
+          (viewer) => !knownViewerPeerIdsRef.current.has(viewer.peerId),
+        );
+        const latestJoin = newlyJoined[newlyJoined.length - 1];
+        if (latestJoin) setLatestJoinedViewer(latestJoin);
+      } else {
+        viewerPresenceInitializedRef.current = true;
+      }
+      knownViewerPeerIdsRef.current = currentPeerIds;
 
       if (mode === "broadcaster") {
         if (nextCount > peakViewerCountRef.current) {
@@ -804,6 +829,8 @@ export function useLiveRoom({
     connected,
     mediaConnected,
     viewerCount,
+    viewers,
+    latestJoinedViewer,
     peakViewerCount,
     remoteStream,
     replaceLocalStream,

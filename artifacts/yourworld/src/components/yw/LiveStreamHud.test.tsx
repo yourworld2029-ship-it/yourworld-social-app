@@ -23,6 +23,13 @@ function makeProps(mode: LiveStreamHudProps["mode"]): LiveStreamHudProps {
     broadcasterAvatarUrl: null,
     durationSeconds: 15,
     viewerCount: 12,
+    viewers: [{
+      peerId: "peer-viewer-1",
+      userId: "viewer-1",
+      username: "malwashab",
+      avatarUrl: null,
+    }],
+    latestJoinedViewer: null,
     isFrontCamera: true,
     cameraBusy: false,
     comments: [],
@@ -33,6 +40,7 @@ function makeProps(mode: LiveStreamHudProps["mode"]): LiveStreamHudProps {
     onSendComment: () => {},
     onFlipCamera: () => {},
     onEnd: () => {},
+    onLeave: () => {},
     onReact: () => {},
     onBeautySettingsChange: async () => true,
   };
@@ -72,6 +80,8 @@ test("Broadcaster live HUD renders camera, mute, flash, beauty, comment, send, a
     assert.match(markup, new RegExp(`data-testid="${testId}"`));
   }
   assert.doesNotMatch(markup, /button-live-more/);
+  assert.match(markup, /aria-haspopup="dialog"/);
+  assert.doesNotMatch(markup, /button-live-leave/);
   assert.match(markup, /max\(env\(safe-area-inset-top,0px\),2\.25rem\)/);
 });
 
@@ -134,4 +144,5 @@ test("Viewers get share options without broadcaster-only beauty or camera contro
   assert.doesNotMatch(markup, /data-testid="button-live-beauty"/);
   assert.doesNotMatch(markup, /data-testid="button-live-flip-camera"/);
   assert.doesNotMatch(markup, /data-testid="button-live-end"/);
+  assert.match(markup, /data-testid="button-live-leave"/);
 });

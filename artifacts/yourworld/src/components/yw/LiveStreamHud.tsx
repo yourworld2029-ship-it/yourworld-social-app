@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Check,
   Copy,
@@ -35,6 +35,13 @@ export type LiveStreamReaction = {
   id: string;
 };
 
+export type LiveStreamViewer = {
+  peerId: string;
+  userId: string;
+  username: string;
+  avatarUrl: string | null;
+};
+
 export type LiveStreamHudProps = {
   mode: LiveStreamHudMode;
   stream: MediaStream | null;
@@ -45,6 +52,8 @@ export type LiveStreamHudProps = {
   broadcasterAvatarUrl: string | null;
   durationSeconds: number;
   viewerCount: number;
+  viewers: LiveStreamViewer[];
+  latestJoinedViewer: LiveStreamViewer | null;
   isFrontCamera: boolean;
   cameraBusy: boolean;
   comments: LiveStreamComment[];
@@ -55,6 +64,7 @@ export type LiveStreamHudProps = {
   onSendComment: () => void;
   onFlipCamera: () => void;
   onEnd: () => void;
+  onLeave: () => void;
   onReact: () => void;
   onBeautySettingsChange: (settings: LiveBeautySettings) => Promise<boolean>;
 };
@@ -130,6 +140,8 @@ export function LiveStreamHud({
   broadcasterAvatarUrl,
   durationSeconds,
   viewerCount,
+  viewers,
+  latestJoinedViewer,
   isFrontCamera,
   cameraBusy,
   comments,
@@ -140,6 +152,7 @@ export function LiveStreamHud({
   onSendComment,
   onFlipCamera,
   onEnd,
+  onLeave,
   onReact,
   onBeautySettingsChange,
 }: LiveStreamHudProps) {
@@ -157,16 +170,19 @@ export function LiveStreamHud({
   const [frontScreenFlashOn, setFrontScreenFlashOn] = useState(false);
   const [shareSheetMounted, setShareSheetMounted] = useState(false);
   const [shareSheetOpen, setShareSheetOpen] = useState(false);
+  const [viewerListOpen, setViewerListOpen] = useState(false);
   const flashOnRef = useRef(false);
   const flashCommandRef = useRef(0);
   const [beautyPanelOpen, setBeautyPanelOpen] = useState(false);
   const [actionToast, setActionToast] = useState<string | null>(null);
   const actionToastTimeout = useRef<number | null>(null);
   const latestCommentId = comments[comments.length - 1]?.id;
+  const latestJoinedViewerId = latestJoinedViewer?.peerId;
+  const latestJoinedViewerName = latestJoinedViewer?.username;
   const isBroadcaster = mode === "broadcaster";
   const mirrorPreview = isBroadcaster && isFrontCamera;
 
-  const showActionToast = (message: string) => {
+  const showActionToast = useCallback((message: string) => {
     if (actionToastTimeout.current !== null) {
       window.clearTimeout(actionToastTimeout.current);
     }
@@ -175,7 +191,12 @@ export function LiveStreamHud({
       setActionToast(null);
       actionToastTimeout.current = null;
     }, 2200);
-  };
+  }, []);
+
+  useEffect(() => {
+    if (!latestJoinedViewerId || !latestJoinedViewerName) return;
+    showActionToast(`${latestJoinedViewerName} joined now`);
+  }, [latestJoinedViewerId, latestJoinedViewerName, showActionToast]);
 
   const copyLiveLink = async () => {
     try {
@@ -437,6 +458,73 @@ export function LiveStreamHud({
         />
       )}
 
+      {viewerListOpen && (
+        <div
+          className="absolute inset-0 z-[110] flex items-end justify-center bg-black/65 p-3 backdrop-blur-sm sm:items-center"
+          onClick={() => setViewerListOpen(false)}
+          data-testid="dialog-live-viewers-overlay"
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="live-viewers-title"
+            className="max-h-[75dvh] w-full max-w-md overflow-hidden rounded-3xl border border-white/12 bg-[#141116] shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+              <div>
+                <h2 id="live-viewers-title" className="text-base font-bold text-white">
+                  Viewers
+                </h2>
+                <p className="mt-0.5 text-xs text-white/55">
+                  {viewerCount} {viewerCount === 1 ? "person is" : "people are"} watching
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewerListOpen(false)}
+                aria-label="Close viewers"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/8 text-white/80 hover:bg-white/15"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </header>
+            <div className="max-h-[calc(75dvh-5rem)] overflow-y-auto p-3">
+              {viewers.length === 0 ? (
+                <p className="px-3 py-8 text-center text-sm text-white/55">
+                  No viewers have joined yet.
+                </p>
+              ) : (
+                <ul className="space-y-1">
+                  {viewers.map((viewer) => (
+                    <li
+                      key={viewer.peerId}
+                      className="flex items-center gap-3 rounded-2xl px-3 py-2.5"
+                      data-testid={`live-viewer-${viewer.peerId}`}
+                    >
+                      <span className="h-10 w-10 shrink-0 overflow-hidden rounded-full border border-white/15 bg-white/10">
+                        <ProfileAvatar
+                          user={{
+                            username: viewer.username,
+                            avatar_url: viewer.avatarUrl,
+                          }}
+                        />
+                      </span>
+                      <span className="min-w-0 truncate text-sm font-semibold text-white">
+                        {viewer.username}
+                      </span>
+                      <span className="ml-auto shrink-0 rounded-full bg-emerald-400/10 px-2.5 py-1 text-[10px] font-semibold text-emerald-200">
+                        Live now
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
+
       <video
         ref={videoRef}
         autoPlay
@@ -495,14 +583,17 @@ export function LiveStreamHud({
             >
               {formatDuration(durationSeconds)}
             </span>
-            <span
+            <button
+              type="button"
+              onClick={() => setViewerListOpen(true)}
               className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-black/45 px-2.5 py-1.5 text-[11px] font-semibold text-white backdrop-blur-xl sm:gap-1.5 sm:px-3"
               data-testid="text-live-viewer-count"
               aria-label={`${viewerCount} viewers`}
+              aria-haspopup="dialog"
             >
               <Users className="h-3.5 w-3.5 text-white/80" aria-hidden="true" />
               {formatViewerCount(viewerCount)}
-            </span>
+            </button>
           </div>
           <div className="mt-3 flex min-w-0 items-center gap-2.5">
             {isBroadcaster ? (
@@ -567,6 +658,18 @@ export function LiveStreamHud({
               End
             </button>
           </div>
+        )}
+        {!isBroadcaster && (
+          <button
+            type="button"
+            onClick={onLeave}
+            data-testid="button-live-leave"
+            aria-label="Leave live"
+            className="inline-flex h-10 items-center gap-1.5 rounded-full border border-white/15 bg-black/55 px-3 text-[10px] font-extrabold uppercase tracking-[0.1em] text-white shadow-lg backdrop-blur-xl transition-transform hover:bg-black/75 active:scale-95"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+            Leave
+          </button>
         )}
       </header>
 
