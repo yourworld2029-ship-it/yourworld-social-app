@@ -187,8 +187,8 @@ function NotificationsPage() {
 
   return (
     <main className="min-h-screen bg-zinc-950 pb-[calc(env(safe-area-inset-bottom,0px)+5.25rem)] text-white">
-      <header className="sticky top-0 z-40 border-b border-white/[0.07] bg-zinc-950/95 backdrop-blur-xl">
-        <div className="flex items-center gap-2 px-3 pb-2 pt-3">
+      <header className="sticky top-0 z-40 border-b border-white/[0.07] bg-zinc-950/90 shadow-[0_12px_32px_rgba(0,0,0,0.28)] backdrop-blur-xl">
+        <div className="flex items-center gap-2 px-4 pb-2 pt-[max(env(safe-area-inset-top,0px),3rem)]">
           <Link
             to="/"
             onClick={historyBackLink}
@@ -218,7 +218,7 @@ function NotificationsPage() {
           </button>
         </div>
 
-        <div className="no-scrollbar flex min-w-0 gap-2 overflow-x-auto px-4 pb-3 pt-1">
+        <div className="no-scrollbar flex min-w-0 gap-2 overflow-x-auto px-4 pb-3 pt-2">
           <Chip active={filter === "all"} onClick={() => setFilter("all")} label="All" />
           <Chip
             active={filter === "following"}
@@ -336,13 +336,13 @@ function NotificationsPage() {
             </p>
           </div>
         ) : (
-          <div className="space-y-7">
+        <div className="space-y-7">
             {groupedItems.map((group) => (
               <section key={group.label} aria-label={group.label}>
                 <h2 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
                   {group.label}
                 </h2>
-                <ul className="divide-y divide-white/[0.055]">
+                <ul className="space-y-1.5">
                   {group.items.map((item) => (
                     <NotificationRow
                       key={item.id}
@@ -395,8 +395,8 @@ function NotificationRow({
     <li
       data-testid={`row-notification-${item.id}`}
       className={cn(
-        "group flex min-h-[76px] items-center gap-2.5 py-3 transition-colors",
-        !item.read && "bg-white/[0.025]",
+        "group flex min-h-[76px] items-center gap-2.5 rounded-2xl border border-white/[0.055] bg-white/[0.02] px-3 py-3 transition-colors hover:bg-white/[0.045]",
+        !item.read && "border-fuchsia-300/15 bg-fuchsia-400/[0.045]",
       )}
     >
       <button
@@ -548,10 +548,10 @@ function Chip({
       aria-pressed={active}
       data-testid={`chip-notification-${label.toLowerCase().replace(/\s+/g, "-")}`}
       className={cn(
-        "shrink-0 whitespace-nowrap rounded-full px-3.5 py-2 text-xs font-semibold transition-colors active:scale-[0.98]",
+        "shrink-0 whitespace-nowrap rounded-full px-4 py-2 text-xs font-semibold tracking-[0.01em] transition-all duration-200 active:scale-[0.98]",
         active
-          ? "bg-white text-zinc-950"
-          : "border border-white/[0.08] bg-white/[0.045] text-zinc-400 hover:bg-white/[0.08] hover:text-zinc-200",
+          ? "border border-transparent bg-gradient-to-r from-fuchsia-500 via-violet-500 to-indigo-500 text-white shadow-[0_4px_16px_rgba(168,85,247,0.22)]"
+          : "border border-white/[0.08] bg-white/[0.035] text-zinc-400 hover:border-white/[0.14] hover:bg-white/[0.08] hover:text-zinc-200",
       )}
     >
       {label}
