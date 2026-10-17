@@ -187,7 +187,7 @@ function NotificationsPage() {
 
   return (
     <main className="min-h-screen bg-zinc-950 pb-[calc(env(safe-area-inset-bottom,0px)+5.25rem)] text-white">
-      <header className="sticky top-0 z-40 border-b border-white/[0.07] bg-zinc-950/90 shadow-[0_12px_32px_rgba(0,0,0,0.28)] backdrop-blur-xl">
+      <header className="sticky top-0 z-40 border-b border-white/[0.07] bg-zinc-950/95 backdrop-blur-xl">
         <div className="flex items-center gap-2 px-4 pb-2 pt-[max(env(safe-area-inset-top,0px),3rem)]">
           <Link
             to="/"
@@ -339,10 +339,10 @@ function NotificationsPage() {
         <div className="space-y-7">
             {groupedItems.map((group) => (
               <section key={group.label} aria-label={group.label}>
-                <h2 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                <h2 className="mb-1 px-1 text-sm font-semibold text-zinc-300">
                   {group.label}
                 </h2>
-                <ul className="space-y-1.5">
+                <ul className="divide-y divide-white/[0.07]">
                   {group.items.map((item) => (
                     <NotificationRow
                       key={item.id}
@@ -395,8 +395,7 @@ function NotificationRow({
     <li
       data-testid={`row-notification-${item.id}`}
       className={cn(
-        "group flex min-h-[76px] items-center gap-2.5 rounded-2xl border border-white/[0.055] bg-white/[0.02] px-3 py-3 transition-colors hover:bg-white/[0.045]",
-        !item.read && "border-fuchsia-300/15 bg-fuchsia-400/[0.045]",
+        "group flex min-h-[76px] items-center gap-3 px-1 py-3 transition-colors hover:bg-white/[0.025] active:bg-white/[0.04]",
       )}
     >
       <button
@@ -407,19 +406,22 @@ function NotificationRow({
       >
         <NotificationAvatar item={item} Icon={Icon} />
         <span className="min-w-0 flex-1">
-          <span className="flex items-start gap-2">
-            <span className="min-w-0 flex-1 text-[13px] leading-[1.35] text-zinc-300">
+            <span className="block min-w-0">
+              <span className="text-sm leading-[1.35] text-zinc-300">
               {item.actorName && item.activity ? (
                 <>
                   <span className="font-semibold text-white">{item.actorName}</span>
                   {item.actorId ? <SportsIdentityMark userId={item.actorId} /> : null}{" "}
                   <span className="text-zinc-300">{item.activity}</span>
+                    <span className="ml-1 whitespace-nowrap text-[11px] text-zinc-500">{timeAgo(item.at)}</span>
                 </>
               ) : (
-                <span className={cn("font-medium", !item.read && "text-white")}>{item.title}</span>
+                  <>
+                    <span className={cn("font-medium", !item.read && "text-white")}>{item.title}</span>
+                    <span className="ml-1 whitespace-nowrap text-[11px] text-zinc-500">{timeAgo(item.at)}</span>
+                  </>
               )}
             </span>
-            <span className="shrink-0 pt-0.5 text-[10px] text-zinc-500">{timeAgo(item.at)}</span>
           </span>
           {item.body && (
             <span className="mt-1 block truncate text-xs leading-relaxed text-zinc-500">
@@ -449,7 +451,7 @@ function NotificationRow({
       ) : item.thumbnailUrl ? (
         <span
           data-testid={`img-notification-thumbnail-${item.id}`}
-          className="relative h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-white/[0.06]"
+          className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-white/[0.06]"
         >
           <img
             src={item.thumbnailUrl}
@@ -498,14 +500,14 @@ function NotificationAvatar({
   const urls = item.actorAvatarUrls?.length ? item.actorAvatarUrls.slice(0, 3) : [null];
   return (
     <span
-      className={cn("relative h-12 shrink-0", urls.length > 1 ? "w-[4.25rem]" : "w-11")}
+      className={cn("relative h-14 shrink-0", urls.length > 1 ? "w-[5.25rem]" : "w-12")}
       aria-hidden="true"
     >
       {urls.map((url, index) => (
         <span
           key={`${item.id}-avatar-${index}`}
-          className="absolute top-0.5 grid h-10 w-10 place-items-center overflow-hidden rounded-full border-2 border-zinc-950 bg-zinc-800 text-xs font-semibold text-zinc-200"
-          style={{ left: `${urls.length > 1 ? index * 16 : 0}px`, zIndex: index + 1 }}
+          className="absolute top-0.5 grid h-12 w-12 place-items-center overflow-hidden rounded-full border-2 border-zinc-950 bg-zinc-800 text-xs font-semibold text-zinc-200"
+          style={{ left: `${urls.length > 1 ? index * 18 : 0}px`, zIndex: index + 1 }}
         >
           {item.actorId ? (
             <UserRound className="h-[1.15rem] w-[1.15rem] text-zinc-400" strokeWidth={1.75} />
@@ -548,10 +550,10 @@ function Chip({
       aria-pressed={active}
       data-testid={`chip-notification-${label.toLowerCase().replace(/\s+/g, "-")}`}
       className={cn(
-        "shrink-0 whitespace-nowrap rounded-full px-4 py-2 text-xs font-semibold tracking-[0.01em] transition-all duration-200 active:scale-[0.98]",
+        "shrink-0 whitespace-nowrap rounded-full px-4 py-2.5 text-xs font-medium transition-colors active:scale-[0.98]",
         active
-          ? "border border-transparent bg-gradient-to-r from-fuchsia-500 via-violet-500 to-indigo-500 text-white shadow-[0_4px_16px_rgba(168,85,247,0.22)]"
-          : "border border-white/[0.08] bg-white/[0.035] text-zinc-400 hover:border-white/[0.14] hover:bg-white/[0.08] hover:text-zinc-200",
+          ? "border border-white/[0.16] bg-white/[0.13] text-white"
+          : "border border-white/[0.08] bg-white/[0.035] text-zinc-400 hover:bg-white/[0.08] hover:text-zinc-200",
       )}
     >
       {label}
