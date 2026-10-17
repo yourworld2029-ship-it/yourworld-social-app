@@ -8,7 +8,6 @@ import {
   Radio,
   Settings2,
   UserRound,
-  X,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -71,14 +70,12 @@ function NotificationsPage() {
 
   const {
     items: allItems,
-    unread,
     prefs,
     live,
     setLive,
     setPref,
     markRead,
     markAllRead,
-    remove,
   } =
     useNotifications();
   const { following, toggleFollow } = useYw();
@@ -200,25 +197,10 @@ function NotificationsPage() {
           </Link>
           <div className="min-w-0">
             <h1 className="font-display text-lg font-bold tracking-tight">Notifications</h1>
-            <p className="text-[11px] text-zinc-500">
-              {unread > 0 ? `${unread} new` : "You’re all caught up"}
-            </p>
           </div>
-          <button
-            onClick={() => setTuning((value) => !value)}
-            aria-label="Notification preferences"
-            aria-expanded={tuning}
-            data-testid="button-notification-settings"
-            className={cn(
-              "ml-auto grid h-10 w-10 shrink-0 place-items-center rounded-full transition-colors active:scale-90",
-              tuning ? "bg-white/[0.09] text-white" : "text-zinc-400 hover:bg-white/[0.06]",
-            )}
-          >
-            <Settings2 className="h-[19px] w-[19px]" strokeWidth={1.8} />
-          </button>
         </div>
 
-        <div className="no-scrollbar flex min-w-0 gap-1.5 overflow-x-auto px-4 pb-2 pt-1">
+        <div className="no-scrollbar flex w-full min-w-0 gap-1.5 overflow-x-auto px-4 pb-2 pt-1">
           <Chip active={filter === "all"} onClick={() => setFilter("all")} label="All" />
           <Chip
             active={filter === "following"}
@@ -235,6 +217,19 @@ function NotificationsPage() {
             onClick={() => setFilter("mentions")}
             label="Mentions"
           />
+          <button
+            type="button"
+            onClick={() => setTuning((value) => !value)}
+            aria-label="Notification preferences"
+            aria-expanded={tuning}
+            data-testid="button-notification-settings"
+            className={cn(
+              "grid h-8 w-8 shrink-0 place-items-center rounded-full transition-colors active:scale-90",
+              tuning ? "bg-white/[0.09] text-white" : "text-zinc-400 hover:bg-white/[0.06]",
+            )}
+          >
+            <Settings2 className="h-4 w-4" strokeWidth={1.8} />
+          </button>
         </div>
       </header>
 
@@ -352,7 +347,6 @@ function NotificationsPage() {
                         markRead(item.id);
                         if (item.to) navigate({ to: item.to });
                       }}
-                      onDismiss={() => remove(item.id)}
                       onAddToMoment={() => void addMentionedMomentToMyMoments(item)}
                       resharePending={resharingMomentId === item.momentId}
                       onToggleFollow={() => {
@@ -374,7 +368,6 @@ function NotificationRow({
   item,
   following,
   onOpen,
-  onDismiss,
   onAddToMoment,
   resharePending,
   onToggleFollow,
@@ -382,7 +375,6 @@ function NotificationRow({
   item: NotificationItem;
   following: boolean;
   onOpen: () => void;
-  onDismiss: () => void;
   onAddToMoment: () => void;
   resharePending: boolean;
   onToggleFollow: () => void;
@@ -451,14 +443,14 @@ function NotificationRow({
       ) : item.thumbnailUrl ? (
         <span
           data-testid={`img-notification-thumbnail-${item.id}`}
-          className="relative h-10 w-10 shrink-0 overflow-hidden rounded-[10px] bg-white/[0.06]"
+          className="relative h-11 w-11 shrink-0 overflow-hidden rounded-md"
         >
           <img
             src={item.thumbnailUrl}
             alt=""
             loading="lazy"
             decoding="async"
-            onError={(event) => event.currentTarget.remove()}
+            onError={(event) => event.currentTarget.parentElement?.remove()}
             className="h-full w-full object-cover"
           />
         </span>
@@ -477,15 +469,6 @@ function NotificationRow({
           {resharePending ? "Adding…" : "Add to your moment"}
         </button>
       ) : null}
-      <button
-        type="button"
-        onClick={onDismiss}
-        aria-label="Dismiss notification"
-        data-testid={`button-dismiss-notification-${item.id}`}
-        className="grid h-8 w-7 shrink-0 place-items-center rounded-full text-zinc-600 transition-colors hover:bg-white/[0.06] hover:text-zinc-300"
-      >
-        <X className="h-4 w-4" strokeWidth={1.8} />
-      </button>
     </li>
   );
 }
