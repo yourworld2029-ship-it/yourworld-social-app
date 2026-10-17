@@ -790,6 +790,11 @@ function missedCallTypeFromText(text: string | undefined): "audio" | "video" | n
   return match[1]?.toLowerCase() === "video" ? "video" : "audio";
 }
 
+function formatVoiceNoteDuration(duration: number): string {
+  const totalSeconds = Math.ceil(duration);
+  return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, "0")}`;
+}
+
 function MissedCallPill({
   text,
   timestamp,
@@ -1519,6 +1524,7 @@ function NativeChatThreadPage() {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
+  const [audioDurations, setAudioDurations] = useState<Record<string, number>>({});
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [actionSheetId, setActionSheetId] = useState<string | null>(null);
@@ -3819,6 +3825,22 @@ function NativeChatThreadPage() {
               <div data-chat-like-target className={`flex items-center gap-3 px-4 py-3 rounded-2xl min-w-[200px] ${
                 m.sender === "me" ? `${ownMessageBubbleThemeClass} text-white` : "bg-zinc-800 text-white border border-zinc-700"
               }`}>
+                <audio
+                  src={m.audio}
+                  preload="metadata"
+                  className="hidden"
+                  aria-hidden="true"
+                  onLoadedMetadata={(event) => {
+                    const duration = event.currentTarget.duration;
+                    if (!Number.isFinite(duration) || duration <= 0) return;
+                    const roundedDuration = Math.ceil(duration);
+                    setAudioDurations((current) =>
+                      current[m.id] === roundedDuration
+                        ? current
+                        : { ...current, [m.id]: roundedDuration },
+                    );
+                  }}
+                />
                 <button
                   onClick={() => {
                     const aud = new Audio(m.audio);
@@ -3838,7 +3860,14 @@ function NativeChatThreadPage() {
                   <div className="w-full h-1 bg-white/40 rounded-full overflow-hidden">
                     <div className={`h-full bg-white ${playingAudioId === m.id ? 'w-2/3 animate-pulse' : 'w-0'}`} />
                   </div>
-                  <span className="text-[10px] opacity-80">Voice Note</span>
+                  <div className="flex items-center justify-between gap-2 text-[10px] opacity-80">
+                    <span>Voice Note</span>
+                    {audioDurations[m.id] !== undefined && (
+                      <span aria-label={`Duration ${audioDurations[m.id]} seconds`}>
+                        {formatVoiceNoteDuration(audioDurations[m.id])}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
