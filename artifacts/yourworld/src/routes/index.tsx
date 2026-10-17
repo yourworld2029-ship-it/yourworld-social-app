@@ -428,6 +428,14 @@ function HomePage() {
 
   const stories = React.useMemo<StoryRing[]>(() => {
     const seen = new Set<string>();
+    const viewedAuthors = new Set(
+      moments
+        .filter((moment) =>
+          moment.viewers.some((viewer) => viewer.userId === user?.id),
+        )
+        .map((moment) => moment.author?.id)
+        .filter((id): id is string => Boolean(id)),
+    );
     const list: StoryRing[] = [];
     for (const m of moments) {
       if (m.mine) continue;
@@ -449,7 +457,7 @@ function HomePage() {
           username: m.author?.username ?? "user",
           displayName: m.author?.name || m.author?.username || "user",
           avatarUrl: m.author?.avatar ?? undefined,
-          hasUnseen: true,
+          hasUnseen: !viewedAuthors.has(uid),
           momentId: storyStart.id,
           liveStreamId: liveStreams.find(
             (stream) => stream.broadcaster_id === uid,
@@ -602,7 +610,7 @@ function HomePage() {
       <FeedTopBar alertCount={alertCount} />
 
       {/* Stories / Moments Tray */}
-      <div className="flex snap-x snap-proximity items-center gap-3 overflow-x-auto overscroll-x-contain touch-pan-x scroll-smooth px-4 py-3 no-scrollbar border-b border-neutral-900/60 bg-black">
+      <div className="flex snap-x snap-proximity items-center gap-2 overflow-x-auto overscroll-x-contain touch-pan-x scroll-smooth px-4 py-3 no-scrollbar border-b border-neutral-900/60 bg-black">
         <div className="flex min-w-[72px] snap-start flex-col items-center gap-1">
           <div className="relative">
             <button
@@ -665,10 +673,12 @@ function HomePage() {
                   navigate({ to: "/moment/$momentId", params: { momentId: s.momentId } });
                 }
               }}
-              className={`relative flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-tr p-[2px] shadow-[0_0_18px_rgba(217,70,239,0.18)] ${
+              className={`relative flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-tr p-[2px] transition-colors duration-300 ${
                 s.liveStreamId
-                  ? "live-avatar-ring from-rose-300 via-red-500 to-fuchsia-500"
-                  : "from-yellow-300 via-fuchsia-500 to-violet-600"
+                  ? "live-avatar-ring from-rose-300 via-red-500 to-fuchsia-500 shadow-[0_0_18px_rgba(217,70,239,0.18)]"
+                  : s.hasUnseen
+                    ? "from-yellow-300 via-fuchsia-500 to-violet-600 shadow-[0_0_18px_rgba(217,70,239,0.18)]"
+                    : "from-neutral-600 via-neutral-500 to-neutral-600 shadow-none"
               }`}
               aria-label={
                 s.liveStreamId
