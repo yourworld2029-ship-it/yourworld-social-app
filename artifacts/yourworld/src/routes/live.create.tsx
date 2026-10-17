@@ -249,14 +249,14 @@ function LiveCreatePage() {
                 </button>
               </div>
             )}
-            <div className="pointer-events-none absolute inset-x-3 top-3 z-10 flex items-start justify-between gap-2">
-              <div className="flex min-w-0 max-w-[calc(100%-10.75rem)] items-center gap-1.5 overflow-hidden rounded-full border border-white/10 bg-black/60 px-2.5 py-1.5 text-[11px] font-semibold backdrop-blur">
+            <div className="pointer-events-none absolute inset-x-3 top-3 z-10 flex flex-col items-start gap-2">
+              <div className="flex w-fit max-w-full items-center gap-1.5 rounded-full border border-white/10 bg-black/60 px-2.5 py-1.5 text-[11px] font-semibold backdrop-blur">
                 <span className={`h-2 w-2 shrink-0 rounded-full ${stream ? "bg-emerald-400" : "bg-white/40"}`} />
                 {stream && <Mic className="h-3.5 w-3.5 shrink-0 text-emerald-300" aria-hidden="true" />}
-                <span className="truncate">{stream ? "PRIVATE PREVIEW" : "CAMERA OFF"}</span>
+                <span>{stream ? "PRIVATE PREVIEW" : "CAMERA OFF"}</span>
               </div>
               {stream && (
-                <div className="pointer-events-auto flex shrink-0 items-center gap-2">
+                <div className="pointer-events-auto flex w-full justify-end gap-2">
                   <button
                     type="button"
                     onClick={() =>

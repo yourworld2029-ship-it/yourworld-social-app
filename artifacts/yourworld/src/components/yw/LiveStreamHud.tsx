@@ -433,6 +433,7 @@ export function LiveStreamHud({
           }
           open={shareSheetOpen}
           onOpenChange={setShareSheetOpen}
+          overlayZIndex={100}
         />
       )}
 

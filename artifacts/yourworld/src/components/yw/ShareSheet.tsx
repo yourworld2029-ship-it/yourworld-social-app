@@ -22,6 +22,8 @@ interface ShareSheetProps {
   open?: boolean;
   /** Called when a controlled share sheet is opened or dismissed. */
   onOpenChange?: (open: boolean) => void;
+  /** Optional stacking level for screens with their own fixed overlay. */
+  overlayZIndex?: number;
   /** Absolute or relative link to the item. */
   url?: string;
   /** Media source used by the existing Add to Moment action. */
@@ -239,6 +241,7 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
   title = "",
   open: controlledOpen,
   onOpenChange,
+  overlayZIndex,
   url,
   media,
   mediaKind = "photo",
@@ -606,7 +609,10 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
 
       {open && typeof document !== "undefined"
         ? createPortal(
-        <div className="fixed inset-0 z-[70] flex items-end justify-center">
+        <div
+          className="fixed inset-0 z-[70] flex items-end justify-center"
+          style={overlayZIndex === undefined ? undefined : { zIndex: overlayZIndex }}
+        >
           <button
             type="button"
             aria-label="Close share"
