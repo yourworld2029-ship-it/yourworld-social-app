@@ -10,6 +10,7 @@ import {
   fetchVideoBlob,
   reelExportDurationMatches,
   reelExportReachedExpectedEnd,
+  reelWatermarkBottomInset,
   reelWatermarkCornerForTime,
   reelWatermarkText,
   toDownloadedVideo,
@@ -29,6 +30,12 @@ test("Reel watermark stays at a consistent Instagram-style lower-left position",
   assert.equal(reelWatermarkCornerForTime(8, 16), "bottom-left");
   assert.equal(reelWatermarkCornerForTime(15.9, 16), "bottom-left");
   assert.equal(reelWatermarkCornerForTime(4, 0), "bottom-left");
+});
+
+test("Reel watermark sits well above the lower edge at each video size", () => {
+  assert.equal(reelWatermarkBottomInset(1920, 43), 173);
+  assert.equal(reelWatermarkBottomInset(720, 43), 65);
+  assert.equal(reelWatermarkBottomInset(240, 28), 28);
 });
 
 test("Reel export rejects a short stream instead of saving a truncated video", () => {

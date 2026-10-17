@@ -67,3 +67,4 @@
 - [Validated video view credits](video-view-credits.md) — long videos and Reels must use server-timed sessions and the dual user/device ledger; browser fingerprints are best-effort.
 - [Video feed suppression](video-feed-suppression.md) — personalized hiding and creator muting are feed preferences, not hard account blocks; apply them consistently to video feeds.
 - [Chat message visibility and reactions](chat-message-visibility-reactions.md) — keep per-user message hides separate from shared, participant-owned reactions; do not hard-delete a message for “delete for me.”
+- [Debug APK build timeout](debug-apk-build-timeout.md) — run long clean Android Debug builds in the background and verify completion before staging any APK.
