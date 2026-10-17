@@ -8,6 +8,7 @@
 - [Reel editor performance](reel-editor-performance.md) — keep thumbnail generation source-keyed and off the trim-drag hot path; use worker encoding with a local fallback.
 - [Video frame capture event order](video-frame-capture-event-order.md) — attach metadata and seek listeners before setting a local video source or seeking, or fast Blob playback may outrun thumbnail extraction.
 - [Chat camera stream lifecycle](chat-camera-stream-lifecycle.md) — stop and detach old camera tracks before reacquiring, and preserve the selected MediaRecorder MIME type through preview.
+- [Live participant identity](live-participant-identity.md) — resolve live viewer and commenter names from public profiles by user ID; dedupe display sessions by user while preserving peer IDs for signaling.
 - [Unique interaction counting](unique-interaction-counting.md) — use one database-enforced key per user/content/type and an atomic insert-before-increment RPC for views.
 - [Video playback and downloads](video-playback-downloads.md) — centered autoplay starts muted; authentic posters share a two-decoder budget and must not bypass access checks.
 - [Video source retention](video-source-retention.md) — never publish HLS video without persisting the owner-scoped MP4 path needed for authorized downloads and deletion.
@@ -44,7 +45,7 @@
 - [Supabase MFA factor listing](supabase-mfa-factor-listing.md) — `listFactors().totp` only contains verified factors; inspect `all` to resume unverified TOTP verification.
 - [Highlight deletion boundary](highlight-deletion-boundary.md) — route destructive Highlight deletes through authenticated server code and verify the single JSONB row is gone before updating the UI.
 - [Account deletion pipeline](account-deletion-pipeline.md) — use a transactional SECURITY DEFINER Supabase function for authenticated cleanup before removing auth.users.
-- [Capacitor Android wrapper](capacitor-android-wrapper.md) — preserve Start's SPA hydration shell, omit `server.url`, and build with JDK 21 plus an installed SDK.
+- [Capacitor Android wrapper](capacitor-android-wrapper.md) — preserve Start's SPA shell, `cap sync android` after web builds, and package with JDK 21 plus an installed SDK.
 - [YourWorld Debug APK delivery](yourworld-debug-apk-delivery.md) — include a fresh Debug APK link with every YourWorld code update; never build Release or request signing secrets.
 - [Capacitor native detection](capacitor-native-detection.md) — `window.Capacitor` also exists in browsers; use native platform signals and wait for client resolution before gating routes.
 - [Creator monetization settlement](creator-monetization-settlement.md) — keep buyer surcharge, creator/platform splits, single TDS deduction, and terms gates server-authoritative.

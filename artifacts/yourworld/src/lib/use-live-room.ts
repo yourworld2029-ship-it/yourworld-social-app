@@ -17,16 +17,12 @@ import type {
   LiveStreamReaction,
   LiveStreamViewer,
 } from "@/components/yw/LiveStreamHud";
+import {
+  resolveLiveViewerIdentities,
+  type LivePresenceMeta,
+} from "@/lib/live-presence";
 
 type RoomMode = "broadcaster" | "viewer";
-
-type PresenceMeta = {
-  user_id: string;
-  peer_id: string;
-  role: RoomMode;
-  username: string;
-  avatar_url: string | null;
-};
 
 type SignalMessage = {
   kind: "join" | "offer" | "answer" | "ice" | "ended";
@@ -104,6 +100,7 @@ export function useLiveRoom({
   const isEndedRef = useRef(false);
   const seenCommentsRef = useRef(new Set<string>());
   const knownViewerPeerIdsRef = useRef(new Set<string>());
+  const profileLookupAttemptedRef = useRef(new Set<string>());
   const viewerPresenceInitializedRef = useRef(false);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [viewerCount, setViewerCount] = useState(0);
@@ -392,7 +389,7 @@ export function useLiveRoom({
               if (alive && !isEndedRef.current) {
                 const channel = channelRef.current;
                 const broadcaster = channel
-                  ? Object.values(channel.presenceState<PresenceMeta>())
+                  ? Object.values(channel.presenceState<LivePresenceMeta>())
                       .flatMap((metas) => metas)
                       .find((meta) => meta.role === "broadcaster")
                   : null;
@@ -425,6 +422,53 @@ export function useLiveRoom({
     };
 
     const offerInFlight = new Set<string>();
+    const loadMissingProfiles = async (profileIds: string[]): Promise<boolean> => {
+      const missingIds = [...new Set(profileIds)].filter(
+        (id) =>
+          id &&
+          !id.startsWith("guest-") &&
+          !profileLookupAttemptedRef.current.has(id),
+      );
+      if (missingIds.length === 0) return false;
+      missingIds.forEach((id) => profileLookupAttemptedRef.current.add(id));
+      try {
+        const fetched = await getPublicLiveProfiles(missingIds);
+        if (!alive) return false;
+        const next = new Map(profilesRef.current);
+        fetched.forEach((profile, id) => next.set(id, profile));
+        profilesRef.current = next;
+        setProfiles(next);
+        setViewers((current) =>
+          current.map((viewer) => {
+            const profile = fetched.get(viewer.userId);
+            return profile
+              ? {
+                  ...viewer,
+                  username: profile.username || viewer.username,
+                  avatarUrl: profile.avatar_url ?? viewer.avatarUrl,
+                }
+              : viewer;
+          }),
+        );
+        setLatestJoinedViewer((current) => {
+          if (!current) return current;
+          const profile = fetched.get(current.userId);
+          return profile
+            ? {
+                ...current,
+                username: profile.username || current.username,
+                avatarUrl: profile.avatar_url ?? current.avatarUrl,
+              }
+            : current;
+        });
+        return true;
+      } catch (cause) {
+        missingIds.forEach((id) => profileLookupAttemptedRef.current.delete(id));
+        console.warn("[live] Could not resolve live participant profiles", cause);
+        return false;
+      }
+    };
+
     const offerViewer = async (target: string) => {
       if (offerInFlight.has(target)) return;
       offerInFlight.add(target);
@@ -551,34 +595,47 @@ export function useLiveRoom({
       const channel = channelRef.current;
       if (!channel || !alive) return;
       const entries = Object.values(
-        channel.presenceState<PresenceMeta>(),
+        channel.presenceState<LivePresenceMeta>(),
       ).flatMap((metas) => metas);
-      const viewers = new Map(
+      const viewerSessions = new Map(
         entries
           .filter((meta) => meta.role === "viewer")
           .map((meta) => [meta.peer_id, meta]),
       );
-      const nextCount = viewers.size;
+      const viewerList = resolveLiveViewerIdentities(
+        [...viewerSessions.values()],
+        profilesRef.current,
+      );
+      const nextCount = viewerList.length;
       setViewerCount(nextCount);
-      const viewerList = [...viewers.values()].map((meta) => ({
-        peerId: meta.peer_id,
-        userId: meta.user_id,
-        username: meta.username || "YourWorld user",
-        avatarUrl: meta.avatar_url ?? null,
-      }));
       setViewers(viewerList);
 
-      const currentPeerIds = new Set(viewerList.map((viewer) => viewer.peerId));
+      const currentPeerIds = new Set(viewerSessions.keys());
       if (viewerPresenceInitializedRef.current) {
-        const newlyJoined = viewerList.filter(
-          (viewer) => !knownViewerPeerIdsRef.current.has(viewer.peerId),
-        );
+        const newlyJoined = [...viewerSessions.values()].filter(
+          (meta) =>
+            !knownViewerPeerIdsRef.current.has(meta.peer_id),
+        ).map((meta) => {
+          const profile = profilesRef.current.get(meta.user_id);
+          return {
+            peerId: meta.peer_id,
+            userId: meta.user_id,
+            username: profile?.username || meta.username || "YourWorld user",
+            avatarUrl: profile?.avatar_url ?? meta.avatar_url ?? null,
+          };
+        });
         const latestJoin = newlyJoined[newlyJoined.length - 1];
         if (latestJoin) setLatestJoinedViewer(latestJoin);
       } else {
         viewerPresenceInitializedRef.current = true;
       }
       knownViewerPeerIdsRef.current = currentPeerIds;
+      void loadMissingProfiles([
+        userId,
+        ...[...viewerSessions.values()].map((meta) => meta.user_id),
+      ]).then((didLoad) => {
+        if (alive && didLoad) syncPresence();
+      });
 
       if (mode === "broadcaster") {
         if (nextCount > peakViewerCountRef.current) {
@@ -589,7 +646,7 @@ export function useLiveRoom({
             if (alive) setError("Viewer stats could not be saved.");
           });
         }
-        viewers.forEach((meta) => void offerViewer(meta.peer_id));
+        viewerSessions.forEach((meta) => void offerViewer(meta.peer_id));
       } else {
         const broadcaster = entries.find((meta) => meta.role === "broadcaster");
         if (broadcaster) {
@@ -662,13 +719,15 @@ export function useLiveRoom({
         if (status === "SUBSCRIBED") {
           setConnected(true);
           setError(null);
+          await loadMissingProfiles([userId]);
+          const ownProfile = profilesRef.current.get(userId);
           await channel.track({
             user_id: userId,
             peer_id: peerId,
             role: mode,
-            username,
-            avatar_url: avatarUrl,
-          } satisfies PresenceMeta);
+            username: ownProfile?.username || username,
+            avatar_url: ownProfile?.avatar_url ?? avatarUrl,
+          } satisfies LivePresenceMeta);
           if (!isGuestViewer) void loadComments();
           syncPresence();
         } else if (

@@ -9,6 +9,12 @@ Keep the web app's Nitro SSR output separate from Capacitor's TanStack Start SPA
 
 **How to apply:** Keep Nitro output in `.output/public`, generate the Start SPA bundle in `.output/capacitor`, and point `capacitor.config.ts` there with `server.url` unset. Android Gradle verification also requires a locally configured Android SDK (`ANDROID_HOME` or `sdk.dir`); Java alone is insufficient.
 
+Running Gradle after the web build does not automatically copy `.output/capacitor` into Android assets. A Debug APK can therefore build successfully with an older client bundle.
+
+**Why:** Gradle compiles the assets already under `android/app/src/main/assets`; it does not read Capacitor's configured `webDir` directly.
+
+**How to apply:** Run `cap sync android` after each web build and before `assembleDebug`, then verify the routed JS chunk under Android assets matches the current `.output/capacitor` chunk before staging the APK.
+
 Android Gradle builds for this Capacitor project require Java 21. The workspace's default GraalVM Java 19 fails during Android JDK-image linking; Java 17 fixes that step but cannot compile Capacitor 8's Java 21 source level.
 
 **Why:** The project can have a complete Capacitor wrapper and Gradle dependencies while still lacking the SDK and a compatible JDK, so a build failure may be environment setup rather than app code.
