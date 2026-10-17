@@ -5,13 +5,10 @@ import {
   Bell,
   CheckCheck,
   ChevronLeft,
-  Radio,
-  Settings2,
   UserRound,
   type LucideIcon,
 } from "lucide-react";
 import {
-  NOTIFICATION_KINDS,
   kindMeta,
   timeAgo,
   useNotifications,
@@ -44,7 +41,14 @@ export const Route = createFileRoute("/notifications")({
   component: NotificationsPage,
 });
 
-type Filter = "all" | "following" | "comments" | "mentions";
+type Filter =
+  | "all"
+  | "likes"
+  | "following"
+  | "comments"
+  | "mentions"
+  | "monetization"
+  | "verified";
 type ActivityGroup = "Today" | "Yesterday" | "Last 7 days" | "Older";
 
 const ACTIVITY_GROUPS: ActivityGroup[] = ["Today", "Yesterday", "Last 7 days", "Older"];
@@ -70,18 +74,12 @@ function NotificationsPage() {
 
   const {
     items: allItems,
-    prefs,
-    live,
-    setLive,
-    setPref,
     markRead,
-    markAllRead,
   } =
     useNotifications();
   const { following, toggleFollow } = useYw();
   const { moments, addMoment } = useMoments();
   const [filter, setFilter] = useState<Filter>("all");
-  const [tuning, setTuning] = useState(false);
   const [resharingMomentId, setResharingMomentId] = useState<string | null>(null);
   const navigate = useNavigate();
 
@@ -159,17 +157,15 @@ function NotificationsPage() {
     () => allItems.filter((i) => i.kind !== "message"),
     [allItems],
   );
-  const homeKinds = useMemo(
-    () => NOTIFICATION_KINDS.filter((k) => k.id !== "message"),
-    [],
-  );
-
   const list = useMemo(() => {
     const filtered = items.filter((item) => {
       if (filter === "all") return true;
       if (filter === "following") return Boolean(item.actorId && following[item.actorId]);
+      if (filter === "likes") return item.kind === "like";
       if (filter === "comments") return item.kind === "comment";
-      return item.kind === "mention";
+      if (filter === "mentions") return item.kind === "mention";
+      if (filter === "monetization") return item.kind === "monetization";
+      return item.kind === "verification";
     });
     return [...filtered].sort((a, b) => b.at - a.at);
   }, [items, filter, following]);
@@ -202,6 +198,7 @@ function NotificationsPage() {
 
         <div className="no-scrollbar flex w-full min-w-0 gap-1.5 overflow-x-auto px-4 pb-2 pt-1">
           <Chip active={filter === "all"} onClick={() => setFilter("all")} label="All" />
+          <Chip active={filter === "likes"} onClick={() => setFilter("likes")} label="Likes" />
           <Chip
             active={filter === "following"}
             onClick={() => setFilter("following")}
@@ -215,101 +212,20 @@ function NotificationsPage() {
           <Chip
             active={filter === "mentions"}
             onClick={() => setFilter("mentions")}
-            label="Mentions"
+            label="Tags & mentions"
           />
-          <button
-            type="button"
-            onClick={() => setTuning((value) => !value)}
-            aria-label="Notification preferences"
-            aria-expanded={tuning}
-            data-testid="button-notification-settings"
-            className={cn(
-              "grid h-8 w-8 shrink-0 place-items-center rounded-full transition-colors active:scale-90",
-              tuning ? "bg-white/[0.09] text-white" : "text-zinc-400 hover:bg-white/[0.06]",
-            )}
-          >
-            <Settings2 className="h-4 w-4" strokeWidth={1.8} />
-          </button>
+          <Chip
+            active={filter === "monetization"}
+            onClick={() => setFilter("monetization")}
+            label="Monetization"
+          />
+          <Chip
+            active={filter === "verified"}
+            onClick={() => setFilter("verified")}
+            label="Verified"
+          />
         </div>
       </header>
-
-      {tuning && (
-        <section aria-label="Notification settings" className="px-4 pt-4">
-          <div className="mb-3 flex items-center justify-between rounded-2xl border border-white/[0.07] bg-white/[0.035] px-4 py-3">
-            <div className="flex min-w-0 items-center gap-3">
-              <span className="grid h-9 w-9 place-items-center rounded-full bg-white/[0.07] text-zinc-300">
-                <Radio className={cn("h-4 w-4", live && "text-sky-300")} />
-              </span>
-              <span>
-                <span className="block text-sm font-medium">Live updates</span>
-                <span className="block text-xs text-zinc-500">Refresh activity in real time</span>
-              </span>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={live}
-              aria-label="Toggle real-time updates"
-              data-testid="switch-notification-live"
-              onClick={() => setLive(!live)}
-              className={cn(
-                "relative h-6 w-11 shrink-0 rounded-full transition-colors",
-                live ? "bg-sky-500" : "bg-zinc-700",
-              )}
-            >
-              <span
-                className={cn(
-                  "absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform",
-                  live ? "translate-x-[22px]" : "translate-x-0.5",
-                )}
-              />
-            </button>
-          </div>
-          <button
-            type="button"
-            onClick={markAllRead}
-            data-testid="button-mark-all-notifications-read"
-            className="mb-3 flex w-full items-center gap-3 rounded-2xl border border-white/[0.07] bg-white/[0.035] px-4 py-3 text-left transition-colors hover:bg-white/[0.06]"
-          >
-            <span className="grid h-9 w-9 place-items-center rounded-full bg-white/[0.07] text-zinc-300">
-              <CheckCheck className="h-4 w-4" />
-            </span>
-            <span className="text-sm font-medium">Mark all as read</span>
-          </button>
-          <ul className="overflow-hidden rounded-2xl border border-white/[0.07] bg-white/[0.035]">
-            {homeKinds.map((k) => (
-              <li
-                key={k.id}
-                className="flex items-center gap-3 border-b border-white/[0.06] px-4 py-3 last:border-0"
-              >
-                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-white/[0.07] text-zinc-300">
-                  <k.icon className="h-4 w-4" strokeWidth={1.8} />
-                </span>
-                <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-200">{k.label}</span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={prefs[k.id]}
-                  aria-label={`${k.label} notifications`}
-                  data-testid={`switch-notification-${k.id}`}
-                  onClick={() => setPref(k.id, !prefs[k.id])}
-                  className={cn(
-                    "relative h-6 w-11 shrink-0 rounded-full transition-colors",
-                    prefs[k.id] ? "bg-sky-500" : "bg-zinc-700",
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform",
-                      prefs[k.id] ? "translate-x-[22px]" : "translate-x-0.5",
-                    )}
-                  />
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
 
       <section aria-label="Activity" className="px-4 pt-2">
         {list.length === 0 ? (
@@ -318,13 +234,19 @@ function NotificationsPage() {
               {filter === "mentions" ? <Bell className="h-6 w-6" /> : <CheckCheck className="h-6 w-6" />}
             </span>
             <h2 className="text-sm font-semibold text-zinc-200">
-              {filter === "comments"
-                ? "No comments yet"
-                : filter === "mentions"
-                  ? "No mentions yet"
-                  : filter === "following"
-                    ? "No recent activity from people you follow"
-                    : "You’re all caught up"}
+              {filter === "likes"
+                ? "No likes yet"
+                : filter === "comments"
+                  ? "No comments yet"
+                  : filter === "mentions"
+                    ? "No tags or mentions yet"
+                    : filter === "following"
+                      ? "No recent activity from people you follow"
+                      : filter === "monetization"
+                        ? "No monetization updates yet"
+                        : filter === "verified"
+                          ? "No verification updates yet"
+                          : "You’re all caught up"}
             </h2>
             <p className="mt-1 text-xs leading-relaxed text-zinc-500">
               New likes, comments, mentions and followers will appear here.
@@ -338,10 +260,11 @@ function NotificationsPage() {
                   {group.label}
                 </h2>
                 <ul className="divide-y divide-white/[0.07]">
-                  {group.items.map((item) => (
+                  {group.items.map((item, index) => (
                     <NotificationRow
                       key={item.id}
                       item={item}
+                      prioritizeThumbnail={index < 6}
                       following={Boolean(item.actorId && following[item.actorId])}
                       onOpen={() => {
                         markRead(item.id);
@@ -366,6 +289,7 @@ function NotificationsPage() {
 
 function NotificationRow({
   item,
+  prioritizeThumbnail,
   following,
   onOpen,
   onAddToMoment,
@@ -373,6 +297,7 @@ function NotificationRow({
   onToggleFollow,
 }: {
   item: NotificationItem;
+  prioritizeThumbnail: boolean;
   following: boolean;
   onOpen: () => void;
   onAddToMoment: () => void;
@@ -448,10 +373,13 @@ function NotificationRow({
           <img
             src={item.thumbnailUrl}
             alt=""
-            loading="lazy"
+            width={44}
+            height={44}
+            loading={prioritizeThumbnail ? "eager" : "lazy"}
+            fetchPriority={prioritizeThumbnail ? "high" : "auto"}
             decoding="async"
             onError={(event) => event.currentTarget.parentElement?.remove()}
-            className="h-full w-full object-cover"
+            className="block h-full w-full object-cover"
           />
         </span>
       ) : null}
