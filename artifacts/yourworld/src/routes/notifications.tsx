@@ -184,7 +184,7 @@ function NotificationsPage() {
 
   return (
     <main className="min-h-screen bg-zinc-950 pb-[calc(env(safe-area-inset-bottom,0px)+5.25rem)] text-white">
-      <header className="sticky top-0 z-40 border-b border-white/[0.07] bg-zinc-950/95 backdrop-blur-xl">
+      <header className="sticky top-0 z-40 flex flex-col items-stretch border-b border-white/[0.07] bg-zinc-950/95 backdrop-blur-xl">
         <div className="flex items-center gap-2 px-4 pb-1.5 pt-[max(env(safe-area-inset-top,0px),2rem)]">
           <Link
             to="/"
