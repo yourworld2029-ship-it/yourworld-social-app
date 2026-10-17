@@ -1478,19 +1478,18 @@ export function MomentProvider({ children }: { children: ReactNode }) {
             return;
           }
 
+          patch(id, (moment) => {
+            if (moment.viewers.some((viewer) => viewer.userId === uid)) return moment;
+            return {
+              ...moment,
+              viewers: [
+                ...moment.viewers,
+                { userId: uid, at: Date.now(), liked: false, screenshot: false },
+              ],
+            };
+          });
           try {
-            const counted = await registerUniqueView(id, "moment");
-            if (!counted) return;
-            patch(id, (moment) => {
-              if (moment.viewers.some((viewer) => viewer.userId === uid)) return moment;
-              return {
-                ...moment,
-                viewers: [
-                  ...moment.viewers,
-                  { userId: uid, at: Date.now(), liked: false, screenshot: false },
-                ],
-              };
-            });
+            await registerUniqueView(id, "moment");
           } catch (error) {
             console.error("Moment view registration failed", error);
           }

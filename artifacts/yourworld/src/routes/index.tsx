@@ -678,7 +678,7 @@ function HomePage() {
                   ? "live-avatar-ring from-rose-300 via-red-500 to-fuchsia-500 shadow-[0_0_18px_rgba(217,70,239,0.18)]"
                   : s.hasUnseen
                     ? "from-yellow-300 via-fuchsia-500 to-violet-600 shadow-[0_0_18px_rgba(217,70,239,0.18)]"
-                    : "from-neutral-600 via-neutral-500 to-neutral-600 shadow-none"
+                    : "from-neutral-400 via-neutral-500 to-neutral-400 shadow-none"
               }`}
               aria-label={
                 s.liveStreamId
