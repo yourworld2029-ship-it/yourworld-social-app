@@ -25,7 +25,7 @@ import { downloadMomentMedia, downloadOriginalMomentMedia } from "@/lib/yw-downl
 import { toast } from "sonner";
 import { SportsIdentityMark } from "@/components/yw/SportsIdentityBadge";
 import { SharedMomentPill } from "@/components/yw/SharedMomentPill";
-import { MAX_MOMENT_PART_SECONDS } from "@/lib/moment-parts";
+import { getMomentPlaybackWindow } from "@/lib/moment-parts";
 import { historyBackOr } from "@/lib/navigation";
 import {
   ProtectedCanvasImage,
@@ -511,8 +511,14 @@ function MomentViewRoute() {
                 onLoadedMetadata={(event) => {
                   const video = event.currentTarget;
                   const requestedStart = Number(current.trim?.start ?? 0);
+                  const hasDuration = Number.isFinite(video.duration) && video.duration > 0;
                   const start = Number.isFinite(requestedStart)
-                    ? Math.min(Math.max(0, requestedStart), Math.max(0, video.duration - 0.05))
+                    ? Math.max(
+                        0,
+                        hasDuration
+                          ? Math.min(requestedStart, Math.max(0, video.duration - 0.05))
+                          : requestedStart,
+                      )
                     : 0;
                   if (Math.abs(video.currentTime - start) > 0.2) {
                     video.currentTime = start;
@@ -520,19 +526,13 @@ function MomentViewRoute() {
                 }}
                 onTimeUpdate={(e) => {
                   const v = e.currentTarget;
-                  if (!v.duration || !Number.isFinite(v.duration)) return;
-                  const requestedStart = Number(current.trim?.start ?? 0);
-                  const start = Number.isFinite(requestedStart)
-                    ? Math.min(Math.max(0, requestedStart), v.duration)
-                    : 0;
-                  const requestedEnd = Number(current.trim?.end ?? v.duration);
-                  const storedEnd =
-                    Number.isFinite(requestedEnd) && requestedEnd > start
-                      ? Math.min(v.duration, requestedEnd)
-                      : v.duration;
-                  const end = current.sharedContent
-                    ? Math.min(storedEnd, start + MAX_MOMENT_PART_SECONDS)
-                    : storedEnd;
+                  const window = getMomentPlaybackWindow(
+                    current.trim,
+                    v.duration,
+                    Boolean(current.sharedContent),
+                  );
+                  if (!window) return;
+                  const { start, end } = window;
                   const span = Math.max(0.05, end - start);
                   setProgress(
                     Math.min(100, Math.max(0, ((v.currentTime - start) / span) * 100)),
