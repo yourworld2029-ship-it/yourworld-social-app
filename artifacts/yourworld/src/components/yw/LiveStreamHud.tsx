@@ -453,6 +453,61 @@ export function LiveStreamHud({
             animation-duration: 0.01ms;
           }
         }
+
+        @media (orientation: landscape) and (max-height: 650px) {
+          .yw-live-header {
+            padding-left: max(env(safe-area-inset-left, 0px), 0.75rem);
+            padding-right: max(env(safe-area-inset-right, 0px), 0.75rem);
+          }
+
+          .yw-live-header > div:first-child > div.mt-3 {
+            margin-top: 0.25rem;
+          }
+
+          .yw-live-options {
+            top: calc(max(env(safe-area-inset-top, 0px), 2.25rem) + 5.9rem);
+            right: max(env(safe-area-inset-right, 0px), 0.75rem);
+            left: auto;
+            width: max-content;
+            max-width: calc(100vw - 1.5rem);
+            flex-direction: row;
+            gap: 0.5rem;
+            overflow-x: auto;
+            padding: 0.125rem;
+            scrollbar-width: none;
+          }
+
+          .yw-live-options::-webkit-scrollbar {
+            display: none;
+          }
+
+          .yw-live-beauty-panel {
+            position: fixed;
+            top: calc(max(env(safe-area-inset-top, 0px), 2.25rem) + 5.5rem);
+            right: max(env(safe-area-inset-right, 0px), 0.75rem);
+            left: auto;
+            max-height: calc(100dvh - max(env(safe-area-inset-top, 0px), 2.25rem) - 7rem);
+            overflow-y: auto;
+          }
+
+          .yw-live-hearts {
+            bottom: calc(env(safe-area-inset-bottom, 0px) + 4.9rem);
+          }
+
+          .yw-live-comments {
+            bottom: calc(env(safe-area-inset-bottom, 0px) + 4.8rem);
+            width: min(52vw, 29rem);
+            max-height: 28dvh;
+            padding-left: max(env(safe-area-inset-left, 0px), 0.75rem);
+          }
+
+          .yw-live-comment-form {
+            padding-left: max(env(safe-area-inset-left, 0px), 0.75rem);
+            padding-right: max(env(safe-area-inset-right, 0px), 0.75rem);
+            padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 0.5rem);
+            padding-top: 0.5rem;
+          }
+        }
       `}</style>
 
       {shareSheetMounted && (
@@ -578,7 +633,7 @@ export function LiveStreamHud({
         />
       )}
 
-      <header className="absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-2 px-3 pb-4 pt-[calc(max(env(safe-area-inset-top,0px),2.25rem)+0.8rem)] sm:gap-4 sm:px-6">
+      <header className="yw-live-header absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-2 px-3 pb-4 pt-[calc(max(env(safe-area-inset-top,0px),2.25rem)+0.8rem)] sm:gap-4 sm:px-6">
         <div className="min-w-0">
           <div className="flex flex-nowrap items-center gap-1.5 sm:gap-2">
             <span
@@ -686,7 +741,7 @@ export function LiveStreamHud({
       </header>
 
       <aside
-        className="absolute right-3 top-[calc(max(env(safe-area-inset-top,0px),2.25rem)+7.1rem)] z-30 flex flex-col items-center gap-2.5 sm:right-6"
+        className="yw-live-options absolute right-3 top-[calc(max(env(safe-area-inset-top,0px),2.25rem)+7.1rem)] z-30 flex flex-col items-center gap-2.5 sm:right-6"
         aria-label="Live options"
       >
         {isBroadcaster && (
@@ -710,7 +765,7 @@ export function LiveStreamHud({
                 id="live-beauty-options"
                 role="group"
                 aria-label="Face Retouch effects"
-                className="absolute right-[3.75rem] top-0 w-44 rounded-2xl border border-white/15 bg-[#171319]/95 p-3 shadow-2xl backdrop-blur-2xl"
+                className="yw-live-beauty-panel absolute right-[3.75rem] top-0 w-44 rounded-2xl border border-white/15 bg-[#171319]/95 p-3 shadow-2xl backdrop-blur-2xl"
               >
                 <div className="mb-2 flex items-center gap-1.5">
                   <Sparkles className="h-3.5 w-3.5 text-fuchsia-300" aria-hidden="true" />
@@ -890,7 +945,7 @@ export function LiveStreamHud({
         </div>
       </aside>
 
-      <div className="pointer-events-none absolute bottom-[calc(env(safe-area-inset-bottom,0px)+5.75rem)] left-0 right-0 flex justify-end px-4 sm:px-6">
+      <div className="yw-live-hearts pointer-events-none absolute bottom-[calc(env(safe-area-inset-bottom,0px)+5.75rem)] left-0 right-0 flex justify-end px-4 sm:px-6">
         <div className="relative h-52 w-full max-w-sm">
           {floatingHearts.map((heart) => (
             <Heart
@@ -910,7 +965,7 @@ export function LiveStreamHud({
 
       <div
         ref={commentsRef}
-        className="absolute bottom-[calc(env(safe-area-inset-bottom,0px)+5.1rem)] left-0 z-10 flex max-h-[38dvh] w-[min(calc(100vw-5.5rem),29rem)] flex-col gap-2 overflow-y-auto overscroll-contain px-3 pb-2 pt-8 [scrollbar-width:none] sm:px-6 [&::-webkit-scrollbar]:hidden"
+        className="yw-live-comments absolute bottom-[calc(env(safe-area-inset-bottom,0px)+5.1rem)] left-0 z-10 flex max-h-[38dvh] w-[min(calc(100vw-5.5rem),29rem)] flex-col gap-2 overflow-y-auto overscroll-contain px-3 pb-2 pt-8 [scrollbar-width:none] sm:px-6 [&::-webkit-scrollbar]:hidden"
         aria-live="polite"
         data-testid="list-live-comments"
       >
@@ -947,7 +1002,7 @@ export function LiveStreamHud({
       </div>
 
       <form
-        className="absolute inset-x-0 bottom-0 z-20 flex items-center gap-2 px-3 pb-[calc(env(safe-area-inset-bottom,0px)+0.8rem)] pt-3 sm:px-6"
+        className="yw-live-comment-form absolute inset-x-0 bottom-0 z-20 flex items-center gap-2 px-3 pb-[calc(env(safe-area-inset-bottom,0px)+0.8rem)] pt-3 sm:px-6"
         onSubmit={(event) => {
           event.preventDefault();
           if (commentText.trim()) onSendComment();
