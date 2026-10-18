@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { Capacitor } from "@capacitor/core";
+import { ScreenOrientation } from "@capacitor/screen-orientation";
 import { ArrowLeft, Camera, Radio, Users, X } from "lucide-react";
 import { LiveStreamHud } from "@/components/yw/LiveStreamHud";
 import { useAuth, useResumeAuthAction } from "@/lib/auth-store";
@@ -189,6 +191,35 @@ function LiveRoomSession({
     ),
   );
   const endedRef = useRef(false);
+
+  useEffect(() => {
+    if (
+      summary ||
+      !Capacitor.isNativePlatform() ||
+      Capacitor.getPlatform() !== "android"
+    ) {
+      return;
+    }
+
+    let liveScreenActive = true;
+    const orientationTimer = window.setTimeout(() => {
+      void ScreenOrientation.unlock()
+        .then(() => {
+          if (!liveScreenActive) {
+            return ScreenOrientation.lock({ orientation: "portrait" });
+          }
+        })
+        .catch((cause) => {
+          console.warn("[live] Could not allow device rotation", cause);
+        });
+    }, 250);
+
+    return () => {
+      liveScreenActive = false;
+      window.clearTimeout(orientationTimer);
+      void ScreenOrientation.lock({ orientation: "portrait" }).catch(() => {});
+    };
+  }, [summary]);
 
   const releaseLiveVideoEffect = useCallback(() => {
     videoEffectRequestIdRef.current += 1;
