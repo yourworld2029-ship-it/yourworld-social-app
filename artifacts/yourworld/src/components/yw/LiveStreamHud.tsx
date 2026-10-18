@@ -410,7 +410,7 @@ export function LiveStreamHud({
 
   return (
     <section
-      className="fixed inset-0 z-[70] isolate h-[100dvh] w-full overflow-hidden bg-[#120d12] text-white"
+      className="yw-live-hud fixed inset-0 z-[70] isolate h-[100dvh] w-full overflow-hidden bg-[#120d12] text-white"
       aria-label={isBroadcaster ? "Live broadcast preview" : "Live broadcast"}
     >
       <style>{`
@@ -454,10 +454,42 @@ export function LiveStreamHud({
           }
         }
 
-        @media (orientation: landscape) and (max-height: 650px) {
+        @media (orientation: landscape) {
+          .yw-app-scroll-container:has(.yw-live-hud) {
+            left: 0 !important;
+            right: 0 !important;
+            width: 100vw !important;
+            max-width: none !important;
+            margin: 0 !important;
+            overflow: visible !important;
+            transform: none !important;
+            will-change: auto !important;
+          }
+
+          .yw-live-hud {
+            inset: 0 !important;
+            width: 100vw !important;
+            max-width: none !important;
+            height: 100dvh !important;
+          }
+
+          .yw-live-hud > video[data-testid="video-live-stream"] {
+            position: absolute !important;
+            inset: 0 !important;
+            width: 100% !important;
+            height: 100% !important;
+            max-width: none !important;
+            max-height: none !important;
+            aspect-ratio: 16 / 9;
+            object-fit: cover !important;
+            object-position: center;
+          }
+
           .yw-live-header {
             padding-left: max(env(safe-area-inset-left, 0px), 0.75rem);
             padding-right: max(env(safe-area-inset-right, 0px), 0.75rem);
+            padding-top: calc(max(env(safe-area-inset-top, 0px), 0.75rem) + 0.25rem);
+            padding-bottom: 0.5rem;
           }
 
           .yw-live-header > div:first-child > div.mt-3 {
@@ -465,16 +497,35 @@ export function LiveStreamHud({
           }
 
           .yw-live-options {
-            top: calc(max(env(safe-area-inset-top, 0px), 2.25rem) + 5.9rem);
-            right: max(env(safe-area-inset-right, 0px), 0.75rem);
+            top: calc(max(env(safe-area-inset-top, 0px), 0.5rem) + 3.5rem);
+            right: max(env(safe-area-inset-right, 0px), 0.5rem);
             left: auto;
+            bottom: calc(max(env(safe-area-inset-bottom, 0px), 0.5rem) + 3rem);
+            transform: none;
             width: max-content;
-            max-width: calc(100vw - 1.5rem);
-            flex-direction: row;
-            gap: 0.5rem;
-            overflow-x: auto;
+            max-width: calc(100vw - 1rem);
+            flex-direction: column;
+            gap: 0.15rem;
+            overflow-x: hidden;
+            overflow-y: auto;
             padding: 0.125rem;
             scrollbar-width: none;
+          }
+
+          .yw-live-options > * {
+            flex-shrink: 0;
+            gap: 0.1rem !important;
+          }
+
+          .yw-live-options > * > button {
+            width: 2.125rem !important;
+            height: 2.125rem !important;
+          }
+
+          .yw-live-options > * > span {
+            font-size: 8px;
+            line-height: 1;
+            white-space: nowrap;
           }
 
           .yw-live-options::-webkit-scrollbar {
@@ -483,10 +534,12 @@ export function LiveStreamHud({
 
           .yw-live-beauty-panel {
             position: fixed;
-            top: calc(max(env(safe-area-inset-top, 0px), 2.25rem) + 5.5rem);
-            right: max(env(safe-area-inset-right, 0px), 0.75rem);
+            top: max(env(safe-area-inset-top, 0px), 0.5rem);
+            right: calc(max(env(safe-area-inset-right, 0px), 0.5rem) + 4rem);
             left: auto;
-            max-height: calc(100dvh - max(env(safe-area-inset-top, 0px), 2.25rem) - 7rem);
+            width: min(11rem, 38vw);
+            max-height: calc(100dvh - 1rem);
+            transform: none;
             overflow-y: auto;
           }
 
@@ -495,17 +548,48 @@ export function LiveStreamHud({
           }
 
           .yw-live-comments {
-            bottom: calc(env(safe-area-inset-bottom, 0px) + 4.8rem);
-            width: min(52vw, 29rem);
-            max-height: 28dvh;
-            padding-left: max(env(safe-area-inset-left, 0px), 0.75rem);
+            bottom: calc(env(safe-area-inset-bottom, 0px) + 3.5rem);
+            left: max(env(safe-area-inset-left, 0px), 0.75rem);
+            width: min(54vw, 27rem);
+            max-height: 24dvh;
+            padding-left: 0.75rem;
+            padding-right: 0.75rem;
           }
 
           .yw-live-comment-form {
-            padding-left: max(env(safe-area-inset-left, 0px), 0.75rem);
-            padding-right: max(env(safe-area-inset-right, 0px), 0.75rem);
-            padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 0.5rem);
+            left: max(env(safe-area-inset-left, 0px), 0.75rem);
+            right: auto;
+            bottom: max(env(safe-area-inset-bottom, 0px), 0.5rem);
+            width: min(64vw, 31rem);
+            padding-left: 0;
+            padding-right: 0;
+            padding-bottom: 0;
             padding-top: 0.5rem;
+            gap: 0.4rem;
+          }
+
+          .yw-live-comment-form input {
+            height: 2.75rem;
+          }
+
+          .yw-live-comment-form button {
+            width: 2.75rem;
+            height: 2.75rem;
+          }
+        }
+
+        @media (orientation: landscape) and (max-height: 360px) {
+          .yw-live-options > * > span {
+            display: none;
+          }
+
+          .yw-live-options > * {
+            gap: 0 !important;
+          }
+
+          .yw-live-options > * > button {
+            width: 1.875rem !important;
+            height: 1.875rem !important;
           }
         }
       `}</style>
