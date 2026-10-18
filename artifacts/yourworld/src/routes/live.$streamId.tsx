@@ -784,6 +784,9 @@ function LiveSummary({
   error?: string | null;
 }) {
   const navigate = useNavigate();
+  const [retentionChoice, setRetentionChoice] = useState<
+    "delete_now" | "keep_10_days" | "save_gallery"
+  >("delete_now");
   const hours = Math.floor(durationSeconds / 3600);
   const minutes = Math.floor((durationSeconds % 3600) / 60);
   const seconds = durationSeconds % 60;
@@ -794,7 +797,7 @@ function LiveSummary({
 
   return (
     <main className="grid min-h-[100dvh] place-items-center bg-[#120d12] px-5 py-10 text-white">
-      <section className="w-full max-w-sm rounded-[2rem] border border-white/10 bg-gradient-to-b from-[#241925] to-[#151016] p-7 text-center shadow-[0_30px_100px_rgba(0,0,0,0.55)]">
+      <section className="max-h-[90dvh] w-full max-w-sm overflow-y-auto overscroll-contain rounded-[2rem] border border-white/10 bg-gradient-to-b from-[#241925] to-[#151016] p-7 text-center shadow-[0_30px_100px_rgba(0,0,0,0.55)]">
         <div className="mx-auto mb-5 grid h-14 w-14 place-items-center rounded-full bg-rose-500/15 text-rose-300">
           <Radio className="h-6 w-6" />
         </div>
@@ -802,7 +805,7 @@ function LiveSummary({
           Live ended
         </p>
         <h1 className="mt-2 text-2xl font-bold tracking-tight">Your summary</h1>
-        <div className="mt-7 grid grid-cols-2 gap-3">
+        <div className="mt-7 grid grid-cols-3 gap-3">
           <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
             <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-white/45">
               Duration
@@ -820,6 +823,15 @@ function LiveSummary({
               {new Intl.NumberFormat("en").format(peakViewerCount)}
             </p>
           </div>
+          <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-white/45">
+              Your earnings
+            </p>
+            <p className="mt-2 text-xl font-bold tabular-nums">₹0.00</p>
+            <p className="mt-0.5 text-[9px] font-medium text-rose-200/70">
+              50% net share
+            </p>
+          </div>
         </div>
         {error && (
           <p className="mt-4 text-xs leading-5 text-amber-200/80" role="status">
@@ -827,10 +839,72 @@ function LiveSummary({
             saved. Viewers will be disconnected when the room closes.
           </p>
         )}
+        <fieldset className="mt-6 space-y-2 text-left">
+          <legend className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-white/50">
+            Video retention
+          </legend>
+          {[
+            {
+              value: "delete_now",
+              title: "Delete video now",
+              description: "Default · Purge any saved replay immediately",
+            },
+            {
+              value: "keep_10_days",
+              title: "Keep replay for 10 days",
+              description: "On your profile for 10 days · counts toward watch time",
+            },
+            {
+              value: "save_gallery",
+              title: "Save to gallery",
+              description: "Save to your phone · clear the cloud copy",
+            },
+          ].map((option) => {
+            const selected = retentionChoice === option.value;
+            return (
+              <label
+                key={option.value}
+                className={`flex cursor-pointer items-start gap-3 rounded-2xl border p-3 transition-colors ${
+                  selected
+                    ? "border-fuchsia-400/55 bg-fuchsia-500/10"
+                    : "border-white/10 bg-black/20"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="live-video-retention"
+                  value={option.value}
+                  checked={selected}
+                  onChange={() =>
+                    setRetentionChoice(
+                      option.value as
+                        | "delete_now"
+                        | "keep_10_days"
+                        | "save_gallery",
+                    )
+                  }
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-[#f12e50]"
+                />
+                <span className="min-w-0">
+                  <span className="block text-xs font-semibold text-white">
+                    {option.title}
+                  </span>
+                  <span className="mt-1 block text-[10px] leading-4 text-white/55">
+                    {option.description}
+                  </span>
+                </span>
+              </label>
+            );
+          })}
+        </fieldset>
+        <p className="mt-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-left text-[10px] leading-4 text-white/50">
+          Live video is not currently recorded. These choices are UI-only and
+          won’t change video storage.
+        </p>
         <button
           type="button"
           onClick={() => void navigate({ to: "/" })}
-          className="mt-7 w-full rounded-full bg-white px-5 py-3 text-sm font-bold text-[#181018] transition hover:bg-white/90"
+          className="mt-5 w-full rounded-full bg-white px-5 py-3 text-sm font-bold text-[#181018] transition hover:bg-white/90"
         >
           Done
         </button>
