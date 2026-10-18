@@ -113,7 +113,7 @@ export const Route = createFileRoute("/profile")({
     search: Record<string, unknown>,
   ): {
     connections?: "followers" | "following";
-    tab?: "videos" | "reels" | "saved" | "downloads";
+    tab?: "videos" | "reels" | "live" | "saved" | "downloads";
   } => ({
     connections:
       search.connections === "following"
@@ -124,6 +124,8 @@ export const Route = createFileRoute("/profile")({
       tab:
         search.tab === "reels"
           ? "reels"
+          : search.tab === "live"
+            ? "live"
           : search.tab === "saved"
             ? "saved"
             : search.tab === "downloads"

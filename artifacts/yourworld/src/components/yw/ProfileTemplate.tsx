@@ -100,8 +100,8 @@ export type ProfileTemplateProps = {
   onOpenDownloadAthlete?: (video: DownloadedVideo) => void;
   onOpenSavedVideo?: (video: LongVideo) => void;
   onRemoveSavedVideo?: (video: LongVideo) => Promise<void> | void;
-  selectedTab?: "videos" | "reels" | "saved" | "downloads";
-  onTabChange?: (tab: "videos" | "reels" | "saved" | "downloads") => void;
+  selectedTab?: "videos" | "reels" | "live" | "saved" | "downloads";
+  onTabChange?: (tab: "videos" | "reels" | "live" | "saved" | "downloads") => void;
   hasMoreMedia?: boolean;
   onLoadMoreMedia?: () => void;
   mediaSrc?: (url: string) => string;
@@ -110,7 +110,7 @@ export type ProfileTemplateProps = {
   children?: ReactNode;
 };
 
-type ProfileTab = "videos" | "reels" | "saved" | "downloads";
+type ProfileTab = "videos" | "reels" | "live" | "saved" | "downloads";
 
 const ownerEditButtonClass =
   "h-8 rounded-lg border-0 bg-gradient-to-r from-fuchsia-500 to-violet-500 px-3 text-xs font-semibold text-white shadow-[0_8px_20px_-10px_rgba(217,70,239,0.9)] hover:from-fuchsia-400 hover:to-violet-400";
@@ -193,7 +193,9 @@ export function ProfileTemplate({
     ? selectedTab ?? "videos"
     : internalTab === "reels"
       ? "reels"
-      : "videos";
+      : internalTab === "live"
+        ? "live"
+        : "videos";
   const normalCategories = resolveNormalProfileCategories(
     profile.normal_categories,
     profile.category,
@@ -395,7 +397,7 @@ export function ProfileTemplate({
       <Tabs
         value={activeTab}
         onValueChange={(value) => {
-          if (value === "videos" || value === "reels" || value === "saved") {
+          if (value === "videos" || value === "reels" || value === "live" || value === "saved") {
             setInternalTab(value);
             onTabChange?.(value);
           } else if (isOwner && value === "downloads") {
@@ -405,15 +407,18 @@ export function ProfileTemplate({
         }}
         className="mx-auto w-full max-w-3xl pt-4"
       >
-        <TabsList className="mx-0 flex h-auto w-full justify-center gap-8 rounded-none border-0 border-b border-white/10 bg-transparent px-3 py-0 sm:gap-10">
-          <TabsTrigger value="videos" className="min-w-20 rounded-none border-b-2 border-transparent bg-transparent px-1 py-3 text-xs font-semibold text-white/60 shadow-none data-[state=active]:border-white data-[state=active]:bg-transparent data-[state=active]:text-white data-[state=active]:shadow-none" aria-label="Videos">
+        <TabsList className="mx-0 flex h-auto w-full justify-center gap-1 rounded-none border-0 border-b border-white/10 bg-transparent px-3 py-0 sm:gap-10">
+          <TabsTrigger value="videos" className="min-w-0 flex-1 rounded-none border-b-2 border-transparent bg-transparent px-1 py-3 text-xs font-semibold text-white/60 shadow-none data-[state=active]:border-white data-[state=active]:bg-transparent data-[state=active]:text-white data-[state=active]:shadow-none sm:min-w-20 sm:flex-none" aria-label="Videos">
             Videos
           </TabsTrigger>
-          <TabsTrigger value="reels" className="min-w-20 rounded-none border-b-2 border-transparent bg-transparent px-1 py-3 text-xs font-semibold text-white/60 shadow-none data-[state=active]:border-white data-[state=active]:bg-transparent data-[state=active]:text-white data-[state=active]:shadow-none" aria-label="Reels">
+          <TabsTrigger value="reels" className="min-w-0 flex-1 rounded-none border-b-2 border-transparent bg-transparent px-1 py-3 text-xs font-semibold text-white/60 shadow-none data-[state=active]:border-white data-[state=active]:bg-transparent data-[state=active]:text-white data-[state=active]:shadow-none sm:min-w-20 sm:flex-none" aria-label="Reels">
              Reels
           </TabsTrigger>
+          <TabsTrigger value="live" className="min-w-0 flex-1 rounded-none border-b-2 border-transparent bg-transparent px-1 py-3 text-xs font-semibold text-white/60 shadow-none data-[state=active]:border-white data-[state=active]:bg-transparent data-[state=active]:text-white data-[state=active]:shadow-none sm:min-w-20 sm:flex-none" aria-label="Live">
+            Live
+          </TabsTrigger>
           {isOwner ? (
-            <TabsTrigger value="saved" className="min-w-20 rounded-none border-b-2 border-transparent bg-transparent px-1 py-3 text-xs font-semibold text-white/60 shadow-none data-[state=active]:border-white data-[state=active]:bg-transparent data-[state=active]:text-white data-[state=active]:shadow-none" aria-label="Saved">
+            <TabsTrigger value="saved" className="min-w-0 flex-1 rounded-none border-b-2 border-transparent bg-transparent px-1 py-3 text-xs font-semibold text-white/60 shadow-none data-[state=active]:border-white data-[state=active]:bg-transparent data-[state=active]:text-white data-[state=active]:shadow-none sm:min-w-20 sm:flex-none" aria-label="Saved">
               Saved
             </TabsTrigger>
           ) : null}
@@ -442,6 +447,9 @@ export function ProfileTemplate({
           {hasMoreMedia ? (
             <MoreMediaButton loading={mediaLoading} onClick={onLoadMoreMedia} />
           ) : null}
+        </TabsContent>
+        <TabsContent value="live" className="mt-0">
+          <Empty text="No live replays available" />
         </TabsContent>
         {isOwner ? (
           <TabsContent value="saved" className="mt-0">
