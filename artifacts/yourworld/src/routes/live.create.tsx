@@ -310,16 +310,6 @@ function LiveCreatePage() {
             <span className="block text-right text-xs text-white/45">{title.length}/100</span>
           </label>
 
-          <div className="rounded-xl border border-cyan-300/15 bg-cyan-300/[0.06] px-3.5 py-3 text-xs leading-relaxed text-cyan-100/80">
-            Your live video is sent directly to viewers. YourWorld does not save a replay or store your camera and microphone stream.
-          </div>
-
-          {actionMessage && (
-            <p role="status" aria-live="polite" className="text-sm text-white/75">
-              {actionMessage}
-            </p>
-          )}
-
           <button
             type="button"
             onClick={handleGoLive}
@@ -329,6 +319,12 @@ function LiveCreatePage() {
             <Radio className="h-4 w-4" />
             {startingLive ? "Starting live…" : "Go Live"}
           </button>
+
+          {actionMessage && (
+            <p role="status" aria-live="polite" className="text-sm text-white/75">
+              {actionMessage}
+            </p>
+          )}
         </section>
       </div>
     </main>
