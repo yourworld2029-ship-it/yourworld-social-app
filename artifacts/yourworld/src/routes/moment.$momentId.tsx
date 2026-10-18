@@ -152,16 +152,20 @@ function MomentViewRoute() {
   const heldRef = useRef(false);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
   const deleteInFlightRef = useRef(false);
+  const syncedMomentIdRef = useRef<string | null>(null);
 
   const current = items[index] ?? selected ?? null;
+  const selectedMomentId = selected?.id ?? null;
 
   // sync index to the moment in the URL
   useEffect(() => {
-    if (!selected) return;
-    const i = items.findIndex((m) => m.id === selected.id);
-    setIndex(i >= 0 ? i : 0);
+    if (!selectedMomentId || syncedMomentIdRef.current === selectedMomentId) return;
+    const i = items.findIndex((m) => m.id === selectedMomentId);
+    if (i < 0) return;
+    syncedMomentIdRef.current = selectedMomentId;
+    setIndex(i);
     setProgress(0);
-  }, [selected, items]);
+  }, [selectedMomentId, items]);
 
   const close = useCallback(
     () => {
