@@ -332,6 +332,7 @@ function exitPlayerFullscreen() {
 }
 
 let orientationChangeQueue: Promise<void> = Promise.resolve();
+let liveScreenOwnsOrientation = false;
 
 function enqueueOrientationChange(change: () => Promise<void>) {
   const nextChange = orientationChangeQueue.then(change, change);
@@ -339,8 +340,31 @@ function enqueueOrientationChange(change: () => Promise<void>) {
   return nextChange;
 }
 
+export function setLiveScreenOrientationActive(active: boolean) {
+  liveScreenOwnsOrientation = active;
+  return enqueueOrientationChange(async () => {
+    try {
+      if (liveScreenOwnsOrientation) {
+        await ScreenOrientation.unlock();
+      } else {
+        await ScreenOrientation.lock({ orientation: "portrait" });
+      }
+    } catch (cause) {
+      console.warn("[live] Could not update device rotation", cause);
+    }
+  });
+}
+
 function lockPlayerOrientation(requestedOrientation: "portrait" | "landscape") {
   return enqueueOrientationChange(async () => {
+    if (liveScreenOwnsOrientation) {
+      try {
+        await ScreenOrientation.unlock();
+      } catch (cause) {
+        console.warn("[live] Could not keep device rotation enabled", cause);
+      }
+      return;
+    }
     try {
       await ScreenOrientation.lock({ orientation: requestedOrientation });
     } catch {

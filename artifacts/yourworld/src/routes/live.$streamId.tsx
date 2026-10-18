@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Capacitor } from "@capacitor/core";
-import { ScreenOrientation } from "@capacitor/screen-orientation";
 import { ArrowLeft, Camera, Radio, Users, X } from "lucide-react";
 import { LiveStreamHud } from "@/components/yw/LiveStreamHud";
 import { useAuth, useResumeAuthAction } from "@/lib/auth-store";
@@ -18,6 +17,7 @@ import {
 } from "@/lib/live-video-effects";
 import { discardHandedOffLiveStream, takeHandedOffLiveStream } from "@/lib/live-stream-registry";
 import { historyBackOr } from "@/lib/navigation";
+import { setLiveScreenOrientationActive } from "@/lib/video-playback";
 import { useLiveRoom } from "@/lib/use-live-room";
 
 export const Route = createFileRoute("/live/$streamId")({
@@ -201,23 +201,10 @@ function LiveRoomSession({
       return;
     }
 
-    let liveScreenActive = true;
-    const orientationTimer = window.setTimeout(() => {
-      void ScreenOrientation.unlock()
-        .then(() => {
-          if (!liveScreenActive) {
-            return ScreenOrientation.lock({ orientation: "portrait" });
-          }
-        })
-        .catch((cause) => {
-          console.warn("[live] Could not allow device rotation", cause);
-        });
-    }, 250);
+    void setLiveScreenOrientationActive(true);
 
     return () => {
-      liveScreenActive = false;
-      window.clearTimeout(orientationTimer);
-      void ScreenOrientation.lock({ orientation: "portrait" }).catch(() => {});
+      void setLiveScreenOrientationActive(false);
     };
   }, [summary]);
 
