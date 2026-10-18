@@ -57,6 +57,7 @@
 - [Artifact-scoped builds](artifact-scoped-builds.md) — for a one-artifact change, validate that package directly before treating unrelated workspace build failures as blockers.
 - [Session and email OTP security](session-and-email-2fa-security.md) — revoke Auth session state before deleting the app row; email OTP must gate the final sign-in session.
 - [Android system-bar insets](android-system-bar-insets.md) — SDK 35+ forces edge-to-edge on Android 15+, so keep bars visible and inset WebView content natively.
+- [Android Live sensor rotation](android-live-sensor-rotation.md) — `unlock()` only sets `UNSPECIFIED`; Live needs native `FULL_SENSOR`, player-lock coordination, and restoration of the prior orientation.
 - [Android Gradle JDK selection](android-gradle-jdk-selection.md) — Android release builds need Gradle runtime and compiler detection explicitly aligned to JDK 21.
 - [Production Android signing continuity](production-android-signing.md) — release APKs must retain the existing signing identity; never substitute a debug or newly generated key.
 - [Android capture protection](android-capture-protection.md) — shared chat protection applies FLAG_SECURE to both participants' active Android chat windows; external-camera capture cannot be blocked.

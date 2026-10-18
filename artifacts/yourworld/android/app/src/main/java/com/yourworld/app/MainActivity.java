@@ -45,6 +45,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(ReelGalleryExportPlugin.class);
         registerPlugin(SystemVideoPipPlugin.class);
         registerPlugin(VideoBrightnessPlugin.class);
+        registerPlugin(LiveScreenOrientationPlugin.class);
         super.onCreate(savedInstanceState);
 
         prepareForIncomingCall(getIntent());

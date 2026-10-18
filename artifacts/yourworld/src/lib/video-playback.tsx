@@ -146,6 +146,10 @@ type VideoBrightnessPlugin = {
   restoreBrightness(): Promise<void>;
 };
 
+type LiveScreenOrientationPlugin = {
+  setLiveMode(options: { active: boolean }): Promise<void>;
+};
+
 const globalSystemVideoPip = globalThis as typeof globalThis & {
   __yourWorldSystemVideoPip?: SystemVideoPipPlugin;
 };
@@ -160,6 +164,13 @@ const videoBrightness =
   globalVideoBrightness.__yourWorldVideoBrightness ??
   (globalVideoBrightness.__yourWorldVideoBrightness =
     registerPlugin<VideoBrightnessPlugin>("VideoBrightness"));
+const globalLiveScreenOrientation = globalThis as typeof globalThis & {
+  __yourWorldLiveScreenOrientation?: LiveScreenOrientationPlugin;
+};
+const liveScreenOrientationPlugin =
+  globalLiveScreenOrientation.__yourWorldLiveScreenOrientation ??
+  (globalLiveScreenOrientation.__yourWorldLiveScreenOrientation =
+    registerPlugin<LiveScreenOrientationPlugin>("LiveScreenOrientation"));
 
 type FloatingPosition = {
   left: number;
@@ -340,15 +351,28 @@ function enqueueOrientationChange(change: () => Promise<void>) {
   return nextChange;
 }
 
+async function applyLiveOrientation(active: boolean) {
+  if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android") {
+    try {
+      await liveScreenOrientationPlugin.setLiveMode({ active });
+      return;
+    } catch (cause) {
+      console.warn("[live] Native sensor rotation is unavailable", cause);
+    }
+  }
+
+  if (active) {
+    await ScreenOrientation.unlock();
+  } else {
+    await ScreenOrientation.lock({ orientation: "portrait" });
+  }
+}
+
 export function setLiveScreenOrientationActive(active: boolean) {
   liveScreenOwnsOrientation = active;
   return enqueueOrientationChange(async () => {
     try {
-      if (liveScreenOwnsOrientation) {
-        await ScreenOrientation.unlock();
-      } else {
-        await ScreenOrientation.lock({ orientation: "portrait" });
-      }
+      await applyLiveOrientation(liveScreenOwnsOrientation);
     } catch (cause) {
       console.warn("[live] Could not update device rotation", cause);
     }
@@ -359,7 +383,7 @@ function lockPlayerOrientation(requestedOrientation: "portrait" | "landscape") {
   return enqueueOrientationChange(async () => {
     if (liveScreenOwnsOrientation) {
       try {
-        await ScreenOrientation.unlock();
+        await applyLiveOrientation(true);
       } catch (cause) {
         console.warn("[live] Could not keep device rotation enabled", cause);
       }
