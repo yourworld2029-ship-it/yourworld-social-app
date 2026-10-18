@@ -382,7 +382,7 @@ function MomentViewRoute() {
     holdTimer.current = setTimeout(() => {
       heldRef.current = true;
       setPaused(true);
-    }, 250);
+    }, 500);
   };
 
   const endHold = () => {
