@@ -85,10 +85,11 @@ export function LazyVideoThumbnail({
   }, []);
   const primary = resolved?.key === key ? resolved.urls : [];
   const cloudflare = cloudflareStreamPosterUrl(mediaUrl, streamId);
+  const preferVideoPreview = preferVideoFrame && (!!mediaUrl || !!streamId);
   const generatePreferredFrame = preferVideoFrame
     ? !!mediaUrl
     : preferGeneratedFallback && !thumbnailUrl?.trim();
-  const sourceCandidates = generatePreferredFrame
+  const sourceCandidates = preferVideoPreview
     ? [cached, cloudflare, ...primary]
     : [...primary, cloudflare, cached];
   const source = sourceCandidates.find((url) => !!url && !failed.includes(url)) ?? null;

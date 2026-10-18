@@ -61,7 +61,7 @@
 - [Foreground chat push routing](foreground-chat-push-routing.md) — suppress Android message notifications only for the exact conversation currently open, not every foreground app screen.
 - [Managed Realtime table ownership](realtime-system-table-ownership.md) — do not alter Supabase-managed Realtime tables or publication through the project migration connection.
 - [Supabase media upload transport](direct-supabase-uploads.md) — use direct Storage for small files and sequential resumable TUS for large browser uploads.
-- [Cloudflare Stream downloads](cloudflare-stream-downloads.md) — prefer Cloudflare MP4, active playback, then storage; keep quality labels honest and preserve access denials.
+- [Cloudflare Stream media](cloudflare-stream-downloads.md) — preserve playback/download rules and the stored Stream UID needed for authentic thumbnails.
 - [Native media API routing](native-media-api-routing.md) — packaged WebView requests need the hosted origin; TUS responses must expose the continuation and media-ID headers.
 - [Long-video upload responsiveness](android-video-fallback.md) — limit local encoding to short, smaller files; upload the original through resumable TUS if encoding is skipped or unfinished, and keep byte reporting Long Video-only.
 - [Cross-artifact public downloads](cross-artifact-public-downloads.md) — workspace-root and artifact-local APK routes differ; stage each requested file at the route's actual source and verify through the proxy.

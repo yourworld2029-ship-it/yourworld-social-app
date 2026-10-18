@@ -55,6 +55,8 @@ export type NotificationItem = {
   thumbnailUrl?: string | null;
   /** Video source used to generate a real preview when no usable cover exists. */
   previewMediaUrl?: string | null;
+  /** Cloudflare Stream UID used to load the video's real thumbnail. */
+  previewStreamId?: string | null;
   previewBucket?: "reels" | "videos" | "thumbnails";
   /** Reshare action supplied by a Moment mention notification. */
   canReshareMoment?: boolean;
@@ -135,7 +137,7 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
 
   const { data: myPostRows } = await liveDb
     .from("posts")
-    .select("id,kind,thumbnail_url,media_url,media_type")
+    .select("id,kind,thumbnail_url,media_url,media_type,cloudflare_stream_uid,cloudflare_stream_id")
     .eq("user_id", me);
   const myPosts = ((myPostRows ?? []) as {
     id: string;
@@ -143,6 +145,8 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
     thumbnail_url?: string | null;
     media_url?: string | null;
     media_type?: string | null;
+    cloudflare_stream_uid?: string | null;
+    cloudflare_stream_id?: string | null;
   }[]).filter(
     (post) => post.kind !== "moment",
   );
@@ -314,6 +318,7 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
   ]);
   const postThumbnails = new Map<string, string>();
   const postPreviewMedia = new Map<string, string>();
+  const postPreviewStreamIds = new Map<string, string>();
   const postPreviewBuckets = new Map<string, "reels" | "videos">();
   await Promise.all(myPosts.filter((post) => previewPostIds.has(post.id)).map(async (post) => {
     const bucket = post.kind === "reel" ? "reels" : "videos";
@@ -321,6 +326,10 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       post.kind === "reel" ||
       post.kind === "video" ||
       post.media_type?.toLowerCase().startsWith("video") === true;
+    const streamId = post.cloudflare_stream_id ?? post.cloudflare_stream_uid;
+    if (isVideo && streamId?.trim()) {
+      postPreviewStreamIds.set(post.id, streamId.trim());
+    }
     const imageOnlyMedia = post.media_type?.toLowerCase().startsWith("image")
       ? post.media_url
       : null;
@@ -352,6 +361,7 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
   const postPreviewFor = (postId: string) => ({
     thumbnailUrl: postThumbnails.get(postId) ?? null,
     previewMediaUrl: postPreviewMedia.get(postId) ?? null,
+    previewStreamId: postPreviewStreamIds.get(postId) ?? null,
     previewBucket: postPreviewBuckets.get(postId),
   });
   const contentLink = (
@@ -654,6 +664,9 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
           : contentId
             ? postPreviewMedia.get(contentId) ?? null
             : null,
+      previewStreamId: contentId
+        ? postPreviewStreamIds.get(contentId) ?? null
+        : null,
       previewBucket: contentId ? postPreviewBuckets.get(contentId) : undefined,
     });
   }

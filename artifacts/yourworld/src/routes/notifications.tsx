@@ -366,7 +366,7 @@ function NotificationRow({
         >
           {following ? "Following" : "Follow back"}
         </button>
-      ) : item.thumbnailUrl || item.previewMediaUrl ? (
+      ) : item.thumbnailUrl || item.previewMediaUrl || item.previewStreamId ? (
         <div
           data-testid={`img-notification-thumbnail-${item.id}`}
           className="relative h-11 w-11 shrink-0 overflow-hidden rounded-md"
@@ -374,9 +374,10 @@ function NotificationRow({
           <LazyVideoThumbnail
             thumbnailUrl={item.thumbnailUrl}
             mediaUrl={item.previewMediaUrl ?? undefined}
+            streamId={item.previewStreamId ?? undefined}
             bucket={item.previewBucket}
             allowFrameCapture={!!item.previewMediaUrl}
-            preferVideoFrame={!!item.previewMediaUrl}
+            preferVideoFrame={!!(item.previewMediaUrl || item.previewStreamId)}
             frameCacheKey={
               item.previewMediaUrl
                 ? `${item.previewMediaUrl}#notification-frame`
