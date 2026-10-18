@@ -20,6 +20,7 @@ import { SportsIdentityMark } from "@/components/yw/SportsIdentityBadge";
 import { useYw } from "@/lib/yw-store";
 import { useMoments } from "@/lib/moment-context";
 import { fetchMomentById, type NewMoment } from "@/lib/moment-store";
+import { LazyVideoThumbnail } from "@/components/yw/LazyVideoThumbnail";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/notifications")({
@@ -365,23 +366,30 @@ function NotificationRow({
         >
           {following ? "Following" : "Follow back"}
         </button>
-      ) : item.thumbnailUrl ? (
-        <span
+      ) : item.thumbnailUrl || item.previewMediaUrl ? (
+        <div
           data-testid={`img-notification-thumbnail-${item.id}`}
           className="relative h-11 w-11 shrink-0 overflow-hidden rounded-md"
         >
-          <img
-            src={item.thumbnailUrl}
+          <LazyVideoThumbnail
+            thumbnailUrl={item.thumbnailUrl}
+            mediaUrl={item.previewMediaUrl ?? undefined}
+            bucket={item.previewBucket}
+            allowFrameCapture={!!item.previewMediaUrl}
+            preferVideoFrame={!!item.previewMediaUrl}
+            frameCacheKey={
+              item.previewMediaUrl
+                ? `${item.previewMediaUrl}#notification-frame`
+                : undefined
+            }
+            frameCaptureTimeSeconds={1}
             alt=""
-            width={44}
-            height={44}
-            loading={prioritizeThumbnail ? "eager" : "lazy"}
+            loading="lazy"
             fetchPriority={prioritizeThumbnail ? "high" : "auto"}
-            decoding="async"
-            onError={(event) => event.currentTarget.parentElement?.remove()}
-            className="block h-full w-full object-cover"
+            showFrameStatus={false}
+            className="h-full w-full"
           />
-        </span>
+        </div>
       ) : null}
       {item.canReshareMoment ? (
         <button

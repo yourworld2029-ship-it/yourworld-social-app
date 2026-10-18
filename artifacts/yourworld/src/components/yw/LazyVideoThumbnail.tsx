@@ -26,6 +26,8 @@ type Props = {
   allowFrameCapture?: boolean;
   showFrameStatus?: boolean;
   preferGeneratedFallback?: boolean;
+  preferVideoFrame?: boolean;
+  frameCacheKey?: string;
   frameCaptureTimeSeconds?: number;
 };
 
@@ -34,7 +36,8 @@ export function LazyVideoThumbnail({
   thumbnailUrl, mediaUrl, streamId, alt, className,
   showPlayFallback = false, showFallbackIcon = false, bucket,
   loading = "lazy", fetchPriority = "auto", onPosterResolved, allowFrameCapture = true,
-  showFrameStatus = true, preferGeneratedFallback = false, frameCaptureTimeSeconds = 0.1,
+  showFrameStatus = true, preferGeneratedFallback = false, preferVideoFrame = false,
+  frameCacheKey, frameCaptureTimeSeconds = 0.1,
 }: Props) {
   const [resolved, setResolved] = useState<{ key: string; urls: string[] } | null>(null);
   const [failed, setFailed] = useState<string[]>([]);
@@ -43,7 +46,8 @@ export function LazyVideoThumbnail({
   const [inView, setInView] = useState(loading === "eager");
   const [frameFailed, setFrameFailed] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const key = `${bucket}:${thumbnailUrl}:${mediaUrl}:${streamId}`;
+  const posterCacheKey = frameCacheKey || mediaUrl || "";
+  const key = `${bucket}:${thumbnailUrl}:${mediaUrl}:${streamId}:${posterCacheKey}`;
   useEffect(() => {
     setFailed([]); setLoaded(null); setResolved(null); setFrameFailed(false);
     if (!thumbnailUrl?.trim()) return;
@@ -63,10 +67,10 @@ export function LazyVideoThumbnail({
     return () => { alive = false; };
   }, [key, bucket, thumbnailUrl]);
   useEffect(() => {
-    setCached(mediaUrl ? getVideoPoster(mediaUrl) : null);
+    setCached(mediaUrl ? getVideoPoster(posterCacheKey) : null);
     if (!mediaUrl) return;
-    return subscribeVideoPoster(mediaUrl, setCached);
-  }, [mediaUrl]);
+    return subscribeVideoPoster(posterCacheKey, setCached);
+  }, [mediaUrl, posterCacheKey]);
   useEffect(() => {
     const element = containerRef.current;
     if (!element) return;
@@ -81,9 +85,11 @@ export function LazyVideoThumbnail({
   }, []);
   const primary = resolved?.key === key ? resolved.urls : [];
   const cloudflare = cloudflareStreamPosterUrl(mediaUrl, streamId);
-  const generatePreferredFrame = preferGeneratedFallback && !thumbnailUrl?.trim();
+  const generatePreferredFrame = preferVideoFrame
+    ? !!mediaUrl
+    : preferGeneratedFallback && !thumbnailUrl?.trim();
   const sourceCandidates = generatePreferredFrame
-    ? [...primary, cached, cloudflare]
+    ? [cached, cloudflare, ...primary]
     : [...primary, cloudflare, cached];
   const source = sourceCandidates.find((url) => !!url && !failed.includes(url)) ?? null;
   useEffect(() => {
@@ -92,9 +98,9 @@ export function LazyVideoThumbnail({
     const controller = new AbortController();
     requestVideoFirstFrame(mediaUrl, controller.signal, (frame) => {
       if (frame) setCached(frame); else setFrameFailed(true);
-    }, frameCaptureTimeSeconds);
+    }, frameCaptureTimeSeconds, posterCacheKey);
     return () => controller.abort();
-  }, [source, mediaUrl, inView, allowFrameCapture, frameFailed, generatePreferredFrame, cached, frameCaptureTimeSeconds]);
+  }, [source, mediaUrl, posterCacheKey, inView, allowFrameCapture, frameFailed, generatePreferredFrame, cached, frameCaptureTimeSeconds]);
   useEffect(() => { if (source) onPosterResolved?.(source); }, [source, onPosterResolved]);
   return <div ref={containerRef} className={cn("relative h-full w-full overflow-hidden bg-transparent", className)}>
     {showFrameStatus && !source && <span data-testid={frameFailed ? "video-frame-error" : "video-frame-loading"} role="status"

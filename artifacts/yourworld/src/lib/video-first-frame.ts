@@ -7,6 +7,7 @@ import { isHlsMediaUrl, supportsNativeHls } from "./video-playback-engine";
 
 type Job = {
   url: string;
+  cacheKey: string;
   signal: AbortSignal;
   done: (frame: string | null) => void;
   timeSeconds: number;
@@ -20,10 +21,11 @@ export function requestVideoFirstFrame(
   signal: AbortSignal,
   done: Job["done"],
   timeSeconds = 0.1,
+  cacheKey = url,
 ) {
-  const cached = getVideoPoster(url);
+  const cached = getVideoPoster(cacheKey);
   if (cached) { done(cached); return; }
-  jobs.push({ url, signal, done, timeSeconds });
+  jobs.push({ url, cacheKey, signal, done, timeSeconds });
   pump();
 }
 
@@ -34,7 +36,7 @@ function pump() {
   while (jobs[0]?.signal.aborted) jobs.shift();
   const job = jobs[0];
   if (!job) return;
-  const existing = getVideoPoster(job.url);
+  const existing = getVideoPoster(job.cacheKey);
   if (existing) { jobs.shift(); job.done(existing); queueMicrotask(pump); return; }
   const owner = {};
   let cancel = () => {};
@@ -70,7 +72,7 @@ function pump() {
   video.preload = "metadata";
   const capture = () => {
     if (video.readyState < 2 || !video.videoWidth) return;
-    finish(cacheVideoPoster(video, job.url));
+    finish(cacheVideoPoster(video, job.cacheKey));
   };
   video.addEventListener("loadedmetadata", () => {
     if (finished) return;

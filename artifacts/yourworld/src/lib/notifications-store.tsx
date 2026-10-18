@@ -53,6 +53,9 @@ export type NotificationItem = {
   to?: string;
   /** Optional preview image for content notifications. */
   thumbnailUrl?: string | null;
+  /** Video source used to generate a real preview when no usable cover exists. */
+  previewMediaUrl?: string | null;
+  previewBucket?: "reels" | "videos" | "thumbnails";
   /** Reshare action supplied by a Moment mention notification. */
   canReshareMoment?: boolean;
   momentId?: string;
@@ -310,19 +313,47 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
     }),
   ]);
   const postThumbnails = new Map<string, string>();
+  const postPreviewMedia = new Map<string, string>();
+  const postPreviewBuckets = new Map<string, "reels" | "videos">();
   await Promise.all(myPosts.filter((post) => previewPostIds.has(post.id)).map(async (post) => {
+    const bucket = post.kind === "reel" ? "reels" : "videos";
+    const isVideo =
+      post.kind === "reel" ||
+      post.kind === "video" ||
+      post.media_type?.toLowerCase().startsWith("video") === true;
     const imageOnlyMedia = post.media_type?.toLowerCase().startsWith("image")
       ? post.media_url
       : null;
     const source = post.thumbnail_url ?? imageOnlyMedia;
-    if (!source) return;
-    try {
-      const resolved = await resolveMediaUrl(source, post.kind === "reel" ? "reels" : "videos");
-      if (resolved) postThumbnails.set(post.id, resolved);
-    } catch {
-      postThumbnails.set(post.id, source);
+    const previewSource = isVideo ? post.media_url?.trim() : null;
+    if (source) {
+      try {
+        const resolved = await resolveMediaUrl(source, bucket);
+        if (resolved) postThumbnails.set(post.id, resolved);
+      } catch {
+        postThumbnails.set(post.id, source);
+      }
+    }
+    if (previewSource) {
+      try {
+        const resolved = /^(https?:|blob:|data:)/i.test(previewSource)
+          ? previewSource
+          : await resolveMediaUrl(previewSource, bucket);
+        if (resolved) {
+          postPreviewMedia.set(post.id, resolved);
+          postPreviewBuckets.set(post.id, bucket);
+        }
+      } catch {
+        postPreviewMedia.set(post.id, previewSource);
+        postPreviewBuckets.set(post.id, bucket);
+      }
     }
   }));
+  const postPreviewFor = (postId: string) => ({
+    thumbnailUrl: postThumbnails.get(postId) ?? null,
+    previewMediaUrl: postPreviewMedia.get(postId) ?? null,
+    previewBucket: postPreviewBuckets.get(postId),
+  });
   const contentLink = (
     id: string,
     kind: string | null | undefined,
@@ -410,31 +441,47 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
     .filter((n) => n.entity_type === "moment" && n.entity_id)
     .map((n) => n.entity_id as string);
   const momentMedia = new Map<string, string>();
+  const momentVideoMedia = new Map<string, string>();
   if (momentIds.length) {
     const { data: dedicatedMoments } = await liveDb
       .from("moments")
-      .select("id,media_url")
+      .select("id,media_url,media_type")
       .in("id", [...new Set(momentIds)]);
     for (const moment of (dedicatedMoments ?? []) as Array<{
       id: string;
       media_url: string | null;
+      media_type: string | null;
     }>) {
-      if (moment.media_url) momentMedia.set(moment.id, moment.media_url);
+      if (moment.media_url) {
+        momentMedia.set(moment.id, moment.media_url);
+        if (moment.media_type?.toLowerCase().startsWith("video")) {
+          momentVideoMedia.set(moment.id, moment.media_url);
+        }
+      }
     }
     const { data: moments } = await liveDb
       .from("posts")
-      .select("id,media_url,thumbnail_url")
+      .select("id,media_url,thumbnail_url,media_type")
       .in("id", [...new Set(momentIds)]);
     for (const moment of (moments ?? []) as Array<{
       id: string;
       media_url: string | null;
       thumbnail_url: string | null;
+      media_type: string | null;
     }>) {
-      if (momentMedia.has(moment.id)) continue;
-      const url = moment.thumbnail_url ?? moment.media_url;
-      if (url) momentMedia.set(moment.id, url);
+      if (!momentMedia.has(moment.id)) {
+        const url = moment.thumbnail_url ?? moment.media_url;
+        if (url) momentMedia.set(moment.id, url);
+      }
+      if (
+        !momentVideoMedia.has(moment.id) &&
+        moment.media_url &&
+        moment.media_type?.toLowerCase().startsWith("video")
+      ) {
+        momentVideoMedia.set(moment.id, moment.media_url);
+      }
     }
-    const paths = [...new Set([...momentMedia.values()])].filter(
+    const paths = [...new Set([...momentMedia.values(), ...momentVideoMedia.values()])].filter(
       (url) => !/^(https?:|data:|blob:)/.test(url),
     );
     if (paths.length) {
@@ -448,6 +495,9 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       );
       for (const [id, url] of momentMedia) {
         momentMedia.set(id, signedByPath.get(url) ?? url);
+      }
+      for (const [id, url] of momentVideoMedia) {
+        momentVideoMedia.set(id, signedByPath.get(url) ?? url);
       }
     }
   }
@@ -485,7 +535,7 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       actorAvatarUrls: group.slice(0, 3).map((row) => avatarOf(row.user_id)),
       at: ts(latest.created_at),
       to: postLink(postId),
-      thumbnailUrl: postThumbnails.get(postId) ?? null,
+      ...postPreviewFor(postId),
     });
   }
 
@@ -508,7 +558,7 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       body: r.content,
       at: ts(r.created_at),
       to: postLink(r.post_id, true, r.id),
-      thumbnailUrl: postThumbnails.get(r.post_id) ?? null,
+      ...postPreviewFor(r.post_id),
     });
   }
 
@@ -598,6 +648,13 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
           : contentId
             ? postThumbnails.get(contentId) ?? null
             : null,
+      previewMediaUrl:
+        entityType === "moment" && r.entity_id
+          ? momentVideoMedia.get(r.entity_id) ?? null
+          : contentId
+            ? postPreviewMedia.get(contentId) ?? null
+            : null,
+      previewBucket: contentId ? postPreviewBuckets.get(contentId) : undefined,
     });
   }
 
