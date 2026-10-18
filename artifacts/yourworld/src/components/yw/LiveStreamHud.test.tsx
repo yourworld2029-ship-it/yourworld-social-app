@@ -79,6 +79,11 @@ test("Broadcaster live HUD renders camera, mute, flash, beauty, comment, send, a
   ]) {
     assert.match(markup, new RegExp(`data-testid="${testId}"`));
   }
+  assert.match(markup, /data-testid="status-live"[^>]*>[\s\S]*?You(?:'|&#x27;)re live/);
+  assert.match(markup, /data-testid="text-live-duration"/);
+  assert.match(markup, /data-testid="text-live-viewer-count"/);
+  assert.match(markup, /data-testid="list-live-comments"/);
+  assert.match(markup, /\.yw-live-clean-hidden/);
   assert.doesNotMatch(markup, /button-live-more/);
   assert.match(markup, /aria-haspopup="dialog"/);
   assert.doesNotMatch(markup, /button-live-leave/);
@@ -168,6 +173,8 @@ test("Viewers get share options without broadcaster-only beauty or camera contro
     createElement(LiveStreamHud, makeProps("viewer")),
   );
 
+  assert.match(markup, /data-testid="status-live"[^>]*>[\s\S]*?Live now/);
+  assert.doesNotMatch(markup, /data-testid="status-live"[^>]*>[\s\S]*?You(?:'|&#x27;)re live/);
   assert.match(markup, /data-testid="button-live-share"/);
   assert.match(markup, /data-testid="button-live-copy-link"/);
   assert.doesNotMatch(markup, /button-live-more/);

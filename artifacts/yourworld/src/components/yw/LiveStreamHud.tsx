@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
 import {
   Check,
   Copy,
@@ -168,6 +168,7 @@ export function LiveStreamHud({
   const [flashAvailable, setFlashAvailable] = useState(false);
   const [flashOn, setFlashOn] = useState(false);
   const [frontScreenFlashOn, setFrontScreenFlashOn] = useState(false);
+  const [cleanScreenControlsHidden, setCleanScreenControlsHidden] = useState(false);
   const [shareSheetMounted, setShareSheetMounted] = useState(false);
   const [shareSheetOpen, setShareSheetOpen] = useState(false);
   const [viewerListOpen, setViewerListOpen] = useState(false);
@@ -182,6 +183,18 @@ export function LiveStreamHud({
   const latestJoinedViewerName = latestJoinedViewer?.username;
   const isBroadcaster = mode === "broadcaster";
   const mirrorPreview = isBroadcaster && isFrontCamera;
+
+  const handleCleanScreenTap = (event: MouseEvent<HTMLElement>) => {
+    if (
+      event.target instanceof Element &&
+      event.target.closest(
+        "button, input, textarea, select, a, form, [role='dialog'], [data-testid='dialog-live-viewers-overlay']",
+      )
+    ) {
+      return;
+    }
+    setCleanScreenControlsHidden((hidden) => !hidden);
+  };
 
   const showActionToast = useCallback((message: string) => {
     if (actionToastTimeout.current !== null) {
@@ -412,8 +425,13 @@ export function LiveStreamHud({
     <section
       className="yw-live-hud fixed inset-0 z-[70] isolate h-[100dvh] w-full overflow-hidden bg-[#120d12] text-white"
       aria-label={isBroadcaster ? "Live broadcast preview" : "Live broadcast"}
+      onClick={handleCleanScreenTap}
     >
       <style>{`
+        .yw-live-clean-hidden {
+          display: none !important;
+        }
+
         @keyframes yw-live-heart-rise {
           0% {
             opacity: 0;
@@ -721,11 +739,14 @@ export function LiveStreamHud({
         <div className="min-w-0">
           <div className="flex flex-nowrap items-center gap-1.5 sm:gap-2">
             <span
-              className="inline-flex items-center gap-1.5 rounded-full bg-[#f12e50] px-2.5 py-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-white shadow-[0_5px_22px_rgba(241,46,80,0.28)] sm:gap-2 sm:px-3 sm:tracking-[0.17em]"
+              className="inline-flex items-center gap-1.5 rounded-full border border-rose-300/30 bg-gradient-to-r from-rose-500/25 to-fuchsia-500/20 px-2.5 py-1.5 text-[10px] font-bold text-white shadow-[0_6px_24px_rgba(225,29,102,0.18)] backdrop-blur-xl sm:gap-2 sm:px-3"
               data-testid="status-live"
             >
-              <span className="h-1.5 w-1.5 rounded-full bg-white" aria-hidden="true" />
-              Live
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-300 opacity-70" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-rose-300" />
+              </span>
+              {isBroadcaster ? "You're live" : "Live now"}
             </span>
             <span
               className="rounded-full border border-white/15 bg-black/45 px-2.5 py-1.5 font-mono text-[11px] font-bold tabular-nums text-white backdrop-blur-xl sm:px-3"
@@ -747,15 +768,7 @@ export function LiveStreamHud({
             </button>
           </div>
           <div className="mt-3 flex min-w-0 items-center gap-2.5">
-            {isBroadcaster ? (
-              <span className="inline-flex h-9 shrink-0 items-center gap-2 rounded-full border border-rose-300/30 bg-gradient-to-r from-rose-500/25 to-fuchsia-500/20 px-3 text-[11px] font-bold text-white shadow-[0_6px_24px_rgba(225,29,102,0.18)] backdrop-blur-xl">
-                <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-300 opacity-70" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-rose-300" />
-                </span>
-                You’re live
-              </span>
-            ) : (
+            {!isBroadcaster && (
               <span className="h-9 w-9 shrink-0 overflow-hidden rounded-full border border-white/45 bg-white/10 shadow-lg ring-2 ring-[#f12e50]/70">
                 <ProfileAvatar
                   user={{
@@ -791,7 +804,9 @@ export function LiveStreamHud({
               title={isFrontCamera ? "Switch to rear camera" : "Switch to front camera"}
               disabled={cameraBusy}
               aria-busy={cameraBusy}
-              className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/15 bg-black/50 text-white shadow-lg backdrop-blur-xl transition-transform hover:bg-black/70 active:scale-95 disabled:opacity-60"
+              className={`inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/15 bg-black/50 text-white shadow-lg backdrop-blur-xl transition-transform hover:bg-black/70 active:scale-95 disabled:opacity-60 ${
+                cleanScreenControlsHidden ? "yw-live-clean-hidden" : ""
+              }`}
             >
               <SwitchCamera
                 className={`h-[18px] w-[18px] ${cameraBusy ? "animate-spin" : ""}`}
@@ -825,7 +840,9 @@ export function LiveStreamHud({
       </header>
 
       <aside
-        className="yw-live-options absolute right-3 top-[calc(max(env(safe-area-inset-top,0px),2.25rem)+7.1rem)] z-30 flex flex-col items-center gap-2.5 sm:right-6"
+        className={`yw-live-options absolute right-3 top-[calc(max(env(safe-area-inset-top,0px),2.25rem)+7.1rem)] z-30 flex flex-col items-center gap-2.5 sm:right-6 ${
+          cleanScreenControlsHidden ? "yw-live-clean-hidden" : ""
+        }`}
         aria-label="Live options"
       >
         {isBroadcaster && (
@@ -1086,7 +1103,9 @@ export function LiveStreamHud({
       </div>
 
       <form
-        className="yw-live-comment-form absolute inset-x-0 bottom-0 z-20 flex items-center gap-2 px-3 pb-[calc(env(safe-area-inset-bottom,0px)+0.8rem)] pt-3 sm:px-6"
+        className={`yw-live-comment-form absolute inset-x-0 bottom-0 z-20 flex items-center gap-2 px-3 pb-[calc(env(safe-area-inset-bottom,0px)+0.8rem)] pt-3 sm:px-6 ${
+          cleanScreenControlsHidden ? "yw-live-clean-hidden" : ""
+        }`}
         onSubmit={(event) => {
           event.preventDefault();
           if (commentText.trim()) onSendComment();
