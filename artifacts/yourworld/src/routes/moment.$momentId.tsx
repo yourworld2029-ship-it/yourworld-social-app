@@ -19,6 +19,7 @@ import {
   MapPin,
   ChevronUp,
   Plus,
+  Share2,
 } from "lucide-react";
 import { downloadMomentMedia, downloadOriginalMomentMedia } from "@/lib/yw-download";
 import { toast } from "sonner";
@@ -142,6 +143,7 @@ function MomentViewRoute() {
   const [replying, setReplying] = useState(false);
   const [replyFocused, setReplyFocused] = useState(false);
   const [showViewers, setShowViewers] = useState(false);
+  const [sharing, setSharing] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const musicRef = useRef<HTMLAudioElement | null>(null);
@@ -884,6 +886,40 @@ function MomentViewRoute() {
                 className="grid h-12 w-12 shrink-0 place-items-center rounded-full border border-white/25 bg-gradient-to-b from-white/[0.16] to-white/[0.09] text-white shadow-[0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-xl transition-[transform,border-color,background-color] duration-200 ease-out active:scale-[0.96]"
               >
                 <Download className="h-5 w-5" />
+              </button>
+            ) : null}
+            {current.allowSharing !== false ? (
+              <button
+                type="button"
+                aria-label="Share Moment"
+                disabled={sharing}
+                onClick={() => {
+                  setSharing(true);
+                  void (async () => {
+                    try {
+                      if (navigator.share) {
+                        await navigator.share({
+                          title: "Moment on YourWorld",
+                          url: window.location.href,
+                        });
+                      } else if (navigator.clipboard?.writeText) {
+                        await navigator.clipboard.writeText(window.location.href);
+                        toast.success("Moment link copied");
+                      } else {
+                        toast.error("Sharing isn't available on this device.");
+                      }
+                    } catch (error) {
+                      if (!(error instanceof DOMException && error.name === "AbortError")) {
+                        toast.error("Couldn't share this Moment.");
+                      }
+                    } finally {
+                      setSharing(false);
+                    }
+                  })();
+                }}
+                className="grid h-12 w-12 shrink-0 place-items-center rounded-full border border-white/25 bg-gradient-to-b from-white/[0.16] to-white/[0.09] text-white shadow-[0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-xl transition-[transform,border-color,background-color] duration-200 ease-out active:scale-[0.96] disabled:opacity-50"
+              >
+                <Share2 className="h-5 w-5" />
               </button>
             ) : null}
           </div>

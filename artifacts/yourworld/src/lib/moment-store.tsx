@@ -191,6 +191,11 @@ type MomentDbResult = {
   error: { code?: string; message?: string; details?: string | null } | null;
 };
 
+type MomentDbRpcResult = {
+  data: unknown;
+  error: { code?: string; message?: string; details?: string | null } | null;
+};
+
 type MomentDbQuery = {
   select: (columns?: string) => MomentDbQuery;
   insert: (values: Record<string, unknown>) => MomentDbQuery;
@@ -206,6 +211,10 @@ type MomentDbQuery = {
 
 const momentDb = supabase as unknown as {
   from: (table: string) => MomentDbQuery;
+  rpc: (
+    functionName: string,
+    args: Record<string, unknown>,
+  ) => PromiseLike<MomentDbRpcResult>;
 };
 
 type DbMoment = {
@@ -683,7 +692,6 @@ export function MomentProvider({ children }: { children: ReactNode }) {
   const [now, setNow] = useState(() => Date.now());
   const uidRef = useRef<string | null>(null);
   const archivingRef = useRef(new Set<string>());
-  const expiredArchiveCheckedRef = useRef(false);
   const deletedMomentIdsRef = useRef(new Set<string>());
   const loadInFlightRef = useRef(false);
   const reloadAfterLoadRef = useRef(false);
@@ -769,9 +777,65 @@ export function MomentProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      const list = usesPostsFallback
+      let list = usesPostsFallback
         ? (rows ?? []).map((row) => postRowToMoment(row as Record<string, unknown>))
         : ((rows ?? []) as DbMoment[]);
+      if (!usesPostsFallback) {
+        const expiredCutoff = new Date().toISOString();
+        const loadOwnerRows = async (archived: boolean) => {
+          let result = (await supabase
+            .from("moments")
+            .select(MOMENT_WITH_PROFILE_SELECT)
+            .eq("user_id", uid)
+            .eq("archived", archived)
+            .order("created_at", { ascending: false })
+            .limit(200)) as unknown as MomentDbResult;
+          if (result.error && hasProfileJoinError(result.error)) {
+            result = (await supabase
+              .from("moments")
+              .select("*")
+              .eq("user_id", uid)
+              .eq("archived", archived)
+              .order("created_at", { ascending: false })
+              .limit(200)) as unknown as MomentDbResult;
+          }
+          return result;
+        };
+        const [expiredOwnResult, archivedOwnResult] = await Promise.all([
+          (async () => {
+            let result = (await supabase
+              .from("moments")
+              .select(MOMENT_WITH_PROFILE_SELECT)
+              .eq("user_id", uid)
+              .eq("archived", false)
+              .lte("expires_at", expiredCutoff)
+              .order("created_at", { ascending: false })
+              .limit(200)) as unknown as MomentDbResult;
+            if (result.error && hasProfileJoinError(result.error)) {
+              result = (await supabase
+                .from("moments")
+                .select("*")
+                .eq("user_id", uid)
+                .eq("archived", false)
+                .lte("expires_at", expiredCutoff)
+                .order("created_at", { ascending: false })
+                .limit(200)) as unknown as MomentDbResult;
+            }
+            return result;
+          })(),
+          loadOwnerRows(true),
+        ]);
+        for (const [label, result] of [
+          ["expired", expiredOwnResult],
+          ["archived", archivedOwnResult],
+        ] as const) {
+          if (result.error) {
+            console.error(`Moment ${label} archive load failed`, result.error);
+          } else {
+            list = [...list, ...((result.data ?? []) as DbMoment[])];
+          }
+        }
+      }
       const visibleList = list.filter((row) => {
         const payload = row.payload;
         if (!payload || !Object.prototype.hasOwnProperty.call(payload, "recipientUserIds")) {
@@ -796,7 +860,14 @@ export function MomentProvider({ children }: { children: ReactNode }) {
       const ids = visibleList.map((r) => r.id);
       const authorIds = [...new Set(visibleList.map((r) => r.user_id))];
 
-      const [viewsResult, repliesResult, likesResult, profilesResult, uniqueViewsResult] = await Promise.all([
+      const [
+        viewsResult,
+        repliesResult,
+        likesResult,
+        profilesResult,
+        uniqueViewsResult,
+        pollVotesResult,
+      ] = await Promise.all([
         usesPostsFallback
           ? Promise.resolve({ data: [] as DbView[], error: null })
           : supabase.from("moment_views").select("*").in("moment_id", ids),
@@ -810,6 +881,13 @@ export function MomentProvider({ children }: { children: ReactNode }) {
           .select("user_id,content_id,content_type,viewed_at")
           .in("content_id", ids)
           .eq("content_type", "moment"),
+        usesPostsFallback
+          ? Promise.resolve({ data: [] as unknown[], error: null })
+          : momentDb
+              .from("moment_poll_votes")
+              .select("moment_id,choice_index")
+              .in("moment_id", ids)
+              .eq("user_id", uid),
       ]);
       let likes = (likesResult.data ?? []) as DbLike[];
       const likesError = likesResult.error;
@@ -837,6 +915,15 @@ export function MomentProvider({ children }: { children: ReactNode }) {
       const uniqueViews = missingTable(uniqueViewsResult.error, "unique_views")
         ? []
         : (uniqueViewsResult.data ?? []) as DbUniqueView[];
+      const pollVotes = missingTable(pollVotesResult.error, "moment_poll_votes")
+        ? []
+        : (pollVotesResult.data ?? []) as Array<{
+            moment_id: string;
+            choice_index: number;
+          }>;
+      const pollVoteByMoment = new Map(
+        pollVotes.map((vote) => [vote.moment_id, vote.choice_index as 0 | 1]),
+      );
 
       const profileById = new Map(
         (profiles as MomentProfileRow[]).map(
@@ -852,8 +939,8 @@ export function MomentProvider({ children }: { children: ReactNode }) {
         ),
       );
 
-      const mapped = visibleList.map((row) =>
-        rowToMoment(
+      const mapped = visibleList.map((row) => {
+        const mappedMoment = rowToMoment(
           row,
           [
             ...views.filter((view) => view.moment_id === row.id),
@@ -921,8 +1008,12 @@ export function MomentProvider({ children }: { children: ReactNode }) {
             };
           })(),
           uid,
-        ),
-      );
+        );
+        const myVote = pollVoteByMoment.get(row.id);
+        return myVote === undefined || !mappedMoment.poll
+          ? mappedMoment
+          : { ...mappedMoment, poll: { ...mappedMoment.poll, myVote } };
+      });
 
       const momentsWithResolvedAvatars = await Promise.all(
         mapped.map(async (moment) => {
@@ -989,17 +1080,16 @@ export function MomentProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(t);
   }, []);
 
-  // Auto-archive my own expired moments once per app launch. This is a silent
-  // best-effort cleanup; expiry is already enforced in the visible lists, so a
-  // failed background write must never interrupt the user with a toast or loop.
+  // Auto-archive expired Moments only when the creator opted in. Expired rows
+  // are loaded for owners so this also completes after the app is reopened.
   useEffect(() => {
-    if (expiredArchiveCheckedRef.current || !moments.length) return;
-    expiredArchiveCheckedRef.current = true;
+    if (!moments.length) return;
     const currentTime = Date.now();
 
     const expiredMine = moments.filter(
       (m) =>
         m.mine &&
+        m.saveToArchive !== false &&
         !m.archived &&
         m.expiresAt &&
         m.expiresAt <= currentTime &&
@@ -1028,7 +1118,7 @@ export function MomentProvider({ children }: { children: ReactNode }) {
         ids.forEach((id) => archivingRef.current.delete(id));
       }
     })();
-  }, [moments]);
+  }, [moments, now]);
 
   const patch = useCallback(
     (id: string, fn: (m: MyMoment) => MyMoment) =>
@@ -1041,7 +1131,11 @@ export function MomentProvider({ children }: { children: ReactNode }) {
       moments: moments.filter(
         (m) => !m.archived && !(m.expiresAt && m.expiresAt <= now),
       ),
-      archive: moments.filter((m) => m.archived || (m.expiresAt ? m.expiresAt <= now : false)),
+      archive: moments.filter(
+        (m) =>
+          m.archived ||
+          (m.saveToArchive !== false && (m.expiresAt ? m.expiresAt <= now : false)),
+      ),
       loading,
       addMoment: (m, signal) => {
         if (signal?.aborted) return Promise.resolve({ error: "Upload cancelled" });
@@ -1403,22 +1497,52 @@ export function MomentProvider({ children }: { children: ReactNode }) {
       votePoll: (id, option) => {
         const target = moments.find((m) => m.id === id);
         if (!target?.poll || target.poll.myVote !== null) return;
-        const votes: [number, number] = [...target.poll.votes] as [number, number];
-        votes[option] += 1;
-        const poll = { ...target.poll, votes, myVote: option };
-        patch(id, (m) => ({ ...m, poll }));
-        if (target.mine) {
-          void supabase
-            .from("moments")
-            .update({ poll })
-            .eq("id", id)
-            .then(({ error }) => {
-              if (!error) return;
-              console.error("Moment poll update failed", error);
-              toast.error("Couldn't save your vote.");
-              void load();
-            });
-        }
+        const previousPoll = target.poll;
+        const optimisticVotes: [number, number] = [...previousPoll.votes];
+        optimisticVotes[option] += 1;
+        patch(id, (m) => ({
+          ...m,
+          poll: { ...previousPoll, votes: optimisticVotes, myVote: option },
+        }));
+        void momentDb
+          .rpc("cast_moment_poll_vote", {
+            p_moment_id: id,
+            p_choice_index: option,
+          })
+          .then(({ data, error }) => {
+            if (error) {
+              patch(id, (m) => ({ ...m, poll: previousPoll }));
+              console.error("Moment poll vote failed", error);
+              toast.error(
+                error.message?.includes("already voted")
+                  ? "You have already voted on this poll."
+                  : "Couldn't save your vote.",
+              );
+              return;
+            }
+            const result = (data ?? {}) as {
+              votes?: [number, number];
+              myVote?: 0 | 1;
+            };
+            if (
+              Array.isArray(result.votes) &&
+              result.votes.length === 2 &&
+              (result.myVote === 0 || result.myVote === 1)
+            ) {
+              patch(id, (m) =>
+                m.poll
+                  ? {
+                      ...m,
+                      poll: {
+                        ...m.poll,
+                        votes: result.votes!,
+                        myVote: result.myVote!,
+                      },
+                    }
+                  : m,
+              );
+            }
+          });
       },
       registerScreenshot: (id) => {
         const uid = uidRef.current;

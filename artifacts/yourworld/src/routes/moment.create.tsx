@@ -869,6 +869,11 @@ function MomentCreatePage() {
 
   const [allowPoll, setAllowPoll] =
     useState(false);
+  const [showPollEditor, setShowPollEditor] = useState(false);
+  const [pollQuestion, setPollQuestion] = useState("");
+  const [pollOptionOne, setPollOptionOne] = useState("");
+  const [pollOptionTwo, setPollOptionTwo] = useState("");
+  const [momentLocation, setMomentLocation] = useState("");
 
   const [allowDownloads, setAllowDownloads] =
     useState(true);
@@ -2257,6 +2262,14 @@ function MomentCreatePage() {
       videoSpeed,
 
       allowPoll,
+      poll: allowPoll
+        ? {
+            question: pollQuestion.trim(),
+            options: [pollOptionOne.trim(), pollOptionTwo.trim()] as [string, string],
+            votes: [0, 0] as [number, number],
+            myVote: null,
+          }
+        : null,
 
       screenshotAlert: false,
 
@@ -2367,6 +2380,7 @@ function MomentCreatePage() {
         drawing: savedDrawing,
         mediaTransform: savedMediaTransform,
         visualFilter: savedVisualFilter,
+         location: showLocation ? momentLocation.trim() || undefined : undefined,
         trim:
           part.trim ??
           (!isVideo && audioUrl
@@ -2400,7 +2414,7 @@ function MomentCreatePage() {
         allowDownload:
           allowDownloads,
         screenshotAlert: false,
-            poll: null,
+            poll: base.poll,
             onUploadProgress: (percent: number) => {
               const overall = ((index + Math.max(0, Math.min(100, percent) / 100)) / newMoments.length) * 100;
               onProgress(overall);
@@ -4005,9 +4019,7 @@ function MomentCreatePage() {
             subtitle="Let viewers vote"
             checked={allowPoll}
             onChange={() =>
-              setAllowPoll(
-                (v) => !v
-              )
+              allowPoll ? setAllowPoll(false) : setShowPollEditor(true)
             }
           />
 
@@ -4091,6 +4103,21 @@ function MomentCreatePage() {
             }
           />
         </div>
+        {showLocation ? (
+          <div className="col-span-2 -mt-1 mb-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2">
+            <label htmlFor="moment-location" className="mb-1 block text-[10px] font-semibold text-zinc-400">
+              Location shown on this Moment
+            </label>
+            <input
+              id="moment-location"
+              value={momentLocation}
+              onChange={(event) => setMomentLocation(event.target.value)}
+              maxLength={80}
+              placeholder="Enter a city or place"
+              className="w-full bg-transparent text-xs text-white outline-none placeholder:text-zinc-500"
+            />
+          </div>
+        ) : null}
 
         {/* SHARE */}
 
@@ -4106,6 +4133,62 @@ function MomentCreatePage() {
             <Share2 size={17} />
           </button>
         </div>
+
+        {showPollEditor ? (
+          <div className="fixed inset-0 z-[10010] flex items-center justify-center bg-black/75 px-4 py-8">
+            <section
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="moment-poll-title"
+              className="w-full max-w-sm rounded-2xl border border-white/10 bg-zinc-950 p-4 shadow-2xl"
+            >
+              <h2 id="moment-poll-title" className="mb-3 text-base font-bold">
+                Create a poll
+              </h2>
+              <input
+                value={pollQuestion}
+                onChange={(event) => setPollQuestion(event.target.value)}
+                maxLength={120}
+                placeholder="Ask a question"
+                className="mb-2 w-full rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2.5 text-sm outline-none focus:border-pink-400/70"
+              />
+              <input
+                value={pollOptionOne}
+                onChange={(event) => setPollOptionOne(event.target.value)}
+                maxLength={40}
+                placeholder="First option"
+                className="mb-2 w-full rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2.5 text-sm outline-none focus:border-pink-400/70"
+              />
+              <input
+                value={pollOptionTwo}
+                onChange={(event) => setPollOptionTwo(event.target.value)}
+                maxLength={40}
+                placeholder="Second option"
+                className="mb-4 w-full rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2.5 text-sm outline-none focus:border-pink-400/70"
+              />
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowPollEditor(false)}
+                  className="flex-1 rounded-xl border border-white/10 px-3 py-2.5 text-sm font-semibold text-zinc-300"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={!pollQuestion.trim() || !pollOptionOne.trim() || !pollOptionTwo.trim()}
+                  onClick={() => {
+                    setAllowPoll(true);
+                    setShowPollEditor(false);
+                  }}
+                  className="flex-1 rounded-xl bg-gradient-to-r from-cyan-400 via-pink-500 to-pink-600 px-3 py-2.5 text-sm font-bold disabled:opacity-40"
+                >
+                  Save poll
+                </button>
+              </div>
+            </section>
+          </div>
+        ) : null}
 
         {showMentionPicker ? (
           <div
