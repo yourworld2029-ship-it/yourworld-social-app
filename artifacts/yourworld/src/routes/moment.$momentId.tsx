@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, type PointerEvent as ReactPointerEvent } from "react";
 import { createFileRoute, useParams, useNavigate } from "@tanstack/react-router";
 import { type MyMoment } from "@/lib/moment-store";
 import { useMoments } from "@/lib/moment-context";
@@ -150,6 +150,7 @@ function MomentViewRoute() {
   const replyBarRef = useRef<HTMLDivElement | null>(null);
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const heldRef = useRef(false);
+  const zonePointerRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
   const deleteInFlightRef = useRef(false);
   const syncedMomentIdRef = useRef<string | null>(null);
@@ -381,7 +382,19 @@ function MomentViewRoute() {
   );
   const viewerProfiles = useProfiles(viewerIds);
 
-  const startHold = () => {
+  const startHold = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (!event.isPrimary || (event.pointerType === "mouse" && event.button !== 0)) return;
+    zonePointerRef.current = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+    };
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Some embedded WebViews may not support pointer capture on every input.
+    }
+    if (holdTimer.current) clearTimeout(holdTimer.current);
     heldRef.current = false;
     holdTimer.current = setTimeout(() => {
       heldRef.current = true;
@@ -389,10 +402,33 @@ function MomentViewRoute() {
     }, 500);
   };
 
-  const endHold = () => {
+  const endHold = (event: ReactPointerEvent<HTMLButtonElement>, dir: "prev" | "next") => {
+    const start = zonePointerRef.current;
     if (holdTimer.current) clearTimeout(holdTimer.current);
     holdTimer.current = null;
+    zonePointerRef.current = null;
+
+    const wasHeld = heldRef.current;
+    heldRef.current = false;
+    if (wasHeld) {
+      setPaused(false);
+      return;
+    }
+    if (!start || start.pointerId !== event.pointerId) return;
+
+    // Let the viewer's swipe handler own gestures; treat small finger drift as a tap.
+    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > 28) return;
+    if (dir === "next") goNext();
+    else goPrev();
+  };
+
+  const cancelHold = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (zonePointerRef.current?.pointerId !== event.pointerId) return;
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+    holdTimer.current = null;
+    zonePointerRef.current = null;
     if (heldRef.current) setPaused(false);
+    heldRef.current = false;
   };
 
   const tap = (dir: "prev" | "next") => {
@@ -671,20 +707,22 @@ function MomentViewRoute() {
             aria-label="Previous"
             className="h-full w-[30%] bg-transparent"
             onPointerDown={startHold}
-            onPointerUp={endHold}
-            onPointerLeave={endHold}
-            onPointerCancel={endHold}
-            onClick={() => tap("prev")}
+            onPointerUp={(event) => endHold(event, "prev")}
+            onPointerCancel={cancelHold}
+            onClick={(event) => {
+              if (event.detail === 0) tap("prev");
+            }}
           />
           <button
             type="button"
             aria-label="Next"
             className="h-full w-[70%] bg-transparent"
             onPointerDown={startHold}
-            onPointerUp={endHold}
-            onPointerLeave={endHold}
-            onPointerCancel={endHold}
-            onClick={() => tap("next")}
+            onPointerUp={(event) => endHold(event, "next")}
+            onPointerCancel={cancelHold}
+            onClick={(event) => {
+              if (event.detail === 0) tap("next");
+            }}
           />
         </div>
 
