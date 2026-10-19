@@ -5,6 +5,7 @@ import {
   BadgeCheck,
   Check,
   CalendarDays,
+  ChevronDown,
   ChevronRight,
   FileCheck2,
   Globe2,
@@ -2078,10 +2079,13 @@ function TournamentEntryEditor({
 }) {
   const isNational = representation === "National";
   const isNonIndia = !isIndiaSportsCountry(applicantCountry);
-  const competitionListId =
-    representation === "International"
-      ? "international-sports-competitions"
-      : "recognized-sports-competitions";
+  const [competitionSuggestionsOpen, setCompetitionSuggestionsOpen] = useState(false);
+  const competitionOptions =
+    representation === "International" ? INTERNATIONAL_COMPETITIONS : RECOGNIZED_COMPETITIONS;
+  const filteredCompetitionOptions = competitionOptions.filter((competition) =>
+    competition.toLowerCase().includes(item.name.trim().toLowerCase()),
+  );
+  const competitionSuggestionsId = `competition-suggestions-${index + 1}`;
   const showNationalMedal = isNational && isNationalCompetition(item.name);
 
   return (
@@ -2158,14 +2162,58 @@ function TournamentEntryEditor({
             ))}
           </EditorSelect>
         ) : (
-          <Input
-            list={competitionListId}
-            data-testid={`input-tournament-name-${index + 1}`}
-            value={item.name}
-            onChange={(event) => onChange(index, { name: event.target.value })}
-            className={`${editorInputClass} [color-scheme:dark]`}
-            placeholder="Search or enter a competition"
-          />
+          <div className="relative">
+            <Input
+              data-testid={`input-tournament-name-${index + 1}`}
+              value={item.name}
+              onChange={(event) => {
+                onChange(index, { name: event.target.value });
+                setCompetitionSuggestionsOpen(true);
+              }}
+              onFocus={() => setCompetitionSuggestionsOpen(true)}
+              onClick={() => setCompetitionSuggestionsOpen(true)}
+              onBlur={() => setCompetitionSuggestionsOpen(false)}
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck={false}
+              aria-autocomplete="list"
+              aria-expanded={competitionSuggestionsOpen}
+              aria-controls={competitionSuggestionsId}
+              className={`${editorInputClass} pr-10`}
+              placeholder="Search or enter a competition"
+            />
+            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+            {competitionSuggestionsOpen ? (
+              <div
+                id={competitionSuggestionsId}
+                role="listbox"
+                className="absolute left-0 right-0 top-full z-[70] mt-1 max-h-64 overflow-y-auto rounded-xl border border-white/10 bg-[#121212] p-1 shadow-2xl"
+              >
+                {filteredCompetitionOptions.length > 0 ? (
+                  filteredCompetitionOptions.map((competition) => (
+                    <button
+                      key={competition}
+                      type="button"
+                      role="option"
+                      aria-selected={competition === item.name}
+                      onPointerDown={(event) => event.preventDefault()}
+                      onClick={() => {
+                        onChange(index, { name: competition });
+                        setCompetitionSuggestionsOpen(false);
+                      }}
+                      className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-white transition-colors hover:bg-white/10 focus:bg-white/10 focus:outline-none"
+                    >
+                      {competition}
+                    </button>
+                  ))
+                ) : (
+                  <p className="px-3 py-2.5 text-sm text-zinc-400">
+                    No recognized competitions match. You can enter another competition.
+                  </p>
+                )}
+              </div>
+            ) : null}
+          </div>
         )}
       </EditorField>
 
@@ -2500,24 +2548,6 @@ function SportsDetailsEditor({
 
         {field === "tournaments" ? (
           <div className="space-y-3">
-            <datalist id="recognized-sports-competitions">
-              {RECOGNIZED_COMPETITIONS.map((competition) => (
-                <option
-                  key={competition}
-                  value={competition}
-                  style={{ color: "#FFFFFF", backgroundColor: "#121212" }}
-                />
-              ))}
-            </datalist>
-            <datalist id="international-sports-competitions">
-              {INTERNATIONAL_COMPETITIONS.map((competition) => (
-                <option
-                  key={competition}
-                  value={competition}
-                  style={{ color: "#FFFFFF", backgroundColor: "#121212" }}
-                />
-              ))}
-            </datalist>
             {draft.tournaments.map((item, index) => (
               <TournamentEntryEditor
                 key={`tournament-${index}`}
