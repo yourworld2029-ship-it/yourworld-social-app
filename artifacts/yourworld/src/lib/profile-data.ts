@@ -97,6 +97,37 @@ export type SportsVerificationDetails = {
   indianIdentityProof: SportsVerificationEvidence | null;
 };
 
+export type ForeignSportsAddress = {
+  streetAddress: string;
+  postalCode: string;
+};
+
+const FOREIGN_STREET_LABEL = "Street Address / Apartment:";
+const FOREIGN_POSTAL_LABEL = "Postal / Zip Code:";
+
+export function parseForeignSportsAddress(address: string): ForeignSportsAddress {
+  const lines = address.split(/\r?\n/);
+  const streetLine = lines.find((line) => line.startsWith(FOREIGN_STREET_LABEL));
+  const postalLine = lines.find((line) => line.startsWith(FOREIGN_POSTAL_LABEL));
+  if (!streetLine && !postalLine) {
+    return { streetAddress: address, postalCode: "" };
+  }
+  return {
+    streetAddress: streetLine?.slice(FOREIGN_STREET_LABEL.length).trim() ?? "",
+    postalCode: postalLine?.slice(FOREIGN_POSTAL_LABEL.length).trim() ?? "",
+  };
+}
+
+export function serializeForeignSportsAddress(address: ForeignSportsAddress): string {
+  const streetAddress = address.streetAddress.trim();
+  const postalCode = address.postalCode.trim();
+  if (!streetAddress && !postalCode) return "";
+  return [
+    `${FOREIGN_STREET_LABEL} ${streetAddress}`,
+    `${FOREIGN_POSTAL_LABEL} ${postalCode}`,
+  ].join("\n");
+}
+
 type StorageDocument = {
   id: string | null;
   name: string;

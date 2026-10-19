@@ -23,9 +23,11 @@ import {
   UserRound,
   Video,
 } from "lucide-react";
-import type {
-  SportsVerificationDetails,
-  SportsVerificationEvidenceKind,
+import {
+  parseForeignSportsAddress,
+  serializeForeignSportsAddress,
+  type SportsVerificationDetails,
+  type SportsVerificationEvidenceKind,
 } from "@/lib/profile-data";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -46,6 +48,16 @@ import {
   NON_INDIA_INTERNATIONAL_COMPETITIONS,
   SPORTS_COUNTRY_OPTIONS,
 } from "@/lib/sports-country";
+
+export type SportsRepresentation = "National" | "International";
+
+export function sportsRepresentationsForCountry(
+  country: string,
+): readonly SportsRepresentation[] {
+  return isIndiaSportsCountry(country)
+    ? ["National", "International"]
+    : ["International"];
+}
 
 export const SPORTS_CATALOGUE = [
   "Archery",
@@ -889,14 +901,12 @@ export function SportsDetailsPanel({
           value={profile.role}
           onClick={editable ? () => openEditor("role") : undefined}
         />
-        {!isCoach ? (
-          <SportsDetailStat
-            icon={<Globe2 />}
-            label="Status"
-            value={displayedStatus}
-            onClick={editable ? () => openEditor("representation") : undefined}
-          />
-        ) : null}
+        <SportsDetailStat
+          icon={<Globe2 />}
+          label="Status"
+          value={displayedStatus}
+          onClick={editable ? () => openEditor("representation") : undefined}
+        />
         <SportsDetailStat
           icon={<BadgeCheck />}
           label="Verification"
@@ -1341,6 +1351,7 @@ function SportsVerificationDetailsSection({
   upgradeFlow?: boolean;
   underReview: boolean;
 }) {
+  const foreignAddress = parseForeignSportsAddress(details.address);
   const setField = (
     field:
       | "fullName"
@@ -1355,6 +1366,17 @@ function SportsVerificationDetailsSection({
     value: string,
   ) =>
     onChange({ ...details, [field]: value });
+  const setForeignAddressField = (
+    field: "streetAddress" | "postalCode",
+    value: string,
+  ) =>
+    onChange({
+      ...details,
+      address: serializeForeignSportsAddress({
+        ...foreignAddress,
+        [field]: value,
+      }),
+    });
 
   return (
     <SportsDetailsSection
@@ -1435,17 +1457,7 @@ function SportsVerificationDetailsSection({
                   className="border-white/10 bg-white/[0.04] text-sm text-white"
                 />
               </label>
-              {upgradeFlow ? (
-                <label className="space-y-1.5 text-xs text-zinc-400">
-                  Address
-                  <Input
-                    value={details.address}
-                    disabled
-                    className="border-white/10 bg-white/[0.04] text-sm text-white"
-                  />
-                </label>
-              ) : null}
-              <label className="space-y-1.5 text-xs text-zinc-400">
+              <label className="space-y-1.5 text-xs text-zinc-400 sm:col-span-2">
                 Gmail / Email
                 <Input
                   type="email"
@@ -1457,40 +1469,7 @@ function SportsVerificationDetailsSection({
                   className="border-white/10 bg-white/[0.04] text-sm text-white"
                 />
               </label>
-              <label className="space-y-1.5 text-xs text-zinc-400">
-                Village / Town
-                <Input
-                  value={details.villageTown}
-                  onChange={(event) => setField("villageTown", event.target.value)}
-                  placeholder="Village or town"
-                  maxLength={120}
-                  disabled={locked || upgradeFlow}
-                  className="border-white/10 bg-white/[0.04] text-sm text-white"
-                />
-              </label>
-              <label className="space-y-1.5 text-xs text-zinc-400">
-                District
-                <Input
-                  value={details.district}
-                  onChange={(event) => setField("district", event.target.value)}
-                  placeholder="District"
-                  maxLength={120}
-                  disabled={locked || upgradeFlow}
-                  className="border-white/10 bg-white/[0.04] text-sm text-white"
-                />
-              </label>
-              <label className="space-y-1.5 text-xs text-zinc-400">
-                State
-                <Input
-                  value={details.state}
-                  onChange={(event) => setField("state", event.target.value)}
-                  placeholder="State"
-                  maxLength={120}
-                  disabled={locked || upgradeFlow}
-                  className="border-white/10 bg-white/[0.04] text-sm text-white"
-                />
-              </label>
-              <label className="space-y-1.5 text-xs text-zinc-400">
+              <label className="space-y-1.5 text-xs text-zinc-400 sm:col-span-2">
                 Nationality / Country
                 <Select
                   value={
@@ -1519,6 +1498,104 @@ function SportsVerificationDetailsSection({
                   </SelectContent>
                 </Select>
               </label>
+              {upgradeFlow ? (
+                <label className="space-y-1.5 text-xs text-zinc-400 sm:col-span-2">
+                  Address
+                  <Input
+                    value={details.address}
+                    disabled
+                    className="border-white/10 bg-white/[0.04] text-sm text-white"
+                  />
+                </label>
+              ) : null}
+              {isIndiaSportsCountry(details.country) ? (
+                <>
+                  <label className="space-y-1.5 text-xs text-zinc-400">
+                    Village / Town
+                    <Input
+                      value={details.villageTown}
+                      onChange={(event) => setField("villageTown", event.target.value)}
+                      placeholder="Village or town"
+                      maxLength={120}
+                      disabled={locked || upgradeFlow}
+                      className="border-white/10 bg-white/[0.04] text-sm text-white"
+                    />
+                  </label>
+                  <label className="space-y-1.5 text-xs text-zinc-400">
+                    District
+                    <Input
+                      value={details.district}
+                      onChange={(event) => setField("district", event.target.value)}
+                      placeholder="District"
+                      maxLength={120}
+                      disabled={locked || upgradeFlow}
+                      className="border-white/10 bg-white/[0.04] text-sm text-white"
+                    />
+                  </label>
+                  <label className="space-y-1.5 text-xs text-zinc-400">
+                    State
+                    <Input
+                      value={details.state}
+                      onChange={(event) => setField("state", event.target.value)}
+                      placeholder="State"
+                      maxLength={120}
+                      disabled={locked || upgradeFlow}
+                      className="border-white/10 bg-white/[0.04] text-sm text-white"
+                    />
+                  </label>
+                </>
+              ) : !upgradeFlow && details.country.trim() ? (
+                <>
+                  <label className="space-y-1.5 text-xs text-zinc-400 sm:col-span-2">
+                    Street Address / Apartment
+                    <Input
+                      value={foreignAddress.streetAddress}
+                      onChange={(event) =>
+                        setForeignAddressField("streetAddress", event.target.value)
+                      }
+                      placeholder="Street address, apartment, or unit"
+                      maxLength={240}
+                      disabled={locked}
+                      className="border-white/10 bg-white/[0.04] text-sm text-white"
+                    />
+                  </label>
+                  <label className="space-y-1.5 text-xs text-zinc-400">
+                    City
+                    <Input
+                      value={details.villageTown}
+                      onChange={(event) => setField("villageTown", event.target.value)}
+                      placeholder="City"
+                      maxLength={120}
+                      disabled={locked}
+                      className="border-white/10 bg-white/[0.04] text-sm text-white"
+                    />
+                  </label>
+                  <label className="space-y-1.5 text-xs text-zinc-400">
+                    State / Province / Region
+                    <Input
+                      value={details.state}
+                      onChange={(event) => setField("state", event.target.value)}
+                      placeholder="State, province, or region"
+                      maxLength={120}
+                      disabled={locked}
+                      className="border-white/10 bg-white/[0.04] text-sm text-white"
+                    />
+                  </label>
+                  <label className="space-y-1.5 text-xs text-zinc-400">
+                    Postal / Zip Code
+                    <Input
+                      value={foreignAddress.postalCode}
+                      onChange={(event) =>
+                        setForeignAddressField("postalCode", event.target.value)
+                      }
+                      placeholder="Postal or ZIP code"
+                      maxLength={40}
+                      disabled={locked}
+                      className="border-white/10 bg-white/[0.04] text-sm text-white"
+                    />
+                  </label>
+                </>
+              ) : null}
             </div>
             {isIndiaSportsCountry(details.country) && !isInternational && !upgradeFlow ? (
               <div className="space-y-2 rounded-xl border border-amber-200/15 bg-black/10 p-3">
@@ -2648,7 +2725,8 @@ function SportsDetailsEditor({
   onOpenVerificationReview?: () => void;
   applicantCountry: string;
 }) {
-  const internationalOnly = !isIndiaSportsCountry(applicantCountry);
+  const availableRepresentations = sportsRepresentationsForCountry(applicantCountry);
+  const internationalOnly = availableRepresentations.length === 1;
   const tournamentRepresentation = internationalOnly ? "International" : draft.representation;
   const updateTournament = (index: number, changes: Partial<SportsTournament>) => {
     setDraft((current) => ({
@@ -2814,8 +2892,11 @@ function SportsDetailsEditor({
                   }))
                 }
               >
-                <SelectItem value="National">National</SelectItem>
-                <SelectItem value="International">International</SelectItem>
+                {availableRepresentations.map((representation) => (
+                  <SelectItem key={representation} value={representation}>
+                    {representation}
+                  </SelectItem>
+                ))}
               </EditorSelect>
             )}
           </EditorField>

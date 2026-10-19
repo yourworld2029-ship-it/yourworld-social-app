@@ -26,3 +26,9 @@ The National Award entry remains visible in the profile editor while nationality
 **Why:** The user asked to restore the card for Indian profiles; Sports representation (National/International) is not the same as nationality.
 
 **How to apply:** Hide the card only when the selected country is known to be non-India. Keep server-side nationality and Indian-proof checks authoritative for submissions.
+
+Foreign Sports Verification addresses reuse the existing private fields: street and postal code are stored as labeled lines in `address`, city in `village_town`, and region in `state`. Do not add a postal database column without renewed approval.
+
+**Why:** The user chose this storage approach to avoid a database migration while keeping every foreign address input persistent.
+
+**How to apply:** Keep the labeled-address parser aligned between the verification form and admin review; continue accepting legacy plain-text `address` values as street addresses.

@@ -9,6 +9,7 @@ import {
   getSportsProfile,
   getUserEnteredProfileBio,
   serializeSportsProfileBio,
+  sportsRepresentationsForCountry,
   SportsDetailsPanel,
   SportsProfileCard,
   type SportsProfileDraft,
@@ -21,6 +22,10 @@ import {
   NON_INDIA_INTERNATIONAL_COMPETITIONS,
   SPORTS_COUNTRY_OPTIONS,
 } from "@/lib/sports-country";
+import {
+  parseForeignSportsAddress,
+  serializeForeignSportsAddress,
+} from "@/lib/profile-data";
 
 const profile = {
   badge: "PLAYER PROFILE",
@@ -69,6 +74,28 @@ test("sports verification country rules cover India and international applicants
     ],
   );
   assert.ok(NON_INDIA_INTERNATIONAL_COMPETITIONS.every(({ label }) => /\p{Extended_Pictographic}/u.test(label)));
+});
+
+test("representation choices follow selected nationality for players and coaches", () => {
+  assert.deepEqual(sportsRepresentationsForCountry("India"), ["National", "International"]);
+  assert.deepEqual(sportsRepresentationsForCountry("IN"), ["National", "International"]);
+  assert.deepEqual(sportsRepresentationsForCountry("Kenya"), ["International"]);
+  assert.deepEqual(sportsRepresentationsForCountry(""), ["International"]);
+});
+
+test("foreign address fields persist through the existing private address value", () => {
+  const saved = serializeForeignSportsAddress({
+    streetAddress: "22 Queen Street, Apartment 4",
+    postalCode: "A1B 2C3",
+  });
+  assert.deepEqual(parseForeignSportsAddress(saved), {
+    streetAddress: "22 Queen Street, Apartment 4",
+    postalCode: "A1B 2C3",
+  });
+  assert.deepEqual(parseForeignSportsAddress("Legacy address"), {
+    streetAddress: "Legacy address",
+    postalCode: "",
+  });
 });
 
 test("National Award card stays available until a foreign country is confirmed", () => {
@@ -288,7 +315,9 @@ test("Sports Details renders real fields and the Sports Introduction without the
   assert.match(html, /Phone Number/);
   assert.match(html, /Gmail \/ Email/);
   assert.ok(html.indexOf(">Identity Details<") < html.indexOf("Phone Number"));
-  assert.ok(html.indexOf("Phone Number") < html.indexOf("Village / Town"));
+  assert.ok(html.indexOf("Phone Number") < html.indexOf("Gmail / Email"));
+  assert.ok(html.indexOf("Gmail / Email") < html.indexOf("Nationality / Country"));
+  assert.doesNotMatch(html, /Village \/ Town|Street Address \/ Apartment/);
   assert.ok(html.indexOf("Country") < html.indexOf("match my identity documents exactly"));
   assert.doesNotMatch(html, /Current residential address/);
   assert.doesNotMatch(html, /Sport Certificate Number/);
@@ -345,6 +374,13 @@ test("National verification shows the certificate but hides international eviden
   );
 
   assert.match(html, /Sports Certificate/);
+  assert.match(html, /Village \/ Town/);
+  assert.match(html, /District/);
+  assert.ok(
+    html.indexOf("Gmail / Email") <
+      html.indexOf("Nationality / Country") &&
+      html.indexOf("Nationality / Country") < html.indexOf("Village / Town"),
+  );
   assert.doesNotMatch(html, /Passport First Page/);
   assert.doesNotMatch(html, /Passport Visa \/ Stamp Page/);
   assert.doesNotMatch(html, /One Tournament Photo/);
@@ -382,6 +418,16 @@ test("foreign applicants see International status and passport/visa evidence fie
   assert.match(html, /Sports Certificate/);
   assert.match(html, /select-sports-verification-country/);
   assert.match(html, /Status<\/div><p[^>]*>International<\/p>/);
+  assert.match(html, /Street Address \/ Apartment/);
+  assert.match(html, /City/);
+  assert.match(html, /State \/ Province \/ Region/);
+  assert.match(html, /Postal \/ Zip Code/);
+  assert.ok(
+    html.indexOf("Gmail / Email") <
+      html.indexOf("Nationality / Country") &&
+      html.indexOf("Nationality / Country") < html.indexOf("Street Address / Apartment"),
+  );
+  assert.doesNotMatch(html, /Village \/ Town/);
   assert.match(html, /Passport First Page/);
   assert.match(html, /Passport Visa \/ Stamp Page/);
   assert.ok(html.indexOf("Passport Visa / Stamp Page") < html.indexOf(">Sports Introduction<"));

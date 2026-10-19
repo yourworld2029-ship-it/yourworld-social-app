@@ -15,6 +15,8 @@ import {
 import { toast } from "sonner";
 import { getSportsProfile, type SportsProfileInfo } from "@/components/yw/SportsProfile";
 import { historyBackOr } from "@/lib/navigation";
+import { parseForeignSportsAddress } from "@/lib/profile-data";
+import { isIndiaSportsCountry } from "@/lib/sports-country";
 import {
   listSportsVerificationApplications,
   reviewSportsVerification,
@@ -220,6 +222,11 @@ function ApplicationCard({
   const [identityProofConfirmed, setIdentityProofConfirmed] = useState(false);
   const { profile, details } = application;
   const sportsProfile = application.sportsProfile;
+  const isIndianApplicant =
+    isIndiaSportsCountry(details.country) ||
+    (!details.country.trim() &&
+      Boolean(details.villageTown || details.district || details.state));
+  const foreignAddress = parseForeignSportsAddress(details.address);
   const title = sportsProfile
     ? `${sportsProfile.status === "Not recorded" ? "" : `${sportsProfile.status} `}${sportsProfile.role}`
     : "Sports profile";
@@ -276,10 +283,27 @@ function ApplicationCard({
         {details.passportNumber ? (
           <ReviewValue label="Passport Number" value={details.passportNumber} />
         ) : null}
-        <ReviewValue label="Address" value={details.address || "—"} />
-        <ReviewValue label="Village / Town" value={details.villageTown || "—"} />
-        <ReviewValue label="District" value={details.district || "—"} />
-        <ReviewValue label="State" value={details.state || "—"} />
+        {isIndianApplicant ? (
+          <>
+            <ReviewValue label="Address" value={details.address || "—"} />
+            <ReviewValue label="Village / Town" value={details.villageTown || "—"} />
+            <ReviewValue label="District" value={details.district || "—"} />
+            <ReviewValue label="State" value={details.state || "—"} />
+          </>
+        ) : (
+          <>
+            <ReviewValue
+              label="Street Address / Apartment"
+              value={foreignAddress.streetAddress || "—"}
+            />
+            <ReviewValue label="City" value={details.villageTown || "—"} />
+            <ReviewValue
+              label="State / Province / Region"
+              value={details.state || "—"}
+            />
+            <ReviewValue label="Postal / Zip Code" value={foreignAddress.postalCode || "—"} />
+          </>
+        )}
         <ReviewValue label="Country" value={details.country || "—"} />
         {application.nationalIdentityProofRequired ? (
           <ReviewValue
