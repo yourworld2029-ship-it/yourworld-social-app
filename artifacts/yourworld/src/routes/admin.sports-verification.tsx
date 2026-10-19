@@ -395,10 +395,19 @@ function ApplicationCard({
 }
 
 function toSportsProfile(application: AdminVerificationApplication) {
+  const currentBio = application.profile.bio ?? "";
+  const reviewBio = application.upgradeToInternational
+    ? [
+        "Representation: International",
+        ...currentBio
+          .split(/\r?\n/)
+          .filter((line) => !/^\s*(?:representation|represents|status)\s*:/i.test(line)),
+      ].join("\n")
+    : currentBio;
   return getSportsProfile({
     is_verified: application.profile.is_verified === true,
     category: application.profile.category ?? "",
-    bio: application.profile.bio ?? "",
+    bio: reviewBio,
     location: application.details.villageTown,
     username: application.profile.username ?? undefined,
     displayName: application.profile.display_name ?? undefined,

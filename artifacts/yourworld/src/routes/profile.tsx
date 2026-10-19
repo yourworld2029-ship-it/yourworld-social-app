@@ -817,10 +817,16 @@ function ProfilePage() {
       const previousEvidence = currentDetails[kind];
       const uploaded = await uploadSportsVerificationEvidence(userId, kind, file);
       const nextDetails = { ...currentDetails, [kind]: uploaded } as SportsVerificationDetails;
-      const savedDetails = await saveSportsVerificationDetails(userId, nextDetails);
+      const upgradePassportKind =
+        kind === "passportFirstPage" || kind === "passportVisaStampPage" ? kind : undefined;
+      const savedDetails = await saveSportsVerificationDetails(
+        userId,
+        nextDetails,
+        upgradePassportKind,
+      );
       setSportsVerificationDetails(savedDetails);
       if (previousEvidence?.path && previousEvidence.path !== uploaded.path) {
-        await deleteSportsVerificationEvidence(userId, previousEvidence.path);
+        await deleteSportsVerificationEvidence(userId, previousEvidence.path, upgradePassportKind);
       }
       toast.success("Private verification evidence uploaded");
     } catch (error) {
@@ -840,11 +846,13 @@ function ProfilePage() {
         sportsVerificationDetails ?? (await getSportsVerificationDetails(userId));
       const evidence = currentDetails[kind];
       if (!evidence) return;
-      await deleteSportsVerificationEvidence(userId, evidence.path);
+      const upgradePassportKind =
+        kind === "passportFirstPage" || kind === "passportVisaStampPage" ? kind : undefined;
+      await deleteSportsVerificationEvidence(userId, evidence.path, upgradePassportKind);
       const savedDetails = await saveSportsVerificationDetails(userId, {
         ...currentDetails,
         [kind]: null,
-      });
+      }, upgradePassportKind);
       setSportsVerificationDetails(savedDetails);
       toast.success("Private verification evidence deleted");
     } catch (error) {
@@ -891,13 +899,27 @@ function ProfilePage() {
       ...editValue,
       username: draft.username.trim() || profile.username,
       category: `${draft.role}${draft.sport.trim() ? ` · ${draft.sport.trim()}` : ""}`,
-      bio: serializeSportsProfileBio(profile.bio, draft),
+      bio: serializeSportsProfileBio(
+        profile.bio,
+        profile.is_verified && sportsProfile.status === "National"
+          ? { ...draft, representation: "National" }
+          : draft,
+      ),
     });
     toast.success("Sports details saved");
   };
 
-  const handleSubmitSportsVerification = async (details: SportsVerificationDetails) => {
-    if (!userId || userId !== profile.id || profile.verification_requested || profile.is_verified) return;
+  const handleSubmitSportsVerification = async (
+    details: SportsVerificationDetails,
+    upgradeToInternational = false,
+  ) => {
+    if (
+      !userId ||
+      userId !== profile.id ||
+      profile.verification_requested ||
+      (profile.is_verified &&
+        (!upgradeToInternational || !sportsProfile?.verified || sportsProfile.status !== "National"))
+    ) return;
     setSportsVerificationSubmitting(true);
     try {
       const result = await submitSportsVerification({
@@ -906,6 +928,7 @@ function ProfilePage() {
           fatherName: details.fatherName,
           dateOfBirth: details.dateOfBirth,
           identityDetailsConfirmed: details.identityDetailsConfirmed,
+          upgradeToInternational,
         },
       });
       await reload();

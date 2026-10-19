@@ -81,6 +81,7 @@ export type SportsVerificationDetails = {
   mobileNumber: string;
   email: string;
   reviewStatus?: "not_submitted" | "pending" | "approved" | "rejected" | "correction_requested";
+  upgradeToInternational?: boolean;
   reviewReason?: string | null;
   submittedAt?: string | null;
   sportsCertificate: SportsVerificationEvidence | null;
@@ -127,14 +128,19 @@ async function requireDocumentOwner(ownerId: string) {
 
 const lockedSportsVerificationStatuses = new Set(["pending", "approved"]);
 
-async function requireMutableSportsVerification(ownerId: string) {
+type InternationalUpgradePassportKind = "passportFirstPage" | "passportVisaStampPage";
+
+async function requireMutableSportsVerification(
+  ownerId: string,
+  internationalUpgradePassportKind?: InternationalUpgradePassportKind,
+) {
   await requireDocumentOwner(ownerId);
 
   const [{ data: profile, error: profileError }, { data: details, error: detailsError }] =
     await Promise.all([
       supabase
         .from("profiles")
-        .select("is_verified,verification_requested")
+        .select("is_verified,verification_requested,bio")
         .eq("id", ownerId)
         .maybeSingle(),
       supabase
@@ -147,6 +153,13 @@ async function requireMutableSportsVerification(ownerId: string) {
   if (profileError) throw new Error(profileError.message);
   if (detailsError) throw new Error(detailsError.message);
   const status = String(details?.review_status ?? "not_submitted");
+  const nationalInternationalUpgrade =
+    internationalUpgradePassportKind !== undefined &&
+    profile?.is_verified === true &&
+    profile.verification_requested !== true &&
+    /\brepresentation\s*:\s*national\b/i.test(profile.bio ?? "") &&
+    ["approved", "rejected", "correction_requested"].includes(status);
+  if (nationalInternationalUpgrade) return;
   if (
     profile?.is_verified === true ||
     profile?.verification_requested === true ||
@@ -186,6 +199,7 @@ function emptySportsVerificationDetails(email = "", mobileNumber = ""): SportsVe
     mobileNumber,
     email,
     reviewStatus: "not_submitted",
+    upgradeToInternational: false,
     reviewReason: null,
     submittedAt: null,
     sportsCertificate: null,
@@ -229,6 +243,7 @@ export async function getSportsVerificationDetails(ownerId: string): Promise<Spo
       data.review_status === "correction_requested"
         ? data.review_status
         : "not_submitted",
+    upgradeToInternational: data.upgrade_to_international === true,
     reviewReason: data.review_reason ?? null,
     submittedAt: data.submitted_at ?? null,
     sportsCertificate: evidenceFromPath(data.sports_certificate_path, "sportsCertificate"),
@@ -255,8 +270,45 @@ export async function getSportsVerificationCountry(ownerId: string): Promise<str
 export async function saveSportsVerificationDetails(
   ownerId: string,
   details: SportsVerificationDetails,
+  internationalUpgradePassportKind?: InternationalUpgradePassportKind,
 ): Promise<SportsVerificationDetails> {
-  await requireMutableSportsVerification(ownerId);
+  await requireMutableSportsVerification(ownerId, internationalUpgradePassportKind);
+  if (internationalUpgradePassportKind) {
+    const evidence = details[internationalUpgradePassportKind];
+    const path = evidence?.path ?? null;
+    if (
+      path &&
+      (!path.startsWith(`${ownerId}/sports-verification/${internationalUpgradePassportKind}/`) ||
+        path.includes(".."))
+    ) {
+      throw new Error("Invalid Sports Verification evidence path.");
+    }
+    const column =
+      internationalUpgradePassportKind === "passportFirstPage"
+        ? "passport_first_page_path"
+        : "passport_visa_stamp_page_path";
+    const { data, error } = await supabase
+      .from("sports_verification_details")
+      .update({ [column]: path, updated_at: new Date().toISOString() })
+      .eq("user_id", ownerId)
+      .select("upgrade_to_international,review_status")
+      .single();
+    if (error) throw new Error(error.message);
+    return {
+      ...details,
+      upgradeToInternational: data.upgrade_to_international === true,
+      reviewStatus:
+        data.review_status === "pending" ||
+        data.review_status === "approved" ||
+        data.review_status === "rejected" ||
+        data.review_status === "correction_requested"
+          ? data.review_status
+          : "not_submitted",
+      [internationalUpgradePassportKind]: evidence
+        ? { ...evidence, updatedAt: new Date().toISOString() }
+        : null,
+    };
+  }
   const { data: sessionData } = await supabase.auth.getSession();
   const sessionEmail = sessionData.session?.user.email ?? "";
   const sessionMobile = sessionData.session?.user.phone ?? "";
@@ -309,6 +361,7 @@ export async function saveSportsVerificationDetails(
       data.review_status === "correction_requested"
         ? data.review_status
         : "not_submitted",
+    upgradeToInternational: data.upgrade_to_international === true,
     reviewReason: data.review_reason ?? null,
     submittedAt: data.submitted_at ?? null,
     sportsCertificate: evidenceFromPath(data.sports_certificate_path, "sportsCertificate"),
@@ -352,7 +405,9 @@ export async function uploadSportsVerificationEvidence(
   kind: SportsVerificationEvidenceKind,
   file: File,
 ): Promise<SportsVerificationEvidence> {
-  await requireMutableSportsVerification(ownerId);
+  const upgradePassportKind =
+    kind === "passportFirstPage" || kind === "passportVisaStampPage" ? kind : undefined;
+  await requireMutableSportsVerification(ownerId, upgradePassportKind);
   const rule = verificationEvidenceRules[kind];
   if (!rule.allowedTypes.has(file.type) || file.size > rule.maxBytes) {
     throw new Error(rule.message);
@@ -376,9 +431,19 @@ export async function uploadSportsVerificationEvidence(
   };
 }
 
-export async function deleteSportsVerificationEvidence(ownerId: string, path: string) {
-  await requireMutableSportsVerification(ownerId);
+export async function deleteSportsVerificationEvidence(
+  ownerId: string,
+  path: string,
+  internationalUpgradePassportKind?: InternationalUpgradePassportKind,
+) {
+  await requireMutableSportsVerification(ownerId, internationalUpgradePassportKind);
   if (!path.startsWith(`${ownerId}/sports-verification/`) || path.includes("..")) {
+    throw new Error("Invalid Sports Verification evidence path.");
+  }
+  if (
+    internationalUpgradePassportKind &&
+    !path.startsWith(`${ownerId}/sports-verification/${internationalUpgradePassportKind}/`)
+  ) {
     throw new Error("Invalid Sports Verification evidence path.");
   }
   const { error } = await supabase.storage.from(STORAGE_BUCKETS.documents).remove([path]);

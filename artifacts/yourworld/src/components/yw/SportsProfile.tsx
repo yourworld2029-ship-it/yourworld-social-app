@@ -248,7 +248,7 @@ export function getSportsProfile(profile: SportsProfileSource): SportsProfileInf
     : statusSource.toLowerCase().includes("national")
       ? "National"
       : "Not recorded";
-  const verified = profile.is_verified === true && profile.verification_requested !== true;
+  const verified = profile.is_verified === true;
   const tournamentDetails = parseTournamentDetails(profile.bio);
   const medalDetails = parseMedalDetails(profile.bio);
   const tournamentLines = extractRelevantLines(profile.bio, /tournament|league|championship|cup|games|meet/i);
@@ -779,7 +779,10 @@ export function SportsDetailsPanel({
   sportsIntroductionProgress?: number;
   onUploadSportsIntroduction?: (file: File) => void;
   onDeleteSportsIntroduction?: () => void;
-  onSubmitVerification?: (details: SportsVerificationDetails) => void | Promise<void>;
+  onSubmitVerification?: (
+    details: SportsVerificationDetails,
+    upgradeToInternational?: boolean,
+  ) => void | Promise<void>;
   duplicateSubmissionWarning?: string | null;
   onDismissDuplicateSubmissionWarning?: () => void;
   onOpenVerificationReview?: () => void;
@@ -805,28 +808,45 @@ export function SportsDetailsPanel({
   const [draft, setDraft] = useState<SportsProfileDraft>(() => toSportsProfileDraft(profile));
   const [saving, setSaving] = useState(false);
   const [termsAgreed, setTermsAgreed] = useState(false);
+  const [internationalUpgradeMode, setInternationalUpgradeMode] = useState(false);
   const [verificationDraft, setVerificationDraft] = useState<SportsVerificationDetails>(
     () => verificationDetails ?? emptySportsVerificationDetails(),
   );
   const editable = isOwner && Boolean(onSave);
   const isCoach = profile.role === "Coach";
   const isInternational =
-    profile.status === "International" || !isIndiaSportsCountry(verificationDraft.country);
+    internationalUpgradeMode ||
+    profile.status === "International" ||
+    !isIndiaSportsCountry(verificationDraft.country);
   const displayedStatus = isInternational ? "International" : profile.status;
   const displayedSportsProfile =
     displayedStatus === profile.status ? profile : { ...profile, status: displayedStatus };
   const reviewStatus = verificationDetails?.reviewStatus ?? "not_submitted";
   const verificationLocked =
-    profile.verified ||
     profile.verificationRequested ||
     reviewStatus === "pending" ||
-    reviewStatus === "approved";
+    (!internationalUpgradeMode && (profile.verified || reviewStatus === "approved"));
   const verificationUnderReview = profile.verificationRequested || reviewStatus === "pending";
+  const canUpgradeToInternational =
+    isOwner &&
+    profile.verified &&
+    profile.status === "National" &&
+    reviewStatus === "approved" &&
+    !profile.verificationRequested;
+  useEffect(() => {
+    if (profile.verified && profile.status === "International" && !profile.verificationRequested) {
+      setInternationalUpgradeMode(false);
+    }
+  }, [profile.status, profile.verified, profile.verificationRequested]);
   useEffect(() => {
     setVerificationDraft(verificationDetails ?? emptySportsVerificationDetails());
   }, [verificationDetails]);
   const openEditor = (field: SportsEditorField) => {
-    setDraft(toSportsProfileDraft(profile));
+    const nextDraft = toSportsProfileDraft(profile);
+    if (internationalUpgradeMode && field === "tournaments") {
+      nextDraft.representation = "International";
+    }
+    setDraft(nextDraft);
     setEditorField(field);
   };
   const saveDraft = async () => {
@@ -836,11 +856,12 @@ export function SportsDetailsPanel({
     }
     setSaving(true);
     try {
-      await onSave(
-        isIndiaSportsCountry(verificationDraft.country)
+      const nextDraft = internationalUpgradeMode && editorField === "tournaments"
+        ? { ...draft, representation: "National" as const }
+        : isIndiaSportsCountry(verificationDraft.country)
           ? draft
-          : { ...draft, representation: "International" },
-      );
+          : { ...draft, representation: "International" as const };
+      await onSave(nextDraft);
       setEditorField(null);
     } finally {
       setSaving(false);
@@ -897,6 +918,23 @@ export function SportsDetailsPanel({
 
         </>
       )}
+      {internationalUpgradeMode ? (
+        <div className="rounded-2xl border border-sky-200/20 bg-sky-200/[0.05] p-3">
+          <p className="text-sm font-semibold text-white">International competition timeline</p>
+          <p className="mt-1 text-xs text-zinc-400">
+            Add the competitions you want reviewed for your International upgrade.
+          </p>
+          <Button
+            type="button"
+            data-testid="button-add-international-upgrade-competition"
+            onClick={() => openEditor("tournaments")}
+            className="mt-3 rounded-full border border-sky-200/25 bg-sky-200/10 text-sky-100 hover:bg-sky-200/15"
+            variant="outline"
+          >
+            Add international competition
+          </Button>
+        </div>
+      ) : null}
 
       {isOwner ? (
         <SportsVerificationDetailsSection
@@ -911,6 +949,7 @@ export function SportsDetailsPanel({
            onDeleteEvidence={onDeleteVerificationEvidence}
            onPreviewEvidence={onPreviewVerificationEvidence}
            locked={verificationLocked}
+          upgradeFlow={internationalUpgradeMode}
            underReview={verificationUnderReview}
           profile={profile}
           sportsIntroductionUrl={sportsIntroductionUrl}
@@ -991,13 +1030,31 @@ export function SportsDetailsPanel({
             />
             <span>I Agree to the Terms &amp; Conditions</span>
           </label>
-          {profile.verified ? (
+          {profile.verified && !internationalUpgradeMode && !verificationUnderReview ? (
             <div
               data-testid="sports-verification-status"
               className="mt-4 rounded-2xl border border-emerald-200/30 bg-gradient-to-r from-emerald-300/[0.16] via-amber-200/[0.08] to-transparent px-4 py-3"
             >
               <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-200">✓ Verified</p>
               <p className="mt-1 text-sm font-semibold text-white">Sports Profile Verified Successfully</p>
+                {verificationDetails?.upgradeToInternational && verificationDetails.reviewReason ? (
+                  <p className="mt-2 text-xs leading-5 text-amber-100">
+                    International upgrade feedback: {verificationDetails.reviewReason}
+                  </p>
+                ) : null}
+              {canUpgradeToInternational ? (
+                <Button
+                  type="button"
+                  data-testid="button-upgrade-to-international"
+                  onClick={() => {
+                    setTermsAgreed(false);
+                    setInternationalUpgradeMode(true);
+                  }}
+                  className="mt-3 rounded-full bg-sky-200 text-black hover:bg-sky-100"
+                >
+                  Upgrade to International
+                </Button>
+              ) : null}
             </div>
           ) : profile.verificationRequested ? (
             <p
@@ -1030,11 +1087,18 @@ export function SportsDetailsPanel({
               type="button"
               data-testid="button-submit-sports-verification"
               disabled={!termsAgreed || verificationSubmitting}
-              onClick={() => void onSubmitVerification?.(verificationDraftOr(verificationDraft))}
+              onClick={() =>
+                void onSubmitVerification?.(
+                  verificationDraftOr(verificationDraft),
+                  internationalUpgradeMode,
+                )
+              }
               className="mt-4 w-full rounded-full bg-amber-200 text-black hover:bg-amber-100"
             >
               {verificationSubmitting
                 ? "Submitting…"
+                : internationalUpgradeMode
+                  ? "Submit International Upgrade"
                 : verificationDetails?.reviewStatus === "correction_requested" ||
                     verificationDetails?.reviewStatus === "rejected"
                   ? "Resubmit for Verification"
@@ -1224,6 +1288,7 @@ function SportsVerificationDetailsSection({
   onUploadSportsIntroduction,
   onDeleteSportsIntroduction,
   locked,
+  upgradeFlow = false,
   underReview,
 }: {
   details: SportsVerificationDetails;
@@ -1248,6 +1313,7 @@ function SportsVerificationDetailsSection({
     path: string,
   ) => void | Promise<void>;
   locked: boolean;
+  upgradeFlow?: boolean;
   underReview: boolean;
 }) {
   const setField = (
@@ -1299,7 +1365,7 @@ function SportsVerificationDetailsSection({
                   onChange={(event) => setField("fullName", event.target.value)}
                   placeholder="Exactly as on your identity document"
                   maxLength={200}
-                  disabled={locked}
+                  disabled={locked || upgradeFlow}
                   className="border-white/10 bg-white/[0.04] text-sm text-white"
                 />
               </label>
@@ -1310,7 +1376,7 @@ function SportsVerificationDetailsSection({
                   onChange={(event) => setField("fatherName", event.target.value)}
                   placeholder="Exactly as on your identity document"
                   maxLength={200}
-                  disabled={locked}
+                  disabled={locked || upgradeFlow}
                   className="border-white/10 bg-white/[0.04] text-sm text-white"
                 />
               </label>
@@ -1320,7 +1386,7 @@ function SportsVerificationDetailsSection({
                   type="date"
                   value={details.dateOfBirth}
                   onChange={(event) => setField("dateOfBirth", event.target.value)}
-                  disabled={locked}
+                  disabled={locked || upgradeFlow}
                   className="border-white/10 bg-white/[0.04] text-sm text-white"
                 />
               </label>
@@ -1334,10 +1400,20 @@ function SportsVerificationDetailsSection({
                   onChange={(event) => setField("mobileNumber", event.target.value)}
                   placeholder="Phone number"
                   maxLength={40}
-                  disabled={locked}
+                  disabled={locked || upgradeFlow}
                   className="border-white/10 bg-white/[0.04] text-sm text-white"
                 />
               </label>
+              {upgradeFlow ? (
+                <label className="space-y-1.5 text-xs text-zinc-400">
+                  Address
+                  <Input
+                    value={details.address}
+                    disabled
+                    className="border-white/10 bg-white/[0.04] text-sm text-white"
+                  />
+                </label>
+              ) : null}
               <label className="space-y-1.5 text-xs text-zinc-400">
                 Gmail / Email
                 <Input
@@ -1346,7 +1422,7 @@ function SportsVerificationDetailsSection({
                   onChange={(event) => setField("email", event.target.value)}
                   placeholder="Gmail / Email"
                   maxLength={255}
-                  disabled={locked}
+                  disabled={locked || upgradeFlow}
                   className="border-white/10 bg-white/[0.04] text-sm text-white"
                 />
               </label>
@@ -1357,7 +1433,7 @@ function SportsVerificationDetailsSection({
                   onChange={(event) => setField("villageTown", event.target.value)}
                   placeholder="Village or town"
                   maxLength={120}
-                  disabled={locked}
+                  disabled={locked || upgradeFlow}
                   className="border-white/10 bg-white/[0.04] text-sm text-white"
                 />
               </label>
@@ -1368,7 +1444,7 @@ function SportsVerificationDetailsSection({
                   onChange={(event) => setField("district", event.target.value)}
                   placeholder="District"
                   maxLength={120}
-                  disabled={locked}
+                  disabled={locked || upgradeFlow}
                   className="border-white/10 bg-white/[0.04] text-sm text-white"
                 />
               </label>
@@ -1379,7 +1455,7 @@ function SportsVerificationDetailsSection({
                   onChange={(event) => setField("state", event.target.value)}
                   placeholder="State"
                   maxLength={120}
-                  disabled={locked}
+                  disabled={locked || upgradeFlow}
                   className="border-white/10 bg-white/[0.04] text-sm text-white"
                 />
               </label>
@@ -1391,7 +1467,7 @@ function SportsVerificationDetailsSection({
                     (details.country.trim() || "India")
                   }
                   onValueChange={(value) => setField("country", value)}
-                  disabled={locked}
+                  disabled={locked || upgradeFlow}
                 >
                   <SelectTrigger
                     data-testid="select-sports-verification-country"
@@ -1445,7 +1521,7 @@ function SportsVerificationDetailsSection({
               onUpload={onUploadEvidence}
                onDelete={onDeleteEvidence}
                onPreview={onPreviewEvidence}
-               locked={locked}
+                 locked={locked || upgradeFlow}
             />
             {isInternational ? (
               <>
@@ -1482,18 +1558,20 @@ function SportsVerificationDetailsSection({
               sportsIntroductionProgress={sportsIntroductionProgress}
               onUploadSportsIntroduction={onUploadSportsIntroduction}
               onDeleteSportsIntroduction={onDeleteSportsIntroduction}
-              locked={locked}
+              locked={locked || upgradeFlow}
             />
           </div>
 
-          <Button
-            type="button"
-            disabled={saving || locked || !onSave}
-            onClick={() => void onSave?.(verificationDraftOr(details))}
-            className="w-full rounded-full bg-amber-200 text-black hover:bg-amber-100"
-          >
-            {saving ? "Saving verification details…" : "Save Verification Details"}
-          </Button>
+          {!upgradeFlow ? (
+            <Button
+              type="button"
+              disabled={saving || locked || !onSave}
+              onClick={() => void onSave?.(verificationDraftOr(details))}
+              className="w-full rounded-full bg-amber-200 text-black hover:bg-amber-100"
+            >
+              {saving ? "Saving verification details…" : "Save Verification Details"}
+            </Button>
+          ) : null}
         </div>
       )}
     </SportsDetailsSection>

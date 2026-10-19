@@ -3,7 +3,7 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 export const SPORTS_VERIFICATION_DUPLICATE_MESSAGE =
-  "This Document / Identity is Already Registered. This identity or document has already been submitted or verified on another account. Duplicate submissions are strictly prohibited.";
+  "Yeh sports account pehle se bana hua hai. Duplicate registration allowed nahi hai.";
 
 const sportsVerificationSubmissionSchema = z.object({
   fullName: z.string().trim().min(1, "Enter your Full Name exactly as shown on your identity document.").max(200),
@@ -29,6 +29,7 @@ const sportsVerificationSubmissionSchema = z.object({
       message: "Confirm that your Full Name, Father's Name, and DOB match your identity documents exactly.",
     }),
   }),
+  upgradeToInternational: z.boolean().optional().default(false),
 });
 
 const reviewActionSchema = z.object({
@@ -72,6 +73,7 @@ type VerificationDetailsRow = {
   passport_visa_stamp_page_path: string | null;
   tournament_photo_path: string | null;
   review_status?: string | null;
+  upgrade_to_international?: boolean;
   review_reason?: string | null;
   submitted_at?: string | null;
   reviewed_at?: string | null;
@@ -105,6 +107,7 @@ export type AdminVerificationApplication = {
   accountEmail: string | null;
   accountMobile: string | null;
   status: "pending";
+  upgradeToInternational: boolean;
   reviewReason: string | null;
   submittedAt: string | null;
   deadlineAt: string | null;
@@ -128,6 +131,24 @@ function identityKeyForSubmission(data: {
   dateOfBirth: string;
 }) {
   return `${normalizeIdentityPart(data.fullName)}|${normalizeIdentityPart(data.fatherName)}|${data.dateOfBirth}`;
+}
+
+function setInternationalRepresentation(bio: string | null | undefined) {
+  const lines = (bio ?? "").split(/\r?\n/);
+  const representationLine = /^\s*(?:representation|represents|status)\s*:/i;
+  const remaining = lines.filter((line) => !representationLine.test(line));
+  return ["Representation: International", ...remaining].filter(Boolean).join("\n");
+}
+
+function representationFromProfile(profile: Pick<AdminProfileRow, "bio" | "category">) {
+  return (
+    valueAfterLabel(profile.bio ?? null, ["representation", "represents", "status"]) ??
+    (/international/i.test(profile.category ?? "")
+      ? "International"
+      : /national/i.test(profile.category ?? "")
+        ? "National"
+        : "")
+  );
 }
 
 function isDuplicateIdentityError(error: { code?: string; message?: string } | null | undefined) {
@@ -352,8 +373,8 @@ export const listSportsVerificationApplications = createServerFn({ method: "POST
         const submittedAt = details?.submitted_at ?? details?.updated_at ?? profile.updated_at;
         const deadlineAt = deadlineFor(submittedAt);
         const international = /^international$/i.test(
-          valueAfterLabel(profile.bio, ["Represents", "Country", "Team"]) ?? "",
-        );
+          valueAfterLabel(profile.bio, ["Representation", "Represents", "Country", "Team"]) ?? "",
+        ) || details?.upgrade_to_international === true;
         const [sportsIntroductionUrl, documents] = await Promise.all([
           createPrivateSignedUrl(
             admin,
@@ -383,6 +404,7 @@ export const listSportsVerificationApplications = createServerFn({ method: "POST
           accountEmail: authUser.user?.email ?? details?.email ?? null,
           accountMobile: authUser.user?.phone ?? details?.mobile_number ?? null,
           status: "pending" as const,
+          upgradeToInternational: details?.upgrade_to_international === true,
           reviewReason: details?.review_reason ?? null,
           submittedAt,
           deadlineAt,
@@ -409,7 +431,7 @@ export const reviewSportsVerification = createServerFn({ method: "POST" })
 
     const { data: profile, error: profileReadError } = await admin
       .from("profiles")
-      .select("id,is_verified,verification_requested")
+      .select("id,is_verified,verification_requested,bio,category")
       .eq("id", data.applicantUserId)
       .maybeSingle();
     if (profileReadError) throw new Error(profileReadError.message);
@@ -417,6 +439,13 @@ export const reviewSportsVerification = createServerFn({ method: "POST" })
       throw new Error("This Sports Verification request is no longer pending.");
     }
 
+    const { data: requestDetails, error: requestDetailsError } = await admin
+      .from("sports_verification_details")
+      .select("*")
+      .eq("user_id", data.applicantUserId)
+      .maybeSingle();
+    if (requestDetailsError) throw new Error(requestDetailsError.message);
+    const isInternationalUpgrade = requestDetails?.upgrade_to_international === true;
     const now = new Date().toISOString();
     const status =
       data.action === "approve"
@@ -424,12 +453,17 @@ export const reviewSportsVerification = createServerFn({ method: "POST" })
         : data.action === "reject"
           ? "rejected"
           : "correction_requested";
+    const persistedStatus =
+      isInternationalUpgrade && data.action !== "approve" ? "approved" : status;
 
     const { data: updatedProfile, error: profileError } = await admin
       .from("profiles")
       .update({
-        is_verified: data.action === "approve",
+        is_verified: data.action === "approve" || isInternationalUpgrade,
         verification_requested: false,
+        ...(data.action === "approve" && isInternationalUpgrade
+          ? { bio: setInternationalRepresentation(profile.bio) }
+          : {}),
       })
       .eq("id", data.applicantUserId)
       .eq("verification_requested", true)
@@ -443,10 +477,13 @@ export const reviewSportsVerification = createServerFn({ method: "POST" })
     const { error: detailsError } = await admin.from("sports_verification_details").upsert(
       {
         user_id: data.applicantUserId,
-        review_status: status,
+        review_status: persistedStatus,
         review_reason: reason,
         reviewed_at: now,
         reviewed_by: context.userId,
+        upgrade_to_international: isInternationalUpgrade
+          ? data.action === "request_correction"
+          : undefined,
         updated_at: now,
       },
       { onConflict: "user_id" },
@@ -478,7 +515,7 @@ async function notifySupportOfSubmission(
   const role = categoryParts[0] || "Sports profile";
   const sport = categoryParts[1] || valueAfterLabel(profile.bio, ["Sport"]) || "Not recorded";
   const representation =
-    valueAfterLabel(profile.bio, ["Represents", "Country", "Team"]) || "Not recorded";
+    valueAfterLabel(profile.bio, ["Representation", "Represents", "Country", "Team"]) || "Not recorded";
   const submittedAt = details?.submitted_at ?? new Date().toISOString();
   const appUrl = process.env.REPLIT_APP_URL || "https://your-world-social-app--yourworld2029.replit.app";
 
@@ -537,11 +574,6 @@ export const submitSportsVerification = createServerFn({ method: "POST" })
     if (profileError) throw new Error(profileError.message);
     if (!profile) throw new Error("Your profile could not be found.");
 
-    const sportsIntroductionPath = extractSportsIntroductionPath(profile.bio);
-    if (!sportsIntroductionPath) {
-      throw new Error("Upload your Sports Introduction video before submitting verification.");
-    }
-
     const { data: currentDetails, error: currentDetailsError } = await admin
       .from("sports_verification_details")
       .select("*")
@@ -549,8 +581,14 @@ export const submitSportsVerification = createServerFn({ method: "POST" })
       .maybeSingle();
     if (currentDetailsError) throw new Error(currentDetailsError.message);
 
-    if (profile.is_verified) {
-      throw new Error("This Sports Verification request is already approved.");
+    const existingIdentity = await findExistingIdentity(admin, context.userId, data);
+    if (existingIdentity) {
+      throw new Error(SPORTS_VERIFICATION_DUPLICATE_MESSAGE);
+    }
+
+    const sportsIntroductionPath = extractSportsIntroductionPath(profile.bio);
+    if (!sportsIntroductionPath) {
+      throw new Error("Upload your Sports Introduction video before submitting verification.");
     }
 
     if (profile.verification_requested) {
@@ -561,34 +599,54 @@ export const submitSportsVerification = createServerFn({ method: "POST" })
       };
     }
 
-    if (currentDetails?.review_status === "approved") {
+    if (data.upgradeToInternational) {
+      if (
+        profile.is_verified !== true ||
+        currentDetails?.review_status !== "approved" &&
+          currentDetails?.review_status !== "rejected" &&
+          currentDetails?.review_status !== "correction_requested" ||
+        !/^national$/i.test(representationFromProfile(profile))
+      ) {
+        throw new Error("Only approved National sports accounts can request an International upgrade.");
+      }
+      if (
+        identityKeyForSubmission(data) !==
+        identityKeyForSubmission({
+          fullName: currentDetails?.full_name ?? "",
+          fatherName: currentDetails?.father_name ?? "",
+          dateOfBirth: currentDetails?.date_of_birth ?? "",
+        })
+      ) {
+        throw new Error("Identity details cannot be changed during an International upgrade.");
+      }
+    } else if (profile.is_verified || currentDetails?.review_status === "approved") {
       throw new Error("This Sports Verification request is already approved.");
     }
 
-    const existingIdentity = await findExistingIdentity(admin, context.userId, data);
-    if (existingIdentity) {
-      throw new Error(SPORTS_VERIFICATION_DUPLICATE_MESSAGE);
-    }
-
     const now = new Date().toISOString();
-    const { error: detailsError } = await admin
-      .from("sports_verification_details")
-      .upsert(
-        {
+    const detailsPayload = {
         user_id: context.userId,
         full_name: data.fullName,
         father_name: data.fatherName,
         date_of_birth: data.dateOfBirth,
         identity_details_confirmed: true,
+          ...(data.upgradeToInternational ? { upgrade_to_international: true } : {}),
         review_status: "pending",
         review_reason: null,
         submitted_at: now,
         reviewed_at: null,
         reviewed_by: null,
         updated_at: now,
-        },
-        { onConflict: "user_id" },
-      );
+    };
+    const { user_id: applicantId, ...upgradeDetailsPayload } = detailsPayload;
+    const { error: detailsError } = data.upgradeToInternational
+      ? await admin
+          .from("sports_verification_details")
+          .update(upgradeDetailsPayload)
+          .eq("user_id", applicantId)
+      : await admin
+          .from("sports_verification_details")
+          .upsert(detailsPayload, { onConflict: "user_id" });
     if (detailsError) {
       if (isDuplicateIdentityError(detailsError)) {
         throw new Error(SPORTS_VERIFICATION_DUPLICATE_MESSAGE);
@@ -598,7 +656,10 @@ export const submitSportsVerification = createServerFn({ method: "POST" })
 
     const { error: requestError } = await admin
       .from("profiles")
-      .update({ is_verified: false, verification_requested: true })
+      .update({
+        is_verified: data.upgradeToInternational,
+        verification_requested: true,
+      })
       .eq("id", context.userId);
     if (requestError) throw new Error(requestError.message);
 
@@ -610,7 +671,12 @@ export const submitSportsVerification = createServerFn({ method: "POST" })
       .eq("user_id", context.userId)
       .maybeSingle();
     const notification = await notifySupportOfSubmission(
-      profile as AdminProfileRow,
+      (data.upgradeToInternational
+        ? {
+            ...(profile as AdminProfileRow),
+            bio: setInternationalRepresentation(profile.bio),
+          }
+        : (profile as AdminProfileRow)),
       (details as VerificationDetailsRow | null) ?? null,
     );
 

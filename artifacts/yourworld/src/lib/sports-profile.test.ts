@@ -92,6 +92,66 @@ test("Sports Identity card opens details without the removed summary row", () =>
   assert.equal(children.some((child) => child?.type === "dl"), false);
 });
 
+test("Only an approved National owner sees the International upgrade action", () => {
+  const approvedNational = renderToStaticMarkup(
+    createElement(SportsDetailsPanel, {
+      profile: { ...profile, verified: true },
+      isOwner: true,
+      verificationDetails: {
+        fullName: "Athlete Name",
+        fatherName: "Parent Name",
+        dateOfBirth: "1990-01-01",
+        address: "Address",
+        passportNumber: "",
+        certificateNumber: "",
+        identityDetailsConfirmed: true,
+        villageTown: "Town",
+        district: "District",
+        state: "State",
+        country: "India",
+        mobileNumber: "0000000000",
+        email: "athlete@example.com",
+        reviewStatus: "approved",
+        reviewReason: null,
+        submittedAt: null,
+        sportsCertificate: null,
+        passportFirstPage: null,
+        passportVisaStampPage: null,
+        tournamentPhoto: null,
+      },
+    }),
+  );
+  assert.match(approvedNational, /Upgrade to International/);
+
+  const unverifiedNational = renderToStaticMarkup(
+    createElement(SportsDetailsPanel, {
+      profile: { ...profile, verified: false },
+      isOwner: true,
+    }),
+  );
+  assert.doesNotMatch(unverifiedNational, /Upgrade to International/);
+
+  const verifiedInternational = renderToStaticMarkup(
+    createElement(SportsDetailsPanel, {
+      profile: { ...profile, status: "International", verified: true },
+      isOwner: true,
+    }),
+  );
+  assert.doesNotMatch(verifiedInternational, /Upgrade to International/);
+});
+
+test("an International upgrade review keeps the profile's existing National verification", () => {
+  const pendingUpgrade = getSportsProfile({
+    category: "Player · Handball",
+    bio: "Representation: National\nRepresents: India",
+    location: "",
+    is_verified: true,
+    verification_requested: true,
+  });
+  assert.equal(pendingUpgrade?.status, "National");
+  assert.equal(pendingUpgrade?.verified, true);
+});
+
 test("profile bio display keeps only user-entered lines", () => {
   assert.equal(
     getUserEnteredProfileBio(

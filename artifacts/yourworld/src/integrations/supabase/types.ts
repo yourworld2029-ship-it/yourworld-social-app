@@ -910,6 +910,7 @@ export type Database = {
           full_name: string
           identity_details_confirmed: boolean
           identity_key: string | null
+          upgrade_to_international: boolean
           mobile_number: string
           passport_number: string
           passport_number_normalized: string | null
@@ -938,6 +939,7 @@ export type Database = {
           father_name?: string
           full_name?: string
           identity_details_confirmed?: boolean
+          upgrade_to_international?: boolean
           mobile_number?: string
           passport_number?: string
           passport_first_page_path?: string | null
@@ -965,6 +967,7 @@ export type Database = {
           father_name?: string
           full_name?: string
           identity_details_confirmed?: boolean
+          upgrade_to_international?: boolean
           mobile_number?: string
           passport_number?: string
           passport_first_page_path?: string | null
