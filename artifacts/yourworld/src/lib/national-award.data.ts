@@ -22,12 +22,48 @@ const allowedMimeTypes: Record<NationalAwardEvidenceKind, Set<string>> = {
   identity: new Set(["application/pdf", "image/jpeg", "image/png"]),
 };
 
+export async function validateNationalAwardIntroductionVideo(file: File) {
+  if (!allowedMimeTypes.introduction.has(file.type) || file.size <= 0 || file.size > maxIntroductionSize) {
+    throw new Error("Choose an MP4, WebM, or MOV introduction video under 100 MB.");
+  }
+
+  const previewUrl = URL.createObjectURL(file);
+  try {
+    const metadata = await new Promise<{ duration: number; width: number; height: number }>(
+      (resolve, reject) => {
+        const video = document.createElement("video");
+        video.preload = "metadata";
+        video.onloadedmetadata = () =>
+          resolve({
+            duration: video.duration,
+            width: video.videoWidth,
+            height: video.videoHeight,
+          });
+        video.onerror = () => reject(new Error("This video could not be read."));
+        video.src = previewUrl;
+      },
+    );
+    if (!Number.isFinite(metadata.duration) || metadata.duration < 5 || metadata.duration > 50) {
+      throw new Error("Video must be between 5 and 50 seconds");
+    }
+    if (metadata.width <= 0 || metadata.height <= metadata.width) {
+      throw new Error("Choose a vertical 9:16 introduction video.");
+    }
+  } finally {
+    URL.revokeObjectURL(previewUrl);
+  }
+}
+
 export async function uploadNationalAwardEvidence(
   userId: string,
   kind: NationalAwardEvidenceKind,
   file: File,
 ): Promise<NationalAwardEvidence> {
   if (!userId) throw new Error("Sign in before uploading verification evidence.");
+
+  if (kind === "introduction") {
+    await validateNationalAwardIntroductionVideo(file);
+  }
 
   const maxSize =
     kind === "introduction"
@@ -71,6 +107,17 @@ export async function uploadNationalAwardEvidence(
     mimeType: file.type,
     size: file.size,
   };
+}
+
+export async function getNationalAwardIntroductionPreviewUrl(path: string) {
+  if (!path || path.includes("..")) throw new Error("Invalid introduction video path.");
+  const { data, error } = await supabase.storage
+    .from(evidenceBucket)
+    .createSignedUrl(path, 60 * 5);
+  if (error || !data?.signedUrl) {
+    throw new Error(error?.message ?? "Could not load the introduction video preview.");
+  }
+  return data.signedUrl;
 }
 
 export async function getPublicNationalAwardBadge(

@@ -362,6 +362,89 @@ async function loadSavedNationalAwardDetails(
   return mapRow(data as NationalAwardRow);
 }
 
+async function publishNationalAwardIntroductionReel(
+  admin: Awaited<ReturnType<typeof getAdminClient>>,
+  userId: string,
+  sourcePath: string,
+) {
+  if (sourcePath !== `${userId}/introduction/evidence`) {
+    throw new Error("The Award Introduction video path is invalid.");
+  }
+
+  const { data: profile, error: profileError } = await admin
+    .from("profiles")
+    .select("username")
+    .eq("id", userId)
+    .maybeSingle();
+  if (profileError) throw new Error(profileError.message);
+  const caption = `Sports Verification Intro • @${profile?.username?.trim() || "you"}`;
+  const reelPath = `${userId}/sports-verification-intro/national-award-intro`;
+  const { data: existing, error: existingError } = await admin
+    .from("posts")
+    .select("id,caption,title")
+    .eq("user_id", userId)
+    .eq("kind", "reel")
+    .eq("media_url", reelPath)
+    .maybeSingle();
+  if (existingError) throw new Error(existingError.message);
+  if (existing?.id) {
+    if (existing.caption !== caption || existing.title !== "Sports Verification Intro") {
+      const { error } = await admin
+        .from("posts")
+        .update({ caption, title: "Sports Verification Intro" })
+        .eq("id", existing.id);
+      if (error) throw new Error(error.message);
+    }
+    return existing.id;
+  }
+
+  const { data: source, error: downloadError } = await admin.storage
+    .from(evidenceBucket)
+    .download(sourcePath);
+  if (downloadError || !source) {
+    throw new Error(downloadError?.message ?? "The Award Introduction video is unavailable.");
+  }
+  const { error: uploadError } = await admin.storage.from("reels").upload(reelPath, source, {
+    cacheControl: "86400",
+    contentType: source.type || "video/mp4",
+    upsert: true,
+  });
+  if (uploadError) throw new Error(uploadError.message);
+
+  const { data: created, error: insertError } = await admin
+    .from("posts")
+    .insert({
+      user_id: userId,
+      kind: "reel",
+      is_reel: true,
+      media_url: reelPath,
+      media_type: "video",
+      thumbnail_url: null,
+      title: "Sports Verification Intro",
+      caption,
+      hashtags: [],
+      audio: null,
+      allow_download: true,
+      audience: "everyone",
+      tagged_user_ids: [],
+      viewer_user_ids: [],
+    })
+    .select("id")
+    .single();
+  if (insertError) {
+    const { data: raced } = await admin
+      .from("posts")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("kind", "reel")
+      .eq("media_url", reelPath)
+      .maybeSingle();
+    if (raced?.id) return raced.id;
+    throw new Error(insertError.message);
+  }
+  return created.id;
+}
+
 export const saveNationalAwardVerificationDraft = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator((data) => submissionFieldsSchema.parse(data))
@@ -404,6 +487,11 @@ export const submitNationalAwardVerification = createServerFn({ method: "POST" }
       throw new Error("National Award Verification details could not be prepared for submission.");
     }
     await persistNationalAwardIdentityProof(admin, context.userId, identityProof);
+    await publishNationalAwardIntroductionReel(
+      admin,
+      context.userId,
+      submissionData.introductionPath,
+    );
     const { data: status, error } = await admin.rpc(
       "submit_national_award_verification",
       {

@@ -209,7 +209,9 @@ export function NationalAwardProfileSection({
         });
         setDetails(nextDetails);
         setOpen(false);
-        toast.success("National Award Profile submitted for verification.");
+        toast.success(
+          "Application submitted! Your intro is live on Reels. Verification badge will be reviewed within 12–72 hours.",
+        );
         onSubmitted?.();
       } catch (error) {
         toast.error(

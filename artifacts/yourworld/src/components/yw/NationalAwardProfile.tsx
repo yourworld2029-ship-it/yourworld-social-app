@@ -9,6 +9,7 @@ import {
   Loader2,
   Medal,
   ShieldCheck,
+  Trash2,
   Upload,
   Video,
   X,
@@ -41,6 +42,9 @@ import {
 } from "@/components/ui/select";
 import { Form } from "@/components/ui/form";
 import { NationalAwardTermsSection } from "@/components/yw/NationalAwardTermsSection";
+import { IntroductionVideoPreview } from "@/components/yw/IntroductionVideoPreview";
+import { toast } from "sonner";
+import { getNationalAwardIntroductionPreviewUrl } from "@/lib/national-award.data";
 import { useForm, useFormContext } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -276,6 +280,8 @@ export function NationalAwardVerificationDialog({
   } = form;
   const values = watch();
   const [termsAgreed, setTermsAgreed] = useState(false);
+  const [introductionPreviewUrl, setIntroductionPreviewUrl] = useState<string | null>(null);
+  const [introductionVideoValid, setIntroductionVideoValid] = useState(false);
   const editable =
     !details ||
     details.status === "not_submitted" ||
@@ -305,11 +311,46 @@ export function NationalAwardVerificationDialog({
     if (open) setTermsAgreed(false);
   }, [open]);
 
+  useEffect(() => {
+    const path = values.introductionVideo?.path;
+    if (!open || !path) {
+      setIntroductionPreviewUrl(null);
+      setIntroductionVideoValid(false);
+      return;
+    }
+
+    let active = true;
+    setIntroductionPreviewUrl(null);
+    setIntroductionVideoValid(false);
+    void getNationalAwardIntroductionPreviewUrl(path)
+      .then((url) => {
+        if (active) setIntroductionPreviewUrl(url);
+      })
+      .catch((error) => {
+        if (active) {
+          setIntroductionPreviewUrl(null);
+          toast.error(
+            error instanceof Error ? error.message : "Could not load the introduction preview.",
+          );
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [open, values.introductionVideo?.path]);
+
   const uploadEvidence = async (
     kind: NationalAwardEvidenceKind,
     file: File | undefined,
   ) => {
     if (!file || !editable) return;
+    const previousPreviewUrl = introductionPreviewUrl;
+    const temporaryPreviewUrl =
+      kind === "introduction" ? URL.createObjectURL(file) : null;
+    if (temporaryPreviewUrl) {
+      setIntroductionPreviewUrl(temporaryPreviewUrl);
+      setIntroductionVideoValid(false);
+    }
     try {
       const evidence = await onUpload(kind, file);
       const evidenceField =
@@ -323,6 +364,11 @@ export function NationalAwardVerificationDialog({
         shouldDirty: true,
       });
       clearErrors(evidenceField);
+      if (kind === "introduction") {
+        const signedUrl = await getNationalAwardIntroductionPreviewUrl(evidence.path);
+        setIntroductionPreviewUrl(signedUrl);
+        if (temporaryPreviewUrl) URL.revokeObjectURL(temporaryPreviewUrl);
+      }
     } catch (error) {
       const evidenceField =
         kind === "certificate"
@@ -334,16 +380,29 @@ export function NationalAwardVerificationDialog({
         type: "manual",
         message: error instanceof Error ? error.message : "Could not upload this file.",
       });
+      if (kind === "introduction") {
+        setIntroductionPreviewUrl(previousPreviewUrl);
+        if (temporaryPreviewUrl) URL.revokeObjectURL(temporaryPreviewUrl);
+      }
+      toast.error(error instanceof Error ? error.message : "Could not upload this file.");
     }
   };
 
   const submit = async (submittedValues: NationalAwardFormValues) => {
     if (!editable || saving || savingDraft || !termsAgreed) return;
+    if (!introductionVideoValid) {
+      toast.error("Select a valid 5 to 50 second vertical introduction video.");
+      return;
+    }
     await onSubmit(normalizeNationalAwardValues(submittedValues), true);
   };
 
   const saveDraft = async (draftValues: NationalAwardFormValues) => {
     if (!editable || saving || savingDraft) return;
+    if (!introductionVideoValid) {
+      toast.error("Select a valid 5 to 50 second vertical introduction video.");
+      return;
+    }
     await onSaveDraft(normalizeNationalAwardValues(draftValues));
   };
 
@@ -675,16 +734,85 @@ export function NationalAwardVerificationDialog({
                     disabled={!editable}
                     onUpload={(file) => void uploadEvidence("certificate", file)}
                   />
-                  <EvidenceUpload
-                    kind="introduction"
-                    label="Introduction Video"
-                    hint="Upload a short introduction video about your award."
-                    accept="video/*"
-                    evidence={values.introductionVideo}
-                    uploading={uploadingKind === "introduction"}
-                    disabled={!editable}
-                    onUpload={(file) => void uploadEvidence("introduction", file)}
-                  />
+                  <div className="space-y-3 rounded-xl border border-white/10 bg-black/10 p-3">
+                    <div>
+                      <p className="text-sm font-medium text-zinc-200">Introduction Video</p>
+                      <p className="mt-1 text-xs text-zinc-400">
+                        5 to 50 Seconds • Vertical Video (9:16)
+                      </p>
+                      <p className="mt-2 text-xs leading-5 text-amber-100">
+                        Natural Voice Only: No background music, songs, or added audio effects
+                        allowed.
+                      </p>
+                      <p className="mt-2 text-xs leading-5 text-zinc-300">
+                        Speak in your natural voice: 1. Full name &amp; Sport 2. Role
+                        (National/International Player/Coach) 3. City, State &amp; Country 4. Major
+                        tournament achievement or medal 5. Your @YourWorld username. (No need to
+                        show certificates on camera).
+                      </p>
+                    </div>
+                    {introductionPreviewUrl ? (
+                      <IntroductionVideoPreview
+                        src={introductionPreviewUrl}
+                        onValidityChange={setIntroductionVideoValid}
+                      />
+                    ) : values.introductionVideo ? (
+                      <p className="text-xs text-zinc-500">Loading your video preview…</p>
+                    ) : (
+                      <p className="text-xs text-zinc-500">
+                        Choose a vertical video between 5 and 50 seconds.
+                      </p>
+                    )}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <label
+                        htmlFor="national-award-introduction-video"
+                        className={`inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-amber-200/25 bg-amber-200/10 px-3 py-1.5 text-xs font-semibold text-amber-100 hover:bg-amber-200/20 ${
+                          uploadingKind === "introduction" || !editable
+                            ? "pointer-events-none opacity-60"
+                            : ""
+                        }`}
+                      >
+                        <Upload className="h-3.5 w-3.5" />
+                        {uploadingKind === "introduction"
+                          ? "Uploading…"
+                          : values.introductionVideo
+                            ? "Replace / Retake Video"
+                            : "Upload Video"}
+                      </label>
+                      <input
+                        id="national-award-introduction-video"
+                        type="file"
+                        accept="video/mp4,video/webm,video/quicktime"
+                        className="sr-only"
+                        disabled={uploadingKind === "introduction" || !editable}
+                        onChange={(event) => {
+                          const file = event.currentTarget.files?.[0];
+                          event.currentTarget.value = "";
+                          if (file) void uploadEvidence("introduction", file);
+                        }}
+                      />
+                      {values.introductionVideo && editable ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          disabled={uploadingKind === "introduction"}
+                          onClick={() => {
+                            setValue("introductionVideo", null, {
+                              shouldDirty: true,
+                              shouldValidate: true,
+                            });
+                            setIntroductionPreviewUrl(null);
+                            setIntroductionVideoValid(false);
+                          }}
+                          className="rounded-full text-red-200 hover:bg-red-400/10 hover:text-red-100"
+                        >
+                          <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                          Delete / Retake Video
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
                 </section>
               </fieldset>
 
@@ -707,7 +835,12 @@ export function NationalAwardVerificationDialog({
                 <Button
                    type="button"
                   data-testid="button-save-national-award-verification"
-                   disabled={saving || savingDraft || Boolean(uploadingKind)}
+                    disabled={
+                      saving ||
+                      savingDraft ||
+                      Boolean(uploadingKind) ||
+                      !introductionVideoValid
+                    }
                    onClick={() => void handleSubmit(saveDraft)()}
                   className="mt-5 h-11 w-full rounded-full bg-[#e2b75e] font-semibold text-black hover:bg-[#f0cb7b]"
                 >
@@ -734,7 +867,12 @@ export function NationalAwardVerificationDialog({
                <NationalAwardTermsSection
                  accepted={termsAgreed}
                  editable={editable}
-                 busy={saving || savingDraft || Boolean(uploadingKind)}
+                  busy={
+                    saving ||
+                    savingDraft ||
+                    Boolean(uploadingKind) ||
+                    !introductionVideoValid
+                  }
                  submitting={saving}
                  onAcceptedChange={setTermsAgreed}
                />

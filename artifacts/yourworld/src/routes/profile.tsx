@@ -754,6 +754,9 @@ function ProfilePage() {
   const handleSportsIntroductionUpload = async (file: File) => {
     if (!userId || userId !== profile.id || !sportsProfile) return;
     const previousPath = sportsProfile.sportsIntroductionPath;
+    const previousUrl = sportsIntroductionUrl;
+    const previewUrl = URL.createObjectURL(file);
+    setSportsIntroductionUrl(previewUrl);
     setSportsIntroductionUploading(true);
     setSportsIntroductionProgress(0);
     try {
@@ -766,8 +769,18 @@ function ProfilePage() {
       if (previousPath && previousPath !== nextPath) {
         await deleteSportsIntroduction(userId, previousPath);
       }
+      try {
+        const uploadedUrl = await resolveMediaUrl(nextPath, STORAGE_BUCKETS.videos);
+        setSportsIntroductionUrl(uploadedUrl);
+        URL.revokeObjectURL(previewUrl);
+      } catch {
+        setSportsIntroductionUrl(null);
+        URL.revokeObjectURL(previewUrl);
+      }
       toast.success(previousPath ? "Sports Introduction replaced" : "Sports Introduction uploaded");
     } catch (error) {
+      setSportsIntroductionUrl(previousUrl);
+      URL.revokeObjectURL(previewUrl);
       toast.error(error instanceof Error ? error.message : "Couldn't upload this video.");
     } finally {
       setSportsIntroductionUploading(false);
@@ -783,6 +796,7 @@ function ProfilePage() {
       const draft = toSportsProfileDraft(sportsProfile);
       draft.sportsIntroductionPath = "";
       await saveSportsDetails(draft);
+      setSportsIntroductionUrl(null);
       toast.success("Sports Introduction deleted");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Couldn't delete this video.");
@@ -950,9 +964,10 @@ function ProfilePage() {
       await reload();
       const submittedDetails = await getSportsVerificationDetails(userId);
       setSportsVerificationDetails(submittedDetails);
-      if (result.notification.sent) {
-        toast.success("Verification request submitted");
-      } else {
+      toast.success(
+        "Application submitted! Your intro is live on Reels. Verification badge will be reviewed within 12–72 hours.",
+      );
+      if (!result.notification.sent) {
         toast.warning("Verification request submitted, but Support could not be notified yet.");
       }
     } catch (error) {

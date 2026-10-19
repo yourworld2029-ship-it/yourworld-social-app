@@ -670,8 +670,8 @@ export async function validateSportsIntroductionVideo(file: File) {
     if (!Number.isFinite(metadata.duration) || metadata.duration <= 0) {
       throw new Error("This video duration could not be read.");
     }
-    if (metadata.duration > 90) {
-      throw new Error("Sports Introduction videos must be 90 seconds or shorter.");
+    if (metadata.duration < 5 || metadata.duration > 50) {
+      throw new Error("Video must be between 5 and 50 seconds");
     }
     if (metadata.width <= 0 || metadata.height <= 0 || metadata.height <= metadata.width) {
       throw new Error("Sports Introduction videos must be vertical.");

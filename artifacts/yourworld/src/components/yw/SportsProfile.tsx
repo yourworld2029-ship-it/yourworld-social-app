@@ -48,6 +48,7 @@ import {
   NON_INDIA_INTERNATIONAL_COMPETITIONS,
   SPORTS_COUNTRY_OPTIONS,
 } from "@/lib/sports-country";
+import { IntroductionVideoPreview } from "@/components/yw/IntroductionVideoPreview";
 
 export type SportsRepresentation = "National" | "International";
 
@@ -824,6 +825,7 @@ export function SportsDetailsPanel({
   const [saving, setSaving] = useState(false);
   const [termsAgreed, setTermsAgreed] = useState(false);
   const [internationalUpgradeMode, setInternationalUpgradeMode] = useState(false);
+  const [introductionVideoValid, setIntroductionVideoValid] = useState(false);
   const [verificationDraft, setVerificationDraft] = useState<SportsVerificationDetails>(
     () => verificationDetails ?? emptySportsVerificationDetails(),
   );
@@ -981,6 +983,8 @@ export function SportsDetailsPanel({
            underReview={verificationUnderReview}
           profile={profile}
           sportsIntroductionUrl={sportsIntroductionUrl}
+          onIntroductionValidityChange={setIntroductionVideoValid}
+          introductionVideoValid={introductionVideoValid}
           sportsIntroductionUploading={sportsIntroductionUploading}
           sportsIntroductionProgress={sportsIntroductionProgress}
           onUploadSportsIntroduction={onUploadSportsIntroduction}
@@ -1117,6 +1121,8 @@ export function SportsDetailsPanel({
               disabled={
                 !termsAgreed ||
                 verificationSubmitting ||
+                !introductionVideoValid ||
+                sportsIntroductionUploading ||
                 (!internationalUpgradeMode &&
                   !countryCodeForSportsCountry(profileCountry)) ||
                 (indianNationalIdentityProofRequired &&
@@ -1217,6 +1223,7 @@ function SportsIntroductionSection({
   sportsIntroductionProgress,
   onUploadSportsIntroduction,
   onDeleteSportsIntroduction,
+  onVideoValidityChange,
   locked = false,
 }: {
   profile: SportsProfileInfo;
@@ -1226,29 +1233,35 @@ function SportsIntroductionSection({
   sportsIntroductionProgress: number;
   onUploadSportsIntroduction?: (file: File) => void;
   onDeleteSportsIntroduction?: () => void;
+  onVideoValidityChange?: (valid: boolean) => void;
   locked?: boolean;
 }) {
   return (
     <SportsDetailsSection
       icon={<Video />}
       title="Sports Introduction"
-      description="One short vertical video in your own natural voice. No music or platform-added audio."
+      description="5 to 50 seconds • Vertical video (9:16)"
     >
-      {profile.sportsIntroductionPath ? (
-        sportsIntroductionUrl ? (
-          <video
-            data-testid="sports-introduction-video"
+      {isOwner ? (
+        <div className="space-y-2 rounded-2xl border border-amber-200/15 bg-amber-200/[0.04] p-3">
+          <p className="text-xs font-semibold leading-5 text-amber-100">
+            Natural Voice Only: No background music, songs, or added audio effects allowed.
+          </p>
+          <p className="text-xs leading-5 text-zinc-300">
+            Speak in your natural voice: 1. Full name &amp; Sport 2. Role (National/International
+            Player/Coach) 3. City, State &amp; Country 4. Major tournament achievement or medal
+            5. Your @YourWorld username. (No need to show certificates on camera).
+          </p>
+        </div>
+      ) : null}
+      {sportsIntroductionUrl ? (
+          <IntroductionVideoPreview
             src={sportsIntroductionUrl}
-            controls
-            controlsList="nodownload noplaybackrate"
-            disablePictureInPicture
-            playsInline
-            preload="none"
-            className="aspect-[9/16] max-h-80 w-full rounded-2xl border border-amber-200/15 bg-black object-contain"
+            onValidityChange={(valid) => onVideoValidityChange?.(valid)}
+            testId="sports-introduction-video"
           />
-        ) : (
+      ) : profile.sportsIntroductionPath ? (
           <p className="text-sm text-zinc-500">Loading your Sports Introduction…</p>
-        )
       ) : (
         <div className="rounded-2xl border border-dashed border-amber-200/20 bg-amber-200/[0.04] p-4">
           <p className="text-sm leading-6 text-zinc-300">
@@ -1294,7 +1307,7 @@ function SportsIntroductionSection({
               className="rounded-full text-red-200 hover:bg-red-400/10 hover:text-red-100"
             >
               <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-              Delete video
+              Delete / Retake Video
             </Button>
           ) : null}
         </div>
@@ -1325,6 +1338,8 @@ function SportsVerificationDetailsSection({
   sportsIntroductionProgress,
   onUploadSportsIntroduction,
   onDeleteSportsIntroduction,
+  onIntroductionValidityChange,
+  introductionVideoValid,
   locked,
   upgradeFlow = false,
   underReview,
@@ -1347,6 +1362,8 @@ function SportsVerificationDetailsSection({
   sportsIntroductionProgress: number;
   onUploadSportsIntroduction?: (file: File) => void;
   onDeleteSportsIntroduction?: () => void;
+  onIntroductionValidityChange: (valid: boolean) => void;
+  introductionVideoValid: boolean;
   onDeleteEvidence?: (
     kind: SportsVerificationEvidenceKind,
     details?: SportsVerificationDetails,
@@ -1719,6 +1736,7 @@ function SportsVerificationDetailsSection({
               sportsIntroductionProgress={sportsIntroductionProgress}
               onUploadSportsIntroduction={onUploadSportsIntroduction}
               onDeleteSportsIntroduction={onDeleteSportsIntroduction}
+              onVideoValidityChange={onIntroductionValidityChange}
               locked={locked || upgradeFlow}
             />
           </div>
@@ -1726,7 +1744,13 @@ function SportsVerificationDetailsSection({
           {!upgradeFlow ? (
             <Button
               type="button"
-              disabled={saving || locked || !onSave}
+              disabled={
+                saving ||
+                locked ||
+                !onSave ||
+                !introductionVideoValid ||
+                sportsIntroductionUploading
+              }
               onClick={() => void onSave?.(verificationDraftOr(details))}
               className="w-full rounded-full bg-amber-200 text-black hover:bg-amber-100"
             >

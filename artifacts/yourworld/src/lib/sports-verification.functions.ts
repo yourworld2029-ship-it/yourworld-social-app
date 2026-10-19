@@ -235,6 +235,7 @@ function extractSportsIntroductionPath(bio: string | null) {
 async function ensurePublicSportsIntroductionReel(
   admin: Awaited<ReturnType<typeof getAdminClient>>,
   ownerId: string,
+  username: string | null,
   sourcePath: string,
 ) {
   if (
@@ -246,15 +247,25 @@ async function ensurePublicSportsIntroductionReel(
 
   const fileName = sourcePath.split("/").at(-1) || "sports-introduction.mp4";
   const reelPath = `${ownerId}/sports-introduction/${fileName}`;
+  const caption = `Sports Verification Intro • @${username?.trim() || "you"}`;
   const { data: existing, error: existingError } = await admin
     .from("posts")
-    .select("id")
+    .select("id,caption,title")
     .eq("user_id", ownerId)
     .eq("kind", "reel")
     .eq("media_url", reelPath)
     .maybeSingle();
   if (existingError) throw new Error(existingError.message);
-  if (existing?.id) return existing.id;
+  if (existing?.id) {
+    if (existing.caption !== caption || existing.title !== "Sports Verification Intro") {
+      const { error: updateError } = await admin
+        .from("posts")
+        .update({ caption, title: "Sports Verification Intro" })
+        .eq("id", existing.id);
+      if (updateError) throw new Error(updateError.message);
+    }
+    return existing.id;
+  }
 
   const { data: source, error: downloadError } = await admin.storage
     .from("videos")
@@ -279,8 +290,8 @@ async function ensurePublicSportsIntroductionReel(
       media_url: reelPath,
       media_type: "video",
       thumbnail_url: null,
-      title: "Sports Introduction",
-      caption: "Sports Introduction",
+      title: "Sports Verification Intro",
+      caption,
       hashtags: [],
       audio: null,
       allow_download: true,
@@ -295,12 +306,20 @@ async function ensurePublicSportsIntroductionReel(
     // deterministic media path before surfacing a duplicate error.
     const { data: raced } = await admin
       .from("posts")
-      .select("id")
+      .select("id,caption,title")
       .eq("user_id", ownerId)
       .eq("kind", "reel")
       .eq("media_url", reelPath)
       .maybeSingle();
-    if (raced?.id) return raced.id;
+    if (raced?.id) {
+      if (raced.caption !== caption || raced.title !== "Sports Verification Intro") {
+        await admin
+          .from("posts")
+          .update({ caption, title: "Sports Verification Intro" })
+          .eq("id", raced.id);
+      }
+      return raced.id;
+    }
     throw new Error(insertError.message);
   }
   return created.id;
@@ -681,10 +700,16 @@ export const submitSportsVerification = createServerFn({ method: "POST" })
     }
 
     if (profile.verification_requested) {
-      await ensurePublicSportsIntroductionReel(admin, context.userId, sportsIntroductionPath);
+      await ensurePublicSportsIntroductionReel(
+        admin,
+        context.userId,
+        profile.username,
+        sportsIntroductionPath,
+      );
       return {
         submittedAt: currentDetails?.submitted_at ?? new Date().toISOString(),
         notification: { sent: true, reason: null },
+        introPublished: true,
       };
     }
 
@@ -781,7 +806,12 @@ export const submitSportsVerification = createServerFn({ method: "POST" })
       .eq("id", context.userId);
     if (requestError) throw new Error(requestError.message);
 
-    await ensurePublicSportsIntroductionReel(admin, context.userId, sportsIntroductionPath);
+    await ensurePublicSportsIntroductionReel(
+      admin,
+      context.userId,
+      profile.username,
+      sportsIntroductionPath,
+    );
 
     const { data: details } = await admin
       .from("sports_verification_details")
