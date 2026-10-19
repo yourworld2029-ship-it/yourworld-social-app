@@ -72,17 +72,20 @@ test("sports verification country rules cover India and international applicants
 });
 
 test("National Award card is available only for India applicants", () => {
-  const renderAwardCard = (country: string) =>
+  const renderAwardCard = (country: string, isNationalSportsProfile = false) =>
     renderToStaticMarkup(
       createElement(NationalAwardProfileSection, {
         userId: "owner",
         sportsVerificationCountry: country,
+        isNationalSportsProfile,
       }),
     );
 
   assert.match(renderAwardCard("India"), /National Award Profile/);
   assert.doesNotMatch(renderAwardCard("Kenya"), /National Award Profile/);
   assert.doesNotMatch(renderAwardCard(""), /National Award Profile/);
+  assert.match(renderAwardCard("", true), /National Award Profile/);
+  assert.doesNotMatch(renderAwardCard("Kenya", true), /National Award Profile/);
 });
 
 test("Sports Identity card opens details without the removed summary row", () => {

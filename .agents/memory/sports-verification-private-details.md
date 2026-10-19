@@ -20,3 +20,9 @@ For Indian sports categories, eligibility follows the applicant's selected natio
 **Why:** Residence abroad does not change Indian nationality, while foreign-national applicants must not receive Indian-category approvals based only on a client-side country choice.
 
 **How to apply:** Keep nationality-based visibility in the client, but enforce country and proof metadata/object checks on the server and require an explicit reviewer confirmation before approval. Preserve the existing National-to-International upgrade path.
+
+The National Award entry remains available in the profile editor for National Sports profiles when no country value is stored yet; an explicitly selected non-India country always hides it. Submission remains server-validated.
+
+**Why:** The user asked to restore National Award access for National Sports/Indian profiles without reopening it for foreign applicants.
+
+**How to apply:** Use National Sports status only as a missing-country visibility fallback. Never let it override an explicit non-India country or backend nationality/proof checks.

@@ -480,6 +480,7 @@ export function EditProfileSheet({
               <NationalAwardProfileSection
                 userId={user.id}
                 sportsVerificationCountry={sportsVerificationCountry}
+                isNationalSportsProfile={sportsProfile?.status === "National"}
               />
             </div>
           </div>

@@ -21,9 +21,11 @@ import { isIndiaSportsCountry } from "@/lib/sports-country";
 export function NationalAwardProfileSection({
   userId,
   sportsVerificationCountry,
+  isNationalSportsProfile = false,
 }: {
   userId: string;
   sportsVerificationCountry?: string | null;
+  isNationalSportsProfile?: boolean;
 }) {
   const [details, setDetails] = useState<NationalAwardVerificationDetails | null>(null);
   const [loading, setLoading] = useState(true);
@@ -35,7 +37,8 @@ export function NationalAwardProfileSection({
   const providedCountry = sportsVerificationCountry?.trim();
   const canShowNationalAward = providedCountry
     ? isIndiaSportsCountry(providedCountry)
-    : sportsCountryIsIndia === true;
+    : sportsCountryIsIndia === true ||
+      (sportsCountryIsIndia === null && isNationalSportsProfile);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
@@ -52,9 +55,10 @@ export function NationalAwardProfileSection({
     void country
       .then((value) => {
         if (!active) return;
-        const isIndia = isIndiaSportsCountry(value);
+        const normalizedCountry = value.trim();
+        const isIndia = normalizedCountry ? isIndiaSportsCountry(normalizedCountry) : null;
         setSportsCountryIsIndia(isIndia);
-        if (!isIndia) setOpen(false);
+        if (isIndia === false) setOpen(false);
       })
       .catch(() => {
         if (!active) return;
