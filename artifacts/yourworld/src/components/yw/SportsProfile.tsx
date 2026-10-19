@@ -139,10 +139,6 @@ const INTERNATIONAL_COMPETITIONS = RECOGNIZED_COMPETITIONS.filter(
   (competition) => !NATIONAL_COMPETITIONS.includes(competition as (typeof NATIONAL_COMPETITIONS)[number]),
 );
 
-const TOURNAMENT_YEARS = Array.from({ length: 126 }, (_, index) =>
-  String(new Date().getFullYear() - index),
-);
-
 type TournamentMedal = "Gold" | "Silver" | "Bronze" | "No Medal";
 
 export type SportsTournament = {
@@ -2384,62 +2380,38 @@ function TournamentEntryEditor({
         )}
       </EditorField>
 
-      <div className="mt-3 grid gap-2 sm:grid-cols-2">
-        <label className="space-y-1.5">
-          <span className="text-xs font-medium text-zinc-400">Start Year</span>
-          <EditorSelect
-            testId={`select-tournament-start-year-${index + 1}`}
-            value={item.startYear ?? ""}
-            placeholder="Select year"
-            onValueChange={(value) =>
-              onChange(index, { startYear: value === "__clear__" ? "" : value })
-            }
-          >
-            <SelectItem value="__clear__">Clear year</SelectItem>
-            {TOURNAMENT_YEARS.map((year) => (
-              <SelectItem key={year} value={year}>
-                {year}
-              </SelectItem>
-            ))}
-          </EditorSelect>
-        </label>
-        <label className="space-y-1.5">
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <label className="block space-y-1.5">
           <span className="text-xs font-medium text-zinc-400">Start Date</span>
-          <Input
-            type="date"
-            data-testid={`input-tournament-start-date-${index + 1}`}
-            value={item.startDate ?? ""}
-            onChange={(event) => onChange(index, { startDate: event.target.value })}
-            className={editorInputClass}
-          />
+          <div className="relative">
+            <Input
+              type="date"
+              data-testid={`input-tournament-start-date-${index + 1}`}
+              value={item.startDate ?? ""}
+              onChange={(event) => onChange(index, { startDate: event.target.value })}
+              className={`${editorInputClass} pr-10`}
+            />
+            <CalendarDays
+              aria-hidden="true"
+              className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400"
+            />
+          </div>
         </label>
-        <label className="space-y-1.5">
-          <span className="text-xs font-medium text-zinc-400">End Year</span>
-          <EditorSelect
-            testId={`select-tournament-end-year-${index + 1}`}
-            value={item.endYear ?? ""}
-            placeholder="Select year"
-            onValueChange={(value) =>
-              onChange(index, { endYear: value === "__clear__" ? "" : value })
-            }
-          >
-            <SelectItem value="__clear__">Clear year</SelectItem>
-            {TOURNAMENT_YEARS.map((year) => (
-              <SelectItem key={year} value={year}>
-                {year}
-              </SelectItem>
-            ))}
-          </EditorSelect>
-        </label>
-        <label className="space-y-1.5">
+        <label className="block space-y-1.5">
           <span className="text-xs font-medium text-zinc-400">End Date</span>
-          <Input
-            type="date"
-            data-testid={`input-tournament-end-date-${index + 1}`}
-            value={item.endDate ?? ""}
-            onChange={(event) => onChange(index, { endDate: event.target.value })}
-            className={editorInputClass}
-          />
+          <div className="relative">
+            <Input
+              type="date"
+              data-testid={`input-tournament-end-date-${index + 1}`}
+              value={item.endDate ?? ""}
+              onChange={(event) => onChange(index, { endDate: event.target.value })}
+              className={`${editorInputClass} pr-10`}
+            />
+            <CalendarDays
+              aria-hidden="true"
+              className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400"
+            />
+          </div>
         </label>
       </div>
 
