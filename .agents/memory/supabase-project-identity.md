@@ -7,4 +7,4 @@ Use the Supabase project referenced by the app's Replit Secrets as the authorita
 
 **Why:** A Supabase management connection can authenticate successfully while listing a project that is not the project currently serving the app's users and data. Treating connection success as project identity risks disconnecting the app from existing data.
 
-**How to apply:** Compare project identity before any provider, Auth, schema, or configuration write. If the connected management project does not match the runtime project, or rejects the required management operation, make no remote changes and leave a migration artifact ready for an authorized database deployment path.
+**How to apply:** Compare project identity before any provider, Auth, schema, or configuration write. Confirm the ID from the active Supabase client configuration, not just a root-page preconnect URL, which can be stale. If the connected management project does not match the runtime project, or rejects the required management operation, make no remote changes and leave a migration artifact ready for an authorized database deployment path.
