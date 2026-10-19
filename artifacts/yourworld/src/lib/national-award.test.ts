@@ -2,10 +2,14 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   INDIAN_IDENTITY_PROOF_TYPES,
+  formatNationalAwardDobDisplay,
+  formatNationalAwardDobInput,
+  isValidNationalAwardDobIso,
   isNationalAwardCode,
   NATIONAL_AWARD_OPTIONS,
   NATIONAL_AWARD_YEARS,
   nationalAwardLabel,
+  parseNationalAwardDobInput,
 } from "./national-award";
 
 test("National Awards accept only the three Indian identity document types", () => {
@@ -33,6 +37,19 @@ test("award year choices include every year from 1947 through 2026", () => {
   assert.equal(NATIONAL_AWARD_YEARS.length, 80);
   assert.equal(NATIONAL_AWARD_YEARS[0], "1947");
   assert.equal(NATIONAL_AWARD_YEARS.at(-1), "2026");
+});
+
+test("National Award DOB typing formats DD/MM/YYYY and keeps a valid ISO value", () => {
+  assert.equal(formatNationalAwardDobInput("29022000"), "29/02/2000");
+  assert.equal(parseNationalAwardDobInput("29/02/2000"), "2000-02-29");
+  assert.equal(formatNationalAwardDobDisplay("2000-02-29"), "29/02/2000");
+  assert.equal(isValidNationalAwardDobIso("2000-02-29"), true);
+});
+
+test("National Award DOB typing rejects impossible calendar dates", () => {
+  assert.equal(parseNationalAwardDobInput("31/04/2001"), null);
+  assert.equal(parseNationalAwardDobInput("29/02/2001"), null);
+  assert.equal(isValidNationalAwardDobIso("2001-04-31"), false);
 });
 
 test("award codes and approved badge labels stay separate from Sports identity", () => {

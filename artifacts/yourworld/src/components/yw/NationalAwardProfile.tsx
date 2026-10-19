@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  CalendarDays,
   AlertCircle,
   Check,
+  ChevronLeft,
+  ChevronRight,
   FileCheck2,
   Loader2,
   Medal,
@@ -21,6 +24,10 @@ import {
   NATIONAL_AWARD_OPTIONS,
   NATIONAL_AWARD_YEARS,
   INDIAN_IDENTITY_PROOF_TYPES,
+  formatNationalAwardDobDisplay,
+  formatNationalAwardDobInput,
+  isValidNationalAwardDobIso,
+  parseNationalAwardDobInput,
 } from "@/lib/national-award";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -60,7 +67,10 @@ const EMPTY_FORM: NationalAwardFormValues = {
 const nationalAwardFormSchema = z.object({
   fullName: z.string().trim().min(1, "Enter your Full Name."),
   fatherName: z.string().trim().min(1, "Enter your Father's Name."),
-  dateOfBirth: z.string().min(1, "Select your date of birth."),
+  dateOfBirth: z
+    .string()
+    .min(1, "Enter your date of birth.")
+    .refine(isValidNationalAwardDobIso, "Enter a valid date in DD/MM/YYYY format."),
   phoneNumber: z.string().trim().min(1, "Enter your Phone Number."),
   email: z.string().trim().min(1, "Enter your Email."),
   villageTown: z.string().trim().min(1, "Enter your Village / Town."),
@@ -440,13 +450,7 @@ export function NationalAwardVerificationDialog({
                       label="Father's Name"
                       placeholder="Exactly as on your identity document"
                     />
-                    <TextField
-                      name="dateOfBirth"
-                      id="national-award-date-of-birth"
-                      testId="input-national-award-date-of-birth"
-                      label="DOB"
-                      type="date"
-                    />
+                    <NationalAwardDobField disabled={!editable} />
                     <TextField
                       name="phoneNumber"
                       id="national-award-phone-number"
@@ -819,6 +823,197 @@ function TextField({
       />
     </div>
   );
+}
+
+function NationalAwardDobField({ disabled }: { disabled: boolean }) {
+  const { clearErrors, formState, setValue, watch } =
+    useFormContext<NationalAwardFormValues>();
+  const dateOfBirth = watch("dateOfBirth") ?? "";
+  const [displayValue, setDisplayValue] = useState(() =>
+    formatNationalAwardDobDisplay(dateOfBirth),
+  );
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [visibleMonth, setVisibleMonth] = useState(() =>
+    parseNationalAwardIsoDate(dateOfBirth) ?? new Date(),
+  );
+  const selectedDate = parseNationalAwardIsoDate(dateOfBirth);
+  const year = visibleMonth.getFullYear();
+  const month = visibleMonth.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstWeekday = new Date(year, month, 1).getDay();
+  const daySlots = Array.from({ length: 42 }, (_, slot) => {
+    const day = slot - firstWeekday + 1;
+    return day > 0 && day <= daysInMonth ? day : null;
+  });
+  const dateError = formState.errors.dateOfBirth?.message;
+
+  useEffect(() => {
+    if (!dateOfBirth) {
+      setDisplayValue("");
+    } else if (isValidNationalAwardDobIso(dateOfBirth)) {
+      setDisplayValue(formatNationalAwardDobDisplay(dateOfBirth));
+    }
+  }, [dateOfBirth]);
+
+  const openCalendar = () => {
+    setVisibleMonth(selectedDate ?? new Date());
+    setCalendarOpen(true);
+  };
+
+  const selectDate = (isoDate: string) => {
+    setDisplayValue(formatNationalAwardDobDisplay(isoDate));
+    setValue("dateOfBirth", isoDate, {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+    clearErrors("dateOfBirth");
+    setCalendarOpen(false);
+  };
+
+  return (
+    <div className="space-y-1.5">
+      <label
+        htmlFor="national-award-date-of-birth"
+        className="text-xs font-medium text-zinc-400"
+      >
+        DOB
+      </label>
+      <div className="relative">
+        <Input
+          id="national-award-date-of-birth"
+          data-testid="input-national-award-date-of-birth"
+          type="text"
+          inputMode="numeric"
+          autoComplete="bday"
+          maxLength={10}
+          placeholder="DD/MM/YYYY"
+          aria-label="Date of birth, enter as day/month/year"
+          aria-invalid={Boolean(dateError)}
+          value={displayValue}
+          disabled={disabled}
+          onChange={(event) => {
+            const nextDisplayValue = formatNationalAwardDobInput(event.target.value);
+            const parsedDate = parseNationalAwardDobInput(nextDisplayValue);
+            setDisplayValue(nextDisplayValue);
+            setValue("dateOfBirth", parsedDate ?? (nextDisplayValue ? "__invalid_dob__" : ""), {
+              shouldDirty: true,
+              shouldValidate: nextDisplayValue.length === 10,
+            });
+            clearErrors("dateOfBirth");
+          }}
+          className="h-11 border-white/10 bg-white/[0.04] pr-12 text-sm text-white placeholder:text-zinc-500 focus-visible:ring-[#e2b75e]/60"
+        />
+        <button
+          type="button"
+          data-testid="button-open-national-award-dob-calendar"
+          aria-label="Open date of birth calendar"
+          disabled={disabled}
+          onClick={openCalendar}
+          className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-white transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e2b75e]/60 disabled:opacity-50"
+        >
+          <CalendarDays aria-hidden="true" className="h-4 w-4" />
+        </button>
+      </div>
+      {dateError ? (
+        <p className="text-xs text-rose-300" role="alert">
+          {dateError}
+        </p>
+      ) : null}
+
+      <Dialog open={calendarOpen} onOpenChange={setCalendarOpen}>
+        <DialogContent
+          data-testid="dialog-national-award-dob-calendar"
+          className="z-[90] w-[calc(100%-2rem)] max-w-sm border-white/15 bg-[#111111] p-4 text-white"
+          overlayClassName="z-[80] bg-black/80"
+        >
+          <DialogHeader>
+            <DialogTitle className="text-left text-white">Date of birth</DialogTitle>
+          </DialogHeader>
+          <div className="flex items-center justify-between gap-3">
+            <button
+              type="button"
+              data-testid="button-national-award-dob-previous-month"
+              aria-label="Previous month"
+              onClick={() => setVisibleMonth(new Date(year, month - 1, 1))}
+              className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 text-white hover:bg-white/10"
+            >
+              <ChevronLeft aria-hidden="true" className="h-5 w-5" />
+            </button>
+            <p
+              data-testid="text-national-award-dob-month-year"
+              className="text-base font-semibold text-white"
+            >
+              {visibleMonth.toLocaleDateString(undefined, {
+                month: "long",
+                year: "numeric",
+              })}
+            </p>
+            <button
+              type="button"
+              data-testid="button-national-award-dob-next-month"
+              aria-label="Next month"
+              onClick={() => setVisibleMonth(new Date(year, month + 1, 1))}
+              className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 text-white hover:bg-white/10"
+            >
+              <ChevronRight aria-hidden="true" className="h-5 w-5" />
+            </button>
+          </div>
+          <div className="grid grid-cols-7 gap-1 text-center">
+            {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((weekday) => (
+              <span
+                key={weekday}
+                className="py-2 text-xs font-medium text-white"
+              >
+                {weekday}
+              </span>
+            ))}
+            {daySlots.map((day, slot) =>
+              day ? (
+                <button
+                  key={slot}
+                  type="button"
+                  data-testid={`button-national-award-dob-day-${day}`}
+                  aria-label={`${visibleMonth.toLocaleDateString(undefined, {
+                    month: "long",
+                  })} ${day}, ${year}`}
+                  aria-pressed={
+                    selectedDate?.getFullYear() === year &&
+                    selectedDate.getMonth() === month &&
+                    selectedDate.getDate() === day
+                  }
+                  onClick={() =>
+                    selectDate(
+                      `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
+                    )
+                  }
+                  className={`h-10 rounded-lg text-sm text-white transition-colors hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e2b75e]/60 ${
+                    selectedDate?.getFullYear() === year &&
+                    selectedDate.getMonth() === month &&
+                    selectedDate.getDate() === day
+                      ? "bg-fuchsia-600 font-semibold"
+                      : ""
+                  }`}
+                >
+                  {day}
+                </button>
+              ) : (
+                <span key={slot} aria-hidden="true" className="h-10" />
+              ),
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function parseNationalAwardIsoDate(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  const date = new Date(0);
+  date.setFullYear(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  date.setHours(0, 0, 0, 0);
+  return isValidNationalAwardDobIso(value) ? date : null;
 }
 
 function EvidenceUpload({
