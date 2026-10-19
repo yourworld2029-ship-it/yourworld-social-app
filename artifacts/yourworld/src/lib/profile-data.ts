@@ -14,6 +14,7 @@ import {
   resolveNormalProfileCategories,
 } from "@/lib/profile-category";
 import {
+  isIndiaSportsCountry,
   isIndianIdentityProofType,
   type IndianIdentityProofType,
 } from "@/lib/sports-country";
@@ -296,18 +297,28 @@ export async function getSportsVerificationDetails(ownerId: string): Promise<Spo
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!data) return emptySportsVerificationDetails(sessionEmail, sessionMobile);
+  const savedAddress = parseForeignSportsAddress(data.address ?? "");
+  const streetAddress = data.street_address?.trim() || savedAddress.streetAddress;
+  const postalCode = data.postal_code?.trim() || savedAddress.postalCode;
+  const isIndia = isIndiaSportsCountry(data.country ?? "");
 
   return {
     fullName: data.full_name ?? "",
     fatherName: data.father_name ?? "",
     dateOfBirth: data.date_of_birth ?? "",
-    address: data.address ?? "",
+    address: isIndia
+      ? data.address ?? ""
+      : serializeForeignSportsAddress({ streetAddress, postalCode }),
     passportNumber: data.passport_number ?? "",
     certificateNumber: data.certificate_number ?? "",
     identityDetailsConfirmed: data.identity_details_confirmed === true,
-    villageTown: data.village_town ?? "",
+    villageTown: isIndia
+      ? data.village_town ?? ""
+      : data.city?.trim() || (data.village_town ?? ""),
     district: data.district ?? "",
-    state: data.state ?? "",
+    state: isIndia
+      ? data.state ?? ""
+      : data.state_province?.trim() || (data.state ?? ""),
     country: data.country ?? "",
     indianIdentityProofType: isIndianIdentityProofType(data.indian_identity_proof_type)
       ? data.indian_identity_proof_type
@@ -412,8 +423,9 @@ export async function saveSportsVerificationDetails(
       .update({ [column]: path, updated_at: new Date().toISOString() })
       .eq("user_id", ownerId)
       .select("upgrade_to_international,review_status")
-      .single();
+      .maybeSingle();
     if (error) throw new Error(error.message);
+    if (!data) throw new Error("Sports verification evidence could not be saved.");
     return {
       ...details,
       upgradeToInternational: data.upgrade_to_international === true,
@@ -458,6 +470,8 @@ export async function saveSportsVerificationDetails(
   const { data: sessionData } = await supabase.auth.getSession();
   const sessionEmail = sessionData.session?.user.email ?? "";
   const sessionMobile = sessionData.session?.user.phone ?? "";
+  const isIndia = isIndiaSportsCountry(selectedCountry);
+  const foreignAddress = parseForeignSportsAddress(details.address);
   const payload = {
     user_id: ownerId,
     full_name: details.fullName.trim(),
@@ -468,8 +482,12 @@ export async function saveSportsVerificationDetails(
     certificate_number: details.certificateNumber.trim(),
     identity_details_confirmed: details.identityDetailsConfirmed === true,
     village_town: details.villageTown.trim(),
-    district: details.district.trim(),
+    district: isIndia ? details.district.trim() : "",
     state: details.state.trim(),
+    street_address: isIndia ? "" : foreignAddress.streetAddress.trim(),
+    city: isIndia ? "" : details.villageTown.trim(),
+    state_province: isIndia ? "" : details.state.trim(),
+    postal_code: isIndia ? "" : foreignAddress.postalCode.trim(),
     country: selectedCountry,
     mobile_number: details.mobileNumber.trim(),
     email: details.email.trim(),
@@ -485,20 +503,30 @@ export async function saveSportsVerificationDetails(
     .from("sports_verification_details")
     .upsert(payload)
     .select("*")
-    .single();
+    .maybeSingle();
   if (error) throw new Error(error.message);
+  if (!data) throw new Error("Sports verification details could not be saved.");
 
   return {
     fullName: data.full_name ?? "",
     fatherName: data.father_name ?? "",
     dateOfBirth: data.date_of_birth ?? "",
-    address: data.address ?? "",
+    address: isIndia
+      ? data.address ?? ""
+      : serializeForeignSportsAddress({
+          streetAddress: data.street_address?.trim() || foreignAddress.streetAddress,
+          postalCode: data.postal_code?.trim() || foreignAddress.postalCode,
+        }),
     passportNumber: data.passport_number ?? "",
     certificateNumber: data.certificate_number ?? "",
     identityDetailsConfirmed: data.identity_details_confirmed === true,
-    villageTown: data.village_town,
+    villageTown: isIndia
+      ? data.village_town ?? ""
+      : data.city?.trim() || (data.village_town ?? ""),
     district: data.district,
-    state: data.state,
+    state: isIndia
+      ? data.state ?? ""
+      : data.state_province?.trim() || (data.state ?? ""),
     country: data.country ?? "",
     indianIdentityProofType: isIndianIdentityProofType(data.indian_identity_proof_type)
       ? data.indian_identity_proof_type
@@ -564,6 +592,7 @@ export async function uploadSportsVerificationEvidence(
   ownerId: string,
   kind: SportsVerificationEvidenceKind,
   file: File,
+  onProgress?: ProgressFn,
 ): Promise<SportsVerificationEvidence> {
   const upgradePassportKind =
     kind === "passportFirstPage" || kind === "passportVisaStampPage" ? kind : undefined;
@@ -575,12 +604,15 @@ export async function uploadSportsVerificationEvidence(
 
   const name = safeDocumentFileName(file.name);
   const path = `${ownerId}/sports-verification/${kind}/${Date.now()}-${name}`;
-  const { error } = await supabase.storage.from(STORAGE_BUCKETS.documents).upload(path, file, {
-    cacheControl: "3600",
-    contentType: file.type,
-    upsert: false,
-  });
-  if (error) throw new Error(error.message);
+  const result = await uploadWithProgress(
+    STORAGE_BUCKETS.documents,
+    path,
+    file,
+    file.type,
+    onProgress,
+    "3600",
+  );
+  if (result.error) throw new Error(result.error);
 
   return {
     path,
@@ -726,14 +758,39 @@ export async function validateSportsIntroductionVideo(file: File) {
       (resolve, reject) => {
         const video = document.createElement("video");
         video.preload = "metadata";
-        video.onloadedmetadata = () =>
-          resolve({
+        video.muted = true;
+        video.playsInline = true;
+        let timeout: number | undefined;
+        const cleanup = () => {
+          if (timeout !== undefined) window.clearTimeout(timeout);
+          video.removeEventListener("loadedmetadata", onMetadata);
+          video.removeEventListener("error", onError);
+          video.pause();
+          video.removeAttribute("src");
+          video.load();
+        };
+        const onMetadata = () => {
+          const metadata = {
             duration: video.duration,
             width: video.videoWidth,
             height: video.videoHeight,
-          });
-        video.onerror = () => reject(new Error("This video could not be read."));
+          };
+          cleanup();
+          resolve(metadata);
+        };
+        const onError = () => {
+          cleanup();
+          reject(new Error("This video could not be read."));
+        };
+        const onTimeout = () => {
+          cleanup();
+          reject(new Error("This video duration could not be read."));
+        };
+        timeout = window.setTimeout(onTimeout, 15000);
+        video.addEventListener("loadedmetadata", onMetadata, { once: true });
+        video.addEventListener("error", onError, { once: true });
         video.src = previewUrl;
+        video.load();
       },
     );
     if (!Number.isFinite(metadata.duration) || metadata.duration <= 0) {

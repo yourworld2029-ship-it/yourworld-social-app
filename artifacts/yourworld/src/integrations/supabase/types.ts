@@ -925,6 +925,7 @@ export type Database = {
           address: string
           certificate_number: string
           certificate_number_normalized: string | null
+          city: string
           country: string
           created_at: string
           date_of_birth: string | null
@@ -944,6 +945,9 @@ export type Database = {
           passport_visa_stamp_page_path: string | null
           sports_certificate_path: string | null
           state: string
+          state_province: string
+          street_address: string
+          postal_code: string
           tournament_photo_path: string | null
           updated_at: string
           user_id: string
@@ -957,6 +961,7 @@ export type Database = {
         Insert: {
           address?: string
           certificate_number?: string
+          city?: string
           country?: string
           created_at?: string
           date_of_birth?: string | null
@@ -974,6 +979,9 @@ export type Database = {
           passport_visa_stamp_page_path?: string | null
           sports_certificate_path?: string | null
           state?: string
+          state_province?: string
+          street_address?: string
+          postal_code?: string
           tournament_photo_path?: string | null
           updated_at?: string
           user_id: string
@@ -987,6 +995,7 @@ export type Database = {
         Update: {
           address?: string
           certificate_number?: string
+          city?: string
           country?: string
           created_at?: string
           date_of_birth?: string | null
@@ -1004,6 +1013,9 @@ export type Database = {
           passport_visa_stamp_page_path?: string | null
           sports_certificate_path?: string | null
           state?: string
+          state_province?: string
+          street_address?: string
+          postal_code?: string
           tournament_photo_path?: string | null
           updated_at?: string
           user_id?: string

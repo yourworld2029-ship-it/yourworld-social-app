@@ -787,6 +787,7 @@ export function SportsDetailsPanel({
   onDeleteVerificationEvidence,
   onPreviewVerificationEvidence,
   verificationEvidenceUploading = null,
+  verificationEvidenceProgress = 0,
 }: {
   profile: SportsProfileInfo;
   verificationOwnerId?: string;
@@ -824,6 +825,7 @@ export function SportsDetailsPanel({
     path: string,
   ) => void | Promise<void>;
   verificationEvidenceUploading?: SportsVerificationEvidenceKind | null;
+  verificationEvidenceProgress?: number;
 }) {
   const [editorField, setEditorField] = useState<SportsEditorField | null>(null);
   const [draft, setDraft] = useState<SportsProfileDraft>(() => toSportsProfileDraft(profile));
@@ -979,6 +981,7 @@ export function SportsDetailsPanel({
           loading={verificationDetailsLoading}
           saving={verificationDetailsSaving}
           uploading={verificationEvidenceUploading}
+          uploadingProgress={verificationEvidenceProgress}
           onChange={setVerificationDraft}
           onSave={onSaveVerificationDetails}
           onUploadEvidence={(kind, file) =>
@@ -1279,6 +1282,7 @@ function SportsIntroductionSection({
             className="sr-only"
             disabled={sportsIntroductionUploading}
             onChange={(event) => {
+              event.stopPropagation();
               const file = event.currentTarget.files?.[0];
               event.currentTarget.value = "";
               if (file) onUploadSportsIntroduction?.(file);
@@ -1315,6 +1319,7 @@ function SportsVerificationDetailsSection({
   loading,
   saving,
   uploading,
+  uploadingProgress,
   onChange,
   onSave,
   onUploadEvidence,
@@ -1338,6 +1343,7 @@ function SportsVerificationDetailsSection({
   loading: boolean;
   saving: boolean;
   uploading: SportsVerificationEvidenceKind | null;
+  uploadingProgress: number;
   onChange: (details: SportsVerificationDetails) => void;
   onSave?: (details: SportsVerificationDetails) => void | Promise<void>;
   onUploadEvidence?: (
@@ -1682,6 +1688,7 @@ function SportsVerificationDetailsSection({
                   label="Aadhaar / Indian Passport / Voter ID"
                   hint="Private upload. The reviewer checks that the document is Indian-issued."
                   uploading={uploading}
+                  progress={uploadingProgress}
                   onUpload={onUploadEvidence}
                   onDelete={onDeleteEvidence}
                   onPreview={onPreviewEvidence}
@@ -1719,6 +1726,7 @@ function SportsVerificationDetailsSection({
               ownerId={ownerId}
               label="Sports Certificate"
               uploading={uploading}
+              progress={uploadingProgress}
               onUpload={onUploadEvidence}
                onDelete={onDeleteEvidence}
                onPreview={onPreviewEvidence}
@@ -1733,6 +1741,7 @@ function SportsVerificationDetailsSection({
                   ownerId={ownerId}
                   label="Passport First Page"
                   uploading={uploading}
+                  progress={uploadingProgress}
                   onUpload={onUploadEvidence}
                    onDelete={onDeleteEvidence}
                    onPreview={onPreviewEvidence}
@@ -1746,6 +1755,7 @@ function SportsVerificationDetailsSection({
                   label="Passport Visa / Stamp Page"
                   hint="The page showing the visa or stamp for the tournament/game country."
                   uploading={uploading}
+                  progress={uploadingProgress}
                   onUpload={onUploadEvidence}
                    onDelete={onDeleteEvidence}
                    onPreview={onPreviewEvidence}
@@ -1813,6 +1823,7 @@ function VerificationEvidenceRow({
   label,
   hint,
   uploading,
+  progress,
   onUpload,
   onDelete,
   onPreview,
@@ -1825,6 +1836,7 @@ function VerificationEvidenceRow({
   label: string;
   hint?: string;
   uploading: SportsVerificationEvidenceKind | null;
+  progress: number;
   onUpload?: (
     kind: SportsVerificationEvidenceKind,
     file: File,
@@ -1849,7 +1861,28 @@ function VerificationEvidenceRow({
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium text-zinc-200">{label}</p>
         <p className="mt-0.5 text-xs text-zinc-500">{hint || "Private upload"}</p>
-        <p className="mt-1 text-xs text-zinc-400">{evidence ? "Uploaded" : "Not uploaded"}</p>
+        <p className="mt-1 truncate text-xs text-zinc-400">
+          {isUploading
+            ? `Uploading ${progress}%`
+            : evidence
+              ? `${evidence.name} · Uploaded`
+              : "Not uploaded"}
+        </p>
+        {isUploading ? (
+          <div
+            role="progressbar"
+            aria-label={`Uploading ${label}`}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={progress}
+            className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10"
+          >
+            <div
+              className="h-full rounded-full bg-amber-200 transition-[width] duration-200"
+              style={{ width: `${Math.max(progress, 3)}%` }}
+            />
+          </div>
+        ) : null}
         {evidence ? (
           <PrivateEvidencePreview
             path={evidence.path}
@@ -1909,6 +1942,7 @@ function VerificationEvidenceRow({
         className="sr-only"
         disabled={isUploading || locked || !onUpload}
         onChange={(event) => {
+          event.stopPropagation();
           const file = event.currentTarget.files?.[0];
           event.currentTarget.value = "";
           if (file) void onUpload?.(kind, file);

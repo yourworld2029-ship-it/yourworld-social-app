@@ -19,13 +19,58 @@ export function IntroductionVideoPreview({
   const onValidityChangeRef = useRef(onValidityChange);
   const [duration, setDuration] = useState<number | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
+  const [durationUnavailable, setDurationUnavailable] = useState(false);
 
   onValidityChangeRef.current = onValidityChange;
 
   useEffect(() => {
     setDuration(null);
     setCurrentTime(0);
+    setDurationUnavailable(false);
     onValidityChangeRef.current(false);
+    if (!src) return;
+
+    let active = true;
+    let finished = false;
+    const probe = document.createElement("video");
+    probe.preload = "metadata";
+    probe.muted = true;
+    probe.playsInline = true;
+
+    const applyMetadata = () => {
+      if (!active || finished) return;
+      finished = true;
+      const seconds = probe.duration;
+      const isValid =
+        Number.isFinite(seconds) &&
+        seconds >= 5 &&
+        seconds <= 50 &&
+        probe.videoHeight > probe.videoWidth;
+      setDuration(Number.isFinite(seconds) ? seconds : null);
+      setDurationUnavailable(!Number.isFinite(seconds));
+      onValidityChangeRef.current(isValid);
+    };
+    const failMetadata = () => {
+      if (!active || finished) return;
+      finished = true;
+      setDurationUnavailable(true);
+      onValidityChangeRef.current(false);
+    };
+    const timeout = window.setTimeout(failMetadata, 15000);
+    probe.addEventListener("loadedmetadata", applyMetadata);
+    probe.addEventListener("error", failMetadata);
+    probe.src = src;
+    probe.load();
+
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+      probe.removeEventListener("loadedmetadata", applyMetadata);
+      probe.removeEventListener("error", failMetadata);
+      probe.pause();
+      probe.removeAttribute("src");
+      probe.load();
+    };
   }, [src]);
 
   const updateValidity = () => {
@@ -37,6 +82,7 @@ export function IntroductionVideoPreview({
       seconds <= 50 &&
       Boolean(video && video.videoHeight > video.videoWidth);
     setDuration(Number.isFinite(seconds) ? seconds : null);
+    setDurationUnavailable(!Number.isFinite(seconds));
     onValidityChangeRef.current(isValid);
   };
 
@@ -58,7 +104,9 @@ export function IntroductionVideoPreview({
       />
       <p className="text-xs text-zinc-400" aria-live="polite">
         {duration === null
-          ? "Loading video duration…"
+          ? durationUnavailable
+            ? "Could not read video duration. Select another video."
+            : "Loading video duration…"
           : `${formatTime(currentTime)} / ${formatTime(duration)} • ${
               duration >= 5 && duration <= 50 ? "Ready to submit" : "Invalid duration"
             }`}

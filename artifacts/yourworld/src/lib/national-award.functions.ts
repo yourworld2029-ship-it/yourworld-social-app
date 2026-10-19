@@ -447,9 +447,9 @@ async function loadSavedNationalAwardDetails(
     .from("national_award_verifications")
     .select("*")
     .eq("user_id", userId)
-    .single();
+    .maybeSingle();
   if (error) throw new Error(error.message);
-  return mapRow(data as NationalAwardRow);
+  return mapRow((data as NationalAwardRow | null) ?? null);
 }
 
 async function publishNationalAwardIntroductionReel(

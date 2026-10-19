@@ -260,6 +260,8 @@ function ProfilePage() {
   const [sportsVerificationDetailsSaving, setSportsVerificationDetailsSaving] = useState(false);
   const [sportsVerificationEvidenceUploading, setSportsVerificationEvidenceUploading] =
     useState<SportsVerificationEvidenceKind | null>(null);
+  const [sportsVerificationEvidenceProgress, setSportsVerificationEvidenceProgress] =
+    useState(0);
   const [sportsVerificationSubmitting, setSportsVerificationSubmitting] = useState(false);
   const [sportsDuplicateSubmissionWarning, setSportsDuplicateSubmissionWarning] = useState<string | null>(
     null,
@@ -367,6 +369,7 @@ function ProfilePage() {
     setSportsVerificationDetails(null);
     setSportsVerificationDetailsLoading(false);
     setSportsVerificationEvidenceUploading(null);
+    setSportsVerificationEvidenceProgress(0);
     setSportsIntroductionUploading(false);
     setSportsIntroductionProgress(0);
     setSportsVerificationDetailsSaving(false);
@@ -826,13 +829,16 @@ function ProfilePage() {
   ) => {
     if (!userId || userId !== profile.id) return;
     setSportsVerificationEvidenceUploading(kind);
+    setSportsVerificationEvidenceProgress(0);
     try {
       const currentDetails =
         latestDetails ??
         sportsVerificationDetails ??
         (await getSportsVerificationDetails(userId));
       const previousEvidence = currentDetails[kind];
-      const uploaded = await uploadSportsVerificationEvidence(userId, kind, file);
+      const uploaded = await uploadSportsVerificationEvidence(userId, kind, file, (progress) =>
+        setSportsVerificationEvidenceProgress(Math.round(progress)),
+      );
       const nextDetails = { ...currentDetails, [kind]: uploaded } as SportsVerificationDetails;
       const upgradePassportKind =
         kind === "passportFirstPage" || kind === "passportVisaStampPage" ? kind : undefined;
@@ -856,6 +862,7 @@ function ProfilePage() {
       toast.error(error instanceof Error ? error.message : "Couldn't upload verification evidence.");
     } finally {
       setSportsVerificationEvidenceUploading(null);
+      setSportsVerificationEvidenceProgress(0);
     }
   };
 
@@ -1279,7 +1286,18 @@ function ProfilePage() {
       </Dialog>
 
       {sportsProfile ? (
-        <Sheet open={sportsDetailsOpen} onOpenChange={setSportsDetailsOpen}>
+        <Sheet
+          open={sportsDetailsOpen}
+          onOpenChange={(nextOpen) => {
+            if (
+              !nextOpen &&
+              (sportsVerificationEvidenceUploading !== null || sportsIntroductionUploading)
+            ) {
+              return;
+            }
+            setSportsDetailsOpen(nextOpen);
+          }}
+        >
           <SheetContent
             side="bottom"
             className="max-h-[90vh] overflow-y-auto rounded-t-[2rem] border-amber-200/20 bg-[#0b0c12] px-4 pb-8 pt-5 text-white sm:mx-auto sm:max-w-xl"
@@ -1316,6 +1334,7 @@ function ProfilePage() {
               onDeleteVerificationEvidence={handleSportsVerificationEvidenceDelete}
               onPreviewVerificationEvidence={handleSportsVerificationEvidencePreview}
               verificationEvidenceUploading={sportsVerificationEvidenceUploading}
+              verificationEvidenceProgress={sportsVerificationEvidenceProgress}
               onSubmitVerification={handleSubmitSportsVerification}
               onOpenVerificationReview={() => {
                 setSportsDetailsOpen(false);

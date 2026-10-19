@@ -63,6 +63,10 @@ type VerificationDetailsRow = {
   father_name: string;
   date_of_birth: string | null;
   address: string;
+  street_address?: string | null;
+  city?: string | null;
+  state_province?: string | null;
+  postal_code?: string | null;
   passport_number: string;
   certificate_number: string;
   identity_details_confirmed: boolean;
@@ -472,12 +476,17 @@ export const listSportsVerificationApplications = createServerFn({ method: "POST
             fullName: details?.full_name ?? "",
             fatherName: details?.father_name ?? "",
             dateOfBirth: details?.date_of_birth ?? null,
-            address: details?.address ?? "",
+            address: details?.address?.trim()
+              ? details.address
+              : [
+                  `Street Address / Apartment: ${details?.street_address ?? ""}`,
+                  `Postal / Zip Code: ${details?.postal_code ?? ""}`,
+                ].join("\n"),
             passportNumber: details?.passport_number ?? "",
             certificateNumber: details?.certificate_number ?? "",
-            villageTown: details?.village_town ?? "",
+            villageTown: details?.city?.trim() || details?.village_town || "",
             district: details?.district ?? "",
-            state: details?.state ?? "",
+            state: details?.state_province?.trim() || details?.state || "",
             country: details?.country ?? "",
             email: details?.email ?? "",
             mobileNumber: details?.mobile_number ?? "",
