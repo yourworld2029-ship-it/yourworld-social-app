@@ -36,12 +36,49 @@ function liveStreamsUrl(config: SupabaseConfig) {
   return new URL(`${config.url}/rest/v1/live_streams`);
 }
 
+function liveReplaysUrl(config: SupabaseConfig) {
+  return new URL(`${config.url}/rest/v1/live_replays`);
+}
+
 function serviceHeaders(config: SupabaseConfig) {
   return {
     apikey: config.serviceRoleKey,
     Authorization: `Bearer ${config.serviceRoleKey}`,
     Accept: "application/json",
   };
+}
+
+async function authenticateLiveReplayRequest(
+  config: SupabaseConfig,
+  authorization: string | undefined,
+) {
+  const token = authorization?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
+  if (!token) return null;
+  const response = await fetch(`${config.url}/auth/v1/user`, {
+    headers: {
+      apikey: config.publishableKey,
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+    },
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok) return null;
+  const user: unknown = await response.json().catch(() => null);
+  return user && typeof user === "object" && "id" in user &&
+    typeof user.id === "string" && UUID_PATTERN.test(user.id)
+    ? user.id
+    : null;
+}
+
+function validOwnedReplayPath(userId: string, path: unknown) {
+  if (typeof path !== "string") return false;
+  const segments = path.split("/");
+  return (
+    segments.length >= 3 &&
+    segments[0] === userId &&
+    segments[1] === "live-replays" &&
+    segments.every((segment) => segment && segment !== "." && segment !== "..")
+  );
 }
 
 async function readLiveStreamRows(
@@ -139,6 +176,139 @@ router.get("/live/streams/:streamId", async (req, res) => {
   } catch (cause) {
     req.log.error({ cause }, "Could not read public live stream");
     res.status(502).json({ error: "Live streams are temporarily unavailable." });
+  }
+});
+
+router.delete("/live/replays/:replayId", async (req, res) => {
+  const replayId = req.params.replayId;
+  if (!UUID_PATTERN.test(replayId)) {
+    res.status(400).json({ error: "Invalid replay ID." });
+    return;
+  }
+
+  const config = supabaseConfig();
+  const cloudflareAccountId = process.env.CLOUDFLARE_ACCOUNT_ID?.trim();
+  const cloudflareApiToken = process.env.CLOUDFLARE_STREAM_API_TOKEN?.trim();
+  if (!config || !cloudflareAccountId || !cloudflareApiToken) {
+    res.status(502).json({ error: "Live replay storage is temporarily unavailable." });
+    return;
+  }
+
+  let userId: string | null;
+  try {
+    userId = await authenticateLiveReplayRequest(
+      config,
+      req.get("authorization"),
+    );
+  } catch (cause) {
+    req.log.warn({ cause }, "Could not validate live replay deletion session");
+    res.status(502).json({ error: "Could not validate the sign-in session." });
+    return;
+  }
+  if (!userId) {
+    res.status(401).json({ error: "Sign in to manage this replay." });
+    return;
+  }
+
+  try {
+    const rowUrl = liveReplaysUrl(config);
+    rowUrl.searchParams.set(
+      "select",
+      "id,broadcaster_id,stream_uid,source_path",
+    );
+    rowUrl.searchParams.set("id", `eq.${replayId}`);
+    rowUrl.searchParams.set("broadcaster_id", `eq.${userId}`);
+    rowUrl.searchParams.set("limit", "1");
+    const rowResponse = await fetch(rowUrl, {
+      headers: serviceHeaders(config),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!rowResponse.ok) throw new Error("Replay ownership could not be checked.");
+    const rows: unknown = await rowResponse.json();
+    const row = Array.isArray(rows) ? rows[0] : null;
+    if (!row || typeof row !== "object") {
+      res.status(404).json({ error: "This replay is no longer available." });
+      return;
+    }
+    const replay = row as Record<string, unknown>;
+    if (
+      replay.broadcaster_id !== userId ||
+      typeof replay.stream_uid !== "string" ||
+      !/^[a-zA-Z0-9_-]{8,128}$/.test(replay.stream_uid) ||
+      !validOwnedReplayPath(userId, replay.source_path)
+    ) {
+      res.status(403).json({ error: "You cannot delete this replay." });
+      return;
+    }
+
+    const streamResponse = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(cloudflareAccountId)}/stream/${encodeURIComponent(replay.stream_uid)}`,
+      {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${cloudflareApiToken}` },
+        signal: AbortSignal.timeout(20_000),
+      },
+    );
+    const streamPayload: unknown = await streamResponse.json().catch(() => null);
+    const streamAlreadyMissing =
+      streamResponse.status === 404 ||
+      (streamPayload &&
+        typeof streamPayload === "object" &&
+        "errors" in streamPayload &&
+        Array.isArray(streamPayload.errors) &&
+        streamPayload.errors.some(
+          (item) =>
+            item &&
+            typeof item === "object" &&
+            "code" in item &&
+            item.code === 10009,
+        ));
+    if (!streamResponse.ok && !streamAlreadyMissing) {
+      req.log.error(
+        { status: streamResponse.status },
+        "Cloudflare could not delete a live replay",
+      );
+      res.status(502).json({ error: "The replay could not be deleted from video storage." });
+      return;
+    }
+
+    const sourcePath = String(replay.source_path);
+    const storageResponse = await fetch(
+      `${config.url}/storage/v1/object/videos/${sourcePath
+        .split("/")
+        .map(encodeURIComponent)
+        .join("/")}`,
+      {
+        method: "DELETE",
+        headers: {
+          apikey: config.serviceRoleKey,
+          Authorization: `Bearer ${config.serviceRoleKey}`,
+        },
+        signal: AbortSignal.timeout(20_000),
+      },
+    );
+    if (!storageResponse.ok && storageResponse.status !== 404) {
+      req.log.error(
+        { status: storageResponse.status },
+        "Could not delete the live replay source file",
+      );
+      res.status(502).json({ error: "The replay source could not be deleted yet. Please retry." });
+      return;
+    }
+
+    const deleteUrl = liveReplaysUrl(config);
+    deleteUrl.searchParams.set("id", `eq.${replayId}`);
+    deleteUrl.searchParams.set("broadcaster_id", `eq.${userId}`);
+    const deleteResponse = await fetch(deleteUrl, {
+      method: "DELETE",
+      headers: { ...serviceHeaders(config), Prefer: "return=minimal" },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!deleteResponse.ok) throw new Error("Replay metadata could not be removed.");
+    res.status(204).end();
+  } catch (cause) {
+    req.log.error({ cause }, "Could not delete live replay");
+    res.status(502).json({ error: "The replay could not be deleted. Please try again." });
   }
 });
 

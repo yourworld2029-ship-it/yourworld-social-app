@@ -7,7 +7,7 @@ import {
 type ReelGalleryExportPlugin = {
   beginSave(options: {
     fileName: string;
-    mimeType: "video/mp4";
+    mimeType: "video/mp4" | "video/webm";
   }): Promise<{ transferId: string }>;
   appendData(options: { transferId: string; base64: string }): Promise<void>;
   finishSave(options: { transferId: string }): Promise<{
@@ -32,31 +32,33 @@ function toBase64(bytes: Uint8Array) {
   return btoa(binary);
 }
 
-function safeMp4FileName(name: string) {
+function safeVideoFileName(name: string, mimeType: "video/mp4" | "video/webm") {
+  const extension = mimeType === "video/webm" ? ".webm" : ".mp4";
   const stem = name
-    .replace(/\.mp4$/i, "")
+    .replace(/\.(?:mp4|webm)$/i, "")
     .replace(/[^A-Za-z0-9._-]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(0, 110);
-  return `${stem || "yourworld-reel"}.mp4`;
+    .slice(0, 110 - extension.length);
+  return `${stem || "yourworld-video"}${extension}`;
 }
 
-/** Writes a rendered Reel MP4 into Android's shared Movies/YourWorld gallery folder. */
-export async function saveReelMp4ToAndroidGallery(
+/** Writes a video file into Android's shared Movies/YourWorld gallery folder. */
+export async function saveVideoToAndroidGallery(
   blob: Blob,
   fileName: string,
+  mimeType: "video/mp4" | "video/webm",
   onProgress?: (percent: number) => void,
   lease?: MediaDownloadLease,
 ) {
   return withMediaDownloadLock(async () => {
-    if (blob.type.toLowerCase().split(";")[0] !== "video/mp4") {
-      throw new Error("Only a watermarked MP4 can be saved to the Reel gallery.");
+    if (blob.type.toLowerCase().split(";")[0] !== mimeType) {
+      throw new Error("The video format does not match the gallery export.");
     }
-    if (!blob.size) throw new Error("The watermarked Reel file is empty.");
+    if (!blob.size) throw new Error("The video file is empty.");
 
     const { transferId } = await ReelGalleryExport.beginSave({
-      fileName: safeMp4FileName(fileName),
-      mimeType: "video/mp4",
+      fileName: safeVideoFileName(fileName, mimeType),
+      mimeType,
     });
     try {
       for (let offset = 0; offset < blob.size; offset += GALLERY_CHUNK_BYTES) {
@@ -81,4 +83,14 @@ export async function saveReelMp4ToAndroidGallery(
       throw error;
     }
   }, lease);
+}
+
+/** Writes a rendered Reel MP4 into Android's shared Movies/YourWorld gallery folder. */
+export function saveReelMp4ToAndroidGallery(
+  blob: Blob,
+  fileName: string,
+  onProgress?: (percent: number) => void,
+  lease?: MediaDownloadLease,
+) {
+  return saveVideoToAndroidGallery(blob, fileName, "video/mp4", onProgress, lease);
 }

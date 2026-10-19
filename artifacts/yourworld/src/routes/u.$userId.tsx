@@ -51,6 +51,16 @@ type PublicProfile = {
 
 function PublicProfilePage() {
   const { userId: routeParam } = Route.useParams();
+  const search = Route.useSearch() as Record<string, unknown>;
+  const selectedTab =
+    search.tab === "reels" || search.tab === "live" || search.tab === "videos"
+      ? search.tab
+      : undefined;
+  const selectedReplayId =
+    typeof search.replay === "string" &&
+    /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(search.replay)
+      ? search.replay
+      : undefined;
   const userId = normalizeProfileRouteParam(routeParam);
   const navigate = useNavigate();
   const { user: authUser, requestAuthAction } = useAuth();
@@ -353,6 +363,16 @@ function PublicProfilePage() {
       onOpen={openViewer}
       emptyVideos={mediaError ?? (mediaLoading ? "Loading posts…" : "No posts yet.")}
       emptyReels={mediaError ?? (mediaLoading ? "Loading reels…" : "No posts yet.")}
+      selectedTab={selectedTab}
+      selectedReplayId={selectedReplayId}
+      onTabChange={(tab) => {
+        void navigate({
+          to: "/u/$userId",
+          params: { userId: routeParam },
+          search: { tab, replay: selectedReplayId },
+          replace: true,
+        });
+      }}
     />
   );
 }

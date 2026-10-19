@@ -19,6 +19,9 @@ import { discardHandedOffLiveStream, takeHandedOffLiveStream } from "@/lib/live-
 import { historyBackOr } from "@/lib/navigation";
 import { setLiveScreenOrientationActive } from "@/lib/video-playback";
 import { useLiveRoom } from "@/lib/use-live-room";
+import { LiveReplayRecorder, clearLiveReplayRecording } from "@/lib/live-replay-recording";
+import { saveLiveReplay } from "@/lib/live-replay.data";
+import { saveVideoToAndroidGallery } from "@/lib/reel-gallery";
 
 export const Route = createFileRoute("/live/$streamId")({
   head: () => ({
@@ -157,6 +160,14 @@ function LiveRoomSession({
     null;
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+  const replayRecorderRef = useRef<LiveReplayRecorder | null>(null);
+  const [replayRecording, setReplayRecording] = useState<{
+    blob: Blob;
+    mimeType: string;
+    width: number;
+    height: number;
+  } | null>(null);
+  const [replayRecordingError, setReplayRecordingError] = useState<string | null>(null);
   const [outgoingStream, setOutgoingStream] = useState<MediaStream | null>(null);
   const [beautySettings, setBeautySettings] = useState<LiveBeautySettings>({
     effect: "off",
@@ -403,6 +414,21 @@ function LiveRoomSession({
   }, [isBroadcaster]);
 
   useEffect(() => {
+    const recordingSource = outgoingStream ?? localStream;
+    if (!isBroadcaster || summary || !recordingSource) return;
+    if (!replayRecorderRef.current) {
+      replayRecorderRef.current = LiveReplayRecorder.create(room.id, recordingSource);
+      if (!replayRecorderRef.current) {
+        setReplayRecordingError("Replay recording is not supported on this device.");
+      } else {
+        setReplayRecordingError(null);
+      }
+    } else {
+      replayRecorderRef.current.setSource(recordingSource);
+    }
+  }, [isBroadcaster, localStream, outgoingStream, room.id, summary]);
+
+  useEffect(() => {
     if (
       isBroadcaster &&
       localStream &&
@@ -438,6 +464,9 @@ function LiveRoomSession({
       const timeout = window.setTimeout(() => {
         pendingOwnerEndTimers.delete(room.id);
         const stream = localStreamRef.current;
+        replayRecorderRef.current?.discard();
+        replayRecorderRef.current = null;
+        void clearLiveReplayRecording(room.id).catch(() => undefined);
         stream?.getTracks().forEach((track) => track.stop());
         localStreamRef.current = null;
         liveRoom.closeRoom();
@@ -454,6 +483,9 @@ function LiveRoomSession({
       if (!isBroadcaster || endedRef.current) return;
       cameraRequestIdRef.current += 1;
       releaseLiveVideoEffect();
+      replayRecorderRef.current?.discard();
+      replayRecorderRef.current = null;
+      void clearLiveReplayRecording(room.id).catch(() => undefined);
       localStreamRef.current?.getTracks().forEach((track) => track.stop());
       localStreamRef.current = null;
       setOutgoingStream(null);
@@ -567,6 +599,21 @@ function LiveRoomSession({
     setEnding(true);
     setShowEndConfirmation(false);
 
+    let capturedReplay: Awaited<ReturnType<LiveReplayRecorder["finish"]>> | null = null;
+    const recorder = replayRecorderRef.current;
+    replayRecorderRef.current = null;
+    if (recorder) {
+      try {
+        capturedReplay = await recorder.finish();
+        setReplayRecording(capturedReplay);
+      } catch (cause) {
+        const message =
+          cause instanceof Error ? cause.message : "The live replay could not be recorded.";
+        setReplayRecordingError(message);
+        await clearLiveReplayRecording(room.id).catch(() => undefined);
+      }
+    }
+
     const stream = localStreamRef.current;
     cameraRequestIdRef.current += 1;
     releaseLiveVideoEffect();
@@ -623,6 +670,11 @@ function LiveRoomSession({
         durationSeconds={summary.durationSeconds}
         peakViewerCount={summary.peakViewerCount}
         error={endError}
+        replayRecording={replayRecording}
+        replayRecordingError={replayRecordingError}
+        broadcasterId={userId}
+        streamId={room.id}
+        streamTitle={room.title}
       />
     );
   }
@@ -745,8 +797,8 @@ function LiveRoomSession({
               id="confirm-end-live-description"
               className="mt-2 text-sm leading-6 text-white/60"
             >
-              Your camera and microphone will stop immediately. The summary will
-              show duration and viewer stats only; no replay is saved.
+              Your camera and microphone will stop immediately. You can choose
+              whether to keep a replay in the summary.
             </p>
             <div className="mt-6 flex gap-3">
               <button
@@ -778,15 +830,32 @@ function LiveSummary({
   durationSeconds,
   peakViewerCount,
   error,
+  replayRecording = null,
+  replayRecordingError = "No recording is available for this ended live.",
+  broadcasterId = "",
+  streamId = "",
+  streamTitle = "",
 }: {
   durationSeconds: number;
   peakViewerCount: number;
   error?: string | null;
+  replayRecording?: {
+    blob: Blob;
+    mimeType: string;
+    width: number;
+    height: number;
+  } | null;
+  replayRecordingError?: string | null;
+  broadcasterId?: string;
+  streamId?: string;
+  streamTitle?: string;
 }) {
   const navigate = useNavigate();
   const [retentionChoice, setRetentionChoice] = useState<
     "delete_now" | "keep_10_days" | "save_gallery"
   >("delete_now");
+  const [saving, setSaving] = useState(false);
+  const [retentionError, setRetentionError] = useState<string | null>(null);
   const hours = Math.floor(durationSeconds / 3600);
   const minutes = Math.floor((durationSeconds % 3600) / 60);
   const seconds = durationSeconds % 60;
@@ -794,6 +863,59 @@ function LiveSummary({
     hours > 0
       ? `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
       : `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+
+  const applyRetentionChoice = async () => {
+    if (saving) return;
+    setSaving(true);
+    setRetentionError(null);
+    try {
+      if (retentionChoice !== "delete_now") {
+        if (!replayRecording) {
+          throw new Error(replayRecordingError ?? "No live replay is available to save.");
+        }
+        if (retentionChoice === "keep_10_days") {
+          await saveLiveReplay({
+            streamId,
+            broadcasterId,
+            title: streamTitle,
+            blob: replayRecording.blob,
+            durationSeconds,
+            width: replayRecording.width,
+            height: replayRecording.height,
+          });
+        } else {
+          const mimeType = replayRecording.mimeType.toLowerCase().split(";")[0];
+          if (mimeType !== "video/mp4" && mimeType !== "video/webm") {
+            throw new Error("This replay format cannot be saved to the phone gallery.");
+          }
+          if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android") {
+            await saveVideoToAndroidGallery(
+              replayRecording.blob,
+              `YourWorld-live-${streamId}.${mimeType === "video/webm" ? "webm" : "mp4"}`,
+              mimeType,
+            );
+          } else {
+            const url = URL.createObjectURL(replayRecording.blob);
+            const anchor = document.createElement("a");
+            anchor.href = url;
+            anchor.download = `YourWorld-live-${streamId}.${mimeType === "video/webm" ? "webm" : "mp4"}`;
+            document.body.append(anchor);
+            anchor.click();
+            anchor.remove();
+            window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+          }
+        }
+      }
+      if (streamId) await clearLiveReplayRecording(streamId);
+      void navigate({ to: "/" });
+    } catch (cause) {
+      setRetentionError(
+        cause instanceof Error ? cause.message : "The selected retention action could not be completed.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <main className="grid min-h-[100dvh] place-items-center bg-[#120d12] px-5 py-10 text-white">
@@ -834,6 +956,16 @@ function LiveSummary({
           <p className="mt-4 text-xs leading-5 text-amber-200/80" role="status">
             The stream ended on this device, but its room status could not be
             saved. Viewers will be disconnected when the room closes.
+          </p>
+        )}
+        {replayRecordingError && (
+          <p className="mt-3 text-xs leading-5 text-amber-200/80" role="status">
+            Replay recording unavailable: {replayRecordingError}
+          </p>
+        )}
+        {retentionError && (
+          <p className="mt-3 text-xs leading-5 text-rose-200" role="alert">
+            {retentionError}
           </p>
         )}
         <fieldset className="mt-6 space-y-2 text-left">
@@ -881,6 +1013,7 @@ function LiveSummary({
                     )
                   }
                   className="mt-0.5 h-4 w-4 shrink-0 accent-[#f12e50]"
+                  disabled={!replayRecording && option.value !== "delete_now"}
                 />
                 <span className="min-w-0">
                   <span className="block text-xs font-semibold text-white">
@@ -896,10 +1029,11 @@ function LiveSummary({
         </fieldset>
         <button
           type="button"
-          onClick={() => void navigate({ to: "/" })}
-          className="mt-5 w-full rounded-full bg-white px-5 py-3 text-sm font-bold text-[#181018] transition hover:bg-white/90"
+          onClick={() => void applyRetentionChoice()}
+          disabled={saving}
+          className="mt-5 w-full rounded-full bg-white px-5 py-3 text-sm font-bold text-[#181018] transition hover:bg-white/90 disabled:opacity-60"
         >
-          Done
+          {saving ? "Saving…" : "Done"}
         </button>
       </section>
     </main>

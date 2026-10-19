@@ -114,6 +114,7 @@ export const Route = createFileRoute("/profile")({
   ): {
     connections?: "followers" | "following";
     tab?: "videos" | "reels" | "live" | "saved" | "downloads";
+      replay?: string;
   } => ({
     connections:
       search.connections === "following"
@@ -133,6 +134,11 @@ export const Route = createFileRoute("/profile")({
               : search.tab === "videos"
                 ? "videos"
                 : undefined,
+      replay:
+        typeof search.replay === "string" &&
+        /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(search.replay)
+          ? search.replay
+          : undefined,
   }),
   head: () => ({
     meta: [
@@ -174,7 +180,7 @@ function ProfilePage() {
     useMyProfile();
   const navigate = useNavigate();
   const { isMediaDownloadInProgress } = useMediaConcurrency();
-  const { connections, tab } = Route.useSearch();
+  const { connections, tab, replay } = Route.useSearch();
   const savedVideosQuery = useQuery({
     queryKey: ["saved-long-videos", userId],
     queryFn: () => {
@@ -1075,6 +1081,8 @@ function ProfilePage() {
         }
       }}
       selectedTab={tab ?? "videos"}
+      selectedReplayId={replay}
+      onLiveReplayPromoted={() => void reload()}
       onTabChange={(nextTab) => {
         void navigate({
           to: "/profile",

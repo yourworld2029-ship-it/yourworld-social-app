@@ -47,8 +47,9 @@ public class ReelGalleryExportPlugin extends Plugin {
     public void beginSave(PluginCall call) {
         String mimeType = call.getString("mimeType");
         String fileName = sanitizeFileName(call.getString("fileName"));
-        if (!"video/mp4".equalsIgnoreCase(mimeType)) {
-            call.reject("The Reel gallery only accepts MP4 video.");
+        mimeType = normalizeVideoMimeType(mimeType);
+        if (mimeType == null) {
+            call.reject("The YourWorld gallery only accepts MP4 or WebM video.");
             return;
         }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
@@ -63,7 +64,7 @@ public class ReelGalleryExportPlugin extends Plugin {
             );
             return;
         }
-        createSession(call, fileName);
+        createSession(call, fileName, mimeType);
     }
 
     @PermissionCallback
@@ -76,14 +77,23 @@ public class ReelGalleryExportPlugin extends Plugin {
             call.reject("Storage permission is required to save this Reel to Gallery.");
             return;
         }
-        createSession(call, sanitizeFileName(call.getString("fileName")));
+        createSession(
+                call,
+                sanitizeFileName(call.getString("fileName")),
+                call.getString("mimeType")
+        );
     }
 
-    private void createSession(PluginCall call, String fileName) {
+    private void createSession(PluginCall call, String fileName, String mimeType) {
+        String normalizedMimeType = normalizeVideoMimeType(mimeType);
+        if (normalizedMimeType == null) {
+            call.reject("The YourWorld gallery only accepts MP4 or WebM video.");
+            return;
+        }
         executor.execute(() -> {
             try {
                 String transferId = UUID.randomUUID().toString();
-                GallerySession session = createGallerySession(fileName);
+                GallerySession session = createGallerySession(fileName, normalizedMimeType);
                 sessions.put(transferId, session);
                 JSObject result = new JSObject();
                 result.put("transferId", transferId);
@@ -180,11 +190,11 @@ public class ReelGalleryExportPlugin extends Plugin {
         });
     }
 
-    private GallerySession createGallerySession(String fileName) throws Exception {
+    private GallerySession createGallerySession(String fileName, String mimeType) throws Exception {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ContentValues values = new ContentValues();
             values.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName);
-            values.put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4");
+            values.put(MediaStore.MediaColumns.MIME_TYPE, mimeType);
             values.put(
                     MediaStore.MediaColumns.RELATIVE_PATH,
                     Environment.DIRECTORY_MOVIES + "/YourWorld"
@@ -202,7 +212,7 @@ public class ReelGalleryExportPlugin extends Plugin {
                 getContext().getContentResolver().delete(uri, null, null);
                 throw new IllegalStateException("Android could not open the Gallery file.");
             }
-            return new GallerySession(uri, null, output);
+            return new GallerySession(uri, null, output, mimeType);
         }
 
         File movies = Environment.getExternalStoragePublicDirectory(
@@ -214,10 +224,12 @@ public class ReelGalleryExportPlugin extends Plugin {
         }
         File file = new File(directory, fileName);
         if (file.exists()) {
-            String stem = fileName.substring(0, fileName.length() - 4);
-            file = new File(directory, stem + "-" + System.currentTimeMillis() + ".mp4");
+            int extensionIndex = fileName.lastIndexOf('.');
+            String stem = extensionIndex > 0 ? fileName.substring(0, extensionIndex) : fileName;
+            String extension = extensionIndex > 0 ? fileName.substring(extensionIndex) : ".mp4";
+            file = new File(directory, stem + "-" + System.currentTimeMillis() + extension);
         }
-        return new GallerySession(null, file, new FileOutputStream(file, false));
+        return new GallerySession(null, file, new FileOutputStream(file, false), mimeType);
     }
 
     private String publishSession(GallerySession session) throws Exception {
@@ -241,7 +253,7 @@ public class ReelGalleryExportPlugin extends Plugin {
         MediaScannerConnection.scanFile(
                 getContext(),
                 new String[] {session.file.getAbsolutePath()},
-                new String[] {"video/mp4"},
+                new String[] {session.mimeType},
                 null
         );
         return Uri.fromFile(session.file).toString();
@@ -265,9 +277,24 @@ public class ReelGalleryExportPlugin extends Plugin {
         String safe = value == null ? "" : value.trim();
         safe = safe.replaceAll("[^A-Za-z0-9._-]+", "-");
         safe = safe.replaceAll("^-+|-+$", "");
-        if (!safe.toLowerCase(Locale.ROOT).endsWith(".mp4")) safe += ".mp4";
-        if (safe.length() > 120) safe = safe.substring(0, 116) + ".mp4";
+        if (!safe.toLowerCase(Locale.ROOT).endsWith(".mp4") &&
+                !safe.toLowerCase(Locale.ROOT).endsWith(".webm")) safe += ".mp4";
+        if (safe.length() > 120) {
+            String extension = safe.toLowerCase(Locale.ROOT).endsWith(".webm") ? ".webm" : ".mp4";
+            safe = safe.substring(0, 120 - extension.length()) + extension;
+        }
         return safe.isEmpty() ? "yourworld-reel.mp4" : safe;
+    }
+
+    private boolean isSupportedVideoMimeType(String mimeType) {
+        return "video/mp4".equalsIgnoreCase(mimeType) ||
+                "video/webm".equalsIgnoreCase(mimeType);
+    }
+
+    private String normalizeVideoMimeType(String mimeType) {
+        if (mimeType == null) return null;
+        String normalized = mimeType.split(";", 2)[0].trim().toLowerCase(Locale.ROOT);
+        return isSupportedVideoMimeType(normalized) ? normalized : null;
     }
 
     @Override
@@ -284,12 +311,14 @@ public class ReelGalleryExportPlugin extends Plugin {
         final Uri uri;
         final File file;
         final OutputStream output;
+        final String mimeType;
         long sizeBytes;
 
-        GallerySession(Uri uri, File file, OutputStream output) {
+        GallerySession(Uri uri, File file, OutputStream output, String mimeType) {
             this.uri = uri;
             this.file = file;
             this.output = output;
+            this.mimeType = mimeType;
         }
     }
 }

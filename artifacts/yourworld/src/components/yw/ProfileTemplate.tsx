@@ -30,6 +30,7 @@ import { LazyVideoThumbnail } from "@/components/yw/LazyVideoThumbnail";
 import { canReadPublicVideoPreview } from "@/lib/video-preview-access";
 import { ProfilePhotoViewer } from "@/components/yw/ProfilePhotoViewer";
 import { ShareSheet } from "@/components/yw/ShareSheet";
+import { LiveReplaysTab } from "@/components/yw/LiveReplaysTab";
 import type { DbPost } from "@/lib/social-data";
 import type { FollowCounts } from "@/lib/follow-data";
 import { formatCount } from "@/lib/yw-data";
@@ -101,6 +102,8 @@ export type ProfileTemplateProps = {
   onOpenSavedVideo?: (video: LongVideo) => void;
   onRemoveSavedVideo?: (video: LongVideo) => Promise<void> | void;
   selectedTab?: "videos" | "reels" | "live" | "saved" | "downloads";
+  selectedReplayId?: string;
+  onLiveReplayPromoted?: () => void;
   onTabChange?: (tab: "videos" | "reels" | "live" | "saved" | "downloads") => void;
   hasMoreMedia?: boolean;
   onLoadMoreMedia?: () => void;
@@ -153,6 +156,8 @@ export function ProfileTemplate({
   onOpenSavedVideo,
   onRemoveSavedVideo,
   selectedTab,
+  selectedReplayId,
+  onLiveReplayPromoted,
   onTabChange,
   hasMoreMedia = false,
   onLoadMoreMedia,
@@ -189,13 +194,9 @@ export function ProfileTemplate({
       })),
     [reels],
   );
-  const activeTab: ProfileTab = isOwner
-    ? selectedTab ?? "videos"
-    : internalTab === "reels"
-      ? "reels"
-      : internalTab === "live"
-        ? "live"
-        : "videos";
+  const activeTab: ProfileTab =
+    selectedTab ??
+    (internalTab === "reels" || internalTab === "live" ? internalTab : "videos");
   const normalCategories = resolveNormalProfileCategories(
     profile.normal_categories,
     profile.category,
@@ -449,7 +450,12 @@ export function ProfileTemplate({
           ) : null}
         </TabsContent>
         <TabsContent value="live" className="mt-0">
-          <Empty text="No live replays available" />
+          <LiveReplaysTab
+            broadcasterId={profile.id}
+            isOwner={isOwner}
+            initialReplayId={selectedReplayId}
+            onPromoted={onLiveReplayPromoted}
+          />
         </TabsContent>
         {isOwner ? (
           <TabsContent value="saved" className="mt-0">
