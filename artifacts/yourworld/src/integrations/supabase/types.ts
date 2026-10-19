@@ -798,6 +798,11 @@ export type Database = {
           father_name: string
           full_name: string
           identity_details_confirmed: boolean
+          indian_identity_proof_file_name: string | null
+          indian_identity_proof_mime_type: string | null
+          indian_identity_proof_path: string | null
+          indian_identity_proof_size: number | null
+          indian_identity_proof_type: string | null
           introduction_file_name: string
           introduction_mime_type: string
           introduction_path: string
@@ -830,6 +835,11 @@ export type Database = {
           father_name: string
           full_name: string
           identity_details_confirmed?: boolean
+          indian_identity_proof_file_name?: string | null
+          indian_identity_proof_mime_type?: string | null
+          indian_identity_proof_path?: string | null
+          indian_identity_proof_size?: number | null
+          indian_identity_proof_type?: string | null
           introduction_file_name: string
           introduction_mime_type: string
           introduction_path: string
@@ -862,6 +872,11 @@ export type Database = {
           father_name?: string
           full_name?: string
           identity_details_confirmed?: boolean
+          indian_identity_proof_file_name?: string | null
+          indian_identity_proof_mime_type?: string | null
+          indian_identity_proof_path?: string | null
+          indian_identity_proof_size?: number | null
+          indian_identity_proof_type?: string | null
           introduction_file_name?: string
           introduction_mime_type?: string
           introduction_path?: string
@@ -909,6 +924,8 @@ export type Database = {
           father_name: string
           full_name: string
           identity_details_confirmed: boolean
+          indian_identity_proof_path: string | null
+          indian_identity_proof_type: string | null
           identity_key: string | null
           upgrade_to_international: boolean
           mobile_number: string
@@ -939,6 +956,8 @@ export type Database = {
           father_name?: string
           full_name?: string
           identity_details_confirmed?: boolean
+          indian_identity_proof_path?: string | null
+          indian_identity_proof_type?: string | null
           upgrade_to_international?: boolean
           mobile_number?: string
           passport_number?: string
@@ -967,6 +986,8 @@ export type Database = {
           father_name?: string
           full_name?: string
           identity_details_confirmed?: boolean
+          indian_identity_proof_path?: string | null
+          indian_identity_proof_type?: string | null
           upgrade_to_international?: boolean
           mobile_number?: string
           passport_number?: string

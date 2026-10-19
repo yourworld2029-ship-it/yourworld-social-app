@@ -12,6 +12,10 @@ import {
   normalizeNormalProfileCategories,
   resolveNormalProfileCategories,
 } from "@/lib/profile-category";
+import {
+  isIndianIdentityProofType,
+  type IndianIdentityProofType,
+} from "@/lib/sports-country";
 
 export type MyProfile = {
   id: string;
@@ -56,7 +60,8 @@ export type SportsVerificationEvidenceKind =
   | "sportsCertificate"
   | "passportFirstPage"
   | "passportVisaStampPage"
-  | "tournamentPhoto";
+  | "tournamentPhoto"
+  | "indianIdentityProof";
 
 export type SportsVerificationEvidence = {
   path: string;
@@ -78,6 +83,7 @@ export type SportsVerificationDetails = {
   district: string;
   state: string;
   country: string;
+  indianIdentityProofType: IndianIdentityProofType | "";
   mobileNumber: string;
   email: string;
   reviewStatus?: "not_submitted" | "pending" | "approved" | "rejected" | "correction_requested";
@@ -88,6 +94,7 @@ export type SportsVerificationDetails = {
   passportFirstPage: SportsVerificationEvidence | null;
   passportVisaStampPage: SportsVerificationEvidence | null;
   tournamentPhoto: SportsVerificationEvidence | null;
+  indianIdentityProof: SportsVerificationEvidence | null;
 };
 
 type StorageDocument = {
@@ -195,7 +202,8 @@ function emptySportsVerificationDetails(email = "", mobileNumber = ""): SportsVe
     villageTown: "",
     district: "",
     state: "",
-    country: "India",
+    country: "",
+    indianIdentityProofType: "",
     mobileNumber,
     email,
     reviewStatus: "not_submitted",
@@ -206,6 +214,7 @@ function emptySportsVerificationDetails(email = "", mobileNumber = ""): SportsVe
     passportFirstPage: null,
     passportVisaStampPage: null,
     tournamentPhoto: null,
+    indianIdentityProof: null,
   };
 }
 
@@ -233,7 +242,10 @@ export async function getSportsVerificationDetails(ownerId: string): Promise<Spo
     villageTown: data.village_town ?? "",
     district: data.district ?? "",
     state: data.state ?? "",
-    country: data.country || "India",
+    country: data.country ?? "",
+    indianIdentityProofType: isIndianIdentityProofType(data.indian_identity_proof_type)
+      ? data.indian_identity_proof_type
+      : "",
     mobileNumber: data.mobile_number || sessionMobile,
     email: data.email || sessionEmail,
     reviewStatus:
@@ -253,6 +265,10 @@ export async function getSportsVerificationDetails(ownerId: string): Promise<Spo
       "passportVisaStampPage",
     ),
     tournamentPhoto: evidenceFromPath(data.tournament_photo_path, "tournamentPhoto"),
+    indianIdentityProof: evidenceFromPath(
+      data.indian_identity_proof_path,
+      "indianIdentityProof",
+    ),
   };
 }
 
@@ -264,7 +280,7 @@ export async function getSportsVerificationCountry(ownerId: string): Promise<str
     .eq("user_id", ownerId)
     .maybeSingle();
   if (error) throw new Error(error.message);
-  return data?.country || "India";
+  return data?.country ?? "";
 }
 
 export async function saveSportsVerificationDetails(
@@ -309,6 +325,22 @@ export async function saveSportsVerificationDetails(
         : null,
     };
   }
+  const indianIdentityProofPath = details.indianIdentityProof?.path ?? null;
+  if (
+    indianIdentityProofPath &&
+    (!indianIdentityProofPath.startsWith(
+      `${ownerId}/sports-verification/indianIdentityProof/`,
+    ) ||
+      indianIdentityProofPath.includes(".."))
+  ) {
+    throw new Error("Invalid Indian identity proof path.");
+  }
+  if (
+    details.indianIdentityProofType &&
+    !isIndianIdentityProofType(details.indianIdentityProofType)
+  ) {
+    throw new Error("Select Aadhaar, Indian Passport, or Voter ID as the identity proof type.");
+  }
   const { data: sessionData } = await supabase.auth.getSession();
   const sessionEmail = sessionData.session?.user.email ?? "";
   const sessionMobile = sessionData.session?.user.phone ?? "";
@@ -324,13 +356,15 @@ export async function saveSportsVerificationDetails(
     village_town: details.villageTown.trim(),
     district: details.district.trim(),
     state: details.state.trim(),
-    country: details.country.trim() || "India",
+    country: details.country.trim(),
     mobile_number: details.mobileNumber.trim(),
     email: details.email.trim(),
     sports_certificate_path: details.sportsCertificate?.path ?? null,
     passport_first_page_path: details.passportFirstPage?.path ?? null,
     passport_visa_stamp_page_path: details.passportVisaStampPage?.path ?? null,
     tournament_photo_path: details.tournamentPhoto?.path ?? null,
+    indian_identity_proof_path: indianIdentityProofPath,
+    indian_identity_proof_type: details.indianIdentityProofType || null,
     updated_at: new Date().toISOString(),
   };
   const { data, error } = await supabase
@@ -351,7 +385,10 @@ export async function saveSportsVerificationDetails(
     villageTown: data.village_town,
     district: data.district,
     state: data.state,
-    country: data.country || "India",
+    country: data.country ?? "",
+    indianIdentityProofType: isIndianIdentityProofType(data.indian_identity_proof_type)
+      ? data.indian_identity_proof_type
+      : "",
     mobileNumber: data.mobile_number || sessionMobile,
     email: data.email || sessionEmail,
     reviewStatus:
@@ -371,6 +408,10 @@ export async function saveSportsVerificationDetails(
       "passportVisaStampPage",
     ),
     tournamentPhoto: evidenceFromPath(data.tournament_photo_path, "tournamentPhoto"),
+    indianIdentityProof: evidenceFromPath(
+      data.indian_identity_proof_path,
+      "indianIdentityProof",
+    ),
   };
 }
 
@@ -397,6 +438,11 @@ const verificationEvidenceRules: Record<
     allowedTypes: new Set(["image/jpeg", "image/png", "image/webp"]),
     maxBytes: 15 * 1024 * 1024,
     message: "Upload a JPG, PNG, or WebP tournament photo up to 15 MB.",
+  },
+  indianIdentityProof: {
+    allowedTypes: new Set(["application/pdf", "image/jpeg", "image/png"]),
+    maxBytes: 15 * 1024 * 1024,
+    message: "Upload Aadhaar, an Indian passport, or Voter ID as a PDF, JPG, or PNG up to 15 MB.",
   },
 };
 

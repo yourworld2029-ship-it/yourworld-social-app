@@ -20,6 +20,7 @@ import type {
 import {
   NATIONAL_AWARD_OPTIONS,
   NATIONAL_AWARD_YEARS,
+  INDIAN_IDENTITY_PROOF_TYPES,
 } from "@/lib/national-award";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -50,6 +51,8 @@ const EMPTY_FORM: NationalAwardFormValues = {
   identityDetailsConfirmed: false,
   awardCode: "",
   awardYear: "",
+  indianIdentityProofType: "",
+  indianIdentityProof: null,
   certificate: null,
   introductionVideo: null,
 };
@@ -81,6 +84,18 @@ const nationalAwardFormSchema = z.object({
     ])
     .refine((value) => Boolean(value), "Select a national award."),
   awardYear: z.string().min(1, "Select the award year."),
+  indianIdentityProofType: z
+    .union([z.literal(""), z.enum(["aadhaar", "indian_passport", "voter_id"])])
+    .refine(Boolean, "Select Aadhaar, Indian Passport, or Voter ID."),
+  indianIdentityProof: z
+    .object({
+      path: z.string().min(1),
+      name: z.string().min(1),
+      mimeType: z.string(),
+      size: z.number(),
+    })
+    .nullable()
+    .refine(Boolean, "Upload Aadhaar, an Indian Passport, or Voter ID."),
   certificate: z
     .object({
       path: z.string().min(1),
@@ -287,13 +302,25 @@ export function NationalAwardVerificationDialog({
     if (!file || !editable) return;
     try {
       const evidence = await onUpload(kind, file);
-      setValue(kind === "certificate" ? "certificate" : "introductionVideo", evidence, {
+      const evidenceField =
+        kind === "certificate"
+          ? "certificate"
+          : kind === "introduction"
+            ? "introductionVideo"
+            : "indianIdentityProof";
+      setValue(evidenceField, evidence, {
         shouldValidate: true,
         shouldDirty: true,
       });
-      clearErrors(kind === "certificate" ? "certificate" : "introductionVideo");
+      clearErrors(evidenceField);
     } catch (error) {
-      setError(kind === "certificate" ? "certificate" : "introductionVideo", {
+      const evidenceField =
+        kind === "certificate"
+          ? "certificate"
+          : kind === "introduction"
+            ? "introductionVideo"
+            : "indianIdentityProof";
+      setError(evidenceField, {
         type: "manual",
         message: error instanceof Error ? error.message : "Could not upload this file.",
       });
@@ -586,6 +613,54 @@ export function NationalAwardVerificationDialog({
                     title="Private verification evidence"
                     description="Uploaded files are visible only to you and authorized verification reviewers."
                   />
+                  <div className="space-y-2">
+                    <label
+                      htmlFor="national-award-indian-identity-proof-type"
+                      className="text-xs font-medium text-zinc-400"
+                    >
+                      Indian identity document type
+                    </label>
+                    <Select
+                      value={values.indianIdentityProofType || undefined}
+                      onValueChange={(value) =>
+                        setValue(
+                          "indianIdentityProofType",
+                          value as NationalAwardFormValues["indianIdentityProofType"],
+                          { shouldDirty: true, shouldValidate: true },
+                        )
+                      }
+                      disabled={!editable}
+                    >
+                      <SelectTrigger
+                        id="national-award-indian-identity-proof-type"
+                        data-testid="select-national-award-indian-identity-proof-type"
+                        className="h-11 border-white/10 bg-white/[0.04] text-sm text-white"
+                      >
+                        <SelectValue placeholder="Select Aadhaar, Indian Passport, or Voter ID" />
+                      </SelectTrigger>
+                      <SelectContent className="border-[#c79a42]/30 bg-[#11100d] text-white">
+                        {INDIAN_IDENTITY_PROOF_TYPES.map((option) => (
+                          <SelectItem
+                            key={option.value}
+                            value={option.value}
+                            className="text-xs text-zinc-100 focus:bg-[#c79a42]/20 focus:text-white"
+                          >
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <EvidenceUpload
+                    kind="identity"
+                    label="Aadhaar / Indian Passport / Voter ID"
+                    hint="A reviewer must confirm the document is Indian-issued."
+                    accept="application/pdf,image/jpeg,image/png"
+                    evidence={values.indianIdentityProof}
+                    uploading={uploadingKind === "identity"}
+                    disabled={!editable}
+                    onUpload={(file) => void uploadEvidence("identity", file)}
+                  />
                   <EvidenceUpload
                     kind="certificate"
                     label="Certificate / Gazette"
@@ -773,8 +848,10 @@ function EvidenceUpload({
     >
       {kind === "certificate" ? (
         <FileCheck2 className="mt-0.5 h-4 w-4 shrink-0 text-[#e2b75e]" />
-      ) : (
+      ) : kind === "introduction" ? (
         <Video className="mt-0.5 h-4 w-4 shrink-0 text-[#e2b75e]" />
+      ) : (
+        <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#e2b75e]" />
       )}
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium text-zinc-200">{label}</p>

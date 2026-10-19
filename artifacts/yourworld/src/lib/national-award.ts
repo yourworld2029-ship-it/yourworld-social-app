@@ -11,7 +11,7 @@ export const NATIONAL_AWARD_OPTIONS = [
 ] as const;
 
 export type NationalAwardCode = (typeof NATIONAL_AWARD_OPTIONS)[number]["value"];
-export type NationalAwardEvidenceKind = "certificate" | "introduction";
+export type NationalAwardEvidenceKind = "certificate" | "introduction" | "identity";
 export type NationalAwardStatus =
   | "not_submitted"
   | "draft"
@@ -29,6 +29,15 @@ export type NationalAwardEvidence = {
   size: number;
 };
 
+export const INDIAN_IDENTITY_PROOF_TYPES = [
+  { value: "aadhaar", label: "Aadhaar" },
+  { value: "indian_passport", label: "Indian Passport" },
+  { value: "voter_id", label: "Voter ID" },
+] as const;
+
+export type IndianIdentityProofType =
+  (typeof INDIAN_IDENTITY_PROOF_TYPES)[number]["value"];
+
 export type NationalAwardFormValues = {
   fullName: string;
   fatherName: string;
@@ -42,6 +51,8 @@ export type NationalAwardFormValues = {
   identityDetailsConfirmed: boolean;
   awardCode: NationalAwardCode | "";
   awardYear: string;
+  indianIdentityProofType: IndianIdentityProofType | "";
+  indianIdentityProof: NationalAwardEvidence | null;
   certificate: NationalAwardEvidence | null;
   introductionVideo: NationalAwardEvidence | null;
 };
@@ -54,8 +65,10 @@ export type NationalAwardVerificationDetails = NationalAwardFormValues & {
 
 export type NationalAwardSubmissionInput = Omit<
   NationalAwardFormValues,
-  "country" | "certificate" | "introductionVideo"
+  "country" | "certificate" | "introductionVideo" | "indianIdentityProof"
 > & {
+  indianIdentityProofPath: string;
+  indianIdentityProofFileName: string;
   certificatePath: string;
   certificateFileName: string;
   introductionVideoPath: string;

@@ -38,8 +38,10 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  countryCodeForSportsCountry,
   countryNameForSportsCountry,
   isIndiaSportsCountry,
+  INDIAN_IDENTITY_PROOF_OPTIONS,
   NON_INDIA_INTERNATIONAL_COMPETITIONS,
   SPORTS_COUNTRY_OPTIONS,
 } from "@/lib/sports-country";
@@ -794,9 +796,11 @@ export function SportsDetailsPanel({
   onUploadVerificationEvidence?: (
     kind: SportsVerificationEvidenceKind,
     file: File,
+    details?: SportsVerificationDetails,
   ) => void | Promise<void>;
   onDeleteVerificationEvidence?: (
     kind: SportsVerificationEvidenceKind,
+    details?: SportsVerificationDetails,
   ) => void | Promise<void>;
   onPreviewVerificationEvidence?: (
     kind: SportsVerificationEvidenceKind,
@@ -814,10 +818,11 @@ export function SportsDetailsPanel({
   );
   const editable = isOwner && Boolean(onSave);
   const isCoach = profile.role === "Coach";
+  const selectedCountryCode = countryCodeForSportsCountry(verificationDraft.country);
   const isInternational =
     internationalUpgradeMode ||
     profile.status === "International" ||
-    !isIndiaSportsCountry(verificationDraft.country);
+    (selectedCountryCode !== null && selectedCountryCode !== "IN");
   const displayedStatus = isInternational ? "International" : profile.status;
   const displayedSportsProfile =
     displayedStatus === profile.status ? profile : { ...profile, status: displayedStatus };
@@ -833,6 +838,10 @@ export function SportsDetailsPanel({
     profile.status === "National" &&
     reviewStatus === "approved" &&
     !profile.verificationRequested;
+  const indianNationalIdentityProofRequired =
+    !internationalUpgradeMode &&
+    isIndiaSportsCountry(verificationDraft.country) &&
+    profile.status === "National";
   useEffect(() => {
     if (profile.verified && profile.status === "International" && !profile.verificationRequested) {
       setInternationalUpgradeMode(false);
@@ -945,8 +954,12 @@ export function SportsDetailsPanel({
           uploading={verificationEvidenceUploading}
           onChange={setVerificationDraft}
           onSave={onSaveVerificationDetails}
-          onUploadEvidence={onUploadVerificationEvidence}
-           onDeleteEvidence={onDeleteVerificationEvidence}
+          onUploadEvidence={(kind, file) =>
+            onUploadVerificationEvidence?.(kind, file, verificationDraft)
+          }
+          onDeleteEvidence={(kind) =>
+            onDeleteVerificationEvidence?.(kind, verificationDraft)
+          }
            onPreviewEvidence={onPreviewVerificationEvidence}
            locked={verificationLocked}
           upgradeFlow={internationalUpgradeMode}
@@ -1086,7 +1099,15 @@ export function SportsDetailsPanel({
             <Button
               type="button"
               data-testid="button-submit-sports-verification"
-              disabled={!termsAgreed || verificationSubmitting}
+              disabled={
+                !termsAgreed ||
+                verificationSubmitting ||
+                (!internationalUpgradeMode &&
+                  !countryCodeForSportsCountry(verificationDraft.country)) ||
+                (indianNationalIdentityProofRequired &&
+                  (!verificationDraft.indianIdentityProof ||
+                    !verificationDraft.indianIdentityProofType))
+              }
               onClick={() =>
                 void onSubmitVerification?.(
                   verificationDraftOr(verificationDraft),
@@ -1158,10 +1179,12 @@ function emptySportsVerificationDetails(): SportsVerificationDetails {
     passportNumber: "",
     certificateNumber: "",
     identityDetailsConfirmed: false,
+    indianIdentityProofType: "",
+    indianIdentityProof: null,
     villageTown: "",
     district: "",
     state: "",
-    country: "India",
+    country: "",
     mobileNumber: "",
     email: "",
     sportsCertificate: null,
@@ -1298,7 +1321,11 @@ function SportsVerificationDetailsSection({
   uploading: SportsVerificationEvidenceKind | null;
   onChange: (details: SportsVerificationDetails) => void;
   onSave?: (details: SportsVerificationDetails) => void | Promise<void>;
-  onUploadEvidence?: (kind: SportsVerificationEvidenceKind, file: File) => void | Promise<void>;
+  onUploadEvidence?: (
+    kind: SportsVerificationEvidenceKind,
+    file: File,
+    details?: SportsVerificationDetails,
+  ) => void | Promise<void>;
   profile: SportsProfileInfo;
   sportsIntroductionUrl?: string | null;
   sportsIntroductionUploading: boolean;
@@ -1307,6 +1334,7 @@ function SportsVerificationDetailsSection({
   onDeleteSportsIntroduction?: () => void;
   onDeleteEvidence?: (
     kind: SportsVerificationEvidenceKind,
+    details?: SportsVerificationDetails,
   ) => void | Promise<void>;
   onPreviewEvidence?: (
     kind: SportsVerificationEvidenceKind,
@@ -1341,6 +1369,12 @@ function SportsVerificationDetailsSection({
         <p className="text-sm text-zinc-500">Loading your verification details…</p>
       ) : (
         <div className="space-y-4">
+          {!countryCodeForSportsCountry(details.country) ? (
+            <div className="rounded-xl border border-amber-200/20 bg-amber-200/[0.06] px-3 py-2 text-xs leading-5 text-amber-100">
+              Select your nationality to see the verification categories available to you. Current
+              residence does not change this selection.
+            </div>
+          ) : null}
           {underReview ? (
             <div
               data-testid="sports-verification-under-review"
@@ -1460,11 +1494,11 @@ function SportsVerificationDetailsSection({
                 />
               </label>
               <label className="space-y-1.5 text-xs text-zinc-400">
-                Country
+                Nationality / Country
                 <Select
                   value={
                     countryNameForSportsCountry(details.country) ??
-                    (details.country.trim() || "India")
+                    (details.country.trim() || undefined)
                   }
                   onValueChange={(value) => setField("country", value)}
                   disabled={locked || upgradeFlow}
@@ -1489,6 +1523,53 @@ function SportsVerificationDetailsSection({
                 </Select>
               </label>
             </div>
+            {isIndiaSportsCountry(details.country) && !isInternational && !upgradeFlow ? (
+              <div className="space-y-2 rounded-xl border border-amber-200/15 bg-black/10 p-3">
+                <div>
+                  <p className="text-sm font-medium text-zinc-200">Indian identity proof</p>
+                  <p className="mt-1 text-xs leading-5 text-zinc-500">
+                    Required for National Sports Verification. Reviewers must confirm the document
+                    is Indian-issued.
+                  </p>
+                </div>
+                <Select
+                  value={details.indianIdentityProofType || undefined}
+                  onValueChange={(value) =>
+                    onChange({
+                      ...details,
+                      indianIdentityProofType: value as SportsVerificationDetails["indianIdentityProofType"],
+                    })
+                  }
+                  disabled={locked}
+                >
+                  <SelectTrigger
+                    data-testid="select-sports-indian-identity-proof-type"
+                    className="border-white/10 bg-white/[0.04] text-sm text-white"
+                  >
+                    <SelectValue placeholder="Select Aadhaar, Indian Passport, or Voter ID" />
+                  </SelectTrigger>
+                  <SelectContent className="border-amber-200/20 bg-[#121212] text-white">
+                    {INDIAN_IDENTITY_PROOF_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <VerificationEvidenceRow
+                  accept="application/pdf,image/jpeg,image/png"
+                  evidence={details.indianIdentityProof}
+                  kind="indianIdentityProof"
+                  label="Aadhaar / Indian Passport / Voter ID"
+                  hint="Private upload. The reviewer checks that the document is Indian-issued."
+                  uploading={uploading}
+                  onUpload={onUploadEvidence}
+                  onDelete={onDeleteEvidence}
+                  onPreview={onPreviewEvidence}
+                  locked={locked}
+                />
+              </div>
+            ) : null}
             <label className="flex cursor-pointer items-start gap-3 pt-1 text-xs leading-5 text-zinc-300">
               <input
                 type="checkbox"
@@ -1587,8 +1668,7 @@ function verificationDraftOr(details: SportsVerificationDetails) {
     villageTown: details.villageTown.trim(),
     district: details.district.trim(),
     state: details.state.trim(),
-    country:
-      countryNameForSportsCountry(details.country) ?? (details.country.trim() || "India"),
+    country: countryNameForSportsCountry(details.country) ?? details.country.trim(),
   };
 }
 
@@ -1610,8 +1690,15 @@ function VerificationEvidenceRow({
   label: string;
   hint?: string;
   uploading: SportsVerificationEvidenceKind | null;
-  onUpload?: (kind: SportsVerificationEvidenceKind, file: File) => void | Promise<void>;
-  onDelete?: (kind: SportsVerificationEvidenceKind) => void | Promise<void>;
+  onUpload?: (
+    kind: SportsVerificationEvidenceKind,
+    file: File,
+    details?: SportsVerificationDetails,
+  ) => void | Promise<void>;
+  onDelete?: (
+    kind: SportsVerificationEvidenceKind,
+    details?: SportsVerificationDetails,
+  ) => void | Promise<void>;
   onPreview?: (kind: SportsVerificationEvidenceKind, path: string) => void | Promise<void>;
   locked: boolean;
 }) {
@@ -2188,7 +2275,9 @@ function TournamentEntryEditor({
         hint={
           isNational
             ? "Choose one of the three recognized national competitions."
-            : "Search recognized international competitions or enter another one."
+            : isNonIndia
+              ? "Choose a globally recognized international competition."
+              : "Search recognized international competitions or enter another one."
         }
       >
         {isNational ? (

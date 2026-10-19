@@ -8,13 +8,19 @@ import {
   type NationalAwardCode,
   type NationalAwardEvidence,
   type NationalAwardEvidenceKind,
+  type IndianIdentityProofType,
   type NationalAwardPublicBadge,
   type NationalAwardStatus,
   type NationalAwardVerificationDetails,
 } from "@/lib/national-award";
+import {
+  countryCodeForSportsCountry,
+  isIndianIdentityProofType,
+} from "@/lib/sports-country";
 
 const evidenceBucket = "national-award-evidence";
 const maxCertificateSize = 15 * 1024 * 1024;
+const maxIdentitySize = 15 * 1024 * 1024;
 const maxIntroductionSize = 100 * 1024 * 1024;
 const certificateMimeTypes = new Set([
   "application/pdf",
@@ -27,6 +33,7 @@ const introductionMimeTypes = new Set([
   "video/webm",
   "video/quicktime",
 ]);
+const identityMimeTypes = new Set(["application/pdf", "image/jpeg", "image/png"]);
 
 type NationalAwardRow = {
   user_id: string;
@@ -50,6 +57,11 @@ type NationalAwardRow = {
   introduction_file_name: string;
   introduction_mime_type: string;
   introduction_size: number;
+  indian_identity_proof_path: string | null;
+  indian_identity_proof_type: string | null;
+  indian_identity_proof_file_name: string | null;
+  indian_identity_proof_mime_type: string | null;
+  indian_identity_proof_size: number | null;
   review_status: Exclude<NationalAwardStatus, "not_submitted">;
   review_reason: string | null;
   submitted_at: string | null;
@@ -74,6 +86,8 @@ function emptyDetails(): NationalAwardVerificationDetails {
     identityDetailsConfirmed: false,
     awardCode: "",
     awardYear: "",
+    indianIdentityProofType: "",
+    indianIdentityProof: null,
     certificate: null,
     introductionVideo: null,
     status: "not_submitted",
@@ -107,6 +121,21 @@ function mapRow(row: NationalAwardRow | null): NationalAwardVerificationDetails 
     identityDetailsConfirmed: row.identity_details_confirmed,
     awardCode: isNationalAwardCode(row.award_code) ? row.award_code : "",
     awardYear: String(row.award_year),
+    indianIdentityProofType: isIndianIdentityProofType(row.indian_identity_proof_type)
+      ? row.indian_identity_proof_type
+      : "",
+    indianIdentityProof:
+      row.indian_identity_proof_path &&
+      row.indian_identity_proof_file_name &&
+      row.indian_identity_proof_mime_type &&
+      row.indian_identity_proof_size
+        ? evidenceFromRow(
+            row.indian_identity_proof_path,
+            row.indian_identity_proof_file_name,
+            row.indian_identity_proof_mime_type,
+            row.indian_identity_proof_size,
+          )
+        : null,
     certificate: evidenceFromRow(
       row.certificate_path,
       row.certificate_file_name,
@@ -150,6 +179,12 @@ const submissionFieldsSchema = z.object({
   identityDetailsConfirmed: z.literal(true),
   awardCode: z.string().refine(isNationalAwardCode, "Select a valid National Award."),
   awardYear: z.coerce.number().int().min(1947).max(2026),
+  indianIdentityProofType: z.string().refine(
+    isIndianIdentityProofType,
+    "Select Aadhaar, Indian Passport, or Voter ID.",
+  ),
+  indianIdentityProofPath: z.string().min(1).max(512),
+  indianIdentityProofFileName: z.string().trim().min(1).max(255),
   certificatePath: z.string().min(1).max(512),
   certificateFileName: z.string().trim().min(1).max(255),
   introductionPath: z.string().min(1).max(512),
@@ -183,14 +218,25 @@ async function findStoredEvidence(
   const mimeType = String(metadata.mimetype ?? metadata.contentType ?? "");
   const size = Number(metadata.size ?? 0);
   const allowedTypes =
-    kind === "certificate" ? certificateMimeTypes : introductionMimeTypes;
-  const maxSize = kind === "certificate" ? maxCertificateSize : maxIntroductionSize;
+    kind === "certificate"
+      ? certificateMimeTypes
+      : kind === "identity"
+        ? identityMimeTypes
+        : introductionMimeTypes;
+  const maxSize =
+    kind === "certificate"
+      ? maxCertificateSize
+      : kind === "identity"
+        ? maxIdentitySize
+        : maxIntroductionSize;
 
   if (!allowedTypes.has(mimeType) || !Number.isFinite(size) || size <= 0 || size > maxSize) {
     throw new Error(
       kind === "certificate"
         ? "Use a PDF or image certificate smaller than 15 MB."
-        : "Use an MP4, WebM, or MOV introduction video smaller than 100 MB.",
+        : kind === "identity"
+          ? "Use Aadhaar, Indian Passport, or Voter ID as a PDF, JPG, or PNG smaller than 15 MB."
+          : "Use an MP4, WebM, or MOV introduction video smaller than 100 MB.",
     );
   }
 
@@ -220,9 +266,22 @@ async function buildNationalAwardRpcArgs(
   data: SubmissionFields,
 ) {
   validateDateOfBirth(data.dateOfBirth);
-  const [certificate, introduction] = await Promise.all([
+  const { data: sportsDetails, error: sportsDetailsError } = await admin
+    .from("sports_verification_details")
+    .select("country")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (sportsDetailsError) throw new Error(sportsDetailsError.message);
+  if (countryCodeForSportsCountry(sportsDetails?.country) !== "IN") {
+    throw new Error("National Award applications are available only when your selected nationality is India.");
+  }
+  if (!isIndianIdentityProofType(data.indianIdentityProofType)) {
+    throw new Error("Select Aadhaar, Indian Passport, or Voter ID.");
+  }
+  const [certificate, introduction, identity] = await Promise.all([
     findStoredEvidence(admin, userId, "certificate", data.certificatePath),
     findStoredEvidence(admin, userId, "introduction", data.introductionPath),
+    findStoredEvidence(admin, userId, "identity", data.indianIdentityProofPath),
   ]);
   const awardCode = data.awardCode as NationalAwardCode;
   if (!NATIONAL_AWARD_OPTIONS.some((option) => option.value === awardCode)) {
@@ -230,26 +289,64 @@ async function buildNationalAwardRpcArgs(
   }
 
   return {
-    p_user_id: userId,
-    p_full_name: data.fullName,
-    p_father_name: data.fatherName,
-    p_date_of_birth: data.dateOfBirth,
-    p_phone_number: data.phoneNumber,
-    p_email: data.email,
-    p_village_town: data.villageTown,
-    p_district: data.district,
-    p_state: data.state,
-    p_award_code: awardCode,
-    p_award_year: data.awardYear,
-    p_certificate_path: certificate.path,
-    p_certificate_file_name: data.certificateFileName,
-    p_certificate_mime_type: certificate.mimeType,
-    p_certificate_size: certificate.size,
-    p_introduction_path: introduction.path,
-    p_introduction_file_name: data.introductionFileName,
-    p_introduction_mime_type: introduction.mimeType,
-    p_introduction_size: introduction.size,
+    identityProof: {
+      path: identity.path,
+      fileName: data.indianIdentityProofFileName,
+      mimeType: identity.mimeType,
+      size: identity.size,
+      type: data.indianIdentityProofType as IndianIdentityProofType,
+    },
+    rpcArgs: {
+      p_user_id: userId,
+      p_full_name: data.fullName,
+      p_father_name: data.fatherName,
+      p_date_of_birth: data.dateOfBirth,
+      p_phone_number: data.phoneNumber,
+      p_email: data.email,
+      p_village_town: data.villageTown,
+      p_district: data.district,
+      p_state: data.state,
+      p_award_code: awardCode,
+      p_award_year: data.awardYear,
+      p_certificate_path: certificate.path,
+      p_certificate_file_name: data.certificateFileName,
+      p_certificate_mime_type: certificate.mimeType,
+      p_certificate_size: certificate.size,
+      p_introduction_path: introduction.path,
+      p_introduction_file_name: data.introductionFileName,
+      p_introduction_mime_type: introduction.mimeType,
+      p_introduction_size: introduction.size,
+    },
   };
+}
+
+async function persistNationalAwardIdentityProof(
+  admin: Awaited<ReturnType<typeof getAdminClient>>,
+  userId: string,
+  identityProof: {
+    path: string;
+    fileName: string;
+    mimeType: string;
+    size: number;
+    type: IndianIdentityProofType;
+  },
+) {
+  const { data, error } = await admin
+    .from("national_award_verifications")
+    .update({
+      indian_identity_proof_path: identityProof.path,
+      indian_identity_proof_type: identityProof.type,
+      indian_identity_proof_file_name: identityProof.fileName,
+      indian_identity_proof_mime_type: identityProof.mimeType,
+      indian_identity_proof_size: identityProof.size,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("user_id", userId)
+    .eq("review_status", "draft")
+    .select("user_id")
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error("The National Award draft could not store its identity proof.");
 }
 
 async function loadSavedNationalAwardDetails(
@@ -270,7 +367,11 @@ export const saveNationalAwardVerificationDraft = createServerFn({ method: "POST
   .validator((data) => submissionFieldsSchema.parse(data))
   .handler(async ({ data, context }) => {
     const admin = await getAdminClient();
-    const rpcArgs = await buildNationalAwardRpcArgs(admin, context.userId, data);
+    const { rpcArgs, identityProof } = await buildNationalAwardRpcArgs(
+      admin,
+      context.userId,
+      data,
+    );
     const { data: status, error } = await admin.rpc(
       "save_national_award_verification_draft",
       rpcArgs,
@@ -279,6 +380,7 @@ export const saveNationalAwardVerificationDraft = createServerFn({ method: "POST
     if (status !== "draft") {
       throw new Error("National Award Verification details could not be saved.");
     }
+    await persistNationalAwardIdentityProof(admin, context.userId, identityProof);
     return loadSavedNationalAwardDetails(admin, context.userId);
   });
 
@@ -288,11 +390,20 @@ export const submitNationalAwardVerification = createServerFn({ method: "POST" }
   .handler(async ({ data, context }) => {
     const { termsAccepted, ...submissionData } = data;
     const admin = await getAdminClient();
-    const rpcArgs = await buildNationalAwardRpcArgs(
+    const { rpcArgs, identityProof } = await buildNationalAwardRpcArgs(
       admin,
       context.userId,
       submissionData,
     );
+    const { data: draftStatus, error: draftError } = await admin.rpc(
+      "save_national_award_verification_draft",
+      rpcArgs,
+    );
+    if (draftError) throw new Error(draftError.message);
+    if (draftStatus !== "draft") {
+      throw new Error("National Award Verification details could not be prepared for submission.");
+    }
+    await persistNationalAwardIdentityProof(admin, context.userId, identityProof);
     const { data: status, error } = await admin.rpc(
       "submit_national_award_verification",
       {
@@ -349,15 +460,24 @@ export const listNationalAwardVerificationApplications = createServerFn({
 
     const applications = await Promise.all(
       ((data ?? []) as NationalAwardRow[]).map(async (row) => {
-        const [certificateResult, introductionResult] = await Promise.all([
+        const [certificateResult, introductionResult, identityProofResult] = await Promise.all([
           admin.storage
             .from(evidenceBucket)
             .createSignedUrl(row.certificate_path, 300),
           admin.storage
             .from(evidenceBucket)
             .createSignedUrl(row.introduction_path, 300),
+          row.indian_identity_proof_path
+            ? admin.storage
+                .from(evidenceBucket)
+                .createSignedUrl(row.indian_identity_proof_path, 300)
+            : Promise.resolve({ data: null, error: null }),
         ]);
-        if (certificateResult.error || introductionResult.error) {
+        if (
+          certificateResult.error ||
+          introductionResult.error ||
+          identityProofResult.error
+        ) {
           throw new Error("Could not create secure links for the submitted evidence.");
         }
 
@@ -381,6 +501,9 @@ export const listNationalAwardVerificationApplications = createServerFn({
           certificateUrl: certificateResult.data.signedUrl,
           introductionName: row.introduction_file_name,
           introductionUrl: introductionResult.data.signedUrl,
+          indianIdentityProofType: row.indian_identity_proof_type,
+          indianIdentityProofName: row.indian_identity_proof_file_name,
+          indianIdentityProofUrl: identityProofResult.data?.signedUrl ?? null,
         };
       }),
     );
@@ -392,6 +515,7 @@ const reviewSchema = z.object({
   applicantUserId: z.string().uuid(),
   action: z.enum(["approve", "reject"]),
   reason: z.string().trim().max(1000).optional().nullable(),
+  identityProofConfirmed: z.boolean().optional(),
 });
 
 export const reviewNationalAwardVerification = createServerFn({ method: "POST" })
@@ -402,6 +526,47 @@ export const reviewNationalAwardVerification = createServerFn({ method: "POST" }
     const reason = data.reason?.trim() || null;
     if (data.action === "reject" && !reason) {
       throw new Error("A reason is required when rejecting an Award Verification request.");
+    }
+    if (data.action === "approve") {
+      const { data: application, error: applicationError } = await admin
+        .from("national_award_verifications")
+        .select("*")
+        .eq("user_id", data.applicantUserId)
+        .in("review_status", ["pending", "pending_verification"])
+        .maybeSingle();
+      if (applicationError) throw new Error(applicationError.message);
+      if (!application) throw new Error("This National Award Verification request is no longer pending.");
+
+      const { data: sportsDetails, error: sportsDetailsError } = await admin
+        .from("sports_verification_details")
+        .select("country")
+        .eq("user_id", data.applicantUserId)
+        .maybeSingle();
+      if (sportsDetailsError) throw new Error(sportsDetailsError.message);
+      if (countryCodeForSportsCountry(sportsDetails?.country) !== "IN") {
+        throw new Error("National Award approval requires India as the selected nationality.");
+      }
+      if (
+        !application.indian_identity_proof_path ||
+        !isIndianIdentityProofType(application.indian_identity_proof_type)
+      ) {
+        throw new Error("Aadhaar, an Indian Passport, or Voter ID is required before approval.");
+      }
+      if (data.identityProofConfirmed !== true) {
+        throw new Error("Confirm that the uploaded identity proof is Indian-issued before approval.");
+      }
+      const identity = await findStoredEvidence(
+        admin,
+        data.applicantUserId,
+        "identity",
+        application.indian_identity_proof_path,
+      );
+      if (
+        identity.mimeType !== application.indian_identity_proof_mime_type ||
+        identity.size !== Number(application.indian_identity_proof_size)
+      ) {
+        throw new Error("The Indian identity proof no longer matches its private upload.");
+      }
     }
 
     const { data: status, error } = await admin.rpc(

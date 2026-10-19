@@ -116,8 +116,13 @@ export function NationalAwardProfileSection({
 
   const handleSaveDraft = useCallback(
     async (values: NationalAwardFormValues) => {
-      if (!values.certificate || !values.introductionVideo) {
-        toast.error("Upload both required verification files before saving.");
+      if (
+        !values.indianIdentityProof ||
+        !values.indianIdentityProofType ||
+        !values.certificate ||
+        !values.introductionVideo
+      ) {
+        toast.error("Select and upload an accepted Indian identity proof and both verification files.");
         return;
       }
 
@@ -136,6 +141,9 @@ export function NationalAwardProfileSection({
             identityDetailsConfirmed: values.identityDetailsConfirmed,
             awardCode: values.awardCode,
             awardYear: values.awardYear,
+            indianIdentityProofType: values.indianIdentityProofType,
+            indianIdentityProofPath: values.indianIdentityProof.path,
+            indianIdentityProofFileName: values.indianIdentityProof.name,
             certificatePath: values.certificate.path,
             certificateFileName: values.certificate.name,
             introductionPath: values.introductionVideo.path,
@@ -159,8 +167,13 @@ export function NationalAwardProfileSection({
 
   const handleSubmit = useCallback(
     async (values: NationalAwardFormValues, termsAccepted: true) => {
-      if (!values.certificate || !values.introductionVideo) {
-        toast.error("Upload both required verification files before submitting.");
+      if (
+        !values.indianIdentityProof ||
+        !values.indianIdentityProofType ||
+        !values.certificate ||
+        !values.introductionVideo
+      ) {
+        toast.error("Select and upload an accepted Indian identity proof and both verification files.");
         return;
       }
 
@@ -179,6 +192,9 @@ export function NationalAwardProfileSection({
             identityDetailsConfirmed: values.identityDetailsConfirmed,
             awardCode: values.awardCode,
             awardYear: values.awardYear,
+            indianIdentityProofType: values.indianIdentityProofType,
+            indianIdentityProofPath: values.indianIdentityProof.path,
+            indianIdentityProofFileName: values.indianIdentityProof.name,
             certificatePath: values.certificate.path,
             certificateFileName: values.certificate.name,
             introductionPath: values.introductionVideo.path,

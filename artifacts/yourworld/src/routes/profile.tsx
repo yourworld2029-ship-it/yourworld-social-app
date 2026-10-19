@@ -808,12 +808,15 @@ function ProfilePage() {
   const handleSportsVerificationEvidenceUpload = async (
     kind: SportsVerificationEvidenceKind,
     file: File,
+    latestDetails?: SportsVerificationDetails,
   ) => {
     if (!userId || userId !== profile.id) return;
     setSportsVerificationEvidenceUploading(kind);
     try {
       const currentDetails =
-        sportsVerificationDetails ?? (await getSportsVerificationDetails(userId));
+        latestDetails ??
+        sportsVerificationDetails ??
+        (await getSportsVerificationDetails(userId));
       const previousEvidence = currentDetails[kind];
       const uploaded = await uploadSportsVerificationEvidence(userId, kind, file);
       const nextDetails = { ...currentDetails, [kind]: uploaded } as SportsVerificationDetails;
@@ -838,12 +841,15 @@ function ProfilePage() {
 
   const handleSportsVerificationEvidenceDelete = async (
     kind: SportsVerificationEvidenceKind,
+    latestDetails?: SportsVerificationDetails,
   ) => {
     if (!userId || userId !== profile.id) return;
     setSportsVerificationEvidenceUploading(kind);
     try {
       const currentDetails =
-        sportsVerificationDetails ?? (await getSportsVerificationDetails(userId));
+        latestDetails ??
+        sportsVerificationDetails ??
+        (await getSportsVerificationDetails(userId));
       const evidence = currentDetails[kind];
       if (!evidence) return;
       const upgradePassportKind =

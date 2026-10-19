@@ -1,6 +1,11 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import {
+  countryCodeForSportsCountry,
+  isIndiaSportsCountry,
+  isIndianIdentityProofType,
+} from "@/lib/sports-country";
 
 export const SPORTS_VERIFICATION_DUPLICATE_MESSAGE =
   "Yeh sports account pehle se bana hua hai. Duplicate registration allowed nahi hai.";
@@ -36,6 +41,7 @@ const reviewActionSchema = z.object({
   applicantUserId: z.string().uuid(),
   action: z.enum(["approve", "reject", "request_correction"]),
   reason: z.string().trim().max(2000).optional(),
+  identityProofConfirmed: z.boolean().optional(),
 });
 
 type AdminProfileRow = {
@@ -72,6 +78,8 @@ type VerificationDetailsRow = {
   passport_first_page_path: string | null;
   passport_visa_stamp_page_path: string | null;
   tournament_photo_path: string | null;
+  indian_identity_proof_path: string | null;
+  indian_identity_proof_type: string | null;
   review_status?: string | null;
   upgrade_to_international?: boolean;
   review_reason?: string | null;
@@ -82,7 +90,12 @@ type VerificationDetailsRow = {
 };
 
 export type ReviewDocument = {
-  kind: "sportsCertificate" | "passportFirstPage" | "passportVisaStampPage" | "tournamentPhoto";
+  kind:
+    | "sportsCertificate"
+    | "passportFirstPage"
+    | "passportVisaStampPage"
+    | "tournamentPhoto"
+    | "indianIdentityProof";
   name: string;
   mimeType: string;
   url: string | null;
@@ -103,6 +116,7 @@ export type AdminVerificationApplication = {
     country: string;
     email: string;
     mobileNumber: string;
+    indianIdentityProofType: string | null;
   };
   accountEmail: string | null;
   accountMobile: string | null;
@@ -114,6 +128,7 @@ export type AdminVerificationApplication = {
   overdue: boolean;
   sportsIntroductionUrl: string | null;
   documents: ReviewDocument[];
+  nationalIdentityProofRequired: boolean;
 };
 
 async function getAdminClient() {
@@ -305,11 +320,48 @@ async function createPrivateSignedUrl(
   return error ? null : data?.signedUrl ?? null;
 }
 
+async function verifyStoredIndianIdentityProof(
+  admin: Awaited<ReturnType<typeof getAdminClient>>,
+  ownerId: string,
+  details: VerificationDetailsRow,
+) {
+  const path = details.indian_identity_proof_path;
+  const prefix = `${ownerId}/sports-verification/indianIdentityProof/`;
+  if (!path || !path.startsWith(prefix) || path.includes("..")) {
+    throw new Error("Upload a valid private Indian identity proof before continuing.");
+  }
+  const fileName = path.slice(prefix.length);
+  if (!fileName || fileName.includes("/")) {
+    throw new Error("The Indian identity proof file path is invalid.");
+  }
+  const { data, error } = await admin.storage
+    .from("documents")
+    .list(`${ownerId}/sports-verification/indianIdentityProof`, {
+      limit: 100,
+      search: fileName,
+    });
+  if (error) throw new Error(`Could not verify the Indian identity proof upload: ${error.message}`);
+  const file = data?.find((entry) => entry.name === fileName);
+  const metadata = (file?.metadata ?? {}) as Record<string, unknown>;
+  const mimeType = String(metadata.mimetype ?? metadata.contentType ?? "");
+  const size = Number(metadata.size ?? 0);
+  if (
+    !file ||
+    !new Set(["application/pdf", "image/jpeg", "image/png"]).has(mimeType) ||
+    !Number.isFinite(size) ||
+    size <= 0 ||
+    size > 15 * 1024 * 1024
+  ) {
+    throw new Error("The Indian identity proof is missing or is not an accepted file type.");
+  }
+}
+
 async function buildDocuments(
   admin: Awaited<ReturnType<typeof getAdminClient>>,
   ownerId: string,
   details: VerificationDetailsRow | null,
   international: boolean,
+  nationalIdentityProofRequired = false,
 ): Promise<ReviewDocument[]> {
   if (!details) return [];
   const entries: Array<[ReviewDocument["kind"], string | null]> = [
@@ -319,6 +371,9 @@ async function buildDocuments(
   if (international) {
     entries.splice(1, 0, ["passportFirstPage", details.passport_first_page_path]);
     entries.splice(2, 0, ["passportVisaStampPage", details.passport_visa_stamp_page_path]);
+  }
+  if (nationalIdentityProofRequired) {
+    entries.push(["indianIdentityProof", details.indian_identity_proof_path]);
   }
 
   return Promise.all(
@@ -375,6 +430,12 @@ export const listSportsVerificationApplications = createServerFn({ method: "POST
         const international = /^international$/i.test(
           valueAfterLabel(profile.bio, ["Representation", "Represents", "Country", "Team"]) ?? "",
         ) || details?.upgrade_to_international === true;
+        const nationalIdentityProofRequired =
+          !details?.upgrade_to_international &&
+          isIndiaSportsCountry(details?.country) &&
+          /^national$/i.test(
+            valueAfterLabel(profile.bio, ["Representation", "Represents", "Country", "Team"]) ?? "",
+          );
         const [sportsIntroductionUrl, documents] = await Promise.all([
           createPrivateSignedUrl(
             admin,
@@ -382,7 +443,7 @@ export const listSportsVerificationApplications = createServerFn({ method: "POST
             profile.id,
             extractSportsIntroductionPath(profile.bio),
           ),
-          buildDocuments(admin, profile.id, details, international),
+          buildDocuments(admin, profile.id, details, international, nationalIdentityProofRequired),
         ]);
 
         return {
@@ -400,6 +461,7 @@ export const listSportsVerificationApplications = createServerFn({ method: "POST
             country: details?.country ?? "",
             email: details?.email ?? "",
             mobileNumber: details?.mobile_number ?? "",
+            indianIdentityProofType: details?.indian_identity_proof_type ?? null,
           },
           accountEmail: authUser.user?.email ?? details?.email ?? null,
           accountMobile: authUser.user?.phone ?? details?.mobile_number ?? null,
@@ -411,6 +473,7 @@ export const listSportsVerificationApplications = createServerFn({ method: "POST
           overdue: Boolean(deadlineAt && Date.parse(deadlineAt) < Date.now()),
           sportsIntroductionUrl,
           documents,
+          nationalIdentityProofRequired,
         };
       }),
     );
@@ -446,6 +509,28 @@ export const reviewSportsVerification = createServerFn({ method: "POST" })
       .maybeSingle();
     if (requestDetailsError) throw new Error(requestDetailsError.message);
     const isInternationalUpgrade = requestDetails?.upgrade_to_international === true;
+    if (data.action === "approve" && !isInternationalUpgrade) {
+      const countryCode = countryCodeForSportsCountry(requestDetails?.country);
+      if (!countryCode) {
+        throw new Error("Select a valid nationality/country before approving this application.");
+      }
+      const representation = representationFromProfile(profile);
+      if (countryCode !== "IN" && !/^international$/i.test(representation)) {
+        throw new Error("Applicants outside India can only be approved for International representation.");
+      }
+      if (countryCode === "IN" && /^national$/i.test(representation)) {
+        if (
+          !requestDetails?.indian_identity_proof_path ||
+          !isIndianIdentityProofType(requestDetails.indian_identity_proof_type)
+        ) {
+          throw new Error("Aadhaar, an Indian Passport, or Voter ID is required before National approval.");
+        }
+        if (data.identityProofConfirmed !== true) {
+          throw new Error("Confirm that the uploaded identity proof is Indian-issued before approving.");
+        }
+        await verifyStoredIndianIdentityProof(admin, data.applicantUserId, requestDetails);
+      }
+    }
     const now = new Date().toISOString();
     const status =
       data.action === "approve"
@@ -622,6 +707,25 @@ export const submitSportsVerification = createServerFn({ method: "POST" })
     } else if (profile.is_verified || currentDetails?.review_status === "approved") {
       throw new Error("This Sports Verification request is already approved.");
     }
+    if (!data.upgradeToInternational) {
+      const countryCode = countryCodeForSportsCountry(currentDetails?.country);
+      if (!countryCode) {
+        throw new Error("Select your nationality/country and save the verification details before submitting.");
+      }
+      const representation = representationFromProfile(profile);
+      if (countryCode !== "IN" && !/^international$/i.test(representation)) {
+        throw new Error("Applicants outside India can apply only for International Player or Coach verification.");
+      }
+      if (countryCode === "IN" && /^national$/i.test(representation)) {
+        if (
+          !currentDetails?.indian_identity_proof_path ||
+          !isIndianIdentityProofType(currentDetails.indian_identity_proof_type)
+        ) {
+          throw new Error("Upload Aadhaar, an Indian Passport, or Voter ID before applying under National representation.");
+        }
+        await verifyStoredIndianIdentityProof(admin, context.userId, currentDetails);
+      }
+    }
 
     const now = new Date().toISOString();
     const detailsPayload = {
@@ -631,6 +735,13 @@ export const submitSportsVerification = createServerFn({ method: "POST" })
         date_of_birth: data.dateOfBirth,
         identity_details_confirmed: true,
           ...(data.upgradeToInternational ? { upgrade_to_international: true } : {}),
+        ...(!data.upgradeToInternational
+          ? {
+              country: currentDetails?.country ?? "",
+              indian_identity_proof_path: currentDetails?.indian_identity_proof_path ?? null,
+              indian_identity_proof_type: currentDetails?.indian_identity_proof_type ?? null,
+            }
+          : {}),
         review_status: "pending",
         review_reason: null,
         submitted_at: now,

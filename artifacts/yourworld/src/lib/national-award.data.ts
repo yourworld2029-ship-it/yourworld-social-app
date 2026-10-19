@@ -8,6 +8,7 @@ import {
 
 const evidenceBucket = "national-award-evidence";
 const maxCertificateSize = 15 * 1024 * 1024;
+const maxIdentitySize = 15 * 1024 * 1024;
 const maxIntroductionSize = 100 * 1024 * 1024;
 
 const allowedMimeTypes: Record<NationalAwardEvidenceKind, Set<string>> = {
@@ -18,6 +19,7 @@ const allowedMimeTypes: Record<NationalAwardEvidenceKind, Set<string>> = {
     "image/webp",
   ]),
   introduction: new Set(["video/mp4", "video/webm", "video/quicktime"]),
+  identity: new Set(["application/pdf", "image/jpeg", "image/png"]),
 };
 
 export async function uploadNationalAwardEvidence(
@@ -28,12 +30,18 @@ export async function uploadNationalAwardEvidence(
   if (!userId) throw new Error("Sign in before uploading verification evidence.");
 
   const maxSize =
-    kind === "certificate" ? maxCertificateSize : maxIntroductionSize;
+    kind === "introduction"
+      ? maxIntroductionSize
+      : kind === "identity"
+        ? maxIdentitySize
+        : maxCertificateSize;
   if (!allowedMimeTypes[kind].has(file.type) || file.size <= 0 || file.size > maxSize) {
     throw new Error(
-      kind === "certificate"
-        ? "Choose a PDF, JPG, PNG, or WebP certificate under 15 MB."
-        : "Choose an MP4, WebM, or MOV introduction video under 100 MB.",
+      kind === "introduction"
+        ? "Choose an MP4, WebM, or MOV introduction video under 100 MB."
+        : kind === "identity"
+          ? "Choose Aadhaar, Indian Passport, or Voter ID as a PDF, JPG, or PNG under 15 MB."
+          : "Choose a PDF, JPG, PNG, or WebP certificate under 15 MB.",
     );
   }
 

@@ -1,11 +1,19 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  INDIAN_IDENTITY_PROOF_TYPES,
   isNationalAwardCode,
   NATIONAL_AWARD_OPTIONS,
   NATIONAL_AWARD_YEARS,
   nationalAwardLabel,
 } from "./national-award";
+
+test("National Awards accept only the three Indian identity document types", () => {
+  assert.deepEqual(
+    INDIAN_IDENTITY_PROOF_TYPES.map(({ value }) => value),
+    ["aadhaar", "indian_passport", "voter_id"],
+  );
+});
 
 test("National Award choices match the six requested award groups", () => {
   assert.deepEqual(

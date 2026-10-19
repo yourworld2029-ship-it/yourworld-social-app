@@ -15,6 +15,8 @@ import {
 } from "@/components/yw/SportsProfile";
 import { NationalAwardProfileSection } from "@/components/yw/NationalAwardProfileSection";
 import {
+  countryCodeForSportsCountry,
+  isIndianIdentityProofType,
   isIndiaSportsCountry,
   NON_INDIA_INTERNATIONAL_COMPETITIONS,
   SPORTS_COUNTRY_OPTIONS,
@@ -42,6 +44,13 @@ test("sports verification country rules cover India and international applicants
   assert.equal(isIndiaSportsCountry("India"), true);
   assert.equal(isIndiaSportsCountry("IN"), true);
   assert.equal(isIndiaSportsCountry("New Zealand"), false);
+  assert.equal(countryCodeForSportsCountry(""), null);
+  assert.equal(countryCodeForSportsCountry("India"), "IN");
+  assert.equal(countryCodeForSportsCountry("Kenya"), "KE");
+  assert.equal(isIndianIdentityProofType("aadhaar"), true);
+  assert.equal(isIndianIdentityProofType("indian_passport"), true);
+  assert.equal(isIndianIdentityProofType("voter_id"), true);
+  assert.equal(isIndianIdentityProofType("foreign_passport"), false);
   assert.ok(SPORTS_COUNTRY_OPTIONS.length >= 240);
   assert.ok(SPORTS_COUNTRY_OPTIONS.some((country) => country.name === "India"));
   assert.deepEqual(
@@ -49,10 +58,14 @@ test("sports verification country rules cover India and international applicants
     [
       "Olympic Games",
       "Paralympic Games",
-      "Official World Championship / World Cup",
+      "World Championships",
+      "World Cup",
+      "World Games",
       "Asian Games",
-      "Asian Championship",
+      "Continental Games",
       "Commonwealth Games (CWG)",
+      "World Junior Championships",
+      "World Youth Championships",
     ],
   );
   assert.ok(NON_INDIA_INTERNATIONAL_COMPETITIONS.every(({ label }) => /\p{Extended_Pictographic}/u.test(label)));
@@ -69,6 +82,7 @@ test("National Award card is available only for India applicants", () => {
 
   assert.match(renderAwardCard("India"), /National Award Profile/);
   assert.doesNotMatch(renderAwardCard("Kenya"), /National Award Profile/);
+  assert.doesNotMatch(renderAwardCard(""), /National Award Profile/);
 });
 
 test("Sports Identity card opens details without the removed summary row", () => {
@@ -105,6 +119,8 @@ test("Only an approved National owner sees the International upgrade action", ()
         passportNumber: "",
         certificateNumber: "",
         identityDetailsConfirmed: true,
+        indianIdentityProofType: "",
+        indianIdentityProof: null,
         villageTown: "Town",
         district: "District",
         state: "State",
@@ -312,6 +328,8 @@ test("National verification shows the certificate but hides international eviden
         passportNumber: "",
         certificateNumber: "",
         identityDetailsConfirmed: false,
+        indianIdentityProofType: "",
+        indianIdentityProof: null,
         villageTown: "",
         district: "",
         state: "",
@@ -345,6 +363,8 @@ test("foreign applicants see International status and passport/visa evidence fie
         passportNumber: "",
         certificateNumber: "",
         identityDetailsConfirmed: false,
+        indianIdentityProofType: "",
+        indianIdentityProof: null,
         villageTown: "",
         district: "",
         state: "",

@@ -80,6 +80,7 @@ function AdminSportsVerification() {
     application: ReviewApplication,
     action: "approve" | "reject" | "request_correction",
     reason?: string,
+    identityProofConfirmed?: boolean,
   ) => {
     setBusy(application.profile.id);
     try {
@@ -88,6 +89,7 @@ function AdminSportsVerification() {
           applicantUserId: application.profile.id,
           action,
           reason: reason?.trim() || undefined,
+          identityProofConfirmed,
         },
       });
       setApplications((current) =>
@@ -190,7 +192,9 @@ function AdminSportsVerification() {
               key={application.profile.id}
               application={application}
               busy={busy === application.profile.id}
-              onReview={(action, reason) => void updateApplication(application, action, reason)}
+              onReview={(action, reason, identityProofConfirmed) =>
+                void updateApplication(application, action, reason, identityProofConfirmed)
+              }
             />
           ))}
         </div>
@@ -206,9 +210,14 @@ function ApplicationCard({
 }: {
   application: ReviewApplication;
   busy: boolean;
-  onReview: (action: "approve" | "reject" | "request_correction", reason?: string) => void;
+  onReview: (
+    action: "approve" | "reject" | "request_correction",
+    reason?: string,
+    identityProofConfirmed?: boolean,
+  ) => void;
 }) {
   const [reason, setReason] = useState("");
+  const [identityProofConfirmed, setIdentityProofConfirmed] = useState(false);
   const { profile, details } = application;
   const sportsProfile = application.sportsProfile;
   const title = sportsProfile
@@ -272,6 +281,12 @@ function ApplicationCard({
         <ReviewValue label="District" value={details.district || "—"} />
         <ReviewValue label="State" value={details.state || "—"} />
         <ReviewValue label="Country" value={details.country || "—"} />
+        {application.nationalIdentityProofRequired ? (
+          <ReviewValue
+            label="Indian identity proof type"
+            value={details.indianIdentityProofType || "Not selected"}
+          />
+        ) : null}
         <ReviewValue label="Account email" value={application.accountEmail || details.email || "—"} />
         <ReviewValue label="Mobile number" value={application.accountMobile || details.mobileNumber || "—"} />
         <ReviewValue
@@ -347,6 +362,27 @@ function ApplicationCard({
           </p>
         </ReviewSection>
       </div>
+      {application.nationalIdentityProofRequired ? (
+        <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-xl border border-amber-200/20 bg-amber-200/[0.06] p-3 text-xs leading-5 text-amber-100">
+          <input
+            type="checkbox"
+            checked={identityProofConfirmed}
+            onChange={(event) => setIdentityProofConfirmed(event.target.checked)}
+            disabled={
+              busy ||
+              !application.documents.some(
+                (document) => document.kind === "indianIdentityProof" && document.url,
+              )
+            }
+            className="mt-1 h-4 w-4 accent-amber-200"
+          />
+          <span>
+            I reviewed the private document and confirm it is an Indian-issued Aadhaar, Indian
+            Passport, or Voter ID. Do not approve foreign-issued documents under National
+            representation.
+          </span>
+        </label>
+      ) : null}
 
       <div className="mt-5 border-t border-white/10 pt-4">
         <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400">
@@ -366,8 +402,8 @@ function ApplicationCard({
         <div className="mt-3 flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() => onReview("approve")}
-            disabled={busy}
+            onClick={() => onReview("approve", undefined, identityProofConfirmed)}
+            disabled={busy || (application.nationalIdentityProofRequired && !identityProofConfirmed)}
             className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-black hover:bg-emerald-400 disabled:opacity-50"
           >
             <Check size={16} /> Approve

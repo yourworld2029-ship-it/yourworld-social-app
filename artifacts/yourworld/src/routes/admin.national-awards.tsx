@@ -4,7 +4,10 @@ import { ArrowLeft, Check, Clock3, FileText, RefreshCw, ShieldAlert, Video, X } 
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { NATIONAL_AWARD_OPTIONS } from "@/lib/national-award";
+import {
+  INDIAN_IDENTITY_PROOF_TYPES,
+  NATIONAL_AWARD_OPTIONS,
+} from "@/lib/national-award";
 import {
   listNationalAwardVerificationApplications,
   reviewNationalAwardVerification,
@@ -30,6 +33,7 @@ type Application = Awaited<
 function NationalAwardVerificationAdminPage() {
   const [applications, setApplications] = useState<Application[]>([]);
   const [reasons, setReasons] = useState<Record<string, string>>({});
+  const [identityConfirmations, setIdentityConfirmations] = useState<Record<string, boolean>>({});
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -55,10 +59,18 @@ function NationalAwardVerificationAdminPage() {
     void load();
   }, [load]);
 
-  const review = async (application: Application, action: "approve" | "reject") => {
+  const review = async (
+    application: Application,
+    action: "approve" | "reject",
+    identityProofConfirmed = false,
+  ) => {
     const reason = reasons[application.userId]?.trim() ?? "";
     if (action === "reject" && !reason) {
       toast.error("Add a reason before rejecting this request.");
+      return;
+    }
+    if (action === "approve" && !identityProofConfirmed) {
+      toast.error("Review and confirm the Indian-issued identity document before approval.");
       return;
     }
 
@@ -69,6 +81,7 @@ function NationalAwardVerificationAdminPage() {
           applicantUserId: application.userId,
           action,
           reason: action === "reject" ? reason : null,
+          identityProofConfirmed,
         },
       });
       toast.success(
@@ -80,6 +93,11 @@ function NationalAwardVerificationAdminPage() {
         current.filter((item) => item.userId !== application.userId),
       );
       setReasons((current) => {
+        const next = { ...current };
+        delete next[application.userId];
+        return next;
+      });
+      setIdentityConfirmations((current) => {
         const next = { ...current };
         delete next[application.userId];
         return next;
@@ -242,6 +260,14 @@ function NationalAwardVerificationAdminPage() {
                     value={`${application.villageTown}, ${application.district}, ${application.state}, India`}
                   />
                   <Detail label="Award Year" value={String(application.awardYear)} />
+                  <Detail
+                    label="Indian identity proof"
+                    value={
+                      INDIAN_IDENTITY_PROOF_TYPES.find(
+                        (option) => option.value === application.indianIdentityProofType,
+                      )?.label ?? "Missing or unrecognized"
+                    }
+                  />
                 </div>
 
                 <div className="mt-4 grid gap-2 sm:grid-cols-2">
@@ -259,7 +285,39 @@ function NationalAwardVerificationAdminPage() {
                     fileName={application.introductionName}
                     url={application.introductionUrl}
                   />
+                  {application.indianIdentityProofUrl ? (
+                    <EvidenceLink
+                      testId={`link-award-indian-identity-${application.userId}`}
+                      icon={<FileText className="h-4 w-4" />}
+                      label="View Indian identity proof"
+                      fileName={application.indianIdentityProofName ?? "Identity proof"}
+                      url={application.indianIdentityProofUrl}
+                    />
+                  ) : (
+                    <p className="rounded-xl border border-rose-300/20 bg-rose-300/[0.05] p-3 text-xs text-rose-200">
+                      No private Indian identity proof is available. This application cannot be approved.
+                    </p>
+                  )}
                 </div>
+
+                <label className="mt-4 flex cursor-pointer items-start gap-2 rounded-xl border border-amber-200/20 bg-amber-200/[0.06] p-3 text-xs leading-5 text-amber-100">
+                  <input
+                    type="checkbox"
+                    checked={identityConfirmations[application.userId] === true}
+                    onChange={(event) =>
+                      setIdentityConfirmations((current) => ({
+                        ...current,
+                        [application.userId]: event.target.checked,
+                      }))
+                    }
+                    disabled={busy || !application.indianIdentityProofUrl}
+                    className="mt-1 h-4 w-4 accent-amber-200"
+                  />
+                  <span>
+                    I reviewed the private document and confirm it is an Indian-issued Aadhaar,
+                    Indian Passport, or Voter ID. Do not approve foreign-issued documents.
+                  </span>
+                </label>
 
                 <div className="mt-4">
                   <label
@@ -300,8 +358,19 @@ function NationalAwardVerificationAdminPage() {
                   <Button
                     type="button"
                     data-testid={`button-approve-award-${application.userId}`}
-                    onClick={() => void review(application, "approve")}
-                    disabled={busy || loading}
+                    onClick={() =>
+                      void review(
+                        application,
+                        "approve",
+                        identityConfirmations[application.userId] === true,
+                      )
+                    }
+                    disabled={
+                      busy ||
+                      loading ||
+                      identityConfirmations[application.userId] !== true ||
+                      !application.indianIdentityProofUrl
+                    }
                     className="rounded-xl bg-amber-300 font-bold text-black hover:bg-amber-200"
                   >
                     <Check className="mr-2 h-4 w-4" />

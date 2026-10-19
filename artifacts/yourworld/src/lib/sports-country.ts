@@ -93,6 +93,21 @@ export function isIndiaSportsCountry(value: string | null | undefined) {
   return countryCodeForSportsCountry(value) === "IN";
 }
 
+export const INDIAN_IDENTITY_PROOF_OPTIONS = [
+  { value: "aadhaar", label: "Aadhaar" },
+  { value: "indian_passport", label: "Indian Passport" },
+  { value: "voter_id", label: "Voter ID" },
+] as const;
+
+export type IndianIdentityProofType =
+  (typeof INDIAN_IDENTITY_PROOF_OPTIONS)[number]["value"];
+
+export function isIndianIdentityProofType(
+  value: string | null | undefined,
+): value is IndianIdentityProofType {
+  return INDIAN_IDENTITY_PROOF_OPTIONS.some((option) => option.value === value);
+}
+
 export const SPORTS_COUNTRY_OPTIONS = ISO_COUNTRY_CODES.map((code) => ({
   code,
   name: countryCodeToName.get(code) ?? code,
@@ -102,11 +117,12 @@ export const SPORTS_COUNTRY_OPTIONS = ISO_COUNTRY_CODES.map((code) => ({
 export const NON_INDIA_INTERNATIONAL_COMPETITIONS = [
   { value: "Olympic Games", label: "🏅 Olympic Games" },
   { value: "Paralympic Games", label: "♿ Paralympic Games" },
-  {
-    value: "Official World Championship / World Cup",
-    label: "🏆 Official World Championship / World Cup",
-  },
+  { value: "World Championships", label: "🌍 World Championships" },
+  { value: "World Cup", label: "🏆 World Cup" },
+  { value: "World Games", label: "🌍 World Games" },
   { value: "Asian Games", label: "🥇 Asian Games" },
-  { value: "Asian Championship", label: "🏆 Asian Championship" },
+  { value: "Continental Games", label: "🌍 Continental Games" },
   { value: "Commonwealth Games (CWG)", label: "🌍 Commonwealth Games (CWG)" },
+  { value: "World Junior Championships", label: "🏅 World Junior Championships" },
+  { value: "World Youth Championships", label: "🏅 World Youth Championships" },
 ] as const;
