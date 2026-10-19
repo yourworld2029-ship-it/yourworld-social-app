@@ -71,6 +71,9 @@ export function EditProfileSheet({
   const [categoryOptionsOpen, setCategoryOptionsOpen] = useState(false);
   const avatarInput = useRef<HTMLInputElement>(null);
   const avatarPreviewUrl = useRef<string | null>(null);
+  const countrySelectorRef = useRef<HTMLButtonElement>(null);
+  const countryHighlightTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [countryMissing, setCountryMissing] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -93,6 +96,9 @@ export function EditProfileSheet({
   useEffect(
     () => () => {
       if (avatarPreviewUrl.current) URL.revokeObjectURL(avatarPreviewUrl.current);
+      if (countryHighlightTimeout.current) {
+        clearTimeout(countryHighlightTimeout.current);
+      }
     },
     [],
   );
@@ -106,6 +112,30 @@ export function EditProfileSheet({
   const selectedCountry = SPORTS_COUNTRY_OPTIONS.find(
     (country) => country.name === draft.country,
   );
+  const requireCountrySelected = () => {
+    const country = draft.country?.trim();
+    if (
+      country &&
+      country.toLocaleLowerCase() !== "choose a country or region"
+    ) {
+      return true;
+    }
+
+    countrySelectorRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+    setCountryMissing(true);
+    if (countryHighlightTimeout.current) {
+      clearTimeout(countryHighlightTimeout.current);
+    }
+    countryHighlightTimeout.current = setTimeout(() => {
+      setCountryMissing(false);
+      countryHighlightTimeout.current = null;
+    }, 3000);
+    toast.error("Please select country first");
+    return false;
+  };
   const normalizedCountryQuery = countryQuery.trim().toLocaleLowerCase();
   const visibleCountries = SPORTS_COUNTRY_OPTIONS.filter(
     (country) =>
@@ -307,11 +337,14 @@ export function EditProfileSheet({
             <Field label="Country / Region">
               <div className="space-y-2">
                 <button
+                  ref={countrySelectorRef}
                   type="button"
                   data-testid="button-profile-country"
                   aria-label="Select country or region"
                   aria-expanded={countryOptionsOpen}
+                  aria-invalid={countryMissing}
                   disabled={countryIsFrozen}
+                  style={countryMissing ? { border: "2px solid #EF4444" } : undefined}
                   onClick={() => {
                     setCountryOptionsOpen((open) => !open);
                     setCountryQuery("");
@@ -590,13 +623,17 @@ export function EditProfileSheet({
               {sportsProfile && onOpenSportsDetails ? (
                 <SportsProfileCard
                   profile={sportsProfile}
-                  onClick={onOpenSportsDetails}
+                  onClick={() => {
+                    if (!requireCountrySelected()) return;
+                    onOpenSportsDetails();
+                  }}
                 />
               ) : null}
               <NationalAwardProfileSection
                 userId={user.id}
                 sportsVerificationCountry={sportsVerificationCountry}
                 onSubmitted={onVerificationSubmitted}
+                onBeforeOpen={requireCountrySelected}
               />
             </div>
           </div>

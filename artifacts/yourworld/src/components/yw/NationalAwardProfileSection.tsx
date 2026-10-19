@@ -22,10 +22,12 @@ export function NationalAwardProfileSection({
   userId,
   sportsVerificationCountry,
   onSubmitted,
+  onBeforeOpen,
 }: {
   userId: string;
   sportsVerificationCountry?: string | null;
   onSubmitted?: () => void;
+  onBeforeOpen?: () => boolean;
 }) {
   const [details, setDetails] = useState<NationalAwardVerificationDetails | null>(null);
   const [loading, setLoading] = useState(true);
@@ -228,6 +230,7 @@ export function NationalAwardProfileSection({
         <NationalAwardProfileCard
           status={details?.status ?? "not_submitted"}
           onClick={() => {
+            if (onBeforeOpen && !onBeforeOpen()) return;
             if (loadError) {
               toast.error(loadError);
               return;
