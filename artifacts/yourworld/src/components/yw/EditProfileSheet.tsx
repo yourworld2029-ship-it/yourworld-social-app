@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Camera, Check, Search, X } from "lucide-react";
+import { Camera, Check, ChevronDown, LockKeyhole, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -17,10 +17,14 @@ import {
   SPORTS_PROFILE_ROLES,
   getNormalProfileCategoryMain,
 } from "@/lib/profile-category";
+import { SPORTS_COUNTRY_OPTIONS } from "@/lib/sports-country";
 
 export type ProfileEdit = {
   name: string;
   username: string;
+  country: string;
+  countryChangeCount: number;
+  countryLocked: boolean;
   category: string;
   normalCategories: string[];
   bio: string;
@@ -43,6 +47,7 @@ export function EditProfileSheet({
   onSave,
   sportsProfile,
   sportsVerificationCountry,
+  onVerificationSubmitted,
   onOpenSportsDetails,
 }: {
   open: boolean;
@@ -52,12 +57,15 @@ export function EditProfileSheet({
   onSave: (v: ProfileEdit) => void | Promise<void>;
   sportsProfile?: SportsProfileInfo | null;
   sportsVerificationCountry?: string | null;
+  onVerificationSubmitted?: () => void;
   onOpenSportsDetails?: () => void;
 }) {
   const [draft, setDraft] = useState<ProfileEdit>(value);
   const [saving, setSaving] = useState(false);
   const [avatarCropFile, setAvatarCropFile] = useState<File | null>(null);
   const [categoryQuery, setCategoryQuery] = useState("");
+  const [countryQuery, setCountryQuery] = useState("");
+  const [countryOptionsOpen, setCountryOptionsOpen] = useState(false);
   const [expandedMainCategory, setExpandedMainCategory] = useState<string | null>(null);
   const [pendingSport, setPendingSport] = useState<string | null>(null);
   const [categoryOptionsOpen, setCategoryOptionsOpen] = useState(false);
@@ -68,6 +76,8 @@ export function EditProfileSheet({
     if (open) {
       setDraft(value);
       setCategoryQuery("");
+      setCountryQuery("");
+      setCountryOptionsOpen(false);
       setExpandedMainCategory(null);
       setPendingSport(null);
       setCategoryOptionsOpen(false);
@@ -91,6 +101,18 @@ export function EditProfileSheet({
     setDraft((d) => ({ ...d, [k]: v }));
 
   const selectedCategories = draft.normalCategories;
+  const countryIsFrozen =
+    draft.countryLocked || Number(draft.countryChangeCount ?? 0) >= 1;
+  const selectedCountry = SPORTS_COUNTRY_OPTIONS.find(
+    (country) => country.name === draft.country,
+  );
+  const normalizedCountryQuery = countryQuery.trim().toLocaleLowerCase();
+  const visibleCountries = SPORTS_COUNTRY_OPTIONS.filter(
+    (country) =>
+      !normalizedCountryQuery ||
+      country.name.toLocaleLowerCase().includes(normalizedCountryQuery) ||
+      country.code.toLocaleLowerCase().includes(normalizedCountryQuery),
+  );
   const selectedMainCategories = selectedCategories.map(getNormalProfileCategoryMain);
   const normalizedQuery = categoryQuery.trim().toLowerCase();
   const sportsQueryMatchesRole = SPORTS_PROFILE_ROLES.some((role) =>
@@ -279,6 +301,100 @@ export function EditProfileSheet({
                   }
                   className="h-11 rounded-xl pl-7"
                 />
+              </div>
+            </Field>
+
+            <Field label="Country / Region">
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  data-testid="button-profile-country"
+                  aria-label="Select country or region"
+                  aria-expanded={countryOptionsOpen}
+                  disabled={countryIsFrozen}
+                  onClick={() => {
+                    setCountryOptionsOpen((open) => !open);
+                    setCountryQuery("");
+                  }}
+                  className="flex h-11 w-full items-center gap-3 rounded-xl border border-border/60 bg-background/30 px-3 text-left text-sm transition-colors hover:border-foreground/25 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <span className="min-w-0 flex-1 truncate">
+                    {selectedCountry
+                      ? `${selectedCountry.flag}  ${selectedCountry.name}`
+                      : draft.country || "Choose a country or region"}
+                  </span>
+                  {countryIsFrozen ? (
+                    <LockKeyhole
+                      className="h-4 w-4 shrink-0 text-muted-foreground"
+                      aria-label="Country locked"
+                    />
+                  ) : (
+                    <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  )}
+                </button>
+                {countryIsFrozen ? (
+                  <p
+                    data-testid="text-profile-country-locked"
+                    className="text-[11px] leading-4 text-muted-foreground"
+                  >
+                    {draft.countryLocked
+                      ? "Country is permanently locked after verification submission."
+                      : "The one allowed country change has been used."}
+                  </p>
+                ) : null}
+                {countryOptionsOpen && !countryIsFrozen ? (
+                  <div
+                    id="profile-country-options"
+                    className="overflow-hidden rounded-2xl border border-border/60 bg-[#111114] shadow-xl"
+                  >
+                    <div className="relative border-b border-border/50 p-2">
+                      <Search className="pointer-events-none absolute left-5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        autoFocus
+                        value={countryQuery}
+                        onChange={(event) => setCountryQuery(event.target.value)}
+                        placeholder="Search countries"
+                        aria-label="Search countries"
+                        data-testid="input-profile-country-search"
+                        className="h-9 rounded-xl border-border/60 bg-background/40 pl-9 text-xs"
+                      />
+                    </div>
+                    <div
+                      role="listbox"
+                      aria-label="Countries"
+                      className="max-h-56 overflow-y-auto p-1.5"
+                    >
+                      {visibleCountries.map((country) => (
+                        <button
+                          key={country.code}
+                          type="button"
+                          role="option"
+                          aria-selected={draft.country === country.name}
+                          data-testid={`option-profile-country-${country.code.toLowerCase()}`}
+                          onClick={() => {
+                            set("country", country.name);
+                            setCountryOptionsOpen(false);
+                            setCountryQuery("");
+                          }}
+                          className="flex min-h-9 w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs text-foreground transition-colors hover:bg-white/10"
+                        >
+                          <span aria-hidden="true" className="text-base leading-none">
+                            {country.flag}
+                          </span>
+                          <span className="flex-1">{country.name}</span>
+                          {draft.country === country.name ? (
+                            <Check className="h-3.5 w-3.5 text-emerald-300" />
+                          ) : null}
+                        </button>
+                      ))}
+                      {visibleCountries.length === 0 ? (
+                        <p className="px-2 py-4 text-center text-xs text-muted-foreground">
+                          No countries found
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </Field>
 
@@ -480,6 +596,7 @@ export function EditProfileSheet({
               <NationalAwardProfileSection
                 userId={user.id}
                 sportsVerificationCountry={sportsVerificationCountry}
+                onSubmitted={onVerificationSubmitted}
               />
             </div>
           </div>

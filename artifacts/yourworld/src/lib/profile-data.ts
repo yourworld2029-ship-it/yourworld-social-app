@@ -22,6 +22,9 @@ export type MyProfile = {
   username: string;
   display_name: string;
   bio: string;
+  country: string;
+  country_change_count: number;
+  country_locked: boolean;
   category: string;
   normal_categories: string[];
   location: string;
@@ -35,6 +38,9 @@ export type MyProfile = {
 export type MyProfileEdit = {
   name: string;
   username: string;
+  country?: string;
+  countryChangeCount?: number;
+  countryLocked?: boolean;
   category: string;
   normalCategories: string[];
   bio: string;
@@ -141,6 +147,9 @@ const empty: MyProfile = {
   username: "",
   display_name: "",
   bio: "",
+  country: "",
+  country_change_count: 0,
+  country_locked: false,
   category: "",
   normal_categories: [],
   location: "",
@@ -372,6 +381,16 @@ export async function saveSportsVerificationDetails(
   ) {
     throw new Error("Select Aadhaar, Indian Passport, or Voter ID as the identity proof type.");
   }
+  const { data: profile, error: profileError } = await supabase
+    .from("profiles")
+    .select("country")
+    .eq("id", ownerId)
+    .maybeSingle();
+  if (profileError) throw new Error(profileError.message);
+  const selectedCountry = profile?.country?.trim() ?? "";
+  if (!selectedCountry) {
+    throw new Error("Choose your Country / Region in Edit Profile before saving verification details.");
+  }
   const { data: sessionData } = await supabase.auth.getSession();
   const sessionEmail = sessionData.session?.user.email ?? "";
   const sessionMobile = sessionData.session?.user.phone ?? "";
@@ -387,7 +406,7 @@ export async function saveSportsVerificationDetails(
     village_town: details.villageTown.trim(),
     district: details.district.trim(),
     state: details.state.trim(),
-    country: details.country.trim(),
+    country: selectedCountry,
     mobile_number: details.mobileNumber.trim(),
     email: details.email.trim(),
     sports_certificate_path: details.sportsCertificate?.path ?? null,
@@ -750,6 +769,9 @@ export function useMyProfile() {
         username: row?.username ?? email.split("@")[0] ?? `user${uid.slice(0, 4)}`,
         display_name: row?.display_name ?? row?.username ?? "YourWorld user",
         bio: row?.bio ?? "",
+        country: row?.country ?? "",
+        country_change_count: Number(row?.country_change_count ?? 0),
+        country_locked: row?.country_locked === true,
         category: row?.category ?? "",
         normal_categories: resolveNormalProfileCategories(row?.normal_categories, row?.category ?? ""),
         location: row?.location ?? "",
@@ -863,6 +885,7 @@ export function useMyProfile() {
           username: edit.username || null,
           display_name: edit.name || null,
           bio: edit.bio || null,
+          country: edit.country?.trim() ?? profile.country,
            category: isSportsIdentityCategory(edit.category) ? edit.category.trim() || null : null,
            normal_categories: normalizeNormalProfileCategories(edit.normalCategories),
           location: edit.location || null,
@@ -879,7 +902,15 @@ export function useMyProfile() {
       }
       await load(true);
     },
-    [profile.avatar_url, profile.cover_url, profile.is_verified, profile.verification_requested, uploadImage, load],
+    [
+      profile.avatar_url,
+      profile.cover_url,
+      profile.country,
+      profile.is_verified,
+      profile.verification_requested,
+      uploadImage,
+      load,
+    ],
   );
 
   const visiblePosts = useMemo(() => posts.filter((p) => p.archived !== true), [posts]);

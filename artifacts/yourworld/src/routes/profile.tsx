@@ -884,6 +884,9 @@ function ProfilePage() {
   const editValue: ProfileEdit = {
     name: profile.display_name,
     username: profile.username,
+    country: profile.country,
+    countryChangeCount: profile.country_change_count,
+    countryLocked: profile.country_locked,
     category: profile.category,
     normalCategories: profile.normal_categories,
     bio: profile.bio,
@@ -928,6 +931,13 @@ function ProfilePage() {
     ) return;
     setSportsVerificationSubmitting(true);
     try {
+      if (!upgradeToInternational) {
+        const savedDetails = await saveSportsVerificationDetails(userId, {
+          ...details,
+          country: profile.country,
+        });
+        setSportsVerificationDetails(savedDetails);
+      }
       const result = await submitSportsVerification({
         data: {
           fullName: details.fullName,
@@ -1263,6 +1273,7 @@ function ProfilePage() {
             </SheetHeader>
             <SportsDetailsPanel
               profile={sportsProfile}
+              applicantCountry={profile.country}
               isOwner={Boolean(userId && userId === profile.id)}
               onSave={saveSportsDetails}
               sportsIntroductionUrl={sportsIntroductionUrl}
@@ -1312,7 +1323,8 @@ function ProfilePage() {
         value={editValue}
         onSave={save}
         sportsProfile={sportsProfile}
-        sportsVerificationCountry={sportsVerificationDetails?.country}
+        sportsVerificationCountry={profile.country}
+        onVerificationSubmitted={() => void reload()}
         onOpenSportsDetails={() => {
           setEditOpen(false);
           setSportsDetailsOpen(true);

@@ -32,3 +32,9 @@ Foreign Sports Verification addresses reuse the existing private fields: street 
 **Why:** The user chose this storage approach to avoid a database migration while keeping every foreign address input persistent.
 
 **How to apply:** Keep the labeled-address parser aligned between the verification form and admin review; continue accepting legacy plain-text `address` values as street addresses.
+
+Country / Region is the profile's authoritative nationality selection. A user may change a saved country once before verification; submitting either Sports Verification or National Award permanently locks it.
+
+**Why:** The user requested one correction opportunity before application and a permanent freeze after either verification path to prevent country switching abuse.
+
+**How to apply:** Keep the selector lock visible in Edit Profile, derive Sports and National Award eligibility from `profiles.country`, and enforce the counter and permanent lock in database triggers.

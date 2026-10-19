@@ -761,6 +761,7 @@ export function SportsProfileCard({
 
 export function SportsDetailsPanel({
   profile,
+  applicantCountry,
   isOwner,
   onSave,
   sportsIntroductionUrl,
@@ -783,6 +784,7 @@ export function SportsDetailsPanel({
   verificationEvidenceUploading = null,
 }: {
   profile: SportsProfileInfo;
+  applicantCountry?: string;
   isOwner: boolean;
   onSave?: (draft: SportsProfileDraft) => void | Promise<void>;
   sportsIntroductionUrl?: string | null;
@@ -827,7 +829,9 @@ export function SportsDetailsPanel({
   );
   const editable = isOwner && Boolean(onSave);
   const isCoach = profile.role === "Coach";
-  const selectedCountryCode = countryCodeForSportsCountry(verificationDraft.country);
+  const profileCountry = (applicantCountry ?? verificationDraft.country).trim();
+  const currentVerificationDraft = { ...verificationDraft, country: profileCountry };
+  const selectedCountryCode = countryCodeForSportsCountry(profileCountry);
   const isInternational =
     internationalUpgradeMode ||
     profile.status === "International" ||
@@ -849,7 +853,7 @@ export function SportsDetailsPanel({
     !profile.verificationRequested;
   const indianNationalIdentityProofRequired =
     !internationalUpgradeMode &&
-    isIndiaSportsCountry(verificationDraft.country) &&
+    isIndiaSportsCountry(profileCountry) &&
     profile.status === "National";
   useEffect(() => {
     if (profile.verified && profile.status === "International" && !profile.verificationRequested) {
@@ -857,8 +861,12 @@ export function SportsDetailsPanel({
     }
   }, [profile.status, profile.verified, profile.verificationRequested]);
   useEffect(() => {
-    setVerificationDraft(verificationDetails ?? emptySportsVerificationDetails());
-  }, [verificationDetails]);
+    const loaded = verificationDetails ?? emptySportsVerificationDetails();
+    setVerificationDraft({
+      ...loaded,
+      country: applicantCountry === undefined ? loaded.country : applicantCountry.trim(),
+    });
+  }, [verificationDetails, applicantCountry]);
   const openEditor = (field: SportsEditorField) => {
     const nextDraft = toSportsProfileDraft(profile);
     if (internationalUpgradeMode && field === "tournaments") {
@@ -876,7 +884,7 @@ export function SportsDetailsPanel({
     try {
       const nextDraft = internationalUpgradeMode && editorField === "tournaments"
         ? { ...draft, representation: "National" as const }
-        : isIndiaSportsCountry(verificationDraft.country)
+        : isIndiaSportsCountry(profileCountry)
           ? draft
           : { ...draft, representation: "International" as const };
       await onSave(nextDraft);
@@ -954,7 +962,7 @@ export function SportsDetailsPanel({
 
       {isOwner ? (
         <SportsVerificationDetailsSection
-          details={verificationDraft}
+          details={currentVerificationDraft}
           isInternational={isInternational}
           loading={verificationDetailsLoading}
           saving={verificationDetailsSaving}
@@ -962,10 +970,10 @@ export function SportsDetailsPanel({
           onChange={setVerificationDraft}
           onSave={onSaveVerificationDetails}
           onUploadEvidence={(kind, file) =>
-            onUploadVerificationEvidence?.(kind, file, verificationDraft)
+            onUploadVerificationEvidence?.(kind, file, currentVerificationDraft)
           }
           onDeleteEvidence={(kind) =>
-            onDeleteVerificationEvidence?.(kind, verificationDraft)
+            onDeleteVerificationEvidence?.(kind, currentVerificationDraft)
           }
            onPreviewEvidence={onPreviewVerificationEvidence}
            locked={verificationLocked}
@@ -1110,14 +1118,14 @@ export function SportsDetailsPanel({
                 !termsAgreed ||
                 verificationSubmitting ||
                 (!internationalUpgradeMode &&
-                  !countryCodeForSportsCountry(verificationDraft.country)) ||
+                  !countryCodeForSportsCountry(profileCountry)) ||
                 (indianNationalIdentityProofRequired &&
-                  (!verificationDraft.indianIdentityProof ||
-                    !verificationDraft.indianIdentityProofType))
+                  (!currentVerificationDraft.indianIdentityProof ||
+                    !currentVerificationDraft.indianIdentityProofType))
               }
               onClick={() =>
                 void onSubmitVerification?.(
-                  verificationDraftOr(verificationDraft),
+                  verificationDraftOr(currentVerificationDraft),
                   internationalUpgradeMode,
                 )
               }
@@ -1147,7 +1155,7 @@ export function SportsDetailsPanel({
           onOpenChange={(open) => !open && setEditorField(null)}
           onSave={saveDraft}
           onOpenVerificationReview={onOpenVerificationReview}
-          applicantCountry={verificationDraft.country}
+          applicantCountry={profileCountry}
         />
       ) : null}
       <Dialog
@@ -1361,8 +1369,7 @@ function SportsVerificationDetailsSection({
        | "email"
       | "villageTown"
       | "district"
-      | "state"
-      | "country",
+      | "state",
     value: string,
   ) =>
     onChange({ ...details, [field]: value });
@@ -1390,8 +1397,8 @@ function SportsVerificationDetailsSection({
         <div className="space-y-4">
           {!countryCodeForSportsCountry(details.country) ? (
             <div className="rounded-xl border border-amber-200/20 bg-amber-200/[0.06] px-3 py-2 text-xs leading-5 text-amber-100">
-              Select your nationality to see the verification categories available to you. Current
-              residence does not change this selection.
+              Set your country or region in Edit Profile to see the verification categories
+              available to you. Current residence does not change this selection.
             </div>
           ) : null}
           {underReview ? (
@@ -1476,14 +1483,13 @@ function SportsVerificationDetailsSection({
                     countryNameForSportsCountry(details.country) ??
                     (details.country.trim() || undefined)
                   }
-                  onValueChange={(value) => setField("country", value)}
-                  disabled={locked || upgradeFlow}
+                  disabled
                 >
                   <SelectTrigger
                     data-testid="select-sports-verification-country"
                     className="border-white/10 bg-white/[0.04] text-sm text-white"
                   >
-                    <SelectValue placeholder="Select country" />
+                    <SelectValue placeholder="Set country in Edit Profile" />
                   </SelectTrigger>
                   <SelectContent className="max-h-72 border-amber-200/20 bg-[#121212] text-white">
                     {details.country.trim() &&

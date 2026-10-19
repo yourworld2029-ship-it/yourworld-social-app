@@ -623,6 +623,9 @@ export type Database = {
           avatar_url: string | null
           bio: string | null
           category: string | null
+          country: string
+          country_change_count: number
+          country_locked: boolean
           created_at: string | null
           display_name: string | null
           followers_count: number
@@ -640,6 +643,9 @@ export type Database = {
           avatar_url?: string | null
           bio?: string | null
           category?: string | null
+          country?: string
+          country_change_count?: number
+          country_locked?: boolean
           created_at?: string | null
           display_name?: string | null
           followers_count?: number
@@ -657,6 +663,9 @@ export type Database = {
           avatar_url?: string | null
           bio?: string | null
           category?: string | null
+          country?: string
+          country_change_count?: number
+          country_locked?: boolean
           created_at?: string | null
           display_name?: string | null
           followers_count?: number

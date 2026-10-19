@@ -266,13 +266,13 @@ async function buildNationalAwardRpcArgs(
   data: SubmissionFields,
 ) {
   validateDateOfBirth(data.dateOfBirth);
-  const { data: sportsDetails, error: sportsDetailsError } = await admin
-    .from("sports_verification_details")
+  const { data: profile, error: profileError } = await admin
+    .from("profiles")
     .select("country")
-    .eq("user_id", userId)
+    .eq("id", userId)
     .maybeSingle();
-  if (sportsDetailsError) throw new Error(sportsDetailsError.message);
-  if (countryCodeForSportsCountry(sportsDetails?.country) !== "IN") {
+  if (profileError) throw new Error(profileError.message);
+  if (countryCodeForSportsCountry(profile?.country) !== "IN") {
     throw new Error("National Award applications are available only when your selected nationality is India.");
   }
   if (!isIndianIdentityProofType(data.indianIdentityProofType)) {
@@ -537,13 +537,13 @@ export const reviewNationalAwardVerification = createServerFn({ method: "POST" }
       if (applicationError) throw new Error(applicationError.message);
       if (!application) throw new Error("This National Award Verification request is no longer pending.");
 
-      const { data: sportsDetails, error: sportsDetailsError } = await admin
-        .from("sports_verification_details")
+      const { data: applicantProfile, error: applicantProfileError } = await admin
+        .from("profiles")
         .select("country")
-        .eq("user_id", data.applicantUserId)
+        .eq("id", data.applicantUserId)
         .maybeSingle();
-      if (sportsDetailsError) throw new Error(sportsDetailsError.message);
-      if (countryCodeForSportsCountry(sportsDetails?.country) !== "IN") {
+      if (applicantProfileError) throw new Error(applicantProfileError.message);
+      if (countryCodeForSportsCountry(applicantProfile?.country) !== "IN") {
         throw new Error("National Award approval requires India as the selected nationality.");
       }
       if (

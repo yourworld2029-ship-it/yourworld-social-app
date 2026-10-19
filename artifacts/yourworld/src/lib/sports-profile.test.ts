@@ -25,6 +25,7 @@ import {
 import {
   parseForeignSportsAddress,
   serializeForeignSportsAddress,
+  type SportsVerificationDetails,
 } from "@/lib/profile-data";
 
 const profile = {
@@ -434,6 +435,51 @@ test("foreign applicants see International status and passport/visa evidence fie
   assert.ok(html.indexOf(">Sports Introduction<") < html.indexOf(">Save Verification Details<"));
   assert.doesNotMatch(html, /One Tournament Photo/);
   assert.doesNotMatch(html, /INTERNATIONAL PLAYER/);
+});
+
+test("saved profile country overrides stale verification-detail country", () => {
+  const staleIndiaDetails: SportsVerificationDetails = {
+    fullName: "",
+    fatherName: "",
+    dateOfBirth: "",
+    address: "",
+    passportNumber: "",
+    certificateNumber: "",
+    identityDetailsConfirmed: false,
+    indianIdentityProofType: "",
+    indianIdentityProof: null,
+    villageTown: "",
+    district: "",
+    state: "",
+    country: "India",
+    mobileNumber: "",
+    email: "",
+    sportsCertificate: null,
+    passportFirstPage: null,
+    passportVisaStampPage: null,
+    tournamentPhoto: null,
+  };
+  const foreignHtml = renderToStaticMarkup(
+    createElement(SportsDetailsPanel, {
+      profile,
+      isOwner: true,
+      applicantCountry: "Kenya",
+      verificationDetails: staleIndiaDetails,
+    }),
+  );
+  const indianHtml = renderToStaticMarkup(
+    createElement(SportsDetailsPanel, {
+      profile,
+      isOwner: true,
+      applicantCountry: "India",
+      verificationDetails: { ...staleIndiaDetails, country: "Kenya" },
+    }),
+  );
+
+  assert.match(foreignHtml, /Street Address \/ Apartment/);
+  assert.doesNotMatch(foreignHtml, /Village \/ Town/);
+  assert.match(indianHtml, /Village \/ Town/);
+  assert.doesNotMatch(indianHtml, /Street Address \/ Apartment/);
 });
 
 test("Non-owners can still view an existing Sports Introduction", () => {

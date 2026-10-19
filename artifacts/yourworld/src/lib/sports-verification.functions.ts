@@ -50,6 +50,7 @@ type AdminProfileRow = {
   display_name: string | null;
   category: string | null;
   bio: string | null;
+  country?: string | null;
   avatar_url: string | null;
   is_verified: boolean | null;
   verification_requested: boolean | null;
@@ -494,7 +495,7 @@ export const reviewSportsVerification = createServerFn({ method: "POST" })
 
     const { data: profile, error: profileReadError } = await admin
       .from("profiles")
-      .select("id,is_verified,verification_requested,bio,category")
+      .select("id,is_verified,verification_requested,bio,category,country")
       .eq("id", data.applicantUserId)
       .maybeSingle();
     if (profileReadError) throw new Error(profileReadError.message);
@@ -510,9 +511,12 @@ export const reviewSportsVerification = createServerFn({ method: "POST" })
     if (requestDetailsError) throw new Error(requestDetailsError.message);
     const isInternationalUpgrade = requestDetails?.upgrade_to_international === true;
     if (data.action === "approve" && !isInternationalUpgrade) {
-      const countryCode = countryCodeForSportsCountry(requestDetails?.country);
+      const countryCode = countryCodeForSportsCountry(profile.country);
       if (!countryCode) {
         throw new Error("Select a valid nationality/country before approving this application.");
+      }
+      if (countryCodeForSportsCountry(requestDetails?.country) !== countryCode) {
+        throw new Error("The submitted verification country no longer matches the profile country.");
       }
       const representation = representationFromProfile(profile);
       if (countryCode !== "IN" && !/^international$/i.test(representation)) {
@@ -652,7 +656,7 @@ export const submitSportsVerification = createServerFn({ method: "POST" })
     const { data: profile, error: profileError } = await admin
       .from("profiles")
       .select(
-        "id,username,display_name,category,bio,avatar_url,is_verified,verification_requested,updated_at",
+        "id,username,display_name,category,bio,avatar_url,is_verified,verification_requested,updated_at,country",
       )
       .eq("id", context.userId)
       .maybeSingle();
@@ -708,9 +712,12 @@ export const submitSportsVerification = createServerFn({ method: "POST" })
       throw new Error("This Sports Verification request is already approved.");
     }
     if (!data.upgradeToInternational) {
-      const countryCode = countryCodeForSportsCountry(currentDetails?.country);
+      const countryCode = countryCodeForSportsCountry(profile.country);
       if (!countryCode) {
-        throw new Error("Select your nationality/country and save the verification details before submitting.");
+        throw new Error("Choose your Country / Region in Edit Profile before submitting.");
+      }
+      if (countryCodeForSportsCountry(currentDetails?.country) !== countryCode) {
+        throw new Error("Save verification details again to match the Country / Region on your profile.");
       }
       const representation = representationFromProfile(profile);
       if (countryCode !== "IN" && !/^international$/i.test(representation)) {
@@ -737,7 +744,7 @@ export const submitSportsVerification = createServerFn({ method: "POST" })
           ...(data.upgradeToInternational ? { upgrade_to_international: true } : {}),
         ...(!data.upgradeToInternational
           ? {
-              country: currentDetails?.country ?? "",
+              country: profile.country,
               indian_identity_proof_path: currentDetails?.indian_identity_proof_path ?? null,
               indian_identity_proof_type: currentDetails?.indian_identity_proof_type ?? null,
             }

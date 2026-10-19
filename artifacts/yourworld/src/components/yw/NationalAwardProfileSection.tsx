@@ -21,9 +21,11 @@ import { isIndiaSportsCountry } from "@/lib/sports-country";
 export function NationalAwardProfileSection({
   userId,
   sportsVerificationCountry,
+  onSubmitted,
 }: {
   userId: string;
   sportsVerificationCountry?: string | null;
+  onSubmitted?: () => void;
 }) {
   const [details, setDetails] = useState<NationalAwardVerificationDetails | null>(null);
   const [loading, setLoading] = useState(true);
@@ -206,6 +208,7 @@ export function NationalAwardProfileSection({
         setDetails(nextDetails);
         setOpen(false);
         toast.success("National Award Profile submitted for verification.");
+        onSubmitted?.();
       } catch (error) {
         toast.error(
           error instanceof Error
