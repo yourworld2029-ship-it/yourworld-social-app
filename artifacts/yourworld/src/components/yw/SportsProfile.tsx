@@ -6,6 +6,7 @@ import {
   Check,
   CalendarDays,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   FileCheck2,
   Globe2,
@@ -2381,38 +2382,18 @@ function TournamentEntryEditor({
       </EditorField>
 
       <div className="mt-3 grid grid-cols-2 gap-2">
-        <label className="block space-y-1.5">
-          <span className="text-xs font-medium text-zinc-400">Start Date</span>
-          <div className="relative">
-            <Input
-              type="date"
-              data-testid={`input-tournament-start-date-${index + 1}`}
-              value={item.startDate ?? ""}
-              onChange={(event) => onChange(index, { startDate: event.target.value })}
-              className={`${editorInputClass} pr-10`}
-            />
-            <CalendarDays
-              aria-hidden="true"
-              className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400"
-            />
-          </div>
-        </label>
-        <label className="block space-y-1.5">
-          <span className="text-xs font-medium text-zinc-400">End Date</span>
-          <div className="relative">
-            <Input
-              type="date"
-              data-testid={`input-tournament-end-date-${index + 1}`}
-              value={item.endDate ?? ""}
-              onChange={(event) => onChange(index, { endDate: event.target.value })}
-              className={`${editorInputClass} pr-10`}
-            />
-            <CalendarDays
-              aria-hidden="true"
-              className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400"
-            />
-          </div>
-        </label>
+        <TournamentDateField
+          label="Start Date"
+          value={item.startDate ?? ""}
+          onChange={(startDate) => onChange(index, { startDate })}
+          testId={`input-tournament-start-date-${index + 1}`}
+        />
+        <TournamentDateField
+          label="End Date"
+          value={item.endDate ?? ""}
+          onChange={(endDate) => onChange(index, { endDate })}
+          testId={`input-tournament-end-date-${index + 1}`}
+        />
       </div>
 
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -2489,6 +2470,161 @@ function TournamentEntryEditor({
       </div>
     </div>
   );
+}
+
+function TournamentDateField({
+  label,
+  value,
+  onChange,
+  testId,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  testId: string;
+}) {
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [visibleMonth, setVisibleMonth] = useState(() => parseIsoDate(value) ?? new Date());
+  const year = visibleMonth.getFullYear();
+  const month = visibleMonth.getMonth();
+  const selectedDate = parseIsoDate(value);
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstWeekday = new Date(year, month, 1).getDay();
+  const daySlots = Array.from({ length: 42 }, (_, slot) => {
+    const day = slot - firstWeekday + 1;
+    return day > 0 && day <= daysInMonth ? day : null;
+  });
+
+  const openCalendar = () => {
+    setVisibleMonth(selectedDate ?? new Date());
+    setCalendarOpen(true);
+  };
+
+  return (
+    <>
+      <div className="block space-y-1.5">
+        <label
+          htmlFor={testId}
+          className="block text-xs font-medium text-zinc-400"
+        >
+          {label}
+        </label>
+        <div className="relative">
+          <Input
+            id={testId}
+            type="text"
+            inputMode="numeric"
+            autoComplete="off"
+            maxLength={10}
+            placeholder="YYYY-MM-DD"
+            data-testid={testId}
+            aria-label={`${label}, enter date as year-month-day`}
+            value={value}
+            onChange={(event) => onChange(formatManualIsoDate(event.target.value))}
+            className={`${editorInputClass} pr-12`}
+          />
+          <button
+            type="button"
+            aria-label={`Open ${label.toLowerCase()} calendar`}
+            onClick={openCalendar}
+            className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-zinc-300 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200/60"
+          >
+            <CalendarDays aria-hidden="true" className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+
+      <Dialog open={calendarOpen} onOpenChange={setCalendarOpen}>
+        <DialogContent
+          className="z-[90] w-[calc(100%-2rem)] max-w-sm border-white/15 bg-[#111111] p-4 text-white"
+          overlayClassName="z-[80] bg-black/80"
+        >
+          <DialogHeader className="pr-8">
+            <DialogTitle className="text-left text-white">{label}</DialogTitle>
+          </DialogHeader>
+          <div className="flex items-center justify-between gap-3">
+            <button
+              type="button"
+              aria-label="Previous month"
+              onClick={() => setVisibleMonth(new Date(year, month - 1, 1))}
+              className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 text-white hover:bg-white/10"
+            >
+              <ChevronLeft aria-hidden="true" className="h-5 w-5" />
+            </button>
+            <p className="text-base font-semibold text-white">
+              {visibleMonth.toLocaleDateString(undefined, { month: "long", year: "numeric" })}
+            </p>
+            <button
+              type="button"
+              aria-label="Next month"
+              onClick={() => setVisibleMonth(new Date(year, month + 1, 1))}
+              className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 text-white hover:bg-white/10"
+            >
+              <ChevronRight aria-hidden="true" className="h-5 w-5" />
+            </button>
+          </div>
+          <div className="grid grid-cols-7 gap-1 text-center">
+            {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((weekday) => (
+              <span
+                key={weekday}
+                className="py-2 text-xs font-medium text-white"
+              >
+                {weekday}
+              </span>
+            ))}
+            {daySlots.map((day, slot) =>
+              day ? (
+                <button
+                  key={slot}
+                  type="button"
+                  aria-label={`${visibleMonth.toLocaleDateString(undefined, { month: "long" })} ${day}, ${year}`}
+                  aria-pressed={
+                    selectedDate?.getFullYear() === year &&
+                    selectedDate.getMonth() === month &&
+                    selectedDate.getDate() === day
+                  }
+                  onClick={() => {
+                    onChange(`${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`);
+                    setCalendarOpen(false);
+                  }}
+                  className={`h-10 rounded-lg text-sm text-white transition-colors hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200/60 ${
+                    selectedDate?.getFullYear() === year &&
+                    selectedDate.getMonth() === month &&
+                    selectedDate.getDate() === day
+                      ? "bg-fuchsia-600 font-semibold"
+                      : ""
+                  }`}
+                >
+                  {day}
+                </button>
+              ) : (
+                <span key={slot} aria-hidden="true" className="h-10" />
+              ),
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+function parseIsoDate(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  const [, yearText, monthText, dayText] = match;
+  const date = new Date(Number(yearText), Number(monthText) - 1, Number(dayText));
+  return date.getFullYear() === Number(yearText) &&
+    date.getMonth() === Number(monthText) - 1 &&
+    date.getDate() === Number(dayText)
+    ? date
+    : null;
+}
+
+function formatManualIsoDate(value: string): string {
+  const digits = value.replace(/\D/g, "").slice(0, 8);
+  if (digits.length <= 4) return digits;
+  if (digits.length <= 6) return `${digits.slice(0, 4)}-${digits.slice(4)}`;
+  return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6)}`;
 }
 
 function SportsDetailsEditor({
