@@ -21,11 +21,9 @@ import { isIndiaSportsCountry } from "@/lib/sports-country";
 export function NationalAwardProfileSection({
   userId,
   sportsVerificationCountry,
-  isNationalSportsProfile = false,
 }: {
   userId: string;
   sportsVerificationCountry?: string | null;
-  isNationalSportsProfile?: boolean;
 }) {
   const [details, setDetails] = useState<NationalAwardVerificationDetails | null>(null);
   const [loading, setLoading] = useState(true);
@@ -37,8 +35,7 @@ export function NationalAwardProfileSection({
   const providedCountry = sportsVerificationCountry?.trim();
   const canShowNationalAward = providedCountry
     ? isIndiaSportsCountry(providedCountry)
-    : sportsCountryIsIndia === true ||
-      (sportsCountryIsIndia === null && isNationalSportsProfile);
+    : sportsCountryIsIndia !== false;
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
@@ -62,7 +59,7 @@ export function NationalAwardProfileSection({
       })
       .catch(() => {
         if (!active) return;
-        setSportsCountryIsIndia(false);
+        setSportsCountryIsIndia(null);
         setOpen(false);
         toast.error("Could not confirm country for National Award eligibility.");
       });

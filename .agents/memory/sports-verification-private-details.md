@@ -21,8 +21,8 @@ For Indian sports categories, eligibility follows the applicant's selected natio
 
 **How to apply:** Keep nationality-based visibility in the client, but enforce country and proof metadata/object checks on the server and require an explicit reviewer confirmation before approval. Preserve the existing National-to-International upgrade path.
 
-The National Award entry remains available in the profile editor for National Sports profiles when no country value is stored yet; an explicitly selected non-India country always hides it. Submission remains server-validated.
+The National Award entry remains visible in the profile editor while nationality is unknown; an explicitly selected non-India country hides it. Submission remains server-validated.
 
-**Why:** The user asked to restore National Award access for National Sports/Indian profiles without reopening it for foreign applicants.
+**Why:** The user asked to restore the card for Indian profiles; Sports representation (National/International) is not the same as nationality.
 
-**How to apply:** Use National Sports status only as a missing-country visibility fallback. Never let it override an explicit non-India country or backend nationality/proof checks.
+**How to apply:** Hide the card only when the selected country is known to be non-India. Keep server-side nationality and Indian-proof checks authoritative for submissions.
