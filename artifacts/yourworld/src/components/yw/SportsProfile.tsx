@@ -125,14 +125,11 @@ const RECOGNIZED_COMPETITIONS = [
   "Asian Para Games",
   "Commonwealth Youth Games",
   "National Games (India)",
-  "Khelo India Games",
-  "Other Recognized Competition",
 ] as const;
 
 const NATIONAL_COMPETITIONS = [
   "National Games (India)",
   "All India Inter-University / All India University Games",
-  "Khelo India Games",
 ] as const;
 
 const INTERNATIONAL_COMPETITIONS = RECOGNIZED_COMPETITIONS.filter(
@@ -2126,7 +2123,11 @@ function TournamentEntryEditor({
           >
             <SelectItem value="__clear__">Clear competition</SelectItem>
             {NATIONAL_COMPETITIONS.map((competition) => (
-              <SelectItem key={competition} value={competition}>
+              <SelectItem
+                key={competition}
+                value={competition}
+                className="text-white focus:bg-white/10 focus:text-white"
+              >
                 {competition}
               </SelectItem>
             ))}
@@ -2147,7 +2148,11 @@ function TournamentEntryEditor({
             }
           >
             {NON_INDIA_INTERNATIONAL_COMPETITIONS.map((competition) => (
-              <SelectItem key={competition.value} value={competition.value}>
+              <SelectItem
+                key={competition.value}
+                value={competition.value}
+                className="text-white focus:bg-white/10 focus:text-white"
+              >
                 {competition.label}
               </SelectItem>
             ))}
@@ -2158,7 +2163,7 @@ function TournamentEntryEditor({
             data-testid={`input-tournament-name-${index + 1}`}
             value={item.name}
             onChange={(event) => onChange(index, { name: event.target.value })}
-            className={editorInputClass}
+            className={`${editorInputClass} [color-scheme:dark]`}
             placeholder="Search or enter a competition"
           />
         )}
@@ -2497,12 +2502,20 @@ function SportsDetailsEditor({
           <div className="space-y-3">
             <datalist id="recognized-sports-competitions">
               {RECOGNIZED_COMPETITIONS.map((competition) => (
-                <option key={competition} value={competition} />
+                <option
+                  key={competition}
+                  value={competition}
+                  style={{ color: "#FFFFFF", backgroundColor: "#121212" }}
+                />
               ))}
             </datalist>
             <datalist id="international-sports-competitions">
               {INTERNATIONAL_COMPETITIONS.map((competition) => (
-                <option key={competition} value={competition} />
+                <option
+                  key={competition}
+                  value={competition}
+                  style={{ color: "#FFFFFF", backgroundColor: "#121212" }}
+                />
               ))}
             </datalist>
             {draft.tournaments.map((item, index) => (
