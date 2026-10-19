@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import {
   isNationalAwardCode,
+  canRepairNationalAwardEvidence,
   NATIONAL_AWARD_TERMS_VERSION,
   NATIONAL_AWARD_OPTIONS,
   type NationalAwardCode,
@@ -167,6 +168,31 @@ export const getNationalAwardVerificationDetails = createServerFn({ method: "GET
     return mapRow((data as NationalAwardRow | null) ?? null);
   });
 
+export const assertNationalAwardEvidenceEditable = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((data) => z.object({ kind: z.enum(["certificate", "introduction", "identity"]) }).parse(data))
+  .handler(async ({ data, context }) => {
+    const admin = await getAdminClient();
+    const { data: application, error } = await admin
+      .from("national_award_verifications")
+      .select("review_status,review_reason")
+      .eq("user_id", context.userId)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+
+    const status = application?.review_status;
+    if (status && status !== "draft" && status !== "rejected") {
+      throw new Error("National Award evidence is locked while verification is under review or approved.");
+    }
+    if (
+      status === "rejected" &&
+      !canRepairNationalAwardEvidence(application?.review_reason, data.kind)
+    ) {
+      throw new Error("Only the evidence mentioned in the review request can be changed.");
+    }
+    return { allowed: true };
+  });
+
 const submissionFieldsSchema = z.object({
   fullName: z.string().trim().min(1).max(120),
   fatherName: z.string().trim().min(1).max(120),
@@ -259,6 +285,70 @@ function validateDateOfBirth(value: string) {
 }
 
 type SubmissionFields = z.infer<typeof submissionFieldsSchema>;
+
+async function assertRejectedAwardCorrectionChangesOnlyFlaggedEvidence(
+  admin: Awaited<ReturnType<typeof getAdminClient>>,
+  userId: string,
+  data: SubmissionFields,
+) {
+  const { data: existing, error } = await admin
+    .from("national_award_verifications")
+    .select("*")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (existing?.review_status !== "rejected") return;
+
+  const unchangedFields: Array<[unknown, unknown]> = [
+    [data.fullName.trim(), existing.full_name],
+    [data.fatherName.trim(), existing.father_name],
+    [data.dateOfBirth, existing.date_of_birth],
+    [data.phoneNumber.trim(), existing.phone_number],
+    [data.email.trim().toLowerCase(), existing.email],
+    [data.villageTown.trim(), existing.village_town],
+    [data.district.trim(), existing.district],
+    [data.state.trim(), existing.state],
+    [data.identityDetailsConfirmed, existing.identity_details_confirmed],
+    [data.awardCode, existing.award_code],
+    [data.awardYear, Number(existing.award_year)],
+    [data.indianIdentityProofType, existing.indian_identity_proof_type],
+  ];
+  if (unchangedFields.some(([submitted, saved]) => submitted !== saved)) {
+    throw new Error("Applicant details are locked; only the requested evidence can be changed.");
+  }
+
+  const evidence = [
+    {
+      kind: "identity" as const,
+      path: data.indianIdentityProofPath,
+      name: data.indianIdentityProofFileName.trim(),
+      savedPath: existing.indian_identity_proof_path,
+      savedName: existing.indian_identity_proof_file_name,
+    },
+    {
+      kind: "certificate" as const,
+      path: data.certificatePath,
+      name: data.certificateFileName.trim(),
+      savedPath: existing.certificate_path,
+      savedName: existing.certificate_file_name,
+    },
+    {
+      kind: "introduction" as const,
+      path: data.introductionPath,
+      name: data.introductionFileName.trim(),
+      savedPath: existing.introduction_path,
+      savedName: existing.introduction_file_name,
+    },
+  ];
+  for (const item of evidence) {
+    if (
+      !canRepairNationalAwardEvidence(existing.review_reason, item.kind) &&
+      (item.path !== item.savedPath || item.name !== item.savedName)
+    ) {
+      throw new Error("Only the evidence mentioned in the review request can be changed.");
+    }
+  }
+}
 
 async function buildNationalAwardRpcArgs(
   admin: Awaited<ReturnType<typeof getAdminClient>>,
@@ -450,6 +540,11 @@ export const saveNationalAwardVerificationDraft = createServerFn({ method: "POST
   .validator((data) => submissionFieldsSchema.parse(data))
   .handler(async ({ data, context }) => {
     const admin = await getAdminClient();
+    await assertRejectedAwardCorrectionChangesOnlyFlaggedEvidence(
+      admin,
+      context.userId,
+      data,
+    );
     const { rpcArgs, identityProof } = await buildNationalAwardRpcArgs(
       admin,
       context.userId,
@@ -473,6 +568,11 @@ export const submitNationalAwardVerification = createServerFn({ method: "POST" }
   .handler(async ({ data, context }) => {
     const { termsAccepted, ...submissionData } = data;
     const admin = await getAdminClient();
+    await assertRejectedAwardCorrectionChangesOnlyFlaggedEvidence(
+      admin,
+      context.userId,
+      submissionData,
+    );
     const { rpcArgs, identityProof } = await buildNationalAwardRpcArgs(
       admin,
       context.userId,

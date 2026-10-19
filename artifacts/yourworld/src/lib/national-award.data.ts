@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { assertNationalAwardEvidenceEditable } from "@/lib/national-award.functions";
 import {
   isNationalAwardCode,
   type NationalAwardEvidence,
@@ -60,6 +61,7 @@ export async function uploadNationalAwardEvidence(
   file: File,
 ): Promise<NationalAwardEvidence> {
   if (!userId) throw new Error("Sign in before uploading verification evidence.");
+  await assertNationalAwardEvidenceEditable({ data: { kind } });
 
   if (kind === "introduction") {
     await validateNationalAwardIntroductionVideo(file);
@@ -110,6 +112,10 @@ export async function uploadNationalAwardEvidence(
 }
 
 export async function getNationalAwardIntroductionPreviewUrl(path: string) {
+  return getNationalAwardEvidencePreviewUrl(path);
+}
+
+export async function getNationalAwardEvidencePreviewUrl(path: string) {
   if (!path || path.includes("..")) throw new Error("Invalid introduction video path.");
   const { data, error } = await supabase.storage
     .from(evidenceBucket)

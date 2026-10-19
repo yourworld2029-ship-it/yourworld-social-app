@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type React from "react";
 import {
   ArrowRight,
@@ -28,6 +28,7 @@ import {
   serializeForeignSportsAddress,
   type SportsVerificationDetails,
   type SportsVerificationEvidenceKind,
+  createSportsDocumentSignedUrl,
 } from "@/lib/profile-data";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -49,6 +50,8 @@ import {
   SPORTS_COUNTRY_OPTIONS,
 } from "@/lib/sports-country";
 import { IntroductionVideoPreview } from "@/components/yw/IntroductionVideoPreview";
+import { PrivateEvidencePreview } from "@/components/yw/PrivateEvidencePreview";
+import { isEvidenceFlaggedForReview } from "@/lib/verification-review";
 
 export type SportsRepresentation = "National" | "International";
 
@@ -762,6 +765,7 @@ export function SportsProfileCard({
 
 export function SportsDetailsPanel({
   profile,
+  verificationOwnerId,
   applicantCountry,
   isOwner,
   onSave,
@@ -785,6 +789,7 @@ export function SportsDetailsPanel({
   verificationEvidenceUploading = null,
 }: {
   profile: SportsProfileInfo;
+  verificationOwnerId?: string;
   applicantCountry?: string;
   isOwner: boolean;
   onSave?: (draft: SportsProfileDraft) => void | Promise<void>;
@@ -842,11 +847,15 @@ export function SportsDetailsPanel({
   const displayedSportsProfile =
     displayedStatus === profile.status ? profile : { ...profile, status: displayedStatus };
   const reviewStatus = verificationDetails?.reviewStatus ?? "not_submitted";
+  const verificationRejected =
+    reviewStatus === "rejected" || reviewStatus === "correction_requested";
   const verificationLocked =
-    profile.verificationRequested ||
-    reviewStatus === "pending" ||
-    (!internationalUpgradeMode && (profile.verified || reviewStatus === "approved"));
-  const verificationUnderReview = profile.verificationRequested || reviewStatus === "pending";
+    !verificationRejected &&
+    (profile.verificationRequested ||
+      reviewStatus === "pending" ||
+      (!internationalUpgradeMode && (profile.verified || reviewStatus === "approved")));
+  const verificationUnderReview =
+    !verificationRejected && (profile.verificationRequested || reviewStatus === "pending");
   const canUpgradeToInternational =
     isOwner &&
     profile.verified &&
@@ -964,6 +973,7 @@ export function SportsDetailsPanel({
 
       {isOwner ? (
         <SportsVerificationDetailsSection
+          ownerId={verificationOwnerId ?? ""}
           details={currentVerificationDraft}
           isInternational={isInternational}
           loading={verificationDetailsLoading}
@@ -1058,6 +1068,7 @@ export function SportsDetailsPanel({
               type="checkbox"
               checked={termsAgreed}
               onChange={(event) => setTermsAgreed(event.target.checked)}
+              disabled={verificationLocked}
               className="mt-1 h-4 w-4 accent-amber-200"
             />
             <span>I Agree to the Terms &amp; Conditions</span>
@@ -1088,38 +1099,21 @@ export function SportsDetailsPanel({
                 </Button>
               ) : null}
             </div>
-          ) : profile.verificationRequested ? (
+          ) : verificationUnderReview ? (
             <p
               data-testid="sports-verification-status"
               className="mt-4 rounded-2xl border border-amber-200/20 bg-amber-200/[0.08] px-4 py-3 text-sm text-amber-100"
             >
-              Pending Verification
+              Under Review • 12 to 72 Hours
             </p>
           ) : (
             <>
-              {verificationDetails?.reviewStatus === "rejected" ||
-              verificationDetails?.reviewStatus === "correction_requested" ? (
-                <div
-                  data-testid="sports-verification-review-feedback"
-                  className="mt-4 rounded-2xl border border-red-200/20 bg-red-200/[0.08] px-4 py-3"
-                >
-                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-red-200">
-                    {verificationDetails.reviewStatus === "correction_requested"
-                      ? "Correction requested"
-                      : "Verification rejected"}
-                  </p>
-                  {verificationDetails.reviewReason ? (
-                    <p className="mt-1 whitespace-pre-wrap text-sm text-zinc-200">
-                      {verificationDetails.reviewReason}
-                    </p>
-                  ) : null}
-                </div>
-              ) : null}
             <Button
               type="button"
               data-testid="button-submit-sports-verification"
               disabled={
                 !termsAgreed ||
+                verificationLocked ||
                 verificationSubmitting ||
                 !introductionVideoValid ||
                 sportsIntroductionUploading ||
@@ -1262,14 +1256,7 @@ function SportsIntroductionSection({
           />
       ) : profile.sportsIntroductionPath ? (
           <p className="text-sm text-zinc-500">Loading your Sports Introduction…</p>
-      ) : (
-        <div className="rounded-2xl border border-dashed border-amber-200/20 bg-amber-200/[0.04] p-4">
-          <p className="text-sm leading-6 text-zinc-300">
-            Introduce yourself in your own voice and tell people about your sport, role, major
-            achievements and sports journey.
-          </p>
-        </div>
-      )}
+      ) : null}
       {isOwner && !locked ? (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <label
@@ -1322,6 +1309,7 @@ function SportsIntroductionSection({
 }
 
 function SportsVerificationDetailsSection({
+  ownerId,
   details,
   isInternational,
   loading,
@@ -1344,6 +1332,7 @@ function SportsVerificationDetailsSection({
   upgradeFlow = false,
   underReview,
 }: {
+  ownerId: string;
   details: SportsVerificationDetails;
   isInternational: boolean;
   loading: boolean;
@@ -1377,6 +1366,24 @@ function SportsVerificationDetailsSection({
   underReview: boolean;
 }) {
   const foreignAddress = parseForeignSportsAddress(details.address);
+  const isRejected =
+    details.reviewStatus === "rejected" || details.reviewStatus === "correction_requested";
+  const fieldsLocked = locked || isRejected;
+  const evidenceLocked = (kind: SportsVerificationEvidenceKind | "sportsIntroduction") =>
+    locked ||
+    (isRejected &&
+      !isEvidenceFlaggedForReview(
+        details.reviewReason,
+        kind,
+        [
+          "sportsCertificate",
+          "passportFirstPage",
+          "passportVisaStampPage",
+          "indianIdentityProof",
+          "tournamentPhoto",
+          "sportsIntroduction",
+        ],
+      ));
   const setField = (
     field:
       | "fullName"
@@ -1423,7 +1430,21 @@ function SportsVerificationDetailsSection({
               data-testid="sports-verification-under-review"
               className="rounded-2xl border border-amber-200/25 bg-amber-200/[0.08] px-4 py-3 text-sm font-semibold text-amber-100"
             >
-              Under Review (12 to 72 working hours)
+              Under Review • 12 to 72 Hours
+            </div>
+          ) : null}
+          {isRejected ? (
+            <div
+              data-testid="sports-verification-review-feedback"
+              role="alert"
+              className="rounded-2xl border border-red-200/25 bg-red-200/[0.1] px-4 py-3"
+            >
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-red-200">
+                Verification Issue
+              </p>
+              <p className="mt-1 whitespace-pre-wrap text-sm text-zinc-100">
+                {details.reviewReason || "The reviewer requested a correction to your evidence."}
+              </p>
             </div>
           ) : null}
           <div className="space-y-3 rounded-2xl border border-amber-200/15 bg-amber-200/[0.04] p-3">
@@ -1442,7 +1463,7 @@ function SportsVerificationDetailsSection({
                   onChange={(event) => setField("fullName", event.target.value)}
                   placeholder="Exactly as on your identity document"
                   maxLength={200}
-                  disabled={locked || upgradeFlow}
+                  disabled={fieldsLocked || upgradeFlow}
                   className="border-white/10 bg-white/[0.04] text-sm text-white"
                 />
               </label>
@@ -1453,7 +1474,7 @@ function SportsVerificationDetailsSection({
                   onChange={(event) => setField("fatherName", event.target.value)}
                   placeholder="Exactly as on your identity document"
                   maxLength={200}
-                  disabled={locked || upgradeFlow}
+                  disabled={fieldsLocked || upgradeFlow}
                   className="border-white/10 bg-white/[0.04] text-sm text-white"
                 />
               </label>
@@ -1463,7 +1484,7 @@ function SportsVerificationDetailsSection({
                   type="date"
                   value={details.dateOfBirth}
                   onChange={(event) => setField("dateOfBirth", event.target.value)}
-                  disabled={locked || upgradeFlow}
+                  disabled={fieldsLocked || upgradeFlow}
                   className="border-white/10 bg-white/[0.04] text-sm text-white"
                 />
               </label>
@@ -1477,7 +1498,7 @@ function SportsVerificationDetailsSection({
                   onChange={(event) => setField("mobileNumber", event.target.value)}
                   placeholder="Phone number"
                   maxLength={40}
-                  disabled={locked || upgradeFlow}
+                  disabled={fieldsLocked || upgradeFlow}
                   className="border-white/10 bg-white/[0.04] text-sm text-white"
                 />
               </label>
@@ -1489,7 +1510,7 @@ function SportsVerificationDetailsSection({
                   onChange={(event) => setField("email", event.target.value)}
                   placeholder="Gmail / Email"
                   maxLength={255}
-                  disabled={locked || upgradeFlow}
+                  disabled={fieldsLocked || upgradeFlow}
                   className="border-white/10 bg-white/[0.04] text-sm text-white"
                 />
               </label>
@@ -1540,7 +1561,7 @@ function SportsVerificationDetailsSection({
                       onChange={(event) => setField("villageTown", event.target.value)}
                       placeholder="Village or town"
                       maxLength={120}
-                      disabled={locked || upgradeFlow}
+                      disabled={fieldsLocked || upgradeFlow}
                       className="border-white/10 bg-white/[0.04] text-sm text-white"
                     />
                   </label>
@@ -1551,7 +1572,7 @@ function SportsVerificationDetailsSection({
                       onChange={(event) => setField("district", event.target.value)}
                       placeholder="District"
                       maxLength={120}
-                      disabled={locked || upgradeFlow}
+                      disabled={fieldsLocked || upgradeFlow}
                       className="border-white/10 bg-white/[0.04] text-sm text-white"
                     />
                   </label>
@@ -1562,7 +1583,7 @@ function SportsVerificationDetailsSection({
                       onChange={(event) => setField("state", event.target.value)}
                       placeholder="State"
                       maxLength={120}
-                      disabled={locked || upgradeFlow}
+                      disabled={fieldsLocked || upgradeFlow}
                       className="border-white/10 bg-white/[0.04] text-sm text-white"
                     />
                   </label>
@@ -1578,7 +1599,7 @@ function SportsVerificationDetailsSection({
                       }
                       placeholder="Street address, apartment, or unit"
                       maxLength={240}
-                      disabled={locked}
+                      disabled={fieldsLocked}
                       className="border-white/10 bg-white/[0.04] text-sm text-white"
                     />
                   </label>
@@ -1589,7 +1610,7 @@ function SportsVerificationDetailsSection({
                       onChange={(event) => setField("villageTown", event.target.value)}
                       placeholder="City"
                       maxLength={120}
-                      disabled={locked}
+                      disabled={fieldsLocked}
                       className="border-white/10 bg-white/[0.04] text-sm text-white"
                     />
                   </label>
@@ -1600,7 +1621,7 @@ function SportsVerificationDetailsSection({
                       onChange={(event) => setField("state", event.target.value)}
                       placeholder="State, province, or region"
                       maxLength={120}
-                      disabled={locked}
+                      disabled={fieldsLocked}
                       className="border-white/10 bg-white/[0.04] text-sm text-white"
                     />
                   </label>
@@ -1613,7 +1634,7 @@ function SportsVerificationDetailsSection({
                       }
                       placeholder="Postal or ZIP code"
                       maxLength={40}
-                      disabled={locked}
+                      disabled={fieldsLocked}
                       className="border-white/10 bg-white/[0.04] text-sm text-white"
                     />
                   </label>
@@ -1637,7 +1658,7 @@ function SportsVerificationDetailsSection({
                       indianIdentityProofType: value as SportsVerificationDetails["indianIdentityProofType"],
                     })
                   }
-                  disabled={locked}
+                  disabled={fieldsLocked}
                 >
                   <SelectTrigger
                     data-testid="select-sports-indian-identity-proof-type"
@@ -1657,13 +1678,14 @@ function SportsVerificationDetailsSection({
                   accept="application/pdf,image/jpeg,image/png"
                   evidence={details.indianIdentityProof}
                   kind="indianIdentityProof"
+                  ownerId={ownerId}
                   label="Aadhaar / Indian Passport / Voter ID"
                   hint="Private upload. The reviewer checks that the document is Indian-issued."
                   uploading={uploading}
                   onUpload={onUploadEvidence}
                   onDelete={onDeleteEvidence}
                   onPreview={onPreviewEvidence}
-                  locked={locked}
+                  locked={evidenceLocked("indianIdentityProof")}
                 />
               </div>
             ) : null}
@@ -1674,7 +1696,7 @@ function SportsVerificationDetailsSection({
                 onChange={(event) =>
                   onChange({ ...details, identityDetailsConfirmed: event.target.checked })
                 }
-                disabled={locked}
+                disabled={fieldsLocked}
                 className="mt-1 h-4 w-4 accent-amber-200"
               />
               <span>
@@ -1694,12 +1716,13 @@ function SportsVerificationDetailsSection({
               accept="application/pdf,image/jpeg,image/png"
               evidence={details.sportsCertificate}
               kind="sportsCertificate"
+              ownerId={ownerId}
               label="Sports Certificate"
               uploading={uploading}
               onUpload={onUploadEvidence}
                onDelete={onDeleteEvidence}
                onPreview={onPreviewEvidence}
-                 locked={locked || upgradeFlow}
+               locked={evidenceLocked("sportsCertificate") || upgradeFlow}
             />
             {isInternational ? (
               <>
@@ -1707,24 +1730,26 @@ function SportsVerificationDetailsSection({
                   accept="application/pdf,image/jpeg,image/png"
                   evidence={details.passportFirstPage}
                   kind="passportFirstPage"
+                  ownerId={ownerId}
                   label="Passport First Page"
                   uploading={uploading}
                   onUpload={onUploadEvidence}
                    onDelete={onDeleteEvidence}
                    onPreview={onPreviewEvidence}
-                   locked={locked}
+                   locked={evidenceLocked("passportFirstPage")}
                 />
                 <VerificationEvidenceRow
                   accept="application/pdf,image/jpeg,image/png"
                   evidence={details.passportVisaStampPage}
                   kind="passportVisaStampPage"
+                  ownerId={ownerId}
                   label="Passport Visa / Stamp Page"
                   hint="The page showing the visa or stamp for the tournament/game country."
                   uploading={uploading}
                   onUpload={onUploadEvidence}
                    onDelete={onDeleteEvidence}
                    onPreview={onPreviewEvidence}
-                   locked={locked}
+                   locked={evidenceLocked("passportVisaStampPage")}
                 />
               </>
             ) : null}
@@ -1737,7 +1762,10 @@ function SportsVerificationDetailsSection({
               onUploadSportsIntroduction={onUploadSportsIntroduction}
               onDeleteSportsIntroduction={onDeleteSportsIntroduction}
               onVideoValidityChange={onIntroductionValidityChange}
-              locked={locked || upgradeFlow}
+               locked={
+                 evidenceLocked("sportsIntroduction") ||
+                 upgradeFlow
+               }
             />
           </div>
 
@@ -1747,6 +1775,7 @@ function SportsVerificationDetailsSection({
               disabled={
                 saving ||
                 locked ||
+                isRejected ||
                 !onSave ||
                 !introductionVideoValid ||
                 sportsIntroductionUploading
@@ -1780,6 +1809,7 @@ function VerificationEvidenceRow({
   accept,
   evidence,
   kind,
+  ownerId,
   label,
   hint,
   uploading,
@@ -1791,6 +1821,7 @@ function VerificationEvidenceRow({
   accept: string;
   evidence: SportsVerificationDetails["sportsCertificate"];
   kind: SportsVerificationEvidenceKind;
+  ownerId: string;
   label: string;
   hint?: string;
   uploading: SportsVerificationEvidenceKind | null;
@@ -1808,6 +1839,10 @@ function VerificationEvidenceRow({
 }) {
   const inputId = `sports-verification-${kind}`;
   const isUploading = uploading === kind;
+  const getSignedUrl = useCallback(
+    (path: string) => createSportsDocumentSignedUrl(ownerId, path),
+    [ownerId],
+  );
   return (
     <div className="flex flex-wrap items-start gap-3 rounded-xl border border-white/10 bg-black/10 p-3">
       <FileCheck2 className="mt-0.5 h-4 w-4 shrink-0 text-amber-200" />
@@ -1815,6 +1850,15 @@ function VerificationEvidenceRow({
         <p className="text-sm font-medium text-zinc-200">{label}</p>
         <p className="mt-0.5 text-xs text-zinc-500">{hint || "Private upload"}</p>
         <p className="mt-1 text-xs text-zinc-400">{evidence ? "Uploaded" : "Not uploaded"}</p>
+        {evidence ? (
+          <PrivateEvidencePreview
+            path={evidence.path}
+            name={evidence.name}
+            mimeType={evidence.mimeType}
+            getSignedUrl={getSignedUrl}
+            testId={`preview-sports-verification-${kind}`}
+          />
+        ) : null}
       </div>
       <div className="ml-auto flex shrink-0 flex-wrap justify-end gap-2">
         {evidence && onPreview ? (

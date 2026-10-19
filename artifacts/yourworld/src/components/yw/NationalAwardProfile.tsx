@@ -22,6 +22,7 @@ import type {
   NationalAwardVerificationDetails,
 } from "@/lib/national-award";
 import {
+  canRepairNationalAwardEvidence,
   NATIONAL_AWARD_OPTIONS,
   NATIONAL_AWARD_YEARS,
   INDIAN_IDENTITY_PROOF_TYPES,
@@ -43,8 +44,12 @@ import {
 import { Form } from "@/components/ui/form";
 import { NationalAwardTermsSection } from "@/components/yw/NationalAwardTermsSection";
 import { IntroductionVideoPreview } from "@/components/yw/IntroductionVideoPreview";
+import { PrivateEvidencePreview } from "@/components/yw/PrivateEvidencePreview";
 import { toast } from "sonner";
-import { getNationalAwardIntroductionPreviewUrl } from "@/lib/national-award.data";
+import {
+  getNationalAwardEvidencePreviewUrl,
+  getNationalAwardIntroductionPreviewUrl,
+} from "@/lib/national-award.data";
 import { useForm, useFormContext } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -287,6 +292,7 @@ export function NationalAwardVerificationDialog({
     details.status === "not_submitted" ||
     details.status === "draft" ||
     details.status === "rejected";
+  const isRejected = details?.status === "rejected";
   const isPending =
     details?.status === "pending" || details?.status === "pending_verification";
   const selectedAwardLabel = useMemo(
@@ -458,7 +464,7 @@ export function NationalAwardVerificationDialog({
                   className="mb-4 flex items-start gap-2 rounded-2xl border border-amber-200/25 bg-amber-200/[0.08] px-4 py-3 text-sm text-amber-100"
                 >
                   <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
-                  <span>Under review. Your submitted details are locked until review is complete.</span>
+                  <span>Under Review • 12 to 72 Hours. Your submitted details are locked until review is complete.</span>
                 </div>
               ) : null}
 
@@ -480,7 +486,7 @@ export function NationalAwardVerificationDialog({
                 >
                   <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-rose-200">
                     <AlertCircle className="h-4 w-4" />
-                    Review reason
+                    Verification Issue
                   </p>
                   <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-zinc-200">
                     {details.reviewReason}
@@ -488,7 +494,7 @@ export function NationalAwardVerificationDialog({
                 </div>
               ) : null}
 
-              <fieldset disabled={!editable} className="space-y-5">
+              <fieldset disabled={!editable || isRejected} className="space-y-5">
                 <section className="space-y-3">
                   <SectionHeading
                     title="Identity Details"
@@ -509,7 +515,7 @@ export function NationalAwardVerificationDialog({
                       label="Father's Name"
                       placeholder="Exactly as on your identity document"
                     />
-                    <NationalAwardDobField disabled={!editable} />
+                    <NationalAwardDobField disabled={!editable || isRejected} />
                     <TextField
                       name="phoneNumber"
                       id="national-award-phone-number"
@@ -599,7 +605,7 @@ export function NationalAwardVerificationDialog({
                             shouldValidate: true,
                           })
                         }
-                        disabled={!editable}
+                        disabled={!editable || isRejected}
                       >
                         <SelectTrigger
                           id="national-award-award-code"
@@ -642,7 +648,7 @@ export function NationalAwardVerificationDialog({
                             shouldValidate: true,
                           })
                         }
-                        disabled={!editable}
+                        disabled={!editable || isRejected}
                       >
                         <SelectTrigger
                           id="national-award-year"
@@ -671,6 +677,8 @@ export function NationalAwardVerificationDialog({
                   </div>
                 </section>
 
+                </fieldset>
+
                 <section className="space-y-3">
                   <SectionHeading
                     title="Private verification evidence"
@@ -692,7 +700,7 @@ export function NationalAwardVerificationDialog({
                           { shouldDirty: true, shouldValidate: true },
                         )
                       }
-                      disabled={!editable}
+                      disabled={!editable || isRejected}
                     >
                       <SelectTrigger
                         id="national-award-indian-identity-proof-type"
@@ -721,8 +729,18 @@ export function NationalAwardVerificationDialog({
                     accept="application/pdf,image/jpeg,image/png"
                     evidence={values.indianIdentityProof}
                     uploading={uploadingKind === "identity"}
-                    disabled={!editable}
+                    disabled={
+                      !editable ||
+                      (isRejected &&
+                        !canRepairNationalAwardEvidence(details?.reviewReason, "identity"))
+                    }
                     onUpload={(file) => void uploadEvidence("identity", file)}
+                    onDelete={() =>
+                      setValue("indianIdentityProof", null, {
+                        shouldDirty: true,
+                        shouldValidate: true,
+                      })
+                    }
                   />
                   <EvidenceUpload
                     kind="certificate"
@@ -731,8 +749,18 @@ export function NationalAwardVerificationDialog({
                     accept="application/pdf,image/jpeg,image/png,image/webp"
                     evidence={values.certificate}
                     uploading={uploadingKind === "certificate"}
-                    disabled={!editable}
+                    disabled={
+                      !editable ||
+                      (isRejected &&
+                        !canRepairNationalAwardEvidence(details?.reviewReason, "certificate"))
+                    }
                     onUpload={(file) => void uploadEvidence("certificate", file)}
+                    onDelete={() =>
+                      setValue("certificate", null, {
+                        shouldDirty: true,
+                        shouldValidate: true,
+                      })
+                    }
                   />
                   <div className="space-y-3 rounded-xl border border-white/10 bg-black/10 p-3">
                     <div>
@@ -767,7 +795,13 @@ export function NationalAwardVerificationDialog({
                       <label
                         htmlFor="national-award-introduction-video"
                         className={`inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-amber-200/25 bg-amber-200/10 px-3 py-1.5 text-xs font-semibold text-amber-100 hover:bg-amber-200/20 ${
-                          uploadingKind === "introduction" || !editable
+                          uploadingKind === "introduction" ||
+                          !editable ||
+                          (isRejected &&
+                            !canRepairNationalAwardEvidence(
+                              details?.reviewReason,
+                              "introduction",
+                            ))
                             ? "pointer-events-none opacity-60"
                             : ""
                         }`}
@@ -784,14 +818,28 @@ export function NationalAwardVerificationDialog({
                         type="file"
                         accept="video/mp4,video/webm,video/quicktime"
                         className="sr-only"
-                        disabled={uploadingKind === "introduction" || !editable}
+                        disabled={
+                          uploadingKind === "introduction" ||
+                          !editable ||
+                          (isRejected &&
+                            !canRepairNationalAwardEvidence(
+                              details?.reviewReason,
+                              "introduction",
+                            ))
+                        }
                         onChange={(event) => {
                           const file = event.currentTarget.files?.[0];
                           event.currentTarget.value = "";
                           if (file) void uploadEvidence("introduction", file);
                         }}
                       />
-                      {values.introductionVideo && editable ? (
+                      {values.introductionVideo &&
+                      editable &&
+                      (!isRejected ||
+                        canRepairNationalAwardEvidence(
+                          details?.reviewReason,
+                          "introduction",
+                        )) ? (
                         <Button
                           type="button"
                           variant="ghost"
@@ -814,8 +862,6 @@ export function NationalAwardVerificationDialog({
                     </div>
                   </div>
                 </section>
-              </fieldset>
-
               {errors.length ? (
                 <div
                   data-testid="status-national-award-validation-errors"
@@ -831,20 +877,20 @@ export function NationalAwardVerificationDialog({
                 </div>
               ) : null}
 
-               {editable ? (
+              {editable && !isRejected ? (
                 <Button
-                   type="button"
+                  type="button"
                   data-testid="button-save-national-award-verification"
-                    disabled={
-                      saving ||
-                      savingDraft ||
-                      Boolean(uploadingKind) ||
-                      !introductionVideoValid
-                    }
-                   onClick={() => void handleSubmit(saveDraft)()}
+                  disabled={
+                    saving ||
+                    savingDraft ||
+                    Boolean(uploadingKind) ||
+                    !introductionVideoValid
+                  }
+                  onClick={() => void handleSubmit(saveDraft)()}
                   className="mt-5 h-11 w-full rounded-full bg-[#e2b75e] font-semibold text-black hover:bg-[#f0cb7b]"
                 >
-                   {savingDraft ? (
+                  {savingDraft ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       Saving…
@@ -853,29 +899,33 @@ export function NationalAwardVerificationDialog({
                     "Save Verification Details"
                   )}
                 </Button>
+              ) : isRejected ? (
+                <p className="mt-5 rounded-xl border border-amber-200/15 bg-amber-200/[0.05] px-3 py-2 text-xs leading-5 text-amber-100">
+                  Replace the flagged evidence, accept the terms, and submit again for review.
+                </p>
               ) : (
                 <p
                   data-testid="status-national-award-readonly"
                   className="mt-5 flex items-center justify-center gap-2 text-xs text-zinc-500"
                 >
                   <ShieldCheck className="h-4 w-4" />
-                   {details?.status === "approved"
+                  {details?.status === "approved"
                     ? "Approved submissions are read-only."
                     : "Pending submissions are read-only."}
                 </p>
-               )}
-               <NationalAwardTermsSection
-                 accepted={termsAgreed}
-                 editable={editable}
-                  busy={
-                    saving ||
-                    savingDraft ||
-                    Boolean(uploadingKind) ||
-                    !introductionVideoValid
-                  }
-                 submitting={saving}
-                 onAcceptedChange={setTermsAgreed}
-               />
+              )}
+              <NationalAwardTermsSection
+                accepted={termsAgreed}
+                editable={editable}
+                busy={
+                  saving ||
+                  savingDraft ||
+                  Boolean(uploadingKind) ||
+                  !introductionVideoValid
+                }
+                submitting={saving}
+                onAcceptedChange={setTermsAgreed}
+              />
               </form>
             </Form>
           )}
@@ -1163,6 +1213,7 @@ function EvidenceUpload({
   uploading,
   disabled,
   onUpload,
+  onDelete,
 }: {
   kind: NationalAwardEvidenceKind;
   label: string;
@@ -1172,6 +1223,7 @@ function EvidenceUpload({
   uploading: boolean;
   disabled: boolean;
   onUpload: (file: File | undefined) => void;
+  onDelete: () => void;
 }) {
   const inputId = `national-award-upload-${kind}`;
   return (
@@ -1200,16 +1252,41 @@ function EvidenceUpload({
               : "Not uploaded"}
         </p>
       </div>
-      <label
-        htmlFor={inputId}
-        data-testid={`button-upload-national-award-${kind}`}
-        className={`inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-[#e2b75e]/35 bg-[#e2b75e]/10 px-3 py-1.5 text-xs font-semibold text-[#f0cb7b] transition-colors hover:bg-[#e2b75e]/20 ${
-          disabled || uploading ? "pointer-events-none opacity-50" : ""
-        }`}
-      >
-        <Upload className="h-3.5 w-3.5" />
-        {uploading ? "Uploading…" : evidence ? "Replace" : "Upload"}
-      </label>
+      {evidence ? (
+        <PrivateEvidencePreview
+          path={evidence.path}
+          name={evidence.name}
+          mimeType={evidence.mimeType}
+          getSignedUrl={getNationalAwardEvidencePreviewUrl}
+          testId={`preview-national-award-evidence-${kind}`}
+        />
+      ) : null}
+      <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
+        <label
+          htmlFor={inputId}
+          data-testid={`button-upload-national-award-${kind}`}
+          className={`inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-[#e2b75e]/35 bg-[#e2b75e]/10 px-3 py-1.5 text-xs font-semibold text-[#f0cb7b] transition-colors hover:bg-[#e2b75e]/20 ${
+            disabled || uploading ? "pointer-events-none opacity-50" : ""
+          }`}
+        >
+          <Upload className="h-3.5 w-3.5" />
+          {uploading ? "Uploading…" : evidence ? "Replace" : "Upload"}
+        </label>
+        {evidence && !disabled ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={uploading}
+            data-testid={`button-delete-national-award-${kind}`}
+            onClick={onDelete}
+            className="rounded-full text-red-200 hover:bg-red-400/10 hover:text-red-100"
+          >
+            <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+            Delete
+          </Button>
+        ) : null}
+      </div>
       <input
         id={inputId}
         data-testid={`input-upload-national-award-${kind}`}

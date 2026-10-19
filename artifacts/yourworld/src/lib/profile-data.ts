@@ -6,6 +6,7 @@ import { STORAGE_BUCKETS, uploadWithProgress, type ProgressFn } from "@/lib/stor
 import { resolveMediaUrl, type DbPost } from "@/lib/social-data";
 import { announcePostDeleted, isPostDeleted } from "@/lib/post-deletion";
 import { writeCompat } from "@/lib/supabase-compat";
+import { isEvidenceFlaggedForReview } from "@/lib/verification-review";
 import { fetchProfilePostsPage } from "@/lib/profile-posts";
 import {
   isSportsIdentityCategory,
@@ -176,10 +177,23 @@ async function requireDocumentOwner(ownerId: string) {
 const lockedSportsVerificationStatuses = new Set(["pending", "approved"]);
 
 type InternationalUpgradePassportKind = "passportFirstPage" | "passportVisaStampPage";
+type SportsCorrectionEvidenceKind = SportsVerificationEvidenceKind | "sportsIntroduction";
+const sportsEvidenceKinds: readonly SportsVerificationEvidenceKind[] = [
+  "sportsCertificate",
+  "passportFirstPage",
+  "passportVisaStampPage",
+  "tournamentPhoto",
+  "indianIdentityProof",
+];
+const sportsCorrectionEvidenceKinds: readonly SportsCorrectionEvidenceKind[] = [
+  ...sportsEvidenceKinds,
+  "sportsIntroduction",
+];
 
 async function requireMutableSportsVerification(
   ownerId: string,
   internationalUpgradePassportKind?: InternationalUpgradePassportKind,
+  correctionEvidenceKind?: SportsCorrectionEvidenceKind,
 ) {
   await requireDocumentOwner(ownerId);
 
@@ -192,7 +206,7 @@ async function requireMutableSportsVerification(
         .maybeSingle(),
       supabase
         .from("sports_verification_details")
-        .select("review_status")
+        .select("review_status,review_reason")
         .eq("user_id", ownerId)
         .maybeSingle(),
     ]);
@@ -206,7 +220,18 @@ async function requireMutableSportsVerification(
     profile.verification_requested !== true &&
     /\brepresentation\s*:\s*national\b/i.test(profile.bio ?? "") &&
     ["approved", "rejected", "correction_requested"].includes(status);
-  if (nationalInternationalUpgrade) return;
+  if (nationalInternationalUpgrade) return status;
+  if (
+    (status === "rejected" || status === "correction_requested") &&
+    (!correctionEvidenceKind ||
+      !isEvidenceFlaggedForReview(
+        details?.review_reason,
+        correctionEvidenceKind,
+        sportsCorrectionEvidenceKinds,
+      ))
+  ) {
+    throw new Error("Only the evidence mentioned in the review request can be changed.");
+  }
   if (
     profile?.is_verified === true ||
     profile?.verification_requested === true ||
@@ -214,6 +239,7 @@ async function requireMutableSportsVerification(
   ) {
     throw new Error("Sports Verification files are locked while this request is under review or approved.");
   }
+  return status;
 }
 
 function evidenceFromPath(
@@ -327,8 +353,46 @@ export async function saveSportsVerificationDetails(
   ownerId: string,
   details: SportsVerificationDetails,
   internationalUpgradePassportKind?: InternationalUpgradePassportKind,
+  correctionEvidenceKind?: SportsVerificationEvidenceKind,
 ): Promise<SportsVerificationDetails> {
-  await requireMutableSportsVerification(ownerId, internationalUpgradePassportKind);
+  const reviewStatus = await requireMutableSportsVerification(
+    ownerId,
+    internationalUpgradePassportKind,
+    correctionEvidenceKind,
+  );
+  if (
+    !internationalUpgradePassportKind &&
+    correctionEvidenceKind &&
+    (reviewStatus === "rejected" || reviewStatus === "correction_requested")
+  ) {
+    const previous = await getSportsVerificationDetails(ownerId);
+    const immutableFields: (keyof SportsVerificationDetails)[] = [
+      "fullName",
+      "fatherName",
+      "dateOfBirth",
+      "address",
+      "passportNumber",
+      "certificateNumber",
+      "identityDetailsConfirmed",
+      "villageTown",
+      "district",
+      "state",
+      "country",
+      "indianIdentityProofType",
+      "mobileNumber",
+      "email",
+    ];
+    for (const field of immutableFields) {
+      if (details[field] !== previous[field]) {
+        throw new Error("Applicant details are locked; only the requested evidence can be changed.");
+      }
+    }
+    for (const kind of sportsEvidenceKinds) {
+      if (kind !== correctionEvidenceKind && details[kind]?.path !== previous[kind]?.path) {
+        throw new Error("Only the evidence mentioned in the review request can be changed.");
+      }
+    }
+  }
   if (internationalUpgradePassportKind) {
     const evidence = details[internationalUpgradePassportKind];
     const path = evidence?.path ?? null;
@@ -503,7 +567,7 @@ export async function uploadSportsVerificationEvidence(
 ): Promise<SportsVerificationEvidence> {
   const upgradePassportKind =
     kind === "passportFirstPage" || kind === "passportVisaStampPage" ? kind : undefined;
-  await requireMutableSportsVerification(ownerId, upgradePassportKind);
+  await requireMutableSportsVerification(ownerId, upgradePassportKind, kind);
   const rule = verificationEvidenceRules[kind];
   if (!rule.allowedTypes.has(file.type) || file.size > rule.maxBytes) {
     throw new Error(rule.message);
@@ -531,8 +595,13 @@ export async function deleteSportsVerificationEvidence(
   ownerId: string,
   path: string,
   internationalUpgradePassportKind?: InternationalUpgradePassportKind,
+  correctionEvidenceKind?: SportsVerificationEvidenceKind,
 ) {
-  await requireMutableSportsVerification(ownerId, internationalUpgradePassportKind);
+  await requireMutableSportsVerification(
+    ownerId,
+    internationalUpgradePassportKind,
+    correctionEvidenceKind,
+  );
   if (!path.startsWith(`${ownerId}/sports-verification/`) || path.includes("..")) {
     throw new Error("Invalid Sports Verification evidence path.");
   }
@@ -686,7 +755,7 @@ export async function uploadSportsIntroduction(
   file: File,
   onProgress?: ProgressFn,
 ) {
-  await requireMutableSportsVerification(ownerId);
+  await requireMutableSportsVerification(ownerId, undefined, "sportsIntroduction");
   await validateSportsIntroductionVideo(file);
   const extension = file.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || "mp4";
   const path = `${ownerId}/sports-introduction/${Date.now()}-${safeSportsIntroductionFileName(
@@ -705,7 +774,7 @@ export async function uploadSportsIntroduction(
 }
 
 export async function deleteSportsIntroduction(ownerId: string, path: string) {
-  await requireMutableSportsVerification(ownerId);
+  await requireMutableSportsVerification(ownerId, undefined, "sportsIntroduction");
   if (!path.startsWith(`${ownerId}/sports-introduction/`) || path.includes("..")) {
     throw new Error("Invalid Sports Introduction path.");
   }

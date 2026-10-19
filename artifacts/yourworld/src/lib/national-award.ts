@@ -1,3 +1,5 @@
+import { isEvidenceFlaggedForReview } from "@/lib/verification-review";
+
 export const NATIONAL_AWARD_OPTIONS = [
   { value: "bharat_ratna", label: "Bharat Ratna 🎖️" },
   { value: "padma_award", label: "Padma Award (Vibhushan / Bhushan / Shri) 🎖️" },
@@ -12,6 +14,19 @@ export const NATIONAL_AWARD_OPTIONS = [
 
 export type NationalAwardCode = (typeof NATIONAL_AWARD_OPTIONS)[number]["value"];
 export type NationalAwardEvidenceKind = "certificate" | "introduction" | "identity";
+export const NATIONAL_AWARD_EVIDENCE_KINDS: readonly NationalAwardEvidenceKind[] = [
+  "identity",
+  "certificate",
+  "introduction",
+];
+
+export function canRepairNationalAwardEvidence(
+  reviewReason: string | null | undefined,
+  kind: NationalAwardEvidenceKind,
+) {
+  return isEvidenceFlaggedForReview(reviewReason, kind, NATIONAL_AWARD_EVIDENCE_KINDS);
+}
+
 export type NationalAwardStatus =
   | "not_submitted"
   | "draft"

@@ -840,10 +840,16 @@ function ProfilePage() {
         userId,
         nextDetails,
         upgradePassportKind,
+        kind,
       );
       setSportsVerificationDetails(savedDetails);
       if (previousEvidence?.path && previousEvidence.path !== uploaded.path) {
-        await deleteSportsVerificationEvidence(userId, previousEvidence.path, upgradePassportKind);
+        await deleteSportsVerificationEvidence(
+          userId,
+          previousEvidence.path,
+          upgradePassportKind,
+          kind,
+        );
       }
       toast.success("Private verification evidence uploaded");
     } catch (error) {
@@ -868,11 +874,16 @@ function ProfilePage() {
       if (!evidence) return;
       const upgradePassportKind =
         kind === "passportFirstPage" || kind === "passportVisaStampPage" ? kind : undefined;
-      await deleteSportsVerificationEvidence(userId, evidence.path, upgradePassportKind);
+      await deleteSportsVerificationEvidence(
+        userId,
+        evidence.path,
+        upgradePassportKind,
+        kind,
+      );
       const savedDetails = await saveSportsVerificationDetails(userId, {
         ...currentDetails,
         [kind]: null,
-      }, upgradePassportKind);
+      }, upgradePassportKind, kind);
       setSportsVerificationDetails(savedDetails);
       toast.success("Private verification evidence deleted");
     } catch (error) {
@@ -1288,6 +1299,7 @@ function ProfilePage() {
             </SheetHeader>
             <SportsDetailsPanel
               profile={sportsProfile}
+              verificationOwnerId={profile.id}
               applicantCountry={profile.country}
               isOwner={Boolean(userId && userId === profile.id)}
               onSave={saveSportsDetails}
