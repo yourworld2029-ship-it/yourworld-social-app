@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarDays,
   AlertCircle,
@@ -252,6 +252,7 @@ export function NationalAwardVerificationDialog({
   savingDraft,
   uploadingKind,
   onUpload,
+  onEvidenceUploadActivityChange,
   onSaveDraft,
   onSubmit,
 }: {
@@ -266,6 +267,7 @@ export function NationalAwardVerificationDialog({
     kind: NationalAwardEvidenceKind,
     file: File,
   ) => Promise<NationalAwardEvidence>;
+  onEvidenceUploadActivityChange?: (active: boolean) => void;
   onSaveDraft: (values: NationalAwardFormValues) => Promise<void>;
   onSubmit: (values: NationalAwardFormValues, termsAccepted: true) => Promise<void>;
 }) {
@@ -285,6 +287,7 @@ export function NationalAwardVerificationDialog({
   } = form;
   const values = watch();
   const [termsAgreed, setTermsAgreed] = useState(false);
+  const [evidencePickerActive, setEvidencePickerActive] = useState(false);
   const [introductionPreviewUrl, setIntroductionPreviewUrl] = useState<string | null>(null);
   const [introductionVideoValid, setIntroductionVideoValid] = useState(false);
   const editable =
@@ -412,8 +415,17 @@ export function NationalAwardVerificationDialog({
     await onSaveDraft(normalizeNationalAwardValues(draftValues));
   };
 
+  const setEvidencePickerActivity = (active: boolean) => {
+    setEvidencePickerActive(active);
+    onEvidenceUploadActivityChange?.(active);
+  };
+  const handleDialogOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen && (evidencePickerActive || uploadingKind !== null)) return;
+    onOpenChange(nextOpen);
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent
         data-testid="dialog-national-award-verification"
         className="max-h-[94svh] max-w-2xl overflow-hidden rounded-3xl border border-[#c79a42]/30 bg-black p-0 text-white shadow-[0_20px_90px_rgba(0,0,0,0.72)] [&>button]:hidden"
@@ -432,7 +444,7 @@ export function NationalAwardVerificationDialog({
               type="button"
               data-testid="button-close-national-award-dialog"
               aria-label="Close National Award Profile"
-              onClick={() => onOpenChange(false)}
+              onClick={() => handleDialogOpenChange(false)}
               className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-white/10 text-zinc-400 transition-colors hover:bg-white/10 hover:text-white"
             >
               <X className="h-4 w-4" />
@@ -734,7 +746,8 @@ export function NationalAwardVerificationDialog({
                       (isRejected &&
                         !canRepairNationalAwardEvidence(details?.reviewReason, "identity"))
                     }
-                    onUpload={(file) => void uploadEvidence("identity", file)}
+                    onUpload={(file) => uploadEvidence("identity", file)}
+                    onPickerActivityChange={setEvidencePickerActivity}
                     onDelete={() =>
                       setValue("indianIdentityProof", null, {
                         shouldDirty: true,
@@ -754,7 +767,8 @@ export function NationalAwardVerificationDialog({
                       (isRejected &&
                         !canRepairNationalAwardEvidence(details?.reviewReason, "certificate"))
                     }
-                    onUpload={(file) => void uploadEvidence("certificate", file)}
+                    onUpload={(file) => uploadEvidence("certificate", file)}
+                    onPickerActivityChange={setEvidencePickerActivity}
                     onDelete={() =>
                       setValue("certificate", null, {
                         shouldDirty: true,
@@ -1213,6 +1227,7 @@ function EvidenceUpload({
   uploading,
   disabled,
   onUpload,
+  onPickerActivityChange,
   onDelete,
 }: {
   kind: NationalAwardEvidenceKind;
@@ -1222,10 +1237,22 @@ function EvidenceUpload({
   evidence: NationalAwardEvidence | null;
   uploading: boolean;
   disabled: boolean;
-  onUpload: (file: File | undefined) => void;
+  onUpload: (file: File | undefined) => void | Promise<void>;
+  onPickerActivityChange?: (active: boolean) => void;
   onDelete: () => void;
 }) {
   const inputId = `national-award-upload-${kind}`;
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const input = inputRef.current;
+    if (!input) return;
+    const handleCancel = (event: Event) => {
+      event.stopPropagation();
+      onPickerActivityChange?.(false);
+    };
+    input.addEventListener("cancel", handleCancel);
+    return () => input.removeEventListener("cancel", handleCancel);
+  }, [onPickerActivityChange]);
   return (
     <div
       data-testid={`control-national-award-evidence-${kind}`}
@@ -1288,16 +1315,30 @@ function EvidenceUpload({
         ) : null}
       </div>
       <input
+        ref={inputRef}
         id={inputId}
         data-testid={`input-upload-national-award-${kind}`}
         type="file"
         accept={accept}
         disabled={disabled || uploading}
         className="sr-only"
+        onClick={(event) => {
+          event.stopPropagation();
+          onPickerActivityChange?.(true);
+        }}
         onChange={(event) => {
-          const file = event.currentTarget.files?.[0];
-          event.currentTarget.value = "";
-          onUpload(file);
+          event.preventDefault();
+          event.stopPropagation();
+          const input = event.currentTarget;
+          const file = input.files?.[0];
+          input.value = "";
+          if (!file) {
+            onPickerActivityChange?.(false);
+            return;
+          }
+          void Promise.resolve(onUpload(file))
+            .finally(() => onPickerActivityChange?.(false))
+            .catch(() => undefined);
         }}
       />
     </div>

@@ -73,7 +73,13 @@ export function EditProfileSheet({
   const avatarPreviewUrl = useRef<string | null>(null);
   const countrySelectorRef = useRef<HTMLButtonElement>(null);
   const countryHighlightTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const nationalAwardEvidenceUploadActive = useRef(false);
   const [countryMissing, setCountryMissing] = useState(false);
+
+  const requestSheetOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen && nationalAwardEvidenceUploadActive.current) return;
+    onOpenChange(nextOpen);
+  };
 
   useEffect(() => {
     if (open) {
@@ -233,7 +239,7 @@ export function EditProfileSheet({
   };
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet open={open} onOpenChange={requestSheetOpenChange}>
       <SheetContent
         side="bottom"
         className="max-h-[92svh] overflow-y-auto rounded-t-3xl border-border/60 p-0 [&>button]:hidden"
@@ -241,7 +247,7 @@ export function EditProfileSheet({
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border/60 glass px-4 py-3">
           <button
             type="button"
-            onClick={() => onOpenChange(false)}
+            onClick={() => requestSheetOpenChange(false)}
             aria-label="Close"
             className="grid h-8 w-8 place-items-center rounded-full bg-secondary/70 transition-transform active:scale-90"
           >
@@ -634,6 +640,9 @@ export function EditProfileSheet({
                 sportsVerificationCountry={sportsVerificationCountry}
                 onSubmitted={onVerificationSubmitted}
                 onBeforeOpen={requireCountrySelected}
+                onEvidenceUploadActivityChange={(active) => {
+                  nationalAwardEvidenceUploadActive.current = active;
+                }}
               />
             </div>
           </div>
@@ -642,7 +651,7 @@ export function EditProfileSheet({
             <Button
               variant="secondary"
               className="h-11 rounded-full"
-              onClick={() => onOpenChange(false)}
+              onClick={() => requestSheetOpenChange(false)}
             >
               Cancel
             </Button>
@@ -656,7 +665,7 @@ export function EditProfileSheet({
                   setCategoryOptionsOpen(false);
                   setExpandedMainCategory(null);
                   setPendingSport(null);
-                  onOpenChange(false);
+                  requestSheetOpenChange(false);
                   toast.success("Profile updated");
                 } catch (e) {
                   toast.error(e instanceof Error ? e.message : "Could not save profile");

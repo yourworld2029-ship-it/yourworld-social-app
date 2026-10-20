@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type React from "react";
 import {
   ArrowRight,
@@ -788,6 +788,7 @@ export function SportsDetailsPanel({
   onPreviewVerificationEvidence,
   verificationEvidenceUploading = null,
   verificationEvidenceProgress = 0,
+  onVerificationEvidencePickerActiveChange,
 }: {
   profile: SportsProfileInfo;
   verificationOwnerId?: string;
@@ -826,6 +827,7 @@ export function SportsDetailsPanel({
   ) => void | Promise<void>;
   verificationEvidenceUploading?: SportsVerificationEvidenceKind | null;
   verificationEvidenceProgress?: number;
+  onVerificationEvidencePickerActiveChange?: (active: boolean) => void;
 }) {
   const [editorField, setEditorField] = useState<SportsEditorField | null>(null);
   const [draft, setDraft] = useState<SportsProfileDraft>(() => toSportsProfileDraft(profile));
@@ -982,6 +984,7 @@ export function SportsDetailsPanel({
           saving={verificationDetailsSaving}
           uploading={verificationEvidenceUploading}
           uploadingProgress={verificationEvidenceProgress}
+          onEvidencePickerActiveChange={onVerificationEvidencePickerActiveChange}
           onChange={setVerificationDraft}
           onSave={onSaveVerificationDetails}
           onUploadEvidence={(kind, file) =>
@@ -1320,6 +1323,7 @@ function SportsVerificationDetailsSection({
   saving,
   uploading,
   uploadingProgress,
+  onEvidencePickerActiveChange,
   onChange,
   onSave,
   onUploadEvidence,
@@ -1344,6 +1348,7 @@ function SportsVerificationDetailsSection({
   saving: boolean;
   uploading: SportsVerificationEvidenceKind | null;
   uploadingProgress: number;
+  onEvidencePickerActiveChange?: (active: boolean) => void;
   onChange: (details: SportsVerificationDetails) => void;
   onSave?: (details: SportsVerificationDetails) => void | Promise<void>;
   onUploadEvidence?: (
@@ -1689,6 +1694,7 @@ function SportsVerificationDetailsSection({
                   hint="Private upload. The reviewer checks that the document is Indian-issued."
                   uploading={uploading}
                   progress={uploadingProgress}
+                  onPickerActiveChange={onEvidencePickerActiveChange}
                   onUpload={onUploadEvidence}
                   onDelete={onDeleteEvidence}
                   onPreview={onPreviewEvidence}
@@ -1727,6 +1733,7 @@ function SportsVerificationDetailsSection({
               label="Sports Certificate"
               uploading={uploading}
               progress={uploadingProgress}
+              onPickerActiveChange={onEvidencePickerActiveChange}
               onUpload={onUploadEvidence}
                onDelete={onDeleteEvidence}
                onPreview={onPreviewEvidence}
@@ -1742,6 +1749,7 @@ function SportsVerificationDetailsSection({
                   label="Passport First Page"
                   uploading={uploading}
                   progress={uploadingProgress}
+                  onPickerActiveChange={onEvidencePickerActiveChange}
                   onUpload={onUploadEvidence}
                    onDelete={onDeleteEvidence}
                    onPreview={onPreviewEvidence}
@@ -1756,6 +1764,7 @@ function SportsVerificationDetailsSection({
                   hint="The page showing the visa or stamp for the tournament/game country."
                   uploading={uploading}
                   progress={uploadingProgress}
+                  onPickerActiveChange={onEvidencePickerActiveChange}
                   onUpload={onUploadEvidence}
                    onDelete={onDeleteEvidence}
                    onPreview={onPreviewEvidence}
@@ -1824,6 +1833,7 @@ function VerificationEvidenceRow({
   hint,
   uploading,
   progress,
+  onPickerActiveChange,
   onUpload,
   onDelete,
   onPreview,
@@ -1837,6 +1847,7 @@ function VerificationEvidenceRow({
   hint?: string;
   uploading: SportsVerificationEvidenceKind | null;
   progress: number;
+  onPickerActiveChange?: (active: boolean) => void;
   onUpload?: (
     kind: SportsVerificationEvidenceKind,
     file: File,
@@ -1851,10 +1862,21 @@ function VerificationEvidenceRow({
 }) {
   const inputId = `sports-verification-${kind}`;
   const isUploading = uploading === kind;
+  const inputRef = useRef<HTMLInputElement>(null);
   const getSignedUrl = useCallback(
     (path: string) => createSportsDocumentSignedUrl(ownerId, path),
     [ownerId],
   );
+  useEffect(() => {
+    const input = inputRef.current;
+    if (!input) return;
+    const handleCancel = (event: Event) => {
+      event.stopPropagation();
+      onPickerActiveChange?.(false);
+    };
+    input.addEventListener("cancel", handleCancel);
+    return () => input.removeEventListener("cancel", handleCancel);
+  }, [onPickerActiveChange]);
   return (
     <div className="flex flex-wrap items-start gap-3 rounded-xl border border-white/10 bg-black/10 p-3">
       <FileCheck2 className="mt-0.5 h-4 w-4 shrink-0 text-amber-200" />
@@ -1936,16 +1958,29 @@ function VerificationEvidenceRow({
         )}
       </div>
       <input
+        ref={inputRef}
         id={inputId}
         type="file"
         accept={accept}
         className="sr-only"
         disabled={isUploading || locked || !onUpload}
-        onChange={(event) => {
+        onClick={(event) => {
           event.stopPropagation();
-          const file = event.currentTarget.files?.[0];
-          event.currentTarget.value = "";
-          if (file) void onUpload?.(kind, file);
+          onPickerActiveChange?.(true);
+        }}
+        onChange={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const input = event.currentTarget;
+          const file = input.files?.[0];
+          input.value = "";
+          if (!file) {
+            onPickerActiveChange?.(false);
+            return;
+          }
+          void Promise.resolve(onUpload?.(kind, file))
+            .finally(() => onPickerActiveChange?.(false))
+            .catch(() => undefined);
         }}
       />
     </div>

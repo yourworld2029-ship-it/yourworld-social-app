@@ -23,11 +23,13 @@ export function NationalAwardProfileSection({
   sportsVerificationCountry,
   onSubmitted,
   onBeforeOpen,
+  onEvidenceUploadActivityChange,
 }: {
   userId: string;
   sportsVerificationCountry?: string | null;
   onSubmitted?: () => void;
   onBeforeOpen?: () => boolean;
+  onEvidenceUploadActivityChange?: (active: boolean) => void;
 }) {
   const [details, setDetails] = useState<NationalAwardVerificationDetails | null>(null);
   const [loading, setLoading] = useState(true);
@@ -250,6 +252,7 @@ export function NationalAwardProfileSection({
         savingDraft={savingDraft}
         uploadingKind={uploadingKind}
         onUpload={handleUpload}
+        onEvidenceUploadActivityChange={onEvidenceUploadActivityChange}
         onSaveDraft={handleSaveDraft}
         onSubmit={handleSubmit}
       />

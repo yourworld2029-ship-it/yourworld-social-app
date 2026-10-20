@@ -262,6 +262,8 @@ function ProfilePage() {
     useState<SportsVerificationEvidenceKind | null>(null);
   const [sportsVerificationEvidenceProgress, setSportsVerificationEvidenceProgress] =
     useState(0);
+  const [sportsVerificationEvidencePickerActive, setSportsVerificationEvidencePickerActive] =
+    useState(false);
   const [sportsVerificationSubmitting, setSportsVerificationSubmitting] = useState(false);
   const [sportsDuplicateSubmissionWarning, setSportsDuplicateSubmissionWarning] = useState<string | null>(
     null,
@@ -370,6 +372,7 @@ function ProfilePage() {
     setSportsVerificationDetailsLoading(false);
     setSportsVerificationEvidenceUploading(null);
     setSportsVerificationEvidenceProgress(0);
+    setSportsVerificationEvidencePickerActive(false);
     setSportsIntroductionUploading(false);
     setSportsIntroductionProgress(0);
     setSportsVerificationDetailsSaving(false);
@@ -863,6 +866,7 @@ function ProfilePage() {
     } finally {
       setSportsVerificationEvidenceUploading(null);
       setSportsVerificationEvidenceProgress(0);
+      setSportsVerificationEvidencePickerActive(false);
     }
   };
 
@@ -1291,7 +1295,11 @@ function ProfilePage() {
           onOpenChange={(nextOpen) => {
             if (
               !nextOpen &&
-              (sportsVerificationEvidenceUploading !== null || sportsIntroductionUploading)
+              (
+                sportsVerificationEvidenceUploading !== null ||
+                sportsVerificationEvidencePickerActive ||
+                sportsIntroductionUploading
+              )
             ) {
               return;
             }
@@ -1335,6 +1343,9 @@ function ProfilePage() {
               onPreviewVerificationEvidence={handleSportsVerificationEvidencePreview}
               verificationEvidenceUploading={sportsVerificationEvidenceUploading}
               verificationEvidenceProgress={sportsVerificationEvidenceProgress}
+              onVerificationEvidencePickerActiveChange={
+                setSportsVerificationEvidencePickerActive
+              }
               onSubmitVerification={handleSubmitSportsVerification}
               onOpenVerificationReview={() => {
                 setSportsDetailsOpen(false);
