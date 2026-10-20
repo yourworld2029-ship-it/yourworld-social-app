@@ -51,6 +51,7 @@ type Filter =
   | "all"
   | "likes"
   | "following"
+  | "followers"
   | "comments"
   | "mentions"
   | "monetization"
@@ -257,6 +258,7 @@ function NotificationsPage() {
     const filtered = items.filter((item) => {
       if (filter === "all") return true;
       if (filter === "following") return Boolean(item.actorId && following[item.actorId]);
+      if (filter === "followers") return item.kind === "follower";
       if (filter === "likes") return item.kind === "like";
       if (filter === "comments") return item.kind === "comment";
       if (filter === "mentions") return item.kind === "mention";
@@ -301,6 +303,11 @@ function NotificationsPage() {
             label="People you follow"
           />
           <Chip
+            active={filter === "followers"}
+            onClick={() => setFilter("followers")}
+            label="Follows"
+          />
+          <Chip
             active={filter === "comments"}
             onClick={() => setFilter("comments")}
             label="Comments"
@@ -338,6 +345,8 @@ function NotificationsPage() {
                     ? "No tags or mentions yet"
                     : filter === "following"
                       ? "No recent activity from people you follow"
+                      : filter === "followers"
+                        ? "No new followers yet"
                       : filter === "monetization"
                         ? "No monetization updates yet"
                         : filter === "verified"
