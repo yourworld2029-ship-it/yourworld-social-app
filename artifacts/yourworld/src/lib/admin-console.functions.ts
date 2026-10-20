@@ -35,6 +35,21 @@ function emailFromClaims(context: { claims: unknown }) {
   return claimsFor(context).email?.trim().toLowerCase() ?? "";
 }
 
+function withTimeout<T>(
+  operation: PromiseLike<T>,
+  timeoutMs: number,
+  message: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<T>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+
+  return Promise.race([Promise.resolve(operation), timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 async function getAdminClient() {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   return supabaseAdmin;
@@ -42,35 +57,31 @@ async function getAdminClient() {
 
 async function requireOwnerAdmin(context: { userId: string; claims: unknown }, stepUp = true) {
   const admin = await getAdminClient();
-  const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    ADMIN_ROLE_LOOKUP_TIMEOUT_MS,
-  );
   let hasRole = false;
   let lookupFailed = false;
   try {
-    const { data, error } = await admin
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", context.userId)
-      .eq("role", "admin")
-      .maybeSingle()
-      .abortSignal(controller.signal);
+    const { data, error } = await withTimeout(
+      admin
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", context.userId)
+        .eq("role", "admin")
+        .maybeSingle(),
+      ADMIN_ROLE_LOOKUP_TIMEOUT_MS,
+      "Admin role check timed out. Please retry.",
+    );
     hasRole = Boolean(data);
     lookupFailed = Boolean(error);
-  } catch {
-    if (controller.signal.aborted) {
-      throw new Error("Admin role check timed out. Please retry.");
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === "Admin role check timed out. Please retry."
+    ) {
+      throw error;
     }
     throw new Error("Could not verify the admin role. Please retry.");
-  } finally {
-    clearTimeout(timeout);
   }
 
-  if (controller.signal.aborted) {
-    throw new Error("Admin role check timed out. Please retry.");
-  }
   if (lookupFailed) {
     throw new Error("Could not verify the admin role. Please retry.");
   }
