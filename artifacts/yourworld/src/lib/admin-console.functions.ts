@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { getRequest } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import {
@@ -56,12 +57,21 @@ async function getAdminClient() {
   return supabaseAdmin;
 }
 
-async function requireOwnerAdmin(context: { userId: string; claims: unknown }, stepUp = true) {
+async function requireOwnerAdmin(
+  context: {
+    userId: string;
+    claims: unknown;
+    verifiedUserEmail?: string | null;
+  },
+  stepUp = true,
+) {
   const admin = await getAdminClient();
   // The owner identity comes from the signed Supabase JWT validated by
   // requireSupabaseAuth. Keep this allowlist on the server; never trust a
   // client-supplied email or remove the MFA/restriction checks.
-  const isOwner = isOwnerAdminEmail(emailFromClaims(context));
+  const isOwner = isOwnerAdminEmail(
+    context.verifiedUserEmail ?? emailFromClaims(context),
+  );
   let hasRole = isOwner;
   let lookupFailed = false;
   if (!isOwner) {
@@ -211,8 +221,30 @@ export type AdminConsoleData = {
 export const getAdminSecurityStatus = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    await requireOwnerAdmin(context, false);
-    const email = emailFromClaims(context);
+    const authorization = getRequest()?.headers.get("authorization");
+    const token = authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
+    if (!token) {
+      console.warn("[Admin] Authorization bearer missing during access check");
+      throw new Error("Unauthorized: no bearer session token was received.");
+    }
+
+    const { data, error } = await withTimeout(
+      context.supabase.auth.getUser(token),
+      ADMIN_ROLE_LOOKUP_TIMEOUT_MS,
+      "Admin session verification timed out. Please retry.",
+    );
+    const user = data.user;
+    if (error || !user || user.id !== context.userId) {
+      console.warn("[Admin] Supabase did not verify the access-check session");
+      throw new Error("Unauthorized: active Supabase session could not be verified.");
+    }
+
+    const email = user.email?.trim().toLowerCase() ?? "";
+    console.info("Admin check email:", email || "<missing>");
+    await requireOwnerAdmin(
+      { ...context, verifiedUserEmail: email },
+      false,
+    );
     return {
       isAdmin: true,
       isOperationsAdmin: email === OPERATIONS_ADMIN_EMAIL,

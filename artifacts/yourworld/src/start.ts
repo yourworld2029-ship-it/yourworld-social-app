@@ -2,10 +2,11 @@ import { createStart, createCsrfMiddleware, createMiddleware } from "@tanstack/r
 
 import { renderErrorPage } from "./lib/error-page";
 import { attachSupabaseAuth } from "@/integrations/supabase/auth-attacher";
+import { supabase } from "@/integrations/supabase/client";
 
 const nativeWebViewOrigin = "https://localhost";
 
-const nativeServerFnFetch: typeof fetch = (input, init) => {
+const nativeServerFnFetch: typeof fetch = async (input, init) => {
   if (typeof window === "undefined" || window.location.origin !== nativeWebViewOrigin) {
     return fetch(input, init);
   }
@@ -23,9 +24,19 @@ const nativeServerFnFetch: typeof fetch = (input, init) => {
     `${localUrl.pathname}${localUrl.search}`,
     import.meta.env.VITE_APP_URL,
   );
+  const headers = new Headers(input instanceof Request ? input.headers : undefined);
+  if (init?.headers) {
+    new Headers(init.headers).forEach((value, key) => headers.set(key, value));
+  }
+  if (!headers.has("Authorization")) {
+    const { data, error } = await supabase.auth.getSession();
+    if (error) console.error("[Supabase] Could not read session for native server call");
+    const token = data.session?.access_token;
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+  }
   const hostedInput =
     input instanceof Request ? new Request(hostedUrl, input) : hostedUrl.toString();
-  return fetch(hostedInput, { ...init, credentials: "omit" });
+  return fetch(hostedInput, { ...init, headers, credentials: "omit" });
 };
 
 const errorMiddleware = createMiddleware().server(async ({ next }) => {
