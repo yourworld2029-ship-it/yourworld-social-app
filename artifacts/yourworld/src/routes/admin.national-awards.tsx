@@ -36,24 +36,14 @@ function NationalAwardVerificationAdminPage() {
   const [identityConfirmations, setIdentityConfirmations] = useState<Record<string, boolean>>({});
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(false);
-  const [nextOffset, setNextOffset] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async (offset = 0, append = false) => {
-    if (offset === 0) setLoading(true);
-    else setLoadingMore(true);
+  const load = useCallback(async () => {
+    setLoading(true);
     setError(null);
     try {
-      const result = await listNationalAwardVerificationApplications({
-        data: { offset },
-      });
-      setApplications((current) =>
-        append ? [...current, ...result.applications] : result.applications,
-      );
-      setHasMore(result.hasMore);
-      setNextOffset(result.nextOffset);
+      const result = await listNationalAwardVerificationApplications();
+      setApplications(result.applications);
     } catch (loadError) {
       const message =
         loadError instanceof Error
@@ -61,8 +51,7 @@ function NationalAwardVerificationAdminPage() {
           : "Could not load Award Verification requests.";
       setError(message);
     } finally {
-      if (offset === 0) setLoading(false);
-      else setLoadingMore(false);
+      setLoading(false);
     }
   }, []);
 
@@ -392,17 +381,6 @@ function NationalAwardVerificationAdminPage() {
             );
           })}
         </div>
-        {hasMore ? (
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => void load(nextOffset, true)}
-            disabled={loadingMore}
-            className="mt-5 w-full rounded-xl border-white/10 text-zinc-200 hover:bg-white/[0.06]"
-          >
-            {loadingMore ? "Loading more applications…" : "Load more applications"}
-          </Button>
-        ) : null}
       </div>
     </main>
   );

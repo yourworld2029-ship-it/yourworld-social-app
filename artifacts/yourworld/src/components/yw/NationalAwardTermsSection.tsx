@@ -43,38 +43,33 @@ export function NationalAwardTermsSection({
         </summary>
         <div className="border-t border-white/10 px-4 py-3">
           <ul className="list-disc space-y-1.5 pl-5 text-xs leading-5 text-zinc-300">
+            <li>I confirm that all information submitted by me is true and accurate.</li>
             <li>
-              I confirm that all information, identity details, and sports achievements submitted by me
-              are genuine, true, and accurate.
+              I am responsible for the authenticity of my award certificate, gazette records, and
+              identity information.
+            </li>
+            <li>Fake, forged, altered or misleading documents/information are strictly prohibited.</li>
+            <li>YourWorld may reject or revoke verification if submitted information is found to be false.</li>
+            <li>YourWorld may restrict or suspend accounts involved in fraudulent verification.</li>
+            <li>
+              YourWorld may take appropriate legal action or other remedies permitted under applicable
+              law where applicable.
             </li>
             <li>
-              I bear full legal responsibility for the authenticity of my uploaded documents and
-              credentials.
+              Verification documents remain private and are used strictly for verification purposes.
             </li>
             <li>
-              Submission of fake, forged, or altered documents is strictly prohibited under applicable
-              laws.
+              The Award Introduction video may be displayed publicly as part of the verified award
+              profile.
             </li>
             <li>
-              YourWorld reserves the right to reject verification, revoke badges, suspend accounts, or
-              take legal action against fraud.
+              YourWorld may retain verification records/evidence for legitimate security, verification
+              and legal purposes.
             </li>
+            <li>Verification review typically takes between 12 to 72 working hours.</li>
             <li>
-              Identity documents and certificates remain strictly private and accessible only to
-              authorized verification reviewers.
-            </li>
-            <li>
-              I consent that my Introduction Video will be automatically published to my profile&apos;s
-              Reels feed as a public sports intro upon submission.
-            </li>
-            <li>
-              All details, uploaded files, and video will be locked from editing or deletion during the
-              12 to 72-hour review period.
-            </li>
-            <li>Country selection is permanently locked upon submission to prevent misuse.</li>
-            <li>
-              YourWorld reserves the right to cross-verify claims with official sports federations and
-              governing bodies.
+              YourWorld reserves the right to cross-verify award credentials with official government
+              gazettes, ministries, or official honours portals.
             </li>
           </ul>
         </div>

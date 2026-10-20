@@ -1254,23 +1254,6 @@ export async function reportSocialUser(reporterId: string, reportedUserId: strin
     thread_id: threadId,
     reason: "User report",
   }, { onConflict: "reporter_id,reported_user_id,surface" });
-  if (!result.error) {
-    const { data: report } = await supabase
-      .from("user_reports")
-      .select("id")
-      .eq("reporter_id", reporterId)
-      .eq("reported_user_id", reportedUserId)
-      .eq("surface", "social")
-      .maybeSingle();
-    if (report?.id) {
-      const { notifyAdminOfReport } = await import(
-        "@/lib/admin-notifications.functions"
-      );
-      void notifyAdminOfReport({
-        data: { kind: "user", reportId: report.id },
-      }).catch(() => undefined);
-    }
-  }
   return result.error?.message ?? null;
 }
 

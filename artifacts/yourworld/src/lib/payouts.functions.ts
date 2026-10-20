@@ -32,19 +32,6 @@ export const submitPayoutRequest = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     const payoutRequest = Array.isArray(data) ? data[0] : data;
     if (!payoutRequest) throw new Error("Payout request could not be created");
-    const { sendAdminNotificationEmail, escapeAdminEmailHtml } = await import(
-      "@/lib/admin-notifications.server"
-    );
-    await sendAdminNotificationEmail(
-      "operations",
-      "New creator payout request",
-      [
-        "<p>A creator payout request is waiting for review.</p>",
-        `<p>Request: ${escapeAdminEmailHtml(payoutRequest.id)}</p>`,
-        `<p>Amount: ₹${Number(payoutRequest.amount).toFixed(2)} · Net: ₹${Number(payoutRequest.net_amount).toFixed(2)}</p>`,
-        "<p>Open YourWorld → Settings → Admin Operations Hub to review.</p>",
-      ].join(""),
-    );
     return { payoutRequest };
   });
 
@@ -171,7 +158,7 @@ export const emailPayoutInvoice = createServerFn({ method: "POST" })
       body: JSON.stringify({
         from: "YourWorld Payouts <onboarding@resend.dev>",
         to: [data.to],
-        bcc: ["yourworldadmin3@gmail.com"],
+        bcc: ["yourworld2029@gmail.com"],
         subject: `Payout Statement & Tax Invoice — ${data.statementId}`,
         html: `<p>Hi,</p><p>Your payout has been processed. Your Payout Statement &amp; Tax Invoice (${data.statementId}) is attached as a PDF.</p><p>Form 16A will be available in your Wallet section at the end of the financial quarter.</p><p>— YourWorld</p>`,
         attachments: [

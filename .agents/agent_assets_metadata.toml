@@ -434,17 +434,3 @@ mtime_ms = 1792135712000
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/ef340b46-647c-48ff-9bc5-5658e9d3fe17/f60acc67-e9a0-47ea-9094-1eddfe83a589"
 storage_version_token = "1792135767358478"
 content_type = "application/pdf"
-
-[[outputs]]
-id = "EVl7MDpzaPJFE6tgn_j_9"
-uri = "file://artifacts/yourworld/public/downloads/yourworld-20261020T151724Z-v231-debug.apk"
-type = "unspecified"
-title = "YourWorld Android Debug APK v1.0.231"
-description = "Fresh debug APK with the current production server URL and native Supabase bearer-token fallback."
-logical_id = "87e13ee4-b2ac-4527-9a37-0074a4112515"
-content_hash = "sha256:006a59cafac7d87e6c81befebaa181cde78fb2e94b5174c624cd37f9cba7c373"
-size = 11222084
-mtime_ms = 1792509444859
-storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/87e13ee4-b2ac-4527-9a37-0074a4112515/19967a03-4660-4be3-a143-64bf304b5d62"
-storage_version_token = "1792509470330400"
-content_type = "application/octet-stream"

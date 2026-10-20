@@ -495,13 +495,9 @@ function deadlineFor(submittedAt: string | null) {
 
 export const listSportsVerificationApplications = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .validator((data) =>
-    z.object({ offset: z.number().int().min(0).max(10000).default(0) }).parse(data ?? {}),
-  )
-  .handler(async ({ data, context }) => {
+  .handler(async ({ context }) => {
     const admin = await requireSportsVerificationAdmin(context.userId);
     requireAdminStepUp(context.claims);
-    const pageSize = 20;
     const { data: profiles, error: profilesError } = await admin
       .from("profiles")
       .select(
@@ -509,17 +505,11 @@ export const listSportsVerificationApplications = createServerFn({ method: "POST
       )
       .eq("verification_requested", true)
       .order("updated_at", { ascending: true })
-      .range(data.offset, data.offset + pageSize - 1);
+      .limit(100);
 
     if (profilesError) throw new Error(profilesError.message);
     const rows = (profiles ?? []) as AdminProfileRow[];
-    if (!rows.length) {
-      return {
-        applications: [] as AdminVerificationApplication[],
-        hasMore: false,
-        nextOffset: data.offset,
-      };
-    }
+    if (!rows.length) return { applications: [] as AdminVerificationApplication[] };
 
     const ids = rows.map((profile) => profile.id);
     const { data: detailRows, error: detailsError } = await admin
@@ -594,11 +584,7 @@ export const listSportsVerificationApplications = createServerFn({ method: "POST
       }),
     );
 
-    return {
-      applications,
-      hasMore: rows.length === pageSize,
-      nextOffset: data.offset + rows.length,
-    };
+    return { applications };
   });
 
 export const reviewSportsVerification = createServerFn({ method: "POST" })
@@ -713,38 +699,58 @@ async function notifySupportOfSubmission(
   profile: AdminProfileRow,
   details: VerificationDetailsRow | null,
 ) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    console.error("[sports-verification] RESEND_API_KEY is not configured; support notification skipped.");
+    return { sent: false, reason: "Support email service is not configured." };
+  }
+
   const categoryParts = (profile.category ?? "").split("·").map((part) => part.trim());
   const role = categoryParts[0] || "Sports profile";
   const sport = categoryParts[1] || valueAfterLabel(profile.bio, ["Sport"]) || "Not recorded";
   const representation =
     valueAfterLabel(profile.bio, ["Representation", "Represents", "Country", "Team"]) || "Not recorded";
   const submittedAt = details?.submitted_at ?? new Date().toISOString();
+  const appUrl = process.env.REPLIT_APP_URL || "https://your-world-social-app--yourworld2029.replit.app";
 
-  const { sendAdminNotificationEmail } = await import(
-    "@/lib/admin-notifications.server"
-  );
-  const sent = await sendAdminNotificationEmail(
-    "operations",
-    "New Sports Verification request",
-    [
-      "<p>New verification request</p>",
-      `<p>User name: ${escapeHtml(profile.display_name || profile.username || "Unnamed applicant")}</p>`,
-      `<p>Username: @${escapeHtml(profile.username || "—")}</p>`,
-      `<p>Sport: ${escapeHtml(sport)}</p>`,
-      `<p>Player/Coach: ${escapeHtml(role)}</p>`,
-      `<p>National/International: ${escapeHtml(representation)}</p>`,
-      `<p>Submission time: ${escapeHtml(submittedAt)}</p>`,
-      "<p>Open YourWorld → Settings → Admin Operations Hub to review.</p>",
-    ].join(""),
-  );
-  return {
-    sent,
-    reason: sent ? null : "Operations notification could not be sent.",
-  };
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      from: "YourWorld Verification <onboarding@resend.dev>",
+      to: [process.env.SUPPORT_EMAIL || "yourworld2029@gmail.com"],
+      subject: "New Sports Verification request",
+      html: [
+        "<p>New verification request</p>",
+        `<p>User name: ${escapeHtml(profile.display_name || profile.username || "Unnamed applicant")}</p>`,
+        `<p>Username: @${escapeHtml(profile.username || "—")}</p>`,
+        `<p>Sport: ${escapeHtml(sport)}</p>`,
+        `<p>Player/Coach: ${escapeHtml(role)}</p>`,
+        `<p>National/International: ${escapeHtml(representation)}</p>`,
+        `<p>Submission time: ${escapeHtml(submittedAt)}</p>`,
+        `<p>Review: <a href="${escapeAttribute(`${appUrl}/admin/sports-verification`)}">${escapeHtml(
+          `${appUrl}/admin/sports-verification`,
+        )}</a></p>`,
+      ].join(""),
+    }),
+  });
+
+  if (!response.ok) {
+    console.error("[sports-verification] Support notification failed", response.status);
+    return { sent: false, reason: "Support notification could not be sent." };
+  }
+  return { sent: true, reason: null };
 }
 
 function escapeHtml(value: string) {
   return value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character] ?? character);
+}
+
+function escapeAttribute(value: string) {
+  return escapeHtml(value).replace(/`/g, "&#96;");
 }
 
 export const submitSportsVerification = createServerFn({ method: "POST" })

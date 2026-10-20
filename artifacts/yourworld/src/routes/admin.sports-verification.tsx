@@ -45,26 +45,21 @@ function AdminSportsVerification() {
   const [authorized, setAuthorized] = useState<boolean | null>(null);
   const [applications, setApplications] = useState<ReviewApplication[]>([]);
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(false);
-  const [nextOffset, setNextOffset] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
-  const load = useCallback(async (offset = 0, append = false) => {
-    if (offset === 0) setLoading(true);
-    else setLoadingMore(true);
+  const load = useCallback(async () => {
+    setLoading(true);
     setError(null);
     try {
-      const result = await listSportsVerificationApplications({ data: { offset } });
+      const result = await listSportsVerificationApplications();
       setAuthorized(true);
-      const page = result.applications.map((application) => ({
-        ...application,
-        sportsProfile: toSportsProfile(application),
-      }));
-      setApplications((current) => (append ? [...current, ...page] : page));
-      setHasMore(result.hasMore);
-      setNextOffset(result.nextOffset);
+      setApplications(
+        result.applications.map((application) => ({
+          ...application,
+          sportsProfile: toSportsProfile(application),
+        })),
+      );
     } catch (loadError) {
       const message = loadError instanceof Error ? loadError.message : "Could not load review requests.";
       if (message.toLowerCase().includes("forbidden") || message.toLowerCase().includes("admin access")) {
@@ -75,8 +70,7 @@ function AdminSportsVerification() {
         setError(message);
       }
     } finally {
-      if (offset === 0) setLoading(false);
-      else setLoadingMore(false);
+      setLoading(false);
     }
   }, []);
 
@@ -103,7 +97,6 @@ function AdminSportsVerification() {
       setApplications((current) =>
         current.filter((entry) => entry.profile.id !== application.profile.id),
       );
-      setNextOffset((current) => Math.max(0, current - 1));
       toast.success(
         action === "approve"
           ? "Sports Verification approved"
@@ -207,16 +200,6 @@ function AdminSportsVerification() {
             />
           ))}
         </div>
-        {hasMore ? (
-          <button
-            type="button"
-            onClick={() => void load(nextOffset, true)}
-            disabled={loadingMore}
-            className="mt-5 w-full rounded-xl border border-white/10 px-4 py-3 text-sm font-semibold text-zinc-200 hover:bg-white/[0.06] disabled:opacity-50"
-          >
-            {loadingMore ? "Loading more applications…" : "Load more applications"}
-          </button>
-        ) : null}
       </div>
     </main>
   );
