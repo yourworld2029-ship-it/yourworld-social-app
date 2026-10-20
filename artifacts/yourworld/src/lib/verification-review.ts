@@ -26,7 +26,18 @@ const evidenceReasonPatterns: Record<string, RegExp[]> = {
     /\bfirst\s+page\b/i,
     /\bbio(?:data)?\s+page\b/i,
   ],
-  passportVisaStampPage: [/\bvisa\b/i, /\bstamp(?:ed)?\b/i],
+  passportLastPage: [
+    /\bpassport\b.*\b(?:back|last|address|details)\s+page\b/i,
+    /\b(?:back|last|address|details)\s+page\b/i,
+  ],
+  passportVisaStampPage: [
+    /\bvisa\b(?!.*\b(?:page\s*2|second)\b)/i,
+    /\bstamp(?:ed)?\b(?!.*\b(?:page\s*2|second)\b)/i,
+  ],
+  passportVisaStampPage2: [
+    /\b(?:visa|stamp(?:ed)?)\b.*\b(?:page\s*2|second)\b/i,
+    /\b(?:page\s*2|second)\b.*\b(?:visa|stamp(?:ed)?)\b/i,
+  ],
   introduction: [
     /\bintro(?:duction)?\b/i,
     /\bvideo\b/i,

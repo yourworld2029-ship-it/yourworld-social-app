@@ -18,6 +18,7 @@ export const VERIFICATION_VIDEO_SIZE_ERROR =
 export function verificationDocumentMimeType(file: File): string | null {
   const mimeType = file.type.trim().toLowerCase();
   if (Object.values(DOCUMENT_MIME_BY_EXTENSION).includes(mimeType)) return mimeType;
+  if (mimeType && mimeType !== "application/octet-stream") return null;
   const extension = file.name.split(".").pop()?.trim().toLowerCase() ?? "";
   return DOCUMENT_MIME_BY_EXTENSION[extension] ?? null;
 }

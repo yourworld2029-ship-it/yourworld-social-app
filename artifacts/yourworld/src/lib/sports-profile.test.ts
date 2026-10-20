@@ -160,7 +160,9 @@ test("Only an approved National owner sees the International upgrade action", ()
         submittedAt: null,
         sportsCertificate: null,
         passportFirstPage: null,
+        passportLastPage: null,
         passportVisaStampPage: null,
+        passportVisaStampPage2: null,
         tournamentPhoto: null,
       },
     }),
@@ -368,7 +370,9 @@ test("National verification shows the certificate but hides international eviden
         email: "",
         sportsCertificate: null,
         passportFirstPage: null,
+        passportLastPage: null,
         passportVisaStampPage: null,
+        passportVisaStampPage2: null,
         tournamentPhoto: null,
       },
     }),
@@ -410,7 +414,9 @@ test("foreign applicants see International status and passport/visa evidence fie
         email: "",
         sportsCertificate: null,
         passportFirstPage: null,
+        passportLastPage: null,
         passportVisaStampPage: null,
+        passportVisaStampPage2: null,
         tournamentPhoto: null,
       },
     }),
@@ -429,7 +435,7 @@ test("foreign applicants see International status and passport/visa evidence fie
       html.indexOf("Nationality / Country") < html.indexOf("Street Address / Apartment"),
   );
   assert.doesNotMatch(html, /Village \/ Town/);
-  assert.match(html, /Passport First Page/);
+  assert.match(html, /Passport Front \/ First Page/);
   assert.match(html, /Passport Visa \/ Stamp Page/);
   assert.ok(html.indexOf("Passport Visa / Stamp Page") < html.indexOf(">Sports Introduction<"));
   assert.ok(html.indexOf(">Sports Introduction<") < html.indexOf(">Save Verification Details<"));
@@ -456,7 +462,9 @@ test("saved profile country overrides stale verification-detail country", () => 
     email: "",
     sportsCertificate: null,
     passportFirstPage: null,
+    passportLastPage: null,
     passportVisaStampPage: null,
+    passportVisaStampPage2: null,
     tournamentPhoto: null,
   };
   const foreignHtml = renderToStaticMarkup(

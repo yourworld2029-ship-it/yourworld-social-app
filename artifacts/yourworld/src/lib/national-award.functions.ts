@@ -202,7 +202,11 @@ const submissionFieldsSchema = z.object({
   fullName: z.string().trim().min(1).max(120),
   fatherName: z.string().trim().min(1).max(120),
   dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  phoneNumber: z.string().trim().min(5).max(32),
+  phoneNumber: z
+    .string()
+    .trim()
+    .regex(/^\+?[0-9()\s.-]{7,24}$/)
+    .refine((value) => value.replace(/\D/g, "").length >= 7 && value.replace(/\D/g, "").length <= 15),
   email: z.string().trim().email().max(254),
   villageTown: z.string().trim().min(1).max(120),
   district: z.string().trim().min(1).max(120),

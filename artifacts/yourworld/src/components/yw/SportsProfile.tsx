@@ -41,6 +41,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { toast } from "sonner";
+import {
+  VERIFICATION_DOCUMENT_ACCEPT,
+  validateVerificationDocumentFile,
+  validateVerificationVideoSize,
+} from "@/lib/verification-upload-rules";
 import {
   countryCodeForSportsCountry,
   countryNameForSportsCountry,
@@ -835,6 +841,7 @@ export function SportsDetailsPanel({
   const [termsAgreed, setTermsAgreed] = useState(false);
   const [internationalUpgradeMode, setInternationalUpgradeMode] = useState(false);
   const [introductionVideoValid, setIntroductionVideoValid] = useState(false);
+  const [validationErrorFields, setValidationErrorFields] = useState<Set<string>>(new Set());
   const [verificationDraft, setVerificationDraft] = useState<SportsVerificationDetails>(
     () => verificationDetails ?? emptySportsVerificationDetails(),
   );
@@ -870,6 +877,103 @@ export function SportsDetailsPanel({
     !internationalUpgradeMode &&
     isIndiaSportsCountry(profileCountry) &&
     profile.status === "National";
+
+  const clearValidationError = (field: string) => {
+    setValidationErrorFields((current) => {
+      if (!current.has(field)) return current;
+      const next = new Set(current);
+      next.delete(field);
+      return next;
+    });
+  };
+  const submitVerification = () => {
+    const details = verificationDraftOr(currentVerificationDraft);
+    const errors = new Set<string>();
+    const isIndia = isIndiaSportsCountry(profileCountry);
+    const foreignAddress = parseForeignSportsAddress(details.address);
+    const phoneDigits = details.mobileNumber.replace(/\D/g, "");
+    const dobDate = /^\d{4}-\d{2}-\d{2}$/.test(details.dateOfBirth)
+      ? new Date(`${details.dateOfBirth}T00:00:00.000Z`)
+      : null;
+    const validDob =
+      dobDate &&
+      Number.isFinite(dobDate.getTime()) &&
+      dobDate.toISOString().slice(0, 10) === details.dateOfBirth &&
+      dobDate.getTime() <= Date.now();
+
+    if (!details.fullName.trim()) errors.add("fullName");
+    if (!details.fatherName.trim()) errors.add("fatherName");
+    if (!validDob) errors.add("dateOfBirth");
+    if (phoneDigits.length < 7 || phoneDigits.length > 15) errors.add("mobileNumber");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(details.email.trim())) errors.add("email");
+    if (
+      isIndia
+        ? !details.villageTown.trim() || !details.district.trim() || !details.state.trim()
+        : !foreignAddress.streetAddress.trim() ||
+          !details.villageTown.trim() ||
+          !details.state.trim() ||
+          !foreignAddress.postalCode.trim()
+    ) {
+      if (isIndia) {
+        if (!details.villageTown.trim()) errors.add("villageTown");
+        if (!details.district.trim()) errors.add("district");
+        if (!details.state.trim()) errors.add("state");
+      } else {
+        if (!foreignAddress.streetAddress.trim()) errors.add("streetAddress");
+        if (!details.villageTown.trim()) errors.add("city");
+        if (!details.state.trim()) errors.add("stateProvince");
+        if (!foreignAddress.postalCode.trim()) errors.add("postalCode");
+      }
+    }
+    if (!details.identityDetailsConfirmed) errors.add("identityDetailsConfirmed");
+    if (!details.sportsCertificate) errors.add("sportsCertificate");
+    if (indianNationalIdentityProofRequired) {
+      if (!details.indianIdentityProofType) errors.add("indianIdentityProofType");
+      if (!details.indianIdentityProof) errors.add("indianIdentityProof");
+    }
+    if (isInternational) {
+      if (!details.passportFirstPage) errors.add("passportFirstPage");
+      if (!details.passportLastPage) errors.add("passportLastPage");
+    }
+    if (!profile.sportsIntroductionPath || !introductionVideoValid) {
+      errors.add("sportsIntroduction");
+    }
+
+    setValidationErrorFields(errors);
+    if (errors.size) {
+      toast.error("Please fill all highlighted required details before submitting.");
+      const firstInvalid = [
+        "fullName",
+        "fatherName",
+        "dateOfBirth",
+        "mobileNumber",
+        "email",
+        "villageTown",
+        "district",
+        "state",
+        "streetAddress",
+        "city",
+        "stateProvince",
+        "postalCode",
+        "identityDetailsConfirmed",
+        "sportsCertificate",
+        "indianIdentityProofType",
+        "indianIdentityProof",
+        "passportFirstPage",
+        "passportLastPage",
+        "sportsIntroduction",
+      ].find((field) => errors.has(field));
+      if (firstInvalid) {
+        window.requestAnimationFrame(() => {
+          document
+            .querySelector<HTMLElement>(`[data-verification-field="${firstInvalid}"]`)
+            ?.scrollIntoView({ behavior: "smooth", block: "center" });
+        });
+      }
+      return;
+    }
+    void onSubmitVerification?.(details, internationalUpgradeMode);
+  };
   useEffect(() => {
     if (profile.verified && profile.status === "International" && !profile.verificationRequested) {
       setInternationalUpgradeMode(false);
@@ -986,6 +1090,8 @@ export function SportsDetailsPanel({
           uploadingProgress={verificationEvidenceProgress}
           onEvidencePickerActiveChange={onVerificationEvidencePickerActiveChange}
           onChange={setVerificationDraft}
+          validationErrorFields={validationErrorFields}
+          onFieldChanged={clearValidationError}
           onSave={onSaveVerificationDetails}
           onUploadEvidence={(kind, file) =>
             onUploadVerificationEvidence?.(kind, file, currentVerificationDraft)
@@ -999,7 +1105,10 @@ export function SportsDetailsPanel({
            underReview={verificationUnderReview}
           profile={profile}
           sportsIntroductionUrl={sportsIntroductionUrl}
-          onIntroductionValidityChange={setIntroductionVideoValid}
+          onIntroductionValidityChange={(valid) => {
+            setIntroductionVideoValid(valid);
+            if (valid) clearValidationError("sportsIntroduction");
+          }}
           introductionVideoValid={introductionVideoValid}
           sportsIntroductionUploading={sportsIntroductionUploading}
           sportsIntroductionProgress={sportsIntroductionProgress}
@@ -1121,20 +1230,11 @@ export function SportsDetailsPanel({
                 !termsAgreed ||
                 verificationLocked ||
                 verificationSubmitting ||
-                !introductionVideoValid ||
                 sportsIntroductionUploading ||
                 (!internationalUpgradeMode &&
-                  !countryCodeForSportsCountry(profileCountry)) ||
-                (indianNationalIdentityProofRequired &&
-                  (!currentVerificationDraft.indianIdentityProof ||
-                    !currentVerificationDraft.indianIdentityProofType))
+                  !countryCodeForSportsCountry(profileCountry))
               }
-              onClick={() =>
-                void onSubmitVerification?.(
-                  verificationDraftOr(currentVerificationDraft),
-                  internationalUpgradeMode,
-                )
-              }
+              onClick={submitVerification}
               className="mt-4 w-full rounded-full bg-amber-200 text-black hover:bg-amber-100"
             >
               {verificationSubmitting
@@ -1210,7 +1310,9 @@ function emptySportsVerificationDetails(): SportsVerificationDetails {
     email: "",
     sportsCertificate: null,
     passportFirstPage: null,
+    passportLastPage: null,
     passportVisaStampPage: null,
+    passportVisaStampPage2: null,
     tournamentPhoto: null,
   };
 }
@@ -1224,6 +1326,7 @@ function SportsIntroductionSection({
   onUploadSportsIntroduction,
   onDeleteSportsIntroduction,
   onVideoValidityChange,
+  validationError = false,
   locked = false,
 }: {
   profile: SportsProfileInfo;
@@ -1234,6 +1337,7 @@ function SportsIntroductionSection({
   onUploadSportsIntroduction?: (file: File) => void;
   onDeleteSportsIntroduction?: () => void;
   onVideoValidityChange?: (valid: boolean) => void;
+  validationError?: boolean;
   locked?: boolean;
 }) {
   return (
@@ -1243,7 +1347,17 @@ function SportsIntroductionSection({
       description="5 to 50 seconds • Vertical video (9:16)"
     >
       {isOwner ? (
-        <div className="space-y-2 rounded-2xl border border-amber-200/15 bg-amber-200/[0.04] p-3">
+        <div
+          data-verification-field="sportsIntroduction"
+          className={`space-y-2 rounded-2xl border bg-amber-200/[0.04] p-3 ${
+            validationError ? "border-2 border-[#EF4444]" : "border-amber-200/15"
+          }`}
+        >
+          {validationError ? (
+            <p role="alert" className="text-xs text-rose-300">
+              Upload a valid 5 to 50 second introduction video.
+            </p>
+          ) : null}
           <p className="text-xs font-semibold leading-5 text-amber-100">
             Natural Voice Only: No background music, songs, or added audio effects allowed.
           </p>
@@ -1281,14 +1395,21 @@ function SportsIntroductionSection({
           <input
             id="sports-introduction-upload"
             type="file"
-            accept="video/*"
+            accept="video/mp4,video/webm,video/quicktime"
             className="sr-only"
             disabled={sportsIntroductionUploading}
             onChange={(event) => {
               event.stopPropagation();
               const file = event.currentTarget.files?.[0];
               event.currentTarget.value = "";
-              if (file) onUploadSportsIntroduction?.(file);
+              if (!file) return;
+              try {
+                validateVerificationVideoSize(file);
+              } catch (error) {
+                toast.error(error instanceof Error ? error.message : "This video is too large.");
+                return;
+              }
+              onUploadSportsIntroduction?.(file);
             }}
           />
           {profile.sportsIntroductionPath ? (
@@ -1325,6 +1446,8 @@ function SportsVerificationDetailsSection({
   uploadingProgress,
   onEvidencePickerActiveChange,
   onChange,
+  validationErrorFields,
+  onFieldChanged,
   onSave,
   onUploadEvidence,
   onDeleteEvidence,
@@ -1350,6 +1473,8 @@ function SportsVerificationDetailsSection({
   uploadingProgress: number;
   onEvidencePickerActiveChange?: (active: boolean) => void;
   onChange: (details: SportsVerificationDetails) => void;
+  validationErrorFields: Set<string>;
+  onFieldChanged: (field: string) => void;
   onSave?: (details: SportsVerificationDetails) => void | Promise<void>;
   onUploadEvidence?: (
     kind: SportsVerificationEvidenceKind,
@@ -1389,7 +1514,9 @@ function SportsVerificationDetailsSection({
         [
           "sportsCertificate",
           "passportFirstPage",
+          "passportLastPage",
           "passportVisaStampPage",
+          "passportVisaStampPage2",
           "indianIdentityProof",
           "tournamentPhoto",
           "sportsIntroduction",
@@ -1406,12 +1533,20 @@ function SportsVerificationDetailsSection({
       | "district"
       | "state",
     value: string,
-  ) =>
+  ) => {
     onChange({ ...details, [field]: value });
+    onFieldChanged(
+      field === "villageTown" && !isIndiaSportsCountry(details.country)
+        ? "city"
+        : field === "state" && !isIndiaSportsCountry(details.country)
+          ? "stateProvince"
+          : field,
+    );
+  };
   const setForeignAddressField = (
     field: "streetAddress" | "postalCode",
     value: string,
-  ) =>
+  ) => {
     onChange({
       ...details,
       address: serializeForeignSportsAddress({
@@ -1419,6 +1554,8 @@ function SportsVerificationDetailsSection({
         [field]: value,
       }),
     });
+    onFieldChanged(field);
+  };
 
   return (
     <SportsDetailsSection
@@ -1458,6 +1595,11 @@ function SportsVerificationDetailsSection({
               </p>
             </div>
           ) : null}
+          <div className="rounded-xl border border-amber-200/15 bg-amber-200/[0.04] px-3 py-2 text-xs leading-5 text-amber-100/90">
+            Document Quality Note: All uploaded documents, passport pages, and certificates must
+            be crystal clear and fully readable with all 4 corners visible. Blurry or cut-off
+            uploads will be rejected.
+          </div>
           <div className="space-y-3 rounded-2xl border border-amber-200/15 bg-amber-200/[0.04] p-3">
             <div>
               <p className="text-sm font-semibold text-white">Identity Details</p>
@@ -1467,7 +1609,12 @@ function SportsVerificationDetailsSection({
               </p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
-              <label className="space-y-1.5 text-xs text-zinc-400">
+              <label
+                data-verification-field="fullName"
+                className={`space-y-1.5 text-xs text-zinc-400 ${
+                  validationErrorFields.has("fullName") ? "rounded-xl border-2 border-[#EF4444] p-2" : ""
+                }`}
+              >
                 Full Name
                 <Input
                   value={details.fullName}
@@ -1478,7 +1625,12 @@ function SportsVerificationDetailsSection({
                   className="border-white/10 bg-white/[0.04] text-sm text-white"
                 />
               </label>
-              <label className="space-y-1.5 text-xs text-zinc-400">
+              <label
+                data-verification-field="fatherName"
+                className={`space-y-1.5 text-xs text-zinc-400 ${
+                  validationErrorFields.has("fatherName") ? "rounded-xl border-2 border-[#EF4444] p-2" : ""
+                }`}
+              >
                 Father&apos;s Name
                 <Input
                   value={details.fatherName}
@@ -1489,7 +1641,12 @@ function SportsVerificationDetailsSection({
                   className="border-white/10 bg-white/[0.04] text-sm text-white"
                 />
               </label>
-              <label className="space-y-1.5 text-xs text-zinc-400">
+              <label
+                data-verification-field="dateOfBirth"
+                className={`space-y-1.5 text-xs text-zinc-400 ${
+                  validationErrorFields.has("dateOfBirth") ? "rounded-xl border-2 border-[#EF4444] p-2" : ""
+                }`}
+              >
                 Date of Birth (DOB)
                 <Input
                   type="date"
@@ -1501,7 +1658,12 @@ function SportsVerificationDetailsSection({
               </label>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
-              <label className="space-y-1.5 text-xs text-zinc-400">
+              <label
+                data-verification-field="mobileNumber"
+                className={`space-y-1.5 text-xs text-zinc-400 ${
+                  validationErrorFields.has("mobileNumber") ? "rounded-xl border-2 border-[#EF4444] p-2" : ""
+                }`}
+              >
                 Phone Number
                 <Input
                   type="tel"
@@ -1513,7 +1675,12 @@ function SportsVerificationDetailsSection({
                   className="border-white/10 bg-white/[0.04] text-sm text-white"
                 />
               </label>
-              <label className="space-y-1.5 text-xs text-zinc-400 sm:col-span-2">
+              <label
+                data-verification-field="email"
+                className={`space-y-1.5 text-xs text-zinc-400 sm:col-span-2 ${
+                  validationErrorFields.has("email") ? "rounded-xl border-2 border-[#EF4444] p-2" : ""
+                }`}
+              >
                 Gmail / Email
                 <Input
                   type="email"
@@ -1565,7 +1732,12 @@ function SportsVerificationDetailsSection({
               ) : null}
               {isIndiaSportsCountry(details.country) ? (
                 <>
-                  <label className="space-y-1.5 text-xs text-zinc-400">
+                  <label
+                    data-verification-field="villageTown"
+                    className={`space-y-1.5 text-xs text-zinc-400 ${
+                      validationErrorFields.has("villageTown") ? "rounded-xl border-2 border-[#EF4444] p-2" : ""
+                    }`}
+                  >
                     Village / Town
                     <Input
                       value={details.villageTown}
@@ -1576,7 +1748,12 @@ function SportsVerificationDetailsSection({
                       className="border-white/10 bg-white/[0.04] text-sm text-white"
                     />
                   </label>
-                  <label className="space-y-1.5 text-xs text-zinc-400">
+                  <label
+                    data-verification-field="district"
+                    className={`space-y-1.5 text-xs text-zinc-400 ${
+                      validationErrorFields.has("district") ? "rounded-xl border-2 border-[#EF4444] p-2" : ""
+                    }`}
+                  >
                     District
                     <Input
                       value={details.district}
@@ -1587,7 +1764,12 @@ function SportsVerificationDetailsSection({
                       className="border-white/10 bg-white/[0.04] text-sm text-white"
                     />
                   </label>
-                  <label className="space-y-1.5 text-xs text-zinc-400">
+                  <label
+                    data-verification-field="state"
+                    className={`space-y-1.5 text-xs text-zinc-400 ${
+                      validationErrorFields.has("state") ? "rounded-xl border-2 border-[#EF4444] p-2" : ""
+                    }`}
+                  >
                     State
                     <Input
                       value={details.state}
@@ -1601,7 +1783,12 @@ function SportsVerificationDetailsSection({
                 </>
               ) : !upgradeFlow && details.country.trim() ? (
                 <>
-                  <label className="space-y-1.5 text-xs text-zinc-400 sm:col-span-2">
+                  <label
+                    data-verification-field="streetAddress"
+                    className={`space-y-1.5 text-xs text-zinc-400 sm:col-span-2 ${
+                      validationErrorFields.has("streetAddress") ? "rounded-xl border-2 border-[#EF4444] p-2" : ""
+                    }`}
+                  >
                     Street Address / Apartment
                     <Input
                       value={foreignAddress.streetAddress}
@@ -1614,7 +1801,12 @@ function SportsVerificationDetailsSection({
                       className="border-white/10 bg-white/[0.04] text-sm text-white"
                     />
                   </label>
-                  <label className="space-y-1.5 text-xs text-zinc-400">
+                  <label
+                    data-verification-field="city"
+                    className={`space-y-1.5 text-xs text-zinc-400 ${
+                      validationErrorFields.has("city") ? "rounded-xl border-2 border-[#EF4444] p-2" : ""
+                    }`}
+                  >
                     City
                     <Input
                       value={details.villageTown}
@@ -1625,7 +1817,12 @@ function SportsVerificationDetailsSection({
                       className="border-white/10 bg-white/[0.04] text-sm text-white"
                     />
                   </label>
-                  <label className="space-y-1.5 text-xs text-zinc-400">
+                  <label
+                    data-verification-field="stateProvince"
+                    className={`space-y-1.5 text-xs text-zinc-400 ${
+                      validationErrorFields.has("stateProvince") ? "rounded-xl border-2 border-[#EF4444] p-2" : ""
+                    }`}
+                  >
                     State / Province / Region
                     <Input
                       value={details.state}
@@ -1636,7 +1833,12 @@ function SportsVerificationDetailsSection({
                       className="border-white/10 bg-white/[0.04] text-sm text-white"
                     />
                   </label>
-                  <label className="space-y-1.5 text-xs text-zinc-400">
+                  <label
+                    data-verification-field="postalCode"
+                    className={`space-y-1.5 text-xs text-zinc-400 ${
+                      validationErrorFields.has("postalCode") ? "rounded-xl border-2 border-[#EF4444] p-2" : ""
+                    }`}
+                  >
                     Postal / Zip Code
                     <Input
                       value={foreignAddress.postalCode}
@@ -1663,17 +1865,23 @@ function SportsVerificationDetailsSection({
                 </div>
                 <Select
                   value={details.indianIdentityProofType || undefined}
-                  onValueChange={(value) =>
+                  onValueChange={(value) => {
                     onChange({
                       ...details,
                       indianIdentityProofType: value as SportsVerificationDetails["indianIdentityProofType"],
-                    })
-                  }
+                    });
+                    onFieldChanged("indianIdentityProofType");
+                  }}
                   disabled={fieldsLocked}
                 >
                   <SelectTrigger
                     data-testid="select-sports-indian-identity-proof-type"
-                    className="border-white/10 bg-white/[0.04] text-sm text-white"
+                    data-verification-field="indianIdentityProofType"
+                    className={`border-white/10 bg-white/[0.04] text-sm text-white ${
+                      validationErrorFields.has("indianIdentityProofType")
+                        ? "border-2 border-[#EF4444]"
+                        : ""
+                    }`}
                   >
                     <SelectValue placeholder="Select Aadhaar, Indian Passport, or Voter ID" />
                   </SelectTrigger>
@@ -1686,7 +1894,7 @@ function SportsVerificationDetailsSection({
                   </SelectContent>
                 </Select>
                 <VerificationEvidenceRow
-                  accept="application/pdf,image/jpeg,image/png"
+                  accept={VERIFICATION_DOCUMENT_ACCEPT}
                   evidence={details.indianIdentityProof}
                   kind="indianIdentityProof"
                   ownerId={ownerId}
@@ -1698,17 +1906,27 @@ function SportsVerificationDetailsSection({
                   onUpload={onUploadEvidence}
                   onDelete={onDeleteEvidence}
                   onPreview={onPreviewEvidence}
+                  onFieldChanged={onFieldChanged}
+                  validationError={validationErrorFields.has("indianIdentityProof")}
                   locked={evidenceLocked("indianIdentityProof")}
                 />
               </div>
             ) : null}
-            <label className="flex cursor-pointer items-start gap-3 pt-1 text-xs leading-5 text-zinc-300">
+            <label
+              data-verification-field="identityDetailsConfirmed"
+              className={`flex cursor-pointer items-start gap-3 rounded-xl pt-1 text-xs leading-5 text-zinc-300 ${
+                validationErrorFields.has("identityDetailsConfirmed")
+                  ? "border-2 border-[#EF4444] p-2"
+                  : ""
+              }`}
+            >
               <input
                 type="checkbox"
                 checked={details.identityDetailsConfirmed}
-                onChange={(event) =>
-                  onChange({ ...details, identityDetailsConfirmed: event.target.checked })
-                }
+                onChange={(event) => {
+                  onChange({ ...details, identityDetailsConfirmed: event.target.checked });
+                  onFieldChanged("identityDetailsConfirmed");
+                }}
                 disabled={fieldsLocked}
                 className="mt-1 h-4 w-4 accent-amber-200"
               />
@@ -1726,7 +1944,7 @@ function SportsVerificationDetailsSection({
               </p>
             </div>
             <VerificationEvidenceRow
-              accept="application/pdf,image/jpeg,image/png"
+              accept={VERIFICATION_DOCUMENT_ACCEPT}
               evidence={details.sportsCertificate}
               kind="sportsCertificate"
               ownerId={ownerId}
@@ -1737,38 +1955,79 @@ function SportsVerificationDetailsSection({
               onUpload={onUploadEvidence}
                onDelete={onDeleteEvidence}
                onPreview={onPreviewEvidence}
+              onFieldChanged={onFieldChanged}
+              validationError={validationErrorFields.has("sportsCertificate")}
                locked={evidenceLocked("sportsCertificate") || upgradeFlow}
             />
             {isInternational ? (
               <>
                 <VerificationEvidenceRow
-                  accept="application/pdf,image/jpeg,image/png"
+                  accept={VERIFICATION_DOCUMENT_ACCEPT}
                   evidence={details.passportFirstPage}
                   kind="passportFirstPage"
                   ownerId={ownerId}
-                  label="Passport First Page"
+                  label="Passport Front / First Page"
+                  hint="Photo and personal details page."
                   uploading={uploading}
                   progress={uploadingProgress}
                   onPickerActiveChange={onEvidencePickerActiveChange}
                   onUpload={onUploadEvidence}
                    onDelete={onDeleteEvidence}
                    onPreview={onPreviewEvidence}
+                  onFieldChanged={onFieldChanged}
+                  validationError={validationErrorFields.has("passportFirstPage")}
                    locked={evidenceLocked("passportFirstPage")}
                 />
                 <VerificationEvidenceRow
-                  accept="application/pdf,image/jpeg,image/png"
+                  accept={VERIFICATION_DOCUMENT_ACCEPT}
+                  evidence={details.passportLastPage}
+                  kind="passportLastPage"
+                  ownerId={ownerId}
+                  label="Passport Last / Back Page"
+                  hint="Page with your address and family details."
+                  uploading={uploading}
+                  progress={uploadingProgress}
+                  onPickerActiveChange={onEvidencePickerActiveChange}
+                  onUpload={onUploadEvidence}
+                  onDelete={onDeleteEvidence}
+                  onPreview={onPreviewEvidence}
+                  onFieldChanged={onFieldChanged}
+                  validationError={validationErrorFields.has("passportLastPage")}
+                  locked={evidenceLocked("passportLastPage")}
+                />
+                <VerificationEvidenceRow
+                  accept={VERIFICATION_DOCUMENT_ACCEPT}
                   evidence={details.passportVisaStampPage}
                   kind="passportVisaStampPage"
                   ownerId={ownerId}
-                  label="Passport Visa / Stamp Page"
-                  hint="The page showing the visa or stamp for the tournament/game country."
+                  label="Passport Visa / Stamp Page 1 (Optional)"
+                  hint="Optional first visa or stamp page."
                   uploading={uploading}
                   progress={uploadingProgress}
                   onPickerActiveChange={onEvidencePickerActiveChange}
                   onUpload={onUploadEvidence}
                    onDelete={onDeleteEvidence}
                    onPreview={onPreviewEvidence}
+                  onFieldChanged={onFieldChanged}
+                  validationError={validationErrorFields.has("passportVisaStampPage")}
                    locked={evidenceLocked("passportVisaStampPage")}
+                />
+                <VerificationEvidenceRow
+                  accept={VERIFICATION_DOCUMENT_ACCEPT}
+                  evidence={details.passportVisaStampPage2}
+                  kind="passportVisaStampPage2"
+                  ownerId={ownerId}
+                  label="Passport Visa / Stamp Page 2 (Optional)"
+                  hint="Optional additional visa or stamp page."
+                  uploading={uploading}
+                  progress={uploadingProgress}
+                  onPickerActiveChange={onEvidencePickerActiveChange}
+                  onUpload={onUploadEvidence}
+                  onDelete={onDeleteEvidence}
+                  onPreview={onPreviewEvidence}
+                  onFieldChanged={onFieldChanged}
+                  validationError={validationErrorFields.has("passportVisaStampPage2")}
+                  locked={evidenceLocked("passportVisaStampPage2")}
                 />
               </>
             ) : null}
@@ -1780,7 +2039,11 @@ function SportsVerificationDetailsSection({
               sportsIntroductionProgress={sportsIntroductionProgress}
               onUploadSportsIntroduction={onUploadSportsIntroduction}
               onDeleteSportsIntroduction={onDeleteSportsIntroduction}
-              onVideoValidityChange={onIntroductionValidityChange}
+              onVideoValidityChange={(valid) => {
+                onIntroductionValidityChange?.(valid);
+                if (valid) onFieldChanged("sportsIntroduction");
+              }}
+              validationError={validationErrorFields.has("sportsIntroduction")}
                locked={
                  evidenceLocked("sportsIntroduction") ||
                  upgradeFlow
@@ -1837,6 +2100,8 @@ function VerificationEvidenceRow({
   onUpload,
   onDelete,
   onPreview,
+  onFieldChanged,
+  validationError = false,
   locked,
 }: {
   accept: string;
@@ -1858,6 +2123,8 @@ function VerificationEvidenceRow({
     details?: SportsVerificationDetails,
   ) => void | Promise<void>;
   onPreview?: (kind: SportsVerificationEvidenceKind, path: string) => void | Promise<void>;
+  onFieldChanged?: (field: string) => void;
+  validationError?: boolean;
   locked: boolean;
 }) {
   const inputId = `sports-verification-${kind}`;
@@ -1880,8 +2147,16 @@ function VerificationEvidenceRow({
     input.addEventListener("cancel", handleCancel);
     return () => input.removeEventListener("cancel", handleCancel);
   }, [onPickerActiveChange]);
+  useEffect(() => {
+    if (evidence?.path) onFieldChanged?.(kind);
+  }, [evidence?.path, kind, onFieldChanged]);
   return (
-    <div className="flex flex-wrap items-start gap-3 rounded-xl border border-white/10 bg-black/10 p-3">
+    <div
+      data-verification-field={kind}
+      className={`flex flex-wrap items-start gap-3 rounded-xl border bg-black/10 p-3 ${
+        validationError ? "border-2 border-[#EF4444]" : "border-white/10"
+      }`}
+    >
       <FileCheck2 className="mt-0.5 h-4 w-4 shrink-0 text-amber-200" />
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium text-zinc-200">{label}</p>
@@ -1983,6 +2258,18 @@ function VerificationEvidenceRow({
             return;
           }
           uploadInProgressRef.current = true;
+          if (kind !== "tournamentPhoto") {
+            try {
+              validateVerificationDocumentFile(file);
+            } catch (error) {
+              toast.error(error instanceof Error ? error.message : "This document cannot be uploaded.");
+              window.setTimeout(() => {
+                uploadInProgressRef.current = false;
+                onPickerActiveChange?.(false);
+              }, 1200);
+              return;
+            }
+          }
           void Promise.resolve()
             .then(() => onUpload?.(kind, file))
             .finally(() => {

@@ -595,8 +595,8 @@ const verificationEvidenceRules: Record<
 > = {
   sportsCertificate: {
     allowedTypes: new Set(["application/pdf", "image/jpeg", "image/png"]),
-    maxBytes: 15 * 1024 * 1024,
-    message: "Upload a PDF, JPG, or PNG sports certificate up to 15 MB.",
+    maxBytes: VERIFICATION_DOCUMENT_MAX_BYTES,
+    message: "Upload a PDF, JPG, or PNG sports certificate up to 10 MB.",
   },
   passportFirstPage: {
     allowedTypes: new Set(["application/pdf", "image/jpeg", "image/png"]),
@@ -793,11 +793,9 @@ function safeSportsIntroductionFileName(name: string) {
 }
 
 export async function validateSportsIntroductionVideo(file: File) {
-  if (!file.type.startsWith("video/")) {
-    throw new Error("Upload a video for your Sports Introduction.");
-  }
-  if (file.size > 100 * 1024 * 1024) {
-    throw new Error("Sports Introduction videos must be 100 MB or smaller.");
+  validateVerificationVideoSize(file);
+  if (!new Set(["video/mp4", "video/webm", "video/quicktime"]).has(file.type)) {
+    throw new Error("Choose an MP4, WebM, or MOV video for your Sports Introduction.");
   }
 
   const previewUrl = URL.createObjectURL(file);

@@ -69,6 +69,7 @@ import {
   markVerificationPickerResume,
 } from "@/lib/verification-picker-resume";
 import { STORAGE_BUCKETS } from "@/lib/storage-upload";
+import { validateVerificationVideoSize } from "@/lib/verification-upload-rules";
 import { useFollowCounts } from "@/lib/follow-data";
 import { ProfileTemplate } from "@/components/yw/ProfileTemplate";
 import { DownloadedVideoList } from "@/components/yw/DownloadedVideoList";
@@ -797,6 +798,12 @@ function ProfilePage() {
 
   const handleSportsIntroductionUpload = async (file: File) => {
     if (!userId || userId !== profile.id || !sportsProfile) return;
+    try {
+      validateVerificationVideoSize(file);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "This video is too large.");
+      return;
+    }
     const previousPath = sportsProfile.sportsIntroductionPath;
     const previousUrl = sportsIntroductionUrl;
     const previewUrl = URL.createObjectURL(file);
@@ -887,7 +894,12 @@ function ProfilePage() {
       );
       const nextDetails = { ...currentDetails, [kind]: uploaded } as SportsVerificationDetails;
       const upgradePassportKind =
-        kind === "passportFirstPage" || kind === "passportVisaStampPage" ? kind : undefined;
+        kind === "passportFirstPage" ||
+        kind === "passportLastPage" ||
+        kind === "passportVisaStampPage" ||
+        kind === "passportVisaStampPage2"
+          ? kind
+          : undefined;
       const savedDetails = await saveSportsVerificationDetails(
         userId,
         nextDetails,
@@ -927,7 +939,12 @@ function ProfilePage() {
       const evidence = currentDetails[kind];
       if (!evidence) return;
       const upgradePassportKind =
-        kind === "passportFirstPage" || kind === "passportVisaStampPage" ? kind : undefined;
+        kind === "passportFirstPage" ||
+        kind === "passportLastPage" ||
+        kind === "passportVisaStampPage" ||
+        kind === "passportVisaStampPage2"
+          ? kind
+          : undefined;
       await deleteSportsVerificationEvidence(
         userId,
         evidence.path,

@@ -896,12 +896,14 @@ export const submitSportsVerification = createServerFn({ method: "POST" })
           "passportLastPage",
           currentDetails.passport_last_page_path,
         ),
-        verifyStoredSportsDocument(
-          admin,
-          context.userId,
-          "passportVisaStampPage",
-          currentDetails.passport_visa_stamp_page_path,
-        ),
+        currentDetails.passport_visa_stamp_page_path
+          ? verifyStoredSportsDocument(
+              admin,
+              context.userId,
+              "passportVisaStampPage",
+              currentDetails.passport_visa_stamp_page_path,
+            )
+          : Promise.resolve(),
         currentDetails.passport_visa_stamp_page_2_path
           ? verifyStoredSportsDocument(
               admin,

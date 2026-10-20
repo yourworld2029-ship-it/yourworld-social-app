@@ -649,7 +649,12 @@ export function NationalAwardVerificationDialog({
                   </div>
                   <label
                     data-testid="control-national-award-identity-confirmation"
-                    className="flex cursor-pointer items-start gap-3 pt-1 text-xs leading-5 text-zinc-300"
+                    data-verification-field="identityDetailsConfirmed"
+                    className={`flex cursor-pointer items-start gap-3 rounded-xl pt-1 text-xs leading-5 text-zinc-300 ${
+                      fieldErrors.identityDetailsConfirmed
+                        ? "border-2 border-[#EF4444] p-2"
+                        : ""
+                    }`}
                   >
                     <input
                       type="checkbox"
@@ -675,6 +680,11 @@ export function NationalAwardVerificationDialog({
                     title="National Award"
                     description="Choose the national honour exactly as shown on your official record."
                   />
+                  <div className="rounded-xl border border-amber-200/15 bg-amber-200/[0.04] px-3 py-2 text-xs leading-5 text-amber-100/90">
+                    Document Quality Note: All uploaded documents, passport pages, and
+                    certificates must be crystal clear and fully readable with all 4 corners
+                    visible. Blurry or cut-off uploads will be rejected.
+                  </div>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="space-y-1.5 sm:col-span-2">
                       <label
@@ -696,7 +706,10 @@ export function NationalAwardVerificationDialog({
                         <SelectTrigger
                           id="national-award-award-code"
                           data-testid="select-national-award-award"
-                          className="h-auto min-h-11 border-[#c79a42]/35 bg-[#0d0d0d] py-2 text-left text-sm text-white data-[placeholder]:text-zinc-500"
+                          data-verification-field="awardCode"
+                          className={`h-auto min-h-11 border-[#c79a42]/35 bg-[#0d0d0d] py-2 text-left text-sm text-white data-[placeholder]:text-zinc-500 ${
+                            fieldErrors.awardCode ? "border-2 border-[#EF4444]" : ""
+                          }`}
                         >
                           <SelectValue placeholder="Select a national award">
                             {selectedAwardLabel}
@@ -739,7 +752,10 @@ export function NationalAwardVerificationDialog({
                         <SelectTrigger
                           id="national-award-year"
                           data-testid="select-national-award-year"
-                          className="h-11 border-[#c79a42]/35 bg-[#0d0d0d] text-white data-[placeholder]:text-zinc-500"
+                          data-verification-field="awardYear"
+                          className={`h-11 border-[#c79a42]/35 bg-[#0d0d0d] text-white data-[placeholder]:text-zinc-500 ${
+                            fieldErrors.awardYear ? "border-2 border-[#EF4444]" : ""
+                          }`}
                         >
                           <SelectValue placeholder="Select year" />
                         </SelectTrigger>
@@ -791,7 +807,12 @@ export function NationalAwardVerificationDialog({
                       <SelectTrigger
                         id="national-award-indian-identity-proof-type"
                         data-testid="select-national-award-indian-identity-proof-type"
-                        className="h-11 border-white/10 bg-white/[0.04] text-sm text-white"
+                        data-verification-field="indianIdentityProofType"
+                        className={`h-11 border-white/10 bg-white/[0.04] text-sm text-white ${
+                          fieldErrors.indianIdentityProofType
+                            ? "border-2 border-[#EF4444]"
+                            : ""
+                        }`}
                       >
                         <SelectValue placeholder="Select Aadhaar, Indian Passport, or Voter ID" />
                       </SelectTrigger>
@@ -812,7 +833,8 @@ export function NationalAwardVerificationDialog({
                     kind="identity"
                     label="Aadhaar / Indian Passport / Voter ID"
                     hint="A reviewer must confirm the document is Indian-issued."
-                    accept="application/pdf,image/jpeg,image/png"
+                    accept={VERIFICATION_DOCUMENT_ACCEPT}
+                    error={fieldErrors.indianIdentityProof?.message}
                     evidence={values.indianIdentityProof}
                     uploading={uploadingKind === "identity"}
                     disabled={
@@ -833,7 +855,8 @@ export function NationalAwardVerificationDialog({
                     kind="certificate"
                     label="Certificate / Gazette"
                     hint="Upload a private certificate or gazette image/PDF."
-                    accept="application/pdf,image/jpeg,image/png,image/webp"
+                    accept={VERIFICATION_DOCUMENT_ACCEPT}
+                    error={fieldErrors.certificate?.message}
                     evidence={values.certificate}
                     uploading={uploadingKind === "certificate"}
                     disabled={
@@ -850,7 +873,19 @@ export function NationalAwardVerificationDialog({
                       })
                     }
                   />
-                  <div className="space-y-3 rounded-xl border border-white/10 bg-black/10 p-3">
+                  <div
+                    data-verification-field="introductionVideo"
+                    className={`space-y-3 rounded-xl border bg-black/10 p-3 ${
+                      fieldErrors.introductionVideo
+                        ? "border-2 border-[#EF4444]"
+                        : "border-white/10"
+                    }`}
+                  >
+                    {fieldErrors.introductionVideo?.message ? (
+                      <p role="alert" className="text-xs text-rose-300">
+                        {fieldErrors.introductionVideo.message}
+                      </p>
+                    ) : null}
                     <div>
                       <p className="text-sm font-medium text-zinc-200">Introduction Video</p>
                       <p className="mt-1 text-xs text-zinc-400">
@@ -1008,8 +1043,7 @@ export function NationalAwardVerificationDialog({
                 busy={
                   saving ||
                   savingDraft ||
-                  Boolean(uploadingKind) ||
-                  !introductionVideoValid
+                  Boolean(uploadingKind)
                 }
                 submitting={saving}
                 onAcceptedChange={setTermsAgreed}
@@ -1034,6 +1068,13 @@ function normalizeNationalAwardValues(values: NationalAwardFormValues) {
     district: values.district.trim(),
     state: values.state.trim(),
   };
+}
+
+function scrollToNationalAwardField(field: keyof NationalAwardFormValues) {
+  const target = document.querySelector<HTMLElement>(
+    `[data-verification-field="${field}"]`,
+  );
+  target?.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
 function SectionHeading({
@@ -1077,10 +1118,11 @@ function TextField({
   type?: string;
   readOnly?: boolean;
 }) {
-  const { clearErrors, register } = useFormContext<NationalAwardFormValues>();
+  const { clearErrors, formState, register } = useFormContext<NationalAwardFormValues>();
   const field = register(name);
+  const invalid = Boolean(formState.errors[name]);
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-1.5" data-verification-field={name}>
       <label htmlFor={id} className="text-xs font-medium text-zinc-400">
         {label}
       </label>
@@ -1095,7 +1137,9 @@ function TextField({
         }}
         placeholder={placeholder}
         readOnly={readOnly}
-        className="h-11 border-white/10 bg-white/[0.04] text-sm text-white placeholder:text-zinc-600 focus-visible:ring-[#e2b75e]/60"
+        className={`h-11 border-white/10 bg-white/[0.04] text-sm text-white placeholder:text-zinc-600 focus-visible:ring-[#e2b75e]/60 ${
+          invalid ? "border-2 border-[#EF4444]" : ""
+        }`}
       />
     </div>
   );
@@ -1147,7 +1191,7 @@ function NationalAwardDobField({ disabled }: { disabled: boolean }) {
   };
 
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-1.5" data-verification-field="dateOfBirth">
       <label
         htmlFor="national-award-date-of-birth"
         className="text-xs font-medium text-zinc-400"
@@ -1177,7 +1221,9 @@ function NationalAwardDobField({ disabled }: { disabled: boolean }) {
             });
             clearErrors("dateOfBirth");
           }}
-          className="h-11 border-white/10 bg-white/[0.04] pr-12 text-sm text-white placeholder:text-zinc-500 focus-visible:ring-[#e2b75e]/60"
+          className={`h-11 border-white/10 bg-white/[0.04] pr-12 text-sm text-white placeholder:text-zinc-500 focus-visible:ring-[#e2b75e]/60 ${
+            dateError ? "border-2 border-[#EF4444]" : ""
+          }`}
         />
         <button
           type="button"
@@ -1297,6 +1343,7 @@ function EvidenceUpload({
   label,
   hint,
   accept,
+  error,
   evidence,
   uploading,
   disabled,
@@ -1308,6 +1355,7 @@ function EvidenceUpload({
   label: string;
   hint: string;
   accept: string;
+  error?: string;
   evidence: NationalAwardEvidence | null;
   uploading: boolean;
   disabled: boolean;
@@ -1316,6 +1364,8 @@ function EvidenceUpload({
   onDelete: () => void;
 }) {
   const inputId = `national-award-upload-${kind}`;
+  const validationField =
+    kind === "identity" ? "indianIdentityProof" : kind === "certificate" ? "certificate" : "introductionVideo";
   const inputRef = useRef<HTMLInputElement>(null);
   const uploadInProgressRef = useRef(false);
   useEffect(() => {
@@ -1333,7 +1383,10 @@ function EvidenceUpload({
   return (
     <div
       data-testid={`control-national-award-evidence-${kind}`}
-      className="flex flex-wrap items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.025] p-3"
+      data-verification-field={validationField}
+      className={`flex flex-wrap items-start gap-3 rounded-2xl border bg-white/[0.025] p-3 ${
+        error ? "border-2 border-[#EF4444]" : "border-white/10"
+      }`}
     >
       {kind === "certificate" ? (
         <FileCheck2 className="mt-0.5 h-4 w-4 shrink-0 text-[#e2b75e]" />
@@ -1345,6 +1398,11 @@ function EvidenceUpload({
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium text-zinc-200">{label}</p>
         <p className="mt-0.5 text-xs leading-5 text-zinc-500">{hint}</p>
+        {error ? (
+          <p role="alert" className="mt-1 text-xs text-rose-300">
+            {error}
+          </p>
+        ) : null}
         <p
           data-testid={`status-national-award-evidence-${kind}`}
           className="mt-1 truncate text-xs text-zinc-400"

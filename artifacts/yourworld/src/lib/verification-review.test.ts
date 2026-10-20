@@ -5,7 +5,9 @@ import { isEvidenceFlaggedForReview } from "./verification-review";
 const sportsEvidenceKinds = [
   "sportsCertificate",
   "passportFirstPage",
+  "passportLastPage",
   "passportVisaStampPage",
+  "passportVisaStampPage2",
   "indianIdentityProof",
   "sportsIntroduction",
 ] as const;
@@ -21,6 +23,18 @@ test("a specific review reason enables only the matching evidence", () => {
   );
   assert.equal(
     isEvidenceFlaggedForReview("The passport visa stamp page is unreadable.", "sportsCertificate", sportsEvidenceKinds),
+    false,
+  );
+  assert.equal(
+    isEvidenceFlaggedForReview("Passport back page is cut off.", "passportLastPage", sportsEvidenceKinds),
+    true,
+  );
+  assert.equal(
+    isEvidenceFlaggedForReview("Visa stamp page 2 is unreadable.", "passportVisaStampPage2", sportsEvidenceKinds),
+    true,
+  );
+  assert.equal(
+    isEvidenceFlaggedForReview("Visa stamp page 2 is unreadable.", "passportVisaStampPage", sportsEvidenceKinds),
     false,
   );
 });
