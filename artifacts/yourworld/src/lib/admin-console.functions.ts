@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import {
+  isOwnerAdminEmail,
   OPERATIONS_ADMIN_EMAIL,
   SUPPORT_ADMIN_EMAIL,
 } from "@/lib/admin-routing";
@@ -57,29 +58,35 @@ async function getAdminClient() {
 
 async function requireOwnerAdmin(context: { userId: string; claims: unknown }, stepUp = true) {
   const admin = await getAdminClient();
-  let hasRole = false;
+  // The owner identity comes from the signed Supabase JWT validated by
+  // requireSupabaseAuth. Keep this allowlist on the server; never trust a
+  // client-supplied email or remove the MFA/restriction checks.
+  const isOwner = isOwnerAdminEmail(emailFromClaims(context));
+  let hasRole = isOwner;
   let lookupFailed = false;
-  try {
-    const { data, error } = await withTimeout(
-      admin
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", context.userId)
-        .eq("role", "admin")
-        .maybeSingle(),
-      ADMIN_ROLE_LOOKUP_TIMEOUT_MS,
-      "Admin role check timed out. Please retry.",
-    );
-    hasRole = Boolean(data);
-    lookupFailed = Boolean(error);
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message === "Admin role check timed out. Please retry."
-    ) {
-      throw error;
+  if (!isOwner) {
+    try {
+      const { data, error } = await withTimeout(
+        admin
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", context.userId)
+          .eq("role", "admin")
+          .maybeSingle(),
+        ADMIN_ROLE_LOOKUP_TIMEOUT_MS,
+        "Admin role check timed out. Please retry.",
+      );
+      hasRole = Boolean(data);
+      lookupFailed = Boolean(error);
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message === "Admin role check timed out. Please retry."
+      ) {
+        throw error;
+      }
+      throw new Error("Could not verify the admin role. Please retry.");
     }
-    throw new Error("Could not verify the admin role. Please retry.");
   }
 
   if (lookupFailed) {
