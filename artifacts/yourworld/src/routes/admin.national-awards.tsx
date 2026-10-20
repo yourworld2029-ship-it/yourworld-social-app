@@ -12,6 +12,7 @@ import {
   listNationalAwardVerificationApplications,
   reviewNationalAwardVerification,
 } from "@/lib/national-award.functions";
+import { useAdminAccess } from "@/lib/use-admin-access";
 
 export const Route = createFileRoute("/admin/national-awards")({
   head: () => ({
@@ -31,6 +32,7 @@ type Application = Awaited<
 >["applications"][number];
 
 function NationalAwardVerificationAdminPage() {
+  const access = useAdminAccess();
   const [applications, setApplications] = useState<Application[]>([]);
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [identityConfirmations, setIdentityConfirmations] = useState<Record<string, boolean>>({});
@@ -56,8 +58,8 @@ function NationalAwardVerificationAdminPage() {
   }, []);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (access.status === "allowed") void load();
+  }, [access.status, load]);
 
   const review = async (
     application: Application,
@@ -113,6 +115,25 @@ function NationalAwardVerificationAdminPage() {
       setBusyUserId(null);
     }
   };
+
+  if (access.status === "checking") {
+    return <main className="min-h-screen bg-[#09090b] p-6 text-sm text-zinc-400">Checking admin access…</main>;
+  }
+  if (access.status !== "allowed") {
+    return (
+      <main className="min-h-screen bg-[#09090b] p-6 text-white">
+        <div className="mx-auto mt-12 max-w-md rounded-2xl border border-zinc-800 bg-[#141418] p-6 text-center">
+          <ShieldAlert className="mx-auto mb-3 text-red-500" size={28} />
+          <h1 className="text-lg font-bold">
+            {access.status === "error" ? "Admin access could not be verified" : "Admin access required"}
+          </h1>
+          <p className="mt-1 text-sm text-zinc-400">
+            {access.message ?? "This account does not have the admin role."}
+          </p>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-[#09090b] p-4 text-white">

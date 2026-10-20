@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { hasAdminConsoleAccess } from "@/lib/admin-access-policy";
 import {
   countryCodeForSportsCountry,
   isIndiaSportsCountry,
@@ -210,17 +211,20 @@ async function findExistingIdentity(
   return existing?.[0]?.user_id ?? null;
 }
 
-async function requireSportsVerificationAdmin(userId: string) {
+async function requireSportsVerificationAdmin(userId: string, claims: unknown) {
   const admin = await getAdminClient();
-  const { data, error } = await admin
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", userId)
-    .eq("role", "admin")
-    .maybeSingle();
+  const email = (claims as { email?: string } | null | undefined)?.email;
+  if (!hasAdminConsoleAccess(email, null)) {
+    const { data, error } = await admin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", userId)
+      .eq("role", "admin")
+      .maybeSingle();
 
-  if (error || !data) {
-    throw new Error("Forbidden: Sports Verification admin access is required.");
+    if (error || !hasAdminConsoleAccess(email, data?.role)) {
+      throw new Error("Forbidden: Sports Verification admin access is required.");
+    }
   }
   return admin;
 }
@@ -496,7 +500,7 @@ function deadlineFor(submittedAt: string | null) {
 export const listSportsVerificationApplications = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    const admin = await requireSportsVerificationAdmin(context.userId);
+    const admin = await requireSportsVerificationAdmin(context.userId, context.claims);
     requireAdminStepUp(context.claims);
     const { data: profiles, error: profilesError } = await admin
       .from("profiles")
@@ -591,7 +595,7 @@ export const reviewSportsVerification = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator((data) => reviewActionSchema.parse(data))
   .handler(async ({ data, context }) => {
-    const admin = await requireSportsVerificationAdmin(context.userId);
+    const admin = await requireSportsVerificationAdmin(context.userId, context.claims);
     requireAdminStepUp(context.claims);
     const reason = data.reason?.trim() || null;
     if ((data.action === "reject" || data.action === "request_correction") && !reason) {

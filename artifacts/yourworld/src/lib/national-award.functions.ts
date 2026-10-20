@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { hasAdminConsoleAccess } from "@/lib/admin-access-policy";
 import {
   isNationalAwardCode,
   canRepairNationalAwardEvidence,
@@ -632,14 +633,17 @@ function requireAdminStepUp(claims: unknown) {
 
 async function requireNationalAwardAdmin(userId: string, claims: unknown) {
   const admin = await getAdminClient();
-  const { data, error } = await admin
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", userId)
-    .eq("role", "admin")
-    .maybeSingle();
-  if (error || !data) {
-    throw new Error("Forbidden: National Award Verification admin access is required.");
+  const email = (claims as { email?: string } | null | undefined)?.email;
+  if (!hasAdminConsoleAccess(email, null)) {
+    const { data, error } = await admin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", userId)
+      .eq("role", "admin")
+      .maybeSingle();
+    if (error || !hasAdminConsoleAccess(email, data?.role)) {
+      throw new Error("Forbidden: National Award Verification admin access is required.");
+    }
   }
   requireAdminStepUp(claims);
   return admin;

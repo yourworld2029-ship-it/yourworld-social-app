@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { hasAdminConsoleAccess } from "@/lib/admin-access-policy";
 
 type AdminClient = Awaited<ReturnType<typeof getAdminClient>>;
 
@@ -14,7 +15,11 @@ type AdminProfile = {
 };
 
 function claimsFor(context: { claims: unknown }) {
-  return (context.claims ?? {}) as { aal?: string; amr?: Array<{ method?: string }> };
+  return (context.claims ?? {}) as {
+    aal?: string;
+    amr?: Array<{ method?: string }>;
+    email?: string;
+  };
 }
 
 function assuranceLevel(context: { claims: unknown }) {
@@ -28,15 +33,20 @@ async function getAdminClient() {
 
 async function requireOwnerAdmin(context: { userId: string; claims: unknown }, stepUp = true) {
   const admin = await getAdminClient();
-  const { data, error } = await admin
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", context.userId)
-    .eq("role", "admin")
-    .maybeSingle();
+  const email = claimsFor(context).email;
+  const ownerEmail = hasAdminConsoleAccess(email, null);
 
-  if (error || !data) {
-    throw new Error("Forbidden: owner admin access is required.");
+  if (!ownerEmail) {
+    const { data, error } = await admin
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", context.userId)
+        .eq("role", "admin")
+        .maybeSingle();
+
+    if (error || !hasAdminConsoleAccess(email, data?.role)) {
+      throw new Error("Forbidden: owner admin access is required.");
+    }
   }
   if (stepUp && assuranceLevel(context) !== "aal2") {
     throw new Error("Admin MFA is required. Complete the two-step verification challenge and try again.");
@@ -143,21 +153,10 @@ export type AdminConsoleData = {
   }>;
 };
 
-export const getAdminSecurityStatus = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
-    await requireOwnerAdmin(context, false);
-    return {
-      isAdmin: true,
-      assuranceLevel: assuranceLevel(context),
-      requiresMfa: assuranceLevel(context) !== "aal2",
-    };
-  });
-
 export const listAdminConsole = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    const admin = await requireOwnerAdmin(context);
+    const admin = await requireOwnerAdmin(context, false);
     const [
       pendingVerification,
       userReportsResult,

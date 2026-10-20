@@ -15,6 +15,7 @@ import {
 import { toast } from "sonner";
 import { getSportsProfile, type SportsProfileInfo } from "@/components/yw/SportsProfile";
 import { historyBackOr } from "@/lib/navigation";
+import { useAdminAccess } from "@/lib/use-admin-access";
 import { parseForeignSportsAddress } from "@/lib/profile-data";
 import { isIndiaSportsCountry } from "@/lib/sports-country";
 import {
@@ -42,7 +43,7 @@ type ReviewApplication = AdminVerificationApplication & {
 
 function AdminSportsVerification() {
   const navigate = useNavigate();
-  const [authorized, setAuthorized] = useState<boolean | null>(null);
+  const access = useAdminAccess();
   const [applications, setApplications] = useState<ReviewApplication[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +54,6 @@ function AdminSportsVerification() {
     setError(null);
     try {
       const result = await listSportsVerificationApplications();
-      setAuthorized(true);
       setApplications(
         result.applications.map((application) => ({
           ...application,
@@ -62,21 +62,15 @@ function AdminSportsVerification() {
       );
     } catch (loadError) {
       const message = loadError instanceof Error ? loadError.message : "Could not load review requests.";
-      if (message.toLowerCase().includes("forbidden") || message.toLowerCase().includes("admin access")) {
-        setAuthorized(false);
-        setError(null);
-      } else {
-        setAuthorized(true);
-        setError(message);
-      }
+      setError(message);
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (access.status === "allowed") void load();
+  }, [access.status, load]);
 
   const updateApplication = async (
     application: ReviewApplication,
@@ -111,18 +105,20 @@ function AdminSportsVerification() {
     }
   };
 
-  if (loading && authorized === null) {
+  if (access.status === "checking") {
     return <div className="min-h-screen bg-[#09090b] p-6 text-sm text-zinc-400">Checking admin access…</div>;
   }
 
-  if (authorized === false) {
+  if (access.status !== "allowed") {
     return (
       <div className="min-h-screen bg-[#09090b] p-6 text-white">
         <div className="mx-auto max-w-md rounded-2xl border border-zinc-800 bg-[#141418] p-6 text-center">
           <ShieldAlert className="mx-auto mb-3 text-red-500" size={28} />
-          <h1 className="text-lg font-bold">Admins only</h1>
+          <h1 className="text-lg font-bold">
+            {access.status === "error" ? "Admin access could not be verified" : "Admin access required"}
+          </h1>
           <p className="mt-1 text-sm text-zinc-400">
-            You do not have access to Sports Verification review.
+            {access.message ?? "This account does not have the admin role."}
           </p>
         </div>
       </div>

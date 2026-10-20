@@ -4,8 +4,8 @@ import { ArrowLeft, CheckCircle2, LockKeyhole, RefreshCw, ShieldAlert, ShieldChe
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { historyBackLink } from "@/lib/navigation";
+import { useAdminAccess } from "@/lib/use-admin-access";
 import {
-  getAdminSecurityStatus,
   listAdminConsole,
   reviewCopyrightReport,
   reviewUserReport,
@@ -20,7 +20,7 @@ export const Route = createFileRoute("/admin")({
       { title: "Admin Console — YourWorld" },
       {
         name: "description",
-        content: "Owner-only YourWorld moderation, verification, copyright, and payout review console.",
+        content: "YourWorld moderation, verification, copyright, and payout review console for admins.",
       },
     ],
   }),
@@ -30,25 +30,11 @@ export const Route = createFileRoute("/admin")({
 type Tab = "overview" | "verification" | "reports" | "copyright" | "payouts" | "accounts" | "audit";
 
 function AdminConsole() {
-  const [security, setSecurity] = useState<{
-    isAdmin: boolean;
-    assuranceLevel: string;
-    requiresMfa: boolean;
-  } | null>(null);
-  const [securityError, setSecurityError] = useState<string | null>(null);
+  const access = useAdminAccess();
+  const [mfaOpen, setMfaOpen] = useState(false);
   const [data, setData] = useState<AdminConsoleData | null>(null);
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState<Tab>("overview");
-
-  const checkSecurity = useCallback(async () => {
-    setSecurityError(null);
-    try {
-      const result = await getAdminSecurityStatus();
-      setSecurity(result);
-    } catch (error) {
-      setSecurityError(error instanceof Error ? error.message : "Admin access is unavailable.");
-    }
-  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -56,32 +42,44 @@ function AdminConsole() {
       setData(await listAdminConsole());
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not load the admin console.";
-      if (message.toLowerCase().includes("mfa")) {
-        setSecurity((current) => (current ? { ...current, requiresMfa: true } : current));
-      } else {
-        toast.error(message);
-      }
+      toast.error(message);
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    void checkSecurity();
-  }, [checkSecurity]);
+    if (access.status === "allowed") void load();
+  }, [access.status, load]);
 
   useEffect(() => {
-    if (security?.isAdmin && !security.requiresMfa) void load();
-  }, [load, security]);
+    if (access.status !== "allowed") {
+      setData(null);
+      setMfaOpen(false);
+    }
+  }, [access.status]);
 
-  if (securityError) {
-    return <AdminDenied message={securityError} />;
-  }
-  if (!security) {
+  if (access.status === "checking") {
     return <AdminLoading />;
   }
-  if (security.requiresMfa) {
-    return <MfaGate onComplete={() => void checkSecurity()} />;
+  if (access.status !== "allowed") {
+    return (
+      <AdminDenied
+        title={access.status === "error" ? "Admin access could not be verified" : "Admin access required"}
+        message={access.message ?? "This account does not have the admin role."}
+      />
+    );
+  }
+  if (mfaOpen) {
+    return (
+      <MfaGate
+        onCancel={() => setMfaOpen(false)}
+        onComplete={() => {
+          setMfaOpen(false);
+          void load();
+        }}
+      />
+    );
   }
 
   const counts = data
@@ -109,11 +107,18 @@ function AdminConsole() {
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-bold">Admin Console</h1>
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-400/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-emerald-300">
-                <ShieldCheck className="h-3.5 w-3.5" /> Owner + MFA
+                <ShieldCheck className="h-3.5 w-3.5" /> Admin access
               </span>
             </div>
-            <p className="text-sm text-zinc-500">Moderation actions are server-authorized and permanently audited.</p>
+            <p className="text-sm text-zinc-500">Sensitive actions require MFA and are server-authorized and audited.</p>
           </div>
+          <button
+            type="button"
+            onClick={() => setMfaOpen(true)}
+            className="inline-flex items-center gap-2 rounded-xl border border-amber-200/20 px-3 py-2 text-xs font-semibold text-amber-100 hover:bg-amber-200/10"
+          >
+            <LockKeyhole size={14} /> Verify MFA
+          </button>
           <button
             type="button"
             onClick={() => void load()}
@@ -172,7 +177,7 @@ function AdminConsole() {
   );
 }
 
-function MfaGate({ onComplete }: { onComplete: () => void }) {
+function MfaGate({ onComplete, onCancel }: { onComplete: () => void; onCancel: () => void }) {
   const [adminFactor, setAdminFactor] = useState<{ id: string; friendly_name?: string } | null>(null);
   const [enrollment, setEnrollment] = useState<{ id: string; qr_code: string; secret: string } | null>(null);
   const [code, setCode] = useState("");
@@ -240,6 +245,13 @@ function MfaGate({ onComplete }: { onComplete: () => void }) {
   return (
     <main className="min-h-screen bg-[#09090b] p-4 text-white">
       <div className="mx-auto mt-12 max-w-lg rounded-3xl border border-amber-200/20 bg-[#141418] p-6">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="mb-4 rounded-lg px-2 py-1 text-xs text-zinc-400 hover:bg-white/[0.06] hover:text-white"
+        >
+          Back to Admin Console
+        </button>
         <LockKeyhole className="mb-4 text-amber-200" size={28} />
         <h1 className="text-xl font-bold">Admin MFA required</h1>
         <p className="mt-2 text-sm leading-6 text-zinc-400">
@@ -590,12 +602,12 @@ function Empty({ text }: { text: string }) {
   return <div className="rounded-2xl border border-dashed border-white/10 p-5 text-sm text-zinc-500">{text}</div>;
 }
 
-function AdminDenied({ message }: { message: string }) {
-  return <main className="min-h-screen bg-[#09090b] p-6 text-white"><div className="mx-auto mt-12 max-w-md rounded-2xl border border-zinc-800 bg-[#141418] p-6 text-center"><ShieldAlert className="mx-auto mb-3 text-red-500" size={28} /><h1 className="text-lg font-bold">Owner admin access required</h1><p className="mt-2 text-sm text-zinc-400">{message}</p></div></main>;
+function AdminDenied({ title, message }: { title: string; message: string }) {
+  return <main className="min-h-screen bg-[#09090b] p-6 text-white"><div className="mx-auto mt-12 max-w-md rounded-2xl border border-zinc-800 bg-[#141418] p-6 text-center"><ShieldAlert className="mx-auto mb-3 text-red-500" size={28} /><h1 className="text-lg font-bold">{title}</h1><p className="mt-2 text-sm text-zinc-400">{message}</p></div></main>;
 }
 
 function AdminLoading() {
-  return <main className="min-h-screen bg-[#09090b] p-6 text-sm text-zinc-400">Checking owner admin access…</main>;
+  return <main className="min-h-screen bg-[#09090b] p-6 text-sm text-zinc-400">Checking admin access…</main>;
 }
 
 function displayProfile(profile: AdminConsoleData["userReports"][number]["reportedUser"] | null) {

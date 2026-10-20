@@ -14,3 +14,9 @@ Debug APKs for visible app updates should have a higher versionCode than the ins
 **Why:** the user reported seeing the old Notifications screen after a rebuilt APK still used version 1.0.176.
 
 **How to apply:** Check the current Android version metadata before building; increment both values for each shared APK so Android and the user can distinguish the update.
+
+A rollback can restore Gradle metadata to a lower version than the APKs already staged for download.
+
+**Why:** A fresh build must still be installable over the most recently distributed APK after a code rollback.
+
+**How to apply:** Before choosing the next version, compare Gradle metadata with the highest staged APK version and increment above both.
