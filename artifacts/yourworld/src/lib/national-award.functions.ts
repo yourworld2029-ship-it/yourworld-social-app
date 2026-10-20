@@ -18,16 +18,21 @@ import {
   countryCodeForSportsCountry,
   isIndianIdentityProofType,
 } from "@/lib/sports-country";
+import {
+  VERIFICATION_DOCUMENT_MAX_BYTES,
+  VERIFICATION_VIDEO_MAX_BYTES,
+  VERIFICATION_DOCUMENT_SIZE_ERROR,
+  VERIFICATION_VIDEO_SIZE_ERROR,
+} from "@/lib/verification-upload-rules";
 
 const evidenceBucket = "national-award-evidence";
-const maxCertificateSize = 15 * 1024 * 1024;
-const maxIdentitySize = 15 * 1024 * 1024;
-const maxIntroductionSize = 100 * 1024 * 1024;
+const maxCertificateSize = VERIFICATION_DOCUMENT_MAX_BYTES;
+const maxIdentitySize = VERIFICATION_DOCUMENT_MAX_BYTES;
+const maxIntroductionSize = VERIFICATION_VIDEO_MAX_BYTES;
 const certificateMimeTypes = new Set([
   "application/pdf",
   "image/jpeg",
   "image/png",
-  "image/webp",
 ]);
 const introductionMimeTypes = new Set([
   "video/mp4",
@@ -258,11 +263,15 @@ async function findStoredEvidence(
 
   if (!allowedTypes.has(mimeType) || !Number.isFinite(size) || size <= 0 || size > maxSize) {
     throw new Error(
-      kind === "certificate"
-        ? "Use a PDF or image certificate smaller than 15 MB."
-        : kind === "identity"
-          ? "Use Aadhaar, Indian Passport, or Voter ID as a PDF, JPG, or PNG smaller than 15 MB."
-          : "Use an MP4, WebM, or MOV introduction video smaller than 100 MB.",
+      size > maxSize
+        ? kind === "introduction"
+          ? VERIFICATION_VIDEO_SIZE_ERROR
+          : VERIFICATION_DOCUMENT_SIZE_ERROR
+        : kind === "certificate"
+          ? "Use a PDF, JPG, or PNG certificate."
+          : kind === "identity"
+            ? "Use Aadhaar, Indian Passport, or Voter ID as a PDF, JPG, or PNG."
+            : "Use an MP4, WebM, or MOV introduction video.",
     );
   }
 

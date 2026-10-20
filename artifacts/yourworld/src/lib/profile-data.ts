@@ -7,6 +7,11 @@ import { resolveMediaUrl, type DbPost } from "@/lib/social-data";
 import { announcePostDeleted, isPostDeleted } from "@/lib/post-deletion";
 import { writeCompat } from "@/lib/supabase-compat";
 import { isEvidenceFlaggedForReview } from "@/lib/verification-review";
+import {
+  VERIFICATION_DOCUMENT_MAX_BYTES,
+  validateVerificationDocumentFile,
+  validateVerificationVideoSize,
+} from "@/lib/verification-upload-rules";
 import { fetchProfilePostsPage } from "@/lib/profile-posts";
 import {
   isSportsIdentityCategory,
@@ -67,7 +72,9 @@ export type SportsDocument = {
 export type SportsVerificationEvidenceKind =
   | "sportsCertificate"
   | "passportFirstPage"
+  | "passportLastPage"
   | "passportVisaStampPage"
+  | "passportVisaStampPage2"
   | "tournamentPhoto"
   | "indianIdentityProof";
 
@@ -100,7 +107,9 @@ export type SportsVerificationDetails = {
   submittedAt?: string | null;
   sportsCertificate: SportsVerificationEvidence | null;
   passportFirstPage: SportsVerificationEvidence | null;
+  passportLastPage: SportsVerificationEvidence | null;
   passportVisaStampPage: SportsVerificationEvidence | null;
+  passportVisaStampPage2: SportsVerificationEvidence | null;
   tournamentPhoto: SportsVerificationEvidence | null;
   indianIdentityProof: SportsVerificationEvidence | null;
 };
@@ -177,12 +186,18 @@ async function requireDocumentOwner(ownerId: string) {
 
 const lockedSportsVerificationStatuses = new Set(["pending", "approved"]);
 
-type InternationalUpgradePassportKind = "passportFirstPage" | "passportVisaStampPage";
+type InternationalUpgradePassportKind =
+  | "passportFirstPage"
+  | "passportLastPage"
+  | "passportVisaStampPage"
+  | "passportVisaStampPage2";
 type SportsCorrectionEvidenceKind = SportsVerificationEvidenceKind | "sportsIntroduction";
 const sportsEvidenceKinds: readonly SportsVerificationEvidenceKind[] = [
   "sportsCertificate",
   "passportFirstPage",
+  "passportLastPage",
   "passportVisaStampPage",
+  "passportVisaStampPage2",
   "tournamentPhoto",
   "indianIdentityProof",
 ];
@@ -279,7 +294,9 @@ function emptySportsVerificationDetails(email = "", mobileNumber = ""): SportsVe
     submittedAt: null,
     sportsCertificate: null,
     passportFirstPage: null,
+    passportLastPage: null,
     passportVisaStampPage: null,
+    passportVisaStampPage2: null,
     tournamentPhoto: null,
     indianIdentityProof: null,
   };
@@ -337,9 +354,14 @@ export async function getSportsVerificationDetails(ownerId: string): Promise<Spo
     submittedAt: data.submitted_at ?? null,
     sportsCertificate: evidenceFromPath(data.sports_certificate_path, "sportsCertificate"),
     passportFirstPage: evidenceFromPath(data.passport_first_page_path, "passportFirstPage"),
+    passportLastPage: evidenceFromPath(data.passport_last_page_path, "passportLastPage"),
     passportVisaStampPage: evidenceFromPath(
       data.passport_visa_stamp_page_path,
       "passportVisaStampPage",
+    ),
+    passportVisaStampPage2: evidenceFromPath(
+      data.passport_visa_stamp_page_2_path,
+      "passportVisaStampPage2",
     ),
     tournamentPhoto: evidenceFromPath(data.tournament_photo_path, "tournamentPhoto"),
     indianIdentityProof: evidenceFromPath(
@@ -414,10 +436,13 @@ export async function saveSportsVerificationDetails(
     ) {
       throw new Error("Invalid Sports Verification evidence path.");
     }
-    const column =
-      internationalUpgradePassportKind === "passportFirstPage"
-        ? "passport_first_page_path"
-        : "passport_visa_stamp_page_path";
+    const columnByKind: Record<InternationalUpgradePassportKind, string> = {
+      passportFirstPage: "passport_first_page_path",
+      passportLastPage: "passport_last_page_path",
+      passportVisaStampPage: "passport_visa_stamp_page_path",
+      passportVisaStampPage2: "passport_visa_stamp_page_2_path",
+    };
+    const column = columnByKind[internationalUpgradePassportKind];
     const { data, error } = await supabase
       .from("sports_verification_details")
       .update({ [column]: path, updated_at: new Date().toISOString() })
@@ -493,7 +518,9 @@ export async function saveSportsVerificationDetails(
     email: details.email.trim(),
     sports_certificate_path: details.sportsCertificate?.path ?? null,
     passport_first_page_path: details.passportFirstPage?.path ?? null,
+    passport_last_page_path: details.passportLastPage?.path ?? null,
     passport_visa_stamp_page_path: details.passportVisaStampPage?.path ?? null,
+    passport_visa_stamp_page_2_path: details.passportVisaStampPage2?.path ?? null,
     tournament_photo_path: details.tournamentPhoto?.path ?? null,
     indian_identity_proof_path: indianIdentityProofPath,
     indian_identity_proof_type: details.indianIdentityProofType || null,
@@ -545,9 +572,14 @@ export async function saveSportsVerificationDetails(
     submittedAt: data.submitted_at ?? null,
     sportsCertificate: evidenceFromPath(data.sports_certificate_path, "sportsCertificate"),
     passportFirstPage: evidenceFromPath(data.passport_first_page_path, "passportFirstPage"),
+    passportLastPage: evidenceFromPath(data.passport_last_page_path, "passportLastPage"),
     passportVisaStampPage: evidenceFromPath(
       data.passport_visa_stamp_page_path,
       "passportVisaStampPage",
+    ),
+    passportVisaStampPage2: evidenceFromPath(
+      data.passport_visa_stamp_page_2_path,
+      "passportVisaStampPage2",
     ),
     tournamentPhoto: evidenceFromPath(data.tournament_photo_path, "tournamentPhoto"),
     indianIdentityProof: evidenceFromPath(
@@ -568,13 +600,23 @@ const verificationEvidenceRules: Record<
   },
   passportFirstPage: {
     allowedTypes: new Set(["application/pdf", "image/jpeg", "image/png"]),
-    maxBytes: 15 * 1024 * 1024,
-    message: "Upload a PDF, JPG, or PNG passport page up to 15 MB.",
+    maxBytes: VERIFICATION_DOCUMENT_MAX_BYTES,
+    message: "Upload a PDF, JPG, or PNG passport page up to 10 MB.",
+  },
+  passportLastPage: {
+    allowedTypes: new Set(["application/pdf", "image/jpeg", "image/png"]),
+    maxBytes: VERIFICATION_DOCUMENT_MAX_BYTES,
+    message: "Upload a PDF, JPG, or PNG passport page up to 10 MB.",
   },
   passportVisaStampPage: {
     allowedTypes: new Set(["application/pdf", "image/jpeg", "image/png"]),
-    maxBytes: 15 * 1024 * 1024,
-    message: "Upload a PDF, JPG, or PNG visa/stamp page up to 15 MB.",
+    maxBytes: VERIFICATION_DOCUMENT_MAX_BYTES,
+    message: "Upload a PDF, JPG, or PNG visa/stamp page up to 10 MB.",
+  },
+  passportVisaStampPage2: {
+    allowedTypes: new Set(["application/pdf", "image/jpeg", "image/png"]),
+    maxBytes: VERIFICATION_DOCUMENT_MAX_BYTES,
+    message: "Upload a PDF, JPG, or PNG visa/stamp page up to 10 MB.",
   },
   tournamentPhoto: {
     allowedTypes: new Set(["image/jpeg", "image/png", "image/webp"]),
@@ -583,8 +625,8 @@ const verificationEvidenceRules: Record<
   },
   indianIdentityProof: {
     allowedTypes: new Set(["application/pdf", "image/jpeg", "image/png"]),
-    maxBytes: 15 * 1024 * 1024,
-    message: "Upload Aadhaar, an Indian passport, or Voter ID as a PDF, JPG, or PNG up to 15 MB.",
+    maxBytes: VERIFICATION_DOCUMENT_MAX_BYTES,
+    message: "Upload Aadhaar, an Indian passport, or Voter ID as a PDF, JPG, or PNG up to 10 MB.",
   },
 };
 
@@ -598,7 +640,13 @@ export async function uploadSportsVerificationEvidence(
     kind === "passportFirstPage" || kind === "passportVisaStampPage" ? kind : undefined;
   await requireMutableSportsVerification(ownerId, upgradePassportKind, kind);
   const rule = verificationEvidenceRules[kind];
-  if (!rule.allowedTypes.has(file.type) || file.size > rule.maxBytes) {
+  const mimeType =
+    kind === "tournamentPhoto" ? file.type : validateVerificationDocumentFile(file);
+  if (
+    !rule.allowedTypes.has(mimeType) ||
+    file.size <= 0 ||
+    file.size > rule.maxBytes
+  ) {
     throw new Error(rule.message);
   }
 
@@ -608,7 +656,7 @@ export async function uploadSportsVerificationEvidence(
     STORAGE_BUCKETS.documents,
     path,
     file,
-    file.type,
+    mimeType,
     onProgress,
     "3600",
   );
@@ -617,7 +665,7 @@ export async function uploadSportsVerificationEvidence(
   return {
     path,
     name,
-    mimeType: file.type,
+    mimeType,
     size: file.size,
     updatedAt: new Date().toISOString(),
   };

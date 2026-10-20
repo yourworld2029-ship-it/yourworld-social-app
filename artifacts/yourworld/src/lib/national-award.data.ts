@@ -6,26 +6,28 @@ import {
   type NationalAwardEvidenceKind,
   type NationalAwardPublicBadge,
 } from "@/lib/national-award";
+import {
+  VERIFICATION_DOCUMENT_MAX_BYTES,
+  VERIFICATION_VIDEO_MAX_BYTES,
+  validateVerificationDocumentFile,
+  validateVerificationVideoSize,
+} from "@/lib/verification-upload-rules";
 
 const evidenceBucket = "national-award-evidence";
-const maxCertificateSize = 15 * 1024 * 1024;
-const maxIdentitySize = 15 * 1024 * 1024;
-const maxIntroductionSize = 100 * 1024 * 1024;
+const maxCertificateSize = VERIFICATION_DOCUMENT_MAX_BYTES;
+const maxIdentitySize = VERIFICATION_DOCUMENT_MAX_BYTES;
+const maxIntroductionSize = VERIFICATION_VIDEO_MAX_BYTES;
 
 const allowedMimeTypes: Record<NationalAwardEvidenceKind, Set<string>> = {
-  certificate: new Set([
-    "application/pdf",
-    "image/jpeg",
-    "image/png",
-    "image/webp",
-  ]),
+  certificate: new Set(["application/pdf", "image/jpeg", "image/png"]),
   introduction: new Set(["video/mp4", "video/webm", "video/quicktime"]),
   identity: new Set(["application/pdf", "image/jpeg", "image/png"]),
 };
 
 export async function validateNationalAwardIntroductionVideo(file: File) {
-  if (!allowedMimeTypes.introduction.has(file.type) || file.size <= 0 || file.size > maxIntroductionSize) {
-    throw new Error("Choose an MP4, WebM, or MOV introduction video under 100 MB.");
+  validateVerificationVideoSize(file);
+  if (!allowedMimeTypes.introduction.has(file.type) || file.size <= 0) {
+    throw new Error("Choose an MP4, WebM, or MOV introduction video under 50 MB.");
   }
 
   const previewUrl = URL.createObjectURL(file);
@@ -63,6 +65,8 @@ export async function uploadNationalAwardEvidence(
   if (!userId) throw new Error("Sign in before uploading verification evidence.");
   await assertNationalAwardEvidenceEditable({ data: { kind } });
 
+  const contentType =
+    kind === "introduction" ? file.type : validateVerificationDocumentFile(file);
   if (kind === "introduction") {
     await validateNationalAwardIntroductionVideo(file);
   }
@@ -73,20 +77,24 @@ export async function uploadNationalAwardEvidence(
       : kind === "identity"
         ? maxIdentitySize
         : maxCertificateSize;
-  if (!allowedMimeTypes[kind].has(file.type) || file.size <= 0 || file.size > maxSize) {
+  if (
+    !allowedMimeTypes[kind].has(contentType) ||
+    file.size <= 0 ||
+    file.size > maxSize
+  ) {
     throw new Error(
       kind === "introduction"
-        ? "Choose an MP4, WebM, or MOV introduction video under 100 MB."
+        ? "Choose an MP4, WebM, or MOV introduction video under 50 MB."
         : kind === "identity"
-          ? "Choose Aadhaar, Indian Passport, or Voter ID as a PDF, JPG, or PNG under 15 MB."
-          : "Choose a PDF, JPG, PNG, or WebP certificate under 15 MB.",
+          ? "Choose Aadhaar, Indian Passport, or Voter ID as a PDF, JPG, or PNG under 10 MB."
+          : "Choose a PDF, JPG, or PNG certificate under 10 MB.",
     );
   }
 
   const path = `${userId}/${kind}/evidence`;
   const { error } = await supabase.storage.from(evidenceBucket).upload(path, file, {
     cacheControl: "3600",
-    contentType: file.type,
+    contentType,
     upsert: true,
   });
   if (error) throw new Error(`Could not upload this file: ${error.message}`);
@@ -106,7 +114,7 @@ export async function uploadNationalAwardEvidence(
   return {
     path,
     name: name || "Evidence file",
-    mimeType: file.type,
+    mimeType: contentType,
     size: file.size,
   };
 }

@@ -53,6 +53,11 @@ import {
 import { useForm, useFormContext } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import {
+  VERIFICATION_DOCUMENT_ACCEPT,
+  validateVerificationDocumentFile,
+  validateVerificationVideoSize,
+} from "@/lib/verification-upload-rules";
 
 const EMPTY_FORM: NationalAwardFormValues = {
   fullName: "",
@@ -80,8 +85,12 @@ const nationalAwardFormSchema = z.object({
     .string()
     .min(1, "Enter your date of birth.")
     .refine(isValidNationalAwardDobIso, "Enter a valid date in DD/MM/YYYY format."),
-  phoneNumber: z.string().trim().min(1, "Enter your Phone Number."),
-  email: z.string().trim().min(1, "Enter your Email."),
+  phoneNumber: z
+    .string()
+    .trim()
+    .regex(/^\+?[0-9()\s.-]{7,24}$/, "Enter a valid phone number.")
+    .refine((value) => value.replace(/\D/g, "").length >= 7, "Enter a valid phone number."),
+  email: z.string().trim().email("Enter a valid email address.").max(254),
   villageTown: z.string().trim().min(1, "Enter your Village / Town."),
   district: z.string().trim().min(1, "Enter your District."),
   state: z.string().trim().min(1, "Enter your State."),
@@ -355,6 +364,24 @@ export function NationalAwardVerificationDialog({
     file: File | undefined,
   ) => {
     if (!file || !editable) return;
+    try {
+      if (kind === "introduction") validateVerificationVideoSize(file);
+      else validateVerificationDocumentFile(file);
+    } catch (error) {
+      const evidenceField =
+        kind === "identity"
+          ? "indianIdentityProof"
+          : kind === "certificate"
+            ? "certificate"
+            : "introductionVideo";
+      setError(evidenceField, {
+        type: "manual",
+        message: error instanceof Error ? error.message : "This file cannot be uploaded.",
+      });
+      toast.error(error instanceof Error ? error.message : "This file cannot be uploaded.");
+      window.requestAnimationFrame(() => scrollToNationalAwardField(evidenceField));
+      return;
+    }
     const previousPreviewUrl = introductionPreviewUrl;
     const temporaryPreviewUrl =
       kind === "introduction" ? URL.createObjectURL(file) : null;
@@ -402,10 +429,40 @@ export function NationalAwardVerificationDialog({
   const submit = async (submittedValues: NationalAwardFormValues) => {
     if (!editable || saving || savingDraft || !termsAgreed) return;
     if (!introductionVideoValid) {
-      toast.error("Select a valid 5 to 50 second vertical introduction video.");
+      setError("introductionVideo", {
+        type: "manual",
+        message: "Upload a valid 5 to 50 second vertical introduction video.",
+      });
+      toast.error("Please fill all highlighted required details before submitting.");
+      window.requestAnimationFrame(() => scrollToNationalAwardField("introductionVideo"));
       return;
     }
     await onSubmit(normalizeNationalAwardValues(submittedValues), true);
+  };
+
+  const invalidSubmit = (invalidFields: typeof fieldErrors) => {
+    const validationOrder: (keyof NationalAwardFormValues)[] = [
+      "fullName",
+      "fatherName",
+      "dateOfBirth",
+      "phoneNumber",
+      "email",
+      "villageTown",
+      "district",
+      "state",
+      "identityDetailsConfirmed",
+      "awardCode",
+      "awardYear",
+      "indianIdentityProofType",
+      "indianIdentityProof",
+      "certificate",
+      "introductionVideo",
+    ];
+    const firstInvalid = validationOrder.find((field) => invalidFields[field]);
+    toast.error("Please fill all highlighted required details before submitting.");
+    if (firstInvalid) {
+      window.requestAnimationFrame(() => scrollToNationalAwardField(firstInvalid));
+    }
   };
 
   const saveDraft = async (draftValues: NationalAwardFormValues) => {
@@ -483,7 +540,7 @@ export function NationalAwardVerificationDialog({
               <form
                 onSubmit={(event) => {
                   event.preventDefault();
-                  void handleSubmit(submit)(event);
+                  void handleSubmit(submit, invalidSubmit)(event);
                 }}
                 className="min-h-0 overflow-y-auto px-5 py-5"
               >

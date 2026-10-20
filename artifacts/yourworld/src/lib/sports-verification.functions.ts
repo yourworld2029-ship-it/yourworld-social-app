@@ -6,6 +6,12 @@ import {
   isIndiaSportsCountry,
   isIndianIdentityProofType,
 } from "@/lib/sports-country";
+import {
+  VERIFICATION_DOCUMENT_MAX_BYTES,
+  VERIFICATION_DOCUMENT_SIZE_ERROR,
+  VERIFICATION_VIDEO_MAX_BYTES,
+  VERIFICATION_VIDEO_SIZE_ERROR,
+} from "@/lib/verification-upload-rules";
 
 export const SPORTS_VERIFICATION_DUPLICATE_MESSAGE =
   "Yeh sports account pehle se bana hua hai. Duplicate registration allowed nahi hai.";
@@ -81,7 +87,9 @@ type VerificationDetailsRow = {
   email: string;
   sports_certificate_path: string | null;
   passport_first_page_path: string | null;
+  passport_last_page_path?: string | null;
   passport_visa_stamp_page_path: string | null;
+  passport_visa_stamp_page_2_path?: string | null;
   tournament_photo_path: string | null;
   indian_identity_proof_path: string | null;
   indian_identity_proof_type: string | null;
@@ -98,7 +106,9 @@ export type ReviewDocument = {
   kind:
     | "sportsCertificate"
     | "passportFirstPage"
+    | "passportLastPage"
     | "passportVisaStampPage"
+    | "passportVisaStampPage2"
     | "tournamentPhoto"
     | "indianIdentityProof";
   name: string;
@@ -374,9 +384,74 @@ async function verifyStoredIndianIdentityProof(
     !new Set(["application/pdf", "image/jpeg", "image/png"]).has(mimeType) ||
     !Number.isFinite(size) ||
     size <= 0 ||
-    size > 15 * 1024 * 1024
+    size > VERIFICATION_DOCUMENT_MAX_BYTES
   ) {
-    throw new Error("The Indian identity proof is missing or is not an accepted file type.");
+    throw new Error(
+      size > VERIFICATION_DOCUMENT_MAX_BYTES
+        ? VERIFICATION_DOCUMENT_SIZE_ERROR
+        : "The Indian identity proof is missing or is not an accepted file type.",
+    );
+  }
+}
+
+async function verifyStoredSportsDocument(
+  admin: Awaited<ReturnType<typeof getAdminClient>>,
+  ownerId: string,
+  kind: "sportsCertificate" | "passportFirstPage" | "passportLastPage" | "passportVisaStampPage" | "passportVisaStampPage2",
+  path: string | null | undefined,
+) {
+  const prefix = `${ownerId}/sports-verification/${kind}/`;
+  if (!path || !path.startsWith(prefix) || path.includes("..")) {
+    throw new Error(`Upload the required ${kind} document before submitting.`);
+  }
+  const fileName = path.slice(prefix.length);
+  if (!fileName || fileName.includes("/")) {
+    throw new Error("The verification document file path is invalid.");
+  }
+  const { data, error } = await admin.storage
+    .from("documents")
+    .list(`${ownerId}/sports-verification/${kind}`, { limit: 100, search: fileName });
+  if (error) throw new Error(`Could not verify the ${kind} upload: ${error.message}`);
+  const file = data?.find((entry) => entry.name === fileName);
+  const metadata = (file?.metadata ?? {}) as Record<string, unknown>;
+  const mimeType = String(metadata.mimetype ?? metadata.contentType ?? "").toLowerCase();
+  const size = Number(metadata.size ?? 0);
+  if (!file || !new Set(["application/pdf", "image/jpeg", "image/png"]).has(mimeType) ||
+      !Number.isFinite(size) || size <= 0 || size > VERIFICATION_DOCUMENT_MAX_BYTES) {
+    throw new Error(
+      size > VERIFICATION_DOCUMENT_MAX_BYTES
+        ? VERIFICATION_DOCUMENT_SIZE_ERROR
+        : `The required ${kind} must be a PDF, JPG, or PNG.`,
+    );
+  }
+}
+
+async function verifyStoredSportsIntroduction(
+  admin: Awaited<ReturnType<typeof getAdminClient>>,
+  ownerId: string,
+  path: string,
+) {
+  const prefix = `${ownerId}/sports-introduction/`;
+  if (!path.startsWith(prefix) || path.includes("..")) {
+    throw new Error("Upload a valid Sports Introduction video before submitting.");
+  }
+  const fileName = path.slice(prefix.length).split("/").at(-1) ?? "";
+  if (!fileName) throw new Error("The Sports Introduction video path is invalid.");
+  const { data, error } = await admin.storage
+    .from("videos")
+    .list(`${ownerId}/sports-introduction`, { limit: 100, search: fileName });
+  if (error) throw new Error(`Could not verify the Sports Introduction video: ${error.message}`);
+  const file = data?.find((entry) => entry.name === fileName);
+  const metadata = (file?.metadata ?? {}) as Record<string, unknown>;
+  const mimeType = String(metadata.mimetype ?? metadata.contentType ?? "").toLowerCase();
+  const size = Number(metadata.size ?? 0);
+  if (!file || !new Set(["video/mp4", "video/webm", "video/quicktime"]).has(mimeType) ||
+      !Number.isFinite(size) || size <= 0 || size > VERIFICATION_VIDEO_MAX_BYTES) {
+    throw new Error(
+      size > VERIFICATION_VIDEO_MAX_BYTES
+        ? VERIFICATION_VIDEO_SIZE_ERROR
+        : "Upload a valid MP4, WebM, or MOV Sports Introduction video.",
+    );
   }
 }
 
@@ -394,7 +469,9 @@ async function buildDocuments(
   ] as const;
   if (international) {
     entries.splice(1, 0, ["passportFirstPage", details.passport_first_page_path]);
-    entries.splice(2, 0, ["passportVisaStampPage", details.passport_visa_stamp_page_path]);
+    entries.splice(2, 0, ["passportLastPage", details.passport_last_page_path ?? null]);
+    entries.splice(3, 0, ["passportVisaStampPage", details.passport_visa_stamp_page_path]);
+    entries.splice(4, 0, ["passportVisaStampPage2", details.passport_visa_stamp_page_2_path ?? null]);
   }
   if (nationalIdentityProofRequired) {
     entries.push(["indianIdentityProof", details.indian_identity_proof_path]);
@@ -767,6 +844,75 @@ export const submitSportsVerification = createServerFn({ method: "POST" })
         await verifyStoredIndianIdentityProof(admin, context.userId, currentDetails);
       }
     }
+
+    if (!currentDetails) {
+      throw new Error("Save your verification details before submitting.");
+    }
+    const isIndia = countryCodeForSportsCountry(profile.country) === "IN";
+    const representation = representationFromProfile(profile);
+    const international =
+      data.upgradeToInternational ||
+      !isIndia ||
+      /^international$/i.test(representation);
+    const phone = currentDetails.mobile_number.replace(/\D/g, "");
+    if (
+      !currentDetails.email.trim() ||
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(currentDetails.email.trim())
+    ) {
+      throw new Error("Enter a valid email address before submitting.");
+    }
+    if (phone.length < 7 || phone.length > 15) {
+      throw new Error("Enter a valid phone number before submitting.");
+    }
+    const requiredAddressValues = isIndia
+      ? [currentDetails.village_town, currentDetails.district, currentDetails.state]
+      : [
+          currentDetails.street_address,
+          currentDetails.city,
+          currentDetails.state_province,
+          currentDetails.postal_code,
+        ];
+    if (requiredAddressValues.some((value) => !value?.trim())) {
+      throw new Error("Complete all required address fields before submitting.");
+    }
+
+    await verifyStoredSportsDocument(
+      admin,
+      context.userId,
+      "sportsCertificate",
+      currentDetails.sports_certificate_path,
+    );
+    if (international) {
+      await Promise.all([
+        verifyStoredSportsDocument(
+          admin,
+          context.userId,
+          "passportFirstPage",
+          currentDetails.passport_first_page_path,
+        ),
+        verifyStoredSportsDocument(
+          admin,
+          context.userId,
+          "passportLastPage",
+          currentDetails.passport_last_page_path,
+        ),
+        verifyStoredSportsDocument(
+          admin,
+          context.userId,
+          "passportVisaStampPage",
+          currentDetails.passport_visa_stamp_page_path,
+        ),
+        currentDetails.passport_visa_stamp_page_2_path
+          ? verifyStoredSportsDocument(
+              admin,
+              context.userId,
+              "passportVisaStampPage2",
+              currentDetails.passport_visa_stamp_page_2_path,
+            )
+          : Promise.resolve(),
+      ]);
+    }
+    await verifyStoredSportsIntroduction(admin, context.userId, sportsIntroductionPath);
 
     const now = new Date().toISOString();
     const detailsPayload = {

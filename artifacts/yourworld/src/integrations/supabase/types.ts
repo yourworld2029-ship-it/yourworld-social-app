@@ -942,7 +942,9 @@ export type Database = {
           passport_number: string
           passport_number_normalized: string | null
           passport_first_page_path: string | null
+          passport_last_page_path: string | null
           passport_visa_stamp_page_path: string | null
+          passport_visa_stamp_page_2_path: string | null
           sports_certificate_path: string | null
           state: string
           state_province: string
@@ -976,7 +978,9 @@ export type Database = {
           mobile_number?: string
           passport_number?: string
           passport_first_page_path?: string | null
+          passport_last_page_path?: string | null
           passport_visa_stamp_page_path?: string | null
+          passport_visa_stamp_page_2_path?: string | null
           sports_certificate_path?: string | null
           state?: string
           state_province?: string
@@ -1010,7 +1014,9 @@ export type Database = {
           mobile_number?: string
           passport_number?: string
           passport_first_page_path?: string | null
+          passport_last_page_path?: string | null
           passport_visa_stamp_page_path?: string | null
+          passport_visa_stamp_page_2_path?: string | null
           sports_certificate_path?: string | null
           state?: string
           state_province?: string
