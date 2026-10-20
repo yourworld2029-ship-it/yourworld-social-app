@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft, CheckCircle2, LockKeyhole, RefreshCw, ShieldAlert, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -30,6 +30,7 @@ export const Route = createFileRoute("/admin")({
 type Tab = "overview" | "verification" | "reports" | "copyright" | "payouts" | "accounts" | "audit";
 
 function AdminConsole() {
+  const navigate = useNavigate();
   const access = useAdminAccess();
   const [mfaOpen, setMfaOpen] = useState(false);
   const [data, setData] = useState<AdminConsoleData | null>(null);
@@ -92,45 +93,56 @@ function AdminConsole() {
     : null;
 
   return (
-    <main className="min-h-screen bg-[#09090b] p-4 text-white">
+    <main
+      className="min-h-screen bg-[#09090b] px-4 pb-5 text-white"
+      style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 1rem)" }}
+    >
       <div className="mx-auto max-w-7xl">
-        <header className="mb-5 flex flex-wrap items-center gap-3">
-          <Link
-            to="/profile"
-            onClick={historyBackLink}
-            className="p-1 text-zinc-300 hover:text-white"
-            aria-label="Back to profile"
-          >
-            <ArrowLeft size={22} />
-          </Link>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold">Admin Console</h1>
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-400/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-emerald-300">
-                <ShieldCheck className="h-3.5 w-3.5" /> Admin access
-              </span>
+        <header className="mb-5 space-y-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <Link
+              to="/profile"
+              onClick={historyBackLink}
+              className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-white/10 bg-white/[0.03] text-zinc-300 transition hover:bg-white/[0.07] hover:text-white"
+              aria-label="Back to profile"
+            >
+              <ArrowLeft size={20} />
+            </Link>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <h1 className="text-[22px] font-bold tracking-tight">Admin Console</h1>
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300/15 bg-emerald-300/[0.08] px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.14em] text-emerald-200">
+                  <ShieldCheck className="h-3.5 w-3.5" /> Admin access
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-zinc-500">Moderation and verification</p>
             </div>
-            <p className="text-sm text-zinc-500">Sensitive actions require MFA and are server-authorized and audited.</p>
           </div>
-          <button
-            type="button"
-            onClick={() => setMfaOpen(true)}
-            className="inline-flex items-center gap-2 rounded-xl border border-amber-200/20 px-3 py-2 text-xs font-semibold text-amber-100 hover:bg-amber-200/10"
-          >
-            <LockKeyhole size={14} /> Verify MFA
-          </button>
-          <button
-            type="button"
-            onClick={() => void load()}
-            disabled={loading}
-            className="inline-flex items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-zinc-300 hover:bg-white/[0.06] disabled:opacity-50"
-          >
-            <RefreshCw className={loading ? "animate-spin" : ""} size={14} /> Refresh
-          </button>
+          <div className="flex gap-2 sm:justify-end">
+            <button
+              type="button"
+              onClick={() => setMfaOpen(true)}
+              className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-amber-200/20 bg-amber-200/[0.04] px-4 py-2.5 text-xs font-semibold text-amber-100 transition hover:bg-amber-200/10 active:scale-[0.98] sm:flex-none"
+            >
+              <LockKeyhole size={14} /> Verify MFA
+            </button>
+            <button
+              type="button"
+              onClick={() => void load()}
+              disabled={loading}
+              className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-xs font-semibold text-zinc-200 transition hover:bg-white/[0.07] active:scale-[0.98] disabled:opacity-50 sm:flex-none"
+            >
+              <RefreshCw className={loading ? "animate-spin" : ""} size={14} /> Refresh
+            </button>
+          </div>
         </header>
 
         <div className="grid gap-4 lg:grid-cols-[190px_1fr]">
-          <nav className="flex gap-2 overflow-x-auto lg:block lg:space-y-1">
+          <nav
+            aria-label="Admin Console sections"
+            className="flex min-w-0 gap-2 overflow-x-auto overscroll-x-contain pr-6 pb-1 lg:flex-col lg:overflow-visible lg:pr-0"
+            style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}
+          >
             {(
               [
                 ["overview", "Overview"],
@@ -146,23 +158,26 @@ function AdminConsole() {
                 key={value}
                 type="button"
                 onClick={() => setTab(value)}
-                className={`whitespace-nowrap rounded-xl px-3 py-2 text-left text-xs font-semibold transition ${
-                  tab === value ? "bg-white/10 text-white" : "text-zinc-500 hover:bg-white/[0.04] hover:text-zinc-200"
+                className={`min-h-10 shrink-0 rounded-xl border px-4 py-2.5 text-left text-xs font-semibold transition-all duration-200 ease-out active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200/50 lg:w-full ${
+                  tab === value
+                    ? "border-white/10 bg-white/[0.09] text-white shadow-[0_4px_18px_rgba(0,0,0,0.2)]"
+                    : "border-transparent text-zinc-400 hover:border-white/10 hover:bg-white/[0.04] hover:text-zinc-100"
                 }`}
               >
                 {label}
               </button>
             ))}
-            <Link
-              to="/admin/national-awards"
+            <button
+              type="button"
+              onClick={() => void navigate({ to: "/admin/national-awards" })}
               data-testid="link-admin-national-award-verification"
-              className="whitespace-nowrap rounded-xl px-3 py-2 text-left text-xs font-semibold text-zinc-500 transition hover:bg-white/[0.04] hover:text-zinc-200"
+              className="flex min-h-10 shrink-0 items-center rounded-xl border border-transparent px-4 py-2.5 text-left text-xs font-semibold text-zinc-400 transition-all duration-200 ease-out hover:border-white/10 hover:bg-white/[0.04] hover:text-zinc-100 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200/50 lg:w-full"
             >
               Award Verification Requests
-            </Link>
+            </button>
           </nav>
 
-          <section className="min-w-0">
+          <section key={tab} className="min-w-0 animate-in fade-in-0 slide-in-from-bottom-1 duration-200">
             {tab === "overview" ? <Overview data={data} counts={counts} /> : null}
             {tab === "verification" ? <VerificationTab count={data?.pendingVerificationCount ?? 0} /> : null}
             {tab === "reports" ? <ReportsTab data={data} onChanged={() => void load()} /> : null}
@@ -346,7 +361,7 @@ function Overview({
       </div>
       <div className="rounded-2xl border border-emerald-300/15 bg-emerald-300/[0.05] p-4 text-sm text-zinc-300">
         <div className="flex items-center gap-2 font-semibold text-emerald-200">
-          <CheckCircle2 size={17} /> Owner-only controls are active
+          <CheckCircle2 size={17} /> Admin controls are protected
         </div>
         <p className="mt-2 leading-6">
           Every sensitive decision requires the existing admin role, an AAL2 MFA session, and a reason. Payout holds restrict processing only; they do not confiscate funds or decide refunds.
@@ -577,9 +592,9 @@ function DecisionControls({
 
 function Panel({ title, description, children }: { title: string; description: string; children: ReactNode }) {
   return (
-    <div className="rounded-3xl border border-white/10 bg-[#141418] p-4">
-      <h2 className="text-lg font-bold">{title}</h2>
-      <p className="mt-1 mb-4 text-sm text-zinc-500">{description}</p>
+    <div className="rounded-2xl border border-white/10 bg-[#121215] p-4 shadow-[0_10px_30px_rgba(0,0,0,0.18)] sm:p-5">
+      <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+      <p className="mb-4 mt-1 text-[13px] leading-5 text-zinc-400">{description}</p>
       {children}
     </div>
   );
@@ -587,7 +602,7 @@ function Panel({ title, description, children }: { title: string; description: s
 
 function CaseCard({ title, status, createdAt, children }: { title: string; status: string; createdAt: string | null; children: ReactNode }) {
   return (
-    <article className="mb-3 rounded-2xl border border-white/10 bg-white/[0.025] p-4">
+    <article className="mb-3 rounded-2xl border border-white/10 bg-white/[0.025] p-4 transition-colors duration-200 hover:border-white/15">
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <h3 className="min-w-0 flex-1 truncate text-sm font-semibold text-white">{title}</h3>
         <span className="rounded-full bg-amber-300/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-amber-200">{status}</span>
