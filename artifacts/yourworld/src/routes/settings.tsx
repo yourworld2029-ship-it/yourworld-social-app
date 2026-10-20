@@ -3,10 +3,12 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   User, BarChart2, Lock, Bell, HelpCircle, Info, LogOut, ChevronRight, ArrowLeft, X, Wallet,
-  Star, Search, Gauge, MessageCircle, Clock3, Languages,
+  Star, Search, Gauge, MessageCircle, Clock3, Languages, ShieldCheck,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-store";
+import { useAdminAccess } from "@/lib/use-admin-access";
+import { hasAdminConsoleAccess } from "@/lib/admin-access-policy";
 import { historyBackOr } from "@/lib/navigation";
 import { supabase } from "@/integrations/supabase/client";
 import { resolveMediaUrl, setUserBlock } from "@/lib/social-data";
@@ -83,6 +85,12 @@ type NotInterestedPost = {
 function SettingsPage() {
   const navigate = useNavigate();
   const { signOut, user } = useAuth();
+  const adminAccess = useAdminAccess();
+  const showAdminConsole =
+    Boolean(user) &&
+    (hasAdminConsoleAccess(user?.email, null) ||
+      adminAccess.status === "checking" ||
+      adminAccess.status === "allowed");
   const { language, setLanguage, t } = useAppLanguage();
   const queryClient = useQueryClient();
   const { preferences, savePreference } = useUserPreferences(user?.id);
@@ -299,6 +307,15 @@ function SettingsPage() {
           </div>
           <ChevronRight className="text-muted-foreground" size={18} />
         </div>
+
+        {showAdminConsole ? (
+          <SettingsEntry
+            icon={<ShieldCheck className="text-muted-foreground" size={20} />}
+            label="Admin Console"
+            hint="Manage YourWorld administration"
+            onClick={() => navigate({ to: "/admin" })}
+          />
+        ) : null}
 
         {/* Monetization & Wallet */}
         <div
