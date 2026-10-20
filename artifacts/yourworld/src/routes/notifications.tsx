@@ -433,13 +433,11 @@ function NotificationRow({
           onClick={onOpen}
           data-testid={`button-open-notification-${item.id}`}
           className={cn(
-            "flex min-w-0 flex-1 gap-2.5 rounded-xl py-0.5 text-left",
+            "flex min-w-0 flex-1 gap-0 rounded-xl py-0.5 text-left",
             item.kind === "comment" ? "items-start" : "items-center",
           )}
         >
-          <span className={item.kind === "comment" ? "mt-0.5" : undefined}>
-            <NotificationAvatar item={item} Icon={Icon} />
-          </span>
+          <NotificationAvatar item={item} Icon={Icon} />
           <span className="min-w-0 flex-1">
             <span className="block min-w-0">
               <span className="text-[13px] leading-[1.3] text-zinc-300">
@@ -488,7 +486,7 @@ function NotificationRow({
               }}
               aria-label={`Follow back ${item.actorName ?? "user"}`}
               data-testid={`button-follow-back-${item.actorId}`}
-              className="h-8 shrink-0 rounded-lg bg-sky-500 px-3 text-[11px] font-semibold text-white transition-colors hover:bg-sky-400 active:scale-[0.98]"
+              className="ml-auto h-8 shrink-0 rounded-lg bg-blue-600 px-3 text-[11px] font-semibold text-white transition-colors hover:bg-blue-500 active:scale-[0.98]"
             >
               Follow back
             </button>
@@ -585,14 +583,21 @@ function NotificationAvatar({
   const urls = item.actorAvatarUrls?.length ? item.actorAvatarUrls.slice(0, 3) : [null];
   return (
     <span
-      className={cn("relative h-12 shrink-0", urls.length > 1 ? "w-[4.25rem]" : "w-10")}
+      className="relative mr-3.5 h-11 w-11 shrink-0 overflow-hidden rounded-full"
       aria-hidden="true"
     >
       {urls.map((url, index) => (
         <span
           key={`${item.id}-avatar-${index}`}
-          className="absolute top-0.5 grid h-10 w-10 place-items-center overflow-hidden rounded-full border-2 border-zinc-950 bg-zinc-800 text-xs font-semibold text-zinc-200"
-          style={{ left: `${urls.length > 1 ? index * 14 : 0}px`, zIndex: index + 1 }}
+          className={cn(
+            "absolute grid place-items-center overflow-hidden rounded-full border-2 border-zinc-950 bg-zinc-800 text-xs font-semibold text-zinc-200",
+            urls.length > 1 ? "h-7 w-7" : "h-11 w-11",
+          )}
+          style={{
+            left: `${urls.length > 1 ? index * 8 : 0}px`,
+            top: `${urls.length > 1 && index === 1 ? 14 : 0}px`,
+            zIndex: index + 1,
+          }}
         >
           {item.actorId ? (
             <UserRound className="h-[1.15rem] w-[1.15rem] text-zinc-400" strokeWidth={1.75} />
