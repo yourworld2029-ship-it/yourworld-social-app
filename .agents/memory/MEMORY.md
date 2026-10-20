@@ -34,6 +34,7 @@
 - [Chat message bubble sizing](chat-message-bubble-sizing.md) — keep message rows full-width and text bubbles content-fit, capped at 75%, without narrow fixed widths.
 - [Enterprise call delivery](enterprise-call-delivery.md) — browser background calls use Web Push through a JWT-protected Edge Function; native VoIP needs a mobile client.
 - [Sports document isolation](sports-document-isolation.md) — verification files require a private bucket and owner-folder policy; broad public storage policies must exclude that bucket.
+- [Android picker dismissal](android-picker-dismissal.md) — use synchronous refs and prevent Radix outside-dismiss while Android evidence picker/upload is active.
 - [Sports introduction verification](sports-introduction-verification.md) — store intro video bytes in owner-scoped videos storage and only its path in profile metadata.
 - [Sports verification private details](sports-verification-private-details.md) — keep identity evidence private and enforce nationality-based Indian/International eligibility server-side.
 - [Verification review corrections](verification-review-corrections.md) — freeze pending applications and allow only evidence named by rejection feedback to be repaired.

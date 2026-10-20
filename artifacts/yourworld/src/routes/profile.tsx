@@ -262,12 +262,18 @@ function ProfilePage() {
     useState<SportsVerificationEvidenceKind | null>(null);
   const [sportsVerificationEvidenceProgress, setSportsVerificationEvidenceProgress] =
     useState(0);
-  const [sportsVerificationEvidencePickerActive, setSportsVerificationEvidencePickerActive] =
-    useState(false);
+  const sportsVerificationEvidencePickerActiveRef = useRef(false);
+  const sportsVerificationEvidenceUploadingRef = useRef<SportsVerificationEvidenceKind | null>(
+    null,
+  );
   const [sportsVerificationSubmitting, setSportsVerificationSubmitting] = useState(false);
   const [sportsDuplicateSubmissionWarning, setSportsDuplicateSubmissionWarning] = useState<string | null>(
     null,
   );
+
+  const setSportsVerificationEvidencePickerActivity = (active: boolean) => {
+    sportsVerificationEvidencePickerActiveRef.current = active;
+  };
 
   useEffect(() => {
     const { data } = supabase.auth.onAuthStateChange((event) => {
@@ -371,8 +377,9 @@ function ProfilePage() {
     setSportsVerificationDetails(null);
     setSportsVerificationDetailsLoading(false);
     setSportsVerificationEvidenceUploading(null);
+    sportsVerificationEvidenceUploadingRef.current = null;
     setSportsVerificationEvidenceProgress(0);
-    setSportsVerificationEvidencePickerActive(false);
+    setSportsVerificationEvidencePickerActivity(false);
     setSportsIntroductionUploading(false);
     setSportsIntroductionProgress(0);
     setSportsVerificationDetailsSaving(false);
@@ -831,6 +838,7 @@ function ProfilePage() {
     latestDetails?: SportsVerificationDetails,
   ) => {
     if (!userId || userId !== profile.id) return;
+    sportsVerificationEvidenceUploadingRef.current = kind;
     setSportsVerificationEvidenceUploading(kind);
     setSportsVerificationEvidenceProgress(0);
     try {
@@ -864,9 +872,10 @@ function ProfilePage() {
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Couldn't upload verification evidence.");
     } finally {
+      sportsVerificationEvidenceUploadingRef.current = null;
       setSportsVerificationEvidenceUploading(null);
       setSportsVerificationEvidenceProgress(0);
-      setSportsVerificationEvidencePickerActive(false);
+      setSportsVerificationEvidencePickerActivity(false);
     }
   };
 
@@ -1296,8 +1305,8 @@ function ProfilePage() {
             if (
               !nextOpen &&
               (
-                sportsVerificationEvidenceUploading !== null ||
-                sportsVerificationEvidencePickerActive ||
+                sportsVerificationEvidenceUploadingRef.current !== null ||
+                sportsVerificationEvidencePickerActiveRef.current ||
                 sportsIntroductionUploading
               )
             ) {
@@ -1309,6 +1318,22 @@ function ProfilePage() {
           <SheetContent
             side="bottom"
             className="max-h-[90vh] overflow-y-auto rounded-t-[2rem] border-amber-200/20 bg-[#0b0c12] px-4 pb-8 pt-5 text-white sm:mx-auto sm:max-w-xl"
+            onFocusOutside={(event) => {
+              if (
+                sportsVerificationEvidenceUploadingRef.current !== null ||
+                sportsVerificationEvidencePickerActiveRef.current
+              ) {
+                event.preventDefault();
+              }
+            }}
+            onInteractOutside={(event) => {
+              if (
+                sportsVerificationEvidenceUploadingRef.current !== null ||
+                sportsVerificationEvidencePickerActiveRef.current
+              ) {
+                event.preventDefault();
+              }
+            }}
           >
             <SheetHeader className="mb-5 pr-8 text-left">
               <div className="mb-3 flex items-center gap-3">
@@ -1344,7 +1369,7 @@ function ProfilePage() {
               verificationEvidenceUploading={sportsVerificationEvidenceUploading}
               verificationEvidenceProgress={sportsVerificationEvidenceProgress}
               onVerificationEvidencePickerActiveChange={
-                setSportsVerificationEvidencePickerActive
+                setSportsVerificationEvidencePickerActivity
               }
               onSubmitVerification={handleSubmitSportsVerification}
               onOpenVerificationReview={() => {

@@ -287,7 +287,7 @@ export function NationalAwardVerificationDialog({
   } = form;
   const values = watch();
   const [termsAgreed, setTermsAgreed] = useState(false);
-  const [evidencePickerActive, setEvidencePickerActive] = useState(false);
+  const evidencePickerActiveRef = useRef(false);
   const [introductionPreviewUrl, setIntroductionPreviewUrl] = useState<string | null>(null);
   const [introductionVideoValid, setIntroductionVideoValid] = useState(false);
   const editable =
@@ -416,11 +416,11 @@ export function NationalAwardVerificationDialog({
   };
 
   const setEvidencePickerActivity = (active: boolean) => {
-    setEvidencePickerActive(active);
+    evidencePickerActiveRef.current = active;
     onEvidenceUploadActivityChange?.(active);
   };
   const handleDialogOpenChange = (nextOpen: boolean) => {
-    if (!nextOpen && (evidencePickerActive || uploadingKind !== null)) return;
+    if (!nextOpen && (evidencePickerActiveRef.current || uploadingKind !== null)) return;
     onOpenChange(nextOpen);
   };
 
@@ -429,6 +429,16 @@ export function NationalAwardVerificationDialog({
       <DialogContent
         data-testid="dialog-national-award-verification"
         className="max-h-[94svh] max-w-2xl overflow-hidden rounded-3xl border border-[#c79a42]/30 bg-black p-0 text-white shadow-[0_20px_90px_rgba(0,0,0,0.72)] [&>button]:hidden"
+        onFocusOutside={(event) => {
+          if (evidencePickerActiveRef.current || uploadingKind !== null) {
+            event.preventDefault();
+          }
+        }}
+        onInteractOutside={(event) => {
+          if (evidencePickerActiveRef.current || uploadingKind !== null) {
+            event.preventDefault();
+          }
+        }}
       >
         <div className="flex max-h-[94svh] flex-col">
           <div className="flex items-start justify-between border-b border-white/10 px-5 py-4">
@@ -1243,12 +1253,15 @@ function EvidenceUpload({
 }) {
   const inputId = `national-award-upload-${kind}`;
   const inputRef = useRef<HTMLInputElement>(null);
+  const uploadInProgressRef = useRef(false);
   useEffect(() => {
     const input = inputRef.current;
     if (!input) return;
     const handleCancel = (event: Event) => {
       event.stopPropagation();
-      onPickerActivityChange?.(false);
+      window.setTimeout(() => {
+        if (!uploadInProgressRef.current) onPickerActivityChange?.(false);
+      }, 300);
     };
     input.addEventListener("cancel", handleCancel);
     return () => input.removeEventListener("cancel", handleCancel);
@@ -1291,6 +1304,7 @@ function EvidenceUpload({
       <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
         <label
           htmlFor={inputId}
+          onClick={() => onPickerActivityChange?.(true)}
           data-testid={`button-upload-national-award-${kind}`}
           className={`inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-[#e2b75e]/35 bg-[#e2b75e]/10 px-3 py-1.5 text-xs font-semibold text-[#f0cb7b] transition-colors hover:bg-[#e2b75e]/20 ${
             disabled || uploading ? "pointer-events-none opacity-50" : ""
@@ -1336,8 +1350,13 @@ function EvidenceUpload({
             onPickerActivityChange?.(false);
             return;
           }
-          void Promise.resolve(onUpload(file))
-            .finally(() => onPickerActivityChange?.(false))
+          uploadInProgressRef.current = true;
+          void Promise.resolve()
+            .then(() => onUpload(file))
+            .finally(() => {
+              uploadInProgressRef.current = false;
+              onPickerActivityChange?.(false);
+            })
             .catch(() => undefined);
         }}
       />

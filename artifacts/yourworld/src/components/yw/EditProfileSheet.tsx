@@ -243,6 +243,12 @@ export function EditProfileSheet({
       <SheetContent
         side="bottom"
         className="max-h-[92svh] overflow-y-auto rounded-t-3xl border-border/60 p-0 [&>button]:hidden"
+        onFocusOutside={(event) => {
+          if (nationalAwardEvidenceUploadActive.current) event.preventDefault();
+        }}
+        onInteractOutside={(event) => {
+          if (nationalAwardEvidenceUploadActive.current) event.preventDefault();
+        }}
       >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border/60 glass px-4 py-3">
           <button

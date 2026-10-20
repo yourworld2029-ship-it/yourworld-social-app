@@ -1863,6 +1863,7 @@ function VerificationEvidenceRow({
   const inputId = `sports-verification-${kind}`;
   const isUploading = uploading === kind;
   const inputRef = useRef<HTMLInputElement>(null);
+  const uploadInProgressRef = useRef(false);
   const getSignedUrl = useCallback(
     (path: string) => createSportsDocumentSignedUrl(ownerId, path),
     [ownerId],
@@ -1872,7 +1873,9 @@ function VerificationEvidenceRow({
     if (!input) return;
     const handleCancel = (event: Event) => {
       event.stopPropagation();
-      onPickerActiveChange?.(false);
+      window.setTimeout(() => {
+        if (!uploadInProgressRef.current) onPickerActiveChange?.(false);
+      }, 300);
     };
     input.addEventListener("cancel", handleCancel);
     return () => input.removeEventListener("cancel", handleCancel);
@@ -1943,6 +1946,7 @@ function VerificationEvidenceRow({
         {!locked ? (
           <label
             htmlFor={inputId}
+            onClick={() => onPickerActiveChange?.(true)}
             className={`inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-amber-200/25 bg-amber-200/10 px-3 py-1.5 text-xs font-semibold text-amber-100 hover:bg-amber-200/20 ${
               isUploading ? "pointer-events-none opacity-60" : ""
             }`}
@@ -1978,8 +1982,13 @@ function VerificationEvidenceRow({
             onPickerActiveChange?.(false);
             return;
           }
-          void Promise.resolve(onUpload?.(kind, file))
-            .finally(() => onPickerActiveChange?.(false))
+          uploadInProgressRef.current = true;
+          void Promise.resolve()
+            .then(() => onUpload?.(kind, file))
+            .finally(() => {
+              uploadInProgressRef.current = false;
+              onPickerActiveChange?.(false);
+            })
             .catch(() => undefined);
         }}
       />
