@@ -53,6 +53,8 @@ export type NotificationItem = {
   to?: string;
   /** Optional preview image for content notifications. */
   thumbnailUrl?: string | null;
+  /** Source comment ID for inline comment actions. */
+  commentId?: string;
   /** Video source used to generate a real preview when no usable cover exists. */
   previewMediaUrl?: string | null;
   /** Cloudflare Stream UID used to load the video's real thumbnail. */
@@ -567,6 +569,7 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       actorAvatarUrls: [avatarOf(r.user_id)],
       body: r.content,
       at: ts(r.created_at),
+      commentId: r.id,
       to: postLink(r.post_id, true, r.id),
       ...postPreviewFor(r.post_id),
     });
@@ -649,6 +652,7 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       actorAvatarUrls: r.actor_id ? [avatarOf(r.actor_id)] : undefined,
       body: isMomentMention ? undefined : r.body ?? undefined,
       at: ts(r.created_at),
+      commentId: kind === "comment" ? commentId || undefined : undefined,
       to: notificationLink(r),
       canReshareMoment: isMomentMention,
       momentId: isMomentMention ? momentId : undefined,

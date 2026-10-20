@@ -5,6 +5,9 @@ import {
   Bell,
   CheckCheck,
   ChevronLeft,
+  Heart,
+  MessageCircle,
+  Reply,
   UserRound,
   type LucideIcon,
 } from "lucide-react";
@@ -22,6 +25,8 @@ import { useMoments } from "@/lib/moment-context";
 import { fetchMomentById, type NewMoment } from "@/lib/moment-store";
 import { LazyVideoThumbnail } from "@/components/yw/LazyVideoThumbnail";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { dmThreadId } from "@/lib/social-data";
 
 export const Route = createFileRoute("/notifications")({
   head: () => ({
@@ -82,6 +87,8 @@ function NotificationsPage() {
   const { moments, addMoment } = useMoments();
   const [filter, setFilter] = useState<Filter>("all");
   const [resharingMomentId, setResharingMomentId] = useState<string | null>(null);
+  const [likedCommentIds, setLikedCommentIds] = useState<Record<string, boolean>>({});
+  const [pendingCommentLikes, setPendingCommentLikes] = useState<Record<string, boolean>>({});
   const navigate = useNavigate();
 
   const addMentionedMomentToMyMoments = async (item: NotificationItem) => {
@@ -158,6 +165,94 @@ function NotificationsPage() {
     () => allItems.filter((i) => i.kind !== "message"),
     [allItems],
   );
+  const notificationCommentIds = useMemo(
+    () => [...new Set(items.flatMap((item) => item.commentId ? [item.commentId] : []))],
+    [items],
+  );
+  useEffect(() => {
+    let cancelled = false;
+    const loadCommentLikes = async () => {
+      if (!notificationCommentIds.length) {
+        setLikedCommentIds({});
+        return;
+      }
+      try {
+        const { data: auth, error: authError } = await supabase.auth.getSession();
+        const userId = auth.session?.user.id;
+        if (authError || !userId) {
+          if (!cancelled) setLikedCommentIds({});
+          return;
+        }
+        const { data, error } = await supabase
+          .from("comment_likes")
+          .select("comment_id")
+          .eq("user_id", userId)
+          .in("comment_id", notificationCommentIds);
+        if (error) throw error;
+        if (!cancelled) {
+          setLikedCommentIds(
+            Object.fromEntries((data ?? []).map((row) => [row.comment_id, true])),
+          );
+        }
+      } catch (error) {
+        if (!cancelled) console.error("Unable to load notification comment likes", error);
+      }
+    };
+    void loadCommentLikes();
+    return () => {
+      cancelled = true;
+    };
+  }, [notificationCommentIds]);
+
+  const toggleNotificationCommentLike = async (item: NotificationItem) => {
+    const commentId = item.commentId;
+    if (!commentId || pendingCommentLikes[commentId]) return;
+    const wasLiked = Boolean(likedCommentIds[commentId]);
+    setPendingCommentLikes((current) => ({ ...current, [commentId]: true }));
+    setLikedCommentIds((current) => ({ ...current, [commentId]: !wasLiked }));
+    try {
+      const { data: auth, error: authError } = await supabase.auth.getUser();
+      const userId = auth.user?.id;
+      if (authError || !userId) throw new Error("Sign in to like comments.");
+      const result = wasLiked
+        ? await supabase
+            .from("comment_likes")
+            .delete()
+            .eq("comment_id", commentId)
+            .eq("user_id", userId)
+        : await supabase
+            .from("comment_likes")
+            .upsert(
+              { comment_id: commentId, user_id: userId },
+              { onConflict: "comment_id,user_id", ignoreDuplicates: true },
+            );
+      if (result.error) throw result.error;
+    } catch (error) {
+      setLikedCommentIds((current) => ({ ...current, [commentId]: wasLiked }));
+      toast.error(error instanceof Error ? error.message : "Couldn't update comment like.");
+    } finally {
+      setPendingCommentLikes((current) => {
+        const next = { ...current };
+        delete next[commentId];
+        return next;
+      });
+    }
+  };
+
+  const openDirectMessage = async (peerId: string, notificationId: string) => {
+    const { data: auth, error } = await supabase.auth.getSession();
+    const userId = auth.session?.user.id;
+    if (error || !userId) {
+      toast.error("Sign in to open a chat.");
+      return;
+    }
+    markRead(notificationId);
+    void navigate({
+      to: "/chat/$threadId",
+      params: { threadId: dmThreadId(userId, peerId) },
+    });
+  };
+
   const list = useMemo(() => {
     const filtered = items.filter((item) => {
       if (filter === "all") return true;
@@ -267,15 +362,25 @@ function NotificationsPage() {
                       item={item}
                       prioritizeThumbnail={index < 6}
                       following={Boolean(item.actorId && following[item.actorId])}
+                      commentLiked={Boolean(item.commentId && likedCommentIds[item.commentId])}
+                      commentLikePending={Boolean(item.commentId && pendingCommentLikes[item.commentId])}
                       onOpen={() => {
                         markRead(item.id);
-                        if (item.to) navigate({ to: item.to });
+                        const destination =
+                          item.kind === "follower" && item.actorId
+                            ? item.to ?? `/u/${encodeURIComponent(item.actorId)}`
+                            : item.to;
+                        if (destination) void navigate({ to: destination });
                       }}
                       onAddToMoment={() => void addMentionedMomentToMyMoments(item)}
                       resharePending={resharingMomentId === item.momentId}
                       onToggleFollow={() => {
                         if (item.actorId) void toggleFollow(item.actorId);
                       }}
+                      onMessage={() => {
+                        if (item.actorId) void openDirectMessage(item.actorId, item.id);
+                      }}
+                      onToggleCommentLike={() => void toggleNotificationCommentLike(item)}
                     />
                   ))}
                 </ul>
@@ -292,18 +397,26 @@ function NotificationRow({
   item,
   prioritizeThumbnail,
   following,
+  commentLiked,
+  commentLikePending,
   onOpen,
   onAddToMoment,
   resharePending,
   onToggleFollow,
+  onMessage,
+  onToggleCommentLike,
 }: {
   item: NotificationItem;
   prioritizeThumbnail: boolean;
   following: boolean;
+  commentLiked: boolean;
+  commentLikePending: boolean;
   onOpen: () => void;
   onAddToMoment: () => void;
   resharePending: boolean;
   onToggleFollow: () => void;
+  onMessage: () => void;
+  onToggleCommentLike: () => void;
 }) {
   const meta = kindMeta(item.kind);
   const Icon = meta.icon;
@@ -312,99 +425,151 @@ function NotificationRow({
   return (
     <li
       data-testid={`row-notification-${item.id}`}
-      className={cn(
-        "group flex min-h-[68px] items-center gap-2.5 px-1 py-2 transition-colors hover:bg-white/[0.025] active:bg-white/[0.04]",
-      )}
+      className="group min-h-[68px] px-1 py-2 transition-colors hover:bg-white/[0.025] active:bg-white/[0.04]"
     >
-      <button
-        type="button"
-        onClick={onOpen}
-        data-testid={`button-open-notification-${item.id}`}
-        className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl py-0.5 text-left"
-      >
-        <NotificationAvatar item={item} Icon={Icon} />
-        <span className="min-w-0 flex-1">
+      <div className="flex items-start gap-2.5">
+        <button
+          type="button"
+          onClick={onOpen}
+          data-testid={`button-open-notification-${item.id}`}
+          className={cn(
+            "flex min-w-0 flex-1 gap-2.5 rounded-xl py-0.5 text-left",
+            item.kind === "comment" ? "items-start" : "items-center",
+          )}
+        >
+          <span className={item.kind === "comment" ? "mt-0.5" : undefined}>
+            <NotificationAvatar item={item} Icon={Icon} />
+          </span>
+          <span className="min-w-0 flex-1">
             <span className="block min-w-0">
               <span className="text-[13px] leading-[1.3] text-zinc-300">
-              {item.actorName && item.activity ? (
-                <>
-                  <span className="font-semibold text-white">{item.actorName}</span>
-                  {item.actorId ? <SportsIdentityMark userId={item.actorId} /> : null}{" "}
-                  <span className="text-zinc-300">{item.activity}</span>
+                {item.actorName && item.activity ? (
+                  <>
+                    <span className="font-semibold text-white">{item.actorName}</span>
+                    {item.actorId ? <SportsIdentityMark userId={item.actorId} /> : null}{" "}
+                    <span className="text-zinc-300">{item.activity}</span>
                     <span className="ml-1 whitespace-nowrap text-[10px] text-zinc-500">{timeAgo(item.at)}</span>
-                </>
-              ) : (
+                  </>
+                ) : (
                   <>
                     <span className={cn("font-medium", !item.read && "text-white")}>{item.title}</span>
                     <span className="ml-1 whitespace-nowrap text-[10px] text-zinc-500">{timeAgo(item.at)}</span>
                   </>
-              )}
+                )}
+              </span>
             </span>
+            {item.body && (
+              <span className="mt-0.5 block truncate text-[11px] leading-[1.35] text-zinc-500">
+                {item.body}
+              </span>
+            )}
           </span>
-          {item.body && (
-            <span className="mt-0.5 block truncate text-[11px] leading-[1.35] text-zinc-500">
-              {item.body}
-            </span>
-          )}
-        </span>
-      </button>
-      {canFollowBack ? (
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            onToggleFollow();
-          }}
-          aria-label={following ? `Unfollow ${item.actorName ?? "user"}` : `Follow back ${item.actorName ?? "user"}`}
-          data-testid={`button-follow-back-${item.actorId}`}
-          className={cn(
-            "h-8 shrink-0 rounded-lg px-3 text-[11px] font-semibold transition-colors active:scale-[0.98]",
-            following
-              ? "border border-white/[0.12] bg-white/[0.055] text-zinc-300"
-              : "bg-sky-500 text-white hover:bg-sky-400",
-          )}
-        >
-          {following ? "Following" : "Follow back"}
         </button>
-      ) : item.thumbnailUrl || item.previewMediaUrl || item.previewStreamId ? (
-        <div
-          data-testid={`img-notification-thumbnail-${item.id}`}
-          className="relative h-11 w-11 shrink-0 overflow-hidden rounded-md"
-        >
-          <LazyVideoThumbnail
-            thumbnailUrl={item.thumbnailUrl}
-            mediaUrl={item.previewMediaUrl ?? undefined}
-            streamId={item.previewStreamId ?? undefined}
-            bucket={item.previewBucket}
-            allowFrameCapture={!!item.previewMediaUrl}
-            preferVideoFrame={!!(item.previewMediaUrl || item.previewStreamId)}
-            frameCacheKey={
-              item.previewMediaUrl
-                ? `${item.previewMediaUrl}#notification-frame`
-                : undefined
-            }
-            frameCaptureTimeSeconds={1}
-            alt=""
-            loading="lazy"
-            fetchPriority={prioritizeThumbnail ? "high" : "auto"}
-            showFrameStatus={false}
-            className="h-full w-full"
-          />
+        {canFollowBack ? (
+          following ? (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onMessage();
+              }}
+              aria-label={`Message ${item.actorName ?? "user"}`}
+              data-testid={`button-message-follower-${item.actorId}`}
+              className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-sky-400/30 bg-sky-400/10 px-3 text-[11px] font-semibold text-sky-300 transition-colors hover:bg-sky-400/20 active:scale-[0.98]"
+            >
+              <MessageCircle className="h-3.5 w-3.5" /> Message
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onToggleFollow();
+              }}
+              aria-label={`Follow back ${item.actorName ?? "user"}`}
+              data-testid={`button-follow-back-${item.actorId}`}
+              className="h-8 shrink-0 rounded-lg bg-sky-500 px-3 text-[11px] font-semibold text-white transition-colors hover:bg-sky-400 active:scale-[0.98]"
+            >
+              Follow back
+            </button>
+          )
+        ) : item.thumbnailUrl || item.previewMediaUrl || item.previewStreamId ? (
+          <button
+            type="button"
+            onClick={onOpen}
+            aria-label={`Open ${item.kind} notification`}
+            data-testid={`button-open-notification-thumbnail-${item.id}`}
+            className="relative h-11 w-11 shrink-0 overflow-hidden rounded-md"
+          >
+            <LazyVideoThumbnail
+              thumbnailUrl={item.thumbnailUrl}
+              mediaUrl={item.previewMediaUrl ?? undefined}
+              streamId={item.previewStreamId ?? undefined}
+              bucket={item.previewBucket}
+              allowFrameCapture={!!item.previewMediaUrl}
+              preferVideoFrame={!!(item.previewMediaUrl || item.previewStreamId)}
+              frameCacheKey={
+                item.previewMediaUrl
+                  ? `${item.previewMediaUrl}#notification-frame`
+                  : undefined
+              }
+              frameCaptureTimeSeconds={1}
+              alt=""
+              loading="lazy"
+              fetchPriority={prioritizeThumbnail ? "high" : "auto"}
+              showFrameStatus={false}
+              className="h-full w-full"
+            />
+          </button>
+        ) : null}
+        {item.canReshareMoment ? (
+          <button
+            type="button"
+            disabled={resharePending}
+            onClick={(event) => {
+              event.stopPropagation();
+              onAddToMoment();
+            }}
+            data-testid={`button-add-mentioned-moment-${item.momentId}`}
+            className="h-8 shrink-0 whitespace-nowrap rounded-lg bg-gradient-to-r from-cyan-500 to-pink-500 px-2 text-[10px] font-semibold text-white disabled:opacity-60"
+          >
+            {resharePending ? "Adding…" : "Add to your moment"}
+          </button>
+        ) : null}
+      </div>
+      {item.kind === "comment" && item.commentId ? (
+        <div className="ml-[50px] mt-1 flex items-center gap-4 text-[11px] text-zinc-500">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleCommentLike();
+            }}
+            disabled={commentLikePending}
+            aria-label={commentLiked ? "Unlike comment" : "Like comment"}
+            data-testid={`button-like-notification-comment-${item.commentId}`}
+            className={cn(
+              "inline-flex min-h-7 items-center gap-1.5 transition-colors disabled:opacity-60",
+              commentLiked ? "font-semibold text-rose-400" : "hover:text-rose-300",
+            )}
+          >
+            <Heart className="h-3.5 w-3.5" fill={commentLiked ? "currentColor" : "none"} />
+            {commentLiked ? "Liked" : "Like"}
+          </button>
+          {item.to ? (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onOpen();
+              }}
+              data-testid={`button-reply-notification-comment-${item.commentId}`}
+              className="inline-flex min-h-7 items-center gap-1.5 transition-colors hover:text-zinc-200"
+            >
+              <Reply className="h-3.5 w-3.5" /> Reply
+            </button>
+          ) : null}
         </div>
-      ) : null}
-      {item.canReshareMoment ? (
-        <button
-          type="button"
-          disabled={resharePending}
-          onClick={(event) => {
-            event.stopPropagation();
-            onAddToMoment();
-          }}
-          data-testid={`button-add-mentioned-moment-${item.momentId}`}
-          className="h-8 shrink-0 whitespace-nowrap rounded-lg bg-gradient-to-r from-cyan-500 to-pink-500 px-2 text-[10px] font-semibold text-white disabled:opacity-60"
-        >
-          {resharePending ? "Adding…" : "Add to your moment"}
-        </button>
       ) : null}
     </li>
   );
