@@ -7,4 +7,4 @@ The support owner admin alone controls operations-admin invitations, legal/commu
 
 **Why:** YourWorld requires a separate operations account without exposing copyright, grievance, or user-report administration. A second Auth Admin request can leave the mobile console waiting indefinitely even when the role row is valid. A duplicate client-side role query can also false-deny access despite a matching row because it follows a separate RLS/API path.
 
-**How to apply:** Keep recipient separation and server-side role checks aligned whenever admin sections or notification destinations change. Refresh the session before the server check, preserve AAL2 for sensitive actions, and put bounded timeouts and retryable errors around access/MFA checks.
+**How to apply:** Keep recipient separation and server-side role checks aligned whenever admin sections or notification destinations change. Refresh the session before the server check, preserve AAL2 for sensitive actions, and put bounded timeouts and retryable errors around access/MFA checks. Capacitor APKs still call the published server function, so publish server-side access-check changes as well as delivering a new APK.
