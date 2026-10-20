@@ -1,0 +1,22 @@
+Strict Task: Set File/Video Limits, Passport Split Uploads, Review Note & Submit Field Validation (Do NOT touch anything else):
+​File Size Limits & Pop-ups:
+​Documents (Certificates, Passport, Visa, ID): Allow .jpg, .jpeg, .png, .pdf up to 10MB each. If a file exceeds 10MB, block upload and show alert/popup: 'File size exceeds 10MB. Please choose a smaller file.'
+​Sports / Award Introduction Video: Allow up to 50MB (duration remains 5–50s). If a video exceeds 50MB, block upload and show alert/popup: 'Video size exceeds 50MB. Please upload a compressed or shorter clip under 50MB.'
+​Passport Upload Options (Front & Back):
+​Replace single passport upload with two explicit upload slots:
+​Slot 1: Passport Front / First Page (Photo & Details page).  
+​Slot 2: Passport Last / Back Page (Address & Family details page).
+​In Passport Visa / Stamp Page, allow uploading up to 2 pages/images (Page 1 and Page 2 optional) if user's visa/stamp spans multiple pages.  
+​Review Note / Quality Guidance:
+​Add a clear helper note above evidence uploads:
+​'Document Quality Note: All uploaded documents, passport pages, and certificates must be crystal clear and fully readable with all 4 corners visible. Blurry or cut-off uploads will be rejected.'
+​Strict Form Validation on Submit (Save Verification Details):
+​When user checks Terms & Conditions and taps submit:
+​Validate all mandatory fields: Full Name, Father's Name, DOB, Phone, Email, Address fields, required Documents, and Video.  
+​If anything is missing or invalid:
+​Do NOT submit.  
+​Highlight the exact missing/empty input box or upload card with a Red border (border: 2px solid #EF4444).
+​Smoothly scroll to the first invalid/missing field.
+​Show toast message: 'Please fill all highlighted required details before submitting.'
+​If all details and documents are valid: Proceed with submission, lock the form, and send introduction video to Reels feed.
+​Strict Constraint: Keep existing modal open behavior on upload, Country logic below Username, preview/delete buttons, and dark theme UI completely unchanged."  
