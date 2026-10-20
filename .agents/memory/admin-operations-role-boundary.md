@@ -3,8 +3,8 @@ name: Admin operations role boundary
 description: YourWorld's separation between owner support administration and operational review access.
 ---
 
-The support owner admin alone controls operations-admin invitations, legal/community report review, and account restrictions. Operations admins handle sports verification, National Awards, and payout review. Both roles require AAL2; each view of private payout destination details is audited. For console identity, use the verified Supabase JWT email claim alongside the `user_roles` row rather than adding a second Auth Admin lookup.
+The support owner admin alone controls operations-admin invitations, legal/community report review, and account restrictions. Operations admins handle sports verification, National Awards, and payout review. Both roles require AAL2; each view of private payout destination details is audited. For console identity, use the verified Supabase JWT email claim alongside the `user_roles` row rather than adding a second Auth Admin lookup. Keep one authoritative server-side role query; a separate client-side `user_roles` read must not block entry.
 
-**Why:** YourWorld requires a separate operations account without exposing copyright, grievance, or user-report administration. A second Auth Admin request can leave the mobile console waiting indefinitely even when the role row is valid.
+**Why:** YourWorld requires a separate operations account without exposing copyright, grievance, or user-report administration. A second Auth Admin request can leave the mobile console waiting indefinitely even when the role row is valid. A duplicate client-side role query can also false-deny access despite a matching row because it follows a separate RLS/API path.
 
-**How to apply:** Keep recipient separation and server-side role checks aligned whenever admin sections or notification destinations change. Preserve AAL2 for sensitive actions and put bounded timeouts and retryable errors around access/MFA checks.
+**How to apply:** Keep recipient separation and server-side role checks aligned whenever admin sections or notification destinations change. Refresh the session before the server check, preserve AAL2 for sensitive actions, and put bounded timeouts and retryable errors around access/MFA checks.

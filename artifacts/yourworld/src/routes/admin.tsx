@@ -72,6 +72,7 @@ function AdminConsole() {
     setSecurity(null);
     setSecurityError(null);
     setSecurityLoading(true);
+    let activeEmail: string | null = null;
     try {
       const refreshed = await withTimeout(
         supabase.auth.refreshSession(),
@@ -81,26 +82,11 @@ function AdminConsole() {
       if (refreshed.error) {
         throw new Error("Could not refresh the Supabase session. Please sign in again and retry.");
       }
-      const userId = refreshed.data.session?.user.id;
-      if (!userId) {
+      const sessionUser = refreshed.data.session?.user;
+      if (!sessionUser?.id) {
         throw new Error("No active Supabase session was found. Sign in and retry.");
       }
-
-      const { data: ownRole, error: ownRoleError } = await withTimeout(
-        supabase
-          .from("user_roles")
-          .select("role")
-          .eq("user_id", userId)
-          .maybeSingle(),
-        ADMIN_ACCESS_TIMEOUT_MS,
-        "Admin role lookup timed out. Please retry.",
-      );
-      if (ownRoleError) {
-        throw new Error("Could not read the role assigned to this account. Please retry.");
-      }
-      if (ownRole?.role !== "admin") {
-        throw new Error("This account does not have the required admin role.");
-      }
+      activeEmail = sessionUser.email?.trim().toLowerCase() || null;
 
       const result = await withTimeout(
         getAdminSecurityStatus(),
@@ -108,14 +94,20 @@ function AdminConsole() {
         "Admin access check timed out. Check your connection and retry.",
       );
       if (result?.isAdmin !== true) {
-        throw new Error("This account does not have the required admin role.");
+        throw new Error("The server did not confirm admin access for the active Supabase account.");
       }
       if (attempt !== securityAttempt.current) return;
       setSecurity(result);
     } catch (error) {
       if (attempt === securityAttempt.current) {
+        const message = error instanceof Error ? error.message : "Admin access could not be verified.";
+        const isRoleDenied =
+          message.includes("Forbidden: owner admin access is required.") ||
+          message.includes("The server did not confirm admin access");
         setSecurityError(
-          error instanceof Error ? error.message : "Admin access could not be verified.",
+          isRoleDenied && activeEmail
+            ? `No admin role was confirmed for the active account (${activeEmail}).`
+            : message,
         );
       }
     } finally {
