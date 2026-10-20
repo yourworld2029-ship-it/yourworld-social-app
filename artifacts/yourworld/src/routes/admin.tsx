@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowLeft, CheckCircle2, LockKeyhole, RefreshCw, ShieldAlert, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { historyBackLink } from "@/lib/navigation";
 import { useAdminAccess } from "@/lib/use-admin-access";
+import { NationalAwardVerificationAdminPanel } from "./admin.national-awards";
 import {
   listAdminConsole,
   reviewCopyrightReport,
@@ -27,10 +28,9 @@ export const Route = createFileRoute("/admin")({
   component: AdminConsole,
 });
 
-type Tab = "overview" | "verification" | "reports" | "copyright" | "payouts" | "accounts" | "audit";
+type Tab = "overview" | "verification" | "reports" | "copyright" | "payouts" | "accounts" | "audit" | "awards";
 
 function AdminConsole() {
-  const navigate = useNavigate();
   const access = useAdminAccess();
   const [mfaOpen, setMfaOpen] = useState(false);
   const [data, setData] = useState<AdminConsoleData | null>(null);
@@ -95,7 +95,7 @@ function AdminConsole() {
   return (
     <main
       className="min-h-screen bg-[#09090b] px-4 pb-5 text-white"
-      style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 1rem)" }}
+      style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 24px)" }}
     >
       <div className="mx-auto max-w-7xl">
         <header className="mb-5 space-y-4">
@@ -152,6 +152,7 @@ function AdminConsole() {
                 ["payouts", "Payout Review"],
                 ["accounts", "Account Actions"],
                 ["audit", "Audit Log"],
+                ["awards", "Award Verification Requests"],
               ] as Array<[Tab, string]>
             ).map(([value, label]) => (
               <button
@@ -167,14 +168,6 @@ function AdminConsole() {
                 {label}
               </button>
             ))}
-            <button
-              type="button"
-              onClick={() => void navigate({ to: "/admin/national-awards" })}
-              data-testid="link-admin-national-award-verification"
-              className="flex min-h-10 shrink-0 items-center rounded-xl border border-transparent px-4 py-2.5 text-left text-xs font-semibold text-zinc-400 transition-all duration-200 ease-out hover:border-white/10 hover:bg-white/[0.04] hover:text-zinc-100 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200/50 lg:w-full"
-            >
-              Award Verification Requests
-            </button>
           </nav>
 
           <section key={tab} className="min-w-0 animate-in fade-in-0 slide-in-from-bottom-1 duration-200">
@@ -185,6 +178,7 @@ function AdminConsole() {
             {tab === "payouts" ? <PayoutsTab data={data} onChanged={() => void load()} /> : null}
             {tab === "accounts" ? <AccountsTab data={data} onChanged={() => void load()} /> : null}
             {tab === "audit" ? <AuditTab data={data} /> : null}
+            {tab === "awards" ? <NationalAwardVerificationAdminPanel /> : null}
           </section>
         </div>
       </div>

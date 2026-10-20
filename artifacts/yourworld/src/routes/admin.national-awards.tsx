@@ -32,6 +32,14 @@ type Application = Awaited<
 >["applications"][number];
 
 function NationalAwardVerificationAdminPage() {
+  return <NationalAwardVerificationAdminPanel embedded={false} />;
+}
+
+export function NationalAwardVerificationAdminPanel({
+  embedded = true,
+}: {
+  embedded?: boolean;
+}) {
   const access = useAdminAccess();
   const [applications, setApplications] = useState<Application[]>([]);
   const [reasons, setReasons] = useState<Record<string, string>>({});
@@ -60,6 +68,8 @@ function NationalAwardVerificationAdminPage() {
   useEffect(() => {
     if (access.status === "allowed") void load();
   }, [access.status, load]);
+
+  const Root = embedded ? "div" : "main";
 
   const review = async (
     application: Application,
@@ -117,9 +127,26 @@ function NationalAwardVerificationAdminPage() {
   };
 
   if (access.status === "checking") {
-    return <main className="min-h-screen bg-[#09090b] p-6 text-sm text-zinc-400">Checking admin access…</main>;
+    return embedded ? (
+      <div className="py-4 text-sm text-zinc-400">Checking admin access…</div>
+    ) : (
+      <main className="min-h-screen bg-[#09090b] p-6 text-sm text-zinc-400">Checking admin access…</main>
+    );
   }
   if (access.status !== "allowed") {
+    if (embedded) {
+      return (
+        <div className="rounded-2xl border border-zinc-800 bg-[#141418] p-5 text-center">
+          <ShieldAlert className="mx-auto mb-3 text-red-500" size={28} />
+          <h2 className="text-base font-bold">
+            {access.status === "error" ? "Admin access could not be verified" : "Admin access required"}
+          </h2>
+          <p className="mt-1 text-sm text-zinc-400">
+            {access.message ?? "This account does not have the admin role."}
+          </p>
+        </div>
+      );
+    }
     return (
       <main className="min-h-screen bg-[#09090b] p-6 text-white">
         <div className="mx-auto mt-12 max-w-md rounded-2xl border border-zinc-800 bg-[#141418] p-6 text-center">
@@ -136,57 +163,83 @@ function NationalAwardVerificationAdminPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#09090b] p-4 text-white">
-      <div className="mx-auto max-w-5xl">
-        <header className="mb-6 mt-2 flex flex-wrap items-center gap-3">
-          <Link
-            to="/admin"
-            data-testid="link-award-verification-admin"
-            aria-label="Back to Admin"
-            className="p-1 text-zinc-300 hover:text-white"
-          >
-            <ArrowLeft size={22} />
-          </Link>
-          <div className="min-w-0 flex-1">
-            <h1 data-testid="text-award-verification-title" className="text-xl font-bold">
-              Award Verification Requests
-            </h1>
-            <p className="text-sm text-zinc-500">
-              Private award evidence is available only to admins with two-step verification.
-            </p>
-          </div>
-          <Button
-            type="button"
-            data-testid="button-refresh-award-requests"
-            variant="outline"
-            onClick={() => void load()}
-            disabled={loading}
-            className="rounded-xl border-white/10 text-zinc-200 hover:bg-white/[0.06]"
-          >
-            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-            {loading ? "Refreshing…" : "Refresh"}
-          </Button>
-        </header>
+    <Root className={embedded ? "min-w-0 text-white" : "min-h-screen bg-[#09090b] p-4 text-white"}>
+      <div className={embedded ? "min-w-0" : "mx-auto max-w-5xl"}>
+        {embedded ? (
+          <header className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-[#101012] p-4">
+            <div className="min-w-0">
+              <h2 data-testid="text-award-verification-title" className="text-base font-bold text-white">
+                Award Verification Requests
+              </h2>
+              <p className="mt-1 text-xs text-zinc-500">
+                Private submissions for admin review.
+              </p>
+            </div>
+            <Button
+              type="button"
+              data-testid="button-refresh-award-requests"
+              variant="outline"
+              onClick={() => void load()}
+              disabled={loading}
+              className="rounded-xl border-white/10 text-zinc-200 hover:bg-white/[0.06]"
+            >
+              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+              {loading ? "Refreshing…" : "Refresh"}
+            </Button>
+          </header>
+        ) : (
+          <header className="mb-6 mt-2 flex flex-wrap items-center gap-3">
+            <Link
+              to="/admin"
+              data-testid="link-award-verification-admin"
+              aria-label="Back to Admin"
+              className="p-1 text-zinc-300 hover:text-white"
+            >
+              <ArrowLeft size={22} />
+            </Link>
+            <div className="min-w-0 flex-1">
+              <h1 data-testid="text-award-verification-title" className="text-xl font-bold">
+                Award Verification Requests
+              </h1>
+              <p className="text-sm text-zinc-500">
+                Private award evidence is available only to admins with two-step verification.
+              </p>
+            </div>
+            <Button
+              type="button"
+              data-testid="button-refresh-award-requests"
+              variant="outline"
+              onClick={() => void load()}
+              disabled={loading}
+              className="rounded-xl border-white/10 text-zinc-200 hover:bg-white/[0.06]"
+            >
+              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+              {loading ? "Refreshing…" : "Refresh"}
+            </Button>
+          </header>
+        )}
 
-        <nav
-          aria-label="Admin verification sections"
-          className="mb-5 flex flex-wrap gap-2"
-        >
-          <Link
-            to="/admin/sports-verification"
-            data-testid="tab-sports-verification"
-            className="rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-zinc-400 hover:bg-white/[0.06] hover:text-white"
+        {!embedded ? (
+          <nav
+            aria-label="Admin verification sections"
+            className="mb-5 flex flex-wrap gap-2"
           >
-            Sports Verification
-          </Link>
-          <span
-            data-testid="tab-national-award-verification"
-            aria-current="page"
-            className="rounded-xl border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-xs font-semibold text-amber-100"
-          >
-            Award Verification Requests
-          </span>
-        </nav>
+            <Link
+              to="/admin/sports-verification"
+              data-testid="tab-sports-verification"
+              className="rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-zinc-400 hover:bg-white/[0.06] hover:text-white"
+            >
+              Sports Verification
+            </Link>
+            <span
+              data-testid="tab-national-award-verification"
+              aria-current="page"
+              className="rounded-xl border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-xs font-semibold text-amber-100"
+            >
+              Award Verification Requests
+            </span>
+          </nav>
+        ) : null}
 
         {error ? (
           <div
@@ -403,7 +456,7 @@ function NationalAwardVerificationAdminPage() {
           })}
         </div>
       </div>
-    </main>
+    </Root>
   );
 }
 
