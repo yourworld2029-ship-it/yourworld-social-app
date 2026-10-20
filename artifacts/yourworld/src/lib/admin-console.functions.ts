@@ -8,6 +8,8 @@ import {
 
 type AdminClient = Awaited<ReturnType<typeof getAdminClient>>;
 
+const ADMIN_ROLE_LOOKUP_TIMEOUT_MS = 8_000;
+
 export type AdminProfile = {
   id: string;
   username: string | null;
@@ -18,11 +20,19 @@ export type AdminProfile = {
 };
 
 function claimsFor(context: { claims: unknown }) {
-  return (context.claims ?? {}) as { aal?: string; amr?: Array<{ method?: string }> };
+  return (context.claims ?? {}) as {
+    aal?: string;
+    amr?: Array<{ method?: string }>;
+    email?: string;
+  };
 }
 
 function assuranceLevel(context: { claims: unknown }) {
   return claimsFor(context).aal ?? "aal1";
+}
+
+function emailFromClaims(context: { claims: unknown }) {
+  return claimsFor(context).email?.trim().toLowerCase() ?? "";
 }
 
 async function getAdminClient() {
@@ -32,14 +42,39 @@ async function getAdminClient() {
 
 async function requireOwnerAdmin(context: { userId: string; claims: unknown }, stepUp = true) {
   const admin = await getAdminClient();
-  const { data, error } = await admin
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", context.userId)
-    .eq("role", "admin")
-    .maybeSingle();
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    ADMIN_ROLE_LOOKUP_TIMEOUT_MS,
+  );
+  let hasRole = false;
+  let lookupFailed = false;
+  try {
+    const { data, error } = await admin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", context.userId)
+      .eq("role", "admin")
+      .maybeSingle()
+      .abortSignal(controller.signal);
+    hasRole = Boolean(data);
+    lookupFailed = Boolean(error);
+  } catch {
+    if (controller.signal.aborted) {
+      throw new Error("Admin role check timed out. Please retry.");
+    }
+    throw new Error("Could not verify the admin role. Please retry.");
+  } finally {
+    clearTimeout(timeout);
+  }
 
-  if (error || !data) {
+  if (controller.signal.aborted) {
+    throw new Error("Admin role check timed out. Please retry.");
+  }
+  if (lookupFailed) {
+    throw new Error("Could not verify the admin role. Please retry.");
+  }
+  if (!hasRole) {
     throw new Error("Forbidden: owner admin access is required.");
   }
   if (stepUp && assuranceLevel(context) !== "aal2") {
@@ -48,18 +83,12 @@ async function requireOwnerAdmin(context: { userId: string; claims: unknown }, s
   return admin;
 }
 
-async function authEmailForUser(admin: AdminClient, userId: string) {
-  const { data, error } = await admin.auth.admin.getUserById(userId);
-  if (error) throw new Error("Could not verify the admin account email.");
-  return data.user.email?.trim().toLowerCase() ?? "";
-}
-
 async function requireSupportAdmin(context: { userId: string; claims: unknown }) {
-  const admin = await requireOwnerAdmin(context);
-  if ((await authEmailForUser(admin, context.userId)) !== SUPPORT_ADMIN_EMAIL) {
+  await requireOwnerAdmin(context);
+  if (emailFromClaims(context) !== SUPPORT_ADMIN_EMAIL) {
     throw new Error("Forbidden: this action is restricted to the support administrator.");
   }
-  return admin;
+  return getAdminClient();
 }
 
 async function writeAudit(
@@ -164,8 +193,8 @@ export type AdminConsoleData = {
 export const getAdminSecurityStatus = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    const admin = await requireOwnerAdmin(context, false);
-    const email = await authEmailForUser(admin, context.userId);
+    await requireOwnerAdmin(context, false);
+    const email = emailFromClaims(context);
     return {
       isAdmin: true,
       isOperationsAdmin: email === OPERATIONS_ADMIN_EMAIL,
@@ -234,8 +263,7 @@ export const listAdminConsole = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const admin = await requireOwnerAdmin(context);
-    const operationsOnly =
-      (await authEmailForUser(admin, context.userId)) === OPERATIONS_ADMIN_EMAIL;
+    const operationsOnly = emailFromClaims(context) === OPERATIONS_ADMIN_EMAIL;
     const [
       pendingVerification,
       userReportsResult,

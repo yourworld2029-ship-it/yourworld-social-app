@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowLeft, CheckCircle2, LockKeyhole, RefreshCw, ShieldAlert, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
@@ -34,6 +34,23 @@ export const Route = createFileRoute("/admin")({
 
 type Tab = "overview" | "verification" | "reports" | "copyright" | "payouts" | "accounts" | "audit";
 
+const ADMIN_ACCESS_TIMEOUT_MS = 12_000;
+
+function withTimeout<T>(
+  operation: PromiseLike<T>,
+  timeoutMs: number,
+  message: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<T>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+
+  return Promise.race([Promise.resolve(operation), timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 function AdminConsole() {
   const [security, setSecurity] = useState<{
     isAdmin: boolean;
@@ -43,18 +60,37 @@ function AdminConsole() {
     requiresMfa: boolean;
   } | null>(null);
   const [securityError, setSecurityError] = useState<string | null>(null);
+  const [securityLoading, setSecurityLoading] = useState(true);
+  const securityAttempt = useRef(0);
   const [data, setData] = useState<AdminConsoleData | null>(null);
   const [loading, setLoading] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [tab, setTab] = useState<Tab>("overview");
 
   const checkSecurity = useCallback(async () => {
+    const attempt = ++securityAttempt.current;
+    setSecurity(null);
     setSecurityError(null);
+    setSecurityLoading(true);
     try {
-      const result = await getAdminSecurityStatus();
+      const result = await withTimeout(
+        getAdminSecurityStatus(),
+        ADMIN_ACCESS_TIMEOUT_MS,
+        "Admin access check timed out. Check your connection and retry.",
+      );
+      if (result?.isAdmin !== true) {
+        throw new Error("This account does not have the required admin role.");
+      }
+      if (attempt !== securityAttempt.current) return;
       setSecurity(result);
     } catch (error) {
-      setSecurityError(error instanceof Error ? error.message : "Admin access is unavailable.");
+      if (attempt === securityAttempt.current) {
+        setSecurityError(
+          error instanceof Error ? error.message : "Admin access could not be verified.",
+        );
+      }
+    } finally {
+      if (attempt === securityAttempt.current) setSecurityLoading(false);
     }
   }, []);
 
@@ -83,13 +119,13 @@ function AdminConsole() {
   }, [load, security]);
 
   if (securityError) {
-    return <AdminDenied message={securityError} />;
+    return <AdminDenied message={securityError} onRetry={() => void checkSecurity()} />;
   }
-  if (!security) {
+  if (securityLoading || !security) {
     return <AdminLoading />;
   }
   if (security.requiresMfa) {
-    return <MfaGate onComplete={() => void checkSecurity()} />;
+    return <MfaGate onComplete={checkSecurity} />;
   }
 
   const counts = data
@@ -227,26 +263,36 @@ function AdminConsole() {
   );
 }
 
-function MfaGate({ onComplete }: { onComplete: () => void }) {
+function MfaGate({ onComplete }: { onComplete: () => Promise<void> }) {
   const [adminFactor, setAdminFactor] = useState<{ id: string; friendly_name?: string } | null>(null);
   const [enrollment, setEnrollment] = useState<{ id: string; qr_code: string; secret: string } | null>(null);
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(true);
+  const [factorError, setFactorError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const loadFactors = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await supabase.auth.mfa.listFactors();
-    if (error) {
-      toast.error(error.message);
-    } else {
+    setFactorError(null);
+    try {
+      const { data, error } = await withTimeout(
+        supabase.auth.mfa.listFactors(),
+        ADMIN_ACCESS_TIMEOUT_MS,
+        "MFA check timed out. Retry the check before continuing.",
+      );
+      if (error) throw error;
       const existingAdminFactor =
         data.all.find((factor) => factor.factor_type === "totp" && factor.friendly_name === "YourWorld Admin") ??
         data.totp.find((factor) => factor.status === "verified") ??
         null;
       setAdminFactor(existingAdminFactor);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not check your MFA factors.";
+      setFactorError(message);
+      toast.error(message);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -255,13 +301,22 @@ function MfaGate({ onComplete }: { onComplete: () => void }) {
 
   const enroll = async () => {
     setBusy(true);
-    const { data, error } = await supabase.auth.mfa.enroll({
-      factorType: "totp",
-      friendlyName: "YourWorld Admin",
-    });
-    if (error) toast.error(error.message);
-    else setEnrollment({ id: data.id, qr_code: data.totp.qr_code, secret: data.totp.secret });
-    setBusy(false);
+    try {
+      const { data, error } = await withTimeout(
+        supabase.auth.mfa.enroll({
+          factorType: "totp",
+          friendlyName: "YourWorld Admin",
+        }),
+        ADMIN_ACCESS_TIMEOUT_MS,
+        "MFA setup timed out. Please retry.",
+      );
+      if (error) throw error;
+      setEnrollment({ id: data.id, qr_code: data.totp.qr_code, secret: data.totp.secret });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not set up MFA.");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const verify = async () => {
@@ -271,25 +326,36 @@ function MfaGate({ onComplete }: { onComplete: () => void }) {
       return;
     }
     setBusy(true);
-    const { data: challenge, error: challengeError } = await supabase.auth.mfa.challenge({ factorId });
-    if (challengeError) {
-      toast.error(challengeError.message);
-      setBusy(false);
-      return;
-    }
-    const { error } = await supabase.auth.mfa.verify({
-      factorId,
-      challengeId: challenge.id,
-      code,
-    });
-    if (error) {
-      toast.error(error.message);
-    } else {
-      await supabase.auth.refreshSession();
+    try {
+      const { data: challenge, error: challengeError } = await withTimeout(
+        supabase.auth.mfa.challenge({ factorId }),
+        ADMIN_ACCESS_TIMEOUT_MS,
+        "MFA challenge timed out. Please retry.",
+      );
+      if (challengeError) throw challengeError;
+      const { error } = await withTimeout(
+        supabase.auth.mfa.verify({
+          factorId,
+          challengeId: challenge.id,
+          code,
+        }),
+        ADMIN_ACCESS_TIMEOUT_MS,
+        "MFA verification timed out. Please retry.",
+      );
+      if (error) throw error;
+      const { error: refreshError } = await withTimeout(
+        supabase.auth.refreshSession(),
+        ADMIN_ACCESS_TIMEOUT_MS,
+        "Session refresh timed out. Please retry.",
+      );
+      if (refreshError) throw refreshError;
       toast.success("Admin MFA verified.");
-      onComplete();
+      await onComplete();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not verify admin MFA.");
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   };
 
   return (
@@ -302,6 +368,17 @@ function MfaGate({ onComplete }: { onComplete: () => void }) {
         </p>
         {loading ? (
           <p className="mt-5 text-sm text-zinc-500">Checking your verified factors…</p>
+        ) : factorError ? (
+          <div className="mt-5 rounded-xl border border-red-400/20 bg-red-400/5 p-4">
+            <p className="text-sm text-red-200">{factorError}</p>
+            <button
+              type="button"
+              onClick={() => void loadFactors()}
+              className="mt-3 rounded-lg border border-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/5"
+            >
+              Retry MFA check
+            </button>
+          </div>
         ) : enrollment ? (
           <div className="mt-5 space-y-4">
             <img src={enrollment.qr_code} alt="Scan this QR code in your authenticator app" className="mx-auto h-48 w-48 rounded-xl bg-white p-2" />
@@ -934,12 +1011,38 @@ function Empty({ text }: { text: string }) {
   return <div className="rounded-2xl border border-dashed border-white/10 p-5 text-sm text-zinc-500">{text}</div>;
 }
 
-function AdminDenied({ message }: { message: string }) {
-  return <main className="min-h-screen bg-[#09090b] p-6 text-white"><div className="mx-auto mt-12 max-w-md rounded-2xl border border-zinc-800 bg-[#141418] p-6 text-center"><ShieldAlert className="mx-auto mb-3 text-red-500" size={28} /><h1 className="text-lg font-bold">Owner admin access required</h1><p className="mt-2 text-sm text-zinc-400">{message}</p></div></main>;
+function AdminDenied({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <main className="min-h-screen bg-[#09090b] p-6 text-white">
+      <div className="mx-auto mt-12 max-w-md rounded-2xl border border-zinc-800 bg-[#141418] p-6 text-center">
+        <ShieldAlert className="mx-auto mb-3 text-red-500" size={28} />
+        <h1 className="text-lg font-bold">Admin access could not be verified</h1>
+        <p className="mt-2 text-sm text-zinc-400">{message}</p>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="mt-5 rounded-xl border border-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/5"
+        >
+          Retry access check
+        </button>
+      </div>
+    </main>
+  );
 }
 
 function AdminLoading() {
-  return <main className="min-h-screen bg-[#09090b] p-6 text-sm text-zinc-400">Checking owner admin access…</main>;
+  return (
+    <main
+      className="flex min-h-screen items-center justify-center bg-[#09090b] p-6 text-sm text-zinc-400"
+      role="status"
+      aria-live="polite"
+    >
+      <span className="inline-flex items-center gap-2">
+        <RefreshCw className="animate-spin" size={16} />
+        Checking owner admin access…
+      </span>
+    </main>
+  );
 }
 
 function displayProfile(profile: AdminConsoleData["userReports"][number]["reportedUser"] | null) {
