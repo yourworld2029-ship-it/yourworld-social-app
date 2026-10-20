@@ -536,7 +536,7 @@ function NotificationRow({
         ) : null}
       </div>
       {item.kind === "comment" && item.commentId ? (
-        <div className="ml-[50px] mt-1 flex items-center gap-4 text-[11px] text-zinc-500">
+        <div className="ml-[50px] mt-0.5 flex items-center gap-4 text-[11px] text-zinc-500">
           <button
             type="button"
             onClick={(event) => {
@@ -581,6 +581,7 @@ function NotificationAvatar({
   Icon: LucideIcon;
 }) {
   const urls = item.actorAvatarUrls?.length ? item.actorAvatarUrls.slice(0, 3) : [null];
+  const showUnreadDot = !item.read && item.kind !== "like" && item.kind !== "comment";
   return (
     <span
       className="relative mr-3.5 h-11 w-11 shrink-0 overflow-hidden rounded-full"
@@ -617,7 +618,7 @@ function NotificationAvatar({
           ) : null}
         </span>
       ))}
-      {!item.read && (
+      {showUnreadDot && (
         <span className="absolute right-1 top-0.5 z-10 h-2.5 w-2.5 rounded-full bg-sky-400 ring-2 ring-zinc-950" />
       )}
     </span>
