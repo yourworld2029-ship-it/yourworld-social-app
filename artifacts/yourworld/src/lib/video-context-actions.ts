@@ -126,7 +126,7 @@ export async function submitVideoReport(input: {
   postId: string;
   reason: string;
 }) {
-  const { error } = await supabase.from("user_reports").upsert(
+  const { data: report, error } = await supabase.from("user_reports").upsert(
     {
       reporter_id: input.reporterId,
       reported_user_id: input.creatorId,
@@ -136,6 +136,14 @@ export async function submitVideoReport(input: {
       created_at: new Date().toISOString(),
     },
     { onConflict: "reporter_id,reported_user_id,surface" },
-  );
+  ).select("id").maybeSingle();
   if (error) throw error;
+  if (report?.id) {
+    const { notifyAdminOfReport } = await import(
+      "@/lib/admin-notifications.functions"
+    );
+    void notifyAdminOfReport({
+      data: { kind: "user", reportId: report.id },
+    }).catch(() => undefined);
+  }
 }

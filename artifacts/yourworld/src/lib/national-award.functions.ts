@@ -618,6 +618,20 @@ export const submitNationalAwardVerification = createServerFn({ method: "POST" }
       throw new Error("National Award Verification could not be submitted.");
     }
 
+    const { sendAdminNotificationEmail, escapeAdminEmailHtml } = await import(
+      "@/lib/admin-notifications.server"
+    );
+    await sendAdminNotificationEmail(
+      "operations",
+      "New National Award Verification request",
+      [
+        "<p>A National Award Verification application is ready for review.</p>",
+        `<p>Applicant: ${escapeAdminEmailHtml(submissionData.fullName)}</p>`,
+        `<p>Award: ${escapeAdminEmailHtml(submissionData.awardCode)} · ${submissionData.awardYear}</p>`,
+        "<p>Open YourWorld → Settings → Admin Operations Hub to review.</p>",
+      ].join(""),
+    );
+
     return loadSavedNationalAwardDetails(admin, context.userId);
   });
 
@@ -649,18 +663,22 @@ export const listNationalAwardVerificationApplications = createServerFn({
   method: "POST",
 })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
+  .validator((data) =>
+    z.object({ offset: z.number().int().min(0).max(10000).default(0) }).parse(data ?? {}),
+  )
+  .handler(async ({ data, context }) => {
     const admin = await requireNationalAwardAdmin(context.userId, context.claims);
-    const { data, error } = await admin
+    const pageSize = 20;
+    const { data: rows, error } = await admin
       .from("national_award_verifications")
       .select("*")
       .in("review_status", ["pending", "pending_verification"])
       .order("submitted_at", { ascending: true })
-      .limit(100);
+      .range(data.offset, data.offset + pageSize - 1);
     if (error) throw new Error(`Could not load Award Verification requests: ${error.message}`);
 
     const applications = await Promise.all(
-      ((data ?? []) as NationalAwardRow[]).map(async (row) => {
+      ((rows ?? []) as NationalAwardRow[]).map(async (row) => {
         const [certificateResult, introductionResult, identityProofResult] = await Promise.all([
           admin.storage
             .from(evidenceBucket)
@@ -709,7 +727,11 @@ export const listNationalAwardVerificationApplications = createServerFn({
       }),
     );
 
-    return { applications };
+    return {
+      applications,
+      hasMore: applications.length === pageSize,
+      nextOffset: data.offset + applications.length,
+    };
   });
 
 const reviewSchema = z.object({

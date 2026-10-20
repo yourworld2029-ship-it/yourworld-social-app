@@ -5,12 +5,17 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { historyBackLink } from "@/lib/navigation";
 import {
+  getAdminPayoutDestination,
   getAdminSecurityStatus,
+  inviteOperationsAdmin,
   listAdminConsole,
+  listAdminPayoutRequests,
   reviewCopyrightReport,
+  reviewAdminPayoutRequest,
   reviewUserReport,
   updateAccountRestriction,
   updatePayoutHold,
+  type AdminPayoutRequest,
   type AdminConsoleData,
 } from "@/lib/admin-console.functions";
 
@@ -32,12 +37,15 @@ type Tab = "overview" | "verification" | "reports" | "copyright" | "payouts" | "
 function AdminConsole() {
   const [security, setSecurity] = useState<{
     isAdmin: boolean;
+    isOperationsAdmin: boolean;
+    isSupportAdmin: boolean;
     assuranceLevel: string;
     requiresMfa: boolean;
   } | null>(null);
   const [securityError, setSecurityError] = useState<string | null>(null);
   const [data, setData] = useState<AdminConsoleData | null>(null);
   const [loading, setLoading] = useState(false);
+  const [inviting, setInviting] = useState(false);
   const [tab, setTab] = useState<Tab>("overview");
 
   const checkSecurity = useCallback(async () => {
@@ -92,6 +100,43 @@ function AdminConsole() {
         payoutHolds: data.payoutHolds.length,
       }
     : null;
+  const selectedTab: Tab =
+    security.isOperationsAdmin &&
+    !["verification", "payouts"].includes(tab)
+      ? "verification"
+      : tab;
+  const navigationTabs: Array<[Tab, string]> = security.isOperationsAdmin
+    ? [
+        ["verification", "Sports Verification"],
+        ["payouts", "Monetization & Payouts"],
+      ]
+    : [
+        ["overview", "Overview"],
+        ["verification", "Sports Verification"],
+        ["reports", "User Reports"],
+        ["copyright", "Copyright / DMCA"],
+        ["payouts", "Payout Review"],
+        ["accounts", "Account Actions"],
+        ["audit", "Audit Log"],
+      ];
+
+  const sendOperationsInvite = async () => {
+    setInviting(true);
+    try {
+      const result = await inviteOperationsAdmin();
+      toast.success(
+        result.invitationSent
+          ? `Secure invite sent to ${result.email}. They must accept it before signing in.`
+          : `Admin access is enabled for ${result.email}. They can use their existing verified login.`,
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Could not invite the operations admin.",
+      );
+    } finally {
+      setInviting(false);
+    }
+  };
 
   return (
     <main className="min-h-screen bg-[#09090b] p-4 text-white">
@@ -107,13 +152,29 @@ function AdminConsole() {
           </Link>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold">Admin Console</h1>
+               <h1 className="text-xl font-bold">
+                 {security.isOperationsAdmin ? "Admin Operations Hub" : "Admin Console"}
+               </h1>
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-400/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-emerald-300">
-                <ShieldCheck className="h-3.5 w-3.5" /> Owner + MFA
+                 <ShieldCheck className="h-3.5 w-3.5" /> {security.isOperationsAdmin ? "Operations + MFA" : "Owner + MFA"}
               </span>
             </div>
-            <p className="text-sm text-zinc-500">Moderation actions are server-authorized and permanently audited.</p>
+             <p className="text-sm text-zinc-500">
+               {security.isOperationsAdmin
+                 ? "Sports Verification, National Awards and creator payout review."
+                 : "Moderation actions are server-authorized and permanently audited."}
+             </p>
           </div>
+           {security.isSupportAdmin ? (
+             <button
+               type="button"
+               onClick={() => void sendOperationsInvite()}
+               disabled={inviting}
+               className="rounded-xl border border-amber-300/25 px-3 py-2 text-xs font-semibold text-amber-100 hover:bg-amber-300/10 disabled:opacity-50"
+             >
+               {inviting ? "Sending invite…" : "Invite operations admin"}
+             </button>
+           ) : null}
           <button
             type="button"
             onClick={() => void load()}
@@ -126,23 +187,13 @@ function AdminConsole() {
 
         <div className="grid gap-4 lg:grid-cols-[190px_1fr]">
           <nav className="flex gap-2 overflow-x-auto lg:block lg:space-y-1">
-            {(
-              [
-                ["overview", "Overview"],
-                ["verification", "Sports Verification"],
-                ["reports", "User Reports"],
-                ["copyright", "Copyright / DMCA"],
-                ["payouts", "Payout Review"],
-                ["accounts", "Account Actions"],
-                ["audit", "Audit Log"],
-              ] as Array<[Tab, string]>
-            ).map(([value, label]) => (
+            {navigationTabs.map(([value, label]) => (
               <button
                 key={value}
                 type="button"
                 onClick={() => setTab(value)}
                 className={`whitespace-nowrap rounded-xl px-3 py-2 text-left text-xs font-semibold transition ${
-                  tab === value ? "bg-white/10 text-white" : "text-zinc-500 hover:bg-white/[0.04] hover:text-zinc-200"
+                  selectedTab === value ? "bg-white/10 text-white" : "text-zinc-500 hover:bg-white/[0.04] hover:text-zinc-200"
                 }`}
               >
                 {label}
@@ -151,20 +202,24 @@ function AdminConsole() {
             <Link
               to="/admin/national-awards"
               data-testid="link-admin-national-award-verification"
-              className="whitespace-nowrap rounded-xl px-3 py-2 text-left text-xs font-semibold text-zinc-500 transition hover:bg-white/[0.04] hover:text-zinc-200"
+              className={`whitespace-nowrap rounded-xl px-3 py-2 text-left text-xs font-semibold transition ${
+                security.isOperationsAdmin
+                  ? "border border-white/10 text-zinc-300 hover:bg-white/[0.06] hover:text-white"
+                  : "text-zinc-500 hover:bg-white/[0.04] hover:text-zinc-200"
+              }`}
             >
               Award Verification Requests
             </Link>
           </nav>
 
           <section className="min-w-0">
-            {tab === "overview" ? <Overview data={data} counts={counts} /> : null}
-            {tab === "verification" ? <VerificationTab count={data?.pendingVerificationCount ?? 0} /> : null}
-            {tab === "reports" ? <ReportsTab data={data} onChanged={() => void load()} /> : null}
-            {tab === "copyright" ? <CopyrightTab data={data} onChanged={() => void load()} /> : null}
-            {tab === "payouts" ? <PayoutsTab data={data} onChanged={() => void load()} /> : null}
-            {tab === "accounts" ? <AccountsTab data={data} onChanged={() => void load()} /> : null}
-            {tab === "audit" ? <AuditTab data={data} /> : null}
+            {selectedTab === "overview" ? <Overview data={data} counts={counts} /> : null}
+            {selectedTab === "verification" ? <VerificationTab count={data?.pendingVerificationCount ?? 0} /> : null}
+            {selectedTab === "reports" ? <ReportsTab data={data} onChanged={() => void load()} /> : null}
+            {selectedTab === "copyright" ? <CopyrightTab data={data} onChanged={() => void load()} /> : null}
+            {selectedTab === "payouts" ? <PayoutsTab data={data} onChanged={() => void load()} /> : null}
+            {selectedTab === "accounts" ? <AccountsTab data={data} onChanged={() => void load()} /> : null}
+            {selectedTab === "audit" ? <AuditTab data={data} /> : null}
           </section>
         </div>
       </div>
@@ -431,13 +486,302 @@ function CopyrightCard({ report, onChanged }: { report: AdminConsoleData["copyri
 
 function PayoutsTab({ data, onChanged }: { data: AdminConsoleData | null; onChanged: () => void }) {
   return (
-    <Panel title="Monetization & Payout Review" description="Review monetization status and place or release a payout hold. A report never confiscates money or decides a refund by itself.">
+    <Panel title="Monetization & Payout Review" description="Review creator payout requests, saved destinations, and existing payout holds. Mark a request paid only after an external bank/UPI transfer; this screen does not send money.">
+      <PayoutRequestQueue onChanged={onChanged} />
       {!data?.monetization.length && !data?.payoutHolds.length ? <Empty text="No monetization records or payout holds." /> : null}
       <div className="space-y-3">
         {data?.monetization.map((row) => <PayoutCard key={row.userId} row={row} onChanged={onChanged} />)}
         {data?.payoutHolds.map((hold) => <CaseCard key={hold.id} title={`Held payout · ${displayProfile(hold.profile)}`} status={hold.status} createdAt={hold.createdAt}><p className="text-sm text-zinc-300">{hold.reason}</p></CaseCard>)}
       </div>
     </Panel>
+  );
+}
+
+function PayoutRequestQueue({ onChanged }: { onChanged: () => void }) {
+  const [requests, setRequests] = useState<AdminPayoutRequest[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [page, setPage] = useState(0);
+  const [total, setTotal] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async (targetPage = 0, append = false) => {
+    if (targetPage === 0) setLoading(true);
+    else setLoadingMore(true);
+    setError(null);
+    try {
+      const result = await listAdminPayoutRequests({ data: { page: targetPage } });
+      setRequests((current) =>
+        append ? [...current, ...result.requests] : result.requests,
+      );
+      setHasMore(result.hasMore);
+      setTotal(result.total);
+      setPage(targetPage);
+    } catch (loadError) {
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Could not load payout requests.",
+      );
+    } finally {
+      if (targetPage === 0) setLoading(false);
+      else setLoadingMore(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return (
+    <section className="mb-5 rounded-2xl border border-white/10 bg-white/[0.025] p-3 sm:p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-white">Payout requests</h3>
+          <p className="text-[11px] text-zinc-500">{total} total · newest first</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void load(0)}
+          disabled={loading}
+          className="rounded-lg border border-white/10 px-3 py-2 text-xs font-semibold text-zinc-300 hover:bg-white/[0.06] disabled:opacity-50"
+        >
+          Refresh
+        </button>
+      </div>
+      {error ? (
+        <p role="alert" className="rounded-xl bg-red-400/10 p-3 text-xs text-red-200">
+          {error}
+        </p>
+      ) : null}
+      {loading && requests.length === 0 ? (
+        <div className="py-5 text-center text-xs text-zinc-500">Loading payout requests…</div>
+      ) : null}
+      {!loading && !error && requests.length === 0 ? (
+        <Empty text="No creator payout requests yet." />
+      ) : null}
+      <div className="space-y-3">
+        {requests.map((request) => (
+          <PayoutRequestCard
+            key={request.id}
+            request={request}
+            onChanged={() => {
+              void load(0);
+              onChanged();
+            }}
+          />
+        ))}
+      </div>
+      {hasMore ? (
+        <button
+          type="button"
+          onClick={() => void load(page + 1, true)}
+          disabled={loadingMore}
+          className="mt-3 w-full rounded-xl border border-white/10 px-3 py-2.5 text-xs font-semibold text-zinc-200 hover:bg-white/[0.06] disabled:opacity-50"
+        >
+          {loadingMore ? "Loading…" : "Load more payout requests"}
+        </button>
+      ) : null}
+    </section>
+  );
+}
+
+function PayoutRequestCard({
+  request,
+  onChanged,
+}: {
+  request: AdminPayoutRequest;
+  onChanged: () => void;
+}) {
+  const [reason, setReason] = useState("");
+  const [paymentReference, setPaymentReference] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [destinationLoading, setDestinationLoading] = useState(false);
+  const [destination, setDestination] = useState<{
+    email: string;
+    upiId: string;
+    accountNumber: string;
+    ifsc: string;
+    accountHolder: string;
+    panNumber: string;
+  } | null>(null);
+
+  const loadDestination = async () => {
+    if (destination || destinationLoading) return;
+    setDestinationLoading(true);
+    try {
+      setDestination(
+        await getAdminPayoutDestination({ data: { requestId: request.id } }),
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Could not load payout destination.",
+      );
+    } finally {
+      setDestinationLoading(false);
+    }
+  };
+
+  const review = async (action: "pending" | "approve" | "paid") => {
+    if (!reason.trim()) return toast.error("Add a reason for this payout decision.");
+    if (action === "paid" && !paymentReference.trim()) {
+      return toast.error("Enter the transfer reference before marking this payout paid.");
+    }
+    setBusy(true);
+    try {
+      await reviewAdminPayoutRequest({
+        data: {
+          requestId: request.id,
+          action,
+          reason,
+          paymentReference: action === "paid" ? paymentReference : undefined,
+        },
+      });
+      toast.success(
+        action === "paid"
+          ? "Payout marked paid."
+          : action === "approve"
+            ? "Payout approved."
+            : "Payout returned to pending.",
+      );
+      setReason("");
+      onChanged();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Could not update payout status.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const statusLabel =
+    request.status === "completed"
+      ? "Paid"
+      : request.status === "approved"
+        ? "Approved"
+        : request.status === "failed"
+          ? "Failed"
+          : "Pending";
+
+  return (
+    <article className="rounded-xl border border-white/10 bg-black/20 p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h4 className="truncate text-sm font-semibold text-zinc-100">
+            {displayProfile(request.profile)}
+          </h4>
+          <p className="break-all text-[11px] text-zinc-500">
+            {request.email || "No payout email"} · {formatDate(request.createdAt)}
+          </p>
+        </div>
+        <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-zinc-300">
+          {statusLabel}
+        </span>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+        <Stat label="Gross" value={formatCurrency(request.amount)} />
+        <Stat label="Creator net" value={formatCurrency(request.netAmount)} />
+        <Stat label="TDS" value={formatCurrency(request.tdsDeducted)} />
+        <Stat label="KYC" value={request.kycStatus} />
+      </div>
+      <p className="mt-2 text-[11px] text-zinc-500">
+        Schedule: {request.scheduleType.replace("_", " ") || "—"}
+        {request.paymentReference ? ` · Ref: ${request.paymentReference}` : ""}
+      </p>
+      <details
+        className="mt-3 rounded-lg border border-white/10 px-3 py-2"
+        onToggle={(event) => {
+          if (event.currentTarget.open) void loadDestination();
+        }}
+      >
+        <summary className="cursor-pointer text-xs font-semibold text-zinc-200">
+          View bank / UPI details
+        </summary>
+        {destinationLoading ? (
+          <p className="mt-2 text-xs text-zinc-500">Loading private payout details…</p>
+        ) : destination ? (
+          <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+            <Destination label="UPI ID" value={destination.upiId} />
+            <Destination label="Account holder" value={destination.accountHolder} />
+            <Destination label="Bank account" value={destination.accountNumber} />
+            <Destination label="IFSC" value={destination.ifsc} />
+            <Destination label="PAN" value={destination.panNumber} />
+          </dl>
+        ) : null}
+      </details>
+      {request.status !== "completed" ? (
+        <div className="mt-3 space-y-2">
+          <input
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            placeholder="Required audit reason"
+            className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-xs text-white outline-none placeholder:text-zinc-600"
+          />
+          {request.status === "approved" ? (
+            <input
+              value={paymentReference}
+              onChange={(event) => setPaymentReference(event.target.value)}
+              placeholder="Bank / UPI transaction reference (required to mark paid)"
+              className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-xs text-white outline-none placeholder:text-zinc-600"
+            />
+          ) : null}
+          <div className="flex flex-wrap gap-2">
+            {request.status !== "processing" ? (
+              <button
+                type="button"
+                onClick={() => void review("pending")}
+                disabled={busy}
+                className="rounded-lg border border-white/10 px-3 py-2 text-xs font-semibold text-zinc-300 disabled:opacity-50"
+              >
+                Set Pending
+              </button>
+            ) : null}
+            {request.status !== "approved" ? (
+              <button
+                type="button"
+                onClick={() => void review("approve")}
+                disabled={busy}
+                className="rounded-lg bg-amber-300 px-3 py-2 text-xs font-bold text-black disabled:opacity-50"
+              >
+                Approve
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void review("paid")}
+                disabled={busy}
+                className="rounded-lg bg-emerald-400 px-3 py-2 text-xs font-bold text-black disabled:opacity-50"
+              >
+                Mark Paid
+              </button>
+            )}
+          </div>
+          <p className="text-[10px] text-zinc-600">
+            Mark Paid records a completed external transfer; it does not initiate one.
+          </p>
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function Destination({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-[10px] uppercase tracking-wide text-zinc-500">{label}</dt>
+      <dd className="break-all text-zinc-200">{value || "—"}</dd>
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg bg-white/[0.04] px-2 py-2">
+      <div className="text-[10px] text-zinc-500">{label}</div>
+      <div className="mt-0.5 truncate font-semibold text-zinc-200">{value}</div>
+    </div>
   );
 }
 

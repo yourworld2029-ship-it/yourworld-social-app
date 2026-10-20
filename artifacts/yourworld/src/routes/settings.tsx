@@ -16,6 +16,8 @@ import { announceVideoCreatorRestored, announceVideoPostRestored } from "@/lib/v
 import { useUserPreferences } from "@/lib/user-preferences";
 import { formatDailyUsage, readDailyUsageSeconds, subscribeToDailyUsage } from "@/lib/daily-usage";
 import { useAppLanguage } from "@/lib/app-language";
+import { OPERATIONS_ADMIN_EMAIL, SUPPORT_ADMIN_EMAIL } from "@/lib/admin-routing";
+import { notifyAdminOfReport } from "@/lib/admin-notifications.functions";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({
@@ -211,18 +213,23 @@ function SettingsPage() {
       return;
     }
     setSubmittingDmca(true);
-    const { error } = await supabase.from("copyright_reports").insert({
+    const { data: submittedReport, error } = await supabase.from("copyright_reports").insert({
       reporter_user_id: user.id,
       reporter_full_name: fullName.slice(0, 200),
       infringing_content_link: contentLink.slice(0, 2000),
       original_work_link: originalWork.slice(0, 2000),
       reason: description.slice(0, 2000),
       contact_email: email.slice(0, 255),
-    });
+    }).select("id").maybeSingle();
     setSubmittingDmca(false);
     if (error) {
       toast.error("Could not submit report. Please try again.");
       return;
+    }
+    if (submittedReport?.id) {
+      void notifyAdminOfReport({
+        data: { kind: "copyright", reportId: submittedReport.id },
+      }).catch(() => undefined);
     }
     toast.success("DMCA report submitted successfully");
     setDmca({ contentLink: "", originalWork: "", description: "", email: "", fullName: "" });
@@ -405,6 +412,25 @@ function SettingsPage() {
           </div>
           <ChevronRight className="text-muted-foreground" size={18} />
         </div>
+
+        {user &&
+        [OPERATIONS_ADMIN_EMAIL, SUPPORT_ADMIN_EMAIL].includes(
+          user.email?.trim().toLowerCase() ?? "",
+        ) ? (
+          <Row
+            label={
+              user.email?.trim().toLowerCase() === OPERATIONS_ADMIN_EMAIL
+                ? "Admin Operations Hub"
+                : "Admin Console"
+            }
+            hint={
+              user.email?.trim().toLowerCase() === OPERATIONS_ADMIN_EMAIL
+                ? "Sports verification, National Awards and payouts"
+                : "Review reports, verification and payouts"
+            }
+            onClick={() => navigate({ to: "/admin" })}
+          />
+        ) : null}
 
         {/* Logout */}
         <button
