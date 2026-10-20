@@ -1986,8 +1986,10 @@ function VerificationEvidenceRow({
           void Promise.resolve()
             .then(() => onUpload?.(kind, file))
             .finally(() => {
-              uploadInProgressRef.current = false;
-              onPickerActiveChange?.(false);
+              window.setTimeout(() => {
+                uploadInProgressRef.current = false;
+                onPickerActiveChange?.(false);
+              }, 1200);
             })
             .catch(() => undefined);
         }}

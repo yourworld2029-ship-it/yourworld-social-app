@@ -18,6 +18,11 @@ import {
   getNormalProfileCategoryMain,
 } from "@/lib/profile-category";
 import { SPORTS_COUNTRY_OPTIONS } from "@/lib/sports-country";
+import {
+  clearVerificationPickerResume,
+  hasVerificationPickerResume,
+  markVerificationPickerResume,
+} from "@/lib/verification-picker-resume";
 
 export type ProfileEdit = {
   name: string;
@@ -74,12 +79,29 @@ export function EditProfileSheet({
   const countrySelectorRef = useRef<HTMLButtonElement>(null);
   const countryHighlightTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const nationalAwardEvidenceUploadActive = useRef(false);
+  const nationalAwardResumeGuard = useRef(false);
   const [countryMissing, setCountryMissing] = useState(false);
 
   const requestSheetOpenChange = (nextOpen: boolean) => {
-    if (!nextOpen && nationalAwardEvidenceUploadActive.current) return;
+    if (
+      !nextOpen &&
+      (nationalAwardEvidenceUploadActive.current || nationalAwardResumeGuard.current)
+    ) {
+      return;
+    }
+    if (!nextOpen) clearVerificationPickerResume(user.id, "national-award");
     onOpenChange(nextOpen);
   };
+
+  useEffect(() => {
+    if (!hasVerificationPickerResume(user.id, "national-award")) return;
+    nationalAwardResumeGuard.current = true;
+    onOpenChange(true);
+    const resumeGuardTimeout = window.setTimeout(() => {
+      nationalAwardResumeGuard.current = false;
+    }, 2500);
+    return () => window.clearTimeout(resumeGuardTimeout);
+  }, [user.id, onOpenChange]);
 
   useEffect(() => {
     if (open) {
@@ -244,10 +266,20 @@ export function EditProfileSheet({
         side="bottom"
         className="max-h-[92svh] overflow-y-auto rounded-t-3xl border-border/60 p-0 [&>button]:hidden"
         onFocusOutside={(event) => {
-          if (nationalAwardEvidenceUploadActive.current) event.preventDefault();
+          if (
+            nationalAwardEvidenceUploadActive.current ||
+            nationalAwardResumeGuard.current
+          ) {
+            event.preventDefault();
+          }
         }}
         onInteractOutside={(event) => {
-          if (nationalAwardEvidenceUploadActive.current) event.preventDefault();
+          if (
+            nationalAwardEvidenceUploadActive.current ||
+            nationalAwardResumeGuard.current
+          ) {
+            event.preventDefault();
+          }
         }}
       >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border/60 glass px-4 py-3">
@@ -648,6 +680,11 @@ export function EditProfileSheet({
                 onBeforeOpen={requireCountrySelected}
                 onEvidenceUploadActivityChange={(active) => {
                   nationalAwardEvidenceUploadActive.current = active;
+                  if (active) {
+                    markVerificationPickerResume(user.id, "national-award");
+                  } else {
+                    clearVerificationPickerResume(user.id, "national-award");
+                  }
                 }}
               />
             </div>

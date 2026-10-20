@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   NationalAwardProfileCard,
@@ -17,6 +17,10 @@ import {
 import { uploadNationalAwardEvidence } from "@/lib/national-award.data";
 import { getSportsVerificationCountry } from "@/lib/profile-data";
 import { isIndiaSportsCountry } from "@/lib/sports-country";
+import {
+  clearVerificationPickerResume,
+  hasVerificationPickerResume,
+} from "@/lib/verification-picker-resume";
 
 export function NationalAwardProfileSection({
   userId,
@@ -43,11 +47,28 @@ export function NationalAwardProfileSection({
     ? isIndiaSportsCountry(providedCountry)
     : sportsCountryIsIndia !== false;
   const [open, setOpen] = useState(false);
+  const [pickerResumeActive, setPickerResumeActive] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
   const [uploadingKind, setUploadingKind] = useState<NationalAwardEvidenceKind | null>(
     null,
   );
+  const uploadingKindRef = useRef<NationalAwardEvidenceKind | null>(null);
+  const resumeTimeoutRef = useRef<number | null>(null);
+  const evidenceActivityChangeRef = useRef(onEvidenceUploadActivityChange);
+  evidenceActivityChangeRef.current = onEvidenceUploadActivityChange;
+
+  const reportEvidenceUploadActivity = (active: boolean) => {
+    if (!active) {
+      setPickerResumeActive(false);
+      clearVerificationPickerResume(userId, "national-award");
+      if (resumeTimeoutRef.current) {
+        clearTimeout(resumeTimeoutRef.current);
+        resumeTimeoutRef.current = null;
+      }
+    }
+    evidenceActivityChangeRef.current?.(active);
+  };
 
   useEffect(() => {
     let active = true;
@@ -73,6 +94,28 @@ export function NationalAwardProfileSection({
       active = false;
     };
   }, [sportsVerificationCountry, userId]);
+
+  useEffect(() => {
+    if (!canShowNationalAward || !hasVerificationPickerResume(userId, "national-award")) {
+      return;
+    }
+
+    setOpen(true);
+    setPickerResumeActive(true);
+    reportEvidenceUploadActivity(true);
+    resumeTimeoutRef.current = window.setTimeout(() => {
+      if (uploadingKindRef.current !== null) return;
+      setPickerResumeActive(false);
+      reportEvidenceUploadActivity(false);
+      resumeTimeoutRef.current = null;
+    }, 2500);
+    return () => {
+      if (resumeTimeoutRef.current) {
+        clearTimeout(resumeTimeoutRef.current);
+        resumeTimeoutRef.current = null;
+      }
+    };
+  }, [canShowNationalAward, userId]);
 
   useEffect(() => {
     let active = true;
@@ -111,10 +154,16 @@ export function NationalAwardProfileSection({
 
   const handleUpload = useCallback(
     async (kind: NationalAwardEvidenceKind, file: File) => {
+      if (resumeTimeoutRef.current) {
+        clearTimeout(resumeTimeoutRef.current);
+        resumeTimeoutRef.current = null;
+      }
+      uploadingKindRef.current = kind;
       setUploadingKind(kind);
       try {
         return await uploadNationalAwardEvidence(userId, kind, file);
       } finally {
+        uploadingKindRef.current = null;
         setUploadingKind(null);
       }
     },
@@ -245,14 +294,21 @@ export function NationalAwardProfileSection({
       ) : null}
       <NationalAwardVerificationDialog
         open={open}
-        onOpenChange={setOpen}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) {
+            setPickerResumeActive(false);
+            reportEvidenceUploadActivity(false);
+          }
+          setOpen(nextOpen);
+        }}
         details={details}
         loading={loading}
         saving={saving}
         savingDraft={savingDraft}
         uploadingKind={uploadingKind}
         onUpload={handleUpload}
-        onEvidenceUploadActivityChange={onEvidenceUploadActivityChange}
+        onEvidenceUploadActivityChange={reportEvidenceUploadActivity}
+        pickerResumeActive={pickerResumeActive}
         onSaveDraft={handleSaveDraft}
         onSubmit={handleSubmit}
       />

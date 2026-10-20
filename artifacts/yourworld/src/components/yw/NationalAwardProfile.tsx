@@ -253,6 +253,7 @@ export function NationalAwardVerificationDialog({
   uploadingKind,
   onUpload,
   onEvidenceUploadActivityChange,
+  pickerResumeActive,
   onSaveDraft,
   onSubmit,
 }: {
@@ -268,6 +269,7 @@ export function NationalAwardVerificationDialog({
     file: File,
   ) => Promise<NationalAwardEvidence>;
   onEvidenceUploadActivityChange?: (active: boolean) => void;
+  pickerResumeActive: boolean;
   onSaveDraft: (values: NationalAwardFormValues) => Promise<void>;
   onSubmit: (values: NationalAwardFormValues, termsAccepted: true) => Promise<void>;
 }) {
@@ -420,7 +422,12 @@ export function NationalAwardVerificationDialog({
     onEvidenceUploadActivityChange?.(active);
   };
   const handleDialogOpenChange = (nextOpen: boolean) => {
-    if (!nextOpen && (evidencePickerActiveRef.current || uploadingKind !== null)) return;
+    if (
+      !nextOpen &&
+      (pickerResumeActive || evidencePickerActiveRef.current || uploadingKind !== null)
+    ) {
+      return;
+    }
     onOpenChange(nextOpen);
   };
 
@@ -430,12 +437,12 @@ export function NationalAwardVerificationDialog({
         data-testid="dialog-national-award-verification"
         className="max-h-[94svh] max-w-2xl overflow-hidden rounded-3xl border border-[#c79a42]/30 bg-black p-0 text-white shadow-[0_20px_90px_rgba(0,0,0,0.72)] [&>button]:hidden"
         onFocusOutside={(event) => {
-          if (evidencePickerActiveRef.current || uploadingKind !== null) {
+          if (pickerResumeActive || evidencePickerActiveRef.current || uploadingKind !== null) {
             event.preventDefault();
           }
         }}
         onInteractOutside={(event) => {
-          if (evidencePickerActiveRef.current || uploadingKind !== null) {
+          if (pickerResumeActive || evidencePickerActiveRef.current || uploadingKind !== null) {
             event.preventDefault();
           }
         }}
@@ -1354,8 +1361,10 @@ function EvidenceUpload({
           void Promise.resolve()
             .then(() => onUpload(file))
             .finally(() => {
-              uploadInProgressRef.current = false;
-              onPickerActivityChange?.(false);
+              window.setTimeout(() => {
+                uploadInProgressRef.current = false;
+                onPickerActivityChange?.(false);
+              }, 1200);
             })
             .catch(() => undefined);
         }}

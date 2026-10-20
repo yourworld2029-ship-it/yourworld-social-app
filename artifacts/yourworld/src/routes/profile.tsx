@@ -63,6 +63,11 @@ import { buildPublicAppUrl } from "@/lib/public-app-url";
 import { sharePublicContent } from "@/lib/share-public";
 import { resolveAuthorizedOfflineSource } from "@/lib/video-media-api";
 import { removeDeletedPostFromQueryCaches } from "@/lib/post-deletion";
+import {
+  clearVerificationPickerResume,
+  hasVerificationPickerResume,
+  markVerificationPickerResume,
+} from "@/lib/verification-picker-resume";
 import { STORAGE_BUCKETS } from "@/lib/storage-upload";
 import { useFollowCounts } from "@/lib/follow-data";
 import { ProfileTemplate } from "@/components/yw/ProfileTemplate";
@@ -266,6 +271,8 @@ function ProfilePage() {
   const sportsVerificationEvidenceUploadingRef = useRef<SportsVerificationEvidenceKind | null>(
     null,
   );
+  const sportsVerificationEvidenceResumeTimeoutRef =
+    useRef<number | null>(null);
   const [sportsVerificationSubmitting, setSportsVerificationSubmitting] = useState(false);
   const [sportsDuplicateSubmissionWarning, setSportsDuplicateSubmissionWarning] = useState<string | null>(
     null,
@@ -273,6 +280,10 @@ function ProfilePage() {
 
   const setSportsVerificationEvidencePickerActivity = (active: boolean) => {
     sportsVerificationEvidencePickerActiveRef.current = active;
+    if (userId === profile.id) {
+      if (active) markVerificationPickerResume(profile.id, "sports");
+      else clearVerificationPickerResume(profile.id, "sports");
+    }
   };
 
   useEffect(() => {
@@ -372,7 +383,14 @@ function ProfilePage() {
   // authenticated profile key changes so another account cannot see the
   // previous account while ID-scoped requests are being refreshed.
   useEffect(() => {
-    setSportsDetailsOpen(false);
+    const resumeSportsVerification =
+      userId === profile.id && hasVerificationPickerResume(profile.id, "sports");
+    if (sportsVerificationEvidenceResumeTimeoutRef.current) {
+      clearTimeout(sportsVerificationEvidenceResumeTimeoutRef.current);
+      sportsVerificationEvidenceResumeTimeoutRef.current = null;
+    }
+    setSportsDetailsOpen(resumeSportsVerification);
+    setSportsVerificationEvidencePickerActivity(resumeSportsVerification);
     setSportsIntroductionUrl(null);
     setSportsVerificationDetails(null);
     setSportsVerificationDetailsLoading(false);
@@ -385,6 +403,19 @@ function ProfilePage() {
     setSportsVerificationDetailsSaving(false);
     setSportsVerificationSubmitting(false);
     setSportsDuplicateSubmissionWarning(null);
+    if (!resumeSportsVerification) return;
+    sportsVerificationEvidenceResumeTimeoutRef.current = window.setTimeout(() => {
+      sportsVerificationEvidenceResumeTimeoutRef.current = null;
+      if (sportsVerificationEvidenceUploadingRef.current === null) {
+        setSportsVerificationEvidencePickerActivity(false);
+      }
+    }, 2500);
+    return () => {
+      if (sportsVerificationEvidenceResumeTimeoutRef.current) {
+        clearTimeout(sportsVerificationEvidenceResumeTimeoutRef.current);
+        sportsVerificationEvidenceResumeTimeoutRef.current = null;
+      }
+    };
   }, [profile.id, userId]);
 
   const openManage = (post: DbPost) => {
@@ -838,6 +869,10 @@ function ProfilePage() {
     latestDetails?: SportsVerificationDetails,
   ) => {
     if (!userId || userId !== profile.id) return;
+    if (sportsVerificationEvidenceResumeTimeoutRef.current) {
+      clearTimeout(sportsVerificationEvidenceResumeTimeoutRef.current);
+      sportsVerificationEvidenceResumeTimeoutRef.current = null;
+    }
     sportsVerificationEvidenceUploadingRef.current = kind;
     setSportsVerificationEvidenceUploading(kind);
     setSportsVerificationEvidenceProgress(0);
@@ -875,7 +910,6 @@ function ProfilePage() {
       sportsVerificationEvidenceUploadingRef.current = null;
       setSportsVerificationEvidenceUploading(null);
       setSportsVerificationEvidenceProgress(0);
-      setSportsVerificationEvidencePickerActivity(false);
     }
   };
 
@@ -1311,6 +1345,9 @@ function ProfilePage() {
               )
             ) {
               return;
+            }
+            if (!nextOpen && userId === profile.id) {
+              setSportsVerificationEvidencePickerActivity(false);
             }
             setSportsDetailsOpen(nextOpen);
           }}
