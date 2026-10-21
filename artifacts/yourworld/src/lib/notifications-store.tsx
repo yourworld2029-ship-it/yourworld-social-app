@@ -139,13 +139,14 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
 
   const { data: myPostRows } = await liveDb
     .from("posts")
-    .select("id,kind,thumbnail_url,media_url,media_type,cloudflare_stream_uid,cloudflare_stream_id")
+    .select("id,kind,thumbnail_url,media_url,video_url,media_type,cloudflare_stream_uid,cloudflare_stream_id")
     .eq("user_id", me);
   const myPosts = ((myPostRows ?? []) as {
     id: string;
     kind: string;
     thumbnail_url?: string | null;
     media_url?: string | null;
+    video_url?: string | null;
     media_type?: string | null;
     cloudflare_stream_uid?: string | null;
     cloudflare_stream_id?: string | null;
@@ -324,6 +325,13 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
   const postPreviewBuckets = new Map<string, "reels" | "videos">();
   await Promise.all(myPosts.filter((post) => previewPostIds.has(post.id)).map(async (post) => {
     const bucket = post.kind === "reel" ? "reels" : "videos";
+    const normalizeStorageReference = (value: string, fallbackBucket: string) => {
+      const clean = value.trim();
+      const match = clean.match(/^(videos|reels|thumbnails)\/(.+)$/);
+      return match
+        ? { path: match[2], bucket: match[1] }
+        : { path: clean, bucket: fallbackBucket };
+    };
     const isVideo =
       post.kind === "reel" ||
       post.kind === "video" ||
@@ -336,10 +344,13 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       ? post.media_url
       : null;
     const source = post.thumbnail_url ?? imageOnlyMedia;
-    const previewSource = isVideo ? post.media_url?.trim() : null;
+    const previewSource = isVideo
+      ? post.video_url?.trim() || post.media_url?.trim()
+      : null;
     if (source) {
       try {
-        const resolved = await resolveMediaUrl(source, bucket);
+        const reference = normalizeStorageReference(source, bucket);
+        const resolved = await resolveMediaUrl(reference.path, reference.bucket);
         if (resolved) postThumbnails.set(post.id, resolved);
       } catch {
         postThumbnails.set(post.id, source);
@@ -347,12 +358,14 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
     }
     if (previewSource) {
       try {
-        const resolved = /^(https?:|blob:|data:)/i.test(previewSource)
+        const remote = /^(https?:|blob:|data:)/i.test(previewSource);
+        const reference = normalizeStorageReference(previewSource, bucket);
+        const resolved = remote
           ? previewSource
-          : await resolveMediaUrl(previewSource, bucket);
+          : await resolveMediaUrl(reference.path, reference.bucket);
         if (resolved) {
           postPreviewMedia.set(post.id, resolved);
-          postPreviewBuckets.set(post.id, bucket);
+          postPreviewBuckets.set(post.id, reference.bucket as "reels" | "videos");
         }
       } catch {
         postPreviewMedia.set(post.id, previewSource);
