@@ -50,6 +50,15 @@ async function readChunks(streamId: string) {
   return chunks.sort((a, b) => a.index - b.index);
 }
 
+export async function loadLiveReplayRecording(streamId: string): Promise<Blob | null> {
+  if (typeof indexedDB === "undefined") return null;
+  const chunks = await readChunks(streamId);
+  if (!chunks.length) return null;
+  const mimeType =
+    chunks.find((chunk) => chunk.blob.type)?.blob.type || "video/webm";
+  return new Blob(chunks.map((chunk) => chunk.blob), { type: mimeType });
+}
+
 export async function clearLiveReplayRecording(streamId: string) {
   if (typeof indexedDB === "undefined") return;
   const database = await openDatabase();
@@ -187,7 +196,7 @@ export class LiveReplayRecorder {
     const width = this.video.videoWidth;
     const height = this.video.videoHeight;
     if (width <= 0 || height <= 0) return;
-    const scale = Math.min(1, 1280 / Math.max(width, height));
+    const scale = Math.min(1, 1920 / Math.max(width, height));
     const nextWidth = Math.max(2, Math.round((width * scale) / 2) * 2);
     const nextHeight = Math.max(2, Math.round((height * scale) / 2) * 2);
     if (this.canvas.width === nextWidth && this.canvas.height === nextHeight) return;

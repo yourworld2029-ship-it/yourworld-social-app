@@ -29,6 +29,7 @@ export type VideoStreamUploadOptions = {
 export const STORAGE_BUCKETS = {
   videos: "videos",
   reels: "reels",
+  liveReplays: "live-replays",
   moments: "moments",
   voiceNotes: "voice_notes",
   channels: "channels",

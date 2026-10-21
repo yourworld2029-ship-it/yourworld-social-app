@@ -1116,8 +1116,29 @@ router.post("/media/cloudflare-tus-upload", async (req, res): Promise<void> => {
           : authorizationRejected
             ? 424
             : 502;
+      const upstreamPayload: unknown = await cloudflareResponse.clone().json().catch(() => null);
+      const upstreamErrors =
+        upstreamPayload &&
+        typeof upstreamPayload === "object" &&
+        "errors" in upstreamPayload &&
+        Array.isArray(upstreamPayload.errors)
+          ? upstreamPayload.errors.slice(0, 3).map((item) => {
+              if (!item || typeof item !== "object") return { message: "Unknown Cloudflare error" };
+              const record = item as Record<string, unknown>;
+              return {
+                code:
+                  typeof record.code === "number" || typeof record.code === "string"
+                    ? String(record.code).slice(0, 40)
+                    : undefined,
+                message:
+                  typeof record.message === "string"
+                    ? record.message.replace(/[\r\n]+/g, " ").slice(0, 180)
+                    : "Cloudflare returned an authorization error",
+              };
+            })
+          : [];
       req.log.warn(
-        { status: cloudflareResponse.status, clientStatus },
+        { status: cloudflareResponse.status, clientStatus, cloudflareErrors: upstreamErrors },
         "Cloudflare did not create a valid TUS upload",
       );
       res.status(clientStatus).json({

@@ -906,7 +906,9 @@ function LiveSummary({
           }
         }
       }
-      if (streamId) await clearLiveReplayRecording(streamId);
+      if (streamId && retentionChoice !== "keep_10_days") {
+        await clearLiveReplayRecording(streamId);
+      }
       void navigate({ to: "/" });
     } catch (cause) {
       setRetentionError(

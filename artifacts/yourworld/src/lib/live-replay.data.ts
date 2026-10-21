@@ -6,13 +6,16 @@ import { writeCompat } from "@/lib/supabase-compat";
 import { announcePublishedPost } from "@/lib/published-feed";
 import { sourceQualityTierFromDimensions } from "@/lib/video-quality";
 
+const LIVE_REPLAY_RETENTION_DAYS = 10;
+
 export type LiveReplay = {
   id: string;
   stream_id: string;
   broadcaster_id: string;
   title: string;
   media_url: string;
-  stream_uid: string;
+  stream_uid: string | null;
+  storage_bucket: "videos" | "live-replays";
   source_path: string;
   poster_url: string | null;
   duration_seconds: number;
@@ -20,6 +23,7 @@ export type LiveReplay = {
   original_height: number;
   created_at: string;
   expires_at: string;
+  retention_days: number;
 };
 
 export async function saveLiveReplay(input: {
@@ -34,11 +38,12 @@ export async function saveLiveReplay(input: {
 }) {
   const extension = input.blob.type.toLowerCase().includes("webm") ? "webm" : "mp4";
   const sourcePath = `${input.broadcasterId}/live-replays/${input.streamId}.${extension}`;
-  const uploaded = await uploadWithProgress(
+  const contentType = input.blob.type || (extension === "webm" ? "video/webm" : "video/mp4");
+  let uploaded = await uploadWithProgress(
     STORAGE_BUCKETS.videos,
     sourcePath,
     input.blob,
-    input.blob.type || (extension === "webm" ? "video/webm" : "video/mp4"),
+    contentType,
     (percent) => input.onProgress?.(percent),
     "86400",
     {
@@ -46,24 +51,62 @@ export async function saveLiveReplay(input: {
       requireSignedURLs: false,
       fallbackToStorage: false,
     },
-  );
+  ).catch((cause) => ({
+    url: null,
+    storagePath: null,
+    streamUid: null,
+    posterUrl: null,
+    error: cause instanceof Error ? cause.message : "Cloudflare Stream upload failed.",
+  }));
+
+  let storageBucket: LiveReplay["storage_bucket"] = STORAGE_BUCKETS.videos;
+  let streamUid: string | null = uploaded.streamUid ?? null;
   if (uploaded.error || !uploaded.url || !uploaded.streamUid || !uploaded.storagePath) {
-    throw new Error(uploaded.error ?? "The replay could not be prepared for playback.");
+    const cloudflareError = uploaded.error ?? "Cloudflare Stream returned an incomplete upload.";
+    uploaded = await uploadWithProgress(
+      STORAGE_BUCKETS.liveReplays,
+      sourcePath,
+      input.blob,
+      contentType,
+      (percent) => input.onProgress?.(percent),
+      "86400",
+    ).catch((cause) => ({
+      url: null,
+      storagePath: null,
+      streamUid: null,
+      posterUrl: null,
+      error: cause instanceof Error ? cause.message : "Supabase Storage fallback failed.",
+    }));
+    if (uploaded.error || !uploaded.url || !uploaded.storagePath) {
+      throw new Error(
+        `Cloudflare replay upload failed (${cloudflareError}); secure storage fallback also failed (${uploaded.error ?? "no playable file was returned"}).`,
+      );
+    }
+    storageBucket = STORAGE_BUCKETS.liveReplays;
+    streamUid = null;
+    // Cloudflare's source is only temporary when the storage fallback succeeds.
+    await supabase.storage.from(STORAGE_BUCKETS.videos).remove([sourcePath]).catch(() => undefined);
   }
 
+  const createdAt = Date.now();
   const row = {
     stream_id: input.streamId,
     broadcaster_id: input.broadcasterId,
     title: input.title.trim().slice(0, 200) || "Live replay",
     media_url: uploaded.url,
-    stream_uid: uploaded.streamUid,
+    stream_uid: streamUid,
+    storage_bucket: storageBucket,
     source_path: uploaded.storagePath,
     poster_url: uploaded.posterUrl ?? null,
     duration_seconds: Math.max(1, Math.round(input.durationSeconds)),
     original_width: Math.max(2, Math.round(input.width)),
     original_height: Math.max(2, Math.round(input.height)),
+    retention_days: LIVE_REPLAY_RETENTION_DAYS,
+    expires_at: new Date(createdAt + LIVE_REPLAY_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString(),
   };
-  const { error } = await supabase.from("live_replays").insert(row as never);
+  const { error } = await supabase
+    .from("live_replays")
+    .upsert(row as never, { onConflict: "stream_id" });
   if (error) {
     throw new Error(
       error.message.includes("live_replays")
@@ -78,7 +121,7 @@ export async function loadLiveReplays(broadcasterId: string) {
   const { data, error } = await supabase
     .from("live_replays")
     .select(
-      "id,stream_id,broadcaster_id,title,media_url,stream_uid,source_path,poster_url,duration_seconds,original_width,original_height,created_at,expires_at",
+      "id,stream_id,broadcaster_id,title,media_url,stream_uid,storage_bucket,source_path,poster_url,duration_seconds,original_width,original_height,created_at,expires_at,retention_days",
     )
     .eq("broadcaster_id", broadcasterId)
     .gt("expires_at", new Date().toISOString())
@@ -95,7 +138,7 @@ export async function loadLiveReplays(broadcasterId: string) {
 
 export async function createLiveReplaySourceUrl(replay: LiveReplay) {
   const { data, error } = await supabase.storage
-    .from(STORAGE_BUCKETS.videos)
+    .from(replay.storage_bucket)
     .createSignedUrl(replay.source_path, 60 * 10);
   if (error || !data?.signedUrl) {
     throw new Error(error?.message ?? "The replay source is unavailable.");
@@ -147,7 +190,7 @@ export async function makeLiveReplayPermanent(replay: LiveReplay) {
       kind: "video",
       media_url: replay.media_url,
       cloudflare_stream_uid: replay.stream_uid,
-      video_url: `${STORAGE_BUCKETS.videos}/${replay.source_path}`,
+      video_url: `${replay.storage_bucket}/${replay.source_path}`,
       media_type: "video",
       title: replay.title,
       caption: "",

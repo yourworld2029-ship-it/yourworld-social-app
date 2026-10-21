@@ -36,6 +36,7 @@ import {
 import { bindHlsNetworkAwareLevelCap, createVideoHlsConfig } from "@/lib/video-hls-config";
 import { sharePublicContent } from "@/lib/share-public";
 import { saveVideoToAndroidGallery } from "@/lib/reel-gallery";
+import { clearLiveReplayRecording, loadLiveReplayRecording } from "@/lib/live-replay-recording";
 import {
   createLiveReplaySourceUrl,
   deleteLiveReplay,
@@ -122,8 +123,10 @@ export function LiveReplaysTab({
   const saveToGallery = async (replay: LiveReplay) => {
     setBusyReplayId(replay.id);
     try {
-      const sourceUrl = await createLiveReplaySourceUrl(replay);
-      const blob = await downloadReplayBlob(sourceUrl);
+      const localBlob = await loadLiveReplayRecording(replay.stream_id).catch(() => null);
+      const blob =
+        localBlob ??
+        (await downloadReplayBlob(await createLiveReplaySourceUrl(replay)));
       const mimeType = blob.type.toLowerCase().split(";")[0];
       if (mimeType !== "video/mp4" && mimeType !== "video/webm") {
         throw new Error("This replay format cannot be saved to the phone gallery.");
@@ -145,6 +148,7 @@ export function LiveReplaysTab({
         window.setTimeout(() => URL.revokeObjectURL(fileUrl), 60_000);
       }
       await deleteLiveReplay(replay.id);
+      await clearLiveReplayRecording(replay.stream_id).catch(() => undefined);
       setReplays((items) => items.filter((item) => item.id !== replay.id));
       toast.success("Saved to gallery. Cloud replay removed.");
     } catch (cause) {
@@ -160,6 +164,7 @@ export function LiveReplaysTab({
     setBusyReplayId(replay.id);
     try {
       await deleteLiveReplay(replay.id);
+      await clearLiveReplayRecording(replay.stream_id).catch(() => undefined);
       setReplays((items) => items.filter((item) => item.id !== replay.id));
       setDeleteTarget(null);
       toast.success("Replay permanently deleted");
