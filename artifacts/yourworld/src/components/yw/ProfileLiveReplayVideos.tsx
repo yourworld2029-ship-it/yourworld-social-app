@@ -19,6 +19,7 @@ import { loadLongVideosByIds, formatViews, timeAgo, type LongVideo } from "@/lib
 import { sharePublicContent } from "@/lib/share-public";
 import {
   loadLiveReplays,
+  ensureLiveReplayPoster,
   makeLiveReplayPermanent,
   reportLiveReplay,
   type LiveReplay,
@@ -80,8 +81,20 @@ export function ProfileLiveReplayVideos({
         }
       }
 
+      if (isOwner) {
+        replays = await Promise.all(
+          replays.map((replay) =>
+            ensureLiveReplayPoster(replay).catch((cause) => {
+              console.warn("[live-replay] Could not create a thumbnail for an older replay", cause);
+              return replay;
+            }),
+          ),
+        );
+      }
+
       const videos = await loadLongVideosByIds(
         replays.map((replay) => replay.post_id ?? replay.stream_id),
+        { includeLiveReplays: true, bypassFeedSuppression: true },
       );
       if (!alive) return;
       const videosById = new Map(videos.map((video) => [video.id, video]));

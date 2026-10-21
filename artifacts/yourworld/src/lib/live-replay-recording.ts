@@ -295,6 +295,9 @@ export class LiveReplayRecorder {
       });
     }
     await this.stopPromise;
+    const posterBlob = await new Promise<Blob | null>((resolve) => {
+      this.canvas.toBlob(resolve, "image/jpeg", 0.88);
+    }).catch(() => null);
     this.stopped = true;
     window.clearTimeout(this.frameTimer);
     this.video.pause();
@@ -310,6 +313,7 @@ export class LiveReplayRecorder {
     const mimeType = chunks.find((chunk) => chunk.blob.type)?.blob.type || this.recorder.mimeType || "video/mp4";
     return {
       blob: new Blob(chunks.map((chunk) => chunk.blob), { type: mimeType }),
+      posterBlob,
       mimeType,
       width: this.canvas.width,
       height: this.canvas.height,

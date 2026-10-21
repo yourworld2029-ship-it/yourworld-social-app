@@ -165,6 +165,7 @@ function LiveRoomSession({
   const replayRecorderRef = useRef<LiveReplayRecorder | null>(null);
   const [replayRecording, setReplayRecording] = useState<{
     blob: Blob;
+    posterBlob: Blob | null;
     mimeType: string;
     width: number;
     height: number;
@@ -615,6 +616,7 @@ function LiveRoomSession({
         broadcasterId: room.broadcaster_id,
         title: room.title,
         blob: recording.blob,
+        posterBlob: recording.posterBlob,
         durationSeconds: durationSecondsToSave,
         width: recording.width,
         height: recording.height,

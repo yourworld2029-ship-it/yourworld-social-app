@@ -50,6 +50,7 @@ import {
 } from "@/lib/video-quality";
 import { readVideoDurationSeconds } from "@/lib/video-duration";
 import { cloudflareStreamPosterUrl } from "@/lib/cloudflare-stream-media";
+import { excludeLiveReplayPosts } from "@/lib/live-replay-visibility";
 import {
   VIDEO_FEED_SUPPRESSION_EVENT,
   type VideoFeedSuppressionDetail,
@@ -787,6 +788,7 @@ async function loadLongVideoPage(
   offset = 0,
   pageSize = VIDEO_PAGE_SIZE,
   onlyIds?: string[],
+  options: { includeLiveReplays?: boolean } = {},
 ): Promise<LongVideoPage> {
   const { data: sessionData } = await supabase.auth.getSession();
   const uid = sessionData.session?.user.id ?? null;
@@ -824,12 +826,15 @@ async function loadLongVideoPage(
 
     const pagePosts = (posts ?? []).map(normalizePostRow);
     hasMore = scannedRowCount >= pageSize;
-    const visible = pagePosts
+    const published = pagePosts
       .filter((post) => !isPostDeleted(post.id))
       .filter((post) => !onlyIds || postKind(post) === "video")
       .filter((post) =>
         isPublishedLongVideoRow(post as unknown as Record<string, unknown>),
       );
+    const visible = options.includeLiveReplays
+      ? published
+      : await excludeLiveReplayPosts(published);
 
     if (visible.length) {
       const ids = visible.map((post) => post.id);
@@ -937,11 +942,18 @@ async function loadLongVideoPage(
   };
 }
 
-export async function loadLongVideosByIds(ids: readonly string[]): Promise<LongVideo[]> {
+export async function loadLongVideosByIds(
+  ids: readonly string[],
+  options: { includeLiveReplays?: boolean; bypassFeedSuppression?: boolean } = {},
+): Promise<LongVideo[]> {
   const uniqueIds = [...new Set(ids.filter(Boolean))];
   if (uniqueIds.length === 0) return [];
-  const page = await loadLongVideoPage(0, uniqueIds.length, uniqueIds);
-  const visibleVideos = await filterSuppressedLongVideos(page.videos, page.currentUserId);
+  const page = await loadLongVideoPage(0, uniqueIds.length, uniqueIds, {
+    includeLiveReplays: options.includeLiveReplays ?? true,
+  });
+  const visibleVideos = options.bypassFeedSuppression
+    ? page.videos
+    : await filterSuppressedLongVideos(page.videos, page.currentUserId);
   const priority = new Map(uniqueIds.map((id, index) => [id, index]));
   return visibleVideos.sort(
     (left, right) => (priority.get(left.id) ?? Infinity) - (priority.get(right.id) ?? Infinity),

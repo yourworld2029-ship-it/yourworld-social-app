@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { missingColumn, normalizePostRow } from "@/lib/supabase-compat";
 import type { DbPost } from "@/lib/social-data";
+import { excludeLiveReplayPosts } from "@/lib/live-replay-visibility";
 
 type PostsResult = {
   data: unknown[] | null;
@@ -74,11 +75,12 @@ export async function fetchProfilePostsPage(
 
   if (result.error) throw result.error;
 
-  return (result.data ?? [])
+  const posts = (result.data ?? [])
     .filter(
       (row): row is Record<string, unknown> =>
         row !== null && typeof row === "object" && !Array.isArray(row),
     )
     .map(normalizePostRow)
     .filter((post) => options.includeArchived === true || post.archived !== true) as DbPost[];
+  return excludeLiveReplayPosts(posts);
 }

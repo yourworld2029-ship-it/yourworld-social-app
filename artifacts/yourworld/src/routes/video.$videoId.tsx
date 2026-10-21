@@ -130,7 +130,12 @@ export const Route = createFileRoute("/video/$videoId")({
 });
 
 async function loadVideoForPlayback(videoId: string): Promise<VideoRouteData> {
-  const video = (await loadLongVideosByIds([videoId]))[0];
+  const video = (
+    await loadLongVideosByIds([videoId], {
+      includeLiveReplays: true,
+      bypassFeedSuppression: true,
+    })
+  )[0];
   if (!video) throw new Error("Video is no longer available.");
 
   const { data: post, error: postError } = await supabase
@@ -221,7 +226,22 @@ async function loadVideoForPlayback(videoId: string): Promise<VideoRouteData> {
     typeof row.video_url === "string" &&
     row.video_url.startsWith("live-replays/")
   ) {
-    url = await resolveAuthorizedStoragePlaybackUrl(video.id);
+    const storedMediaUrl = video.mediaUrl
+      ? await resolveLongVideoUrl(video.mediaUrl).catch(() => null)
+      : null;
+    try {
+      url = await resolveAuthorizedStoragePlaybackUrl(video.id);
+      if (storedMediaUrl && storedMediaUrl !== url) fallbackUrls = [storedMediaUrl];
+    } catch (cause) {
+      if (storedMediaUrl) {
+        console.warn("[video-playback] using the replay's stored signed source URL", {
+          videoId: video.id,
+        });
+        url = storedMediaUrl;
+      } else {
+        throw cause;
+      }
+    }
   } else {
     url = await resolveLongVideoUrl(video.mediaUrl);
   }

@@ -277,6 +277,7 @@ function HomePage() {
     queryFn: async () => {
       const resumeVideos = await loadLongVideosByIds(
         resumeCandidates.map((entry) => entry.id),
+        { includeLiveReplays: false },
       );
       for (const entry of resumeCandidates) {
         const video = resumeVideos.find((candidate) => candidate.id === entry.id);

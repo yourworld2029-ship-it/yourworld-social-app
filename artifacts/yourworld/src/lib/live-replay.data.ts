@@ -3,8 +3,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { mediaApiUrl } from "@/lib/media-api-url";
 import { STORAGE_BUCKETS, uploadWithProgress } from "@/lib/storage-upload";
 import { writeCompat } from "@/lib/supabase-compat";
-import { announcePublishedPost } from "@/lib/published-feed";
 import { sourceQualityTierFromDimensions } from "@/lib/video-quality";
+import { createLiveReplayPoster } from "@/lib/live-replay-thumbnail";
 
 export type LiveReplay = {
   id: string;
@@ -28,42 +28,46 @@ export type LiveReplay = {
 async function createStandardLiveVideoPost(replay: LiveReplay) {
   const postId = replay.post_id ?? replay.stream_id;
   const videoSourcePath = `${replay.storage_bucket}/${replay.source_path}`;
+  const postPayload = {
+    kind: "video",
+    media_url: replay.media_url,
+    cloudflare_stream_uid: replay.stream_uid,
+    video_url: videoSourcePath,
+    media_type: "video",
+    title: replay.title,
+    caption: "",
+    hashtags: [],
+    thumbnail_url: replay.poster_url,
+    orientation: replay.original_height >= replay.original_width ? "portrait" : "landscape",
+    duration_seconds: replay.duration_seconds,
+    original_width: replay.original_width,
+    original_height: replay.original_height,
+    source_quality_tier: sourceQualityTierFromDimensions(
+      replay.original_width,
+      replay.original_height,
+    ),
+    scheduled_at: null,
+    allow_download: true,
+    video_access: "public",
+    price: null,
+    is_paid: false,
+    paid_promotion: false,
+    review_status: "approved",
+    review_note: null,
+    series_title: null,
+    episode_number: null,
+    tagged_user_ids: [],
+    viewer_user_ids: [],
+  };
+  const aliases = { kind: "type", video_access: "audience" };
   const result = await writeCompat(
     (payload) => supabase.from("posts").insert(payload as never),
     {
       id: postId,
       user_id: replay.broadcaster_id,
-      kind: "video",
-      media_url: replay.media_url,
-      cloudflare_stream_uid: replay.stream_uid,
-      video_url: videoSourcePath,
-      media_type: "video",
-      title: replay.title,
-      caption: "",
-      hashtags: [],
-      thumbnail_url: replay.poster_url,
-      orientation: replay.original_height >= replay.original_width ? "portrait" : "landscape",
-      duration_seconds: replay.duration_seconds,
-      original_width: replay.original_width,
-      original_height: replay.original_height,
-      source_quality_tier: sourceQualityTierFromDimensions(
-        replay.original_width,
-        replay.original_height,
-      ),
-      scheduled_at: null,
-      allow_download: true,
-      video_access: "public",
-      price: null,
-      is_paid: false,
-      paid_promotion: false,
-      review_status: "approved",
-      review_note: null,
-      series_title: null,
-      episode_number: null,
-      tagged_user_ids: [],
-      viewer_user_ids: [],
+      ...postPayload,
     },
-    { kind: "type", video_access: "audience" },
+    aliases,
     ["video_url"],
   );
 
@@ -74,13 +78,20 @@ async function createStandardLiveVideoPost(replay: LiveReplay) {
         .select("id,user_id,video_url")
         .eq("id", postId)
         .maybeSingle();
-      if (
-        !existingError &&
-        existing &&
-        existing.user_id === replay.broadcaster_id &&
-        existing.video_url === videoSourcePath
-      ) {
-        return postId;
+      if (!existingError && existing && existing.user_id === replay.broadcaster_id) {
+        const repaired = await writeCompat(
+          (payload) =>
+            supabase
+              .from("posts")
+              .update(payload as never)
+              .eq("id", postId)
+              .eq("user_id", replay.broadcaster_id),
+          postPayload,
+          aliases,
+          ["video_url"],
+        );
+        if (!repaired.error) return postId;
+        throw repaired.error;
       }
     }
     const errorMessage = result.error.message ?? "";
@@ -106,8 +117,57 @@ async function linkReplayToStandardVideo(replay: LiveReplay) {
     .maybeSingle();
   if (error) throw error;
   if (!data) throw new Error("The replay was uploaded but could not be linked to your profile.");
-  announcePublishedPost({ id: postId, kind: "video", mediaType: "video" });
   return postId;
+}
+
+async function persistReplayPoster(replay: LiveReplay, posterBlob: Blob): Promise<LiveReplay> {
+  const posterPath = `${replay.broadcaster_id}/live-replays/${replay.stream_id}-poster.jpg`;
+  const upload = await uploadWithProgress(
+    replay.storage_bucket,
+    posterPath,
+    posterBlob,
+    "image/jpeg",
+    undefined,
+    "31536000",
+  ).catch((cause) => ({
+    url: null,
+    storagePath: null,
+    error: cause instanceof Error ? cause.message : "Poster upload failed.",
+  }));
+  if (upload.error || !upload.url) {
+    console.warn("[live-replay] Could not save the captured thumbnail", upload.error);
+    return replay;
+  }
+
+  const { error } = await supabase
+    .from("live_replays")
+    .update({ poster_url: upload.url } as never)
+    .eq("id", replay.id)
+    .eq("broadcaster_id", replay.broadcaster_id);
+  if (error) {
+    console.warn("[live-replay] Could not link the captured thumbnail", error);
+    return replay;
+  }
+  if (replay.post_id) {
+    const { error: postError } = await supabase
+      .from("posts")
+      .update({ thumbnail_url: upload.url } as never)
+      .eq("id", replay.post_id)
+      .eq("user_id", replay.broadcaster_id);
+    if (postError) console.warn("[live-replay] Could not update the video thumbnail", postError);
+  }
+  return { ...replay, poster_url: upload.url };
+}
+
+export async function ensureLiveReplayPoster(replay: LiveReplay) {
+  if (replay.poster_url || !replay.source_path || !replay.storage_bucket) return replay;
+  const { data, error } = await supabase.storage
+    .from(replay.storage_bucket)
+    .createSignedUrl(replay.source_path, 60 * 10);
+  if (error || !data?.signedUrl) return replay;
+  const posterBlob = await createLiveReplayPoster(data.signedUrl);
+  if (!posterBlob) return replay;
+  return persistReplayPoster(replay, posterBlob);
 }
 
 export async function saveLiveReplay(input: {
@@ -115,6 +175,7 @@ export async function saveLiveReplay(input: {
   broadcasterId: string;
   title: string;
   blob: Blob;
+  posterBlob?: Blob | null;
   durationSeconds: number;
   width: number;
   height: number;
@@ -128,7 +189,33 @@ export async function saveLiveReplay(input: {
     .maybeSingle();
   if (existingError) throw existingError;
   let replay = existingRow as unknown as LiveReplay | null;
-  if (replay?.post_id) return replay;
+  let posterBlob = input.posterBlob ?? null;
+  if (!posterBlob && (!replay?.poster_url || !replay)) {
+    posterBlob = await createLiveReplayPoster(input.blob);
+  }
+
+  if (replay && (!replay.source_path || !replay.storage_bucket)) {
+    throw new Error("The saved replay is missing its storage path. The original recording is still available to retry.");
+  }
+  if (replay && !replay.media_url) {
+    const { data: signed, error: signError } = await supabase.storage
+      .from(replay.storage_bucket)
+      .createSignedUrl(replay.source_path, 60 * 60 * 24 * 365);
+    if (signError || !signed?.signedUrl) {
+      throw new Error("The saved replay source could not be restored. Please retry the upload.");
+    }
+    const { data: repaired, error: repairError } = await supabase
+      .from("live_replays")
+      .update({ media_url: signed.signedUrl } as never)
+      .eq("id", replay.id)
+      .eq("broadcaster_id", replay.broadcaster_id)
+      .select("*")
+      .maybeSingle();
+    if (repairError || !repaired) {
+      throw repairError ?? new Error("The replay source URL could not be saved.");
+    }
+    replay = repaired as unknown as LiveReplay;
+  }
 
   if (!replay) {
     const extension = input.blob.type.toLowerCase().includes("webm") ? "webm" : "mp4";
@@ -215,6 +302,7 @@ export async function saveLiveReplay(input: {
     replay = savedRow as unknown as LiveReplay;
   }
 
+  if (posterBlob && !replay.poster_url) replay = await persistReplayPoster(replay, posterBlob);
   const postId = await linkReplayToStandardVideo(replay);
   return { ...replay, post_id: postId, expires_at: null, retention_days: null };
 }
