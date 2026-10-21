@@ -150,12 +150,11 @@ const RECOGNIZED_COMPETITIONS = [
   "World Para Championships",
   "Asian Para Games",
   "Commonwealth Youth Games",
-  "National Games (India)",
+  "National Games (India - IOA)",
 ] as const;
 
 const NATIONAL_COMPETITIONS = [
-  "National Games (India)",
-  "All India Inter-University / All India University Games",
+  "National Games (India - IOA)",
 ] as const;
 
 const INTERNATIONAL_COMPETITIONS = RECOGNIZED_COMPETITIONS.filter(
@@ -629,11 +628,17 @@ function normalizeTournamentMedal(value?: string): TournamentMedal | undefined {
 }
 
 function isNationalCompetition(name: string) {
-  return NATIONAL_COMPETITIONS.includes(name as (typeof NATIONAL_COMPETITIONS)[number]);
+  return (
+    NATIONAL_COMPETITIONS.includes(name as (typeof NATIONAL_COMPETITIONS)[number]) ||
+    name === "National Games (India)" ||
+    name === "All India Inter-University / All India University Games"
+  );
 }
 
 function nationalCompetitionLabel(name: string) {
-  if (name === "National Games (India)") return "NATIONAL GAMES";
+  if (name === "National Games (India)" || name === "National Games (India - IOA)") {
+    return "NATIONAL GAMES";
+  }
   if (name === "Khelo India Games") return "KHELO INDIA GAMES";
   return "ALL INDIA UNIVERSITY";
 }
@@ -2772,7 +2777,7 @@ function TournamentEntryEditor({
         label={isNational ? "National Competition" : "International Competition"}
         hint={
           isNational
-            ? "Choose one of the three recognized national competitions."
+            ? "Recognized national competition for verified medal achievements."
             : isNonIndia
               ? "Choose a globally recognized international competition."
               : "Search recognized international competitions or enter another one."
