@@ -217,6 +217,11 @@ async function loadVideoForPlayback(videoId: string): Promise<VideoRouteData> {
         throw new Error("The video playback source is unavailable.");
       }
     }
+  } else if (
+    typeof row.video_url === "string" &&
+    row.video_url.startsWith("live-replays/")
+  ) {
+    url = await resolveAuthorizedStoragePlaybackUrl(video.id);
   } else {
     url = await resolveLongVideoUrl(video.mediaUrl);
   }

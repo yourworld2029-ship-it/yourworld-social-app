@@ -21,7 +21,6 @@ import { setLiveScreenOrientationActive } from "@/lib/video-playback";
 import { useLiveRoom } from "@/lib/use-live-room";
 import { LiveReplayRecorder, clearLiveReplayRecording } from "@/lib/live-replay-recording";
 import { saveLiveReplay } from "@/lib/live-replay.data";
-import { saveVideoToAndroidGallery } from "@/lib/reel-gallery";
 
 export const Route = createFileRoute("/live/$streamId")({
   head: () => ({
@@ -112,6 +111,9 @@ function LiveRoomPage() {
           ),
         )}
         peakViewerCount={room.peak_viewers}
+        publishStatus="idle"
+        canRetryPublish={false}
+        onRetryPublish={() => undefined}
       />
     );
   }
@@ -168,6 +170,11 @@ function LiveRoomSession({
     height: number;
   } | null>(null);
   const [replayRecordingError, setReplayRecordingError] = useState<string | null>(null);
+  const [replayPublishStatus, setReplayPublishStatus] = useState<
+    "idle" | "publishing" | "published" | "failed"
+  >("idle");
+  const [replayPublishError, setReplayPublishError] = useState<string | null>(null);
+  const replayPublishInFlightRef = useRef(false);
   const [outgoingStream, setOutgoingStream] = useState<MediaStream | null>(null);
   const [beautySettings, setBeautySettings] = useState<LiveBeautySettings>({
     effect: "off",
@@ -594,12 +601,45 @@ function LiveRoomSession({
     }
   };
 
+  const publishReplay = async (
+    recording: NonNullable<typeof replayRecording>,
+    durationSecondsToSave: number,
+  ) => {
+    if (replayPublishInFlightRef.current) return;
+    replayPublishInFlightRef.current = true;
+    setReplayPublishStatus("publishing");
+    setReplayPublishError(null);
+    try {
+      await saveLiveReplay({
+        streamId: room.id,
+        broadcasterId: room.broadcaster_id,
+        title: room.title,
+        blob: recording.blob,
+        durationSeconds: durationSecondsToSave,
+        width: recording.width,
+        height: recording.height,
+      });
+      await clearLiveReplayRecording(room.id).catch(() => undefined);
+      setReplayRecording(null);
+      setReplayRecordingError(null);
+      setReplayPublishStatus("published");
+    } catch (cause) {
+      setReplayPublishError(
+        cause instanceof Error ? cause.message : "The replay could not be published.",
+      );
+      setReplayPublishStatus("failed");
+    } finally {
+      replayPublishInFlightRef.current = false;
+    }
+  };
+
   const endBroadcast = async () => {
     if (ending || endedRef.current) return;
     setEnding(true);
     setShowEndConfirmation(false);
 
     let capturedReplay: Awaited<ReturnType<LiveReplayRecorder["finish"]>> | null = null;
+    let captureError: string | null = null;
     const recorder = replayRecorderRef.current;
     replayRecorderRef.current = null;
     if (recorder) {
@@ -609,6 +649,7 @@ function LiveRoomSession({
       } catch (cause) {
         const message =
           cause instanceof Error ? cause.message : "The live replay could not be recorded.";
+        captureError = message;
         setReplayRecordingError(message);
         await clearLiveReplayRecording(room.id).catch(() => undefined);
       }
@@ -654,14 +695,21 @@ function LiveRoomSession({
     }
     await liveRoom.announceStreamEnded();
     setEndError(result.error);
+    const endedDurationSeconds = result.summary?.durationSeconds ?? durationAtEnd;
     setSummary({
-      durationSeconds: result.summary?.durationSeconds ?? durationAtEnd,
+      durationSeconds: endedDurationSeconds,
       peakViewerCount: Math.max(
         result.summary?.peakViewers ?? 0,
         localPeak,
       ),
     });
     setEnding(false);
+    if (capturedReplay) {
+      void publishReplay(capturedReplay, endedDurationSeconds);
+    } else {
+      setReplayPublishError(captureError ?? "No live replay recording is available.");
+      setReplayPublishStatus("failed");
+    }
   };
 
   if (summary) {
@@ -670,11 +718,14 @@ function LiveRoomSession({
         durationSeconds={summary.durationSeconds}
         peakViewerCount={summary.peakViewerCount}
         error={endError}
-        replayRecording={replayRecording}
-        replayRecordingError={replayRecordingError}
-        broadcasterId={userId}
-        streamId={room.id}
-        streamTitle={room.title}
+        publishStatus={replayPublishStatus}
+        publishError={replayPublishError ?? replayRecordingError}
+        canRetryPublish={Boolean(replayRecording)}
+        onRetryPublish={() => {
+          if (replayRecording) {
+            void publishReplay(replayRecording, summary.durationSeconds);
+          }
+        }}
       />
     );
   }
@@ -797,8 +848,8 @@ function LiveRoomSession({
               id="confirm-end-live-description"
               className="mt-2 text-sm leading-6 text-white/60"
             >
-              Your camera and microphone will stop immediately. You can choose
-              whether to keep a replay in the summary.
+              Your camera and microphone will stop immediately. The replay will
+              be published permanently to your profile.
             </p>
             <div className="mt-6 flex gap-3">
               <button
@@ -830,32 +881,20 @@ function LiveSummary({
   durationSeconds,
   peakViewerCount,
   error,
-  replayRecording = null,
-  replayRecordingError = "No recording is available for this ended live.",
-  broadcasterId = "",
-  streamId = "",
-  streamTitle = "",
+  publishStatus,
+  publishError,
+  canRetryPublish,
+  onRetryPublish,
 }: {
   durationSeconds: number;
   peakViewerCount: number;
   error?: string | null;
-  replayRecording?: {
-    blob: Blob;
-    mimeType: string;
-    width: number;
-    height: number;
-  } | null;
-  replayRecordingError?: string | null;
-  broadcasterId?: string;
-  streamId?: string;
-  streamTitle?: string;
+  publishStatus: "idle" | "publishing" | "published" | "failed";
+  publishError?: string | null;
+  canRetryPublish: boolean;
+  onRetryPublish: () => void;
 }) {
   const navigate = useNavigate();
-  const [retentionChoice, setRetentionChoice] = useState<
-    "delete_now" | "keep_10_days" | "save_gallery"
-  >("delete_now");
-  const [saving, setSaving] = useState(false);
-  const [retentionError, setRetentionError] = useState<string | null>(null);
   const hours = Math.floor(durationSeconds / 3600);
   const minutes = Math.floor((durationSeconds % 3600) / 60);
   const seconds = durationSeconds % 60;
@@ -863,61 +902,6 @@ function LiveSummary({
     hours > 0
       ? `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
       : `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-
-  const applyRetentionChoice = async () => {
-    if (saving) return;
-    setSaving(true);
-    setRetentionError(null);
-    try {
-      if (retentionChoice !== "delete_now") {
-        if (!replayRecording) {
-          throw new Error(replayRecordingError ?? "No live replay is available to save.");
-        }
-        if (retentionChoice === "keep_10_days") {
-          await saveLiveReplay({
-            streamId,
-            broadcasterId,
-            title: streamTitle,
-            blob: replayRecording.blob,
-            durationSeconds,
-            width: replayRecording.width,
-            height: replayRecording.height,
-          });
-        } else {
-          const mimeType = replayRecording.mimeType.toLowerCase().split(";")[0];
-          if (mimeType !== "video/mp4" && mimeType !== "video/webm") {
-            throw new Error("This replay format cannot be saved to the phone gallery.");
-          }
-          if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android") {
-            await saveVideoToAndroidGallery(
-              replayRecording.blob,
-              `YourWorld-live-${streamId}.${mimeType === "video/webm" ? "webm" : "mp4"}`,
-              mimeType,
-            );
-          } else {
-            const url = URL.createObjectURL(replayRecording.blob);
-            const anchor = document.createElement("a");
-            anchor.href = url;
-            anchor.download = `YourWorld-live-${streamId}.${mimeType === "video/webm" ? "webm" : "mp4"}`;
-            document.body.append(anchor);
-            anchor.click();
-            anchor.remove();
-            window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-          }
-        }
-      }
-      if (streamId && retentionChoice !== "keep_10_days") {
-        await clearLiveReplayRecording(streamId);
-      }
-      void navigate({ to: "/" });
-    } catch (cause) {
-      setRetentionError(
-        cause instanceof Error ? cause.message : "The selected retention action could not be completed.",
-      );
-    } finally {
-      setSaving(false);
-    }
-  };
 
   return (
     <main className="grid min-h-[100dvh] place-items-center bg-[#120d12] px-5 py-10 text-white">
@@ -960,82 +944,36 @@ function LiveSummary({
             saved. Viewers will be disconnected when the room closes.
           </p>
         )}
-        {replayRecordingError && (
-          <p className="mt-3 text-xs leading-5 text-amber-200/80" role="status">
-            Replay recording unavailable: {replayRecordingError}
+        {publishStatus === "publishing" && (
+          <p className="mt-4 text-sm leading-6 text-white/70" role="status">
+            Publishing your live replay permanently to your profile…
           </p>
         )}
-        {retentionError && (
-          <p className="mt-3 text-xs leading-5 text-rose-200" role="alert">
-            {retentionError}
+        {publishStatus === "published" && (
+          <p className="mt-4 text-sm leading-6 text-emerald-200" role="status">
+            Your replay is published in your Videos and Live tabs.
           </p>
         )}
-        <fieldset className="mt-6 space-y-2 text-left">
-          <legend className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-white/50">
-            Video retention
-          </legend>
-          {[
-            {
-              value: "delete_now",
-              title: "Delete video now",
-              description: "Default · Purge any saved replay immediately",
-            },
-            {
-              value: "keep_10_days",
-              title: "Keep replay for 10 days",
-              description: "On your profile for 10 days · counts toward watch time",
-            },
-            {
-              value: "save_gallery",
-              title: "Save to gallery",
-              description: "Save to your phone · clear the cloud copy",
-            },
-          ].map((option) => {
-            const selected = retentionChoice === option.value;
-            return (
-              <label
-                key={option.value}
-                className={`flex cursor-pointer items-start gap-3 rounded-2xl border p-3 transition-colors ${
-                  selected
-                    ? "border-fuchsia-400/55 bg-fuchsia-500/10"
-                    : "border-white/10 bg-black/20"
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="live-video-retention"
-                  value={option.value}
-                  checked={selected}
-                  onChange={() =>
-                    setRetentionChoice(
-                      option.value as
-                        | "delete_now"
-                        | "keep_10_days"
-                        | "save_gallery",
-                    )
-                  }
-                  className="mt-0.5 h-4 w-4 shrink-0 accent-[#f12e50]"
-                  disabled={!replayRecording && option.value !== "delete_now"}
-                />
-                <span className="min-w-0">
-                  <span className="block text-xs font-semibold text-white">
-                    {option.title}
-                  </span>
-                  <span className="mt-1 block text-[10px] leading-4 text-white/55">
-                    {option.description}
-                  </span>
-                </span>
-              </label>
-            );
-          })}
-        </fieldset>
+        {publishStatus === "failed" && (
+          <p className="mt-4 text-xs leading-5 text-rose-200" role="alert">
+            {publishError ?? "Your live replay could not be published."}
+          </p>
+        )}
+        {publishStatus === "failed" && canRetryPublish ? (
+          <button
+            type="button"
+            onClick={onRetryPublish}
+            className="mt-4 w-full rounded-full border border-white/15 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
+          >
+            Retry publishing
+          </button>
+        ) : null}
         <button
           type="button"
-          onClick={() => void applyRetentionChoice()}
-          disabled={saving}
-          className="mt-5 w-full rounded-full bg-white px-5 py-3 text-sm font-bold text-[#181018] transition hover:bg-white/90 disabled:opacity-60"
+          onClick={() => void navigate({ to: "/" })}
+          className="mt-5 w-full rounded-full bg-white px-5 py-3 text-sm font-bold text-[#181018] transition hover:bg-white/90"
         >
-          {saving ? "Saving…" : "Done"}
+          Done
         </button>
       </section>
     </main>

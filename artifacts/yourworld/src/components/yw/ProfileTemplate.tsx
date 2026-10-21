@@ -30,7 +30,7 @@ import { LazyVideoThumbnail } from "@/components/yw/LazyVideoThumbnail";
 import { canReadPublicVideoPreview } from "@/lib/video-preview-access";
 import { ProfilePhotoViewer } from "@/components/yw/ProfilePhotoViewer";
 import { ShareSheet } from "@/components/yw/ShareSheet";
-import { LiveReplaysTab } from "@/components/yw/LiveReplaysTab";
+import { ProfileLiveReplayVideos } from "@/components/yw/ProfileLiveReplayVideos";
 import type { DbPost } from "@/lib/social-data";
 import type { FollowCounts } from "@/lib/follow-data";
 import { formatCount } from "@/lib/yw-data";
@@ -450,7 +450,7 @@ export function ProfileTemplate({
           ) : null}
         </TabsContent>
         <TabsContent value="live" className="mt-0">
-          <LiveReplaysTab
+          <ProfileLiveReplayVideos
             broadcasterId={profile.id}
             isOwner={isOwner}
             initialReplayId={selectedReplayId}

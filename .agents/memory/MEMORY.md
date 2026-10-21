@@ -12,6 +12,7 @@
 - [Unique interaction counting](unique-interaction-counting.md) — use one database-enforced key per user/content/type and an atomic insert-before-increment RPC for views.
 - [Video playback and downloads](video-playback-downloads.md) — centered autoplay starts muted; authentic posters share a two-decoder budget and must not bypass access checks.
 - [Video source retention](video-source-retention.md) — never publish HLS video without persisting the owner-scoped MP4 path needed for authorized downloads and deletion.
+- [Permanent live video integration](live-replay-video-integration.md) — publish ended lives as standard videos while retaining the Live-tab link and authorized source playback.
 - [Low-memory media policy](low-memory-media.md) — target 2–3 GB Android phones conservatively; screen-sized display buffers are disposable, unlike offline downloads.
 - [Persistent video player](persistent-video-player.md) — keep one active feed source, release inactive Reel sources, and reuse active frames for poster fallbacks.
 - [Watermarked video downloads](watermarked-reel-downloads.md) — use the creator-watermarked export for Reels and horizontal/vertical videos; never fall back to unwatermarked bytes.

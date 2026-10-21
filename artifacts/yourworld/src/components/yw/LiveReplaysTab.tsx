@@ -224,10 +224,14 @@ export function LiveReplaysTab({
     <>
       <div className="grid grid-cols-2 gap-2 p-2 sm:grid-cols-3 sm:gap-3 sm:p-3" data-testid="grid-live-replays">
         {replays.map((replay) => {
-          const remainingMs = Math.max(0, Date.parse(replay.expires_at) - now);
+          const remainingMs = replay.expires_at
+            ? Math.max(0, Date.parse(replay.expires_at) - now)
+            : Number.POSITIVE_INFINITY;
           const remainingDays = Math.ceil(remainingMs / 86_400_000);
           const remainingHours = Math.ceil(remainingMs / 3_600_000);
-          const expiry =
+          const expiry = !replay.expires_at
+            ? "Permanent"
+            :
             remainingDays > 1
               ? `Expires in ${remainingDays}d`
               : `Expires in ${remainingHours}h`;

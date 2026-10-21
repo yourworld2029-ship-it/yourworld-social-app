@@ -426,7 +426,7 @@ function parseVideoStorageObject(value: unknown, row: VideoPostRow) {
 
   let bucket = row.kind === "reel" ? "reels" : "videos";
   let objectPath = raw;
-  const bucketPrefix = raw.match(/^(videos|reels)\/(.+)$/);
+  const bucketPrefix = raw.match(/^(videos|reels|live-replays)\/(.+)$/);
   if (bucketPrefix) {
     bucket = bucketPrefix[1];
     objectPath = bucketPrefix[2];
@@ -438,7 +438,7 @@ function parseVideoStorageObject(value: unknown, row: VideoPostRow) {
       return null;
     }
     const storageMatch = pathname.match(
-      /\/storage\/v1\/object\/(?:sign|public)\/(videos|reels)\/(.+)$/,
+      /\/storage\/v1\/object\/(?:sign|public)\/(videos|reels|live-replays)\/(.+)$/,
     );
     if (!storageMatch) return null;
     bucket = storageMatch[1];
@@ -451,7 +451,7 @@ function parseVideoStorageObject(value: unknown, row: VideoPostRow) {
 
   const segments = objectPath.split("/");
   if (
-    !["videos", "reels"].includes(bucket) ||
+    !["videos", "reels", "live-replays"].includes(bucket) ||
     segments.length < 2 ||
     segments[0] !== row.user_id ||
     segments.some((segment) => !segment || segment === "." || segment === "..")

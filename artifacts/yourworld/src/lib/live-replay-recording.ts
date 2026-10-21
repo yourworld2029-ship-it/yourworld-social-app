@@ -1,5 +1,34 @@
 const DATABASE_NAME = "yourworld-live-replay-recordings";
 const STORE_NAME = "chunks";
+const MAX_RECORDING_DIMENSION = 1920;
+
+export function getLiveReplaySourceRect(
+  sourceWidth: number,
+  sourceHeight: number,
+  targetAspect: number,
+) {
+  if (
+    !Number.isFinite(sourceWidth) ||
+    !Number.isFinite(sourceHeight) ||
+    !Number.isFinite(targetAspect) ||
+    sourceWidth <= 0 ||
+    sourceHeight <= 0 ||
+    targetAspect <= 0
+  ) {
+    return { x: 0, y: 0, width: 0, height: 0 };
+  }
+  const sourceAspect = sourceWidth / sourceHeight;
+  if (sourceAspect > targetAspect) {
+    const width = sourceHeight * targetAspect;
+    return { x: (sourceWidth - width) / 2, y: 0, width, height: sourceHeight };
+  }
+  const height = sourceWidth / targetAspect;
+  return { x: 0, y: (sourceHeight - height) / 2, width: sourceWidth, height };
+}
+
+export function getPortraitSourceRect(sourceWidth: number, sourceHeight: number) {
+  return getLiveReplaySourceRect(sourceWidth, sourceHeight, 9 / 16);
+}
 
 type StoredChunk = {
   key: string;
@@ -80,14 +109,27 @@ export async function clearLiveReplayRecording(streamId: string) {
   database.close();
 }
 
-function supportedRecorderMimeType() {
-  if (typeof MediaRecorder === "undefined") return "";
+export function chooseLiveReplayMimeType(
+  isSupported: (mimeType: string) => boolean,
+) {
   return [
     'video/mp4;codecs="avc1.42E01E,mp4a.40.2"',
     "video/mp4",
     "video/webm;codecs=vp8,opus",
     "video/webm",
-  ].find((mimeType) => MediaRecorder.isTypeSupported(mimeType)) ?? "";
+  ].find(isSupported) ?? "";
+}
+
+export function liveReplayVideoBitrate(width: number, height: number) {
+  const pixels = Number.isFinite(width) && Number.isFinite(height)
+    ? Math.max(0, width * height)
+    : 0;
+  return Math.min(5_000_000, Math.max(2_500_000, Math.round(pixels * 2.4)));
+}
+
+function supportedRecorderMimeType() {
+  if (typeof MediaRecorder === "undefined") return "";
+  return chooseLiveReplayMimeType((mimeType) => MediaRecorder.isTypeSupported(mimeType));
 }
 
 export class LiveReplayRecorder {
@@ -102,6 +144,8 @@ export class LiveReplayRecorder {
   private chunkIndex = 0;
   private writes = Promise.resolve();
   private stopped = false;
+  private canvasSizeLocked = false;
+  private targetAspect = 9 / 16;
   private stopPromise: Promise<void> | null = null;
   private storageError: Error | null = null;
 
@@ -127,6 +171,7 @@ export class LiveReplayRecorder {
     if (!mimeType) throw new Error("This device cannot record live video.");
     this.streamId = streamId;
     this.sourceStream = sourceStream;
+    this.targetAspect = window.innerWidth > window.innerHeight ? 16 / 9 : 9 / 16;
     this.video.muted = true;
     this.video.playsInline = true;
     this.video.preload = "none";
@@ -152,7 +197,7 @@ export class LiveReplayRecorder {
     if (audioTrack) capture.addTrack(audioTrack);
     this.recorder = new MediaRecorder(capture, {
       mimeType,
-      videoBitsPerSecond: 2_500_000,
+      videoBitsPerSecond: liveReplayVideoBitrate(this.canvas.width, this.canvas.height),
       audioBitsPerSecond: 96_000,
     });
     this.recorder.ondataavailable = (event) => {
@@ -195,20 +240,41 @@ export class LiveReplayRecorder {
   private resizeCanvas() {
     const width = this.video.videoWidth;
     const height = this.video.videoHeight;
-    if (width <= 0 || height <= 0) return;
-    const scale = Math.min(1, 1920 / Math.max(width, height));
-    const nextWidth = Math.max(2, Math.round((width * scale) / 2) * 2);
-    const nextHeight = Math.max(2, Math.round((height * scale) / 2) * 2);
-    if (this.canvas.width === nextWidth && this.canvas.height === nextHeight) return;
+    if (this.canvasSizeLocked || width <= 0 || height <= 0) return;
+    const sourceRect = getLiveReplaySourceRect(width, height, this.targetAspect);
+    const scale = Math.min(
+      1,
+      MAX_RECORDING_DIMENSION / Math.max(sourceRect.width, sourceRect.height),
+    );
+    const nextWidth = Math.max(2, Math.floor((sourceRect.width * scale) / 2) * 2);
+    const nextHeight = Math.max(2, Math.floor((sourceRect.height * scale) / 2) * 2);
     this.canvas.width = nextWidth;
     this.canvas.height = nextHeight;
+    this.canvasSizeLocked = true;
   }
 
   private drawFrame = () => {
     if (this.stopped) return;
     this.resizeCanvas();
     if (this.video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-      this.canvasContext.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
+      const crop = getLiveReplaySourceRect(
+        this.video.videoWidth,
+        this.video.videoHeight,
+        this.targetAspect,
+      );
+      if (crop.width > 0 && crop.height > 0) {
+        this.canvasContext.drawImage(
+          this.video,
+          crop.x,
+          crop.y,
+          crop.width,
+          crop.height,
+          0,
+          0,
+          this.canvas.width,
+          this.canvas.height,
+        );
+      }
     }
     this.frameTimer = window.setTimeout(this.drawFrame, 1000 / 24);
   };
