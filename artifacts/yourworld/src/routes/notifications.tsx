@@ -514,7 +514,7 @@ function NotificationRow({
               streamId={item.previewStreamId ?? undefined}
               bucket={item.previewBucket}
               allowFrameCapture={!!item.previewMediaUrl}
-              preferVideoFrame={!!(item.previewMediaUrl || item.previewStreamId)}
+              resolveFrameMediaSource
               frameCacheKey={
                 item.previewMediaUrl
                   ? `${item.previewMediaUrl}#notification-frame`

@@ -357,20 +357,10 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
       }
     }
     if (previewSource) {
-      try {
-        const remote = /^(https?:|blob:|data:)/i.test(previewSource);
-        const reference = normalizeStorageReference(previewSource, bucket);
-        const resolved = remote
-          ? previewSource
-          : await resolveMediaUrl(reference.path, reference.bucket);
-        if (resolved) {
-          postPreviewMedia.set(post.id, resolved);
-          postPreviewBuckets.set(post.id, reference.bucket as "reels" | "videos");
-        }
-      } catch {
-        postPreviewMedia.set(post.id, previewSource);
-        postPreviewBuckets.set(post.id, bucket);
-      }
+      const remote = /^(https?:|blob:|data:)/i.test(previewSource);
+      const reference = normalizeStorageReference(previewSource, bucket);
+      postPreviewMedia.set(post.id, remote ? previewSource : reference.path);
+      postPreviewBuckets.set(post.id, reference.bucket as "reels" | "videos");
     }
   }));
   const postPreviewFor = (postId: string) => ({
