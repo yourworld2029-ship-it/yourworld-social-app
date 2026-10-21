@@ -896,10 +896,17 @@ export function NationalAwardVerificationDialog({
                         allowed.
                       </p>
                       <p className="mt-2 text-xs leading-5 text-zinc-300">
-                        Speak in your natural voice: 1. Full name &amp; Sport 2. Role
-                        (National/International Player/Coach) 3. City, State &amp; Country 4. Major
-                        tournament achievement or medal 5. Your @YourWorld username. (No need to
-                        show certificates on camera).
+                        Speak in your natural voice:
+                        <br />
+                        1. Full name
+                        <br />
+                        2. Award Name &amp; Year received
+                        <br />
+                        3. City, State &amp; Country
+                        <br />
+                        4. Field / Category of achievement
+                        <br />
+                        5. Your @YourWorld username. (No need to show certificates on camera).
                       </p>
                     </div>
                     {introductionPreviewUrl ? (
