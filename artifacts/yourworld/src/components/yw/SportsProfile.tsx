@@ -1595,11 +1595,6 @@ function SportsVerificationDetailsSection({
               </p>
             </div>
           ) : null}
-          <div className="rounded-xl border border-amber-200/15 bg-amber-200/[0.04] px-3 py-2 text-xs leading-5 text-amber-100/90">
-            Document Quality Note: All uploaded documents, passport pages, and certificates must
-            be crystal clear and fully readable with all 4 corners visible. Blurry or cut-off
-            uploads will be rejected.
-          </div>
           <div className="space-y-3 rounded-2xl border border-amber-200/15 bg-amber-200/[0.04] p-3">
             <div>
               <p className="text-sm font-semibold text-white">Identity Details</p>
@@ -1942,6 +1937,11 @@ function SportsVerificationDetailsSection({
               <p className="mt-1 text-xs leading-5 text-zinc-500">
                 Uploaded files are visible only to you and authorized verification reviewers.
               </p>
+            </div>
+            <div className="rounded-xl border border-amber-200/15 bg-amber-200/[0.04] px-3 py-2 text-xs leading-5 text-amber-100/90">
+              Document Quality Note: All uploaded documents, passport pages, and certificates must
+              be crystal clear and fully readable with all 4 corners visible. Blurry or cut-off
+              uploads will be rejected.
             </div>
             <VerificationEvidenceRow
               accept={VERIFICATION_DOCUMENT_ACCEPT}

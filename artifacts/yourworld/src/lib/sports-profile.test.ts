@@ -330,6 +330,9 @@ test("Sports Details renders real fields and the Sports Introduction without the
   assert.match(html, /I Agree to the Terms &amp; Conditions/);
   assert.match(html, /Submit for Verification/);
   assert.match(html, /Verification review typically takes between 12 to 72 working hours\./);
+  assert.ok(html.indexOf(">Identity Details<") < html.indexOf("Document Quality Note"));
+  assert.ok(html.indexOf("Private verification evidence") < html.indexOf("Document Quality Note"));
+  assert.ok(html.indexOf("Document Quality Note") < html.indexOf("Sports Certificate"));
   assert.match(
     html,
     /YourWorld reserves the right to cross-verify tournament certificates with recognized sports federations\/bodies\./,
