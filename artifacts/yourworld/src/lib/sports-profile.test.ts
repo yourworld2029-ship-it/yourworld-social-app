@@ -27,6 +27,7 @@ import {
   serializeForeignSportsAddress,
   type SportsVerificationDetails,
 } from "@/lib/profile-data";
+import { validateCoachDiplomaSelection } from "@/lib/sports-coaching-diploma";
 
 const profile = {
   badge: "PLAYER PROFILE",
@@ -45,6 +46,39 @@ const profile = {
   qualificationYear: "Not recorded",
   institution: "Not recorded",
 };
+
+test("coach diploma selection accepts one PDF or up to two images", () => {
+  const file = (name: string, type: string) => ({ name, type, size: 1024 }) as File;
+
+  assert.equal(
+    validateCoachDiplomaSelection([file("diploma.pdf", "application/pdf")]),
+    "single",
+  );
+  assert.equal(
+    validateCoachDiplomaSelection([
+      file("front.jpg", "image/jpeg"),
+      file("back.png", "image/png"),
+    ]),
+    "image-pair",
+  );
+  assert.throws(
+    () =>
+      validateCoachDiplomaSelection([
+        file("front.jpg", "image/jpeg"),
+        file("back.jpg", "image/jpeg"),
+        file("marksheet.png", "image/png"),
+      ]),
+    /at most two images/i,
+  );
+  assert.throws(
+    () =>
+      validateCoachDiplomaSelection([
+        file("diploma.pdf", "application/pdf"),
+        file("back.jpg", "image/jpeg"),
+      ]),
+    /not a mixture/i,
+  );
+});
 
 test("sports verification country rules cover India and international applicants", () => {
   assert.equal(isIndiaSportsCountry("India"), true);

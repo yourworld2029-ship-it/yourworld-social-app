@@ -58,6 +58,7 @@ import {
 import { IntroductionVideoPreview } from "@/components/yw/IntroductionVideoPreview";
 import { PrivateEvidencePreview } from "@/components/yw/PrivateEvidencePreview";
 import { isEvidenceFlaggedForReview } from "@/lib/verification-review";
+import { prepareCoachDiplomaUpload } from "@/lib/sports-coaching-diploma";
 
 export type SportsRepresentation = "National" | "International";
 
@@ -1507,6 +1508,7 @@ function SportsVerificationDetailsSection({
   underReview: boolean;
 }) {
   const foreignAddress = parseForeignSportsAddress(details.address);
+  const isCoach = profile.role === "Coach";
   const isRejected =
     details.reviewStatus === "rejected" || details.reviewStatus === "correction_requested";
   const fieldsLocked = locked || isRejected;
@@ -1953,11 +1955,28 @@ function SportsVerificationDetailsSection({
               evidence={details.sportsCertificate}
               kind="sportsCertificate"
               ownerId={ownerId}
-              label="Sports Certificate"
+              label={isCoach ? "Sports Certificate / Coaching Diploma" : "Sports Certificate"}
+              hint={
+                isCoach
+                  ? "Upload your National Games Medal Certificate OR Full Regular Coaching Diploma (front and back sides / marksheet)."
+                  : "Upload your official National Games medal certificate."
+              }
+              selectionHint={
+                isCoach
+                  ? "Choose one multi-page PDF or up to two images (front side first, back side second)."
+                  : undefined
+              }
+              multiple={isCoach}
               uploading={uploading}
               progress={uploadingProgress}
               onPickerActiveChange={onEvidencePickerActiveChange}
               onUpload={onUploadEvidence}
+              onUploadFiles={
+                isCoach
+                  ? async (kind, files) =>
+                      onUploadEvidence?.(kind, await prepareCoachDiplomaUpload(files))
+                  : undefined
+              }
                onDelete={onDeleteEvidence}
                onPreview={onPreviewEvidence}
               onFieldChanged={onFieldChanged}
@@ -2082,10 +2101,13 @@ function VerificationEvidenceRow({
   ownerId,
   label,
   hint,
+  selectionHint,
+  multiple = false,
   uploading,
   progress,
   onPickerActiveChange,
   onUpload,
+  onUploadFiles,
   onDelete,
   onPreview,
   onFieldChanged,
@@ -2098,6 +2120,8 @@ function VerificationEvidenceRow({
   ownerId: string;
   label: string;
   hint?: string;
+  selectionHint?: string;
+  multiple?: boolean;
   uploading: SportsVerificationEvidenceKind | null;
   progress: number;
   onPickerActiveChange?: (active: boolean) => void;
@@ -2106,6 +2130,7 @@ function VerificationEvidenceRow({
     file: File,
     details?: SportsVerificationDetails,
   ) => void | Promise<void>;
+  onUploadFiles?: (kind: SportsVerificationEvidenceKind, files: File[]) => void | Promise<void>;
   onDelete?: (
     kind: SportsVerificationEvidenceKind,
     details?: SportsVerificationDetails,
@@ -2149,6 +2174,9 @@ function VerificationEvidenceRow({
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium text-zinc-200">{label}</p>
         <p className="mt-0.5 text-xs text-zinc-500">{hint || "Private upload"}</p>
+        {selectionHint ? (
+          <p className="mt-1 text-xs text-zinc-400">{selectionHint}</p>
+        ) : null}
         <p className="mt-1 truncate text-xs text-zinc-400">
           {isUploading
             ? `Uploading ${progress}%`
@@ -2230,7 +2258,8 @@ function VerificationEvidenceRow({
         type="file"
         accept={accept}
         className="sr-only"
-        disabled={isUploading || locked || !onUpload}
+        disabled={isUploading || locked || (!onUpload && !onUploadFiles)}
+        multiple={multiple}
         onClick={(event) => {
           event.stopPropagation();
           onPickerActiveChange?.(true);
@@ -2239,34 +2268,33 @@ function VerificationEvidenceRow({
           event.preventDefault();
           event.stopPropagation();
           const input = event.currentTarget;
-          const file = input.files?.[0];
+          const files = Array.from(input.files ?? []);
           input.value = "";
-          if (!file) {
+          if (files.length === 0) {
             onPickerActiveChange?.(false);
             return;
           }
           uploadInProgressRef.current = true;
-          if (kind !== "tournamentPhoto") {
-            try {
-              validateVerificationDocumentFile(file);
-            } catch (error) {
-              toast.error(error instanceof Error ? error.message : "This document cannot be uploaded.");
-              window.setTimeout(() => {
-                uploadInProgressRef.current = false;
-                onPickerActiveChange?.(false);
-              }, 1200);
-              return;
+          const uploadSelectedFiles = () => {
+            if (onUploadFiles) return onUploadFiles(kind, files);
+            if (files.length !== 1) {
+              throw new Error("Select one file for this document.");
             }
-          }
+            const file = files[0];
+            if (kind !== "tournamentPhoto") validateVerificationDocumentFile(file);
+            return onUpload?.(kind, file);
+          };
           void Promise.resolve()
-            .then(() => onUpload?.(kind, file))
+            .then(uploadSelectedFiles)
+            .catch((error) => {
+              toast.error(error instanceof Error ? error.message : "This document cannot be uploaded.");
+            })
             .finally(() => {
               window.setTimeout(() => {
                 uploadInProgressRef.current = false;
                 onPickerActiveChange?.(false);
               }, 1200);
-            })
-            .catch(() => undefined);
+            });
         }}
       />
     </div>
@@ -2518,7 +2546,7 @@ function SportsTournamentSection({
       title={sectionTitle}
       description={
         isNational
-          ? "Select one of the three recognized national competitions and record verified medal achievements."
+          ? "Recognized national competition for verified medal achievements (Optional if holding Premier Coaching Diploma)."
           : "Build a professional sports timeline from recognized competitions."
       }
     >
