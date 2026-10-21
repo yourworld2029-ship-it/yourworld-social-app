@@ -1,36 +1,32 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { Eye, Flag, MoreVertical, Play, Share2 } from "lucide-react";
+import { Eye, MoreVertical, Play, Share2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useAuth } from "@/lib/auth-store";
 import { loadLongVideosByIds, formatViews, timeAgo, type LongVideo } from "@/lib/video-data";
 import { sharePublicContent } from "@/lib/share-public";
 import {
   loadLiveReplays,
   ensureLiveReplayPoster,
+  deleteLiveReplay,
   makeLiveReplayPermanent,
-  reportLiveReplay,
   type LiveReplay,
 } from "@/lib/live-replay.data";
-
-const REPORT_REASONS = [
-  "Inappropriate content / Nudity",
-  "Spam or Scam",
-  "Hate speech or Harassment",
-  "Intellectual Property / Copyright",
-] as const;
 
 type ReplayVideo = {
   replay: LiveReplay;
@@ -49,13 +45,11 @@ export function ProfileLiveReplayVideos({
   onPromoted?: () => void;
 }) {
   const navigate = useNavigate();
-  const { user } = useAuth();
   const [items, setItems] = useState<ReplayVideo[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [reportTarget, setReportTarget] = useState<ReplayVideo | null>(null);
-  const [reportReason, setReportReason] = useState<string>(REPORT_REASONS[0]);
-  const [reportBusy, setReportBusy] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<ReplayVideo | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const initialReplayHandledRef = useRef(false);
 
   useEffect(() => {
@@ -161,21 +155,22 @@ export function ProfileLiveReplayVideos({
     }
   };
 
-  const submitReport = async () => {
-    if (!reportTarget || !user?.id || reportBusy) return;
-    setReportBusy(true);
+  const confirmDelete = async () => {
+    if (!deleteTarget || !isOwner || deleteBusy) return;
+    const target = deleteTarget;
+    setDeleteBusy(true);
     try {
-      await reportLiveReplay({
-        replay: reportTarget.replay,
-        reporterId: user.id,
-        reason: reportReason,
-      });
-      setReportTarget(null);
-      toast.success("Report submitted. Thank you for making our community safe.");
+      await deleteLiveReplay(target.replay.id);
+      setItems((current) =>
+        current.filter((item) => item.replay.id !== target.replay.id),
+      );
+      setDeleteTarget(null);
+      onPromoted?.();
+      toast.success("Live replay permanently deleted");
     } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : "The report could not be submitted.");
+      toast.error(cause instanceof Error ? cause.message : "The replay could not be deleted.");
     } finally {
-      setReportBusy(false);
+      setDeleteBusy(false);
     }
   };
 
@@ -262,6 +257,7 @@ export function ProfileLiveReplayVideos({
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
+                    disabled={deleteBusy}
                     aria-label={`More actions for ${title}`}
                     className="grid h-9 w-8 shrink-0 place-items-center rounded-full text-zinc-400 transition-colors hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
                   >
@@ -269,24 +265,24 @@ export function ProfileLiveReplayVideos({
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-48 border-white/10 bg-zinc-950 text-white">
-                  <DropdownMenuItem onSelect={() => void shareVideo(video)} className="gap-2 focus:bg-white/10 focus:text-white">
+                  <DropdownMenuItem
+                    disabled={deleteBusy}
+                    onSelect={() => void shareVideo(video)}
+                    className="gap-2 focus:bg-white/10 focus:text-white"
+                  >
                     <Share2 className="h-4 w-4" aria-hidden="true" />
                     Share
                   </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => openVideo(video)} className="gap-2 focus:bg-white/10 focus:text-white">
-                    <Play className="h-4 w-4" aria-hidden="true" />
-                    Open video
-                  </DropdownMenuItem>
-                  {!isOwner ? (
+                  {isOwner ? (
                     <DropdownMenuItem
+                      disabled={deleteBusy}
                       onSelect={() => {
-                        setReportReason(REPORT_REASONS[0]);
-                        setReportTarget({ replay, video });
+                        setDeleteTarget({ replay, video });
                       }}
-                      className="gap-2 focus:bg-white/10 focus:text-white"
+                      className="gap-2 text-rose-300 focus:bg-white/10 focus:text-rose-200"
                     >
-                      <Flag className="h-4 w-4" aria-hidden="true" />
-                      Report
+                      <Trash2 className="h-4 w-4" aria-hidden="true" />
+                      Delete
                     </DropdownMenuItem>
                   ) : null}
                 </DropdownMenuContent>
@@ -296,45 +292,32 @@ export function ProfileLiveReplayVideos({
         })}
       </ul>
 
-      <Dialog
-        open={Boolean(reportTarget)}
-        onOpenChange={(open) => !reportBusy && !open && setReportTarget(null)}
+      <AlertDialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => !deleteBusy && !open && setDeleteTarget(null)}
       >
-        <DialogContent className="border-white/10 bg-[#131116] text-white">
-          <DialogTitle>Report this video</DialogTitle>
-          <DialogDescription className="text-white/60">Choose the reason that best describes this video.</DialogDescription>
-          <div role="radiogroup" aria-label="Report reason" className="grid gap-2">
-            {REPORT_REASONS.map((reason) => (
-              <label
-                key={reason}
-                className={`flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border px-3 py-2 text-sm ${
-                  reportReason === reason
-                    ? "border-fuchsia-400 bg-fuchsia-500/10"
-                    : "border-white/10 bg-white/[0.03]"
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="live-video-report-reason"
-                  value={reason}
-                  checked={reportReason === reason}
-                  onChange={() => setReportReason(reason)}
-                  className="accent-fuchsia-400"
-                />
-                <span>{reason}</span>
-              </label>
-            ))}
-          </div>
-          <button
-            type="button"
-            onClick={() => void submitReport()}
-            disabled={reportBusy || !user?.id}
-            className="min-h-11 rounded-full bg-fuchsia-500 px-5 text-sm font-semibold text-white disabled:opacity-50"
-          >
-            {reportBusy ? "Submitting…" : "Submit report"}
-          </button>
-        </DialogContent>
-      </Dialog>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this live replay?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes the replay from storage and your Live tab.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteBusy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleteBusy}
+              onClick={(event) => {
+                event.preventDefault();
+                void confirmDelete();
+              }}
+              className="bg-rose-600 text-white hover:bg-rose-500"
+            >
+              {deleteBusy ? "Deleting…" : "Delete permanently"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

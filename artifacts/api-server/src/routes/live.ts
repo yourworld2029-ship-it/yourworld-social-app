@@ -4,6 +4,7 @@ import {
   GetPublicLiveStreamResponse,
   ListPublicLiveStreamsResponse,
 } from "@workspace/api-zod";
+import { getLiveReplayStorageObjects } from "../lib/live-replay-storage";
 
 const router: IRouter = Router();
 
@@ -68,17 +69,6 @@ async function authenticateLiveReplayRequest(
     typeof user.id === "string" && UUID_PATTERN.test(user.id)
     ? user.id
     : null;
-}
-
-function validOwnedReplayPath(userId: string, path: unknown) {
-  if (typeof path !== "string") return false;
-  const segments = path.split("/");
-  return (
-    segments.length >= 3 &&
-    segments[0] === userId &&
-    segments[1] === "live-replays" &&
-    segments.every((segment) => segment && segment !== "." && segment !== "..")
-  );
 }
 
 async function readLiveStreamRows(
@@ -214,7 +204,7 @@ router.delete("/live/replays/:replayId", async (req, res) => {
     const rowUrl = liveReplaysUrl(config);
     rowUrl.searchParams.set(
       "select",
-      "id,broadcaster_id,stream_uid,storage_bucket,source_path",
+      "id,broadcaster_id,stream_id,post_id,stream_uid,storage_bucket,source_path",
     );
     rowUrl.searchParams.set("id", `eq.${replayId}`);
     rowUrl.searchParams.set("broadcaster_id", `eq.${userId}`);
@@ -231,79 +221,130 @@ router.delete("/live/replays/:replayId", async (req, res) => {
       return;
     }
     const replay = row as Record<string, unknown>;
-    const storageBucket = replay.storage_bucket;
     const streamUid = replay.stream_uid;
-    if (
-      replay.broadcaster_id !== userId ||
-      (storageBucket !== "videos" && storageBucket !== "live-replays") ||
-      (streamUid !== null &&
-        (typeof streamUid !== "string" || !/^[a-zA-Z0-9_-]{8,128}$/.test(streamUid))) ||
-      (streamUid === null && storageBucket !== "live-replays") ||
-      !validOwnedReplayPath(userId, replay.source_path)
-    ) {
+    if (replay.broadcaster_id !== userId) {
       res.status(403).json({ error: "You cannot delete this replay." });
       return;
     }
 
-    if (typeof streamUid === "string") {
+    if (
+      typeof streamUid === "string" &&
+      /^[a-zA-Z0-9_-]{8,128}$/.test(streamUid)
+    ) {
       if (!cloudflareAccountId || !cloudflareApiToken) {
-        res.status(502).json({ error: "Cloudflare replay storage is temporarily unavailable." });
-        return;
-      }
-      const streamResponse = await fetch(
-        `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(cloudflareAccountId)}/stream/${encodeURIComponent(streamUid)}`,
-        {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${cloudflareApiToken}` },
-          signal: AbortSignal.timeout(20_000),
-        },
-      );
-      const streamPayload: unknown = await streamResponse.json().catch(() => null);
-      const streamAlreadyMissing =
-        streamResponse.status === 404 ||
-        (streamPayload &&
-          typeof streamPayload === "object" &&
-          "errors" in streamPayload &&
-          Array.isArray(streamPayload.errors) &&
-          streamPayload.errors.some(
-            (item) =>
-              item &&
-              typeof item === "object" &&
-              "code" in item &&
-              item.code === 10009,
-          ));
-      if (!streamResponse.ok && !streamAlreadyMissing) {
-        req.log.error(
-          { status: streamResponse.status },
-          "Cloudflare could not delete a live replay",
+        req.log.warn(
+          "Skipping Cloudflare live-replay cleanup because its credentials are unavailable",
         );
-        res.status(502).json({ error: "The replay could not be deleted from video storage." });
-        return;
+      } else {
+        try {
+          const streamResponse = await fetch(
+            `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(cloudflareAccountId)}/stream/${encodeURIComponent(streamUid)}`,
+            {
+              method: "DELETE",
+              headers: { Authorization: `Bearer ${cloudflareApiToken}` },
+              signal: AbortSignal.timeout(20_000),
+            },
+          );
+          const streamPayload: unknown = await streamResponse.json().catch(() => null);
+          const streamAlreadyMissing =
+            streamResponse.status === 404 ||
+            (streamPayload &&
+              typeof streamPayload === "object" &&
+              "errors" in streamPayload &&
+              Array.isArray(streamPayload.errors) &&
+              streamPayload.errors.some(
+                (item) =>
+                  item &&
+                  typeof item === "object" &&
+                  "code" in item &&
+                  item.code === 10009,
+              ));
+          if (!streamResponse.ok && !streamAlreadyMissing) {
+            req.log.warn(
+              { status: streamResponse.status },
+              "Cloudflare could not delete a live replay; continuing database cleanup",
+            );
+          }
+        } catch (cause) {
+          req.log.warn(
+            { cause },
+            "Cloudflare replay cleanup failed; continuing database cleanup",
+          );
+        }
       }
     }
 
-    const sourcePath = String(replay.source_path);
-    const storageResponse = await fetch(
-      `${config.url}/storage/v1/object/${storageBucket}/${sourcePath
-        .split("/")
-        .map(encodeURIComponent)
-        .join("/")}`,
-      {
-        method: "DELETE",
-        headers: {
-          apikey: config.serviceRoleKey,
-          Authorization: `Bearer ${config.serviceRoleKey}`,
-        },
-        signal: AbortSignal.timeout(20_000),
-      },
-    );
-    if (!storageResponse.ok && storageResponse.status !== 404) {
-      req.log.error(
-        { status: storageResponse.status },
-        "Could not delete the live replay source file",
+    const storageObjects = getLiveReplayStorageObjects({
+      ownerId: userId,
+      storageBucket: replay.storage_bucket,
+      sourcePath: replay.source_path,
+      streamId: replay.stream_id,
+    });
+    const normalizedSourcePath =
+      typeof replay.source_path === "string"
+        ? replay.source_path.trim().replace(/^\/+/, "")
+        : "";
+    if (
+      !storageObjects.some(
+        (object) =>
+          object.path === normalizedSourcePath ||
+          `${object.bucket}/${object.path}` === normalizedSourcePath,
+      )
+    ) {
+      req.log.warn(
+        "Live replay source path is detached or invalid; skipping object cleanup",
       );
-      res.status(502).json({ error: "The replay source could not be deleted yet. Please retry." });
-      return;
+    }
+    for (const object of storageObjects) {
+      try {
+        const storageResponse = await fetch(
+          `${config.url}/storage/v1/object/${object.bucket}/${object.path
+            .split("/")
+            .map(encodeURIComponent)
+            .join("/")}`,
+          {
+            method: "DELETE",
+            headers: {
+              apikey: config.serviceRoleKey,
+              Authorization: `Bearer ${config.serviceRoleKey}`,
+            },
+            signal: AbortSignal.timeout(20_000),
+          },
+        );
+        if (!storageResponse.ok && storageResponse.status !== 404) {
+          req.log.warn(
+            { bucket: object.bucket, status: storageResponse.status },
+            "Could not remove a live-replay object; continuing database cleanup",
+          );
+        }
+      } catch (cause) {
+        req.log.warn(
+          { bucket: object.bucket, cause },
+          "Live-replay object cleanup failed; continuing database cleanup",
+        );
+      }
+    }
+
+    const postId = replay.post_id;
+    if (typeof postId === "string" && UUID_PATTERN.test(postId)) {
+      try {
+        const postUrl = new URL(`${config.url}/rest/v1/posts`);
+        postUrl.searchParams.set("id", `eq.${postId}`);
+        postUrl.searchParams.set("user_id", `eq.${userId}`);
+        const postResponse = await fetch(postUrl, {
+          method: "DELETE",
+          headers: { ...serviceHeaders(config), Prefer: "return=minimal" },
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (!postResponse.ok) {
+          req.log.warn(
+            { status: postResponse.status },
+            "Could not remove the live replay's backing post",
+          );
+        }
+      } catch (cause) {
+        req.log.warn({ cause }, "Could not remove the live replay's backing post");
+      }
     }
 
     const deleteUrl = liveReplaysUrl(config);

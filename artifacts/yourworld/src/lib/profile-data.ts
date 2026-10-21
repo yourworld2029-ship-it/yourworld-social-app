@@ -1293,6 +1293,7 @@ function storageObjectFromReference(
   const allowedBuckets = new Set<string>([
     STORAGE_BUCKETS.reels,
     STORAGE_BUCKETS.videos,
+    STORAGE_BUCKETS.liveReplays,
   ]);
   const firstPathSegment = path.split("/")[0];
   if (allowedBuckets.has(firstPathSegment)) {
