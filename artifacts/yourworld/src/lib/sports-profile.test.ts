@@ -439,8 +439,16 @@ test("foreign applicants see International status and passport/visa evidence fie
   );
   assert.doesNotMatch(html, /Village \/ Town/);
   assert.match(html, /Passport Front \/ First Page/);
-  assert.match(html, /Passport Visa \/ Stamp Page/);
-  assert.ok(html.indexOf("Passport Visa / Stamp Page") < html.indexOf(">Sports Introduction<"));
+  assert.match(html, /Travel Visa \/ Official Final List \(Optional\)/);
+  assert.match(
+    html,
+    /Upload Visa\/Stamp if played abroad\. If tournament was in your home country, upload official final entry or selection list with your name\./,
+  );
+  assert.doesNotMatch(html, /Passport Visa \/ Stamp Page 2/);
+  assert.ok(
+    html.indexOf("Travel Visa / Official Final List (Optional)") <
+      html.indexOf(">Sports Introduction<"),
+  );
   assert.ok(html.indexOf(">Sports Introduction<") < html.indexOf(">Save Verification Details<"));
   assert.doesNotMatch(html, /One Tournament Photo/);
   assert.doesNotMatch(html, /INTERNATIONAL PLAYER/);

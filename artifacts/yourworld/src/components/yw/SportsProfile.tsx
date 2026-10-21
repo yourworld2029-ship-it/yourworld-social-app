@@ -2000,8 +2000,8 @@ function SportsVerificationDetailsSection({
                   evidence={details.passportVisaStampPage}
                   kind="passportVisaStampPage"
                   ownerId={ownerId}
-                  label="Passport Visa / Stamp Page 1 (Optional)"
-                  hint="Optional first visa or stamp page."
+                  label="Travel Visa / Official Final List (Optional)"
+                  hint="Upload Visa/Stamp if played abroad. If tournament was in your home country, upload official final entry or selection list with your name."
                   uploading={uploading}
                   progress={uploadingProgress}
                   onPickerActiveChange={onEvidencePickerActiveChange}
@@ -2011,23 +2011,6 @@ function SportsVerificationDetailsSection({
                   onFieldChanged={onFieldChanged}
                   validationError={validationErrorFields.has("passportVisaStampPage")}
                    locked={evidenceLocked("passportVisaStampPage")}
-                />
-                <VerificationEvidenceRow
-                  accept={VERIFICATION_DOCUMENT_ACCEPT}
-                  evidence={details.passportVisaStampPage2}
-                  kind="passportVisaStampPage2"
-                  ownerId={ownerId}
-                  label="Passport Visa / Stamp Page 2 (Optional)"
-                  hint="Optional additional visa or stamp page."
-                  uploading={uploading}
-                  progress={uploadingProgress}
-                  onPickerActiveChange={onEvidencePickerActiveChange}
-                  onUpload={onUploadEvidence}
-                  onDelete={onDeleteEvidence}
-                  onPreview={onPreviewEvidence}
-                  onFieldChanged={onFieldChanged}
-                  validationError={validationErrorFields.has("passportVisaStampPage2")}
-                  locked={evidenceLocked("passportVisaStampPage2")}
                 />
               </>
             ) : null}
