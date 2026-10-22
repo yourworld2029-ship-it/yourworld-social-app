@@ -12,6 +12,7 @@ import {
   getStorageResumableUploadEndpoint,
   RESUMABLE_UPLOAD_CHUNK_SIZE,
   TUS_RETRY_DELAYS,
+  WEAK_NETWORK_TUS_CHUNK_SIZE,
 } from "@/lib/storage-upload-tus-utils";
 
 export type TusUploadProgress = UploadRequestProgress;
@@ -25,6 +26,7 @@ export async function uploadLargeStorageObjectWithTus(options: {
   onProgress?: TusUploadProgress;
   reportByteProgress?: boolean;
   signal?: AbortSignal;
+  getChunkSize?: () => number;
 }): Promise<{ error: string | null }> {
   const projectUrl = import.meta.env["VITE_SUPABASE_URL"];
   const publishableKey = import.meta.env["VITE_SUPABASE_PUBLISHABLE_KEY"];
@@ -54,6 +56,7 @@ export async function uploadLargeStorageObjectWithTus(options: {
     let settled = false;
     let uploadUrlWasCreated = false;
     let retryAttempt = 0;
+    let useMicroChunks = false;
     let lastPercent = 0;
     let lastByteProgress: UploadByteProgress | null | undefined =
       options.reportByteProgress ? null : undefined;
@@ -90,6 +93,7 @@ export async function uploadLargeStorageObjectWithTus(options: {
         finish(readableUploadError(error));
         return;
       }
+      useMicroChunks = true;
       const delay = getTusRetryDelayMs(retryAttempt++);
       reportProgress(lastPercent, "Connection interrupted; resuming upload.", lastByteProgress);
       retryTimer = setTimeout(() => {
@@ -106,7 +110,9 @@ export async function uploadLargeStorageObjectWithTus(options: {
       }
       const upload = new Upload(options.file, {
         endpoint,
-        chunkSize: RESUMABLE_UPLOAD_CHUNK_SIZE,
+        chunkSize: useMicroChunks
+          ? WEAK_NETWORK_TUS_CHUNK_SIZE
+          : options.getChunkSize?.() ?? RESUMABLE_UPLOAD_CHUNK_SIZE,
         retryDelays: TUS_RETRY_DELAYS,
         uploadDataDuringCreation: true,
         urlStorage: tusClient.defaultOptions.urlStorage,

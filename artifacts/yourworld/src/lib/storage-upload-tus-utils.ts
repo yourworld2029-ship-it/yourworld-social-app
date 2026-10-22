@@ -6,7 +6,36 @@ import type {
 export const RESUMABLE_UPLOAD_CHUNK_SIZE = 3 * 1024 * 1024;
 export const RESUMABLE_UPLOAD_THRESHOLD = 6 * 1024 * 1024;
 export const CLOUDFLARE_TUS_CHUNK_SIZE = 3 * 1024 * 1024;
+export const WEAK_NETWORK_TUS_CHUNK_SIZE = 1 * 1024 * 1024;
 export const TUS_RETRY_DELAYS = [0, 1000, 3000, 5000, 10000];
+
+export function shouldUseMicroTusChunks(network: {
+  networkQuality?: string | null;
+  effectiveType?: string | null;
+  downlinkMbps?: number | null;
+  rttMs?: number | null;
+  saveData?: boolean;
+}) {
+  const effectiveType = network.effectiveType?.toLowerCase();
+  const downlink = Number(network.downlinkMbps);
+  const rtt = Number(network.rttMs);
+  return (
+    network.networkQuality === "weak" ||
+    network.networkQuality === "offline" ||
+    network.saveData === true ||
+    effectiveType === "slow-2g" ||
+    effectiveType === "2g" ||
+    effectiveType === "3g" ||
+    (Number.isFinite(downlink) && downlink > 0 && downlink <= 1.5) ||
+    (Number.isFinite(rtt) && rtt >= 450)
+  );
+}
+
+export function getTusChunkSize(network: Parameters<typeof shouldUseMicroTusChunks>[0]) {
+  return shouldUseMicroTusChunks(network)
+    ? WEAK_NETWORK_TUS_CHUNK_SIZE
+    : RESUMABLE_UPLOAD_CHUNK_SIZE;
+}
 
 export function createTusFileFingerprint(
   namespace: string,
@@ -147,8 +176,11 @@ export function createTusProgressReporter(
   return report;
 }
 
-export function shouldUseResumableStorageUpload(fileSize: number) {
-  return Number.isSafeInteger(fileSize) && fileSize > RESUMABLE_UPLOAD_THRESHOLD;
+export function shouldUseResumableStorageUpload(fileSize: number, useMicroChunks = false) {
+  const threshold = useMicroChunks
+    ? WEAK_NETWORK_TUS_CHUNK_SIZE
+    : RESUMABLE_UPLOAD_THRESHOLD;
+  return Number.isSafeInteger(fileSize) && fileSize > threshold;
 }
 
 export function getStorageResumableUploadEndpoint(projectUrl: string) {

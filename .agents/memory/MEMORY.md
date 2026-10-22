@@ -68,7 +68,7 @@
 - [Android capture protection](android-capture-protection.md) — shared chat protection applies FLAG_SECURE to both participants' active Android chat windows; external-camera capture cannot be blocked.
 - [Foreground chat push routing](foreground-chat-push-routing.md) — suppress Android message notifications only for the exact conversation currently open, not every foreground app screen.
 - [Managed Realtime table ownership](realtime-system-table-ownership.md) — do not alter Supabase-managed Realtime tables or publication through the project migration connection.
-- [Supabase media upload transport](direct-supabase-uploads.md) — use sequential resumable TUS; Android's foreground guard supports backgrounding, not force-stop recovery.
+- [Supabase media upload transport](direct-supabase-uploads.md) — use sequential resumable TUS, dropping to 1 MiB chunks on weak links; Android's guard cannot recover force-stopped transfers.
 - [Cloudflare Stream media](cloudflare-stream-downloads.md) — preserve playback/download rules and the stored Stream UID needed for authentic thumbnails.
 - [Native media API routing](native-media-api-routing.md) — packaged WebView requests need the hosted origin; TUS responses must expose the continuation and media-ID headers.
 - [Long-video upload limits](android-video-fallback.md) — align client/API to the verified 2 GB Videos cap; preserve original TUS fallback and keep Reels at its separate 512 MiB cap.

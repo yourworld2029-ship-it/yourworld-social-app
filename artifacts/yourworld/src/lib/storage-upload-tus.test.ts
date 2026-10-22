@@ -4,6 +4,7 @@ import {
   createTusFileFingerprint,
   getStorageResumableUploadEndpoint,
   CLOUDFLARE_TUS_CHUNK_SIZE,
+  getTusChunkSize,
   getTusRetryDelayMs,
   isRetryableTusError,
   RESUMABLE_UPLOAD_CHUNK_SIZE,
@@ -11,8 +12,10 @@ import {
   TUS_RETRY_DELAYS,
   canFallbackAfterCloudflareTusFailure,
   createTusProgressReporter,
+  shouldUseMicroTusChunks,
   shouldUseStoragePlaybackFallback,
   shouldUseResumableStorageUpload,
+  WEAK_NETWORK_TUS_CHUNK_SIZE,
 } from "./storage-upload-tus-utils";
 
 test("large uploads use the documented resumable chunk size threshold", () => {
@@ -28,6 +31,35 @@ test("TUS uploads use 3 MiB chunks and the configured transient retry schedule",
   assert.equal(getTusRetryDelayMs(0), 1_000);
   assert.equal(getTusRetryDelayMs(4), 16_000);
   assert.equal(getTusRetryDelayMs(20), 60_000);
+  assert.equal(getTusRetryDelayMs(10_000), 60_000);
+});
+
+test("weak 4G and slower links use 1 MiB resumable chunks", () => {
+  const weak4g = {
+    networkQuality: "normal",
+    effectiveType: "4g",
+    downlinkMbps: 1.2,
+    rttMs: 220,
+  };
+  assert.equal(shouldUseMicroTusChunks(weak4g), true);
+  assert.equal(getTusChunkSize(weak4g), WEAK_NETWORK_TUS_CHUNK_SIZE);
+  assert.equal(shouldUseMicroTusChunks({
+    networkQuality: "normal",
+    effectiveType: "4g",
+    downlinkMbps: 8,
+    rttMs: 80,
+  }), false);
+  assert.equal(getTusChunkSize({ networkQuality: "weak" }), WEAK_NETWORK_TUS_CHUNK_SIZE);
+  assert.equal(getTusChunkSize({ networkQuality: "normal" }), RESUMABLE_UPLOAD_CHUNK_SIZE);
+});
+
+test("weak connections use resumable storage for files above one micro-chunk", () => {
+  assert.equal(shouldUseResumableStorageUpload(WEAK_NETWORK_TUS_CHUNK_SIZE, true), false);
+  assert.equal(shouldUseResumableStorageUpload(WEAK_NETWORK_TUS_CHUNK_SIZE + 1, true), true);
+  assert.equal(
+    shouldUseResumableStorageUpload(WEAK_NETWORK_TUS_CHUNK_SIZE + 1),
+    false,
+  );
 });
 
 test("TUS fingerprints include filename, size, and last-modified time", () => {

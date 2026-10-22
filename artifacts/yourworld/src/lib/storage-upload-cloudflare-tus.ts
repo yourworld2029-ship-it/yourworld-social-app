@@ -13,6 +13,7 @@ import {
   getTusRetryDelayMs,
   isRetryableTusError,
   TUS_RETRY_DELAYS,
+  WEAK_NETWORK_TUS_CHUNK_SIZE,
 } from "@/lib/storage-upload-tus-utils";
 
 const CLOUDFLARE_TUS_ENDPOINT = "/api/media/cloudflare-tus-upload";
@@ -27,6 +28,7 @@ export async function uploadCloudflareStreamWithTus(options: {
   onProgress?: UploadRequestProgress;
   reportByteProgress?: boolean;
   signal?: AbortSignal;
+  getChunkSize?: () => number;
 }): Promise<{
   streamUid: string | null;
   error: string | null;
@@ -68,6 +70,7 @@ export async function uploadCloudflareStreamWithTus(options: {
     let uploadUrlWasCreated = false;
     let streamUid: string | null = null;
     let retryAttempt = 0;
+    let useMicroChunks = false;
     let lastPercent = 0;
     let lastByteProgress: UploadByteProgress | null | undefined =
       options.reportByteProgress ? null : undefined;
@@ -111,6 +114,7 @@ export async function uploadCloudflareStreamWithTus(options: {
         );
         return;
       }
+      useMicroChunks = true;
       const delay = getTusRetryDelayMs(retryAttempt++);
       reportProgress(lastPercent, "Connection interrupted; resuming upload.", lastByteProgress);
       retryTimer = setTimeout(() => {
@@ -127,7 +131,9 @@ export async function uploadCloudflareStreamWithTus(options: {
       }
       const upload = new Upload(options.file, {
         endpoint,
-        chunkSize: CLOUDFLARE_TUS_CHUNK_SIZE,
+        chunkSize: useMicroChunks
+          ? WEAK_NETWORK_TUS_CHUNK_SIZE
+          : options.getChunkSize?.() ?? CLOUDFLARE_TUS_CHUNK_SIZE,
         urlStorage: tusClient.defaultOptions.urlStorage,
         uploadDataDuringCreation: false,
         fingerprint: () =>

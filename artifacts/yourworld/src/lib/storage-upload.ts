@@ -11,8 +11,11 @@ import {
 import { uploadCloudflareStreamWithTus } from "@/lib/storage-upload-cloudflare-tus";
 import { uploadLargeStorageObjectWithTus } from "@/lib/storage-upload-tus";
 import {
+  getTusChunkSize,
+  RESUMABLE_UPLOAD_CHUNK_SIZE,
   shouldUseResumableStorageUpload,
   shouldUseStoragePlaybackFallback,
+  WEAK_NETWORK_TUS_CHUNK_SIZE,
 } from "@/lib/storage-upload-tus-utils";
 
 export type ProgressFn = UploadRequestProgress;
@@ -67,9 +70,14 @@ async function uploadDirect(
   signal?: AbortSignal,
   accessToken?: string,
   reportByteProgress = false,
+  getChunkSize: () => number = () => RESUMABLE_UPLOAD_CHUNK_SIZE,
 ): Promise<{ error: string | null }> {
   if (signal?.aborted) return { error: "Upload cancelled" };
-  if (shouldUseResumableStorageUpload(file.size)) {
+  const initialChunkSize = getChunkSize();
+  if (shouldUseResumableStorageUpload(
+    file.size,
+    initialChunkSize === WEAK_NETWORK_TUS_CHUNK_SIZE,
+  )) {
     const result = await uploadLargeStorageObjectWithTus({
       bucket,
       path,
@@ -79,6 +87,7 @@ async function uploadDirect(
       onProgress,
       reportByteProgress,
       signal,
+      getChunkSize,
     });
     if (result.error) {
       console.error(`Resumable storage upload failed for ${bucket}/${path}: ${result.error}`);
@@ -168,7 +177,8 @@ export async function uploadWithProgress(
     options.cloudflareStream === true &&
     contentType.toLowerCase().startsWith("video/") &&
     (bucket === STORAGE_BUCKETS.videos || bucket === STORAGE_BUCKETS.reels);
-  if (getAdaptivePerformanceSnapshot().networkQuality === "offline") {
+  const networkSnapshot = getAdaptivePerformanceSnapshot();
+  if (networkSnapshot.networkQuality === "offline") {
     const error = "You appear to be offline. Reconnect and try again.";
     console.error(`Direct storage upload failed for ${bucket}/${path}: ${error}`);
     return { url: null, storagePath: null, error };
@@ -191,6 +201,7 @@ export async function uploadWithProgress(
 
   let upload: { error: string | null };
   try {
+    const getChunkSize = () => getTusChunkSize(getAdaptivePerformanceSnapshot());
     const sourceProgress = needsCloudflareStream && onProgress
       ? (percent: number, detail?: string, byteProgress?: UploadByteProgress | null) =>
           onProgress(Math.round(percent * 0.45), detail, byteProgress)
@@ -205,6 +216,7 @@ export async function uploadWithProgress(
       options.signal,
       token,
       options.reportByteProgress,
+      getChunkSize,
     );
   } catch (error) {
     const message = readableUploadError(error);
@@ -313,6 +325,7 @@ export async function uploadWithProgress(
         ),
       reportByteProgress,
       signal: options.signal,
+      getChunkSize: () => getTusChunkSize(getAdaptivePerformanceSnapshot()),
     });
     if (options.signal?.aborted) {
       await removeCanceledStorageObjects(bucket, [path, finalPath]);
