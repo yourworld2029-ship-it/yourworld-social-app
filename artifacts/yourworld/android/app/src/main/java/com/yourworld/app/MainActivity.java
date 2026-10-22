@@ -31,6 +31,9 @@ public class MainActivity extends BridgeActivity {
     private volatile int pipAspectRatioWidth = 16;
     private volatile int pipAspectRatioHeight = 9;
     private volatile boolean videoFullscreenImmersive;
+    private volatile boolean videoWatchTopEdgeToEdge;
+    private boolean savedStatusBarContrastEnforced;
+    private boolean hasSavedStatusBarContrastEnforced;
     private int videoFullscreenOriginalCutoutMode;
 
     @Override
@@ -63,9 +66,7 @@ public class MainActivity extends BridgeActivity {
 
         WebView webView = getBridge() != null ? getBridge().getWebView() : null;
         if (webView != null) {
-            if (requiresManualSystemInsets()) {
-                applyWebViewInsets(webView);
-            }
+            applyWebViewInsets(webView);
             webView.getSettings().setCacheMode(WebSettings.LOAD_DEFAULT);
             webView.getSettings().setDomStorageEnabled(true);
         }
@@ -208,6 +209,36 @@ public class MainActivity extends BridgeActivity {
         requestVideoFullscreenInsets();
     }
 
+    public void setVideoWatchTopEdgeToEdge(boolean enabled) {
+        videoWatchTopEdgeToEdge = enabled;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            if (enabled) {
+                if (!hasSavedStatusBarContrastEnforced) {
+                    savedStatusBarContrastEnforced =
+                            getWindow().isStatusBarContrastEnforced();
+                    hasSavedStatusBarContrastEnforced = true;
+                }
+                getWindow().setStatusBarContrastEnforced(false);
+            } else if (hasSavedStatusBarContrastEnforced) {
+                getWindow().setStatusBarContrastEnforced(savedStatusBarContrastEnforced);
+                hasSavedStatusBarContrastEnforced = false;
+            }
+        }
+
+        getWindow().setStatusBarColor(enabled ? Color.TRANSPARENT : Color.BLACK);
+        WindowInsetsControllerCompat controller = new WindowInsetsControllerCompat(
+                getWindow(),
+                getWindow().getDecorView()
+        );
+        controller.setAppearanceLightStatusBars(false);
+        if (enabled && !videoFullscreenImmersive) {
+            controller.show(WindowInsetsCompat.Type.statusBars());
+        }
+
+        configureRootSystemInsets();
+        requestVideoFullscreenInsets();
+    }
+
     private void applyVideoFullscreenImmersiveMode() {
         if (!videoFullscreenImmersive) return;
         WindowInsetsControllerCompat controller = new WindowInsetsControllerCompat(
@@ -340,9 +371,11 @@ public class MainActivity extends BridgeActivity {
             ViewGroup contentGroup = (ViewGroup) content;
             if (contentGroup.getChildCount() > 0) {
                 View appRoot = contentGroup.getChildAt(0);
-                // Let the native root reserve system-bar space on older Android.
-                // Android 15+ uses explicit WebView insets to handle enforced edge-to-edge.
-                appRoot.setFitsSystemWindows(!requiresManualSystemInsets());
+                // The watch player draws behind the status bar; other screens retain
+                // their normal native insets.
+                appRoot.setFitsSystemWindows(
+                        !videoWatchTopEdgeToEdge && !requiresManualSystemInsets()
+                );
             }
         }
     }
@@ -354,6 +387,11 @@ public class MainActivity extends BridgeActivity {
         final int initialBottom = webView.getPaddingBottom();
 
         ViewCompat.setOnApplyWindowInsetsListener(webView, (view, windowInsets) -> {
+            if (!requiresManualSystemInsets() && !videoWatchTopEdgeToEdge) {
+                view.setPadding(initialLeft, initialTop, initialRight, initialBottom);
+                return windowInsets;
+            }
+
             Insets safeInsets = videoFullscreenImmersive
                     ? Insets.NONE
                     : windowInsets.getInsets(
@@ -361,6 +399,14 @@ public class MainActivity extends BridgeActivity {
                                     | WindowInsetsCompat.Type.navigationBars()
                                     | WindowInsetsCompat.Type.displayCutout()
                     );
+            if (videoWatchTopEdgeToEdge && !videoFullscreenImmersive) {
+                safeInsets = Insets.of(
+                        safeInsets.left,
+                        0,
+                        safeInsets.right,
+                        safeInsets.bottom
+                );
+            }
             // Keep WebView content clear of native status, navigation, and display-cutout areas.
             view.setPadding(
                     initialLeft + safeInsets.left,

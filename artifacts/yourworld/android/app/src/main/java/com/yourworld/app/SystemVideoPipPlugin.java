@@ -42,6 +42,22 @@ public class SystemVideoPipPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void setWatchTopEdgeToEdge(PluginCall call) {
+        MainActivity activity = requireMainActivity(call);
+        if (activity == null) return;
+        Boolean enabled = call.getBoolean("enabled");
+        if (enabled == null) {
+            call.reject("A watch-player edge-to-edge enabled state is required.");
+            return;
+        }
+
+        activity.runOnUiThread(() -> {
+            activity.setVideoWatchTopEdgeToEdge(enabled);
+            call.resolve();
+        });
+    }
+
+    @PluginMethod
     public void getMediaVolume(PluginCall call) {
         MainActivity activity = requireMainActivity(call);
         if (activity == null) return;

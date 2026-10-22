@@ -136,6 +136,7 @@ type SystemVideoPipPlugin = {
     aspectRatioHeight: number;
   }): Promise<void>;
   setFullscreenImmersive(options: { enabled: boolean }): Promise<void>;
+  setWatchTopEdgeToEdge(options: { enabled: boolean }): Promise<void>;
   getMediaVolume(): Promise<{ value: number }>;
   setMediaVolume(options: { value: number }): Promise<void>;
 };
@@ -869,6 +870,23 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
 
   const detailVideoId = getDetailVideoId(location.pathname);
   const isLongVideoWatchRoute = detailVideoId !== null;
+  useEffect(() => {
+    if (!isAndroidApp || !isLongVideoWatchRoute) return;
+
+    void systemVideoPip
+      .setWatchTopEdgeToEdge({ enabled: true })
+      .catch((error: unknown) => {
+        console.warn("Could not enable the Android watch-player top overlay.", error);
+      });
+
+    return () => {
+      void systemVideoPip
+        .setWatchTopEdgeToEdge({ enabled: false })
+        .catch((error: unknown) => {
+          console.warn("Could not restore Android system-bar insets.", error);
+        });
+    };
+  }, [isAndroidApp, isLongVideoWatchRoute]);
   const downloadDetailPath = getDownloadDetailPath(location.pathname);
   const isDetailPlayer = Boolean(
     activeVideo &&
