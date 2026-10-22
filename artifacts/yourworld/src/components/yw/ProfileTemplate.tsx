@@ -172,14 +172,30 @@ export function ProfileTemplate({
   const src = mediaSrc;
   const videoItems = useMemo(
     () =>
-      sortPinned(grid).map((post) => ({
-        src: post.thumbnail_url ?? post.cover_image ?? (post.kind === "video" || post.kind === "reel" ? post.media_url : src(post.media_url)),
-        mediaUrl: post.media_url,
-        thumbnail: post.thumbnail_url ?? post.cover_image,
-        type: post.kind === "video" ? "video" : post.media_type,
-        post,
-        ratio: mediaAspect(post),
-      })),
+      sortPinned(grid).map((post) => {
+        const extendedPost = post as DbPost & {
+          thumbnail?: string | null;
+          cover_image_url?: string | null;
+          poster_url?: string | null;
+        };
+        const thumbnail =
+          [
+            post.thumbnail_url,
+            extendedPost.thumbnail,
+            post.cover_image,
+            extendedPost.cover_image_url,
+            extendedPost.poster_url,
+          ].find((value) => typeof value === "string" && value.trim()) ?? null;
+        const isVideo = post.kind === "video" || post.kind === "reel";
+        return {
+          src: thumbnail ?? (isVideo ? post.media_url : src(post.media_url)),
+          mediaUrl: post.media_url,
+          thumbnail,
+          type: post.kind === "video" ? "video" : post.media_type,
+          post,
+          ratio: mediaAspect(post),
+        };
+      }),
     [grid, src],
   );
   const reelItems = useMemo(
@@ -427,7 +443,12 @@ export function ProfileTemplate({
 
         <TabsContent value="videos" className="mt-0">
           {grid.length ? (
-            <MediaGrid onOpen={onOpen} onManage={onManage} items={videoItems} />
+            <MediaGrid
+              onOpen={onOpen}
+              onManage={onManage}
+              items={videoItems}
+              eagerVideoThumbnails
+            />
           ) : mediaLoading ? (
             <ProfileMediaSkeleton />
           ) : (
@@ -656,6 +677,7 @@ export function MediaGrid({
   items,
   onOpen,
   onManage,
+  eagerVideoThumbnails = false,
 }: {
   items: {
     src: string;
@@ -667,12 +689,19 @@ export function MediaGrid({
   }[];
   onOpen?: (post: DbPost) => void;
   onManage?: (post: DbPost) => void;
+  eagerVideoThumbnails?: boolean;
 }) {
   return (
     <ul data-testid="grid-profile-media" className="grid grid-cols-3 gap-1.5 bg-transparent px-3 sm:px-4">
-      {items.map((it, i) => (
+      {items.map((it, i) => {
+        const isVideo =
+          it.post?.kind === "video" ||
+          it.post?.kind === "reel" ||
+          it.type?.startsWith("video");
+        const eagerVideo = eagerVideoThumbnails && isVideo;
+        return (
         <li key={`${it.post?.id ?? it.src}-${i}`} data-testid={`card-profile-media-${it.post?.id ?? i}`} className="media-frame relative overflow-hidden rounded-lg bg-secondary" style={{ aspectRatio: it.ratio ?? 1 }}>
-          {it.post?.kind === "video" || it.post?.kind === "reel" || it.type?.startsWith("video") ? (
+          {isVideo ? (
               <LazyVideoThumbnail
                 thumbnailUrl={it.thumbnail ?? it.post?.thumbnail_url}
                 mediaUrl={canReadPublicVideoPreview(it.post) ? it.mediaUrl ?? it.post?.media_url ?? it.src : undefined}
@@ -680,7 +709,12 @@ export function MediaGrid({
                 alt={it.post?.caption ?? "Video preview"}
                 showFallbackIcon
                 bucket="thumbnails"
-                className="h-full w-full object-cover"
+                mediaBucket="videos"
+                loading={eagerVideo ? "eager" : "lazy"}
+                fetchPriority={eagerVideo && i < 3 ? "high" : "auto"}
+                resolveFrameMediaSource={eagerVideo}
+                showPlaceholderWhileLoading={eagerVideo}
+                className={`h-full w-full object-cover${eagerVideo ? " bg-gradient-to-br from-zinc-900 via-zinc-800 to-black" : ""}`}
               />
           ) : (
             <LazyVideoThumbnail
@@ -743,7 +777,8 @@ export function MediaGrid({
             </button>
           ) : null}
         </li>
-      ))}
+      );
+      })}
     </ul>
   );
 }

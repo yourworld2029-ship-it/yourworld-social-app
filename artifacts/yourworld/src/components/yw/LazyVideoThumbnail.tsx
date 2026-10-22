@@ -20,6 +20,7 @@ type Props = {
   showPlayFallback?: boolean;
   showFallbackIcon?: boolean;
   bucket?: "reels" | "videos" | "thumbnails";
+  mediaBucket?: "reels" | "videos" | "thumbnails";
   loading?: "lazy" | "eager";
   fetchPriority?: "high" | "low" | "auto";
   onPosterResolved?: (url: string) => void;
@@ -30,6 +31,7 @@ type Props = {
   frameCacheKey?: string;
   frameCaptureTimeSeconds?: number;
   resolveFrameMediaSource?: boolean;
+  showPlaceholderWhileLoading?: boolean;
 };
 
 /** Direct image loading avoids fetch/canvas CORS failures on Android WebViews. */
@@ -39,6 +41,7 @@ export function LazyVideoThumbnail({
   loading = "lazy", fetchPriority = "auto", onPosterResolved, allowFrameCapture = true,
   showFrameStatus = true, preferGeneratedFallback = false, preferVideoFrame = false,
   frameCacheKey, frameCaptureTimeSeconds = 0.1, resolveFrameMediaSource = false,
+  showPlaceholderWhileLoading = false, mediaBucket,
 }: Props) {
   const [resolved, setResolved] = useState<{ key: string; urls: string[] } | null>(null);
   const [failed, setFailed] = useState<string[]>([]);
@@ -50,7 +53,7 @@ export function LazyVideoThumbnail({
   const containerRef = useRef<HTMLDivElement>(null);
   const posterCacheKey = frameCacheKey || mediaUrl || "";
   const key = `${bucket}:${thumbnailUrl}:${mediaUrl}:${streamId}:${posterCacheKey}`;
-  const frameMediaKey = `${bucket}:${mediaUrl}`;
+  const frameMediaKey = `${mediaBucket ?? bucket}:${mediaUrl}`;
   useEffect(() => {
     setFailed([]); setLoaded(null); setResolved(null); setFrameFailed(false);
     if (!thumbnailUrl?.trim()) return;
@@ -104,14 +107,14 @@ export function LazyVideoThumbnail({
         source || (thumbnailUrl?.trim() && resolved?.key !== key) ||
         resolvedFrameMedia?.key === frameMediaKey) return;
     let alive = true;
-    void resolveMediaUrl(mediaUrl, bucket).then((url) => {
+    void resolveMediaUrl(mediaUrl, mediaBucket ?? bucket).then((url) => {
       if (alive) setResolvedFrameMedia({ key: frameMediaKey, url });
     }).catch(() => {
       if (alive) setFrameFailed(true);
     });
     return () => { alive = false; };
   }, [
-    resolveFrameMediaSource, mediaUrl, bucket, inView, allowFrameCapture,
+    resolveFrameMediaSource, mediaUrl, bucket, mediaBucket, inView, allowFrameCapture,
     source, thumbnailUrl, resolved?.key, key, resolvedFrameMedia?.key, frameMediaKey,
   ]);
   useEffect(() => {
@@ -133,6 +136,6 @@ export function LazyVideoThumbnail({
       onLoad={() => setLoaded(source)}
       onError={() => { setFailed((previous) => [...previous, source]); setLoaded(null); }}
       className={cn("absolute inset-0 h-full w-full object-cover", loaded === source ? "opacity-100" : "opacity-0")} /> : null}
-    {showPlayFallback || (showFallbackIcon && !source) ? <span className="pointer-events-none absolute inset-0 grid place-items-center"><span className="grid h-11 w-11 place-items-center rounded-full border border-white/20 bg-black/45 text-white/90"><Play className="ml-0.5 h-5 w-5 fill-current" aria-hidden="true" /></span></span> : null}
+    {showPlayFallback || (showFallbackIcon && (!source || (showPlaceholderWhileLoading && loaded !== source))) ? <span className="pointer-events-none absolute inset-0 grid place-items-center"><span className="grid h-11 w-11 place-items-center rounded-full border border-white/20 bg-black/45 text-white/90"><Play className="ml-0.5 h-5 w-5 fill-current" aria-hidden="true" /></span></span> : null}
   </div>;
 }
