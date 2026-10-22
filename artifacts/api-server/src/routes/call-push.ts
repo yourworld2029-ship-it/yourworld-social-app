@@ -767,6 +767,7 @@ router.post("/messages/push", async (req, res): Promise<void> => {
                 type: "message",
                 messageId: message.id,
                 conversationId: conversation!.id,
+                senderId,
                 peerName,
                 body: "Sent you a message",
                 url: `/chat/${threadId}`,

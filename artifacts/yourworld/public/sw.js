@@ -265,11 +265,15 @@ self.addEventListener("push", (event) => {
         ]
       : [{ action: "open", title: "Open" }],
     data: {
-      type: isCall ? "call" : "message",
+      type: isCall ? "call" : merged.type || "message",
       callId: merged.callId || null,
       mode,
       peerName,
       avatarUrl: merged.avatarUrl || null,
+      senderId: merged.senderId || null,
+      conversationId: merged.conversationId || null,
+      messageId: merged.messageId || null,
+      notificationId: merged.notificationId || null,
       url: merged.url || "/",
     },
   };
@@ -306,23 +310,47 @@ self.addEventListener("notificationclick", (event) => {
   }
   const targetUrl = data.callId
     ? `${self.location.origin}/?${params.toString()}`
-    : data.url || "/";
+    : safeNotificationTarget(data.url || "/");
 
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
       const existing = clients.find((client) => "focus" in client);
       if (existing) {
-        existing.postMessage({
-          type: "call-notification-click",
-          action: action === "decline" ? "decline" : "accept",
-          callId: data.callId || null,
-          mode: data.mode || "audio",
-          peerName: data.peerName || "YourWorld",
-          avatarUrl: data.avatarUrl || null,
+        if (data.callId) {
+          existing.postMessage({
+            type: "call-notification-click",
+            action: action === "decline" ? "decline" : "accept",
+            callId: data.callId,
+            mode: data.mode || "audio",
+            peerName: data.peerName || "YourWorld",
+            avatarUrl: data.avatarUrl || null,
+          });
+          return existing.focus();
+        }
+
+        return existing.navigate(targetUrl).then((client) => client?.focus()).catch(() => {
+          existing.postMessage({
+            type: "app-notification-click",
+            kind: data.type || "message",
+            url: data.url || "/",
+            senderId: data.senderId || null,
+            conversationId: data.conversationId || null,
+            messageId: data.messageId || null,
+          });
+          return existing.focus().then(() => self.clients.openWindow(targetUrl));
         });
-        return existing.focus();
       }
       return self.clients.openWindow(targetUrl);
     }),
   );
 });
+
+function safeNotificationTarget(rawUrl) {
+  try {
+    const target = new URL(rawUrl, self.location.origin);
+    if (target.origin !== self.location.origin) return `${self.location.origin}/`;
+    return target.href;
+  } catch {
+    return `${self.location.origin}/`;
+  }
+}

@@ -32,6 +32,12 @@ public class IncomingCallMessagingService extends FirebaseMessagingService {
     private static final String CAPTURE_CHANNEL_ID = "yourworld-chat-security";
     private static final String EXTRA_MESSAGE_ID = "yw_message_id";
     private static final String EXTRA_CONVERSATION_ID = "yw_conversation_id";
+    private static final String EXTRA_NOTIFICATION_URL = "yw_notification_url";
+    private static final String EXTRA_NOTIFICATION_TYPE = "yw_notification_type";
+    private static final String EXTRA_NOTIFICATION_SENDER_ID = "yw_notification_sender_id";
+    private static final String ACTIVITY_CHANNEL_ID = "yourworld-activity";
+    private static final String MESSAGE_NOTIFICATION_ACTION = "com.yourworld.app.MESSAGE_NOTIFICATION";
+    private static final String APP_NOTIFICATION_ACTION = "com.yourworld.app.APP_NOTIFICATION";
     private static final long WAKE_LOCK_TIMEOUT_MS = 10_000L;
     private static final Pattern UUID_PATTERN = Pattern.compile(
             "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
@@ -48,7 +54,8 @@ public class IncomingCallMessagingService extends FirebaseMessagingService {
             }
             return;
         }
-        if (!"call".equals(type) && !"message".equals(type) && !"capture-alert".equals(type)) return;
+        if (!"call".equals(type) && !"message".equals(type) && !"capture-alert".equals(type)
+                && !isActivityNotificationType(type)) return;
         String conversationId = data.get("conversationId");
         if ("call".equals(type)
                 && MainActivity.isAppForeground()
@@ -84,8 +91,10 @@ public class IncomingCallMessagingService extends FirebaseMessagingService {
                 showIncomingCall(callId, mode, peerName);
             } else if ("message".equals(type)) {
                 showMessage(data);
-            } else {
+            } else if ("capture-alert".equals(type)) {
                 showCaptureAlert(data);
+            } else {
+                showActivityNotification(data);
             }
         } finally {
             if (wakeLock != null && wakeLock.isHeld()) {
@@ -167,10 +176,12 @@ public class IncomingCallMessagingService extends FirebaseMessagingService {
         String body = safeText(data.get("body"), "Sent you a message", 120);
 
         Intent openIntent = new Intent(this, MainActivity.class);
-        openIntent.setAction("com.yourworld.app.MESSAGE_NOTIFICATION");
+        openIntent.setAction(MESSAGE_NOTIFICATION_ACTION);
         openIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         openIntent.putExtra(EXTRA_MESSAGE_ID, messageId);
         openIntent.putExtra(EXTRA_CONVERSATION_ID, conversationId);
+        openIntent.putExtra(EXTRA_NOTIFICATION_URL, safeText(data.get("url"), "", 512));
+        openIntent.putExtra(EXTRA_NOTIFICATION_SENDER_ID, safeText(data.get("senderId"), "", 80));
         PendingIntent openPendingIntent = PendingIntent.getActivity(
                 this,
                 messageId.hashCode(),
@@ -193,6 +204,57 @@ public class IncomingCallMessagingService extends FirebaseMessagingService {
         NotificationManager manager = getSystemService(NotificationManager.class);
         if (manager != null) {
             manager.notify("yourworld-message-" + messageId, messageId.hashCode(), notification.build());
+        }
+    }
+
+    private boolean isActivityNotificationType(String type) {
+        return "like".equals(type)
+                || "comment".equals(type)
+                || "follow".equals(type)
+                || "follower".equals(type)
+                || "mention".equals(type)
+                || "profile".equals(type);
+    }
+
+    private void showActivityNotification(Map<String, String> data) {
+        String type = data.get("type");
+        if (!isActivityNotificationType(type)) return;
+        String url = safeText(data.get("url"), "/notifications", 512);
+        String notificationId = safeText(
+                data.get("notificationId"),
+                safeText(data.get("entityId"), String.valueOf(System.currentTimeMillis()), 100),
+                100
+        );
+        String title = safeText(data.get("title"), "YourWorld", 100);
+        String body = safeText(data.get("body"), "You have a new notification.", 160);
+
+        Intent openIntent = new Intent(this, MainActivity.class);
+        openIntent.setAction(APP_NOTIFICATION_ACTION);
+        openIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        openIntent.putExtra(EXTRA_NOTIFICATION_URL, url);
+        openIntent.putExtra(EXTRA_NOTIFICATION_TYPE, type);
+        PendingIntent openPendingIntent = PendingIntent.getActivity(
+                this,
+                notificationId.hashCode() ^ 0x5E71,
+                openIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+
+        ensureActivityChannel();
+        NotificationCompat.Builder notification = new NotificationCompat.Builder(this, ACTIVITY_CHANNEL_ID)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setContentTitle(title)
+                .setContentText(body)
+                .setContentIntent(openPendingIntent)
+                .setCategory(NotificationCompat.CATEGORY_SOCIAL)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+                .setAutoCancel(true)
+                .setOnlyAlertOnce(false);
+
+        NotificationManager manager = getSystemService(NotificationManager.class);
+        if (manager != null) {
+            manager.notify("yourworld-activity-" + notificationId, notificationId.hashCode(), notification.build());
         }
     }
 
@@ -305,6 +367,28 @@ public class IncomingCallMessagingService extends FirebaseMessagingService {
                 NotificationManager.IMPORTANCE_HIGH
         );
         channel.setDescription("Alerts when Android reports a screenshot or screen recording in a protected chat.");
+        channel.enableVibration(true);
+        channel.setVibrationPattern(new long[] { 0, 250, 150, 250 });
+        Uri notificationSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+        AudioAttributes audioAttributes = new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build();
+        channel.setSound(notificationSound, audioAttributes);
+        manager.createNotificationChannel(channel);
+    }
+
+    private void ensureActivityChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+        NotificationManager manager = getSystemService(NotificationManager.class);
+        if (manager == null || manager.getNotificationChannel(ACTIVITY_CHANNEL_ID) != null) return;
+
+        NotificationChannel channel = new NotificationChannel(
+                ACTIVITY_CHANNEL_ID,
+                "Activity",
+                NotificationManager.IMPORTANCE_HIGH
+        );
+        channel.setDescription("Likes, comments, follows, and other YourWorld activity.");
         channel.enableVibration(true);
         channel.setVibrationPattern(new long[] { 0, 250, 150, 250 });
         Uri notificationSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);

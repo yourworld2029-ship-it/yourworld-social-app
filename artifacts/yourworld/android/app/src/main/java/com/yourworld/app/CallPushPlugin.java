@@ -32,12 +32,20 @@ public class CallPushPlugin extends Plugin {
     private static final String EXTRA_CALL_ACTION = "yw_call_action";
     private static final String EXTRA_CALL_MODE = "yw_call_mode";
     private static final String EXTRA_PEER_NAME = "yw_peer_name";
+    private static final String EXTRA_NOTIFICATION_URL = "yw_notification_url";
+    private static final String EXTRA_NOTIFICATION_TYPE = "yw_notification_type";
+    private static final String EXTRA_NOTIFICATION_SENDER_ID = "yw_notification_sender_id";
+    private static final String EXTRA_CONVERSATION_ID = "yw_conversation_id";
+    private static final String EXTRA_MESSAGE_ID = "yw_message_id";
+    private static final String MESSAGE_NOTIFICATION_ACTION = "com.yourworld.app.MESSAGE_NOTIFICATION";
+    private static final String APP_NOTIFICATION_ACTION = "com.yourworld.app.APP_NOTIFICATION";
     private static final Pattern UUID_PATTERN = Pattern.compile(
             "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
     );
 
     private static volatile CallPushPlugin activePlugin;
     private static JSObject pendingAction;
+    private static JSObject pendingNotificationAction;
     private static volatile String activeConversationId;
 
     @Override
@@ -103,6 +111,16 @@ public class CallPushPlugin extends Plugin {
         synchronized (CallPushPlugin.class) {
             result.put("action", pendingAction);
             pendingAction = null;
+        }
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void consumePendingNotificationAction(PluginCall call) {
+        JSObject result = new JSObject();
+        synchronized (CallPushPlugin.class) {
+            result.put("action", pendingNotificationAction);
+            pendingNotificationAction = null;
         }
         call.resolve(result);
     }
@@ -181,5 +199,39 @@ public class CallPushPlugin extends Plugin {
         if (plugin != null) {
             plugin.notifyListeners("callAction", event);
         }
+    }
+
+    static void captureAppNotificationAction(Intent intent) {
+        if (intent == null) return;
+        String intentAction = intent.getAction();
+        String kind = MESSAGE_NOTIFICATION_ACTION.equals(intentAction)
+                ? "message"
+                : APP_NOTIFICATION_ACTION.equals(intentAction)
+                        ? intent.getStringExtra(EXTRA_NOTIFICATION_TYPE)
+                        : null;
+        if (kind == null) return;
+
+        String url = intent.getStringExtra(EXTRA_NOTIFICATION_URL);
+        if (url == null || !url.startsWith("/") || url.startsWith("//") || url.length() > 512) return;
+
+        JSObject event = new JSObject();
+        event.put("kind", kind);
+        event.put("url", url);
+        putStringExtra(event, intent, "senderId", EXTRA_NOTIFICATION_SENDER_ID);
+        putStringExtra(event, intent, "conversationId", EXTRA_CONVERSATION_ID);
+        putStringExtra(event, intent, "messageId", EXTRA_MESSAGE_ID);
+
+        CallPushPlugin plugin = activePlugin;
+        synchronized (CallPushPlugin.class) {
+            pendingNotificationAction = event;
+        }
+        if (plugin != null) {
+            plugin.notifyListeners("notificationAction", event);
+        }
+    }
+
+    private static void putStringExtra(JSObject target, Intent intent, String key, String extra) {
+        String value = intent.getStringExtra(extra);
+        if (value != null && !value.isEmpty()) target.put(key, value);
     }
 }

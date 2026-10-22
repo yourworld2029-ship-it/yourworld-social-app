@@ -43,6 +43,14 @@ import { VideoPlaybackProvider } from "@/lib/video-playback";
 import { MediaConcurrencyProvider } from "@/lib/media-concurrency";
 import { APP_SCROLL_RESTORATION_ID } from "@/lib/app-scroll-container";
 import { resolveTabSwipeDestination } from "@/lib/tab-swipe";
+import { resolveNotificationDestination } from "@/lib/notification-routing";
+import {
+  addAndroidNotificationActionListener,
+  consumeAndroidNotificationAction,
+  type AppNotificationAction,
+} from "@/lib/call-push-native";
+import { dmThreadId } from "@/lib/social-data";
+import { supabase } from "@/integrations/supabase/client";
 
 function NotFoundComponent() {
   return (
@@ -237,6 +245,7 @@ function RootComponent() {
     y: number;
     pathname: string;
   } | null>(null);
+  const handledNotificationTap = useRef<{ key: string; at: number } | null>(null);
   const handleTabSwipeStart = useCallback(
     (event: ReactTouchEvent<HTMLDivElement>) => {
       const touch = event.touches[0];
@@ -357,6 +366,111 @@ function RootComponent() {
     return () => {
       disposed = true;
       void removeListener?.();
+    };
+  }, [navigate]);
+
+  useEffect(() => {
+    const isAndroidNative =
+      Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android";
+    let disposed = false;
+    let removeNativeListener: (() => void) | undefined;
+    const openNotificationDestination = async (action: AppNotificationAction) => {
+      if (!action || typeof action.kind !== "string") return;
+      const key = action.messageId || action.url || action.conversationId || action.kind;
+      const now = Date.now();
+      const last = handledNotificationTap.current;
+      if (last?.key === key && now - last.at < 1800) return;
+      handledNotificationTap.current = { key, at: now };
+
+      let destination = resolveNotificationDestination(action.url);
+      if (!destination && action.kind === "message" && action.senderId) {
+        const { data } = await supabase.auth.getSession();
+        const currentUserId = data.session?.user.id;
+        if (currentUserId && currentUserId !== action.senderId) {
+          destination = {
+            kind: "chat",
+            threadId: dmThreadId(currentUserId, action.senderId),
+          };
+        }
+      }
+      if (disposed || !destination) return;
+
+      switch (destination.kind) {
+        case "chat":
+          void navigate({ to: "/chat/$threadId", params: { threadId: destination.threadId } });
+          break;
+        case "video":
+          void navigate({
+            to: "/video/$videoId",
+            params: { videoId: destination.videoId },
+            search: {
+              focusComments: destination.focusComments,
+              commentId: destination.commentId,
+            },
+          });
+          break;
+        case "reels":
+          void navigate({
+            to: "/reels",
+            search: {
+              initialVideoId: destination.initialVideoId,
+              focusComments: destination.focusComments,
+              commentId: destination.commentId,
+            },
+          });
+          break;
+        case "profile":
+          void navigate({ to: "/u/$userId", params: { userId: destination.userId } });
+          break;
+        case "moment":
+          void navigate({ to: "/moment/$momentId", params: { momentId: destination.momentId } });
+          break;
+        case "notifications":
+          void navigate({ to: "/notifications" });
+          break;
+      }
+    };
+    const onServiceWorkerMessage = (event: MessageEvent) => {
+      const action = event.data;
+      if (action?.type !== "app-notification-click") return;
+      void openNotificationDestination({
+        kind: typeof action.kind === "string" ? action.kind : "message",
+        url: typeof action.url === "string" ? action.url : "/",
+        senderId: typeof action.senderId === "string" ? action.senderId : undefined,
+        conversationId:
+          typeof action.conversationId === "string" ? action.conversationId : undefined,
+        messageId: typeof action.messageId === "string" ? action.messageId : undefined,
+      });
+    };
+    navigator.serviceWorker?.addEventListener("message", onServiceWorkerMessage);
+
+    if (isAndroidNative) {
+      void addAndroidNotificationActionListener((action) => {
+        void consumeAndroidNotificationAction().catch(() => null);
+        void openNotificationDestination(action);
+      }).then((listener) => {
+        if (!listener) return;
+        if (disposed) {
+          void listener.remove();
+        } else {
+          removeNativeListener = () => void listener.remove();
+        }
+      }).catch((error) => {
+        console.error("[notification-routing] native listener registration failed", error);
+      });
+      void consumeAndroidNotificationAction()
+        .then((action) => {
+          if (action) void openNotificationDestination(action);
+        })
+        .catch((error) => {
+          console.error("[notification-routing] pending notification action failed", error);
+        });
+    }
+
+    return () => {
+      disposed = true;
+      removeNativeListener?.();
+      navigator.serviceWorker?.removeEventListener("message", onServiceWorkerMessage);
     };
   }, [navigate]);
 

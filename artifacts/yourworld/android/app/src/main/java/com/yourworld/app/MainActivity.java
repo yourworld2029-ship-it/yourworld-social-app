@@ -50,6 +50,7 @@ public class MainActivity extends BridgeActivity {
 
         prepareForIncomingCall(getIntent());
         CallPushPlugin.captureNotificationAction(getIntent());
+        CallPushPlugin.captureAppNotificationAction(getIntent());
         configureSystemBars();
         configureRootSystemInsets();
 
@@ -94,6 +95,7 @@ public class MainActivity extends BridgeActivity {
         setIntent(intent);
         prepareForIncomingCall(intent);
         CallPushPlugin.captureNotificationAction(intent);
+        CallPushPlugin.captureAppNotificationAction(intent);
     }
 
     @Override

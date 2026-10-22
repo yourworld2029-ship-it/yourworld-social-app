@@ -449,6 +449,7 @@ test("chat message pushes are high priority, generic, and delivered to active An
     type: "message",
     messageId,
     conversationId,
+    senderId: callerId,
     peerName: "Caller display name",
     body: "Sent you a message",
     url: `/chat/dm_${[callerId, receiverId].sort().join("_")}`,
