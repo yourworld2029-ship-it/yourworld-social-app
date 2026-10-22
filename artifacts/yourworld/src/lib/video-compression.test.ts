@@ -60,19 +60,19 @@ test("direct-upload fallback bypasses browser-side video re-encoding", async () 
 
 test("long-video compression selects size tiers and output budgets at exact boundaries", () => {
   assert.deepEqual(getLongVideoCompressionPlan(500_000_000, 300), {
-    tier: "aggressive",
-    targetOutputBytes: 70_000_000,
-    videoBitrate: Math.floor((70_000_000 * 8) / 300 - LONG_VIDEO_AUDIO_BITRATE),
+    tier: "balanced",
+    targetOutputBytes: 250_000_000,
+    videoBitrate: Math.floor((250_000_000 * 8) / 300 - LONG_VIDEO_AUDIO_BITRATE),
   });
   assert.equal(
     getLongVideoCompressionPlan(1_000_000_000, 300).targetOutputBytes,
-    100_000_000,
+    250_000_000,
   );
   assert.deepEqual(
     getLongVideoCompressionPlan(499_999_999, 300).targetOutputBytes,
-    Math.round(499_999_999 * 0.5),
+    250_000_000,
   );
-  assert.equal(getLongVideoCompressionPlan(100_000_000, 300).tier, "balanced");
+  assert.equal(getLongVideoCompressionPlan(100_000_000, 300).tier, "light");
   assert.equal(getLongVideoCompressionPlan(99_999_999, 300).tier, "light");
   assert.equal(MAX_LONG_VIDEO_INPUT_BYTES, 2_000_000_000);
   assert.equal(MAX_LONG_VIDEO_STORAGE_BYTES, 500_000_000);
@@ -83,6 +83,15 @@ test("long-video planning rejects files over the strict 2 GB input limit", () =>
   assert.throws(
     () => getLongVideoCompressionPlan(MAX_LONG_VIDEO_INPUT_BYTES + 1, 300),
     /2 GB or smaller/,
+  );
+});
+
+test("large-video compression keeps at least 2.5 Mbps and rejects impossible output budgets", () => {
+  const plan = getLongVideoCompressionPlan(500_000_000, 850);
+  assert.ok(plan.videoBitrate >= VIDEO_UPLOAD_BITRATE);
+  assert.throws(
+    () => getLongVideoCompressionPlan(500_000_000, 1_000),
+    /too long to fit below 300 MB/,
   );
 });
 

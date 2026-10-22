@@ -9,6 +9,7 @@ const OPTIMIZING_LABEL = "Preparing optimized video...";
 const UPLOAD_MAX_TIER: VideoQualityTier = "1080p";
 export const VIDEO_UPLOAD_BITRATE = 2_500_000;
 const uploadReadyVideoBlobs = new WeakSet<Blob>();
+const optimizedVideoBlobs = new WeakSet<Blob>();
 const LARGE_SOURCE_COMPRESSION_REQUIRED_BYTES = 250 * 1_000_000;
 
 export function markVideoBlobAsUploadReady(blob: Blob) {
@@ -17,6 +18,11 @@ export function markVideoBlobAsUploadReady(blob: Blob) {
 
 export function markVideoBlobAsOptimized(blob: Blob) {
   markVideoBlobAsUploadReady(blob);
+  optimizedVideoBlobs.add(blob);
+}
+
+export function isVideoBlobOptimized(blob: Blob) {
+  return optimizedVideoBlobs.has(blob);
 }
 
 export function isVideoBlobUploadReady(blob: Blob) {
@@ -24,7 +30,7 @@ export function isVideoBlobUploadReady(blob: Blob) {
 }
 
 export function isNativeOptimizedVideo(blob: Blob) {
-  return isVideoBlobUploadReady(blob);
+  return isVideoBlobOptimized(blob);
 }
 
 const RECORDER_MIME_CANDIDATES = [
@@ -479,7 +485,7 @@ export const MAX_LONG_VIDEO_REQUIRED_COMPRESSION_BYTES =
 export const MAX_LONG_VIDEO_LOCAL_COMPRESSION_BYTES = 300 * 1024 * 1024;
 export const MAX_LONG_VIDEO_LOCAL_COMPRESSION_DURATION_SECONDS = 5 * 60;
 export const LONG_VIDEO_AUDIO_BITRATE = 128_000;
-const LONG_VIDEO_MIN_OUTPUT_BITRATE = 48_000;
+const LONG_VIDEO_MIN_OUTPUT_BITRATE = VIDEO_UPLOAD_BITRATE;
 const LONG_VIDEO_MAX_OUTPUT_BITRATE = 24_000_000;
 const LONG_VIDEO_BYTES_PER_MB = 1_000_000;
 const LONG_VIDEO_MP4_RECORDER_MIME_CANDIDATES = [
@@ -516,7 +522,7 @@ export function shouldAttemptLongVideoLocalCompression(
     Number.isFinite(durationSeconds) &&
     durationSeconds > 0;
   if (!validInput) return false;
-  if (force || sourceBytes >= MAX_LONG_VIDEO_STORAGE_BYTES) return true;
+  if (force || sourceBytes >= LARGE_SOURCE_COMPRESSION_REQUIRED_BYTES) return true;
   return (
     sourceBytes <= MAX_LONG_VIDEO_LOCAL_COMPRESSION_BYTES &&
     durationSeconds <= MAX_LONG_VIDEO_LOCAL_COMPRESSION_DURATION_SECONDS
@@ -531,10 +537,20 @@ export function getLongVideoCompressionPlan(
     throw new Error("The selected video file is empty or invalid.");
   }
   if (sourceBytes > MAX_LONG_VIDEO_INPUT_BYTES) {
-    throw new Error("Long videos must be 1 GB or smaller.");
+    throw new Error("Videos must be 2 GB or smaller.");
   }
   if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
     throw new Error("The selected video duration is invalid.");
+  }
+  if (sourceBytes >= LARGE_SOURCE_COMPRESSION_REQUIRED_BYTES) {
+    const minimumOutputBytes =
+      ((VIDEO_UPLOAD_BITRATE + LONG_VIDEO_AUDIO_BITRATE) * durationSeconds) / 8 +
+      8_000_000;
+    if (minimumOutputBytes >= 300_000_000) {
+      throw new Error(
+        "This video is too long to fit below 300 MB at the minimum 2.5 Mbps quality. Trim it and try again.",
+      );
+    }
   }
 
   let tier: LongVideoCompressionTier;
@@ -542,7 +558,7 @@ export function getLongVideoCompressionPlan(
   if (sourceBytes >= LARGE_SOURCE_COMPRESSION_REQUIRED_BYTES) {
     tier = "balanced";
     targetOutputBytes = Math.min(
-      280 * LONG_VIDEO_BYTES_PER_MB,
+      250 * LONG_VIDEO_BYTES_PER_MB,
       Math.max(200 * LONG_VIDEO_BYTES_PER_MB, Math.round(sourceBytes * 0.5)),
     );
   } else if (sourceBytes >= 100 * LONG_VIDEO_BYTES_PER_MB) {
@@ -636,7 +652,7 @@ export async function compressLongVideoByTier(
       width: null,
       height: null,
       tier: null,
-      compressed: source.size > LARGE_SOURCE_COMPRESSION_REQUIRED_BYTES,
+      compressed: isVideoBlobOptimized(source),
     };
   }
 
@@ -724,7 +740,7 @@ export async function compressLongVideoByTier(
       return originalResult();
     }
 
-    markVideoBlobAsUploadReady(encoded);
+    markVideoBlobAsOptimized(encoded);
     options.onProgress?.(100, "Optimized video ready");
     return {
       blob: encoded,

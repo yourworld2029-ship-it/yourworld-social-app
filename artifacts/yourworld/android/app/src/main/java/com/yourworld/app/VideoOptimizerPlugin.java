@@ -73,7 +73,7 @@ public class VideoOptimizerPlugin extends Plugin {
     private static final long MAX_INPUT_BYTES = 2_000_000_000L;
     private static final long COMPRESSION_TRIGGER_BYTES = 250_000_000L;
     private static final int AUDIO_BITRATE = 96_000;
-    private static final int MIN_VIDEO_BITRATE = 64_000;
+    private static final int MIN_VIDEO_BITRATE = 2_500_000;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private PluginCall activeCall;
@@ -244,6 +244,14 @@ public class VideoOptimizerPlugin extends Plugin {
         }
         if (width <= 0 || height <= 0 || durationMs <= 0) {
             throw new IOException("Video dimensions or duration are unavailable.");
+        }
+        long minimumOutputBytes =
+                (durationMs * ((long) MIN_VIDEO_BITRATE + AUDIO_BITRATE) / 8_000L)
+                        + MP4_FRONT_METADATA_RESERVE_BYTES;
+        if (minimumOutputBytes >= 300_000_000L) {
+            throw new IOException(
+                    "This video is too long to fit below 300 MB at the minimum 2.5 Mbps quality. Trim it and try again."
+            );
         }
 
         if (rotation == 90 || rotation == 270) {
@@ -445,6 +453,7 @@ public class VideoOptimizerPlugin extends Plugin {
         response.put("width", width);
         response.put("height", height);
         response.put("durationSeconds", durationMs / 1000d);
+        response.put("compressed", false);
         call.resolve(response);
     }
 
@@ -516,6 +525,7 @@ public class VideoOptimizerPlugin extends Plugin {
         response.put("width", width);
         response.put("height", height);
         response.put("durationSeconds", durationMs / 1000d);
+        response.put("compressed", true);
         call.resolve(response);
     }
 

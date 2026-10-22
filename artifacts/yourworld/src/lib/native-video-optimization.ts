@@ -1,6 +1,9 @@
 import { Capacitor, registerPlugin } from "@capacitor/core";
 import type { PluginListenerHandle } from "@capacitor/core";
-import { markVideoBlobAsUploadReady } from "@/lib/video-compression";
+import {
+  markVideoBlobAsOptimized,
+  markVideoBlobAsUploadReady,
+} from "@/lib/video-compression";
 
 type VideoOptimizerPlugin = {
   pickAndOptimize(): Promise<{
@@ -9,6 +12,7 @@ type VideoOptimizerPlugin = {
     fileName?: string;
     size?: number;
     contentType?: string;
+    compressed?: boolean;
   }>;
   cancel(): Promise<void>;
   deleteOutput(options: { path: string }): Promise<void>;
@@ -50,7 +54,8 @@ export async function pickAndOptimizeNativeVideo(
       type: result.contentType || "video/mp4",
       lastModified: Date.now(),
     });
-    markVideoBlobAsUploadReady(file);
+    if (result.compressed) markVideoBlobAsOptimized(file);
+    else markVideoBlobAsUploadReady(file);
     return file;
   } finally {
     await progressListener?.remove().catch(() => undefined);

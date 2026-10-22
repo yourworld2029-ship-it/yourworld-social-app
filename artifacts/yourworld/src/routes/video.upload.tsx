@@ -30,11 +30,11 @@ import { cacheVideoPoster } from "@/lib/video-prefetch";
 import { generateVideoThumbnail } from "@/lib/video-frames";
 import {
   compressLongVideoByTier,
-  MAX_LONG_VIDEO_LOCAL_COMPRESSION_BYTES,
   MAX_LONG_VIDEO_INPUT_BYTES,
   MAX_LONG_VIDEO_REQUIRED_COMPRESSION_BYTES,
   MAX_LONG_VIDEO_STORAGE_BYTES,
   isVideoBlobUploadReady,
+  isNativeOptimizedVideo,
   markVideoBlobAsUploadReady,
   type LongVideoCompressionResult,
 } from "@/lib/video-compression";
@@ -167,9 +167,7 @@ function VideoUploadPage() {
         width: null,
         height: null,
         tier: null,
-        compressed:
-          isVideoBlobUploadReady(file) &&
-          file.size > MAX_LONG_VIDEO_REQUIRED_COMPRESSION_BYTES,
+        compressed: isNativeOptimizedVideo(file),
       };
       compressionResultRef.current = original;
       compressionPromiseRef.current = Promise.resolve(original);
@@ -180,10 +178,7 @@ function VideoUploadPage() {
     }
     const controller = new AbortController();
     compressionAbortRef.current = controller;
-    setCompressionPending(
-      file.size > MAX_LONG_VIDEO_REQUIRED_COMPRESSION_BYTES ||
-        file.size <= MAX_LONG_VIDEO_LOCAL_COMPRESSION_BYTES,
-    );
+    setCompressionPending(true);
     const compressionPromise = compressLongVideoByTier(file, {
       signal: controller.signal,
       onProgress: (percent) => {
@@ -496,7 +491,7 @@ function VideoUploadPage() {
         if (requiresStorageSafeCompression && !finalVideo) {
           const compressionTaskProgress = onProgress;
           compressionTaskProgressRef.current = compressionTaskProgress;
-      onProgress(0, "Optimizing large video before upload", null);
+          onProgress(0, "Optimizing large video before upload", null);
           try {
             finalVideo = await pendingCompression!;
           } finally {
