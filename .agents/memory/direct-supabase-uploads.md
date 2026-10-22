@@ -8,3 +8,9 @@ Use standard Supabase Storage `.upload(path, file, options)` for small media. Fo
 **Why:** The user reported mobile PATCH socket drops with larger chunks and explicitly requested 3 MiB chunks. Sequential TUS plus persistent upload URLs preserves server-offset resume without claiming unsupported parallelism.
 
 **How to apply:** Keep the size-based transport choice in the shared upload helper and keep path-scoped fingerprints that include filename, size, and last-modified time. Resume a stored upload URL rather than creating a new one after interruption. Preserve caller-generated paths because storage ownership rules and post metadata depend on them; only use parallel S3 multipart if a separately authorized server-side credential/configuration path is added.
+
+On Android, the foreground upload service currently provides the ongoing notification and a partial wake lock; the actual TUS transfer still runs in the WebView JavaScript task. This supports normal app backgrounding while that process/task remains alive, but it is not a native transfer worker and cannot guarantee continuation after force-stop or process death.
+
+**Why:** A foreground notification alone does not move the upload bytes or resumable state out of the WebView. Claiming process-death recovery without a persisted file/credential handoff and native resumable worker would be misleading.
+
+**How to apply:** Preserve the foreground service for backgrounded transfers, and describe its boundary accurately. If uploads must survive process death, first design a secure durable handoff that lets a native worker resume the same TUS URL and then reconcile the final post metadata.

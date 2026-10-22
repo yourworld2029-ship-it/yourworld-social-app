@@ -2,7 +2,11 @@ import { Capacitor, registerPlugin } from "@capacitor/core";
 import type { UploadByteProgress } from "@/lib/storage-upload-request";
 
 type NativeUploadResiliencePlugin = {
-  start(options: { uploadId: string; title: string }): Promise<void>;
+  start(options: {
+    uploadId: string;
+    title: string;
+    kind: "video" | "reel" | "moment";
+  }): Promise<void>;
   update(options: {
     uploadId: string;
     progress: number;
@@ -15,7 +19,7 @@ type NativeUploadResiliencePlugin = {
   complete(options: { uploadId: string }): Promise<void>;
 };
 
-export type NativeVideoUploadGuard = {
+export type NativeMediaUploadGuard = {
   update(
     progress: number,
     detail?: string,
@@ -28,16 +32,24 @@ export type NativeVideoUploadGuard = {
 const NativeUploadResilience =
   registerPlugin<NativeUploadResiliencePlugin>("UploadResilience");
 
-export async function startNativeVideoUploadGuard(
+export function shouldUseNativeUploadGuard(
+  kind: string,
+  isVideo = false,
+) {
+  return kind === "video" || kind === "reel" || kind === "moment" || isVideo;
+}
+
+export async function startNativeMediaUploadGuard(
   uploadId: string,
   title: string,
-): Promise<NativeVideoUploadGuard | null> {
+  kind: "video" | "reel" | "moment",
+): Promise<NativeMediaUploadGuard | null> {
   if (typeof window === "undefined" || Capacitor.getPlatform() !== "android") {
     return null;
   }
 
   try {
-    await NativeUploadResilience.start({ uploadId, title });
+    await NativeUploadResilience.start({ uploadId, title, kind });
   } catch (error) {
     console.error("Android upload foreground protection could not start", error);
     throw new Error("Android could not start the required upload notification. Try again.", {

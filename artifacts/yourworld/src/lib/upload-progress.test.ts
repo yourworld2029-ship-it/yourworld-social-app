@@ -9,6 +9,7 @@ import {
   selectVisibleUploadTask,
   type UploadTask,
 } from "./upload-progress";
+import { shouldUseNativeUploadGuard } from "./upload-background";
 
 function videoTask(overrides: Partial<UploadTask> = {}): UploadTask {
   return {
@@ -100,4 +101,12 @@ test("upload task patches create a new list only when a value changes", () => {
   assert.notEqual(updated, tasks);
   assert.equal(updated[0]?.progress, 72);
   assert.equal(tasks[0]?.progress, 10);
+});
+
+test("native background upload guard covers videos, reels, and moments", () => {
+  assert.equal(shouldUseNativeUploadGuard("video"), true);
+  assert.equal(shouldUseNativeUploadGuard("reel"), true);
+  assert.equal(shouldUseNativeUploadGuard("moment"), true);
+  assert.equal(shouldUseNativeUploadGuard("post"), false);
+  assert.equal(shouldUseNativeUploadGuard("post", true), true);
 });

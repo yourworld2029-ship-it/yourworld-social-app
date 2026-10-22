@@ -22,7 +22,8 @@ public class UploadResiliencePlugin extends Plugin {
         Intent intent = new Intent(getContext(), UploadForegroundService.class)
                 .setAction(UploadForegroundService.ACTION_START)
                 .putExtra(UploadForegroundService.EXTRA_UPLOAD_ID, uploadId)
-                .putExtra(UploadForegroundService.EXTRA_TITLE, call.getString("title", "Long video"));
+                .putExtra(UploadForegroundService.EXTRA_TITLE, call.getString("title", "Media upload"))
+                .putExtra(UploadForegroundService.EXTRA_KIND, call.getString("kind", "video"));
         try {
             ContextCompat.startForegroundService(getContext(), intent);
             call.resolve();

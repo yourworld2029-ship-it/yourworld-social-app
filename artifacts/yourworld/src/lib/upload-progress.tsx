@@ -13,8 +13,9 @@ import { CheckCircle2, AlertCircle, X, Loader2, UploadCloud, RefreshCw } from "l
 import type { ProgressFn } from "@/lib/storage-upload";
 import type { UploadByteProgress } from "@/lib/storage-upload-request";
 import {
-  startNativeVideoUploadGuard,
-  type NativeVideoUploadGuard,
+  shouldUseNativeUploadGuard,
+  startNativeMediaUploadGuard,
+  type NativeMediaUploadGuard,
 } from "@/lib/upload-background";
 import {
   acquireMediaUploadLock,
@@ -325,7 +326,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         patch(id, runState);
 
         let result: UploadRunResult = { error: null };
-        let nativeGuard: NativeVideoUploadGuard | null = null;
+        let nativeGuard: NativeMediaUploadGuard | null = null;
         let lastProgressAt = 0;
         let progressTimer: ReturnType<typeof setTimeout> | null = null;
         let pendingProgress: {
@@ -355,8 +356,14 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           });
         };
         try {
-          if (meta.kind === "video" || meta.isVideo) {
-            nativeGuard = await startNativeVideoUploadGuard(id, meta.label);
+          if (shouldUseNativeUploadGuard(meta.kind, meta.isVideo)) {
+            const uploadKind =
+              meta.kind === "post" ? "video" : meta.kind;
+            nativeGuard = await startNativeMediaUploadGuard(
+              id,
+              meta.label,
+              uploadKind,
+            );
             if (isRetry && highestProgress > 0) {
               nativeGuard?.update(highestProgress, "Resuming upload", lastByteProgress);
             }

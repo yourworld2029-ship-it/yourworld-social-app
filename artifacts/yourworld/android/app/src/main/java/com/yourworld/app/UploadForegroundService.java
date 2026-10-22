@@ -25,6 +25,7 @@ public class UploadForegroundService extends Service {
     public static final String ACTION_COMPLETE = "com.yourworld.app.upload.COMPLETE";
     public static final String EXTRA_UPLOAD_ID = "uploadId";
     public static final String EXTRA_TITLE = "title";
+    public static final String EXTRA_KIND = "kind";
     public static final String EXTRA_PROGRESS = "progress";
     public static final String EXTRA_DETAIL = "detail";
     public static final String EXTRA_BYTES_UPLOADED = "bytesUploaded";
@@ -62,8 +63,10 @@ public class UploadForegroundService extends Service {
 
         if (ACTION_START.equals(action) || ACTION_START_DOWNLOAD.equals(action)) {
             String title = intent.getStringExtra(EXTRA_TITLE);
+            String kind = intent.getStringExtra(EXTRA_KIND);
             activeUploads.put(uploadId, new UploadState(
-                    title == null || title.trim().isEmpty() ? "Long video" : title.trim(),
+                    title == null || title.trim().isEmpty() ? "Media upload" : title.trim(),
+                    normalizeKind(kind),
                     -1,
                     "",
                     ACTION_START_DOWNLOAD.equals(action) ? TYPE_DOWNLOAD : TYPE_UPLOAD,
@@ -82,6 +85,7 @@ public class UploadForegroundService extends Service {
                 long bytesTotal = intent.getLongExtra(EXTRA_BYTES_TOTAL, -1L);
                 activeUploads.put(uploadId, new UploadState(
                         current.title,
+                        current.kind,
                         clampProgress(intent.getIntExtra(EXTRA_PROGRESS, -1)),
                         intent.getStringExtra(EXTRA_DETAIL),
                         current.type,
@@ -98,7 +102,7 @@ public class UploadForegroundService extends Service {
             UploadState finished = activeUploads.remove(uploadId);
             if (ACTION_COMPLETE.equals(action) && finished != null &&
                     TYPE_UPLOAD.equals(finished.type)) {
-                notifyVideoPublished();
+                notifyUploadComplete(uploadId, finished);
             }
             if (activeUploads.isEmpty()) {
                 stopForeground(true);
@@ -140,12 +144,14 @@ public class UploadForegroundService extends Service {
             current = state;
         }
 
-        String title = current == null ? "Preparing video upload" : current.title;
+        String title = current == null ? "Preparing media upload" : current.title;
         int progress = current == null ? 0 : Math.max(0, current.progress);
         boolean indeterminate = current == null || current.progress < 0;
         String content = current == null
-                ? "Preparing video transfer..."
-                : ("download".equals(current.type) ? "Downloading video... " : "Uploading video... ")
+                ? "Preparing media transfer..."
+                : ("download".equals(current.type)
+                    ? "Downloading video... "
+                    : "Uploading " + displayKind(current.kind) + "... ")
                     + (indeterminate ? "" : progress + "%");
         String contentText = title;
         if (current != null && current.bytesUploaded >= 0L && current.bytesTotal > 0L) {
@@ -197,22 +203,22 @@ public class UploadForegroundService extends Service {
         }
         NotificationChannel channel = new NotificationChannel(
                 CHANNEL_ID,
-                "Video transfers",
+                "Media transfers",
                 NotificationManager.IMPORTANCE_LOW
         );
-        channel.setDescription("Shows progress while videos are uploading or downloading.");
+        channel.setDescription("Shows progress while media is uploading or downloading.");
         NotificationManager manager = getSystemService(NotificationManager.class);
         if (manager != null) {
             manager.createNotificationChannel(channel);
             manager.createNotificationChannel(new NotificationChannel(
                     COMPLETION_CHANNEL_ID,
-                    "Video upload confirmations",
+                    "Upload confirmations",
                     NotificationManager.IMPORTANCE_DEFAULT
             ));
         }
     }
 
-    private void notifyVideoPublished() {
+    private void notifyUploadComplete(String uploadId, UploadState finished) {
         if (!NotificationManagerCompat.from(this).areNotificationsEnabled()) {
             return;
         }
@@ -220,14 +226,28 @@ public class UploadForegroundService extends Service {
                 ? new Notification.Builder(this, COMPLETION_CHANNEL_ID)
                 : new Notification.Builder(this);
         builder.setSmallIcon(R.drawable.ic_upload_notification)
-                .setContentTitle("Video Published Successfully!")
+                .setContentTitle("Upload successful")
+                .setContentText("Your " + displayKind(finished.kind) + " is ready.")
                 .setCategory(Notification.CATEGORY_STATUS)
                 .setAutoCancel(true)
                 .setOnlyAlertOnce(false);
         NotificationManager manager = getSystemService(NotificationManager.class);
         if (manager != null) {
-            manager.notify(COMPLETION_NOTIFICATION_ID, builder.build());
+            int uniqueNotificationId =
+                    COMPLETION_NOTIFICATION_ID + (uploadId.hashCode() & 0x7fffffff) % 10_000;
+            manager.notify(uniqueNotificationId, builder.build());
         }
+    }
+
+    private static String normalizeKind(String kind) {
+        if ("reel".equals(kind) || "moment".equals(kind)) return kind;
+        return "video";
+    }
+
+    private static String displayKind(String kind) {
+        if ("reel".equals(kind)) return "reel";
+        if ("moment".equals(kind)) return "Moment";
+        return "video";
     }
 
     private static int clampProgress(int progress) {
@@ -285,6 +305,7 @@ public class UploadForegroundService extends Service {
 
     private static final class UploadState {
         final String title;
+        final String kind;
         final int progress;
         final String detail;
         final String type;
@@ -293,6 +314,7 @@ public class UploadForegroundService extends Service {
 
         UploadState(
                 String title,
+                String kind,
                 int progress,
                 String detail,
                 String type,
@@ -300,6 +322,7 @@ public class UploadForegroundService extends Service {
                 long bytesTotal
         ) {
             this.title = title;
+            this.kind = kind;
             this.progress = progress;
             this.detail = detail;
             this.type = type;
