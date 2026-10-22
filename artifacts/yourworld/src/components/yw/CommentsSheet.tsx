@@ -89,7 +89,6 @@ export function CommentsSheet({
   const { preferences } = useUserPreferences(user?.id);
   const { language, t } = useAppLanguage();
   const [draft, setDraft] = useState("");
-  const [replyDraft, setReplyDraft] = useState("");
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
   const [open, setOpen] = useState(initialOpen);
@@ -311,6 +310,10 @@ export function CommentsSheet({
 
   const send = () => {
     if (!draft.trim()) return;
+    if (replyingTo) {
+      submitReply();
+      return;
+    }
     const text = draft;
     if (!user) {
       requestAuthAction({
@@ -350,9 +353,11 @@ export function CommentsSheet({
     const ok = await real.sendReply(text, parentId);
     if (!ok) {
       setReplyingTo(parentId);
-      setReplyDraft(text);
+      setDraft(text);
       toast.error("Reply could not be posted");
     } else {
+      setDraft("");
+      setReplyingTo(null);
       setExpandedThreads((current) => new Set(current).add(parentId));
     }
   });
@@ -394,9 +399,9 @@ export function CommentsSheet({
     });
   };
 
-  const submitReply = () => {
-    if (!replyingTo || !replyDraft.trim()) return;
-    const text = replyDraft;
+  function submitReply() {
+    if (!replyingTo || !draft.trim()) return;
+    const text = draft;
     const parentId = replyingTo;
     if (!user) {
       requestAuthAction({
@@ -406,17 +411,17 @@ export function CommentsSheet({
       });
       return;
     }
-    setReplyDraft("");
+    setDraft("");
     void real.sendReply(text, parentId).then((ok) => {
       if (!ok) {
-        setReplyDraft(text);
+        setDraft(text);
         toast.error("Reply could not be posted");
       } else {
         setReplyingTo(null);
         setExpandedThreads((current) => new Set(current).add(parentId));
       }
     });
-  };
+  }
 
   const renderComment = (c: DisplayComment, depth = 0): ReactNode => {
     const replies = repliesByParent.get(c.id) ?? [];
@@ -519,8 +524,15 @@ export function CommentsSheet({
                   type="button"
                   onClick={() => {
                     setReplyingTo(c.id);
-                    setReplyDraft(`@${c.user.username} `);
+                    setDraft(`@${c.user.username} `);
                     setExpandedThreads((current) => new Set(current).add(c.id));
+                    requestAnimationFrame(() => {
+                      const input = inputRef.current;
+                      if (!input) return;
+                      input.focus();
+                      input.setSelectionRange(input.value.length, input.value.length);
+                      scrollToLatest();
+                    });
                   }}
                   className="inline-flex items-center gap-1 hover:text-foreground"
                 >
@@ -545,26 +557,6 @@ export function CommentsSheet({
                 </button>
               )}
             </div>
-            {replyingTo === c.id && !commentsDisabled && (
-              <div className="mt-2 flex gap-2">
-                <Input
-                  autoFocus
-                  value={replyDraft}
-                  onChange={(event) => setReplyDraft(event.target.value)}
-                  onKeyDown={(event) => event.key === "Enter" && submitReply()}
-                  placeholder="Write a reply…"
-                  className="h-9 rounded-full border-0 bg-secondary text-xs"
-                />
-                <button
-                  type="button"
-                  onClick={submitReply}
-                  aria-label="Send reply"
-                  className="grid h-9 w-9 shrink-0 place-items-center rounded-full brand-gradient"
-                >
-                  <SendHorizonal className="h-3.5 w-3.5 text-primary-foreground" />
-                </button>
-              </div>
-            )}
           </div>
           <div className="mt-1 flex shrink-0 items-start gap-2">
             {canModerate && (
