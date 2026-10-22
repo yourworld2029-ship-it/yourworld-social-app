@@ -479,12 +479,13 @@ export async function optimizeVideoSource(
 }
 
 export const MAX_LONG_VIDEO_INPUT_BYTES = 2_000_000_000;
-export const MAX_LONG_VIDEO_STORAGE_BYTES = 500_000_000;
+export const MAX_LONG_VIDEO_STORAGE_BYTES = 2_000_000_000;
 export const MAX_LONG_VIDEO_REQUIRED_COMPRESSION_BYTES =
   LARGE_SOURCE_COMPRESSION_REQUIRED_BYTES;
 export const MAX_LONG_VIDEO_LOCAL_COMPRESSION_BYTES = 300 * 1024 * 1024;
 export const MAX_LONG_VIDEO_LOCAL_COMPRESSION_DURATION_SECONDS = 5 * 60;
 export const LONG_VIDEO_AUDIO_BITRATE = 128_000;
+const MAX_LONG_VIDEO_COMPRESSION_TARGET_BYTES = 1_700_000_000;
 const LONG_VIDEO_MIN_OUTPUT_BITRATE = VIDEO_UPLOAD_BITRATE;
 const LONG_VIDEO_MAX_OUTPUT_BITRATE = 24_000_000;
 const LONG_VIDEO_BYTES_PER_MB = 1_000_000;
@@ -546,9 +547,9 @@ export function getLongVideoCompressionPlan(
     const minimumOutputBytes =
       ((VIDEO_UPLOAD_BITRATE + LONG_VIDEO_AUDIO_BITRATE) * durationSeconds) / 8 +
       8_000_000;
-    if (minimumOutputBytes >= 300_000_000) {
+    if (minimumOutputBytes >= MAX_LONG_VIDEO_STORAGE_BYTES) {
       throw new Error(
-        "This video is too long to fit below 300 MB at the minimum 2.5 Mbps quality. Trim it and try again.",
+        "This video is too long to encode within the 2 GB upload limit at the minimum 2.5 Mbps quality.",
       );
     }
   }
@@ -558,7 +559,7 @@ export function getLongVideoCompressionPlan(
   if (sourceBytes >= LARGE_SOURCE_COMPRESSION_REQUIRED_BYTES) {
     tier = "balanced";
     targetOutputBytes = Math.min(
-      250 * LONG_VIDEO_BYTES_PER_MB,
+      MAX_LONG_VIDEO_COMPRESSION_TARGET_BYTES,
       Math.max(200 * LONG_VIDEO_BYTES_PER_MB, Math.round(sourceBytes * 0.5)),
     );
   } else if (sourceBytes >= 100 * LONG_VIDEO_BYTES_PER_MB) {
@@ -656,8 +657,6 @@ export async function compressLongVideoByTier(
     };
   }
 
-  const requiresStorageSafeCompression =
-    source.size >= LARGE_SOURCE_COMPRESSION_REQUIRED_BYTES || options.force === true;
   let sourceUrl: string | null = null;
   let metadata: VideoMetadata | null = null;
   let plan: LongVideoCompressionPlan | null = null;
@@ -674,28 +673,17 @@ export async function compressLongVideoByTier(
 
   try {
     if (!source.type.startsWith("video/") || source.size === 0) {
-      if (requiresStorageSafeCompression) {
-        throw new Error("The selected file cannot be compressed to fit the 500 MB storage limit.");
-      }
       return originalResult();
     }
-    // Keep optional compression off the upload hot path, but require large
-    // originals to be compressed before they can reach the 500 MB bucket cap.
+    // Compression is an optimization, not a prerequisite: the selected source
+    // itself fits the verified 2 GB Videos bucket limit.
     if (typeof document === "undefined" || typeof MediaRecorder === "undefined") {
-      if (requiresStorageSafeCompression) {
-        throw new Error("This device cannot compress the video below the 500 MB storage limit.");
-      }
       return originalResult();
     }
     sourceUrl = URL.createObjectURL(source);
     metadata = await readVideoMetadata(sourceUrl);
     if (options.signal?.aborted) return originalResult();
-    if (!metadata) {
-      if (requiresStorageSafeCompression) {
-        throw new Error("Video details could not be read for required storage compression.");
-      }
-      return originalResult();
-    }
+    if (!metadata) return originalResult();
     if (!shouldAttemptLongVideoLocalCompression(
       source.size,
       metadata.duration,
@@ -707,12 +695,7 @@ export async function compressLongVideoByTier(
     plan = getLongVideoCompressionPlan(source.size, metadata.duration);
     const mimeType = selectLongVideoRecorderMimeType();
     const qualityTier = qualityTierForOutput(metadata.width, metadata.height, "1080p");
-    if (!mimeType || !qualityTier) {
-      if (requiresStorageSafeCompression) {
-        throw new Error("This device does not support MP4 compression for the 500 MB storage limit.");
-      }
-      return originalResult();
-    }
+    if (!mimeType || !qualityTier) return originalResult();
 
     const outputSize = outputSizeForQuality(metadata, qualityTier);
     const encoded = await encodeVideo(
@@ -730,15 +713,9 @@ export async function compressLongVideoByTier(
     const isUsableCompressedFile =
       encoded.size > 0 &&
       encoded.size < source.size &&
-      !(requiresStorageSafeCompression && encoded.size >= 300_000_000) &&
       encoded.size < MAX_LONG_VIDEO_STORAGE_BYTES &&
       await hasFastStartMp4Layout(encoded);
-    if (!isUsableCompressedFile) {
-      if (requiresStorageSafeCompression) {
-        throw new Error("Video compression did not produce a file below the 300 MB upload target.");
-      }
-      return originalResult();
-    }
+    if (!isUsableCompressedFile) return originalResult();
 
     markVideoBlobAsOptimized(encoded);
     options.onProgress?.(100, "Optimized video ready");
@@ -751,11 +728,6 @@ export async function compressLongVideoByTier(
     };
   } catch (error) {
     if (options.signal?.aborted) return originalResult();
-    if (requiresStorageSafeCompression) {
-      throw error instanceof Error
-        ? error
-        : new Error("Video compression failed before the 500 MB storage limit could be met.");
-    }
     console.warn("Long-video compression unavailable; using the original upload.", error);
     return originalResult();
   } finally {

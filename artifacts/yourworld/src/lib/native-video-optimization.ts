@@ -6,7 +6,7 @@ import {
 } from "@/lib/video-compression";
 
 type VideoOptimizerPlugin = {
-  pickAndOptimize(): Promise<{
+  pickAndOptimize(options?: { longVideo?: boolean }): Promise<{
     cancelled: boolean;
     path?: string;
     fileName?: string;
@@ -30,6 +30,7 @@ export function supportsNativeVideoOptimization() {
 
 export async function pickAndOptimizeNativeVideo(
   onProgress: (percent: number) => void,
+  options?: { longVideo?: boolean },
 ): Promise<File | null> {
   let progressListener: PluginListenerHandle | null = null;
   let outputPath: string | null = null;
@@ -38,7 +39,7 @@ export async function pickAndOptimizeNativeVideo(
       "optimizationProgress",
       ({ progress }) => onProgress(Math.max(0, Math.min(100, progress))),
     );
-    const result = await VideoOptimizer.pickAndOptimize();
+    const result = await VideoOptimizer.pickAndOptimize(options);
     if (result.cancelled) return null;
     if (!result.path || !result.fileName) {
       throw new Error("The optimized video could not be opened.");

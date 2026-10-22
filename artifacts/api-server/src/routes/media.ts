@@ -34,12 +34,17 @@ import {
 
 const router: IRouter = Router();
 
-const MAX_VIDEO_BYTES = 512 * 1024 * 1024;
+const MAX_VIDEO_BYTES = 2_000_000_000;
+const MAX_REEL_VIDEO_BYTES = 512 * 1024 * 1024;
 const STREAM_BUFFER_BYTES = 512 * 1024;
 const MAX_CONCURRENT_TRANSCODES = 2;
 const FFMPEG_TIMEOUT_MS = 10 * 60 * 1000;
 const SIGNED_SOURCE_TTL_SECONDS = 60 * 60;
 let activeTranscodes = 0;
+
+function maxVideoBytesForBucket(bucket: string) {
+  return bucket === "reels" ? MAX_REEL_VIDEO_BYTES : MAX_VIDEO_BYTES;
+}
 
 class VideoTooLargeError extends Error {}
 class VideoProcessingBusyError extends Error {}
@@ -90,11 +95,14 @@ async function authenticateUser(
 async function downloadSource(
   sourceResponse: Response,
   destination: string,
+  maxBytes: number,
 ) {
+  const sizeLimitLabel =
+    maxBytes === MAX_REEL_VIDEO_BYTES ? "512 MiB" : "2 GB";
   const declaredLength = Number(sourceResponse.headers.get("content-length"));
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_VIDEO_BYTES) {
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
     await sourceResponse.body?.cancel().catch(() => {});
-    throw new VideoTooLargeError("Video exceeds the 512 MiB processing limit.");
+    throw new VideoTooLargeError(`Video exceeds the ${sizeLimitLabel} processing limit.`);
   }
   if (!sourceResponse.body) throw new Error("Storage returned an empty video body.");
 
@@ -102,8 +110,8 @@ async function downloadSource(
   const sizeLimit = new Transform({
     transform(chunk: Buffer, _encoding, callback) {
       receivedBytes += chunk.byteLength;
-      if (receivedBytes > MAX_VIDEO_BYTES) {
-        callback(new VideoTooLargeError("Video exceeds the 512 MiB processing limit."));
+      if (receivedBytes > maxBytes) {
+        callback(new VideoTooLargeError(`Video exceeds the ${sizeLimitLabel} processing limit.`));
         return;
       }
       callback(null, chunk);
@@ -793,6 +801,9 @@ async function createOnDemandQualitySource(
         })
       : null;
   const source = videoSourceObject(row, "original");
+  const sourceBucket =
+    source?.bucket ?? (row.kind === "reel" ? "reels" : "videos");
+  const sourceMaxBytes = maxVideoBytesForBucket(sourceBucket);
   const sourceQualityFromPost =
     sourceQuality(row) as DetectedVideoQuality;
   let sourceIdentity: string | null = null;
@@ -906,7 +917,11 @@ async function createOnDemandQualitySource(
       throw new Error(`The authorized video source returned ${sourceResponse.status}.`);
     }
 
-    const inputBytes = await downloadSource(sourceResponse, inputPath);
+    const inputBytes = await downloadSource(
+      sourceResponse,
+      inputPath,
+      sourceMaxBytes,
+    );
     const dimensions = await probeVideoDimensions(inputPath);
     const actualSourceQuality = videoQualityFromDimensions(
       dimensions.width,
@@ -936,7 +951,7 @@ async function createOnDemandQualitySource(
         bitrateScale,
       );
       const output = await stat(outputPath);
-      if (output.size > 0 && output.size < inputBytes && output.size <= MAX_VIDEO_BYTES) {
+      if (output.size > 0 && output.size < inputBytes && output.size <= sourceMaxBytes) {
         outputBytes = output.size;
         break;
       }
@@ -1004,10 +1019,12 @@ router.post("/media/cloudflare-tus-upload", async (req, res): Promise<void> => {
   const contentType = metadata?.contenttype;
   const filename = metadata?.name;
   const requiresSignedUrls = metadata?.requiresignedurls === "true";
+  const uploadMaxBytes =
+    bucket === "reels" ? MAX_REEL_VIDEO_BYTES : MAX_VIDEO_BYTES;
   if (
     !Number.isSafeInteger(uploadLength) ||
     uploadLength < 1 ||
-    uploadLength > MAX_VIDEO_BYTES ||
+    uploadLength > uploadMaxBytes ||
     !metadata ||
     (bucket !== "videos" && bucket !== "reels") ||
     !path ||
@@ -1575,6 +1592,7 @@ router.post("/media/transcode", async (req, res): Promise<void> => {
   }
 
   const { bucket, path: sourcePath } = parsed.data;
+  const maxBytes = maxVideoBytesForBucket(bucket);
   const segments = sourcePath.split("/");
   if (
     segments.length < 2 ||
@@ -1608,10 +1626,10 @@ router.post("/media/transcode", async (req, res): Promise<void> => {
       throw new Error(`Storage could not read the uploaded video (${sourceResponse.status}).`);
     }
 
-    const inputBytes = await downloadSource(sourceResponse, inputPath);
+    const inputBytes = await downloadSource(sourceResponse, inputPath, maxBytes);
     await createFastStartMp4(inputPath, outputPath);
     const outputStats = await stat(outputPath);
-    if (outputStats.size < 1 || outputStats.size > MAX_VIDEO_BYTES) {
+    if (outputStats.size < 1 || outputStats.size > maxBytes) {
       throw new VideoTooLargeError("The processed video is outside the supported size limit.");
     }
 

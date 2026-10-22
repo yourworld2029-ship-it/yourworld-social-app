@@ -69,7 +69,9 @@ public class VideoOptimizerPlugin extends Plugin {
     private static final int MAX_SHORT_SIDE = 1080;
     private static final int MP4_FRONT_METADATA_RESERVE_BYTES = 8 * 1024 * 1024;
     private static final long MIN_LARGE_OUTPUT_BYTES = 200_000_000L;
-    private static final long MAX_LARGE_OUTPUT_BYTES = 250_000_000L;
+    private static final long MAX_LARGE_OUTPUT_BYTES = 1_700_000_000L;
+    private static final long LEGACY_MAX_OUTPUT_TARGET_BYTES = 250_000_000L;
+    private static final long LEGACY_MAX_OUTPUT_BYTES = 300_000_000L;
     private static final long MAX_INPUT_BYTES = 2_000_000_000L;
     private static final long COMPRESSION_TRIGGER_BYTES = 250_000_000L;
     private static final int AUDIO_BITRATE = 96_000;
@@ -79,6 +81,8 @@ public class VideoOptimizerPlugin extends Plugin {
     private PluginCall activeCall;
     private Transformer activeTransformer;
     private File activeOutput;
+    private boolean fallbackInProgress;
+    private boolean activeLongVideoFlow;
     private final ProgressHolder progressHolder = new ProgressHolder();
     private final Runnable progressPoll = new Runnable() {
         @Override
@@ -102,6 +106,8 @@ public class VideoOptimizerPlugin extends Plugin {
             return;
         }
         activeCall = call;
+        fallbackInProgress = false;
+        activeLongVideoFlow = Boolean.TRUE.equals(call.getBoolean("longVideo"));
         String permissionAlias = videoPermissionAlias();
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
                 getPermissionState(permissionAlias) == PermissionState.GRANTED) {
@@ -183,7 +189,18 @@ public class VideoOptimizerPlugin extends Plugin {
         try {
             startOptimization(call, input);
         } catch (Exception error) {
-            failOptimization(call, "Could not prepare this video for upload.", error);
+            if (activeLongVideoFlow) {
+                fallbackToOriginal(call, input, contentLength(input), error);
+            } else {
+                String message = error.getMessage();
+                failOptimization(
+                        call,
+                        message == null || message.trim().isEmpty()
+                                ? "Could not prepare this video for upload."
+                                : message,
+                        error
+                );
+            }
         }
     }
 
@@ -195,6 +212,8 @@ public class VideoOptimizerPlugin extends Plugin {
         activeCall = null;
         activeTransformer = null;
         activeOutput = null;
+        fallbackInProgress = false;
+        activeLongVideoFlow = false;
         mainHandler.removeCallbacks(progressPoll);
         if (transformer != null) {
             try {
@@ -248,7 +267,16 @@ public class VideoOptimizerPlugin extends Plugin {
         long minimumOutputBytes =
                 (durationMs * ((long) MIN_VIDEO_BITRATE + AUDIO_BITRATE) / 8_000L)
                         + MP4_FRONT_METADATA_RESERVE_BYTES;
-        if (minimumOutputBytes >= 300_000_000L) {
+        if (
+                minimumOutputBytes >= maxEncodedOutputBytes() ||
+                        (activeLongVideoFlow &&
+                                inputSize > 0 &&
+                                minimumOutputBytes >= inputSize)
+        ) {
+            if (activeLongVideoFlow) {
+                copyOriginalToCache(call, input, inputSize);
+                return;
+            }
             throw new IOException(
                     "This video is too long to fit below 300 MB at the minimum 2.5 Mbps quality. Trim it and try again."
             );
@@ -274,7 +302,11 @@ public class VideoOptimizerPlugin extends Plugin {
                 (durationMs * ((long) targetBitrate + AUDIO_BITRATE) / 8_000L * 115L / 100L)
                         + MP4_FRONT_METADATA_RESERVE_BYTES;
         if (cacheDir.getUsableSpace() < estimatedOutputBytes) {
-            throw new IOException("There is not enough free device storage to optimize this video.");
+            if (!activeLongVideoFlow || inputSize <= 0 || inputSize > MAX_INPUT_BYTES) {
+                throw new IOException("There is not enough free device storage to optimize this video.");
+            }
+            copyOriginalToCache(call, input, inputSize);
+            return;
         }
         File output = new File(cacheDir, "yw-optimized-" + System.currentTimeMillis() + ".mp4");
         output.delete();
@@ -299,6 +331,7 @@ public class VideoOptimizerPlugin extends Plugin {
                     public void onCompleted(Composition composition, ExportResult exportResult) {
                         completeOptimization(
                                 call,
+                                input,
                                 output,
                                 outputWidth,
                                 outputHeight,
@@ -313,8 +346,11 @@ public class VideoOptimizerPlugin extends Plugin {
                             ExportResult exportResult,
                             ExportException exportException
                     ) {
-                        failOptimization(call, "Video optimization failed.",
-                                exportException);
+                        if (activeLongVideoFlow) {
+                            fallbackToOriginal(call, input, inputSize, exportException);
+                        } else {
+                            failOptimization(call, "Video optimization failed.", exportException);
+                        }
                     }
                 })
                 .build();
@@ -442,6 +478,8 @@ public class VideoOptimizerPlugin extends Plugin {
         }
         activeCall = null;
         activeOutput = null;
+        fallbackInProgress = false;
+        activeLongVideoFlow = false;
         notifyProgress(100);
         JSObject response = new JSObject();
         response.put("cancelled", false);
@@ -492,6 +530,7 @@ public class VideoOptimizerPlugin extends Plugin {
 
     private void completeOptimization(
             PluginCall call,
+            Uri input,
             File output,
             int width,
             int height,
@@ -506,16 +545,27 @@ public class VideoOptimizerPlugin extends Plugin {
         if (
                 !output.isFile() ||
                         output.length() <= 0 ||
-                        output.length() >= 300_000_000L ||
+                        output.length() >= maxEncodedOutputBytes() ||
                         (sourceSizeBytes > 0 && output.length() >= sourceSizeBytes) ||
                         !hasFastStartLayout(output)
         ) {
-            failOptimization(call, "Could not produce a smaller fast-start MP4 below 300 MB.", null);
+            if (activeLongVideoFlow) {
+                fallbackToOriginal(
+                        call,
+                        input,
+                        sourceSizeBytes,
+                        new IOException("Could not produce a smaller fast-start MP4.")
+                );
+            } else {
+                failOptimization(call, "Could not produce a smaller fast-start MP4 below 300 MB.", null);
+            }
             return;
         }
         activeCall = null;
         activeTransformer = null;
         activeOutput = null;
+        fallbackInProgress = false;
+        activeLongVideoFlow = false;
         notifyProgress(100);
         JSObject response = new JSObject();
         response.put("cancelled", false);
@@ -529,6 +579,57 @@ public class VideoOptimizerPlugin extends Plugin {
         call.resolve(response);
     }
 
+    private void fallbackToOriginal(
+            PluginCall call,
+            Uri input,
+            long expectedSize,
+            Throwable cause
+    ) {
+        if (activeCall != call || fallbackInProgress) return;
+        if (!activeLongVideoFlow) {
+            String message = cause.getMessage();
+            failOptimization(
+                    call,
+                    message == null || message.trim().isEmpty()
+                            ? "Video optimization failed."
+                            : message,
+                    cause
+            );
+            return;
+        }
+        if (expectedSize > MAX_INPUT_BYTES) {
+            failOptimization(call, "Videos must be 2 GB or smaller.", cause);
+            return;
+        }
+
+        fallbackInProgress = true;
+        Transformer transformer = activeTransformer;
+        activeTransformer = null;
+        mainHandler.removeCallbacks(progressPoll);
+        if (transformer != null) {
+            try {
+                transformer.cancel();
+            } catch (Exception ignored) {
+                // The encoder may already have stopped after reporting its error.
+            }
+        }
+        File partialOutput = activeOutput;
+        activeOutput = null;
+        if (partialOutput != null) partialOutput.delete();
+        try {
+            copyOriginalToCache(call, input, expectedSize);
+        } catch (Exception fallbackError) {
+            String message = fallbackError.getMessage();
+            failOptimization(
+                    call,
+                    message == null || message.trim().isEmpty()
+                            ? "The original video could not be prepared for upload."
+                            : message,
+                    fallbackError
+            );
+        }
+    }
+
     private void failOptimization(PluginCall call, String message, @Nullable Throwable error) {
         if (activeCall != call) return;
         mainHandler.removeCallbacks(progressPoll);
@@ -536,6 +637,8 @@ public class VideoOptimizerPlugin extends Plugin {
         activeCall = null;
         activeTransformer = null;
         activeOutput = null;
+        fallbackInProgress = false;
+        activeLongVideoFlow = false;
         if (output != null) output.delete();
         if (error == null) call.reject(message);
         else call.reject(
@@ -564,12 +667,21 @@ public class VideoOptimizerPlugin extends Plugin {
         }
     }
 
-    private static long targetOutputBytes(long inputSize) {
-        if (inputSize <= 0L) return MAX_LARGE_OUTPUT_BYTES;
+    private long targetOutputBytes(long inputSize) {
+        long maxTargetBytes = activeOutputTargetBytes();
+        if (inputSize <= 0L) return maxTargetBytes;
         return Math.min(
-                MAX_LARGE_OUTPUT_BYTES,
+                maxTargetBytes,
                 Math.max(MIN_LARGE_OUTPUT_BYTES, inputSize / 2L)
         );
+    }
+
+    private long activeOutputTargetBytes() {
+        return activeLongVideoFlow ? MAX_LARGE_OUTPUT_BYTES : LEGACY_MAX_OUTPUT_TARGET_BYTES;
+    }
+
+    private long maxEncodedOutputBytes() {
+        return activeLongVideoFlow ? MAX_INPUT_BYTES : LEGACY_MAX_OUTPUT_BYTES;
     }
 
     private static int targetVideoBitrate(

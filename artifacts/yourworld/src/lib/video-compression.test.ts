@@ -66,7 +66,7 @@ test("long-video compression selects size tiers and output budgets at exact boun
   });
   assert.equal(
     getLongVideoCompressionPlan(1_000_000_000, 300).targetOutputBytes,
-    250_000_000,
+    500_000_000,
   );
   assert.deepEqual(
     getLongVideoCompressionPlan(499_999_999, 300).targetOutputBytes,
@@ -75,7 +75,7 @@ test("long-video compression selects size tiers and output budgets at exact boun
   assert.equal(getLongVideoCompressionPlan(100_000_000, 300).tier, "light");
   assert.equal(getLongVideoCompressionPlan(99_999_999, 300).tier, "light");
   assert.equal(MAX_LONG_VIDEO_INPUT_BYTES, 2_000_000_000);
-  assert.equal(MAX_LONG_VIDEO_STORAGE_BYTES, 500_000_000);
+   assert.equal(MAX_LONG_VIDEO_STORAGE_BYTES, 2_000_000_000);
   assert.equal(MAX_LONG_VIDEO_REQUIRED_COMPRESSION_BYTES, 250_000_000);
 });
 
@@ -86,12 +86,12 @@ test("long-video planning rejects files over the strict 2 GB input limit", () =>
   );
 });
 
-test("large-video compression keeps at least 2.5 Mbps and rejects impossible output budgets", () => {
+test("large-video compression keeps at least 2.5 Mbps within the 2 GB limit", () => {
   const plan = getLongVideoCompressionPlan(500_000_000, 850);
   assert.ok(plan.videoBitrate >= VIDEO_UPLOAD_BITRATE);
   assert.throws(
-    () => getLongVideoCompressionPlan(500_000_000, 1_000),
-    /too long to fit below 300 MB/,
+    () => getLongVideoCompressionPlan(500_000_000, 10_000),
+    /too long to encode within the 2 GB upload limit/,
   );
 });
 
@@ -104,13 +104,11 @@ test("videos over 250 MB require compression regardless of local size and durati
   assert.equal(shouldAttemptLongVideoLocalCompression(0, 120), false);
 });
 
-test("over-limit Long Videos fail closed when local encoding is unavailable", async () => {
+test("large Long Videos remain uploadable when browser encoding is unavailable", async () => {
   const original = { size: 560_000_000, type: "video/mp4" } as Blob;
-
-  await assert.rejects(
-    compressLongVideoByTier(original),
-    /cannot compress the video below the 500 MB storage limit/i,
-  );
+  const result = await compressLongVideoByTier(original);
+  assert.equal(result.blob, original);
+  assert.equal(result.compressed, false);
 });
 
 test("long-video recorder selection accepts MP4 only", () => {

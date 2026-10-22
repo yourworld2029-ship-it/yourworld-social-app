@@ -32,7 +32,7 @@ export async function retryLongVideoUploadWithCompression<T extends UploadResult
       result: {
         ...options.initialResult,
         error:
-          "The upload exceeded the 500 MB storage limit, and the video could not be compressed. Choose a smaller or shorter video.",
+          "The upload exceeded the 2 GB storage limit, and the video could not be compressed. Choose a smaller video.",
       },
       compressionResult: null,
     };
@@ -54,7 +54,7 @@ export async function retryLongVideoUploadWithCompression<T extends UploadResult
       result: {
         ...options.initialResult,
         error:
-          "The upload exceeded the 500 MB storage limit, and compression could not produce a smaller file under the limit.",
+          "The upload exceeded the 2 GB storage limit, and compression could not produce a smaller file under the limit.",
       },
       compressionResult: null,
     };

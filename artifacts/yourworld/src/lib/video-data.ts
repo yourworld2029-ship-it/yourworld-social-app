@@ -511,13 +511,6 @@ export async function publishLongVideo(opts: {
   if (sourceBlob && sourceBlob.size > MAX_LONG_VIDEO_INPUT_BYTES) {
     return { error: "Videos must be 2 GB or smaller." };
   }
-  if (sourceBlob && sourceBlob.size >= MAX_LONG_VIDEO_STORAGE_BYTES) {
-    return {
-      error:
-        "This video must be compressed below the 500 MB storage limit before it can be uploaded.",
-    };
-  }
-
   let mediaUrl = opts.fileUrl;
   let uploadedSourcePath: string | null = null;
   let uploadedWidth = opts.originalWidth ?? null;

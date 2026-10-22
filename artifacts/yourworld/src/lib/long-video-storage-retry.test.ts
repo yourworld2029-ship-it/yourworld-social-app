@@ -97,5 +97,5 @@ test("never retries with an unchanged or still-oversized Long Video file", async
   });
 
   assert.equal(uploadCalls, 0);
-  assert.match(retry.result.error ?? "", /500 MB storage limit/i);
+  assert.match(retry.result.error ?? "", /2 GB storage limit/i);
 });

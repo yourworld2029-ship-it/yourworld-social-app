@@ -191,7 +191,7 @@ function VideoUploadPage() {
     }).catch((error): LongVideoCompressionResult => {
       if (!controller.signal.aborted) {
         console.warn(
-          "Long-video compression failed; the original is only safe for under-limit uploads.",
+          "Long-video compression failed; the original remains eligible for the 2 GB Videos bucket.",
           error,
         );
       }
@@ -221,7 +221,9 @@ function VideoUploadPage() {
     }
     setCompressionPending(true);
     try {
-      const nativeFile = await pickAndOptimizeNativeVideo(() => undefined);
+      const nativeFile = await pickAndOptimizeNativeVideo(() => undefined, {
+        longVideo: true,
+      });
       if (nativeFile && mountedRef.current) pickVideo(nativeFile);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not prepare this video.");
@@ -397,29 +399,25 @@ function VideoUploadPage() {
     const parsedPrice = access === "paid" ? parsedInputPrice : 0;
 
     const readyVideo = compressionResultRef.current;
-    const requiresStorageSafeCompression =
+    const isLargeVideo =
       selectedFile.size > MAX_LONG_VIDEO_REQUIRED_COMPRESSION_BYTES;
     const pendingCompression = compressionPromiseRef.current;
     if (
-      requiresStorageSafeCompression &&
+      isLargeVideo &&
       readyVideo &&
-      (!readyVideo.compressed ||
-        readyVideo.blob.size >= 300_000_000 ||
-        readyVideo.blob.size >= MAX_LONG_VIDEO_STORAGE_BYTES)
+      readyVideo.blob.size > MAX_LONG_VIDEO_STORAGE_BYTES
     ) {
-      toast.error(
-        "This video could not be compressed below the 300 MB upload target. Try a shorter video.",
-      );
+      toast.error("Videos must be 2 GB or smaller.");
       return;
     }
-    if (requiresStorageSafeCompression && !readyVideo && !pendingCompression) {
+    if (isLargeVideo && !readyVideo && !pendingCompression) {
       toast.error("Could not start compression for this video. Choose another file and try again.");
       return;
     }
 
     setBusy(true);
     const compressionController = compressionAbortRef.current;
-    if (!readyVideo && !requiresStorageSafeCompression) {
+    if (!readyVideo && !isLargeVideo) {
       // Under-limit uploads should not wait for optional compression.
       compressionController?.abort();
       markVideoBlobAsUploadReady(selectedFile);
@@ -488,7 +486,7 @@ function VideoUploadPage() {
       async (onProgress, signal) => {
         if (signal.aborted) return { error: "Upload cancelled" };
         let finalVideo = readyVideo;
-        if (requiresStorageSafeCompression && !finalVideo) {
+        if (isLargeVideo && !finalVideo) {
           const compressionTaskProgress = onProgress;
           compressionTaskProgressRef.current = compressionTaskProgress;
           onProgress(0, "Optimizing large video before upload", null);
@@ -501,20 +499,17 @@ function VideoUploadPage() {
           }
           if (signal.aborted) return { error: "Upload cancelled" };
           if (
-            !finalVideo.compressed ||
-            finalVideo.blob.size >= 300_000_000 ||
-            finalVideo.blob.size >= MAX_LONG_VIDEO_STORAGE_BYTES
+            finalVideo.blob.size > MAX_LONG_VIDEO_STORAGE_BYTES
           ) {
             return {
-              error:
-                "This video could not be compressed below the 300 MB upload target. Try a shorter video.",
+              error: "Videos must be 2 GB or smaller.",
             };
           }
         }
 
         const reportUploadProgress: ProgressFn = (percent, detail, byteProgress) =>
           onProgress(
-            requiresStorageSafeCompression
+            isLargeVideo
               ? 10 + Math.round(Math.max(0, Math.min(percent, 100)) * 0.9)
               : percent,
             detail,

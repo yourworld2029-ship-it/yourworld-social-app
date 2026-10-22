@@ -71,7 +71,7 @@
 - [Supabase media upload transport](direct-supabase-uploads.md) — use direct Storage for small files and sequential resumable TUS for large browser uploads.
 - [Cloudflare Stream media](cloudflare-stream-downloads.md) — preserve playback/download rules and the stored Stream UID needed for authentic thumbnails.
 - [Native media API routing](native-media-api-routing.md) — packaged WebView requests need the hosted origin; TUS responses must expose the continuation and media-ID headers.
-- [Long-video upload responsiveness](android-video-fallback.md) — limit local encoding to short, smaller files; upload the original through resumable TUS if encoding is skipped or unfinished, and keep byte reporting Long Video-only.
+- [Long-video upload limits](android-video-fallback.md) — align client/API to the verified 2 GB Videos cap; preserve original TUS fallback and keep Reels at its separate 512 MiB cap.
 - [Cross-artifact public downloads](cross-artifact-public-downloads.md) — workspace-root and artifact-local APK routes differ; stage each requested file at the route's actual source and verify through the proxy.
 - [Browser media fixtures](browser-media-fixtures.md) — automated Chromium may reject valid AVC; use VP8 fixtures to verify browser flows without changing Android encoding.
 - [Validated video view credits](video-view-credits.md) — long videos and Reels must use server-timed sessions and the dual user/device ledger; browser fingerprints are best-effort.
