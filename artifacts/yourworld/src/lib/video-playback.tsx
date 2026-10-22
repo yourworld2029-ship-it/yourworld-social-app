@@ -874,9 +874,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
     if (!isAndroidApp || !isLongVideoWatchRoute) return;
 
     void systemVideoPip
-      .setWatchTopEdgeToEdge({ enabled: true })
+      .setWatchTopEdgeToEdge({ enabled: false })
       .catch((error: unknown) => {
-        console.warn("Could not enable the Android watch-player top overlay.", error);
+        console.warn("Could not apply Android watch-player system-bar insets.", error);
       });
 
     return () => {

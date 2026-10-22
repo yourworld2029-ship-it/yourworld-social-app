@@ -371,8 +371,8 @@ public class MainActivity extends BridgeActivity {
             ViewGroup contentGroup = (ViewGroup) content;
             if (contentGroup.getChildCount() > 0) {
                 View appRoot = contentGroup.getChildAt(0);
-                // The watch player draws behind the status bar; other screens retain
-                // their normal native insets.
+                // Only an explicitly edge-to-edge watch state may draw behind the
+                // status bar; normal watch playback stays below the system bars.
                 appRoot.setFitsSystemWindows(
                         !videoWatchTopEdgeToEdge && !requiresManualSystemInsets()
                 );
