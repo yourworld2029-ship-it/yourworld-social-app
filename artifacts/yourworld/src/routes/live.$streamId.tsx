@@ -968,9 +968,26 @@ function LiveSummary({
     setAction(kind);
     try {
       if (kind === "share") {
-        await onShareToProfile();
-        toast.success("Live video shared to your profile");
-        await navigate({ to: "/profile" });
+        const publishTask = onShareToProfile().catch((cause) => {
+          console.error("[live] Background replay publish failed", cause);
+          toast.error("Live replay could not be shared. Please try again.");
+        });
+        toast.success("Live replay shared to profile");
+        void navigate({ to: "/profile" }).catch((cause) => {
+          console.error("[live] Could not open the profile after sharing", cause);
+        });
+
+        let timeoutId: number | undefined;
+        try {
+          await Promise.race([
+            publishTask,
+            new Promise<void>((resolve) => {
+              timeoutId = window.setTimeout(resolve, 3000);
+            }),
+          ]);
+        } finally {
+          if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+        }
       } else {
         await onDeleteLiveVideo();
         toast.success("Live video deleted");
