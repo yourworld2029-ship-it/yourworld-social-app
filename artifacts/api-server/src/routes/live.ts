@@ -169,6 +169,67 @@ router.get("/live/streams/:streamId", async (req, res) => {
   }
 });
 
+router.delete("/live/streams/:streamId", async (req, res) => {
+  const streamId = req.params.streamId;
+  if (!UUID_PATTERN.test(streamId)) {
+    res.status(400).json({ error: "Invalid stream ID." });
+    return;
+  }
+
+  const config = supabaseConfig();
+  if (!config) {
+    res.status(502).json({ error: "Live sessions are temporarily unavailable." });
+    return;
+  }
+
+  let userId: string | null;
+  try {
+    userId = await authenticateLiveReplayRequest(config, req.get("authorization"));
+  } catch (cause) {
+    req.log.warn({ cause }, "Could not validate live-session deletion session");
+    res.status(502).json({ error: "Could not validate the sign-in session." });
+    return;
+  }
+  if (!userId) {
+    res.status(401).json({ error: "Sign in to delete this live session." });
+    return;
+  }
+
+  try {
+    const rows = await readLiveStreamRows(config, {
+      id: `eq.${streamId}`,
+      limit: "1",
+    });
+    const stream = rows[0] as Record<string, unknown> | undefined;
+    if (!stream) {
+      res.status(204).end();
+      return;
+    }
+    if (stream.broadcaster_id !== userId) {
+      res.status(403).json({ error: "You cannot delete this live session." });
+      return;
+    }
+    if (stream.status !== "ended") {
+      res.status(409).json({ error: "End the live broadcast before deleting it." });
+      return;
+    }
+
+    const deleteUrl = liveStreamsUrl(config);
+    deleteUrl.searchParams.set("id", `eq.${streamId}`);
+    deleteUrl.searchParams.set("broadcaster_id", `eq.${userId}`);
+    const deleteResponse = await fetch(deleteUrl, {
+      method: "DELETE",
+      headers: { ...serviceHeaders(config), Prefer: "return=minimal" },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!deleteResponse.ok) throw new Error("Live-session metadata could not be removed.");
+    res.status(204).end();
+  } catch (cause) {
+    req.log.error({ cause }, "Could not delete live session");
+    res.status(502).json({ error: "The live session could not be deleted. Please try again." });
+  }
+});
+
 router.delete("/live/replays/:replayId", async (req, res) => {
   const replayId = req.params.replayId;
   if (!UUID_PATTERN.test(replayId)) {

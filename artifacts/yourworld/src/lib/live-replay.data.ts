@@ -354,6 +354,45 @@ export async function deleteLiveReplay(replayId: string) {
   throw new Error(message);
 }
 
+async function deleteLiveSession(streamId: string) {
+  const { data, error: sessionError } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (sessionError || !token) {
+    throw new Error(sessionError?.message ?? "Sign in to delete this live session.");
+  }
+  const response = await fetch(
+    mediaApiUrl(`/api/live/streams/${encodeURIComponent(streamId)}`),
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    },
+  );
+  if (response.status === 204) return;
+  const body: unknown = await response.json().catch(() => null);
+  const message =
+    body && typeof body === "object" && "error" in body && typeof body.error === "string"
+      ? body.error
+      : "The live session could not be deleted.";
+  throw new Error(message);
+}
+
+export async function loadLiveReplayForStream(streamId: string, broadcasterId: string) {
+  const { data, error } = await supabase
+    .from("live_replays")
+    .select("*")
+    .eq("stream_id", streamId)
+    .eq("broadcaster_id", broadcasterId)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as unknown as LiveReplay | null) ?? null;
+}
+
+export async function deleteLiveReplayForStream(streamId: string, broadcasterId: string) {
+  const replay = await loadLiveReplayForStream(streamId, broadcasterId);
+  if (replay) await deleteLiveReplay(replay.id);
+  await deleteLiveSession(streamId);
+}
+
 export async function reportLiveReplay(input: {
   replay: LiveReplay;
   reporterId: string;

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Capacitor } from "@capacitor/core";
 import { ArrowLeft, Camera, Radio, Users, X } from "lucide-react";
+import { toast } from "sonner";
 import { LiveStreamHud } from "@/components/yw/LiveStreamHud";
 import { useAuth, useResumeAuthAction } from "@/lib/auth-store";
 import {
@@ -19,8 +20,17 @@ import { discardHandedOffLiveStream, takeHandedOffLiveStream } from "@/lib/live-
 import { historyBackOr } from "@/lib/navigation";
 import { setLiveScreenOrientationActive } from "@/lib/video-playback";
 import { useLiveRoom } from "@/lib/use-live-room";
-import { LiveReplayRecorder, clearLiveReplayRecording } from "@/lib/live-replay-recording";
-import { saveLiveReplay } from "@/lib/live-replay.data";
+import {
+  LiveReplayRecorder,
+  clearLiveReplayRecording,
+  loadLiveReplayRecording,
+} from "@/lib/live-replay-recording";
+import {
+  deleteLiveReplayForStream,
+  loadLiveReplayForStream,
+  makeLiveReplayPermanent,
+  saveLiveReplay,
+} from "@/lib/live-replay.data";
 
 export const Route = createFileRoute("/live/$streamId")({
   head: () => ({
@@ -112,8 +122,40 @@ function LiveRoomPage() {
         )}
         peakViewerCount={room.peak_viewers}
         publishStatus="idle"
-        canRetryPublish={false}
-        onRetryPublish={() => undefined}
+        publishError={null}
+        onShareToProfile={async () => {
+          const replay = await loadLiveReplayForStream(room.id, room.broadcaster_id);
+          if (replay) {
+            await makeLiveReplayPermanent(replay);
+          } else {
+            const blob = await loadLiveReplayRecording(room.id);
+            if (!blob) {
+              throw new Error("No live recording is available to share.");
+            }
+            const { width, height } = await readLiveReplayVideoDimensions(blob);
+            await saveLiveReplay({
+              streamId: room.id,
+              broadcasterId: room.broadcaster_id,
+              title: room.title,
+              blob,
+              durationSeconds: Math.max(
+                0,
+                Math.floor(
+                  (Date.parse(room.ended_at ?? room.started_at) -
+                    Date.parse(room.started_at)) /
+                    1000,
+                ),
+              ),
+              width,
+              height,
+            });
+          }
+          await clearLiveReplayRecording(room.id).catch(() => undefined);
+        }}
+        onDeleteLiveVideo={async () => {
+          await deleteLiveReplayForStream(room.id, room.broadcaster_id);
+          await clearLiveReplayRecording(room.id).catch(() => undefined);
+        }}
       />
     );
   }
@@ -606,7 +648,9 @@ function LiveRoomSession({
     recording: NonNullable<typeof replayRecording>,
     durationSecondsToSave: number,
   ) => {
-    if (replayPublishInFlightRef.current) return;
+    if (replayPublishInFlightRef.current) {
+      throw new Error("The replay is already being shared.");
+    }
     replayPublishInFlightRef.current = true;
     setReplayPublishStatus("publishing");
     setReplayPublishError(null);
@@ -626,10 +670,11 @@ function LiveRoomSession({
       setReplayRecordingError(null);
       setReplayPublishStatus("published");
     } catch (cause) {
-      setReplayPublishError(
-        cause instanceof Error ? cause.message : "The replay could not be published.",
-      );
+      const message =
+        cause instanceof Error ? cause.message : "The replay could not be published.";
+      setReplayPublishError(message);
       setReplayPublishStatus("failed");
+      throw cause instanceof Error ? cause : new Error(message);
     } finally {
       replayPublishInFlightRef.current = false;
     }
@@ -706,11 +751,12 @@ function LiveRoomSession({
       ),
     });
     setEnding(false);
-    if (capturedReplay) {
-      void publishReplay(capturedReplay, endedDurationSeconds);
-    } else {
+    if (!capturedReplay) {
       setReplayPublishError(captureError ?? "No live replay recording is available.");
       setReplayPublishStatus("failed");
+    } else {
+      setReplayPublishError(null);
+      setReplayPublishStatus("idle");
     }
   };
 
@@ -722,11 +768,20 @@ function LiveRoomSession({
         error={endError}
         publishStatus={replayPublishStatus}
         publishError={replayPublishError ?? replayRecordingError}
-        canRetryPublish={Boolean(replayRecording)}
-        onRetryPublish={() => {
+        onShareToProfile={async () => {
           if (replayRecording) {
-            void publishReplay(replayRecording, summary.durationSeconds);
+            await publishReplay(replayRecording, summary.durationSeconds);
+            return;
           }
+          const replay = await loadLiveReplayForStream(room.id, room.broadcaster_id);
+          if (!replay) throw new Error("No live recording is available to share.");
+          await makeLiveReplayPermanent(replay);
+        }}
+        onDeleteLiveVideo={async () => {
+          await deleteLiveReplayForStream(room.id, room.broadcaster_id);
+          await clearLiveReplayRecording(room.id).catch(() => undefined);
+          setReplayRecording(null);
+          setReplayRecordingError(null);
         }}
       />
     );
@@ -885,18 +940,20 @@ function LiveSummary({
   error,
   publishStatus,
   publishError,
-  canRetryPublish,
-  onRetryPublish,
+  onShareToProfile,
+  onDeleteLiveVideo,
 }: {
   durationSeconds: number;
   peakViewerCount: number;
   error?: string | null;
   publishStatus: "idle" | "publishing" | "published" | "failed";
   publishError?: string | null;
-  canRetryPublish: boolean;
-  onRetryPublish: () => void;
+  onShareToProfile: () => Promise<void>;
+  onDeleteLiveVideo: () => Promise<void>;
 }) {
   const navigate = useNavigate();
+  const [action, setAction] = useState<"share" | "delete" | null>(null);
+  const actionRef = useRef<"share" | "delete" | null>(null);
   const hours = Math.floor(durationSeconds / 3600);
   const minutes = Math.floor((durationSeconds % 3600) / 60);
   const seconds = durationSeconds % 60;
@@ -904,6 +961,34 @@ function LiveSummary({
     hours > 0
       ? `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
       : `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+
+  const runAction = async (kind: "share" | "delete") => {
+    if (actionRef.current) return;
+    actionRef.current = kind;
+    setAction(kind);
+    try {
+      if (kind === "share") {
+        await onShareToProfile();
+        toast.success("Live video shared to your profile");
+        await navigate({ to: "/profile" });
+      } else {
+        await onDeleteLiveVideo();
+        toast.success("Live video deleted");
+        await navigate({ to: "/" });
+      }
+    } catch (cause) {
+      toast.error(
+        cause instanceof Error
+          ? cause.message
+          : kind === "share"
+            ? "The live video could not be shared."
+            : "The live video could not be deleted.",
+      );
+    } finally {
+      actionRef.current = null;
+      setAction(null);
+    }
+  };
 
   return (
     <main className="grid min-h-[100dvh] place-items-center bg-[#120d12] px-5 py-10 text-white">
@@ -946,11 +1031,6 @@ function LiveSummary({
             saved. Viewers will be disconnected when the room closes.
           </p>
         )}
-        {publishStatus === "publishing" && (
-          <p className="mt-4 text-sm leading-6 text-white/70" role="status">
-            Publishing your live replay permanently to your profile…
-          </p>
-        )}
         {publishStatus === "published" && (
           <p className="mt-4 text-sm leading-6 text-emerald-200" role="status">
             Your replay is published in your Videos and Live tabs.
@@ -961,25 +1041,70 @@ function LiveSummary({
             {publishError ?? "Your live replay could not be published."}
           </p>
         )}
-        {publishStatus === "failed" && canRetryPublish ? (
+        <div className="mt-5 space-y-3">
           <button
             type="button"
-            onClick={onRetryPublish}
-            className="mt-4 w-full rounded-full border border-white/15 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
+            onClick={() => void runAction("share")}
+            disabled={action !== null}
+            className="w-full rounded-full bg-white px-5 py-3 text-sm font-bold text-[#181018] transition hover:bg-white/90 disabled:opacity-60"
           >
-            Retry publishing
+            {action === "share" ? "Sharing…" : "Share to Profile"}
           </button>
-        ) : null}
-        <button
-          type="button"
-          onClick={() => void navigate({ to: "/" })}
-          className="mt-5 w-full rounded-full bg-white px-5 py-3 text-sm font-bold text-[#181018] transition hover:bg-white/90"
-        >
-          Done
-        </button>
+          <button
+            type="button"
+            onClick={() => void runAction("delete")}
+            disabled={action !== null}
+            className="w-full rounded-full border border-rose-300/35 px-5 py-3 text-sm font-semibold text-rose-200 transition hover:bg-rose-400/10 disabled:opacity-60"
+          >
+            {action === "delete" ? "Deleting…" : "Delete Live Video"}
+          </button>
+        </div>
       </section>
     </main>
   );
+}
+
+async function readLiveReplayVideoDimensions(blob: Blob) {
+  const video = document.createElement("video");
+  const objectUrl = URL.createObjectURL(blob);
+  video.preload = "metadata";
+  video.muted = true;
+  video.playsInline = true;
+  try {
+    return await new Promise<{ width: number; height: number }>((resolve, reject) => {
+      let timeout = 0;
+      const cleanup = () => {
+        window.clearTimeout(timeout);
+        video.removeEventListener("loadedmetadata", onLoaded);
+        video.removeEventListener("error", onError);
+      };
+      const onLoaded = () => {
+        cleanup();
+        if (video.videoWidth > 0 && video.videoHeight > 0) {
+          resolve({ width: video.videoWidth, height: video.videoHeight });
+        } else {
+          reject(new Error("The saved live recording has no valid video dimensions."));
+        }
+      };
+      const onError = () => {
+        cleanup();
+        reject(new Error("The saved live recording could not be read."));
+      };
+      timeout = window.setTimeout(() => {
+        cleanup();
+        reject(new Error("The saved live recording could not be read."));
+      }, 15_000);
+      video.addEventListener("loadedmetadata", onLoaded, { once: true });
+      video.addEventListener("error", onError, { once: true });
+      video.src = objectUrl;
+      video.load();
+    });
+  } finally {
+    video.pause();
+    video.removeAttribute("src");
+    video.load();
+    URL.revokeObjectURL(objectUrl);
+  }
 }
 
 function UnavailableLiveRoom({ message }: { message: string }) {
