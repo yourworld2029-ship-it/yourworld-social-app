@@ -30,7 +30,9 @@ type Props = {
   video: LongVideo;
   recommendations: LongVideo[];
   liked: boolean;
+  likeCount: number;
   disliked: boolean;
+  dislikeCount: number;
   following: boolean;
   isOwner: boolean;
   isSwitching: boolean;
@@ -167,7 +169,9 @@ export function VideoWatchDetails({
   video,
   recommendations,
   liked,
+  likeCount,
   disliked,
+  dislikeCount,
   following,
   isOwner,
   isSwitching,
@@ -279,7 +283,7 @@ export function VideoWatchDetails({
             }`}
           >
             <ThumbsUp className="h-3.5 w-3.5 shrink-0" fill={liked ? "currentColor" : "none"} />
-            <span>Like</span>
+              <span>{formatCount(likeCount)}</span>
           </button>
 
           <button
@@ -294,7 +298,7 @@ export function VideoWatchDetails({
             }`}
           >
             <ThumbsDown className="h-3.5 w-3.5 shrink-0" fill={disliked ? "currentColor" : "none"} />
-            <span>Dislike</span>
+              <span>{formatCount(dislikeCount)}</span>
           </button>
 
           <ShareSheet

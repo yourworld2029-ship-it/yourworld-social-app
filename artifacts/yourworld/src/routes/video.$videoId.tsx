@@ -39,6 +39,7 @@ import {
 } from "@/lib/video-playback";
 import { useValidatedVideoViewTracker } from "@/lib/video-view-validation";
 import { consumeVideoResumeRequest } from "@/lib/video-resume";
+import { getVideoReactionState, setVideoReaction } from "@/lib/video-reactions";
 import {
   downloadAudioOnly,
   downloadVideoForOfflineInBackground,
@@ -288,6 +289,8 @@ function VideoRouteComponent() {
   } | null>(null);
   const [isSavingVideo, setIsSavingVideo] = useState(false);
   const [disliked, setDisliked] = useState(false);
+  const [dislikeCount, setDislikeCount] = useState(0);
+  const [isReactionStateLoading, setIsReactionStateLoading] = useState(true);
   const [likeOverride, setLikeOverride] = useState<{
     videoId: string;
     liked: boolean;
@@ -423,7 +426,37 @@ function VideoRouteComponent() {
   useEffect(() => {
     setLikeOverride(null);
     setDisliked(false);
+    setDislikeCount(0);
+    setIsReactionStateLoading(true);
   }, [videoId]);
+
+  useEffect(() => {
+    if (!video || !isCurrentVideo) return;
+
+    let active = true;
+    setIsReactionStateLoading(true);
+    void getVideoReactionState(video.id)
+      .then((state) => {
+        if (!active) return;
+        setLikeOverride({
+          videoId: video.id,
+          liked: state.liked,
+          count: state.likeCount,
+        });
+        setDisliked(state.disliked);
+        setDislikeCount(state.dislikeCount);
+      })
+      .catch((error) => {
+        console.warn("Unable to load video reaction counts:", error);
+      })
+      .finally(() => {
+        if (active) setIsReactionStateLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [isCurrentVideo, user?.id, video?.id]);
 
   useEffect(() => {
     if (
@@ -541,34 +574,47 @@ function VideoRouteComponent() {
     scrollRestoreRef.current = null;
   }, [videoId]);
 
-  const handleLike = async (clearDislike = true) => {
-    if (!video || !isCurrentVideo || isLiking) return;
+  const handleLike = async () => {
+    if (!video || !isCurrentVideo || isLiking || isReactionStateLoading) return;
     if (!user?.id) {
       requestAuthAction({ type: "post-like", targetId: video.id });
       return;
     }
 
-    const nextLiked = !liked;
-    const nextCount = Math.max(0, likeCount + (nextLiked ? 1 : -1));
-    if (clearDislike) setDisliked(false);
-    setLikeOverride({ videoId: video.id, liked: nextLiked, count: nextCount });
+    const previousLikeOverride = likeOverride;
+    const previousLiked = liked;
+    const previousDisliked = disliked;
+    const previousDislikeCount = dislikeCount;
+    const nextLiked = !previousLiked;
+    const nextLikeCount = Math.max(0, likeCount + (nextLiked ? 1 : -1));
+    setLikeOverride({
+      videoId: video.id,
+      liked: nextLiked,
+      count: nextLikeCount,
+    });
+    setDisliked(false);
+    setDislikeCount(
+      Math.max(0, previousDislikeCount - (previousDisliked ? 1 : 0)),
+    );
     setIsLiking(true);
     try {
-      const result = nextLiked
-        ? await supabase.from("likes").upsert(
-            { post_id: video.id, user_id: user.id },
-            { onConflict: "post_id,user_id", ignoreDuplicates: true },
-          )
-        : await supabase
-            .from("likes")
-            .delete()
-            .eq("post_id", video.id)
-            .eq("user_id", user.id);
-      if (result.error) throw result.error;
+      const state = await setVideoReaction(
+        video.id,
+        nextLiked ? "like" : "none",
+      );
+      setLikeOverride({
+        videoId: video.id,
+        liked: state.liked,
+        count: state.likeCount,
+      });
+      setDisliked(state.disliked);
+      setDislikeCount(state.dislikeCount);
       void queryClient.invalidateQueries({ queryKey: ["long-videos"] });
       void queryClient.invalidateQueries({ queryKey: ["long-video-playback", video.id] });
     } catch (error) {
-      setLikeOverride({ videoId: video.id, liked, count: likeCount });
+      setLikeOverride(previousLikeOverride);
+      setDisliked(previousDisliked);
+      setDislikeCount(previousDislikeCount);
       toast.error(error instanceof Error ? error.message : "Couldn't update like");
     } finally {
       setIsLiking(false);
@@ -579,14 +625,54 @@ function VideoRouteComponent() {
     void handleLike();
   });
 
-  const handleDislike = () => {
-    if (!video || !isCurrentVideo || isLiking) return;
+  const handleDislike = async () => {
+    if (!video || !isCurrentVideo || isLiking || isReactionStateLoading) return;
     if (!user?.id) {
       toast.error("Sign in to react to videos");
       return;
     }
-    setDisliked((current) => !current);
-    if (liked) void handleLike(false);
+
+    const previousLikeOverride = likeOverride;
+    const previousLiked = liked;
+    const previousDisliked = disliked;
+    const previousDislikeCount = dislikeCount;
+    const nextDisliked = !previousDisliked;
+    setDisliked(nextDisliked);
+    setLikeOverride({
+      videoId: video.id,
+      liked: false,
+      count: Math.max(0, likeCount - (previousLiked ? 1 : 0)),
+    });
+    setDislikeCount(
+      Math.max(0, previousDislikeCount + (nextDisliked ? 1 : -1)),
+    );
+    setIsLiking(true);
+    try {
+      const state = await setVideoReaction(
+        video.id,
+        nextDisliked ? "dislike" : "none",
+      );
+      setLikeOverride({
+        videoId: video.id,
+        liked: state.liked,
+        count: state.likeCount,
+      });
+      setDisliked(state.disliked);
+      setDislikeCount(state.dislikeCount);
+      void queryClient.invalidateQueries({ queryKey: ["long-videos"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["long-video-playback", video.id],
+      });
+    } catch (error) {
+      setLikeOverride(previousLikeOverride);
+      setDisliked(previousDisliked);
+      setDislikeCount(previousDislikeCount);
+      toast.error(
+        error instanceof Error ? error.message : "Couldn't update dislike",
+      );
+    } finally {
+      setIsLiking(false);
+    }
   };
 
   const handleFollow = () => {
@@ -1000,11 +1086,13 @@ function VideoRouteComponent() {
         video={video}
         recommendations={recommendations}
         liked={liked}
+        likeCount={likeCount}
         disliked={disliked}
+        dislikeCount={dislikeCount}
         following={Boolean(following[video.userId])}
         isOwner={isOwner}
         isSwitching={isSwitching}
-        isLiking={isLiking}
+        isLiking={isLiking || isReactionStateLoading}
         isSaved={isSaved}
         isSaving={isSavingVideo}
         isSaveStateLoading={isSaveStateLoading}
