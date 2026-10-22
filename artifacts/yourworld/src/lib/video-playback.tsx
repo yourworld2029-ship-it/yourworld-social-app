@@ -2770,6 +2770,17 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               </div>
             ) : null}
 
+            {showDetailChrome ? (
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute left-0 right-0 top-0 z-[29] h-[45px]"
+                style={{
+                  background:
+                    "linear-gradient(to bottom, rgba(0, 0, 0, 0.65), transparent)",
+                }}
+              />
+            ) : null}
+
             {showDetailChrome && !pictureInPicture ? (
               <button
                 type="button"
