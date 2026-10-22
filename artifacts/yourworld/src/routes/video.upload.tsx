@@ -24,7 +24,6 @@ import {
 } from "@/lib/video-data";
 import { useUploadActions } from "@/lib/upload-progress";
 import { useAuth } from "@/lib/auth-store";
-import { useUserPreferences } from "@/lib/user-preferences";
 import { trackEvent } from "@/lib/analytics";
 import { historyBackOr } from "@/lib/navigation";
 import { cacheVideoPoster } from "@/lib/video-prefetch";
@@ -33,11 +32,17 @@ import {
   compressLongVideoByTier,
   MAX_LONG_VIDEO_LOCAL_COMPRESSION_BYTES,
   MAX_LONG_VIDEO_INPUT_BYTES,
+  MAX_LONG_VIDEO_REQUIRED_COMPRESSION_BYTES,
   MAX_LONG_VIDEO_STORAGE_BYTES,
+  isVideoBlobUploadReady,
   markVideoBlobAsUploadReady,
   type LongVideoCompressionResult,
 } from "@/lib/video-compression";
 import type { ProgressFn } from "@/lib/storage-upload";
+import {
+  pickAndOptimizeNativeVideo,
+  supportsNativeVideoOptimization,
+} from "@/lib/native-video-optimization";
 
 type AccessOption = "public" | "vip" | "paid";
 const MIN_PAID_VIDEO_PRICE = 10;
@@ -71,7 +76,6 @@ function VideoUploadPage() {
   const navigate = useNavigate();
   const { startUpload, updatePreviewThumbnail } = useUploadActions();
   const { user } = useAuth();
-  const { preferences } = useUserPreferences(user?.id);
   const pageRef = useRef<HTMLElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const selectedFileRef = useRef<File | null>(null);
@@ -134,7 +138,7 @@ function VideoUploadPage() {
       return;
     }
     if (file.size > MAX_LONG_VIDEO_INPUT_BYTES) {
-      toast.error("Long videos must be 1 GB or smaller.");
+      toast.error("Videos must be 2 GB or smaller.");
       return;
     }
     compressionAbortRef.current?.abort();
@@ -155,15 +159,17 @@ function VideoUploadPage() {
     setCurrentTime(0);
     setDimensions(null);
     if (
-      preferences.uploadHighestQuality &&
-      file.size < MAX_LONG_VIDEO_STORAGE_BYTES
+      isVideoBlobUploadReady(file) ||
+      file.size <= MAX_LONG_VIDEO_REQUIRED_COMPRESSION_BYTES
     ) {
       const original: LongVideoCompressionResult = {
         blob: file,
         width: null,
         height: null,
         tier: null,
-        compressed: false,
+        compressed:
+          isVideoBlobUploadReady(file) &&
+          file.size > MAX_LONG_VIDEO_REQUIRED_COMPRESSION_BYTES,
       };
       compressionResultRef.current = original;
       compressionPromiseRef.current = Promise.resolve(original);
@@ -175,15 +181,15 @@ function VideoUploadPage() {
     const controller = new AbortController();
     compressionAbortRef.current = controller;
     setCompressionPending(
-      file.size <= MAX_LONG_VIDEO_LOCAL_COMPRESSION_BYTES ||
-        file.size >= MAX_LONG_VIDEO_STORAGE_BYTES,
+      file.size > MAX_LONG_VIDEO_REQUIRED_COMPRESSION_BYTES ||
+        file.size <= MAX_LONG_VIDEO_LOCAL_COMPRESSION_BYTES,
     );
     const compressionPromise = compressLongVideoByTier(file, {
       signal: controller.signal,
       onProgress: (percent) => {
         compressionTaskProgressRef.current?.(
           Math.min(9, Math.round(percent * 0.09)),
-          `Optimizing video for the 500 MB storage limit · ${percent}%`,
+          `Optimizing large video · ${percent}%`,
           null,
         );
       },
@@ -213,8 +219,20 @@ function VideoUploadPage() {
     if (videoInput.current) videoInput.current.value = "";
   };
 
-  const chooseVideo = () => {
-    videoInput.current?.click();
+  const chooseVideo = async () => {
+    if (!supportsNativeVideoOptimization()) {
+      videoInput.current?.click();
+      return;
+    }
+    setCompressionPending(true);
+    try {
+      const nativeFile = await pickAndOptimizeNativeVideo(() => undefined);
+      if (nativeFile && mountedRef.current) pickVideo(nativeFile);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not prepare this video.");
+    } finally {
+      if (mountedRef.current) setCompressionPending(false);
+    }
   };
 
   useEffect(() => {
@@ -356,7 +374,7 @@ function VideoUploadPage() {
       return;
     }
     if (selectedFile.size > MAX_LONG_VIDEO_INPUT_BYTES) {
-      toast.error("Long videos must be 1 GB or smaller.");
+      toast.error("Videos must be 2 GB or smaller.");
       return;
     }
     if (duration === null || duration < MIN_DURATION) {
@@ -385,16 +403,17 @@ function VideoUploadPage() {
 
     const readyVideo = compressionResultRef.current;
     const requiresStorageSafeCompression =
-      selectedFile.size >= MAX_LONG_VIDEO_STORAGE_BYTES;
+      selectedFile.size > MAX_LONG_VIDEO_REQUIRED_COMPRESSION_BYTES;
     const pendingCompression = compressionPromiseRef.current;
     if (
       requiresStorageSafeCompression &&
       readyVideo &&
       (!readyVideo.compressed ||
+        readyVideo.blob.size >= 300_000_000 ||
         readyVideo.blob.size >= MAX_LONG_VIDEO_STORAGE_BYTES)
     ) {
       toast.error(
-        "This video could not be compressed below the 500 MB storage limit. Try a smaller or shorter video.",
+        "This video could not be compressed below the 300 MB upload target. Try a shorter video.",
       );
       return;
     }
@@ -477,7 +496,7 @@ function VideoUploadPage() {
         if (requiresStorageSafeCompression && !finalVideo) {
           const compressionTaskProgress = onProgress;
           compressionTaskProgressRef.current = compressionTaskProgress;
-          onProgress(0, "Optimizing video to fit the 500 MB storage limit", null);
+      onProgress(0, "Optimizing large video before upload", null);
           try {
             finalVideo = await pendingCompression!;
           } finally {
@@ -488,11 +507,12 @@ function VideoUploadPage() {
           if (signal.aborted) return { error: "Upload cancelled" };
           if (
             !finalVideo.compressed ||
+            finalVideo.blob.size >= 300_000_000 ||
             finalVideo.blob.size >= MAX_LONG_VIDEO_STORAGE_BYTES
           ) {
             return {
               error:
-                "This video could not be compressed below the 500 MB storage limit. Try a smaller or shorter video.",
+                "This video could not be compressed below the 300 MB upload target. Try a shorter video.",
             };
           }
         }
@@ -711,8 +731,8 @@ function VideoUploadPage() {
             role="status"
             aria-live="polite"
           >
-            {(selectedFileRef.current?.size ?? 0) >= MAX_LONG_VIDEO_STORAGE_BYTES
-              ? "Compressing this video below the 500 MB storage limit. Upload will start as soon as it is ready."
+            {(selectedFileRef.current?.size ?? 0) > MAX_LONG_VIDEO_REQUIRED_COMPRESSION_BYTES
+              ? "Compressing this large video before upload. Upload will start as soon as it is ready."
               : "Video preparation is running in the background. Keep filling in the details or publish."}
           </p>
         )}

@@ -21,6 +21,10 @@ import {
   removeOptimisticPost,
 } from "@/lib/published-feed";
 import { generateVideoThumbnail } from "@/lib/video-frames";
+import {
+  pickAndOptimizeNativeVideo,
+  supportsNativeVideoOptimization,
+} from "@/lib/native-video-optimization";
 
 const MIN_REEL_SECONDS = 5;
 const MAX_REEL_SECONDS = 90;
@@ -120,9 +124,18 @@ function DirectReelUploadPage() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  const chooseVideo = () => {
+  const chooseVideo = async () => {
     if (publishing) return;
     setError(null);
+    if (supportsNativeVideoOptimization()) {
+      try {
+        const nativeFile = await pickAndOptimizeNativeVideo(() => undefined);
+        if (nativeFile) handleFileChange(nativeFile);
+      } catch (error) {
+        setError(error instanceof Error ? error.message : "Could not prepare this video.");
+      }
+      return;
+    }
     fileInputRef.current?.click();
   };
 

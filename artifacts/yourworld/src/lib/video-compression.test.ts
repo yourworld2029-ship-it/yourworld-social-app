@@ -7,6 +7,7 @@ import {
   LONG_VIDEO_AUDIO_BITRATE,
   markVideoBlobAsUploadReady,
   MAX_LONG_VIDEO_INPUT_BYTES,
+  MAX_LONG_VIDEO_REQUIRED_COMPRESSION_BYTES,
   MAX_LONG_VIDEO_STORAGE_BYTES,
   optimizeVideoBlob,
   outputSizeForQuality,
@@ -73,22 +74,24 @@ test("long-video compression selects size tiers and output budgets at exact boun
   );
   assert.equal(getLongVideoCompressionPlan(100_000_000, 300).tier, "balanced");
   assert.equal(getLongVideoCompressionPlan(99_999_999, 300).tier, "light");
-  assert.equal(MAX_LONG_VIDEO_INPUT_BYTES, 1_000_000_000);
+  assert.equal(MAX_LONG_VIDEO_INPUT_BYTES, 2_000_000_000);
   assert.equal(MAX_LONG_VIDEO_STORAGE_BYTES, 500_000_000);
+  assert.equal(MAX_LONG_VIDEO_REQUIRED_COMPRESSION_BYTES, 250_000_000);
 });
 
-test("long-video planning rejects files over the strict 1 GB input limit", () => {
+test("long-video planning rejects files over the strict 2 GB input limit", () => {
   assert.throws(
     () => getLongVideoCompressionPlan(MAX_LONG_VIDEO_INPUT_BYTES + 1, 300),
-    /1 GB or smaller/,
+    /2 GB or smaller/,
   );
 });
 
-test("over-limit Long Videos require compression regardless of local size and duration", () => {
+test("videos over 250 MB require compression regardless of local size and duration", () => {
   assert.equal(shouldAttemptLongVideoLocalCompression(100_000_000, 180), true);
   assert.equal(shouldAttemptLongVideoLocalCompression(560_000_000, 900), true);
   assert.equal(shouldAttemptLongVideoLocalCompression(100_000_000, 301), false);
   assert.equal(shouldAttemptLongVideoLocalCompression(100_000_000, 301, true), true);
+  assert.equal(shouldAttemptLongVideoLocalCompression(250_000_001, 900), true);
   assert.equal(shouldAttemptLongVideoLocalCompression(0, 120), false);
 });
 

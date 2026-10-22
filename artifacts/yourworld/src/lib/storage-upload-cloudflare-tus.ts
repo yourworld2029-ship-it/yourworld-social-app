@@ -17,7 +17,6 @@ import {
 
 const CLOUDFLARE_TUS_ENDPOINT = "/api/media/cloudflare-tus-upload";
 const VIDEO_TUS_INACTIVITY_TIMEOUT_MS = 120_000;
-const MAX_VIDEO_TUS_RESUMES = 3;
 
 export async function uploadCloudflareStreamWithTus(options: {
   bucket: "videos" | "reels";
@@ -110,10 +109,6 @@ export async function uploadCloudflareStreamWithTus(options: {
           readableUploadError(error),
           canFallbackAfterCloudflareTusFailure(error, isOnline),
         );
-        return;
-      }
-      if (options.bucket === "videos" && retryAttempt >= MAX_VIDEO_TUS_RESUMES) {
-        finish(readableUploadError(error), false);
         return;
       }
       const delay = getTusRetryDelayMs(retryAttempt++);

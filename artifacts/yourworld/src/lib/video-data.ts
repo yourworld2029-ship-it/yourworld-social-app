@@ -476,7 +476,7 @@ export async function publishLongVideo(opts: {
     (opts.sourceSizeBytes ?? 0) > MAX_LONG_VIDEO_INPUT_BYTES ||
     (opts.file?.size ?? 0) > MAX_LONG_VIDEO_INPUT_BYTES
   ) {
-    return { error: "Long videos must be 1 GB or smaller." };
+    return { error: "Videos must be 2 GB or smaller." };
   }
 
   if (opts.seriesTitle?.trim() || opts.episodeNumber?.trim()) {
@@ -509,7 +509,7 @@ export async function publishLongVideo(opts: {
     }
   }
   if (sourceBlob && sourceBlob.size > MAX_LONG_VIDEO_INPUT_BYTES) {
-    return { error: "Long videos must be 1 GB or smaller." };
+    return { error: "Videos must be 2 GB or smaller." };
   }
   if (sourceBlob && sourceBlob.size >= MAX_LONG_VIDEO_STORAGE_BYTES) {
     return {

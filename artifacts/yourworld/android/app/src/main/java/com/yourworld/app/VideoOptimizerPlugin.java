@@ -47,7 +47,9 @@ import androidx.media3.transformer.ExportException;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.RandomAccessFile;
+import java.util.Locale;
 import java.util.Collections;
 
 @CapacitorPlugin(
@@ -66,7 +68,10 @@ import java.util.Collections;
 public class VideoOptimizerPlugin extends Plugin {
     private static final int MAX_SHORT_SIDE = 1080;
     private static final int MP4_FRONT_METADATA_RESERVE_BYTES = 8 * 1024 * 1024;
-    private static final long TARGET_MAX_OUTPUT_BYTES = 66_000_000L;
+    private static final long MIN_LARGE_OUTPUT_BYTES = 200_000_000L;
+    private static final long MAX_LARGE_OUTPUT_BYTES = 250_000_000L;
+    private static final long MAX_INPUT_BYTES = 2_000_000_000L;
+    private static final long COMPRESSION_TRIGGER_BYTES = 250_000_000L;
     private static final int AUDIO_BITRATE = 96_000;
     private static final int MIN_VIDEO_BITRATE = 64_000;
 
@@ -214,6 +219,15 @@ public class VideoOptimizerPlugin extends Plugin {
     }
 
     private void startOptimization(PluginCall call, Uri input) throws Exception {
+        long inputSize = contentLength(input);
+        if (inputSize > MAX_INPUT_BYTES) {
+            throw new IOException("Videos must be 2 GB or smaller.");
+        }
+        if (inputSize > 0 && inputSize <= COMPRESSION_TRIGGER_BYTES) {
+            copyOriginalToCache(call, input, inputSize);
+            return;
+        }
+
         MediaMetadataRetriever retriever = new MediaMetadataRetriever();
         int width;
         int height;
@@ -240,7 +254,12 @@ public class VideoOptimizerPlugin extends Plugin {
         double scale = Math.min(1d, (double) MAX_SHORT_SIDE / Math.min(width, height));
         int outputWidth = even((int) Math.floor(width * scale));
         int outputHeight = even((int) Math.floor(height * scale));
-        int targetBitrate = targetVideoBitrate(Math.min(width, height), durationMs);
+        long targetOutputBytes = targetOutputBytes(inputSize);
+        int targetBitrate = targetVideoBitrate(
+                Math.min(width, height),
+                durationMs,
+                targetOutputBytes
+        );
 
         File cacheDir = getContext().getCacheDir();
         long estimatedOutputBytes =
@@ -270,7 +289,14 @@ public class VideoOptimizerPlugin extends Plugin {
                 .addListener(new Transformer.Listener() {
                     @Override
                     public void onCompleted(Composition composition, ExportResult exportResult) {
-                        completeOptimization(call, output, outputWidth, outputHeight, durationMs);
+                        completeOptimization(
+                                call,
+                                output,
+                                outputWidth,
+                                outputHeight,
+                                durationMs,
+                                inputSize
+                        );
                     }
 
                     @Override
@@ -298,6 +324,135 @@ public class VideoOptimizerPlugin extends Plugin {
         transformer.start(edited, output.getAbsolutePath());
         notifyProgress(0);
         mainHandler.post(progressPoll);
+    }
+
+    private long contentLength(Uri input) {
+        try (Cursor cursor = getContext().getContentResolver().query(
+                input,
+                new String[]{OpenableColumns.SIZE},
+                null,
+                null,
+                null
+        )) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int sizeColumn = cursor.getColumnIndex(OpenableColumns.SIZE);
+                if (sizeColumn >= 0 && !cursor.isNull(sizeColumn)) {
+                    long size = cursor.getLong(sizeColumn);
+                    if (size > 0) return size;
+                }
+            }
+        } catch (Exception ignored) {
+            // Providers may not expose a length; the upload safety checks still
+            // validate the completed native output before it reaches Storage.
+        }
+        return -1L;
+    }
+
+    private void copyOriginalToCache(PluginCall call, Uri input, long expectedSize) {
+        String contentType = getContext().getContentResolver().getType(input);
+        if (contentType == null || !contentType.toLowerCase(Locale.ROOT).startsWith("video/")) {
+            contentType = "video/mp4";
+        }
+        final String finalContentType = contentType;
+        String extension = extensionForMimeType(contentType);
+        File output = new File(
+                getContext().getCacheDir(),
+                "yw-selected-" + System.currentTimeMillis() + "." + extension
+        );
+        if (expectedSize > 0 && getContext().getCacheDir().getUsableSpace() < expectedSize) {
+            throw new IllegalStateException("There is not enough free device storage to prepare this video.");
+        }
+        activeOutput = output;
+        new Thread(() -> {
+            long copied = 0L;
+            try (InputStream source = getContext().getContentResolver().openInputStream(input);
+                 FileOutputStream target = new FileOutputStream(output)) {
+                if (source == null) throw new IOException("The selected video could not be opened.");
+                byte[] buffer = new byte[1024 * 1024];
+                int read;
+                while ((read = source.read(buffer)) != -1) {
+                    copied += read;
+                    if (copied > MAX_INPUT_BYTES) {
+                        throw new IOException("Videos must be 2 GB or smaller.");
+                    }
+                    target.write(buffer, 0, read);
+                    if (expectedSize > 0) {
+                        notifyProgress((int) Math.min(99, copied * 100L / expectedSize));
+                    }
+                }
+                target.getFD().sync();
+            } catch (Exception error) {
+                output.delete();
+                mainHandler.post(() -> failOptimization(
+                        call,
+                        error.getMessage() == null
+                                ? "Could not prepare this video for upload."
+                                : error.getMessage(),
+                        error
+                ));
+                return;
+            }
+            long finalSize = copied;
+            mainHandler.post(() -> completeOriginalSelection(
+                    call,
+                    output,
+                    finalContentType,
+                    finalSize,
+                    input
+            ));
+        }, "YourWorld-video-copy").start();
+    }
+
+    private void completeOriginalSelection(
+            PluginCall call,
+            File output,
+            String contentType,
+            long size,
+            Uri input
+    ) {
+        if (activeCall != call) {
+            output.delete();
+            return;
+        }
+        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
+        int width = 0;
+        int height = 0;
+        long durationMs = 0L;
+        try {
+            retriever.setDataSource(getContext(), input);
+            width = parseMetadata(retriever, MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH);
+            height = parseMetadata(retriever, MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT);
+            durationMs = parseMetadataLong(retriever, MediaMetadataRetriever.METADATA_KEY_DURATION);
+        } catch (Exception ignored) {
+            // The WebView preview reads metadata again from the copied source.
+        } finally {
+            try {
+                retriever.release();
+            } catch (Exception ignored) {
+                // Nothing else holds this retriever.
+            }
+        }
+        activeCall = null;
+        activeOutput = null;
+        notifyProgress(100);
+        JSObject response = new JSObject();
+        response.put("cancelled", false);
+        response.put("path", output.getAbsolutePath());
+        response.put("fileName", "yourworld-video-" + System.currentTimeMillis() + "." +
+                extensionForMimeType(contentType));
+        response.put("size", size);
+        response.put("contentType", contentType);
+        response.put("width", width);
+        response.put("height", height);
+        response.put("durationSeconds", durationMs / 1000d);
+        call.resolve(response);
+    }
+
+    private static String extensionForMimeType(String mimeType) {
+        String extension = android.webkit.MimeTypeMap.getSingleton()
+                .getExtensionFromMimeType(mimeType);
+        if (extension == null || extension.trim().isEmpty()) return "mp4";
+        return extension.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
     }
 
     private Muxer.Factory fastStartMuxerFactory() {
@@ -331,15 +486,22 @@ public class VideoOptimizerPlugin extends Plugin {
             File output,
             int width,
             int height,
-            long durationMs
+            long durationMs,
+            long sourceSizeBytes
     ) {
         if (activeCall != call) {
             output.delete();
             return;
         }
         mainHandler.removeCallbacks(progressPoll);
-        if (!output.isFile() || output.length() <= 0 || !hasFastStartLayout(output)) {
-            failOptimization(call, "Could not produce a fast-start MP4 for this video.", null);
+        if (
+                !output.isFile() ||
+                        output.length() <= 0 ||
+                        output.length() >= 300_000_000L ||
+                        (sourceSizeBytes > 0 && output.length() >= sourceSizeBytes) ||
+                        !hasFastStartLayout(output)
+        ) {
+            failOptimization(call, "Could not produce a smaller fast-start MP4 below 300 MB.", null);
             return;
         }
         activeCall = null;
@@ -384,18 +546,31 @@ public class VideoOptimizerPlugin extends Plugin {
             File output = new File(path).getCanonicalFile();
             return output.getParentFile() != null &&
                     output.getParentFile().equals(cache) &&
-                    output.getName().startsWith("yw-optimized-") &&
+                    (output.getName().startsWith("yw-optimized-") ||
+                            output.getName().startsWith("yw-selected-")) &&
                     (!output.exists() || output.delete());
         } catch (IOException error) {
             return false;
         }
     }
 
-    private static int targetVideoBitrate(int shortSide, long durationMs) {
+    private static long targetOutputBytes(long inputSize) {
+        if (inputSize <= 0L) return MAX_LARGE_OUTPUT_BYTES;
+        return Math.min(
+                MAX_LARGE_OUTPUT_BYTES,
+                Math.max(MIN_LARGE_OUTPUT_BYTES, inputSize / 2L)
+        );
+    }
+
+    private static int targetVideoBitrate(
+            int shortSide,
+            long durationMs,
+            long targetOutputBytes
+    ) {
         int qualityCeiling = shortSide >= 1080 ? 4_200_000 : 2_500_000;
         long mediaBytes = Math.max(
                 1L,
-                TARGET_MAX_OUTPUT_BYTES - MP4_FRONT_METADATA_RESERVE_BYTES
+                targetOutputBytes - MP4_FRONT_METADATA_RESERVE_BYTES
         );
         long totalBitrateBudget = (mediaBytes * 8_000L) / durationMs;
         long videoBitrateBudget = totalBitrateBudget - AUDIO_BITRATE;

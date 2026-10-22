@@ -8,6 +8,7 @@ type VideoOptimizerPlugin = {
     path?: string;
     fileName?: string;
     size?: number;
+    contentType?: string;
   }>;
   cancel(): Promise<void>;
   deleteOutput(options: { path: string }): Promise<void>;
@@ -46,7 +47,7 @@ export async function pickAndOptimizeNativeVideo(
       throw new Error("The optimized video could not be read completely.");
     }
     const file = new File([blob], result.fileName, {
-      type: "video/mp4",
+      type: result.contentType || "video/mp4",
       lastModified: Date.now(),
     });
     markVideoBlobAsUploadReady(file);
