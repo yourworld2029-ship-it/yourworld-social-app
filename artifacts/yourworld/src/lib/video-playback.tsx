@@ -2535,9 +2535,17 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                         needsAndroidPortraitSafeArea ? "yw-android-video-safe-area" : ""
                       }`
                     : `yw-detail-video-player sticky top-0 z-50 order-1 mx-auto block ${
-                        isVerticalVideo ? "aspect-video" : "yw-horizontal-video-detail-player"
-                      } w-full max-w-lg shrink-0 bg-black ${
-                        needsAndroidPortraitSafeArea ? "yw-android-video-safe-area" : ""
+                        isLongVideoWatchRoute
+                          ? "aspect-video max-w-none"
+                          : `${
+                              isVerticalVideo
+                                ? "aspect-video"
+                                : "yw-horizontal-video-detail-player"
+                            } max-w-lg`
+                      } w-full shrink-0 overflow-hidden bg-black ${
+                        needsAndroidPortraitSafeArea && !isLongVideoWatchRoute
+                          ? "yw-android-video-safe-area"
+                          : ""
                       }`
                   : isPlayerRoute
                     ? "pointer-events-none fixed left-[-9999px] top-[-9999px] z-[-1] h-px w-px opacity-0"
@@ -2574,7 +2582,12 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                   ...(floatingWidth !== null ? { width: floatingWidth } : {}),
                 }
               : showDetailChrome
-                ? { touchAction: isFullscreen ? "none" : "manipulation" }
+                ? {
+                    touchAction: isFullscreen ? "none" : "manipulation",
+                    ...(isLongVideoWatchRoute && !isFullscreen
+                      ? { aspectRatio: "16 / 9", width: "100%" }
+                      : {}),
+                  }
                 : undefined
           }
         >
@@ -2672,7 +2685,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
               onStalled={() => setIsBuffering(true)}
               onCanPlay={() => setIsBuffering(false)}
               className={`video-player-native-controls h-full w-full ${
-                (showDetailChrome && isFullscreen) || displayMode === "fill"
+                (showDetailChrome &&
+                  (isFullscreen || isLongVideoWatchRoute)) ||
+                displayMode === "fill"
                   ? "object-cover"
                   : "object-contain"
               }`}
@@ -2680,7 +2695,9 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                 transform: `scale(${zoom})`,
                 transformOrigin: "center center",
                 objectFit:
-                  (showDetailChrome && isFullscreen) || displayMode === "fill"
+                  (showDetailChrome &&
+                    (isFullscreen || isLongVideoWatchRoute)) ||
+                  displayMode === "fill"
                     ? "cover"
                     : "contain",
                 transition: gestureFeedback?.kind === "zoom" ? "none" : "transform 160ms ease-out",
