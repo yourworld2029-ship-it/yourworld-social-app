@@ -113,6 +113,7 @@ export type Database = {
         Row: {
           content: string
           created_at: string | null
+          duration_seconds: number | null
           id: string
           likes_count: number
           parent_comment_id: string | null
@@ -122,6 +123,7 @@ export type Database = {
         Insert: {
           content: string
           created_at?: string | null
+          duration_seconds?: number | null
           id?: string
           likes_count?: number
           parent_comment_id?: string | null
@@ -131,6 +133,7 @@ export type Database = {
         Update: {
           content?: string
           created_at?: string | null
+          duration_seconds?: number | null
           id?: string
           likes_count?: number
           parent_comment_id?: string | null

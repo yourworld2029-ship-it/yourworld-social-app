@@ -1,7 +1,11 @@
 import { useEffect } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { computeBreakdown, inr, type EarningSource } from "@/lib/payout-math";
+import {
+  computeBreakdown,
+  formatPayoutAmount,
+  type EarningSource,
+} from "@/lib/payout-math";
 
 const netFor = (source: string, gross: number) => {
   const key: EarningSource = source === "ads" || source === "course" || source === "vip" ? source : "ads";
@@ -38,13 +42,17 @@ export function EarningsCreditWatcher() {
               source?: string;
               gross_amount?: number | string;
               creator_amount?: number | string | null;
+              currency?: string | null;
             };
             const creatorShare =
               row.source === "video" && row.creator_amount != null
                 ? Number(row.creator_amount)
                 : netFor(String(row.source ?? "ads"), Number(row.gross_amount ?? 0));
             if (creatorShare <= 0) return;
-            toast.success(`Earnings credited: ${inr(creatorShare)} added to your Monetization Wallet.`);
+            const currency = row.currency === "USD" ? "USD" : "INR";
+            toast.success(
+              `Earnings credited: ${formatPayoutAmount(creatorShare, currency)} added to your Monetization Wallet.`,
+            );
           },
         )
         .subscribe();

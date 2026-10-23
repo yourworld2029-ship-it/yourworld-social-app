@@ -7,11 +7,15 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-store";
 import {
   computeBreakdown,
-  inr,
-  MIN_PAYOUT,
+  earningsForCurrency,
+  formatPayoutAmount,
+  meetsMonetizationTargets,
+  minimumPayout,
+  payoutCurrencyForCountry,
   round2,
   TDS_RATE,
   type GrossBySource,
+  type PayoutCurrency,
 } from "@/lib/payout-math";
 import { submitPayoutRequest } from "@/lib/payouts.functions";
 import { postKind } from "@/lib/supabase-compat";
@@ -65,7 +69,7 @@ function trackerRequirements(identity: ReturnType<typeof useVerifiedSportsIdenti
 }
 
 type KycStatus = "pending" | "verified" | "rejected";
-type PayoutSchedule = "15_days" | "30_days";
+type PayoutSchedule = "monthly_1_5";
 
 type PayoutRequestRow = {
   id: string;
@@ -74,7 +78,9 @@ type PayoutRequestRow = {
   net_amount: number;
   tds_deducted: number;
   status: "processing" | "completed" | "failed" | string;
-  schedule_type: PayoutSchedule;
+  schedule_type: PayoutSchedule | "15_days" | "30_days";
+  currency?: PayoutCurrency;
+  payout_window_start?: string | null;
   form_16a_url: string | null;
   failure_reason: string | null;
   completed_at: string | null;
@@ -88,6 +94,8 @@ type Details = {
   ifsc_code: string;
   account_holder: string;
   pan_number: string;
+  bank_name: string;
+  swift_bic: string;
 };
 
 const emptyDetails: Details = {
@@ -97,6 +105,8 @@ const emptyDetails: Details = {
   ifsc_code: "",
   account_holder: "",
   pan_number: "",
+  bank_name: "",
+  swift_bic: "",
 };
 
 function MonetizationTermsCheckbox({
@@ -135,7 +145,7 @@ function WalletPage() {
   const [videoNet, setVideoNet] = useState(0);
   const [cumulativeDirectSalesNet, setCumulativeDirectSalesNet] = useState(0);
   const [details, setDetails] = useState<Details>(emptyDetails);
-  const [schedule, setSchedule] = useState<PayoutSchedule>("15_days");
+  const [country, setCountry] = useState("");
   const [kycStatus, setKycStatus] = useState<KycStatus>("pending");
   const [eligible, setEligible] = useState(false);
   const [stats, setStats] = useState({ followers: 0, watchHours: 0, videoViews: 0 });
@@ -161,16 +171,17 @@ function WalletPage() {
         { data: myPosts },
         { data: watchHours },
         { data: nationalAwardVerification, error: nationalAwardError },
+        { data: profileCountry },
       ] = await Promise.all([
           supabase
             .from("creator_earnings")
-            .select("source, gross_amount, creator_amount")
+            .select("source, gross_amount, creator_amount, currency")
             .eq("user_id", uid)
             .is("payout_id", null)
             .is("payout_request_id", null),
           supabase
             .from("creator_earnings")
-            .select("source, gross_amount, creator_amount")
+            .select("source, gross_amount, creator_amount, currency")
             .eq("user_id", uid),
           supabase.from("creator_payout_profiles").select("*").eq("user_id", uid).maybeSingle(),
           supabase
@@ -192,6 +203,7 @@ function WalletPage() {
             .select("review_status")
             .eq("user_id", uid)
             .maybeSingle(),
+          supabase.from("profiles").select("country").eq("id", uid).maybeSingle(),
         ]);
       if (!alive) return;
       if (nationalAwardError) {
@@ -200,26 +212,39 @@ function WalletPage() {
       setNationalAwardApproved(
         !nationalAwardError && nationalAwardVerification?.review_status === "approved",
       );
+      const savedCountry = String(profileCountry?.country ?? "");
+      const activeCurrency = payoutCurrencyForCountry(savedCountry);
+      setCountry(savedCountry);
       const next: GrossBySource = { ads: 0, course: 0, vip: 0 };
-      for (const row of earnings ?? []) {
+      const activeEarnings = (earnings ?? []) as Array<{
+        source: string;
+        gross_amount: number | string | null;
+        creator_amount?: number | string | null;
+        currency?: string | null;
+      }>;
+      const currentCurrencyEarnings = earningsForCurrency(activeEarnings, activeCurrency);
+      for (const row of currentCurrencyEarnings) {
         const key = row.source as keyof GrossBySource;
         if (key in next) next[key] += Number(row.gross_amount ?? 0);
       }
       setGross(next);
-      const unpaidVideoNet = (earnings ?? []).reduce((sum, raw) => {
-        const row = raw as { source?: string; creator_amount?: number | string | null };
+      const unpaidVideoNet = currentCurrencyEarnings.reduce((sum, row) => {
         return row.source === "video" ? sum + Number(row.creator_amount ?? 0) : sum;
       }, 0);
       setVideoNet(round2(unpaidVideoNet));
 
       const cumulativeDirectGross: GrossBySource = { ads: 0, course: 0, vip: 0 };
       let cumulativeVideoNet = 0;
-      for (const row of allEarnings ?? []) {
-        const typedRow = row as {
-          source?: string;
+      const currentAllEarnings = earningsForCurrency(
+        (allEarnings ?? []) as Array<{
+          source: string;
           gross_amount?: number | string | null;
           creator_amount?: number | string | null;
-        };
+          currency?: string | null;
+        }>,
+        activeCurrency,
+      );
+      for (const typedRow of currentAllEarnings) {
         if (typedRow.source === "video") {
           cumulativeVideoNet += Number(typedRow.creator_amount ?? 0);
           continue;
@@ -240,8 +265,9 @@ function WalletPage() {
           ifsc_code: det.ifsc ?? "",
           account_holder: det.holder_name ?? "",
           pan_number: det.pan_number ?? "",
+          bank_name: det.bank_name ?? "",
+          swift_bic: det.swift_bic ?? "",
         });
-        setSchedule(det.payout_schedule === "30_days" ? "30_days" : "15_days");
         setKycStatus(
           det.kyc_status === "verified" || det.kyc_status === "rejected"
             ? det.kyc_status
@@ -308,13 +334,13 @@ function WalletPage() {
   const requirements = nationalAwardApproved
     ? INTERNATIONAL_TRACKER_REQUIREMENTS
     : sportsRequirements;
+  const payoutCurrency: PayoutCurrency = payoutCurrencyForCountry(country);
+  const payoutMinimum = minimumPayout(payoutCurrency);
   const benefitTags = [
     sportsRequirements.badgeTag,
     nationalAwardApproved ? "National Awardee Benefit" : null,
   ].filter((tag): tag is string => Boolean(tag));
-  const canApply =
-    stats.followers >= requirements.followers &&
-    (stats.watchHours >= requirements.watchHours || stats.videoViews >= requirements.videoViews);
+  const canApply = meetsMonetizationTargets(stats, requirements);
   const directSalesBalance =
     computeBreakdown({
     ads: 0,
@@ -324,7 +350,7 @@ function WalletPage() {
   const totalNetCreatorEarnings = round2(b.creatorShare + videoNet);
   const totalTds = round2(b.tds + videoNet * TDS_RATE);
   const totalNetPayout = round2(totalNetCreatorEarnings - totalTds);
-  const directSalesUnlocked = cumulativeDirectSalesNet >= MIN_PAYOUT;
+  const directSalesUnlocked = cumulativeDirectSalesNet >= payoutMinimum;
   const showWallet = eligible || canApply || directSalesUnlocked;
 
   const saveDetails = async () => {
@@ -346,7 +372,11 @@ function WalletPage() {
           ifsc: details.ifsc_code,
           holder_name: details.account_holder,
           pan_number: details.pan_number,
-          payout_schedule: schedule,
+          payout_currency: payoutCurrency,
+          bank_name: details.bank_name,
+          swift_bic: details.swift_bic,
+          bank_country: country,
+          payout_schedule: "monthly_1_5" satisfies PayoutSchedule,
           kyc_status: nextKycStatus,
           monetization_eligible: eligible,
           terms_accepted_at: new Date().toISOString(),
@@ -385,7 +415,11 @@ function WalletPage() {
           ifsc: details.ifsc_code,
           holder_name: details.account_holder,
           pan_number: details.pan_number,
-          payout_schedule: schedule,
+          payout_currency: payoutCurrency,
+          bank_name: details.bank_name,
+          swift_bic: details.swift_bic,
+          bank_country: country,
+          payout_schedule: "monthly_1_5" satisfies PayoutSchedule,
           kyc_status: kycStatus,
           monetization_eligible: true,
           terms_accepted_at: new Date().toISOString(),
@@ -415,7 +449,7 @@ function WalletPage() {
       setPayouts((p) => [payout, ...p]);
       setGross({ ads: 0, course: 0, vip: 0 });
       setVideoNet(0);
-      toast.success("Payout request submitted successfully. Processing via your chosen schedule.");
+      toast.success("Payout request submitted. It will be reviewed in the monthly 1–5 window.");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Payout failed");
     } finally {
@@ -455,9 +489,9 @@ function WalletPage() {
                 </p>
               ))}
               <p className="pt-2 text-sm text-zinc-300">
-                Reach {requirements.followers.toLocaleString("en-IN")} followers and either{" "}
-                {requirements.watchHours.toLocaleString("en-IN")} watch hours or{" "}
-                {requirements.videoViews.toLocaleString("en-IN")} video views to join the program.
+                Reach all three requirements to join: {requirements.followers.toLocaleString("en-IN")} followers,{" "}
+                {requirements.watchHours.toLocaleString("en-IN")} watch hours, and{" "}
+                {requirements.videoViews.toLocaleString("en-IN")} video views.
               </p>
             </section>
 
@@ -497,11 +531,12 @@ function WalletPage() {
             <section className="rounded-2xl border border-zinc-800 bg-[#141418] p-4">
               <h2 className="text-sm font-bold">Day 1 Direct Earnings</h2>
               <p className="pt-1.5 text-sm font-semibold text-zinc-200">
-                Current sales balance: {inr(directSalesBalance)}
+                Current sales balance: {formatPayoutAmount(directSalesBalance, payoutCurrency)}
               </p>
               <p className="pt-1.5 text-[11px] leading-relaxed text-zinc-500">
-                Earn ₹5,000 from courses/memberships to unlock bank withdrawal (Current:{" "}
-                {inr(directSalesBalance)} / ₹5,000)
+                Earn {formatPayoutAmount(payoutMinimum, payoutCurrency)} from courses/memberships to unlock withdrawal (Current:{" "}
+                {formatPayoutAmount(directSalesBalance, payoutCurrency)} /{" "}
+                {formatPayoutAmount(payoutMinimum, payoutCurrency)})
               </p>
             </section>
           </>
@@ -509,7 +544,7 @@ function WalletPage() {
           <>
             {canApply && !eligible ? (
               <section className="rounded-2xl border border-indigo-500/30 bg-indigo-500/10 p-4">
-                <p className="text-sm font-semibold">Standard ad monetization threshold reached</p>
+                <p className="text-sm font-semibold">Monetization threshold reached</p>
                 <p className="pt-1 text-[11px] leading-relaxed text-zinc-400">
                   Apply to save your monetization eligibility and keep earning from ad revenue.
                 </p>
@@ -531,12 +566,13 @@ function WalletPage() {
                   Total Earnings (Net Creator Share)
                 </p>
               </div>
-              <p className="pt-2 text-3xl font-extrabold">{inr(totalNetCreatorEarnings)}</p>
+              <p className="pt-2 text-3xl font-extrabold">
+                {formatPayoutAmount(totalNetCreatorEarnings, payoutCurrency)}
+              </p>
               <p className="pt-1 text-[11px] text-zinc-500">
                 Net creator earnings, before any payout-time TDS deduction.
               </p>
             </section>
-
             {/* Revenue breakdown */}
             <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               {[
@@ -549,7 +585,7 @@ function WalletPage() {
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
                     {c.label}
                   </p>
-                  <p className="pt-1.5 text-sm font-bold">{inr(c.v)}</p>
+                  <p className="pt-1.5 text-sm font-bold">{formatPayoutAmount(c.v, payoutCurrency)}</p>
                 </div>
               ))}
             </section>
@@ -559,15 +595,17 @@ function WalletPage() {
               <div className="mt-3 space-y-2 text-xs">
                 <div className="flex justify-between gap-3 text-zinc-300">
                   <span>Requested amount</span>
-                  <span className="font-semibold text-white">{inr(totalNetCreatorEarnings)}</span>
+                  <span className="font-semibold text-white">
+                    {formatPayoutAmount(totalNetCreatorEarnings, payoutCurrency)}
+                  </span>
                 </div>
                 <div className="flex justify-between gap-3 text-zinc-400">
                   <span>TDS under Section 194-O (1%)</span>
-                  <span>- {inr(totalTds)}</span>
+                  <span>- {formatPayoutAmount(totalTds, payoutCurrency)}</span>
                 </div>
                 <div className="flex justify-between gap-3 border-t border-indigo-300/20 pt-2 font-semibold text-white">
                   <span>Net payout to bank</span>
-                  <span>{inr(totalNetPayout)}</span>
+                  <span>{formatPayoutAmount(totalNetPayout, payoutCurrency)}</span>
                 </div>
               </div>
             </section>
@@ -598,36 +636,49 @@ function WalletPage() {
               </div>
               <div className="grid gap-2.5 pt-3">
                 {(
-                  [
-                    ["creator_email", "Creator Email ID", "you@gmail.com"],
-                    ["upi_id", "UPI ID", "name@upi"],
-                    ["bank_account", "Bank Account Number", "Account number"],
-                    ["ifsc_code", "IFSC Code", "IFSC0000000"],
-                    ["account_holder", "Account Holder Name", "Full name as per bank"],
-                    ["pan_number", "PAN Card Number", "ABCDE1234F"],
-                  ] as Array<[keyof Details, string, string]>
+                  payoutCurrency === "INR"
+                    ? [
+                        ["creator_email", "Creator Email ID", "you@gmail.com"],
+                        ["upi_id", "UPI ID (optional)", "name@upi"],
+                        ["bank_account", "Bank Account Number", "Account number"],
+                        ["ifsc_code", "IFSC Code", "IFSC0000000"],
+                        ["account_holder", "Account Holder Name", "Full name as per bank"],
+                        ["pan_number", "PAN Card Number", "ABCDE1234F"],
+                      ]
+                    : [
+                        ["creator_email", "Creator Email ID", "you@example.com"],
+                        ["bank_name", "Bank Name", "Bank name"],
+                        ["bank_account", "Account Number / IBAN", "Account number or IBAN"],
+                        ["swift_bic", "SWIFT / BIC", "SWIFT/BIC code"],
+                        ["account_holder", "Account Holder Name", "Full name as per bank"],
+                        ["pan_number", "Tax ID / PAN (if applicable)", "Tax identification number"],
+                      ]
                 ).map(([key, label, ph]) => (
                   <label key={key} className="block">
                     <span className="mb-1 block text-[11px] text-zinc-500">{label}</span>
                     <input
-                      value={details[key]}
-                      onChange={(e) => setDetails((d) => ({ ...d, [key]: e.target.value }))}
-                      placeholder={ph}
+                      value={details[key as keyof Details]}
+                      onChange={(e) =>
+                        setDetails((d) => ({ ...d, [key as keyof Details]: e.target.value }))
+                      }
+                      placeholder={String(ph)}
                       className="w-full rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm outline-none placeholder:text-zinc-600 focus:border-zinc-600"
                     />
                   </label>
                 ))}
                 <label className="block">
-                  <span className="mb-1 block text-[11px] text-zinc-500">Auto-Payout Schedule</span>
-                  <select
-                    value={schedule}
-                    onChange={(e) => setSchedule(e.target.value as PayoutSchedule)}
-                    className="w-full rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm outline-none focus:border-zinc-600"
-                  >
-                    <option value="15_days">Every 15 Days</option>
-                    <option value="30_days">Every 30 Days</option>
-                  </select>
+                  <span className="mb-1 block text-[11px] text-zinc-500">Payout Currency</span>
+                  <div className="rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm">
+                    {payoutCurrency} · Based on your saved country
+                  </div>
+                  {payoutCurrency === "USD" ? (
+                    <p className="pt-1 text-[10px] text-zinc-500">Bank country: {country || "Not set"}</p>
+                  ) : null}
                 </label>
+                <div className="rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5">
+                  <span className="block text-[11px] text-zinc-500">Monthly Payout Window</span>
+                  <span className="text-sm">Every month, from the 1st through the 5th</span>
+                </div>
               </div>
               <button
                 onClick={saveDetails}
@@ -644,23 +695,25 @@ function WalletPage() {
                 onClick={withdraw}
                 disabled={
                   processing ||
-                  b.creatorShare < MIN_PAYOUT ||
+                  totalNetCreatorEarnings < payoutMinimum ||
                   kycStatus !== "verified" ||
                   !termsAccepted
                 }
                 className="flex w-full items-center justify-center gap-2 rounded-full bg-indigo-500 py-3 text-sm font-semibold disabled:opacity-50"
               >
                 {processing ? <Loader2 className="animate-spin" size={16} /> : <Coins size={16} />}
-                {processing ? "Processing payout…" : `Request Payout (Net ${inr(b.net)})`}
+                {processing
+                  ? "Submitting payout request…"
+                  : `Request Payout (Net ${formatPayoutAmount(totalNetPayout, payoutCurrency)})`}
               </button>
               <p className="pt-2 text-center text-[11px] text-zinc-500">
                 {!termsAccepted
                   ? "Accept the Creator Monetization Terms before requesting a payout"
                   : kycStatus !== "verified"
                   ? "KYC verification is required before requesting a payout"
-                  : b.creatorShare < MIN_PAYOUT
-                  ? "Minimum available balance for payout is ₹5,000"
-                  : `Processing via your ${schedule === "15_days" ? "15 Days" : "30 Days"} Cycle / Direct Bank.`}
+                  : totalNetCreatorEarnings < payoutMinimum
+                  ? `Minimum available balance for payout is ${formatPayoutAmount(payoutMinimum, payoutCurrency)}`
+                  : "Manual payout review; transfers are processed in the monthly 1–5 window."}
               </p>
             </div>
 
@@ -676,10 +729,24 @@ function WalletPage() {
                   {payouts.map((p) => (
                     <li key={p.id} className="flex items-start gap-3 py-3">
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-semibold">{inr(Number(p.amount))}</p>
-                        <p className="pt-0.5 text-[11px] text-zinc-400">
-                          {p.schedule_type === "15_days" ? "15 Days Cycle" : "30 Days Cycle"} / Direct Bank
+                        <p className="truncate text-sm font-semibold">
+                          {formatPayoutAmount(Number(p.amount), p.currency ?? "INR")}
                         </p>
+                        <p className="pt-0.5 text-[11px] text-zinc-400">
+                          {p.schedule_type === "monthly_1_5"
+                            ? `Monthly 1–5 · ${p.currency ?? "INR"}`
+                            : `Historical payout schedule · ${p.currency ?? "INR"}`}
+                        </p>
+                        {p.payout_window_start ? (
+                          <p className="text-[10px] text-zinc-500">
+                            Window starts{" "}
+                            {new Date(`${p.payout_window_start}T00:00:00`).toLocaleDateString("en-IN", {
+                              day: "2-digit",
+                              month: "short",
+                              year: "numeric",
+                            })}
+                          </p>
+                        ) : null}
                         <p className="truncate pt-0.5 text-[11px] text-zinc-500">
                           {new Date(p.created_at).toLocaleDateString("en-IN", {
                             day: "2-digit",

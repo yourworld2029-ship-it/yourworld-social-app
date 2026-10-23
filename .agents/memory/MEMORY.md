@@ -53,7 +53,7 @@
 - [Capacitor Android wrapper](capacitor-android-wrapper.md) — preserve Start's SPA shell, `cap sync android` after web builds, and package with JDK 21 plus an installed SDK.
 - [YourWorld Debug APK delivery](yourworld-debug-apk-delivery.md) — share a fresh Debug APK link and increment Android version metadata so each app update is identifiable.
 - [Capacitor native detection](capacitor-native-detection.md) — `window.Capacitor` also exists in browsers; use native platform signals and wait for client resolution before gating routes.
-- [Creator monetization settlement](creator-monetization-settlement.md) — keep buyer surcharge, creator/platform splits, single TDS deduction, and terms gates server-authoritative.
+- [Creator monetization settlement](creator-monetization-settlement.md) — keep splits server-authoritative; INR stays unconverted, while USD payouts use MFA-protected manual processing in the monthly 1–5 window.
 - [Moment expiry cleanup](moment-expiry-cleanup.md) — preserve strict active-feed expiry; keep archive recovery owner-only and align duration checks and poll votes with the database.
 - [Moment viewer index sync](moment-viewer-index-sync.md) — refreshes to Moment data must not reset the selected segment within the active author group.
 - [Shared Moment preview limit](shared-moment-preview-limit.md) — enforce the 30-second cap even when a shared video reports an unknown or infinite duration.

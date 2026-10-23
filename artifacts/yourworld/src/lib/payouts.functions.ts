@@ -1,9 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
-import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { computeBreakdown, MIN_PAYOUT, type GrossBySource } from "./payout-math";
-
-const emptyGross = (): GrossBySource => ({ ads: 0, course: 0, vip: 0 });
+import { z } from "zod";
 
 export type PayoutRequestResult = {
   id: string;
@@ -11,8 +8,10 @@ export type PayoutRequestResult = {
   amount: number | string;
   net_amount: number | string;
   tds_deducted: number | string;
-  status: "processing" | "completed" | "failed" | string;
-  schedule_type: "15_days" | "30_days";
+  status: "processing" | "approved" | "completed" | "failed" | string;
+  schedule_type: "monthly_1_5" | "15_days" | "30_days";
+  currency: "INR" | "USD";
+  payout_window_start: string | null;
   form_16a_url: string | null;
   failure_reason: string | null;
   completed_at: string | null;
@@ -35,86 +34,11 @@ export const submitPayoutRequest = createServerFn({ method: "POST" })
     return { payoutRequest };
   });
 
-/** Creates a payout statement from all pending (unpaid) creator earnings. */
+/** The older automatic payout path is disabled; payouts now use the monthly review request. */
 export const processPayout = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
-    const { supabase, userId } = context;
-    // These payout tables are an optional legacy path and are not part of the
-    // generated live schema contract.
-    const db = supabase as unknown as {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      from: (table: string) => any;
-    };
-
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: payoutHold, error: holdError } = await supabaseAdmin
-      .from("admin_payout_holds")
-      .select("id")
-      .eq("user_id", userId)
-      .eq("status", "held")
-      .maybeSingle();
-    if (holdError) throw new Error(holdError.message);
-    if (payoutHold) {
-      throw new Error("Payout processing is temporarily held pending an authorized review.");
-    }
-
-    const { data: earnings, error } = await db
-      .from("creator_earnings")
-      .select("id, source, gross_amount")
-      .eq("user_id", userId)
-      .is("payout_id", null);
-    if (error) throw new Error(error.message);
-
-    const bySource = emptyGross();
-    for (const row of earnings ?? []) {
-      const key = row.source as keyof GrossBySource;
-      if (key in bySource) bySource[key] += Number(row.gross_amount ?? 0);
-    }
-    const breakdown = computeBreakdown(bySource);
-    if (breakdown.creatorShare < MIN_PAYOUT)
-      throw new Error("Minimum available balance to request a payout is ₹5,000");
-
-    const { data: details } = await db
-      .from("creator_payout_details")
-      .select("pan_number")
-      .eq("user_id", userId)
-      .maybeSingle();
-
-    const statementId = `YW-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Math.random()
-      .toString(36)
-      .slice(2, 8)
-      .toUpperCase()}`;
-
-    const { data: payout, error: insErr } = await supabaseAdmin
-      .from("creator_payouts")
-      .insert({
-        user_id: userId,
-        statement_id: statementId,
-        gross_amount: breakdown.gross,
-        gst_amount: breakdown.gst,
-        platform_share: breakdown.platformShare,
-        tds_amount: breakdown.tds,
-        net_amount: breakdown.net,
-        ads_gross: bySource.ads,
-        course_gross: bySource.course,
-        vip_gross: bySource.vip,
-        pan_number: details?.pan_number ?? null,
-        status: "processing",
-      })
-      .select("*")
-      .single();
-    if (insErr) throw new Error(insErr.message);
-
-    const ids = (earnings ?? []).map((e: { id: string }) => e.id);
-    if (ids.length) {
-      await supabaseAdmin
-        .from("creator_earnings")
-        .update({ payout_id: payout.id })
-        .in("id", ids);
-    }
-
-    return { payout, breakdown };
+  .handler(async () => {
+    throw new Error("This legacy payout path is disabled. Submit a request from the Monetization Wallet.");
   });
 
 /** Emails the generated payout PDF to the creator's registered address. */

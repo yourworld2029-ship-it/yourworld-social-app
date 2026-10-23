@@ -66,7 +66,7 @@ function CreatorMonetizationTermsPage() {
 
         <div className="mb-4 rounded-2xl border border-indigo-400/20 bg-indigo-500/10 p-4 text-sm leading-relaxed text-indigo-100">
           These terms apply when you submit payout details, apply for monetization, or request a
-          creator payout. Last updated: September 20, 2026.
+          creator payout. Last updated: October 23, 2026.
         </div>
 
         <div className="space-y-3">
@@ -77,15 +77,18 @@ function CreatorMonetizationTermsPage() {
               cover gateway transaction processing. Platform retains a 15% service fee.
             </p>
             <p>
-              <strong className="text-white">Advertising & Digital Impressions:</strong> Net
-              advertising revenue is distributed on a 70% Creator / 30% Platform basis.
+              <strong className="text-white">Long-video advertising:</strong> Eligible standard
+              videos that are at least 90 seconds long share net ad revenue 70% to the Creator and
+              30% to the Platform. Reels are not included in this ad-share rule.
             </p>
           </PolicySection>
 
           <PolicySection number="2" title="Payout Schedule & Thresholds">
             <p>
-              The minimum withdrawal threshold is ₹5,000. Payouts are scheduled on creator-chosen
-              15-day or 30-day settlement cycles following profile verification.
+              Payout requests are reviewed during the 1st–5th of each month. The minimum available
+              balance is ₹5,000 for India-based creators and $70 USD for creators outside India.
+              Currency follows the country saved on the creator profile; INR earnings are not
+              converted to USD. Transfers are manually reviewed and recorded by an authorized admin.
             </p>
           </PolicySection>
 

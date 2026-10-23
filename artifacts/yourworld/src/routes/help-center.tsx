@@ -110,8 +110,8 @@ function HelpCenterPage() {
 
         <HelpSection icon={WalletCards} number="2" title="Monetization, Wallet & Payouts">
           <Question question="When are payouts processed?">
-            Eligible creator payouts are processed according to schedule once verification and minimum
-            payout thresholds are satisfied.
+            Payout requests are reviewed from the 1st through the 5th of each month after verification
+            and the minimum balance is reached: ₹5,000 in India or $70 USD outside India.
           </Question>
           <Question question="Are digital coin purchases refundable?">
             All virtual items and digital coin purchases provide instant utility and are non-refundable

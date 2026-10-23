@@ -9,6 +9,14 @@ Direct Course/VIP earnings use the base price as the settlement base: buyers pay
 
 **How to apply:** Keep the database earning trigger/RPC authoritative for settlement, preserve creator-facing net-only labels, and require `terms_accepted_at` for both payout requests and payout-detail writes.
 
+## Country-specific payout currency and manual USD processing
+
+Payout currency follows the saved profile country: India uses INR, non-India uses USD, and the wallet shows only the profile's currency. Earnings in another currency are not mixed into the displayed balance or silently converted. Payout requests use the fixed monthly 1st–5th window. USD transfers remain manual; an MFA-protected admin records an external transfer reference. No Stripe or automatic USD transfer provider is connected.
+
+**Why:** The user chose actual USD balances and dismissed connecting a payment integration, so the app must not imply automatic USD transfers or hide FX conversions.
+
+**How to apply:** Keep currency attached to each earning and payout request, derive it server-side from the saved country, filter wallet totals and thresholds to that currency, and use MFA-protected manual settlement until the user explicitly selects a transfer provider.
+
 Paid-video purchases use a service-only, idempotent settlement RPC: derive the charge from the paid post, reserve the full 15% platform commission, deduct the actual gateway charge or 2.36% estimate from the creator amount, then write the purchase ledger, access grant, creator wallet credit, and platform balance in one transaction.
 
 **Why:** Payment retries and client-supplied amounts must never create duplicate access or double-credit either side of the 85/15 split.

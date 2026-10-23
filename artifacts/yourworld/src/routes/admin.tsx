@@ -7,12 +7,15 @@ import { historyBackLink } from "@/lib/navigation";
 import { useAdminAccess } from "@/lib/use-admin-access";
 import { NationalAwardVerificationAdminPanel } from "./admin.national-awards";
 import {
+  listAdminPayoutRequests,
   listAdminConsole,
+  resolveAdminPayoutRequest,
   reviewCopyrightReport,
   reviewUserReport,
   updateAccountRestriction,
   updatePayoutHold,
   type AdminConsoleData,
+  type AdminPayoutRequest,
 } from "@/lib/admin-console.functions";
 
 export const Route = createFileRoute("/admin")({
@@ -175,7 +178,13 @@ function AdminConsole() {
             {tab === "verification" ? <VerificationTab count={data?.pendingVerificationCount ?? 0} /> : null}
             {tab === "reports" ? <ReportsTab data={data} onChanged={() => void load()} /> : null}
             {tab === "copyright" ? <CopyrightTab data={data} onChanged={() => void load()} /> : null}
-            {tab === "payouts" ? <PayoutsTab data={data} onChanged={() => void load()} /> : null}
+            {tab === "payouts" ? (
+              <PayoutsTab
+                data={data}
+                onChanged={() => void load()}
+                onVerifyMfa={() => setMfaOpen(true)}
+              />
+            ) : null}
             {tab === "accounts" ? <AccountsTab data={data} onChanged={() => void load()} /> : null}
             {tab === "audit" ? <AuditTab data={data} /> : null}
             {tab === "awards" ? <NationalAwardVerificationAdminPanel /> : null}
@@ -450,9 +459,21 @@ function CopyrightCard({ report, onChanged }: { report: AdminConsoleData["copyri
   );
 }
 
-function PayoutsTab({ data, onChanged }: { data: AdminConsoleData | null; onChanged: () => void }) {
+function PayoutsTab({
+  data,
+  onChanged,
+  onVerifyMfa,
+}: {
+  data: AdminConsoleData | null;
+  onChanged: () => void;
+  onVerifyMfa: () => void;
+}) {
   return (
-    <Panel title="Monetization & Payout Review" description="Review monetization status and place or release a payout hold. A report never confiscates money or decides a refund by itself.">
+    <Panel
+      title="Monetization & Payout Review"
+      description="Review monthly payout requests and place or release a payout hold. External transfers are entered manually after payment."
+    >
+      <ManualPayoutQueue onVerifyMfa={onVerifyMfa} />
       {!data?.monetization.length && !data?.payoutHolds.length ? <Empty text="No monetization records or payout holds." /> : null}
       <div className="space-y-3">
         {data?.monetization.map((row) => <PayoutCard key={row.userId} row={row} onChanged={onChanged} />)}
@@ -460,6 +481,194 @@ function PayoutsTab({ data, onChanged }: { data: AdminConsoleData | null; onChan
       </div>
     </Panel>
   );
+}
+
+function ManualPayoutQueue({ onVerifyMfa }: { onVerifyMfa: () => void }) {
+  const [requests, setRequests] = useState<AdminPayoutRequest[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [reason, setReason] = useState<Record<string, string>>({});
+  const [reference, setReference] = useState<Record<string, string>>({});
+  const [busyId, setBusyId] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const result = await listAdminPayoutRequests();
+      setRequests(result.requests);
+    } catch (loadError) {
+      setRequests([]);
+      setError(loadError instanceof Error ? loadError.message : "Could not load payout requests.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const resolve = async (request: AdminPayoutRequest, action: "completed" | "failed") => {
+    const selectedReason = reason[request.id]?.trim() ?? "";
+    const paymentReference = reference[request.id]?.trim() ?? "";
+    if (!selectedReason) return toast.error("Add a reason for the payout review.");
+    if (action === "completed" && !paymentReference) {
+      return toast.error("Enter the external bank transfer reference first.");
+    }
+    if (
+      action === "failed" &&
+      !window.confirm("Mark this payout request as failed and return its balance to the wallet?")
+    ) {
+      return;
+    }
+    setBusyId(request.id);
+    try {
+      await resolveAdminPayoutRequest({
+        data: {
+          requestId: request.id,
+          action,
+          reason: selectedReason,
+          paymentReference,
+        },
+      });
+      toast.success(action === "completed" ? "Payout marked as paid." : "Payout failed; balance released.");
+      setReason((current) => ({ ...current, [request.id]: "" }));
+      setReference((current) => ({ ...current, [request.id]: "" }));
+      await load();
+    } catch (resolveError) {
+      toast.error(resolveError instanceof Error ? resolveError.message : "Could not resolve payout.");
+    } finally {
+      setBusyId("");
+    }
+  };
+
+  return (
+    <section className="mb-4 rounded-2xl border border-white/10 bg-white/[0.025] p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-semibold text-white">Manual transfers</h3>
+          <p className="mt-1 text-[11px] text-zinc-500">
+            Private bank details are shown only after Admin MFA. Complete transfers during the assigned monthly 1–5 window.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void load()}
+          disabled={loading}
+          className="rounded-xl border border-white/10 px-3 py-2 text-xs text-zinc-200 disabled:opacity-50"
+        >
+          {loading ? "Loading…" : "Refresh requests"}
+        </button>
+      </div>
+
+      {error ? (
+        <div className="mt-3 rounded-xl border border-amber-300/20 bg-amber-300/[0.05] p-3">
+          <p className="text-xs text-amber-100">{error}</p>
+          {error.toLowerCase().includes("mfa") ? (
+            <button
+              type="button"
+              onClick={onVerifyMfa}
+              className="mt-2 rounded-lg bg-amber-200 px-3 py-2 text-xs font-bold text-black"
+            >
+              Verify MFA
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {!loading && !error && requests.length === 0 ? (
+        <p className="mt-3 rounded-xl border border-white/5 px-3 py-3 text-xs text-zinc-500">
+          No payout requests are waiting for manual review.
+        </p>
+      ) : null}
+
+      <div className="mt-3 space-y-3">
+        {requests.map((request) => (
+          <article key={request.id} className="rounded-xl border border-white/10 bg-black/20 p-3">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold">{displayProfile(request.profile)}</p>
+                <p className="mt-1 text-xs text-zinc-400">
+                  {formatPayoutMoney(request.amount, request.currency)} requested ·{" "}
+                  {formatPayoutMoney(request.netAmount, request.currency)} net after TDS
+                </p>
+                <p className="mt-1 text-[10px] text-zinc-500">
+                  Monthly window begins{" "}
+                  {request.payoutWindowStart
+                    ? new Date(`${request.payoutWindowStart}T00:00:00`).toLocaleDateString("en-IN", {
+                        day: "2-digit",
+                        month: "short",
+                        year: "numeric",
+                      })
+                    : "not set"}
+                </p>
+              </div>
+              <span className="rounded-full border border-amber-300/15 px-2 py-1 text-[10px] uppercase text-amber-200">
+                {request.status}
+              </span>
+            </div>
+
+            <div className="mt-3 grid gap-1.5 rounded-lg bg-white/[0.03] p-3 text-xs text-zinc-300 sm:grid-cols-2">
+              <p>Payee: {request.payoutProfile?.holderName || "Not provided"}</p>
+              <p>Bank: {request.payoutProfile?.bankName || "—"}</p>
+              <p className="break-all">Account / IBAN: {request.payoutProfile?.accountNumber || "—"}</p>
+              <p>IFSC: {request.payoutProfile?.ifsc || "—"}</p>
+              <p>SWIFT / BIC: {request.payoutProfile?.swiftBic || "—"}</p>
+              <p>UPI: {request.payoutProfile?.upiId || "—"}</p>
+              <p>Bank country: {request.payoutProfile?.bankCountry || "—"}</p>
+            </div>
+
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <input
+                value={reference[request.id] ?? ""}
+                onChange={(event) =>
+                  setReference((current) => ({ ...current, [request.id]: event.target.value }))
+                }
+                placeholder="External transfer reference (required to mark paid)"
+                className="min-w-0 rounded-xl border border-white/10 bg-black/30 px-3 py-2.5 text-xs outline-none focus:border-white/25"
+              />
+              <input
+                value={reason[request.id] ?? ""}
+                onChange={(event) =>
+                  setReason((current) => ({ ...current, [request.id]: event.target.value }))
+                }
+                placeholder="Required audit reason"
+                className="min-w-0 rounded-xl border border-white/10 bg-black/30 px-3 py-2.5 text-xs outline-none focus:border-white/25"
+              />
+            </div>
+            <div className="mt-2 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                disabled={busyId === request.id}
+                onClick={() => void resolve(request, "failed")}
+                className="rounded-xl border border-red-300/20 px-3 py-2 text-xs font-semibold text-red-200 disabled:opacity-50"
+              >
+                Fail & release
+              </button>
+              <button
+                type="button"
+                disabled={busyId === request.id}
+                onClick={() => void resolve(request, "completed")}
+                className="rounded-xl bg-emerald-300 px-3 py-2 text-xs font-bold text-black disabled:opacity-50"
+              >
+                {busyId === request.id ? "Saving…" : "Mark transfer paid"}
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function formatPayoutMoney(amount: number, currency: "INR" | "USD") {
+  return new Intl.NumberFormat(currency === "INR" ? "en-IN" : "en-US", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number.isFinite(amount) ? amount : 0);
 }
 
 function PayoutCard({ row, onChanged }: { row: AdminConsoleData["monetization"][number]; onChanged: () => void }) {

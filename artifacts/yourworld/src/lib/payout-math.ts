@@ -6,6 +6,51 @@ export const PAYMENT_GATEWAY_SURCHARGE_RATE = 0.02;
 export const VIDEO_GATEWAY_FALLBACK_RATE = 0.0236;
 export const TDS_RATE = 0.01; // Section 194-O
 export const MIN_PAYOUT = 5000;
+export const MIN_PAYOUT_BY_CURRENCY = { INR: 5000, USD: 70 } as const;
+
+export type PayoutCurrency = keyof typeof MIN_PAYOUT_BY_CURRENCY;
+
+export type MonetizationTargets = {
+  followers: number;
+  watchHours: number;
+  videoViews: number;
+};
+
+export function meetsMonetizationTargets(
+  actual: MonetizationTargets,
+  required: MonetizationTargets,
+) {
+  return (
+    actual.followers >= required.followers &&
+    actual.watchHours >= required.watchHours &&
+    actual.videoViews >= required.videoViews
+  );
+}
+
+export function payoutCurrencyForCountry(country: string | null | undefined): PayoutCurrency {
+  const normalized = country?.trim().toLowerCase() ?? "";
+  return normalized && normalized !== "india" && normalized !== "in" ? "USD" : "INR";
+}
+
+export function minimumPayout(currency: PayoutCurrency) {
+  return MIN_PAYOUT_BY_CURRENCY[currency];
+}
+
+export function earningsForCurrency<T extends { currency?: string | null }>(
+  earnings: T[],
+  currency: PayoutCurrency,
+) {
+  return earnings.filter((earning) => (earning.currency ?? "INR") === currency);
+}
+
+export function formatPayoutAmount(amount: number, currency: PayoutCurrency) {
+  return new Intl.NumberFormat(currency === "INR" ? "en-IN" : "en-US", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number.isFinite(amount) ? amount : 0);
+}
 
 export type EarningSource = keyof typeof CREATOR_SHARE;
 export type GrossBySource = Record<EarningSource, number>;

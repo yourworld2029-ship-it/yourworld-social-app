@@ -436,3 +436,127 @@ export const updatePayoutHold = createServerFn({ method: "POST" })
     await writeAudit(admin, context, data.targetUserId, `payout_${data.action}`, data.reason);
     return { action: data.action };
   });
+
+export type AdminPayoutRequest = {
+  id: string;
+  userId: string;
+  amount: number;
+  netAmount: number;
+  tdsDeducted: number;
+  status: string;
+  currency: "INR" | "USD";
+  payoutWindowStart: string | null;
+  createdAt: string;
+  profile: AdminProfile | null;
+  payoutProfile: {
+    holderName: string | null;
+    bankName: string | null;
+    accountNumber: string | null;
+    ifsc: string | null;
+    upiId: string | null;
+    swiftBic: string | null;
+    bankCountry: string | null;
+  } | null;
+};
+
+export const listAdminPayoutRequests = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const admin = await requireOwnerAdmin(context);
+    const { data, error } = await admin
+      .from("payout_requests")
+      .select(
+        "id,user_id,amount,net_amount,tds_deducted,status,currency,payout_window_start,created_at",
+      )
+      .in("status", ["processing", "approved"])
+      .order("created_at", { ascending: true })
+      .limit(100);
+    if (error) throw new Error(error.message);
+
+    const rows = (data ?? []) as Array<Record<string, unknown>>;
+    const userIds = [...new Set(rows.map((row) => String(row.user_id ?? "")).filter(Boolean))];
+    const [profiles, payoutResult] = await Promise.all([
+      profileMap(admin, userIds),
+      userIds.length
+        ? admin
+            .from("creator_payout_profiles")
+            .select(
+              "user_id,holder_name,bank_name,account_number,ifsc,upi_id,swift_bic,bank_country",
+            )
+            .in("user_id", userIds)
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+    if (payoutResult.error) throw new Error(payoutResult.error.message);
+
+    const payoutProfiles = new Map(
+      ((payoutResult.data ?? []) as Array<Record<string, unknown>>).map((row) => [
+        String(row.user_id),
+        {
+          holderName: row.holder_name ? String(row.holder_name) : null,
+          bankName: row.bank_name ? String(row.bank_name) : null,
+          accountNumber: row.account_number ? String(row.account_number) : null,
+          ifsc: row.ifsc ? String(row.ifsc) : null,
+          upiId: row.upi_id ? String(row.upi_id) : null,
+          swiftBic: row.swift_bic ? String(row.swift_bic) : null,
+          bankCountry: row.bank_country ? String(row.bank_country) : null,
+        },
+      ]),
+    );
+
+    return {
+      requests: rows.map((row) => {
+        const userId = String(row.user_id);
+        return {
+          id: String(row.id),
+          userId,
+          amount: Number(row.amount ?? 0),
+          netAmount: Number(row.net_amount ?? 0),
+          tdsDeducted: Number(row.tds_deducted ?? 0),
+          status: String(row.status ?? ""),
+          currency: row.currency === "USD" ? "USD" as const : "INR" as const,
+          payoutWindowStart: row.payout_window_start ? String(row.payout_window_start) : null,
+          createdAt: String(row.created_at ?? ""),
+          profile: profiles.get(userId) ?? null,
+          payoutProfile: payoutProfiles.get(userId) ?? null,
+        };
+      }),
+    };
+  });
+
+const resolvePayoutSchema = z
+  .object({
+    requestId: z.string().uuid(),
+    action: z.enum(["completed", "failed"]),
+    reason: z.string().trim().min(1).max(2000),
+    paymentReference: z.string().trim().max(200).optional().default(""),
+  })
+  .superRefine((value, context) => {
+    if (value.action === "completed" && !value.paymentReference) {
+      context.addIssue({
+        code: "custom",
+        path: ["paymentReference"],
+        message: "Enter the external transfer reference before marking this payout paid.",
+      });
+    }
+  });
+
+export const resolveAdminPayoutRequest = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((data) => resolvePayoutSchema.parse(data))
+  .handler(async ({ data, context }) => {
+    await requireOwnerAdmin(context);
+    const db = context.supabase as unknown as {
+      rpc: (
+        functionName: string,
+        args: Record<string, string>,
+      ) => Promise<{ data: unknown; error: { message: string } | null }>;
+    };
+    const { error } = await db.rpc("admin_resolve_payout_request", {
+      p_request_id: data.requestId,
+      p_action: data.action,
+      p_reason: data.reason,
+      p_payment_reference: data.paymentReference,
+    });
+    if (error) throw new Error(error.message);
+    return { ok: true, action: data.action };
+  });
