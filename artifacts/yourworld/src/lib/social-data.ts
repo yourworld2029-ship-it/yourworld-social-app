@@ -58,6 +58,7 @@ import {
   MIN_REEL_DURATION_MESSAGE,
   MIN_REEL_DURATION_SECONDS,
 } from "@/lib/reel-editor";
+import { getReelVideoSizeError } from "@/lib/video-upload-limits";
 import { sourceQualityTierFromDimensions } from "@/lib/video-quality";
 import {
   AFTER_VIEW_DELAY_MS,
@@ -1276,6 +1277,11 @@ export async function publishReel(opts: {
   originalHeight?: number | null;
   onProgress?: ProgressFn;
 }): Promise<{ error: string | null }> {
+  const selectedFileSizeError = opts.file
+    ? getReelVideoSizeError(opts.file.size)
+    : null;
+  if (selectedFileSizeError) return { error: selectedFileSizeError };
+
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
   if (sessionError) {
     console.error("Could not authorize reel publishing", sessionError);
@@ -1307,6 +1313,10 @@ export async function publishReel(opts: {
       console.error("Could not read the selected Reel video for its thumbnail", error);
       return { error: "Could not prepare a thumbnail for this Reel." };
     }
+  }
+  if (sourceBlob) {
+    const sourceSizeError = getReelVideoSizeError(sourceBlob.size);
+    if (sourceSizeError) return { error: sourceSizeError };
   }
 
   let generatedThumbnail: Blob | null = null;
@@ -1442,6 +1452,9 @@ export async function publishDirectReel(opts: {
   onProgress?: ProgressFn;
   signal?: AbortSignal;
 }): Promise<{ error: string | null }> {
+  const sizeError = getReelVideoSizeError(opts.file.size);
+  if (sizeError) return { error: sizeError };
+
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
   if (sessionError) {
     console.error("Could not authorize direct reel publishing", sessionError);

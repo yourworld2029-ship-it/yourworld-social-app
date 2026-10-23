@@ -10,6 +10,7 @@ import {
 } from "@/lib/storage-upload-request";
 import { uploadCloudflareStreamWithTus } from "@/lib/storage-upload-cloudflare-tus";
 import { uploadLargeStorageObjectWithTus } from "@/lib/storage-upload-tus";
+import { getVideoUploadSizeError } from "@/lib/video-upload-limits";
 import {
   getTusChunkSize,
   RESUMABLE_UPLOAD_CHUNK_SIZE,
@@ -171,6 +172,11 @@ export async function uploadWithProgress(
   posterUrl?: string | null;
   durationSeconds?: number | null;
 }> {
+  const sizeError = getVideoUploadSizeError(bucket, contentType, blob.size);
+  if (sizeError) {
+    return { url: null, storagePath: null, error: sizeError };
+  }
+
   const needsFastStart =
     contentType.toLowerCase().startsWith("video/") && FASTSTART_BUCKETS.has(bucket);
   const needsCloudflareStream =

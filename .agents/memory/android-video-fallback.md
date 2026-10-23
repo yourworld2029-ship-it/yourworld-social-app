@@ -8,3 +8,9 @@ The Long Video route accepts source files up to 2,000,000,000 bytes, below the v
 **Why:** The live `videos` bucket is configured for 2,097,152,000 bytes, but stale client, native, and API caps had prevented uploads above 500 MB or 300 MB. Supabase's global Storage limit can still override a bucket-level limit, so bucket rows alone do not prove the global setting.
 
 **How to apply:** Keep Long Video limits aligned across its picker, native optimizer, uploader, and server processing. If diagnosing a size rejection, verify both the bucket limit and Supabase's global Storage limit. Keep Reels on its separate 512 MiB cap and never replace the sequential resumable TUS transport with parallel chunks.
+
+Before creating an upload task, preflight the selected file against its destination bucket's actual limit. A file known to exceed that cap must be rejected before any bytes transfer, rather than uploaded and rejected by the later processing endpoint; preserve resumable retry for transient network failures.
+
+**Why:** the user asked that known upload problems be caught before starting, and that a transfer not reach late-stage processing only to fail on a known size cap.
+
+**How to apply:** Validate Reel files against the 512 MiB `reels` limit and Long Videos against the 2 GB `videos` limit at selection and again at the shared upload boundary. Keep the caps distinct.

@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { publishDirectReel } from "@/lib/social-data";
+import { getReelVideoSizeError } from "@/lib/video-upload-limits";
 import { useUploadActions } from "@/lib/upload-progress";
 import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/lib/auth-store";
@@ -115,6 +116,14 @@ function DirectReelUploadPage() {
       setError("Choose a video file.");
       return;
     }
+    const sizeError = getReelVideoSizeError(nextFile.size);
+    if (sizeError) {
+      setFile(null);
+      setDuration(null);
+      setError(sizeError);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
     setError(null);
     setDuration(null);
     setDimensions({ width: 0, height: 0 });
@@ -170,6 +179,11 @@ function DirectReelUploadPage() {
   const publish = () => {
     if (!file || duration == null) {
       setError("Choose a video and wait for its duration to load.");
+      return;
+    }
+    const sizeError = getReelVideoSizeError(file.size);
+    if (sizeError) {
+      setError(sizeError);
       return;
     }
     if (duration < MIN_REEL_SECONDS || duration > MAX_REEL_SECONDS) {
