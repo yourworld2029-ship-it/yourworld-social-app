@@ -359,23 +359,15 @@ public class MainActivity extends BridgeActivity {
         controller.show(WindowInsetsCompat.Type.systemBars());
     }
 
-    private boolean requiresManualSystemInsets() {
-        // Android 15+ enforces edge-to-edge for apps targeting SDK 35+, so the
-        // WebView must receive explicit insets there instead of fitting twice.
-        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM;
-    }
-
     private void configureRootSystemInsets() {
         View content = findViewById(android.R.id.content);
         if (content instanceof ViewGroup) {
             ViewGroup contentGroup = (ViewGroup) content;
             if (contentGroup.getChildCount() > 0) {
                 View appRoot = contentGroup.getChildAt(0);
-                // Only an explicitly edge-to-edge watch state may draw behind the
-                // status bar; normal watch playback stays below the system bars.
-                appRoot.setFitsSystemWindows(
-                        !videoWatchTopEdgeToEdge && !requiresManualSystemInsets()
-                );
+                // Keep insets on one path across Android versions and OEM layouts:
+                // apply the actual system-bar/cutout dimensions to the WebView below.
+                appRoot.setFitsSystemWindows(false);
             }
         }
     }
@@ -387,11 +379,6 @@ public class MainActivity extends BridgeActivity {
         final int initialBottom = webView.getPaddingBottom();
 
         ViewCompat.setOnApplyWindowInsetsListener(webView, (view, windowInsets) -> {
-            if (!requiresManualSystemInsets() && !videoWatchTopEdgeToEdge) {
-                view.setPadding(initialLeft, initialTop, initialRight, initialBottom);
-                return windowInsets;
-            }
-
             Insets safeInsets = videoFullscreenImmersive
                     ? Insets.NONE
                     : windowInsets.getInsets(

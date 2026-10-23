@@ -3,11 +3,11 @@ name: Android system-bar insets
 description: Handle Android 15+ edge-to-edge requirements in the Capacitor WebView.
 ---
 
-When the Android app targets SDK 35 or higher, Android 15+ enforces edge-to-edge drawing even when the status bar is visible. Disabling fullscreen and showing the status bar do not, by themselves, guarantee that WebView content starts below the status bar and display cutout. Apply native status-bar and display-cutout insets to the WebView on those Android versions; older versions can use the normal decor-fits-system-windows behavior.
+YourWorld disables decor fitting and draws the WebView edge-to-edge. Apply native status-bar, navigation-bar, and display-cutout insets directly to the WebView on every Android version; do not rely on older-version `fitsSystemWindows` behavior, which can differ with OEM layouts and fixed-position WebView content.
 
-**Why:** The app targets a modern SDK, where status bars can be visible and still overlay edge-to-edge content.
+**Why:** Android 15+ enforces edge-to-edge, while the app's fixed-position React/WebView surfaces can also bypass parent fitting on earlier Android versions.
 
-**How to apply:** Check `targetSdk` before treating a top cutout as a CSS-only issue. Keep status-bar visibility/icon contrast explicit and preserve native WebView insets.
+**How to apply:** Keep the Android content root non-fitting and set WebView padding to its original padding plus current native system-bar/cutout insets on every platform. Reapply insets after window-mode changes. Use zero insets only during actual immersive fullscreen playback or an explicitly edge-to-edge watch state, and preserve status-bar visibility/icon contrast everywhere else.
 
 Fresh Replit shells may not include the Android SDK, even when a previous APK build succeeded. The managed system-dependency installer may not expose `androidenv.androidPkgs.androidsdk`; a composed Nix SDK is a viable fallback, but Gradle's requested Build Tools versions must be included because the Nix SDK output is read-only.
 
