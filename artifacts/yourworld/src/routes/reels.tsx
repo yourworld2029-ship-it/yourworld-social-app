@@ -51,6 +51,7 @@ import {
   repostReelToProfile,
   resolveMediaUrl,
   timeAgo,
+  useMediaPost,
   useSocialPosts,
   type SocialPost,
 } from "@/lib/social-data";
@@ -266,6 +267,11 @@ function ReelsList() {
     hasNextPage,
     isFetchingNextPage,
   } = useSocialPosts(scoped ? "creator-media" : "reel", userId);
+  const targetedMedia = useMediaPost(initialId ?? null);
+  const [removedDirectTargetId, setRemovedDirectTargetId] = useState<string | null>(null);
+  useEffect(() => {
+    setRemovedDirectTargetId(null);
+  }, [initialId]);
   const [repostedKeys, setRepostedKeys] = useState<Set<string>>(() => new Set());
   const [pendingRepostKeys, setPendingRepostKeys] = useState<Set<string>>(
     () => new Set(),
@@ -347,7 +353,22 @@ function ReelsList() {
     }
   }, [navigate, returnTo, scoped, userId]);
 
-  const live = useMemo(() => dbReels.map((p) => ({
+  const reelRows = useMemo(() => {
+    const target = targetedMedia.post;
+    const canPrependTarget =
+      !!initialId &&
+      !!target &&
+      target.id === initialId &&
+      target.kind === "reel" &&
+      (!userId || target.user_id === userId) &&
+      target.id !== removedDirectTargetId &&
+      canReadPublicVideoPreview(target);
+    if (!canPrependTarget || dbReels.some((post) => post.id === target.id)) {
+      return dbReels;
+    }
+    return [target, ...dbReels];
+  }, [dbReels, initialId, removedDirectTargetId, targetedMedia.post, userId]);
+  const live = useMemo(() => reelRows.map((p) => ({
     sourcePost: p,
     reel: {
       id: p.id,
@@ -395,7 +416,7 @@ function ReelsList() {
         ? p.thumbnail_url ?? cloudflareStreamPosterUrl(p.media_url, p.cloudflare_stream_id ?? p.cloudflare_stream_uid) ?? null
         : p.thumbnail_url ?? null,
     isPending: p.id.startsWith("optimistic-reel-"),
-  })), [dbReels]);
+  })), [reelRows]);
 
   const items = live;
   const nextItem = items[active + 1];
@@ -483,7 +504,7 @@ function ReelsList() {
       initialTargetPositionedRef.current = !initialId;
     }
     if (!initialId || loading || initialTargetPositionedRef.current) return;
-    const targetIndex = dbReels.findIndex((reel) => reel.id === initialId);
+    const targetIndex = reelRows.findIndex((reel) => reel.id === initialId);
     if (targetIndex < 0) return;
     setActive(targetIndex);
     const frame = requestAnimationFrame(() => {
@@ -493,7 +514,7 @@ function ReelsList() {
       initialTargetPositionedRef.current = true;
     });
     return () => cancelAnimationFrame(frame);
-  }, [dbReels, initialId, loading]);
+  }, [initialId, loading, reelRows]);
 
   useEffect(() => {
     const scroller = document.getElementById("yw-reels-scroller");
@@ -547,7 +568,12 @@ function ReelsList() {
     );
   }
 
-  if ((initialId && longVideoTarget.isLoading) || openingLongVideo) {
+  if (
+    (initialId &&
+      (longVideoTarget.isLoading ||
+        (!dbReels.some((reel) => reel.id === initialId) && targetedMedia.loading))) ||
+    openingLongVideo
+  ) {
     return (
       <div className="grid h-full min-h-[calc(100dvh-4.75rem)] place-items-center px-6 text-center text-sm text-muted-foreground">
         Opening full video…
@@ -563,7 +589,11 @@ function ReelsList() {
     );
   }
 
-  if (initialId && !items.some(({ reel }) => reel.id === initialId)) {
+  if (
+    initialId &&
+    !items.some(({ reel }) => reel.id === initialId) &&
+    !targetedMedia.loading
+  ) {
     return (
       <div className="grid h-full min-h-[calc(100dvh-4.75rem)] place-items-center px-6 text-center text-sm text-muted-foreground">
         This reel is no longer available.
@@ -606,9 +636,9 @@ function ReelsList() {
                 allowFrameCapture={access === "public"}
                 scoped={scoped}
                 onBack={handleBack}
-                commentsDisabled={!!dbReels[i]?.comments_off}
-                hideLikeCount={!!dbReels[i]?.hide_like_count}
-                hideShareCount={!!dbReels[i]?.hide_share_count}
+                commentsDisabled={!!reelRows[i]?.comments_off}
+                hideLikeCount={!!reelRows[i]?.hide_like_count}
+                hideShareCount={!!reelRows[i]?.hide_share_count}
                 initialCommentsOpen={focusComments && reel.id === initialId && i === active}
                 initialCommentId={
                   focusComments && reel.id === initialId ? commentId : undefined
@@ -629,7 +659,10 @@ function ReelsList() {
                   pendingRepostKeys.has(`${currentUserId}:${reel.id}`)
                 }
                 canDelete={currentUserId === reel.userId}
-                onDeleted={() => removePost(reel.id)}
+                onDeleted={() => {
+                  removePost(reel.id);
+                  if (reel.id === initialId) setRemovedDirectTargetId(reel.id);
+                }}
               />
             )
             ) : (
