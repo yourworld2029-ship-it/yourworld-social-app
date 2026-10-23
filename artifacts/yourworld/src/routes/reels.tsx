@@ -1953,7 +1953,7 @@ function ReelItem({
       </div>
 
       <div
-        className="absolute bottom-14 right-3 flex flex-col items-center gap-3"
+        className="absolute bottom-14 right-3 flex flex-col items-center gap-2.5"
         style={{ right: "14px" }}
       >
         <Action
@@ -1964,7 +1964,7 @@ function ReelItem({
           <Heart
             strokeWidth={2.3}
             className={cn(
-              "h-5 w-5 transition-colors",
+              "h-[22px] w-[22px] transition-colors",
               isLiked ? "fill-rose-500 text-rose-500" : "text-white",
             )}
           />
@@ -1977,7 +1977,7 @@ function ReelItem({
           initialCommentId={initialCommentId}
         >
           <Action label={formatCount(reel.commentCount)}>
-            <MessageCircle strokeWidth={2.3} className="h-5 w-5" />
+            <MessageCircle strokeWidth={2.3} className="h-[22px] w-[22px]" />
           </Action>
         </CommentsSheet>
 
@@ -2003,7 +2003,7 @@ function ReelItem({
           thumbnailBucket="thumbnails"
         >
           <Action label={hideShareCount ? "Shares hidden" : formatCount(reel.shares)}>
-            <Send strokeWidth={2.3} className="h-5 w-5" />
+            <Send strokeWidth={2.3} className="h-[22px] w-[22px]" />
           </Action>
         </ShareSheet>
 
@@ -2016,14 +2016,14 @@ function ReelItem({
           >
             <Repeat2
               strokeWidth={2.3}
-              className={cn("h-5 w-5", reposted && "text-emerald-300")}
+              className={cn("h-[22px] w-[22px]", reposted && "text-emerald-300")}
             />
           </Action>
         ) : null}
 
         <div className="relative">
           <Action onClick={() => setMenuOpen((v) => !v)} label="More">
-            <MoreVertical strokeWidth={2.3} className="h-5 w-5" />
+            <MoreVertical strokeWidth={2.3} className="h-[22px] w-[22px]" />
           </Action>
         </div>
       </div>
