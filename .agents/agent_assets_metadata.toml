@@ -434,3 +434,17 @@ mtime_ms = 1792135712000
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/ef340b46-647c-48ff-9bc5-5658e9d3fe17/f60acc67-e9a0-47ea-9094-1eddfe83a589"
 storage_version_token = "1792135767358478"
 content_type = "application/pdf"
+
+[[outputs]]
+id = "ipjH61czA0fmp6WRYWate"
+uri = "file://generated-artifacts/YourWorld-Monetization-Sports-Award-Rules-Roman-Hindi.pdf"
+type = "pdf"
+title = "YourWorld Monetization, Sports aur National Award Rules"
+description = "Current Creator, Sports aur National Award rules ka simple Roman Hindi guide; revenue shares, eligibility, payouts, verification aur safety rules."
+logical_id = "05541794-9363-49aa-be94-bc7ed5ccc44e"
+content_hash = "sha256:ccb6c0d2d6b87ba92e2e7ede73eae71b259fb4395195d4096ee853e40710a297"
+size = 25996
+mtime_ms = 1792771792563
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/05541794-9363-49aa-be94-bc7ed5ccc44e/6e4ef916-b0a9-430d-871e-f0e987987db4"
+storage_version_token = "1792771868281008"
+content_type = "application/pdf"
