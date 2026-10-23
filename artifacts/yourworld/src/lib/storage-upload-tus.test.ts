@@ -136,6 +136,14 @@ test("TUS progress reports byte counts and can clear them at a transfer boundary
 test("TUS retries transient failures but stops on app-level dependency or auth denials", () => {
   assert.equal(isRetryableTusError({ causingNetworkError: new Error("offline") }, true), true);
   assert.equal(
+    isRetryableTusError({ originalResponse: { getStatus: () => 409 } }, true),
+    true,
+  );
+  assert.equal(
+    isRetryableTusError({ originalResponse: { getStatus: () => 423 } }, true),
+    true,
+  );
+  assert.equal(
     isRetryableTusError({ originalResponse: { getStatus: () => 503 } }, true),
     true,
   );
@@ -148,6 +156,10 @@ test("TUS retries transient failures but stops on app-level dependency or auth d
     false,
   );
   assert.equal(isRetryableTusError(new Error("offline"), false), true);
+  assert.equal(
+    isRetryableTusError({ originalResponse: { getStatus: () => 413 } }, true),
+    false,
+  );
   assert.equal(isRetryableTusError(new Error("expired session"), true), false);
 });
 

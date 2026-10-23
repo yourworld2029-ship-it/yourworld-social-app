@@ -95,7 +95,15 @@ export function isRetryableTusError(error: unknown, isOnline: boolean) {
     status = undefined;
   }
   if (typeof status === "number" && Number.isFinite(status)) {
-    return status === 0 || status === 408 || status === 425 || status === 429 || status >= 500;
+    return (
+      status === 0 ||
+      status === 408 ||
+      status === 409 ||
+      status === 423 ||
+      status === 425 ||
+      status === 429 ||
+      status >= 500
+    );
   }
   return !isOnline;
 }

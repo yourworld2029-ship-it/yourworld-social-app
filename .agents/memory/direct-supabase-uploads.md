@@ -20,3 +20,9 @@ On Android, the foreground upload service provides an ongoing notification and p
 **Why:** A foreground notification alone does not move the upload bytes or resumable state out of the WebView. Claiming process-death recovery without a persisted file/credential handoff and native resumable worker would be misleading.
 
 **How to apply:** Request notification permission before starting Android media uploads, keep the foreground service active during backgrounding, and describe its process-death boundary accurately. If uploads must survive process death, first design a secure durable handoff that lets a native worker resume the same TUS URL and then reconcile the final post metadata.
+
+Treat TUS `409` offset conflicts and `423` locks as resumable transient failures. After the client’s short same-offset retries are exhausted, reopen the persisted upload session so a fresh HEAD request reconciles against the server’s committed offset before sending more bytes.
+
+**Why:** A network drop can happen after Storage commits a chunk but before the client receives its acknowledgement; replaying that chunk gets `409`, which is not a permanent file-size failure.
+
+**How to apply:** Keep 409/423 eligible for the shared retry path, preserve the matching fingerprint and upload URL, and add regression tests so a resumable conflict does not become a terminal upload failure.
