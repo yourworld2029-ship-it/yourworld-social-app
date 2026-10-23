@@ -14,3 +14,9 @@ Before creating an upload task, preflight the selected file against its destinat
 **Why:** the user asked that known upload problems be caught before starting, and that a transfer not reach late-stage processing only to fail on a known size cap.
 
 **How to apply:** Validate Reel files against the 512 MiB `reels` limit and Long Videos against the 2 GB `videos` limit at selection and again at the shared upload boundary. Keep the caps distinct.
+
+The installed Android client sends playback-preparation requests to the hosted API configured by `VITE_APP_URL`. Building a newer APK does not update the production API's transcode limits; a client-side transfer can finish and still fail when the older server processes the stored object.
+
+**Why:** A production 413 from `/api/media/transcode` persisted after an APK-only update because the production API revision predated the workspace's 2 GB Long Video processing code.
+
+**How to apply:** For persistent size-limit errors, confirm the actual storage bucket and inspect the currently deployed API revision as well as Supabase bucket limits. Publish validated API changes before treating an APK build as the fix. Keep the `videos` cap at 2 GB and align the separate `reels` cap to its configured 500 MiB bucket limit.

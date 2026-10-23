@@ -11,7 +11,7 @@ test("Reel size limit is checked before a transfer begins", () => {
   assert.equal(getReelVideoSizeError(MAX_REEL_VIDEO_BYTES), null);
   assert.match(
     getReelVideoSizeError(MAX_REEL_VIDEO_BYTES + 1) ?? "",
-    /512 MiB.*Videos upload/,
+    /500 MiB.*Videos upload/,
   );
 });
 

@@ -174,6 +174,60 @@ test("Cloudflare TUS creation exposes protocol headers to native WebViews", asyn
   assert.equal(response.headers.get("stream-media-id"), "stream-video-id");
 });
 
+test("Long Videos allow more than the separate 500 MiB Reels cap", async (t) => {
+  setTestEnvironment(t);
+  const longVideoBytes = 600 * 1024 * 1024;
+  const reelBytes = 500 * 1024 * 1024 + 1;
+  t.mock.method(
+    globalThis,
+    "fetch",
+    async (input: Parameters<typeof fetch>[0]) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/auth/v1/user") {
+        return jsonResponse({ id: "user-1" });
+      }
+      if (
+        url.pathname === "/storage/v1/object/videos/user-1/source.mp4" ||
+        url.pathname === "/storage/v1/object/reels/user-1/source.mp4"
+      ) {
+        const length = url.pathname.includes("/videos/")
+          ? longVideoBytes
+          : reelBytes;
+        return new Response(null, {
+          status: 200,
+          headers: { "Content-Length": String(length) },
+        });
+      }
+      return jsonResponse({ error: `Unexpected mocked request: ${url.pathname}` }, 500);
+    },
+  );
+
+  const baseUrl = await startServer(t);
+  const transcode = (bucket: "videos" | "reels") =>
+    nativeFetch(`${baseUrl}/api/media/transcode`, {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer test-user-access-token",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ bucket, path: "user-1/source.mp4" }),
+    });
+
+  const longVideoResponse = await transcode("videos");
+  assert.equal(longVideoResponse.status, 502);
+  assert.doesNotMatch(
+    JSON.stringify(await longVideoResponse.json()),
+    /processing limit/,
+    "a 600 MiB video must not be rejected by the Reel limit",
+  );
+
+  const reelResponse = await transcode("reels");
+  assert.equal(reelResponse.status, 413);
+  assert.deepEqual(await reelResponse.json(), {
+    error: "Video exceeds the 500 MiB processing limit.",
+  });
+});
+
 test("playback-rendition prepares an authorized quality even when offline downloads are disabled", async (t) => {
   setTestEnvironment(t);
   t.mock.method(

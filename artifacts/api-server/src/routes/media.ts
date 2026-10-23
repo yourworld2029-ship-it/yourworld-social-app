@@ -35,7 +35,7 @@ import {
 const router: IRouter = Router();
 
 const MAX_VIDEO_BYTES = 2_000_000_000;
-const MAX_REEL_VIDEO_BYTES = 512 * 1024 * 1024;
+const MAX_REEL_VIDEO_BYTES = 500 * 1024 * 1024;
 const STREAM_BUFFER_BYTES = 512 * 1024;
 const MAX_CONCURRENT_TRANSCODES = 2;
 const FFMPEG_TIMEOUT_MS = 10 * 60 * 1000;
@@ -98,7 +98,7 @@ async function downloadSource(
   maxBytes: number,
 ) {
   const sizeLimitLabel =
-    maxBytes === MAX_REEL_VIDEO_BYTES ? "512 MiB" : "2 GB";
+    maxBytes === MAX_REEL_VIDEO_BYTES ? "500 MiB" : "2 GB";
   const declaredLength = Number(sourceResponse.headers.get("content-length"));
   if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
     await sourceResponse.body?.cancel().catch(() => {});
@@ -1699,6 +1699,10 @@ router.post("/media/transcode", async (req, res): Promise<void> => {
     res.status(200).json(result);
   } catch (error) {
     if (error instanceof VideoTooLargeError) {
+      req.log.warn(
+        { bucket, maxBytes, error: error.message },
+        "Video rejected by processing size limit",
+      );
       res.status(413).json({ error: error.message });
       return;
     }
