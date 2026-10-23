@@ -3044,12 +3044,12 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                   }
                 }}
                 onPointerDown={(event) => event.stopPropagation()}
-                className={`absolute left-3 top-[max(env(safe-area-inset-top,0px),0.5rem)] z-[110] rounded-full bg-black/60 p-2 text-white transition-opacity duration-200 hover:bg-black/80 ${
+                className={`absolute left-3 top-[max(env(safe-area-inset-top,0px),44px)] z-[110] rounded-full bg-black/60 p-1.5 text-white transition-opacity duration-200 hover:bg-black/80 ${
                   controlsVisible ? "opacity-100" : "pointer-events-none opacity-0"
                 }`}
                 aria-label={isFullscreen ? "Exit fullscreen" : "Go back"}
               >
-                <ArrowLeft className="h-5 w-5" />
+                <ArrowLeft className="h-4 w-4" />
               </button>
             ) : null}
 
@@ -3100,14 +3100,14 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
                     markControlsActivity();
                   }}
                   onPointerDown={(event) => event.stopPropagation()}
-                  className={`absolute right-3 top-[max(env(safe-area-inset-top,0px),0.5rem)] z-[110] rounded-full bg-black/60 p-2 text-white transition-opacity duration-200 hover:bg-black/90 ${
+                  className={`absolute right-3 top-[max(env(safe-area-inset-top,0px),44px)] z-[110] rounded-full bg-black/60 p-1.5 text-white transition-opacity duration-200 hover:bg-black/90 ${
                     controlsVisible ? "opacity-100" : "pointer-events-none opacity-0"
                   }`}
                   aria-label="Player settings"
                   aria-expanded={settingsMenu !== "closed"}
                   data-testid="video-player-settings"
                 >
-                  <MoreVertical className="h-5 w-5" />
+                  <MoreVertical className="h-4 w-4" />
                 </button>
 
                 {settingsMenu !== "closed" ? (
