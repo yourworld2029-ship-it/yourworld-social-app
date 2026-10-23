@@ -6,7 +6,11 @@ import { Avatar } from "@/components/ui/avatar";
 import { ProfileAvatar } from "@/components/yw/ProfileAvatar";
 import { useAuth } from "@/lib/auth-store";
 import { useNavigate } from "@tanstack/react-router";
-import { dmThreadId, useThreadMessages } from "@/lib/social-data";
+import {
+  dmThreadId,
+  useThreadMessages,
+  type ReelShareMethod,
+} from "@/lib/social-data";
 import { supabase } from "@/integrations/supabase/client";
 import { useMoments } from "@/lib/moment-context";
 import { useFollowList } from "@/lib/follow-data";
@@ -43,6 +47,7 @@ interface ShareSheetProps {
   /** Stored thumbnail reference; the thread resolves it when rendering the card. */
   thumbnailUrl?: string | null;
   thumbnailBucket?: "reels" | "videos" | "thumbnails";
+  onShareEvent?: (method: ReelShareMethod) => void | Promise<void>;
   children?: React.ReactNode;
 }
 
@@ -250,6 +255,7 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
   momentShare,
   thumbnailUrl,
   thumbnailBucket = "thumbnails",
+  onShareEvent,
   children,
 }) => {
   const [internalOpen, setInternalOpen] = useState(false);
@@ -426,11 +432,22 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
     if (!copied) throw new Error("Clipboard access is unavailable.");
   };
 
+  const recordShareEvent = async (method: ReelShareMethod) => {
+    if (!onShareEvent) return;
+    try {
+      await onShareEvent(method);
+    } catch (error) {
+      console.error("Could not update Reel share count", error);
+      toast.error("Shared successfully, but the count could not be updated.");
+    }
+  };
+
   const copy = async () => {
     try {
       await copyText(link);
       toast.success("Link copied");
       setOpen(false);
+      void recordShareEvent("copy");
     } catch {
       toast.error("Could not copy link");
     }
@@ -445,6 +462,9 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
         dialogTitle: "Share with",
       });
       if (result === "copied") toast.success("Link copied");
+      if (result !== "dismissed") {
+        void recordShareEvent(result === "copied" ? "copy" : "native");
+      }
     } catch {
       toast.error("Could not share link");
     }
@@ -477,6 +497,7 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
           thumbnailUrl: momentShare.thumbnailUrl ?? thumbnailUrl ?? null,
         });
         setOpen(false);
+        void recordShareEvent("moment");
         void navigate({ to: "/moment/create" });
       } catch (error) {
         console.error("Could not open Moment editor for shared video", error);
@@ -500,7 +521,10 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
       poll: null,
     }).then(({ error }) => {
       if (error) toast.error(error);
-      else toast.success("Added to your Moment");
+      else {
+        toast.success("Added to your Moment");
+        void recordShareEvent("moment");
+      }
     });
     setOpen(false);
   };
@@ -561,6 +585,7 @@ export const ShareSheet: React.FC<ShareSheetProps> = ({
       });
       toast.error(error);
     } else {
+      void recordShareEvent("chat");
       setDeliveryStatus((current) => ({ ...current, [recipientId]: "sent" }));
       toast.success(
         `Sent to @${delivery.person.username || delivery.person.display_name || "user"}`,

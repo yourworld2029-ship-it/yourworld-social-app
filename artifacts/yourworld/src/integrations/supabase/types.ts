@@ -537,6 +537,74 @@ export type Database = {
           },
         ]
       }
+      post_reel_reposts: {
+        Row: {
+          created_at: string
+          post_id: string
+          repost_post_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          post_id: string
+          repost_post_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          post_id?: string
+          repost_post_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "post_reel_reposts_post_id_fkey"
+            columns: ["post_id"]
+            isOneToOne: false
+            referencedRelation: "posts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "post_reel_reposts_repost_post_id_fkey"
+            columns: ["repost_post_id"]
+            isOneToOne: true
+            referencedRelation: "posts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      post_reel_shares: {
+        Row: {
+          created_at: string
+          id: string
+          method: string
+          post_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          method?: string
+          post_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          method?: string
+          post_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "post_reel_shares_post_id_fkey"
+            columns: ["post_id"]
+            isOneToOne: false
+            referencedRelation: "posts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       posts: {
         Row: {
           cloudflare_stream_id: string | null
@@ -555,7 +623,9 @@ export type Database = {
           original_height: number | null
           original_width: number | null
           price: number | null
+          reposts_count: number
           series_title: string | null
+          shares_count: number
           episode_number: string | null
           source_quality_tier: string | null
           thumbnail_url: string | null
@@ -581,7 +651,9 @@ export type Database = {
           original_height?: number | null
           original_width?: number | null
           price?: number | null
+          reposts_count?: number
           series_title?: string | null
+          shares_count?: number
           episode_number?: string | null
           source_quality_tier?: string | null
           thumbnail_url?: string | null
@@ -607,7 +679,9 @@ export type Database = {
           original_height?: number | null
           original_width?: number | null
           price?: number | null
+          reposts_count?: number
           series_title?: string | null
+          shares_count?: number
           episode_number?: string | null
           source_quality_tier?: string | null
           thumbnail_url?: string | null

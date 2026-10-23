@@ -143,6 +143,10 @@ export type DbPost = {
   created_at: string;
   views?: number | null;
   views_count?: number | null;
+  likes_count?: number | null;
+  comments_count?: number | null;
+  shares_count?: number | null;
+  reposts_count?: number | null;
   hide_like_count?: boolean | null;
   hide_share_count?: boolean | null;
   comments_off?: boolean | null;
@@ -161,6 +165,8 @@ export type SocialPost = DbPost & {
   authorAvatarUrl?: string | null;
   likeCount: number;
   commentCount: number;
+  shareCount: number;
+  repostCount: number;
   likedByMe: boolean;
 };
 
@@ -202,6 +208,8 @@ function optimisticSocialPost(post: OptimisticPostDetail): SocialPost {
     authorAvatarUrl: post.avatarUrl,
     likeCount: 0,
     commentCount: 0,
+    shareCount: 0,
+    repostCount: 0,
     likedByMe: false,
   };
 }
@@ -382,15 +390,31 @@ export async function loadSocialPosts(
   const ids = visiblePosts.map((p) => p.id);
   const authorIds = [...new Set(visiblePosts.map((p) => p.user_id))];
 
+  const isReelOnlyFeed = kind === "reel";
+  const likesQuery = liveSocialTable(client, "likes")
+    .select("post_id,user_id")
+    .in("post_id", ids);
+  const likesPromise = isReelOnlyFeed
+    ? uid
+      ? likesQuery.eq("user_id", uid)
+      : Promise.resolve({
+          data: [] as Array<{ post_id: string; user_id: string }>,
+          error: null,
+        })
+    : likesQuery;
+  const commentsPromise = isReelOnlyFeed
+    ? Promise.resolve({ data: [] as Array<{ post_id: string }>, error: null })
+    : liveSocialTable(client, "comments").select("post_id").in("post_id", ids);
   const [profilesResult, likesResult, commentsResult] = await Promise.all([
     client.rpc("get_public_profiles", { ids: authorIds }),
-    liveSocialTable(client, "likes").select("post_id,user_id").in("post_id", ids),
-    liveSocialTable(client, "comments").select("post_id").in("post_id", ids),
+    likesPromise,
+    commentsPromise,
   ]);
   const { data: profiles } = profilesResult;
   const { data: likes, error: likesError } = likesResult;
-  const { data: comments } = commentsResult;
+  const { data: comments, error: commentsError } = commentsResult;
   if (likesError) console.error(`Unable to load ${kind} likes`, likesError);
+  if (commentsError) console.error(`Unable to load ${kind} comments`, commentsError);
 
   const profileById = new Map(
     ((profiles ?? []) as DbProfile[]).map((p) => [p.id, p]),
@@ -407,8 +431,16 @@ export async function loadSocialPosts(
     ),
     author: toUser(profileById.get(p.user_id), p.user_id),
     authorAvatarUrl: profileAvatarUrl(profileById.get(p.user_id)),
-    likeCount: likeRows.filter((like) => like.post_id === p.id).length,
-    commentCount: commentRows.filter((comment) => comment.post_id === p.id).length,
+    likeCount:
+      postKind(p) === "reel"
+        ? Number(p.likes_count ?? 0)
+        : likeRows.filter((like) => like.post_id === p.id).length,
+    commentCount:
+      postKind(p) === "reel"
+        ? Number(p.comments_count ?? 0)
+        : commentRows.filter((comment) => comment.post_id === p.id).length,
+    shareCount: postKind(p) === "reel" ? Number(p.shares_count ?? 0) : 0,
+    repostCount: postKind(p) === "reel" ? Number(p.reposts_count ?? 0) : 0,
     likedByMe: !!uid && likeRows.some((like) => like.post_id === p.id && like.user_id === uid),
   }));
 
@@ -487,10 +519,22 @@ export function useMediaPost(postId: string | null) {
       }
 
       const normalized = normalizePostRow(row) as DbPost;
+      const isReel = postKind(row as Record<string, unknown>) === "reel";
       const [{ data: profiles }, { data: likes }, { data: comments }] = await Promise.all([
         supabase.rpc("get_public_profiles", { ids: [normalized.user_id] }),
-        liveSocialTable(supabase, "likes").select("post_id,user_id").eq("post_id", cleanPostId),
-        liveSocialTable(supabase, "comments").select("post_id").eq("post_id", cleanPostId),
+        (() => {
+          const query = liveSocialTable(supabase, "likes")
+            .select("post_id,user_id")
+            .eq("post_id", cleanPostId);
+          return isReel && uid ? query.eq("user_id", uid) : isReel
+            ? Promise.resolve({ data: [] as Array<{ post_id: string; user_id: string }>, error: null })
+            : query;
+        })(),
+        isReel
+          ? Promise.resolve({ data: [] as Array<{ post_id: string }>, error: null })
+          : liveSocialTable(supabase, "comments")
+              .select("post_id")
+              .eq("post_id", cleanPostId),
       ]);
       const profile = ((profiles ?? []) as DbProfile[])[0];
       const likeRows = (likes ?? []) as Array<{ post_id: string; user_id: string }>;
@@ -499,8 +543,12 @@ export function useMediaPost(postId: string | null) {
         views: Number(normalized.views ?? normalized.views_count ?? 0),
         author: toUser(profile, normalized.user_id),
         authorAvatarUrl: profileAvatarUrl(profile),
-        likeCount: likeRows.length,
-        commentCount: ((comments ?? []) as Array<{ post_id: string }>).length,
+        likeCount: isReel ? Number(normalized.likes_count ?? 0) : likeRows.length,
+        commentCount: isReel
+          ? Number(normalized.comments_count ?? 0)
+          : ((comments ?? []) as Array<{ post_id: string }>).length,
+        shareCount: isReel ? Number(normalized.shares_count ?? 0) : 0,
+        repostCount: isReel ? Number(normalized.reposts_count ?? 0) : 0,
         likedByMe: !!uid && likeRows.some((like) => like.user_id === uid),
       };
       setPost(next);
@@ -586,6 +634,8 @@ export function useSocialPosts(
   const feedQuery = useInfiniteQuery({
     queryKey,
     initialPageParam: 0,
+    refetchInterval: kind === "reel" ? 15_000 : false,
+    refetchIntervalInBackground: false,
     queryFn: async ({ pageParam }) => {
       const page = await loadSocialPosts(
         kind,
@@ -869,6 +919,22 @@ export function useSocialPosts(
     );
   }, [updateRows]);
 
+  const bumpShare = useCallback((postId: string, delta = 1) => {
+    updateRows((row) =>
+      row.id === postId
+        ? { ...row, shareCount: Math.max(0, row.shareCount + delta) }
+        : row,
+    );
+  }, [updateRows]);
+
+  const bumpRepost = useCallback((postId: string, delta = 1) => {
+    updateRows((row) =>
+      row.id === postId
+        ? { ...row, repostCount: Math.max(0, row.repostCount + delta) }
+        : row,
+    );
+  }, [updateRows]);
+
   const removePost = useCallback((postId: string) => {
     removedRef.current.add(postId);
     updateRows((row) => (row.id === postId ? null : row));
@@ -881,6 +947,8 @@ export function useSocialPosts(
     toggleLike,
     countView,
     bumpComment,
+    bumpShare,
+    bumpRepost,
     removePost,
     reload: () => feedQuery.refetch(),
     loadMore: () => feedQuery.fetchNextPage(),
@@ -905,7 +973,7 @@ async function deterministicRepostPostId(userId: string, originalPostId: string)
 /** Adds a public Reel to the signed-in user's feed/profile with stable attribution. */
 export async function repostReelToProfile(
   original: SocialPost,
-): Promise<{ alreadyExists: boolean }> {
+): Promise<{ alreadyExists: boolean; eventRecorded: boolean }> {
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
   if (sessionError) throw new Error(sessionError.message);
   const userId = sessionData.session?.user.id;
@@ -971,6 +1039,7 @@ export async function repostReelToProfile(
     { kind: "type" },
   );
 
+  let alreadyExists = false;
   if (result.error?.code === "23505") {
     const { data: existing, error } = await supabase
       .from("posts")
@@ -978,10 +1047,52 @@ export async function repostReelToProfile(
       .eq("id", id)
       .eq("user_id", userId)
       .maybeSingle();
-    if (!error && existing?.id === id) return { alreadyExists: true };
+    if (!error && existing?.id === id) {
+      alreadyExists = true;
+    } else {
+      throw new Error(error?.message ?? result.error.message);
+    }
   }
-  if (result.error) throw new Error(result.error.message);
-  return { alreadyExists: false };
+  if (result.error && !alreadyExists) throw new Error(result.error.message);
+
+  const { error: repostEventError } = await supabase
+    .from("post_reel_reposts")
+    .insert({ post_id: original.id, repost_post_id: id, user_id: userId });
+  if (repostEventError && repostEventError.code !== "23505") {
+    if (!alreadyExists) {
+      const { error: rollbackError } = await supabase
+        .from("posts")
+        .delete()
+        .eq("id", id)
+        .eq("user_id", userId);
+      if (rollbackError) {
+        console.error("Could not roll back a Reel repost after count recording failed", rollbackError);
+      }
+    }
+    throw new Error(repostEventError.message);
+  }
+
+  return {
+    alreadyExists,
+    eventRecorded: !repostEventError,
+  };
+}
+
+export type ReelShareMethod = "copy" | "native" | "chat" | "moment";
+
+export async function recordReelShare(
+  postId: string,
+  method: ReelShareMethod,
+): Promise<void> {
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError) throw new Error(sessionError.message);
+  const userId = sessionData.session?.user.id;
+  if (!userId) throw new Error("Sign in to share this Reel.");
+
+  const { error } = await supabase
+    .from("post_reel_shares")
+    .insert({ post_id: postId, user_id: userId, method });
+  if (error) throw new Error(error.message);
 }
 
 export type DbMessage = {

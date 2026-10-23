@@ -53,7 +53,9 @@ import {
   timeAgo,
   useMediaPost,
   useSocialPosts,
+  recordReelShare,
   type SocialPost,
+  type ReelShareMethod,
 } from "@/lib/social-data";
 import {
   resolveAuthorizedOfflineSource,
@@ -260,6 +262,8 @@ function ReelsList() {
   const {
     posts: dbReels,
     toggleLike: toggleDbLike,
+    bumpShare,
+    bumpRepost,
     currentUserId,
     removePost,
     loading,
@@ -293,6 +297,7 @@ function ReelsList() {
     try {
       const result = await repostReelToProfile(post);
       setRepostedKeys((current) => new Set(current).add(key));
+      if (result.eventRecorded) bumpRepost(post.id);
       await queryClient.invalidateQueries({ queryKey: ["social-posts"] });
       toast.success(
         result.alreadyExists
@@ -311,7 +316,7 @@ function ReelsList() {
         return next;
       });
     }
-  }, [currentUserId, queryClient, repostedKeys]);
+  }, [bumpRepost, currentUserId, queryClient, repostedKeys]);
   useEffect(() => {
     if (!openingLongVideo || !initialId) return;
     void navigate({
@@ -380,7 +385,8 @@ function ReelsList() {
       likes: p.likeCount,
        views: Number(p.views ?? p.views_count ?? 0),
       commentCount: p.commentCount,
-      shares: 0,
+      shares: p.shareCount,
+      reposts: p.repostCount,
       allowDownload: p.allow_download,
       cloudflareStreamId: p.cloudflare_stream_id ?? p.cloudflare_stream_uid,
       authorAvatarUrl: p.authorAvatarUrl,
@@ -644,6 +650,14 @@ function ReelsList() {
                   focusComments && reel.id === initialId ? commentId : undefined
                 }
                 onDbLike={() => toggleDbLike(reel.id)}
+                onShareEvent={
+                  currentUserId
+                    ? async (method) => {
+                        await recordReelShare(reel.id, method);
+                        bumpShare(reel.id);
+                      }
+                    : undefined
+                }
                 onView={() => recordView(reel.id)}
                 onRepost={
                   sourcePost && sourcePost.user_id !== currentUserId
@@ -1018,6 +1032,7 @@ function ReelItem({
   initialCommentsOpen = false,
   initialCommentId,
   onDbLike,
+  onShareEvent,
   onView,
   onRepost,
   reposted = false,
@@ -1045,6 +1060,7 @@ function ReelItem({
   initialCommentsOpen?: boolean;
   initialCommentId?: string;
   onDbLike?: () => void | Promise<unknown>;
+  onShareEvent?: (method: ReelShareMethod) => void | Promise<void>;
   onView?: () => void | Promise<unknown>;
   onRepost?: () => void;
   reposted?: boolean;
@@ -2034,25 +2050,24 @@ function ReelItem({
           }
           thumbnailUrl={reel.thumbnailUrl}
           thumbnailBucket="thumbnails"
+          onShareEvent={onShareEvent}
         >
           <Action label={hideShareCount ? "Shares hidden" : formatCount(reel.shares)}>
             <Send strokeWidth={2.3} className="h-[22px] w-[22px]" />
           </Action>
         </ShareSheet>
 
-        {onRepost ? (
-          <Action
-            onClick={onRepost}
-            label={repostPending ? "Reposting…" : reposted ? "Reposted" : "Repost"}
-            active={reposted}
-            disabled={repostPending || reposted}
-          >
-            <Repeat2
-              strokeWidth={2.3}
-              className={cn("h-[22px] w-[22px]", reposted && "text-emerald-300")}
-            />
-          </Action>
-        ) : null}
+        <Action
+          onClick={onRepost}
+          label={repostPending ? "Reposting…" : `${formatCount(reel.reposts ?? 0)} reposts`}
+          active={reposted}
+          disabled={!onRepost || repostPending || reposted}
+        >
+          <Repeat2
+            strokeWidth={2.3}
+            className={cn("h-[22px] w-[22px]", reposted && "text-emerald-300")}
+          />
+        </Action>
 
         <div className="relative">
           <Action onClick={() => setMenuOpen((v) => !v)} label="More">

@@ -134,6 +134,7 @@ export type Reel = {
   likes: number;
   commentCount: number;
   shares: number;
+  reposts?: number;
   allowDownload: boolean;
   views?: number;
   originalWidth?: number | null;
