@@ -4,6 +4,9 @@ import {
   createTusFileFingerprint,
   getStorageResumableUploadEndpoint,
   CLOUDFLARE_TUS_CHUNK_SIZE,
+  CLOUDFLARE_TUS_MAX_CHUNK_SIZE,
+  CLOUDFLARE_TUS_MIN_CHUNK_SIZE,
+  getCloudflareTusChunkSize,
   getTusChunkSize,
   getTusRetryDelayMs,
   isRetryableTusError,
@@ -24,14 +27,33 @@ test("large uploads use the documented resumable chunk size threshold", () => {
   assert.equal(shouldUseResumableStorageUpload(Number.POSITIVE_INFINITY), false);
 });
 
-test("TUS uploads use 3 MiB chunks and the configured transient retry schedule", () => {
+test("Supabase Storage and Cloudflare use their valid TUS chunk sizes", () => {
   assert.equal(RESUMABLE_UPLOAD_CHUNK_SIZE, 3 * 1024 * 1024);
-  assert.equal(CLOUDFLARE_TUS_CHUNK_SIZE, 3 * 1024 * 1024);
+  assert.equal(CLOUDFLARE_TUS_CHUNK_SIZE, 5 * 1024 * 1024);
+  assert.equal(CLOUDFLARE_TUS_MIN_CHUNK_SIZE, 5 * 1024 * 1024);
+  assert.equal(CLOUDFLARE_TUS_MAX_CHUNK_SIZE, 200 * 1024 * 1024);
   assert.deepEqual(TUS_RETRY_DELAYS, [0, 1_000, 3_000, 5_000, 10_000]);
   assert.equal(getTusRetryDelayMs(0), 1_000);
   assert.equal(getTusRetryDelayMs(4), 16_000);
   assert.equal(getTusRetryDelayMs(20), 60_000);
   assert.equal(getTusRetryDelayMs(10_000), 60_000);
+});
+
+test("Cloudflare Stream TUS enforces its minimum and 256 KiB chunk multiple", () => {
+  const minimumMultiple = 256 * 1024;
+  assert.equal(getCloudflareTusChunkSize(WEAK_NETWORK_TUS_CHUNK_SIZE), CLOUDFLARE_TUS_MIN_CHUNK_SIZE);
+  assert.equal(getCloudflareTusChunkSize(RESUMABLE_UPLOAD_CHUNK_SIZE), CLOUDFLARE_TUS_MIN_CHUNK_SIZE);
+  assert.equal(getCloudflareTusChunkSize(50 * 1024 * 1024), 50 * 1024 * 1024);
+  assert.equal(getCloudflareTusChunkSize(500 * 1024 * 1024), CLOUDFLARE_TUS_MAX_CHUNK_SIZE);
+  for (const size of [
+    getCloudflareTusChunkSize(WEAK_NETWORK_TUS_CHUNK_SIZE),
+    getCloudflareTusChunkSize(50 * 1024 * 1024),
+    getCloudflareTusChunkSize(500 * 1024 * 1024),
+  ]) {
+    assert.equal(size % minimumMultiple, 0);
+    assert.ok(size >= CLOUDFLARE_TUS_MIN_CHUNK_SIZE);
+    assert.ok(size <= CLOUDFLARE_TUS_MAX_CHUNK_SIZE);
+  }
 });
 
 test("weak 4G and slower links use 1 MiB resumable chunks", () => {

@@ -1,18 +1,54 @@
 package com.yourworld.app;
 
+import android.Manifest;
 import android.content.Intent;
+import android.os.Build;
 
+import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
 
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
+import com.getcapacitor.PermissionState;
+import com.getcapacitor.JSObject;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
 
-@CapacitorPlugin(name = "UploadResilience")
+@CapacitorPlugin(
+        name = "UploadResilience",
+        permissions = {
+                @Permission(
+                        alias = "notifications",
+                        strings = { Manifest.permission.POST_NOTIFICATIONS }
+                )
+        }
+)
 public class UploadResiliencePlugin extends Plugin {
     @PluginMethod
     public void start(PluginCall call) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                && getPermissionState("notifications") != PermissionState.GRANTED) {
+            requestPermissionForAlias(
+                    "notifications",
+                    call,
+                    "notificationPermissionResult"
+            );
+            return;
+        }
+        startUploadService(call);
+    }
+
+    @PermissionCallback
+    public void notificationPermissionResult(PluginCall call) {
+        // Continue the upload even if notification permission is declined. Android still
+        // keeps the foreground service in its active-apps list; the app overlay remains
+        // available while the user is in YourWorld.
+        startUploadService(call);
+    }
+
+    private void startUploadService(PluginCall call) {
         String uploadId = call.getString("uploadId");
         if (uploadId == null || uploadId.trim().isEmpty()) {
             call.reject("An upload ID is required.");
@@ -26,7 +62,12 @@ public class UploadResiliencePlugin extends Plugin {
                 .putExtra(UploadForegroundService.EXTRA_KIND, call.getString("kind", "video"));
         try {
             ContextCompat.startForegroundService(getContext(), intent);
-            call.resolve();
+            JSObject result = new JSObject();
+            result.put(
+                    "notificationsEnabled",
+                    NotificationManagerCompat.from(getContext()).areNotificationsEnabled()
+            );
+            call.resolve(result);
         } catch (Exception error) {
             call.reject("Could not start Android upload protection.", error);
         }

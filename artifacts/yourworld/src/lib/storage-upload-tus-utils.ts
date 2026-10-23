@@ -5,9 +5,25 @@ import type {
 
 export const RESUMABLE_UPLOAD_CHUNK_SIZE = 3 * 1024 * 1024;
 export const RESUMABLE_UPLOAD_THRESHOLD = 6 * 1024 * 1024;
-export const CLOUDFLARE_TUS_CHUNK_SIZE = 3 * 1024 * 1024;
+export const CLOUDFLARE_TUS_MIN_CHUNK_SIZE = 5 * 1024 * 1024;
+export const CLOUDFLARE_TUS_MAX_CHUNK_SIZE = 200 * 1024 * 1024;
+export const CLOUDFLARE_TUS_CHUNK_SIZE = CLOUDFLARE_TUS_MIN_CHUNK_SIZE;
 export const WEAK_NETWORK_TUS_CHUNK_SIZE = 1 * 1024 * 1024;
+const CLOUDFLARE_TUS_CHUNK_MULTIPLE = 256 * 1024;
 export const TUS_RETRY_DELAYS = [0, 1000, 3000, 5000, 10000];
+
+export function getCloudflareTusChunkSize(preferredChunkSize?: number) {
+  const requested = Number.isFinite(preferredChunkSize)
+    ? (preferredChunkSize as number)
+    : CLOUDFLARE_TUS_CHUNK_SIZE;
+  const rounded =
+    Math.round(requested / CLOUDFLARE_TUS_CHUNK_MULTIPLE) *
+    CLOUDFLARE_TUS_CHUNK_MULTIPLE;
+  return Math.max(
+    CLOUDFLARE_TUS_MIN_CHUNK_SIZE,
+    Math.min(CLOUDFLARE_TUS_MAX_CHUNK_SIZE, rounded),
+  );
+}
 
 export function shouldUseMicroTusChunks(network: {
   networkQuality?: string | null;

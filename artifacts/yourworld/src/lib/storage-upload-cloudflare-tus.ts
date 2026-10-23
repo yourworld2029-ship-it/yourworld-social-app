@@ -7,13 +7,14 @@ import type {
 } from "@/lib/storage-upload-request";
 import {
   CLOUDFLARE_TUS_CHUNK_SIZE,
+  CLOUDFLARE_TUS_MIN_CHUNK_SIZE,
   createTusFileFingerprint,
   createTusProgressReporter,
   canFallbackAfterCloudflareTusFailure,
+  getCloudflareTusChunkSize,
   getTusRetryDelayMs,
   isRetryableTusError,
   TUS_RETRY_DELAYS,
-  WEAK_NETWORK_TUS_CHUNK_SIZE,
 } from "@/lib/storage-upload-tus-utils";
 
 const CLOUDFLARE_TUS_ENDPOINT = "/api/media/cloudflare-tus-upload";
@@ -131,9 +132,11 @@ export async function uploadCloudflareStreamWithTus(options: {
       }
       const upload = new Upload(options.file, {
         endpoint,
-        chunkSize: useMicroChunks
-          ? WEAK_NETWORK_TUS_CHUNK_SIZE
-          : options.getChunkSize?.() ?? CLOUDFLARE_TUS_CHUNK_SIZE,
+        chunkSize: getCloudflareTusChunkSize(
+          useMicroChunks
+            ? CLOUDFLARE_TUS_MIN_CHUNK_SIZE
+            : options.getChunkSize?.() ?? CLOUDFLARE_TUS_CHUNK_SIZE,
+        ),
         urlStorage: tusClient.defaultOptions.urlStorage,
         uploadDataDuringCreation: false,
         fingerprint: () =>

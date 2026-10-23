@@ -6,7 +6,7 @@ type NativeUploadResiliencePlugin = {
     uploadId: string;
     title: string;
     kind: "video" | "reel" | "moment";
-  }): Promise<void>;
+  }): Promise<{ notificationsEnabled?: boolean }>;
   update(options: {
     uploadId: string;
     progress: number;
@@ -20,6 +20,7 @@ type NativeUploadResiliencePlugin = {
 };
 
 export type NativeMediaUploadGuard = {
+  notificationsEnabled: boolean;
   update(
     progress: number,
     detail?: string,
@@ -48,8 +49,10 @@ export async function startNativeMediaUploadGuard(
     return null;
   }
 
+  let notificationsEnabled = true;
   try {
-    await NativeUploadResilience.start({ uploadId, title, kind });
+    const result = await NativeUploadResilience.start({ uploadId, title, kind });
+    notificationsEnabled = result.notificationsEnabled !== false;
   } catch (error) {
     console.error("Android upload foreground protection could not start", error);
     throw new Error("Android could not start the required upload notification. Try again.", {
@@ -59,6 +62,7 @@ export async function startNativeMediaUploadGuard(
 
   let lastUpdate = "";
   return {
+    notificationsEnabled,
     update(progress, detail, byteProgress) {
       const safeProgress = Math.max(0, Math.min(100, Math.round(progress)));
       const normalizedDetail = detail?.trim() ?? "";

@@ -10,6 +10,7 @@ import {
 } from "react";
 import { Link } from "@tanstack/react-router";
 import { CheckCircle2, AlertCircle, X, Loader2, UploadCloud, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
 import type { ProgressFn } from "@/lib/storage-upload";
 import type { UploadByteProgress } from "@/lib/storage-upload-request";
 import {
@@ -364,6 +365,11 @@ export function UploadProvider({ children }: { children: ReactNode }) {
               meta.label,
               uploadKind,
             );
+            if (nativeGuard && !nativeGuard.notificationsEnabled) {
+              toast.warning(
+                "Enable notifications to see upload progress after leaving the app.",
+              );
+            }
             if (isRetry && highestProgress > 0) {
               nativeGuard?.update(highestProgress, "Resuming upload", lastByteProgress);
             }
@@ -597,9 +603,9 @@ function UploadProgressStack() {
             </button>
           </div>
 
-          <div className="h-1 w-full bg-zinc-800">
+          <div className="h-0.5 w-full rounded-full bg-zinc-800">
             <div
-              className={`h-full transition-[width] duration-300 ${
+              className={`h-full rounded-full transition-[width] duration-300 ${
                 t.status === "error"
                   ? "bg-red-500"
                   : t.status === "done"

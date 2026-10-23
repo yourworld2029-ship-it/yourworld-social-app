@@ -9,8 +9,14 @@ Use standard Supabase Storage `.upload(path, file, options)` for small media. Fo
 
 **How to apply:** Keep the size-based transport choice in the shared upload helper, select chunk size from current connection estimates and retry with the same fingerprint after transient failures. Resume a stored upload URL rather than creating a new one after interruption. Preserve caller-generated paths because storage ownership rules and post metadata depend on them; only use parallel S3 multipart if a separately authorized server-side credential/configuration path is added.
 
-On Android, the foreground upload service currently provides the ongoing notification and a partial wake lock; the actual TUS transfer still runs in the WebView JavaScript task. This supports normal app backgrounding while that process/task remains alive, but it is not a native transfer worker and cannot guarantee continuation after force-stop or process death.
+Cloudflare Stream TUS has separate hard limits: chunks must be at least 5 MiB, no more than 200 MiB, and divisible by 256 KiB. Clamp Cloudflare chunks to those limits even when weak-network detection selects 1 MiB for Supabase Storage.
+
+**Why:** Cloudflare rejects sub-5-MiB chunks; applying the Supabase weak-link setting to Stream can make large-video uploads fail.
+
+**How to apply:** Keep 1 MiB micro-chunks on Supabase Storage only. Before creating a Cloudflare Stream TUS upload, round the requested chunk size to a 256-KiB multiple and clamp it to 5–200 MiB.
+
+On Android, the foreground upload service provides an ongoing notification and partial wake lock; the actual TUS transfer still runs in the WebView JavaScript task. Android 13+ requires notification permission for progress to appear in the notification drawer. Normal home/backgrounding and screen lock are supported while the app process remains alive, but a notification alone cannot guarantee continuation after force-stop or process death.
 
 **Why:** A foreground notification alone does not move the upload bytes or resumable state out of the WebView. Claiming process-death recovery without a persisted file/credential handoff and native resumable worker would be misleading.
 
-**How to apply:** Preserve the foreground service for backgrounded transfers, and describe its boundary accurately. If uploads must survive process death, first design a secure durable handoff that lets a native worker resume the same TUS URL and then reconcile the final post metadata.
+**How to apply:** Request notification permission before starting Android media uploads, keep the foreground service active during backgrounding, and describe its process-death boundary accurately. If uploads must survive process death, first design a secure durable handoff that lets a native worker resume the same TUS URL and then reconcile the final post metadata.
