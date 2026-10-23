@@ -1962,7 +1962,7 @@ function ReelItem({
           active={isLiked}
         >
           <Heart
-            strokeWidth={1.9}
+            strokeWidth={2.3}
             className={cn(
               "h-5 w-5 transition-colors",
               isLiked ? "fill-rose-500 text-rose-500" : "text-white",
@@ -1977,7 +1977,7 @@ function ReelItem({
           initialCommentId={initialCommentId}
         >
           <Action label={formatCount(reel.commentCount)}>
-            <MessageCircle strokeWidth={1.9} className="h-5 w-5" />
+            <MessageCircle strokeWidth={2.3} className="h-5 w-5" />
           </Action>
         </CommentsSheet>
 
@@ -2003,7 +2003,7 @@ function ReelItem({
           thumbnailBucket="thumbnails"
         >
           <Action label={hideShareCount ? "Shares hidden" : formatCount(reel.shares)}>
-            <Send strokeWidth={1.9} className="h-5 w-5" />
+            <Send strokeWidth={2.3} className="h-5 w-5" />
           </Action>
         </ShareSheet>
 
@@ -2015,7 +2015,7 @@ function ReelItem({
             disabled={repostPending || reposted}
           >
             <Repeat2
-              strokeWidth={1.9}
+              strokeWidth={2.3}
               className={cn("h-5 w-5", reposted && "text-emerald-300")}
             />
           </Action>
@@ -2023,7 +2023,7 @@ function ReelItem({
 
         <div className="relative">
           <Action onClick={() => setMenuOpen((v) => !v)} label="More">
-            <MoreVertical strokeWidth={1.9} className="h-5 w-5" />
+            <MoreVertical strokeWidth={2.3} className="h-5 w-5" />
           </Action>
         </div>
       </div>
@@ -2317,10 +2317,7 @@ function Action({
       )}
     >
       <span
-        className={cn(
-          "grid h-9 w-9 place-items-center rounded-full border border-white/20 bg-black/35 text-white shadow-[0_4px_16px_rgba(0,0,0,0.35)] backdrop-blur-md transition-colors group-hover:bg-black/55",
-          active && "border-white/40 bg-white/15",
-        )}
+        className="grid h-9 w-9 place-items-center text-white"
         style={{ filter: "drop-shadow(0px 2px 4px rgba(0, 0, 0, 0.6))" }}
       >
         {children}
