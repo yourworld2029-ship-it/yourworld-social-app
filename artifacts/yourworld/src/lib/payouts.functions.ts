@@ -22,9 +22,13 @@ export type InternationalPayoutProfile = {
   country: string;
   legalName: string;
   taxIdentifier: string;
+  dateOfBirth: string | null;
+  mobileNumber: string | null;
   payoutMethod: "bank" | "paypal";
   routingAba: string | null;
   accountNumber: string | null;
+  governmentIdPath: string | null;
+  bankStatementPath: string | null;
   iban: string | null;
   swiftBic: string | null;
   bankName: string | null;
@@ -46,13 +50,18 @@ type PayoutRpcClient = {
 const internationalPayoutSchema = z.object({
   legalName: z.string().trim().min(2).max(160),
   taxIdentifier: z.string().trim().min(4).max(100),
+  dateOfBirth: z.string().max(10).optional().default(""),
+  mobileNumber: z.string().max(16).optional().default(""),
   payoutMethod: z.enum(["bank", "paypal"]),
   routingAba: z.string().trim().max(32).optional().default(""),
   accountNumber: z.string().trim().max(64).optional().default(""),
+  confirmAccountNumber: z.string().trim().max(64).optional().default(""),
   iban: z.string().trim().max(64).optional().default(""),
   swiftBic: z.string().trim().max(32).optional().default(""),
   bankName: z.string().trim().max(160).optional().default(""),
   paypalEmail: z.string().trim().max(254).optional().default(""),
+  governmentIdPath: z.string().max(512).optional().default(""),
+  bankStatementPath: z.string().max(512).optional().default(""),
   usTaxResidentDeclaration: z.boolean().default(false),
   nonIndianResidentDeclaration: z.boolean().default(false),
 });
@@ -73,7 +82,7 @@ export const saveInternationalPayoutProfile = createServerFn({ method: "POST" })
   .validator((data) => internationalPayoutSchema.parse(data))
   .handler(async ({ data, context }) => {
     const db = context.supabase as unknown as PayoutRpcClient;
-    const { data: result, error } = await db.rpc("save_international_payout_profile", {
+    const { data: result, error } = await db.rpc("save_international_payout_profile_us_kyc", {
       p_legal_name: data.legalName,
       p_tax_identifier: data.taxIdentifier,
       p_payout_method: data.payoutMethod,
@@ -86,6 +95,11 @@ export const saveInternationalPayoutProfile = createServerFn({ method: "POST" })
       p_us_tax_resident_declaration: data.usTaxResidentDeclaration,
       p_non_indian_resident_declaration: data.nonIndianResidentDeclaration,
       p_terms_accepted: true,
+      p_us_date_of_birth: data.dateOfBirth,
+      p_us_mobile_number: data.mobileNumber,
+      p_us_confirm_account_number: data.confirmAccountNumber,
+      p_us_government_id_path: data.governmentIdPath,
+      p_us_bank_statement_path: data.bankStatementPath,
     });
     if (error) throw new Error(error.message);
     return result as { reviewStatus: "pending" | "verified" | "rejected"; country: string };

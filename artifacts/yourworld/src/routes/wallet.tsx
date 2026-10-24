@@ -118,13 +118,18 @@ type Details = {
 type InternationalPayoutForm = {
   legalName: string;
   taxIdentifier: string;
+  dateOfBirth: string;
+  mobileNumber: string;
   payoutMethod: "bank" | "paypal";
   routingAba: string;
   accountNumber: string;
+  confirmAccountNumber: string;
   iban: string;
   swiftBic: string;
   bankName: string;
   paypalEmail: string;
+  governmentIdPath: string;
+  bankStatementPath: string;
   usTaxResidentDeclaration: boolean;
   nonIndianResidentDeclaration: boolean;
 };
@@ -132,13 +137,18 @@ type InternationalPayoutForm = {
 const emptyInternationalPayoutForm: InternationalPayoutForm = {
   legalName: "",
   taxIdentifier: "",
+  dateOfBirth: "",
+  mobileNumber: "",
   payoutMethod: "bank",
   routingAba: "",
   accountNumber: "",
+  confirmAccountNumber: "",
   iban: "",
   swiftBic: "",
   bankName: "",
   paypalEmail: "",
+  governmentIdPath: "",
+  bankStatementPath: "",
   usTaxResidentDeclaration: false,
   nonIndianResidentDeclaration: false,
 };
@@ -206,6 +216,31 @@ async function uploadIndianPayoutDocument(
   return path;
 }
 
+async function uploadUsPayoutDocument(
+  userId: string,
+  kind: "us-government-id" | "us-bank-proof",
+  file: File,
+) {
+  if (file.size > PAYOUT_DOCUMENT_MAX_BYTES) {
+    throw new Error("Payout document must be 20 MB or smaller.");
+  }
+  const metadata = getPayoutDocumentType(file);
+  if (!metadata) {
+    throw new Error("Upload a PDF, JPG, or PNG document.");
+  }
+  const uniqueSuffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const path = `${userId}/payout/${kind}-${uniqueSuffix}.${metadata.extension}`;
+  const { error } = await supabase.storage
+    .from(PAYOUT_DOCUMENT_BUCKET)
+    .upload(path, file, {
+      cacheControl: "3600",
+      contentType: metadata.contentType,
+      upsert: false,
+    });
+  if (error) throw new Error(error.message);
+  return path;
+}
+
 async function removeIndianPayoutDocuments(paths: string[]) {
   const uniquePaths = [...new Set(paths.filter(Boolean))];
   if (uniquePaths.length === 0) return;
@@ -213,6 +248,15 @@ async function removeIndianPayoutDocuments(paths: string[]) {
     .from(PAYOUT_DOCUMENT_BUCKET)
     .remove(uniquePaths);
   if (error) console.warn("Could not remove replaced payout documents", error);
+}
+
+async function removeUsPayoutDocuments(paths: string[]) {
+  const uniquePaths = [...new Set(paths.filter(Boolean))];
+  if (uniquePaths.length === 0) return;
+  const { error } = await supabase.storage
+    .from(PAYOUT_DOCUMENT_BUCKET)
+    .remove(uniquePaths);
+  if (error) console.warn("Could not remove replaced US payout documents", error);
 }
 
 function MonetizationTermsCheckbox({
@@ -256,6 +300,8 @@ function WalletPage() {
   const [details, setDetails] = useState<Details>(emptyDetails);
   const [bankPassbookFile, setBankPassbookFile] = useState<File | null>(null);
   const [panCardFile, setPanCardFile] = useState<File | null>(null);
+  const [usGovernmentIdFile, setUsGovernmentIdFile] = useState<File | null>(null);
+  const [usBankStatementFile, setUsBankStatementFile] = useState<File | null>(null);
   const [country, setCountry] = useState("");
   const [countryLoaded, setCountryLoaded] = useState(false);
   const [internationalDetails, setInternationalDetails] =
@@ -282,6 +328,8 @@ function WalletPage() {
     setDetails({ ...emptyDetails, creator_email: user?.email ?? "" });
     setBankPassbookFile(null);
     setPanCardFile(null);
+    setUsGovernmentIdFile(null);
+    setUsBankStatementFile(null);
     setIndiaPayoutDeclarationAccepted(false);
     setInternationalDetails(emptyInternationalPayoutForm);
     setInternationalReviewReason(null);
@@ -420,14 +468,25 @@ function WalletPage() {
             setInternationalDetails({
               legalName: internationalProfile.legalName ?? "",
               taxIdentifier: internationalProfile.taxIdentifier ?? "",
-              payoutMethod: internationalProfile.payoutMethod === "paypal" ? "paypal" : "bank",
+              dateOfBirth: internationalProfile.dateOfBirth ?? "",
+              mobileNumber: internationalProfile.mobileNumber?.replace(/^\+1/, "") ?? "",
+              payoutMethod: isUnitedStatesPayoutCountry(savedCountry)
+                ? "bank"
+                : internationalProfile.payoutMethod === "paypal"
+                  ? "paypal"
+                  : "bank",
               routingAba: internationalProfile.routingAba ?? "",
               accountNumber: internationalProfile.accountNumber ?? "",
+              confirmAccountNumber: "",
               iban: internationalProfile.iban ?? "",
               swiftBic: internationalProfile.swiftBic ?? "",
               bankName: internationalProfile.bankName ?? "",
               paypalEmail: internationalProfile.paypalEmail ?? "",
-              usTaxResidentDeclaration: Boolean(internationalProfile.usTaxResidentDeclaration),
+              governmentIdPath: internationalProfile.governmentIdPath ?? "",
+              bankStatementPath: internationalProfile.bankStatementPath ?? "",
+              usTaxResidentDeclaration: isUnitedStatesPayoutCountry(savedCountry)
+                ? false
+                : Boolean(internationalProfile.usTaxResidentDeclaration),
               nonIndianResidentDeclaration: Boolean(internationalProfile.nonIndianResidentDeclaration),
             });
             setKycStatus(internationalProfile.reviewStatus);
@@ -522,9 +581,14 @@ function WalletPage() {
   const previewMode = payoutPreviewRequested && adminAccess.status === "allowed";
   const formCountry = previewMode ? payoutPreviewCountry : country;
   const formCurrency = payoutCurrencyForCountry(formCountry);
+  const isUsForm = isUnitedStatesPayoutCountry(formCountry);
   const indiaLiveForm =
     !previewMode || (formCurrency === "INR" && payoutCurrency === "INR");
-  const formReadOnlyPreview = previewMode && !indiaLiveForm;
+  const usLiveForm = !previewMode || (isUsForm && isUnitedStatesPayoutCountry(country));
+  const formReadOnlyPreview =
+    previewMode &&
+    !(formCurrency === "INR" && indiaLiveForm) &&
+    !(isUsForm && usLiveForm);
   const showWallet = previewMode || eligible || canApply || directSalesUnlocked;
 
   const saveDetails = async () => {
@@ -539,31 +603,125 @@ function WalletPage() {
     }
     if (payoutCurrency === "USD") {
       const isUs = isUnitedStatesPayoutCountry(country);
+      const mobileDigits = internationalDetails.mobileNumber.replace(/\D/g, "");
       if (isUs && !internationalDetails.usTaxResidentDeclaration) {
-        toast.error("Confirm the US tax-residency declaration before continuing");
+        toast.error("Confirm the US payout declaration before continuing");
         return;
       }
       if (!isUs && !internationalDetails.nonIndianResidentDeclaration) {
         toast.error("Confirm the non-Indian residency declaration before continuing");
         return;
       }
+      if (
+        isUs &&
+        (!internationalDetails.dateOfBirth ||
+          new Date(`${internationalDetails.dateOfBirth}T00:00:00`).getTime() > Date.now())
+      ) {
+        toast.error("Enter a valid date of birth");
+        return;
+      }
+      if (isUs && mobileDigits.length !== 10) {
+        toast.error("Enter a valid 10-digit US mobile number");
+        return;
+      }
+      if (isUs && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(user.email ?? "")) {
+        toast.error("Add a valid email address to your account before continuing");
+        return;
+      }
+      if (
+        isUs &&
+        (!/^\d{9}$/.test(internationalDetails.routingAba.replace(/\D/g, "")) ||
+          !/^\d{4,17}$/.test(internationalDetails.accountNumber.replace(/\D/g, "")))
+      ) {
+        toast.error("Enter a valid 9-digit routing number and bank account number");
+        return;
+      }
+      if (
+        isUs &&
+        internationalDetails.accountNumber.replace(/\D/g, "") !==
+          internationalDetails.confirmAccountNumber.replace(/\D/g, "")
+      ) {
+        toast.error("Bank account numbers must match");
+        return;
+      }
+      if (
+        isUs &&
+        !internationalDetails.governmentIdPath &&
+        !usGovernmentIdFile
+      ) {
+        toast.error("Upload your government ID or tax proof");
+        return;
+      }
+      if (
+        isUs &&
+        !internationalDetails.bankStatementPath &&
+        !usBankStatementFile
+      ) {
+        toast.error("Upload your bank statement or proof");
+        return;
+      }
       setSaving(true);
+      const uploadedUsPaths: string[] = [];
+      let nextGovernmentIdPath = internationalDetails.governmentIdPath;
+      let nextBankStatementPath = internationalDetails.bankStatementPath;
       try {
+        if (isUs && usGovernmentIdFile) {
+          nextGovernmentIdPath = await uploadUsPayoutDocument(
+            user.id,
+            "us-government-id",
+            usGovernmentIdFile,
+          );
+          uploadedUsPaths.push(nextGovernmentIdPath);
+        }
+        if (isUs && usBankStatementFile) {
+          nextBankStatementPath = await uploadUsPayoutDocument(
+            user.id,
+            "us-bank-proof",
+            usBankStatementFile,
+          );
+          uploadedUsPaths.push(nextBankStatementPath);
+        }
         const result = await saveInternationalPayout({
           data: {
             legalName: internationalDetails.legalName,
             taxIdentifier: internationalDetails.taxIdentifier,
-            payoutMethod: internationalDetails.payoutMethod,
+            dateOfBirth: isUs ? internationalDetails.dateOfBirth : "",
+            mobileNumber: isUs ? `+1${mobileDigits}` : "",
+            payoutMethod: isUs ? "bank" : internationalDetails.payoutMethod,
             routingAba: internationalDetails.routingAba,
             accountNumber: internationalDetails.accountNumber,
+            confirmAccountNumber: isUs
+              ? internationalDetails.confirmAccountNumber
+              : "",
             iban: internationalDetails.iban,
             swiftBic: internationalDetails.swiftBic,
             bankName: internationalDetails.bankName,
             paypalEmail: internationalDetails.paypalEmail,
+            governmentIdPath: isUs ? nextGovernmentIdPath : "",
+            bankStatementPath: isUs ? nextBankStatementPath : "",
             usTaxResidentDeclaration: internationalDetails.usTaxResidentDeclaration,
             nonIndianResidentDeclaration: internationalDetails.nonIndianResidentDeclaration,
           },
         });
+        if (isUs) {
+          await removeUsPayoutDocuments([
+            internationalDetails.governmentIdPath === nextGovernmentIdPath
+              ? ""
+              : internationalDetails.governmentIdPath,
+            internationalDetails.bankStatementPath === nextBankStatementPath
+              ? ""
+              : internationalDetails.bankStatementPath,
+          ]);
+          setInternationalDetails((current) => ({
+            ...current,
+            payoutMethod: "bank",
+            confirmAccountNumber: current.accountNumber,
+            governmentIdPath: nextGovernmentIdPath,
+            bankStatementPath: nextBankStatementPath,
+          }));
+          setUsGovernmentIdFile(null);
+          setUsBankStatementFile(null);
+        }
         setKycStatus(result.reviewStatus);
         setInternationalReviewReason(null);
         toast.success(
@@ -572,6 +730,7 @@ function WalletPage() {
             : "Submitted for manual admin review before any payout",
         );
       } catch (error) {
+        await removeUsPayoutDocuments(uploadedUsPaths);
         toast.error(error instanceof Error ? error.message : "Could not save payout details");
       } finally {
         setSaving(false);
@@ -786,12 +945,18 @@ function WalletPage() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-semibold text-indigo-100">
-                  {indiaLiveForm ? "India payout details" : "Read-only payout UI preview"}
+                  {formReadOnlyPreview
+                    ? "Read-only payout UI preview"
+                    : isUsForm
+                      ? "United States payout details"
+                      : "India payout details"}
                 </p>
                 <p className="pt-1 text-xs text-indigo-100/70">
-                  {indiaLiveForm
-                    ? "Your India payout details will be saved to your account."
-                    : "No saved payout data is shown. Changes, submissions, and transfers are disabled."}
+                  {formReadOnlyPreview
+                    ? "No saved payout data is shown. Changes, submissions, and transfers are disabled."
+                    : isUsForm
+                      ? "Your United States payout details will be saved securely for manual review."
+                      : "Your India payout details will be saved to your account."}
                 </p>
               </div>
               <label className="min-w-40">
@@ -1234,6 +1399,293 @@ function WalletPage() {
                     <p className="text-xs text-zinc-400">
                       International payouts are held for manual admin review and paid only in USD.
                     </p>
+                    {isUsForm ? (
+                      <>
+                        <label className="block">
+                          <span className="mb-1 block text-[11px] text-zinc-500">
+                            Full Legal Name (as per government ID)
+                          </span>
+                          <input
+                            autoComplete="name"
+                            value={formReadOnlyPreview ? "" : internationalDetails.legalName}
+                            readOnly={formReadOnlyPreview}
+                            onChange={(event) =>
+                              setInternationalDetails((current) => ({
+                                ...current,
+                                legalName: event.target.value,
+                              }))
+                            }
+                            placeholder="Full legal name"
+                            className="w-full rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm outline-none placeholder:text-zinc-600 focus:border-zinc-600"
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-[11px] text-zinc-500">
+                            Date of Birth (DOB)
+                          </span>
+                          <input
+                            type="date"
+                            value={formReadOnlyPreview ? "" : internationalDetails.dateOfBirth}
+                            disabled={formReadOnlyPreview}
+                            onChange={(event) =>
+                              setInternationalDetails((current) => ({
+                                ...current,
+                                dateOfBirth: event.target.value,
+                              }))
+                            }
+                            className="w-full rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm text-white outline-none focus:border-zinc-600 disabled:opacity-60"
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-[11px] text-zinc-500">
+                            Mobile Number
+                          </span>
+                          <div className="flex overflow-hidden rounded-xl border border-zinc-800 bg-[#0f0f13] focus-within:border-zinc-600">
+                            <span className="flex items-center border-r border-zinc-800 px-3 text-sm text-zinc-300">
+                              +1
+                            </span>
+                            <input
+                              type="tel"
+                              inputMode="numeric"
+                              autoComplete="tel-national"
+                              maxLength={10}
+                              value={formReadOnlyPreview ? "" : internationalDetails.mobileNumber}
+                              readOnly={formReadOnlyPreview}
+                              onChange={(event) =>
+                                setInternationalDetails((current) => ({
+                                  ...current,
+                                  mobileNumber: event.target.value.replace(/\D/g, "").slice(0, 10),
+                                }))
+                              }
+                              placeholder="10-digit mobile number"
+                              className="min-w-0 flex-1 bg-transparent px-3 py-2.5 text-sm outline-none placeholder:text-zinc-600"
+                            />
+                          </div>
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-[11px] text-zinc-500">Email ID</span>
+                          <input
+                            type="email"
+                            autoComplete="email"
+                            value={user?.email ?? ""}
+                            readOnly
+                            className="w-full rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm text-zinc-300 outline-none"
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-[11px] text-zinc-500">
+                            Tax Identification Number: SSN / ITIN (9-digit)
+                          </span>
+                          <input
+                            inputMode="numeric"
+                            autoComplete="off"
+                            maxLength={9}
+                            value={formReadOnlyPreview ? "" : internationalDetails.taxIdentifier}
+                            readOnly={formReadOnlyPreview}
+                            onChange={(event) =>
+                              setInternationalDetails((current) => ({
+                                ...current,
+                                taxIdentifier: event.target.value.replace(/\D/g, "").slice(0, 9),
+                              }))
+                            }
+                            placeholder="9-digit SSN or ITIN"
+                            className="w-full rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm outline-none placeholder:text-zinc-600 focus:border-zinc-600"
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-[11px] text-zinc-500">
+                            Upload Government ID / Tax Proof
+                          </span>
+                          <input
+                            type="file"
+                            accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                            disabled={formReadOnlyPreview || saving}
+                            onChange={(event) => {
+                              const file = event.currentTarget.files?.[0] ?? null;
+                              event.currentTarget.value = "";
+                              if (!file) return;
+                              if (file.size > PAYOUT_DOCUMENT_MAX_BYTES) {
+                                toast.error("Payout document must be 20 MB or smaller.");
+                                return;
+                              }
+                              if (!getPayoutDocumentType(file)) {
+                                toast.error("Upload a PDF, JPG, or PNG document.");
+                                return;
+                              }
+                              setUsGovernmentIdFile(file);
+                            }}
+                            className="block w-full text-xs text-zinc-400 file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-2 file:text-xs file:text-white"
+                          />
+                          <span className="mt-1 block text-[10px] text-zinc-500">
+                            {usGovernmentIdFile?.name
+                              ? `Ready to upload: ${usGovernmentIdFile.name}`
+                              : internationalDetails.governmentIdPath
+                                ? "Private proof saved · choose a file to replace"
+                                : "PDF or JPG/PNG image · maximum 20 MB"}
+                          </span>
+                          <span className="mt-1 block text-[10px] text-zinc-500">
+                            Please ensure uploaded documents are clear and readable.
+                          </span>
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-[11px] text-zinc-500">
+                            Payout Method
+                          </span>
+                          <div className="rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm text-white">
+                            Direct Bank Transfer
+                          </div>
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-[11px] text-zinc-500">
+                            Routing / ABA Number (9-digit)
+                          </span>
+                          <input
+                            inputMode="numeric"
+                            autoComplete="off"
+                            maxLength={9}
+                            value={formReadOnlyPreview ? "" : internationalDetails.routingAba}
+                            readOnly={formReadOnlyPreview}
+                            onChange={(event) =>
+                              setInternationalDetails((current) => ({
+                                ...current,
+                                routingAba: event.target.value.replace(/\D/g, "").slice(0, 9),
+                              }))
+                            }
+                            placeholder="9-digit routing number"
+                            className="w-full rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm outline-none placeholder:text-zinc-600 focus:border-zinc-600"
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-[11px] text-zinc-500">
+                            Account Number
+                          </span>
+                          <input
+                            inputMode="numeric"
+                            autoComplete="off"
+                            maxLength={17}
+                            value={formReadOnlyPreview ? "" : internationalDetails.accountNumber}
+                            readOnly={formReadOnlyPreview}
+                            onChange={(event) =>
+                              setInternationalDetails((current) => ({
+                                ...current,
+                                accountNumber: event.target.value.replace(/\D/g, "").slice(0, 17),
+                              }))
+                            }
+                            placeholder="Bank account number"
+                            className="w-full rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm outline-none placeholder:text-zinc-600 focus:border-zinc-600"
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-[11px] text-zinc-500">
+                            Confirm Account Number
+                          </span>
+                          <input
+                            inputMode="numeric"
+                            autoComplete="off"
+                            maxLength={17}
+                            value={formReadOnlyPreview ? "" : internationalDetails.confirmAccountNumber}
+                            readOnly={formReadOnlyPreview}
+                            aria-invalid={
+                              Boolean(
+                                internationalDetails.accountNumber ||
+                                  internationalDetails.confirmAccountNumber,
+                              ) &&
+                              internationalDetails.accountNumber !==
+                                internationalDetails.confirmAccountNumber
+                            }
+                            onChange={(event) =>
+                              setInternationalDetails((current) => ({
+                                ...current,
+                                confirmAccountNumber: event.target.value
+                                  .replace(/\D/g, "")
+                                  .slice(0, 17),
+                              }))
+                            }
+                            placeholder="Re-enter bank account number"
+                            className={`w-full rounded-xl border bg-[#0f0f13] px-3 py-2.5 text-sm outline-none placeholder:text-zinc-600 ${
+                              (internationalDetails.accountNumber ||
+                                internationalDetails.confirmAccountNumber) &&
+                              internationalDetails.accountNumber !==
+                                internationalDetails.confirmAccountNumber
+                                ? "border-red-500 focus:border-red-500"
+                                : "border-zinc-800 focus:border-zinc-600"
+                            }`}
+                          />
+                          {(internationalDetails.accountNumber ||
+                            internationalDetails.confirmAccountNumber) &&
+                          internationalDetails.accountNumber !==
+                            internationalDetails.confirmAccountNumber ? (
+                            <span className="mt-1 block text-[11px] text-red-400">
+                              Account numbers do not match
+                            </span>
+                          ) : null}
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-[11px] text-zinc-500">
+                            Upload Bank Statement / Proof
+                          </span>
+                          <input
+                            type="file"
+                            accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                            disabled={formReadOnlyPreview || saving}
+                            onChange={(event) => {
+                              const file = event.currentTarget.files?.[0] ?? null;
+                              event.currentTarget.value = "";
+                              if (!file) return;
+                              if (file.size > PAYOUT_DOCUMENT_MAX_BYTES) {
+                                toast.error("Payout document must be 20 MB or smaller.");
+                                return;
+                              }
+                              if (!getPayoutDocumentType(file)) {
+                                toast.error("Upload a PDF, JPG, or PNG document.");
+                                return;
+                              }
+                              setUsBankStatementFile(file);
+                            }}
+                            className="block w-full text-xs text-zinc-400 file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-2 file:text-xs file:text-white"
+                          />
+                          <span className="mt-1 block text-[10px] text-zinc-500">
+                            {usBankStatementFile?.name
+                              ? `Ready to upload: ${usBankStatementFile.name}`
+                              : internationalDetails.bankStatementPath
+                                ? "Private bank proof saved · choose a file to replace"
+                                : "PDF or JPG/PNG image · maximum 20 MB"}
+                          </span>
+                          <span className="mt-1 block text-[10px] text-zinc-500">
+                            Please ensure uploaded documents are clear and readable.
+                          </span>
+                        </label>
+                        <label className="flex items-start gap-2.5 rounded-xl border border-zinc-800 bg-[#0f0f13] p-3 text-xs leading-5 text-zinc-300">
+                          <input
+                            type="checkbox"
+                            checked={
+                              !formReadOnlyPreview &&
+                              internationalDetails.usTaxResidentDeclaration
+                            }
+                            disabled={formReadOnlyPreview}
+                            onChange={(event) =>
+                              setInternationalDetails((current) => ({
+                                ...current,
+                                usTaxResidentDeclaration: event.target.checked,
+                              }))
+                            }
+                            className="mt-1 accent-fuchsia-500"
+                          />
+                          <span>
+                            I certify under penalty of perjury that I am a US tax resident and all
+                            submitted details and uploaded documents are genuine and accurate.
+                          </span>
+                        </label>
+                        {!formReadOnlyPreview && kycStatus === "rejected" ? (
+                          <p className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">
+                            Review issue:{" "}
+                            {internationalReviewReason ||
+                              "Update your payout details and resubmit for admin review."}
+                          </p>
+                        ) : null}
+                      </>
+                    ) : (
+                      <>
                     <label className="block">
                       <span className="mb-1 block text-[11px] text-zinc-500">
                         Full Legal Name {isUnitedStatesPayoutCountry(formCountry) ? "(as per government ID)" : "(as per Passport / National ID)"}
@@ -1427,6 +1879,8 @@ function WalletPage() {
                         Review issue: {internationalReviewReason || "Update your payout details and resubmit for admin review."}
                       </p>
                     ) : null}
+                      </>
+                    )}
                   </>
                 )}
                 <label className="block">
@@ -1462,7 +1916,10 @@ function WalletPage() {
                     saving ||
                     !termsAccepted ||
                     !countryLoaded ||
-                    (formCurrency === "INR" && !indiaPayoutDeclarationAccepted)
+                    (formCurrency === "INR" && !indiaPayoutDeclarationAccepted) ||
+                    (formCurrency === "USD" &&
+                      isUsForm &&
+                      !internationalDetails.usTaxResidentDeclaration)
                   }
                   className="mt-3 w-full rounded-full bg-white py-2.5 text-sm font-semibold text-black disabled:opacity-60"
                 >
@@ -1470,7 +1927,7 @@ function WalletPage() {
                     ? "Submitting…"
                     : formCurrency === "INR"
                       ? "Submit Payout Details"
-                      : "Save Details"}
+                      : "Submit Payout Details"}
                 </button>
               )}
             </section>
