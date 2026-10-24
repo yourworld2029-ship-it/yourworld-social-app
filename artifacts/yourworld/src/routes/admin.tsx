@@ -61,6 +61,26 @@ function AdminConsole() {
   }, [access.status, load]);
 
   useEffect(() => {
+    if (access.status !== "allowed" || tab !== "reports") return;
+    const refreshReports = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    window.addEventListener("focus", refreshReports);
+    document.addEventListener("visibilitychange", refreshReports);
+    window.addEventListener("yw-app-resume", refreshReports);
+    return () => {
+      window.removeEventListener("focus", refreshReports);
+      document.removeEventListener("visibilitychange", refreshReports);
+      window.removeEventListener("yw-app-resume", refreshReports);
+    };
+  }, [access.status, load, tab]);
+
+  const selectTab = (nextTab: Tab) => {
+    setTab(nextTab);
+    if (nextTab === "reports") void load();
+  };
+
+  useEffect(() => {
     if (access.status !== "allowed") {
       setData(null);
       setMfaOpen(false);
@@ -165,7 +185,7 @@ function AdminConsole() {
               <button
                 key={value}
                 type="button"
-                onClick={() => setTab(value)}
+                onClick={() => selectTab(value)}
                 className={`min-h-10 shrink-0 rounded-xl border px-4 py-2.5 text-left text-xs font-semibold transition-all duration-200 ease-out active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200/50 lg:w-full ${
                   tab === value
                     ? "border-white/10 bg-white/[0.09] text-white shadow-[0_4px_18px_rgba(0,0,0,0.2)]"
@@ -180,7 +200,7 @@ function AdminConsole() {
           <section key={tab} className="min-w-0 animate-in fade-in-0 slide-in-from-bottom-1 duration-200">
             {tab === "overview" ? <Overview data={data} counts={counts} /> : null}
             {tab === "verification" ? <VerificationTab count={data?.pendingVerificationCount ?? 0} /> : null}
-            {tab === "reports" ? <ReportsTab data={data} onChanged={() => void load()} /> : null}
+            {tab === "reports" ? <ReportsTab data={data} loading={loading} onChanged={() => void load()} /> : null}
             {tab === "copyright" ? <CopyrightTab data={data} onChanged={() => void load()} /> : null}
             {tab === "payouts" ? (
               <PayoutsTab
@@ -394,10 +414,18 @@ function VerificationTab({ count }: { count: number }) {
   );
 }
 
-function ReportsTab({ data, onChanged }: { data: AdminConsoleData | null; onChanged: () => void }) {
+function ReportsTab({ data, loading, onChanged }: { data: AdminConsoleData | null; loading: boolean; onChanged: () => void }) {
   return (
     <Panel title="User Reports" description="Resolve or dismiss user-submitted reports. Account restrictions are separate decisions and require their own reason.">
-      {!data?.userReports.length ? <Empty text="No user reports." /> : data.userReports.map((report) => <UserReportCard key={report.id} report={report} onChanged={onChanged} />)}
+      {!data ? (
+        <Empty text={loading ? "Loading user reports…" : "Could not load reports. Use Refresh to try again."} />
+      ) : loading && data.userReports.length === 0 ? (
+        <Empty text="Checking for new reports…" />
+      ) : !data.userReports.length ? (
+        <Empty text="No user reports." />
+      ) : (
+        data.userReports.map((report) => <UserReportCard key={report.id} report={report} onChanged={onChanged} />)
+      )}
     </Panel>
   );
 }
@@ -419,9 +447,16 @@ function UserReportCard({ report, onChanged }: { report: AdminConsoleData["userR
     }
   };
   return (
-    <CaseCard title={`${displayProfile(report.reportedUser)} · ${report.surface}`} status={report.status} createdAt={report.createdAt}>
+    <CaseCard
+      title={`${displayProfile(report.reportedUser)} · ${report.reportedPostId ? "Reel / video" : report.surface}`}
+      status={report.status}
+      createdAt={report.createdAt}
+    >
       <p className="text-sm text-zinc-300">{report.reason}</p>
       <p className="mt-2 text-xs text-zinc-500">Reporter: {displayProfile(report.reporter)}</p>
+      {report.reportedPostId ? (
+        <p className="mt-2 break-all text-xs text-zinc-500">Reported post ID: {report.reportedPostId}</p>
+      ) : null}
       {report.status === "pending" ? <DecisionControls reason={reason} setReason={setReason} busy={busy} onResolve={() => void review("resolve")} onDismiss={() => void review("dismiss")} /> : null}
     </CaseCard>
   );

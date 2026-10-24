@@ -101,6 +101,7 @@ export type AdminConsoleData = {
     surface: string;
     threadId: string | null;
     messageId: string | null;
+    reportedPostId: string | null;
     reason: string;
     status: string;
     createdAt: string;
@@ -232,6 +233,7 @@ export const listAdminConsole = createServerFn({ method: "POST" })
         surface: String(row.surface ?? "unknown"),
         threadId: (row.thread_id as string | null) ?? null,
         messageId: (row.message_id as string | null) ?? null,
+        reportedPostId: (row.reported_post_id as string | null) ?? null,
         reason: String(row.reason ?? ""),
         status: String(row.status ?? "pending"),
         createdAt: String(row.created_at),
