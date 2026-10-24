@@ -80,3 +80,4 @@
 - [Debug APK build timeout](debug-apk-build-timeout.md) — run long clean Android Debug builds in the background and verify completion before staging any APK.
 - [Coach diploma evidence format](coach-diploma-evidence.md) — combine Coach front/back images into one private multipage PDF so the existing single-file review path stays intact.
 - [Android text-selection toolbar](android-text-selection-toolbar.md) — WebView Cut/Copy popup contrast follows the native post-splash Activity theme, not textarea CSS.
+- [Android WebView select menus](android-webview-select-options.md) — use the app-styled selector for dark-theme dropdowns; native option popups can render unreadable text.

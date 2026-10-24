@@ -27,6 +27,13 @@ import { postKind } from "@/lib/supabase-compat";
 import { historyBackOr } from "@/lib/navigation";
 import { useVerifiedSportsIdentity } from "@/lib/sports-identity";
 import { useAdminAccess } from "@/lib/use-admin-access";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export const Route = createFileRoute("/wallet")({
   head: () => ({
@@ -628,16 +635,25 @@ function WalletPage() {
                 <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-indigo-100/70">
                   Preview country
                 </span>
-                <select
-                  aria-label="Preview payout country"
-                  value={payoutPreviewCountry}
-                  onChange={(event) => setPayoutPreviewCountry(event.target.value)}
-                  className="w-full rounded-xl border border-indigo-300/30 bg-[#0f0f13] px-3 py-2 text-sm text-white outline-none"
-                >
-                  <option value="India">India · INR</option>
-                  <option value="United States">United States · USD</option>
-                  <option value="United Kingdom">United Kingdom · USD</option>
-                </select>
+                <Select value={payoutPreviewCountry} onValueChange={setPayoutPreviewCountry}>
+                  <SelectTrigger
+                    aria-label="Preview payout country"
+                    className="h-[42px] w-full rounded-xl border-indigo-300/30 bg-[#0f0f13] px-3 py-2 text-sm text-white shadow-none focus:ring-0"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="z-[200] border-white/10 bg-[#17171c] text-white shadow-xl">
+                    <SelectItem value="India" className="cursor-pointer text-white focus:bg-indigo-500/20 focus:text-white">
+                      India · INR
+                    </SelectItem>
+                    <SelectItem value="United States" className="cursor-pointer text-white focus:bg-indigo-500/20 focus:text-white">
+                      United States · USD
+                    </SelectItem>
+                    <SelectItem value="United Kingdom" className="cursor-pointer text-white focus:bg-indigo-500/20 focus:text-white">
+                      United Kingdom · USD
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
               </label>
             </div>
           </section>
@@ -877,12 +893,12 @@ function WalletPage() {
                     </label>
                     <label className="block">
                       <span className="mb-1 block text-[11px] text-zinc-500">Payout Method</span>
-                      <select
+                      <Select
                         value={internationalDetails.payoutMethod}
                         disabled={previewMode}
-                        onChange={(e) =>
+                        onValueChange={(value) =>
                           setInternationalDetails((d) => {
-                            const payoutMethod = e.target.value === "paypal" ? "paypal" : "bank";
+                            const payoutMethod = value === "paypal" ? "paypal" : "bank";
                             return payoutMethod === "paypal"
                               ? {
                                   ...d,
@@ -896,13 +912,22 @@ function WalletPage() {
                               : { ...d, payoutMethod, paypalEmail: "" };
                           })
                         }
-                        className="w-full rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm text-white outline-none focus:border-zinc-600"
                       >
-                        <option value="bank">
+                        <SelectTrigger
+                          aria-label="Payout method"
+                          className="h-[42px] w-full rounded-xl border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm text-white shadow-none focus:border-zinc-600 focus:ring-0"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="z-[200] border-white/10 bg-[#17171c] text-white shadow-xl">
+                          <SelectItem value="bank" className="cursor-pointer text-white focus:bg-indigo-500/20 focus:text-white">
                           {isUnitedStatesPayoutCountry(formCountry) ? "Direct Bank Transfer" : "International Bank"}
-                        </option>
-                        <option value="paypal">PayPal</option>
-                      </select>
+                          </SelectItem>
+                          <SelectItem value="paypal" className="cursor-pointer text-white focus:bg-indigo-500/20 focus:text-white">
+                            PayPal
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
                     </label>
                     {internationalDetails.payoutMethod === "paypal" ? (
                       <label className="block">
