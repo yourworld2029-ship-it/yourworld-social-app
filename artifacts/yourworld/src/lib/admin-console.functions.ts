@@ -256,12 +256,18 @@ export const listAdminConsole = createServerFn({ method: "POST" })
         ? userReportsResult.error
           ? null
           : userReportRows.filter((row) => row.status === "pending").length
-        : pendingUserReportsResult.count ?? 0,
+        : Math.max(
+            pendingUserReportsResult.count ?? 0,
+            userReportRows.filter((row) => row.status === "pending").length,
+          ),
       pendingCopyrightReportsCount: pendingCopyrightReportsResult.error
         ? copyrightReportsResult.error
           ? null
           : copyrightRows.filter((row) => row.status === "pending").length
-        : pendingCopyrightReportsResult.count ?? 0,
+        : Math.max(
+            pendingCopyrightReportsResult.count ?? 0,
+            copyrightRows.filter((row) => row.status === "pending").length,
+          ),
       loadErrors: {
         overview: overviewErrors.length ? overviewErrors.join("; ") : null,
         userReports: userReportsResult.error?.message ?? null,
@@ -528,6 +534,7 @@ export type AdminPayoutRequest = {
 
 export type AdminPayoutRequestsResponse = {
   requests: AdminPayoutRequest[];
+  error?: string;
 };
 
 export type AdminInternationalPayoutKyc = {
@@ -550,7 +557,15 @@ export type AdminInternationalPayoutKyc = {
 export const listAdminPayoutRequests = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }): Promise<AdminPayoutRequestsResponse> => {
-    const admin = await requireOwnerAdmin(context);
+    let admin: AdminClient;
+    try {
+      admin = await requireOwnerAdmin(context);
+    } catch (error) {
+      return {
+        requests: [],
+        error: error instanceof Error ? error.message : "Admin payout access could not be verified.",
+      };
+    }
     const { data, error } = await admin
       .from("payout_requests")
       .select(
@@ -559,7 +574,7 @@ export const listAdminPayoutRequests = createServerFn({ method: "POST" })
       .in("status", ["processing", "approved"])
       .order("created_at", { ascending: true })
       .limit(100);
-    if (error) throw new Error(error.message);
+    if (error) return { requests: [], error: error.message };
 
     const rows = (data ?? []) as Array<Record<string, unknown>>;
     const userIds = [...new Set(rows.map((row) => String(row.user_id ?? "")).filter(Boolean))];
@@ -570,22 +585,39 @@ export const listAdminPayoutRequests = createServerFn({ method: "POST" })
         .filter(Boolean),
     )];
     const rpcClient = context.supabase as unknown as AdminRpcClient;
-    const [profiles, payoutResult] = await Promise.all([
-      profileMap(admin, userIds),
-      userIds.length
-        ? admin
-            .from("creator_payout_profiles")
-            .select(
-              "user_id,holder_name,bank_name,account_number,ifsc,upi_id,swift_bic,bank_country",
-            )
-            .in("user_id", userIds)
-        : Promise.resolve({ data: [], error: null }),
-    ]);
-    if (payoutResult.error) throw new Error(payoutResult.error.message);
-    const internationalResult = usdUserIds.length
-      ? await rpcClient.rpc("admin_get_international_payout_profiles", { p_user_ids: usdUserIds })
-      : { data: [], error: null };
-    if (internationalResult.error) throw new Error(internationalResult.error.message);
+    let profiles: Map<string, AdminProfile>;
+    let payoutResult;
+    try {
+      [profiles, payoutResult] = await Promise.all([
+        profileMap(admin, userIds),
+        userIds.length
+          ? admin
+              .from("creator_payout_profiles")
+              .select(
+                "user_id,holder_name,bank_name,account_number,ifsc,upi_id,swift_bic,bank_country",
+              )
+              .in("user_id", userIds)
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+    } catch (loadError) {
+      return {
+        requests: [],
+        error: loadError instanceof Error ? loadError.message : "Payout profile details could not be read.",
+      };
+    }
+    if (payoutResult.error) return { requests: [], error: payoutResult.error.message };
+    let internationalResult: { data: unknown; error: { message: string } | null };
+    try {
+      internationalResult = usdUserIds.length
+        ? await rpcClient.rpc("admin_get_international_payout_profiles", { p_user_ids: usdUserIds })
+        : { data: [], error: null };
+    } catch (loadError) {
+      return {
+        requests: [],
+        error: loadError instanceof Error ? loadError.message : "International payout details could not be read.",
+      };
+    }
+    if (internationalResult.error) return { requests: [], error: internationalResult.error.message };
 
     const internationalProfiles = new Map(
       (Array.isArray(internationalResult.data)
@@ -676,20 +708,46 @@ export const listAdminPayoutRequests = createServerFn({ method: "POST" })
 
 export const listAdminInternationalPayoutKyc = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }): Promise<{ requests: AdminInternationalPayoutKyc[] }> => {
-    const admin = await requireOwnerAdmin(context);
+  .handler(async ({ context }): Promise<{ requests: AdminInternationalPayoutKyc[]; error?: string }> => {
+    let admin: AdminClient;
+    try {
+      admin = await requireOwnerAdmin(context);
+    } catch (error) {
+      return {
+        requests: [],
+        error: error instanceof Error ? error.message : "Admin payout access could not be verified.",
+      };
+    }
     const rpcClient = context.supabase as unknown as AdminRpcClient;
-    const { data, error } = await rpcClient.rpc("admin_list_international_payout_kyc");
-    if (error) throw new Error(error.message);
+    let result: { data: unknown; error: { message: string } | null };
+    try {
+      result = await rpcClient.rpc("admin_list_international_payout_kyc");
+    } catch (loadError) {
+      return {
+        requests: [],
+        error: loadError instanceof Error ? loadError.message : "International payout KYC could not be read.",
+      };
+    }
+    const { data, error } = result;
+    if (error) return { requests: [], error: error.message };
     const requests = Array.isArray(data) ? (data as AdminInternationalPayoutKyc[]) : [];
-    await writeAudit(
-      admin,
-      context,
-      null,
-      "view_international_payout_kyc_queue",
-      "Viewed pending international payout KYC after Admin MFA",
-      { requestCount: requests.length },
-    );
+    if (requests.length > 0) {
+      try {
+        await writeAudit(
+          admin,
+          context,
+          null,
+          "view_international_payout_kyc_queue",
+          "Viewed pending international payout KYC after Admin MFA",
+          { requestCount: requests.length },
+        );
+      } catch (auditError) {
+        return {
+          requests: [],
+          error: auditError instanceof Error ? auditError.message : "The KYC access audit could not be saved.",
+        };
+      }
+    }
     return { requests: Array.isArray(requests) ? requests : [] };
   });
 

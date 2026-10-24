@@ -1369,19 +1369,17 @@ export async function reportSocialUser(reporterId: string, reportedUserId: strin
     .maybeSingle();
   if (lookupError) return lookupError.message;
 
-  const result = existing
-    ? await supabase
-        .from("user_reports")
-        .update({ thread_id: threadId, reason: "User report" })
-        .eq("id", existing.id)
-        .eq("reporter_id", reporterId)
-    : await supabase.from("user_reports").insert({
-        reporter_id: reporterId,
-        reported_user_id: reportedUserId,
-        surface: "social",
-        thread_id: threadId,
-        reason: "User report",
-      });
+  // User-owned report rows are insert-only under RLS. A duplicate tap is an
+  // already-submitted report, not a reason to update moderator-owned fields.
+  if (existing) return null;
+
+  const result = await supabase.from("user_reports").insert({
+    reporter_id: reporterId,
+    reported_user_id: reportedUserId,
+    surface: "social",
+    thread_id: threadId,
+    reason: "User report",
+  });
   return result.error?.message ?? null;
 }
 

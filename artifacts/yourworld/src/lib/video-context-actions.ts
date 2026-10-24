@@ -147,12 +147,11 @@ export async function submitVideoReport(input: {
     .maybeSingle();
   if (lookupError) throw lookupError;
 
-  const { error } = existing
-    ? await supabase
-        .from("user_reports")
-        .update(values)
-        .eq("id", existing.id)
-        .eq("reporter_id", input.reporterId)
-    : await supabase.from("user_reports").insert(values);
+  // Reporters may insert and read their own reports, but only admins may
+  // update a report. Treat an existing report as an idempotent success rather
+  // than attempting an RLS-blocked client-side update.
+  if (existing) return;
+
+  const { error } = await supabase.from("user_reports").insert(values);
   if (error) throw error;
 }

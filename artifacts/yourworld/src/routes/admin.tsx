@@ -36,6 +36,36 @@ export const Route = createFileRoute("/admin")({
 
 type Tab = "overview" | "verification" | "reports" | "copyright" | "payouts" | "accounts" | "audit" | "awards";
 
+function unwrapAdminResult(value: unknown): unknown {
+  let current = value;
+  for (let depth = 0; depth < 3; depth += 1) {
+    if (!current || typeof current !== "object" || Array.isArray(current)) break;
+    const payload = current as Record<string, unknown>;
+    if ("result" in payload && payload.result !== undefined) {
+      current = payload.result;
+      continue;
+    }
+    if (!("requests" in payload) && "data" in payload && payload.data !== undefined) {
+      current = payload.data;
+      continue;
+    }
+    break;
+  }
+  return current;
+}
+
+function getAdminRequests<T>(value: unknown): { requests: T[]; error?: string } | null {
+  const payload = unwrapAdminResult(value);
+  if (Array.isArray(payload)) return { requests: payload as T[] };
+  if (!payload || typeof payload !== "object") return null;
+  const record = payload as Record<string, unknown>;
+  if (!Array.isArray(record.requests)) return null;
+  return {
+    requests: record.requests as T[],
+    ...(typeof record.error === "string" ? { error: record.error } : {}),
+  };
+}
+
 function AdminConsole() {
   const access = useAdminAccess();
   const [mfaOpen, setMfaOpen] = useState(false);
@@ -49,13 +79,23 @@ function AdminConsole() {
   const openMfa = useCallback(() => setMfaOpen(true), []);
 
   const load = useCallback(() => {
+    if (mfaVerified !== true) return Promise.resolve();
     if (loadInFlight.current) return loadInFlight.current;
     const request = (async () => {
       setLoading(true);
       setLoadError(null);
       setRefreshKey((current) => current + 1);
       try {
-        setData(await listAdminConsole());
+        const response = unwrapAdminResult(await listAdminConsole());
+        if (
+          !response ||
+          typeof response !== "object" ||
+          !Array.isArray((response as AdminConsoleData).userReports) ||
+          !Array.isArray((response as AdminConsoleData).copyrightReports)
+        ) {
+          throw new Error("Admin Console returned an incomplete response. Refresh after verifying MFA.");
+        }
+        setData(response as AdminConsoleData);
       } catch (error) {
         const message = error instanceof Error ? error.message : "Could not load the admin console.";
         if (message.toLowerCase().includes("mfa")) setMfaVerified(false);
@@ -70,7 +110,7 @@ function AdminConsole() {
       if (loadInFlight.current === request) loadInFlight.current = null;
     });
     return request;
-  }, []);
+  }, [mfaVerified]);
 
   useEffect(() => {
     if (access.status !== "allowed") {
@@ -109,11 +149,11 @@ function AdminConsole() {
   }, [access.status]);
 
   useEffect(() => {
-    if (access.status === "allowed") void load();
-  }, [access.status, load]);
+    if (access.status === "allowed" && mfaVerified === true) void load();
+  }, [access.status, load, mfaVerified]);
 
   useEffect(() => {
-    if (access.status !== "allowed" || (tab !== "reports" && tab !== "copyright")) return;
+    if (access.status !== "allowed" || mfaVerified !== true || (tab !== "reports" && tab !== "copyright")) return;
     const refreshReports = () => {
       if (document.visibilityState === "visible") void load();
     };
@@ -125,7 +165,7 @@ function AdminConsole() {
       document.removeEventListener("visibilitychange", refreshReports);
       window.removeEventListener("yw-app-resume", refreshReports);
     };
-  }, [access.status, load, tab]);
+  }, [access.status, load, mfaVerified, tab]);
 
   const selectTab = (nextTab: Tab) => {
     setTab(nextTab);
@@ -157,7 +197,6 @@ function AdminConsole() {
         onComplete={() => {
           setMfaOpen(false);
           setMfaVerified(true);
-          void load();
         }}
       />
     );
@@ -273,6 +312,7 @@ function AdminConsole() {
                 onChanged={() => void load()}
                 onVerifyMfa={openMfa}
                 refreshKey={refreshKey}
+                mfaVerified={mfaVerified === true}
               />
             ) : null}
             {tab === "accounts" ? <AccountsTab data={data} onChanged={() => void load()} /> : null}
@@ -624,19 +664,21 @@ function PayoutsTab({
   onChanged,
   onVerifyMfa,
   refreshKey,
+  mfaVerified,
 }: {
   data: AdminConsoleData | null;
   onChanged: () => void;
   onVerifyMfa: () => void;
   refreshKey: number;
+  mfaVerified: boolean;
 }) {
   return (
     <Panel
       title="Monetization & Payout Review"
       description="Review monthly payout requests and place or release a payout hold. External transfers are entered manually after payment."
     >
-      <InternationalPayoutKycQueue onVerifyMfa={onVerifyMfa} refreshKey={refreshKey} />
-      <ManualPayoutQueue onVerifyMfa={onVerifyMfa} refreshKey={refreshKey} />
+      <InternationalPayoutKycQueue onVerifyMfa={onVerifyMfa} refreshKey={refreshKey} mfaVerified={mfaVerified} />
+      <ManualPayoutQueue onVerifyMfa={onVerifyMfa} refreshKey={refreshKey} mfaVerified={mfaVerified} />
       {!data?.monetization.length && !data?.payoutHolds.length ? <Empty text="No monetization records or payout holds." /> : null}
       <div className="space-y-3">
         {data?.monetization.map((row) => <PayoutCard key={row.userId} row={row} onChanged={onChanged} />)}
@@ -646,19 +688,40 @@ function PayoutsTab({
   );
 }
 
-function InternationalPayoutKycQueue({ onVerifyMfa, refreshKey }: { onVerifyMfa: () => void; refreshKey: number }) {
+function InternationalPayoutKycQueue({
+  onVerifyMfa,
+  refreshKey,
+  mfaVerified,
+}: {
+  onVerifyMfa: () => void;
+  refreshKey: number;
+  mfaVerified: boolean;
+}) {
   const [requests, setRequests] = useState<AdminInternationalPayoutKyc[]>([]);
   const [loading, setLoading] = useState(true);
   const [reason, setReason] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState("");
 
   const load = useCallback(async () => {
+    if (!mfaVerified) {
+      setRequests([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
-      const result = await listAdminInternationalPayoutKyc();
-      if (!Array.isArray(result?.requests)) {
+      const result = getAdminRequests<AdminInternationalPayoutKyc>(
+        await listAdminInternationalPayoutKyc(),
+      );
+      if (!result) {
         setRequests([]);
         toast.error("International KYC requests could not be read. Refresh to try again.");
+        return;
+      }
+      if (result.error) {
+        setRequests([]);
+        if (result.error.toLowerCase().includes("mfa")) onVerifyMfa();
+        else toast.error(result.error);
         return;
       }
       setRequests(result.requests);
@@ -670,7 +733,7 @@ function InternationalPayoutKycQueue({ onVerifyMfa, refreshKey }: { onVerifyMfa:
     } finally {
       setLoading(false);
     }
-  }, [onVerifyMfa]);
+  }, [mfaVerified, onVerifyMfa]);
 
   useEffect(() => {
     void load();
@@ -723,7 +786,10 @@ function InternationalPayoutKycQueue({ onVerifyMfa, refreshKey }: { onVerifyMfa:
           {loading ? "Loading…" : "Refresh KYC"}
         </button>
       </div>
-      {!loading && requests.length === 0 ? (
+      {!mfaVerified ? (
+        <p className="mt-3 text-xs text-amber-200/80">Verify admin MFA to load payout requests.</p>
+      ) : null}
+      {mfaVerified && !loading && requests.length === 0 ? (
         <p className="mt-3 text-xs text-zinc-500">No pending international payout applications.</p>
       ) : null}
       <div className="mt-3 space-y-3">
@@ -803,7 +869,15 @@ function InternationalPayoutKycQueue({ onVerifyMfa, refreshKey }: { onVerifyMfa:
   );
 }
 
-function ManualPayoutQueue({ onVerifyMfa, refreshKey }: { onVerifyMfa: () => void; refreshKey: number }) {
+function ManualPayoutQueue({
+  onVerifyMfa,
+  refreshKey,
+  mfaVerified,
+}: {
+  onVerifyMfa: () => void;
+  refreshKey: number;
+  mfaVerified: boolean;
+}) {
   const [requests, setRequests] = useState<AdminPayoutRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -812,23 +886,37 @@ function ManualPayoutQueue({ onVerifyMfa, refreshKey }: { onVerifyMfa: () => voi
   const [busyId, setBusyId] = useState("");
 
   const load = useCallback(async () => {
+    if (!mfaVerified) {
+      setRequests([]);
+      setError("");
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError("");
     try {
-      const result = await listAdminPayoutRequests();
-      if (!Array.isArray(result?.requests)) {
+      const result = getAdminRequests<AdminPayoutRequest>(await listAdminPayoutRequests());
+      if (!result) {
         setRequests([]);
         setError("Payout requests could not be read. Refresh to try again.");
+        return;
+      }
+      if (result.error) {
+        setRequests([]);
+        setError(result.error);
+        if (result.error.toLowerCase().includes("mfa")) onVerifyMfa();
         return;
       }
       setRequests(result.requests);
     } catch (loadError) {
       setRequests([]);
-      setError(loadError instanceof Error ? loadError.message : "Could not load payout requests.");
+      const message = loadError instanceof Error ? loadError.message : "Could not load payout requests.";
+      setError(message);
+      if (message.toLowerCase().includes("mfa")) onVerifyMfa();
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [mfaVerified, onVerifyMfa]);
 
   useEffect(() => {
     void load();
@@ -902,7 +990,10 @@ function ManualPayoutQueue({ onVerifyMfa, refreshKey }: { onVerifyMfa: () => voi
         </div>
       ) : null}
 
-      {!loading && !error && requests.length === 0 ? (
+      {!mfaVerified ? (
+        <p className="mt-3 text-xs text-amber-200/80">Verify admin MFA to load payout requests.</p>
+      ) : null}
+      {mfaVerified && !loading && !error && requests.length === 0 ? (
         <p className="mt-3 rounded-xl border border-white/5 px-3 py-3 text-xs text-zinc-500">
           No payout requests are waiting for manual review.
         </p>
