@@ -79,3 +79,4 @@
 - [Chat message visibility and reactions](chat-message-visibility-reactions.md) — keep per-user message hides separate from shared, participant-owned reactions; do not hard-delete a message for “delete for me.”
 - [Debug APK build timeout](debug-apk-build-timeout.md) — run long clean Android Debug builds in the background and verify completion before staging any APK.
 - [Coach diploma evidence format](coach-diploma-evidence.md) — combine Coach front/back images into one private multipage PDF so the existing single-file review path stays intact.
+- [Android text-selection toolbar](android-text-selection-toolbar.md) — WebView Cut/Copy popup contrast follows the native post-splash Activity theme, not textarea CSS.
