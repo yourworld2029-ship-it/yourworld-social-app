@@ -26,6 +26,7 @@ import {
 import { postKind } from "@/lib/supabase-compat";
 import { historyBackOr } from "@/lib/navigation";
 import { useVerifiedSportsIdentity } from "@/lib/sports-identity";
+import { useAdminAccess } from "@/lib/use-admin-access";
 
 export const Route = createFileRoute("/wallet")({
   head: () => ({
@@ -171,6 +172,7 @@ function MonetizationTermsCheckbox({
 function WalletPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const adminAccess = useAdminAccess();
   const sportsIdentity = useVerifiedSportsIdentity(user?.id ?? null);
   const runPayout = useServerFn(submitPayoutRequest);
   const loadInternationalPayout = useServerFn(getInternationalPayoutProfile);
@@ -194,6 +196,8 @@ function WalletPage() {
   const [processing, setProcessing] = useState(false);
   const [applying, setApplying] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
+  const [payoutPreviewRequested, setPayoutPreviewRequested] = useState(false);
+  const [payoutPreviewCountry, setPayoutPreviewCountry] = useState("India");
 
   useEffect(() => {
     const uid = user?.id;
@@ -432,7 +436,10 @@ function WalletPage() {
   const totalTds = round2(b.tds + videoNet * TDS_RATE);
   const totalNetPayout = round2(totalNetCreatorEarnings - totalTds);
   const directSalesUnlocked = cumulativeDirectSalesNet >= payoutMinimum;
-  const showWallet = eligible || canApply || directSalesUnlocked;
+  const previewMode = payoutPreviewRequested && adminAccess.status === "allowed";
+  const formCountry = previewMode ? payoutPreviewCountry : country;
+  const formCurrency = payoutCurrencyForCountry(formCountry);
+  const showWallet = previewMode || eligible || canApply || directSalesUnlocked;
 
   const saveDetails = async () => {
     if (!user?.id) return;
@@ -596,9 +603,45 @@ function WalletPage() {
           <ArrowLeft size={22} />
         </button>
         <h1 className="text-lg font-bold">Monetization & Wallet</h1>
+        {adminAccess.status === "allowed" ? (
+          <button
+            type="button"
+            onClick={() => setPayoutPreviewRequested((open) => !open)}
+            className="ml-auto rounded-full border border-indigo-400/30 bg-indigo-400/10 px-3 py-1.5 text-[11px] font-semibold text-indigo-200"
+          >
+            {previewMode ? "Exit preview" : "Preview payout forms"}
+          </button>
+        ) : null}
       </header>
 
       <div className="space-y-4 p-4">
+        {previewMode ? (
+          <section className="rounded-2xl border border-indigo-400/30 bg-indigo-400/10 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-indigo-100">Read-only payout UI preview</p>
+                <p className="pt-1 text-xs text-indigo-100/70">
+                  No saved payout data is shown. Changes, submissions, and transfers are disabled.
+                </p>
+              </div>
+              <label className="min-w-40">
+                <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-indigo-100/70">
+                  Preview country
+                </span>
+                <select
+                  aria-label="Preview payout country"
+                  value={payoutPreviewCountry}
+                  onChange={(event) => setPayoutPreviewCountry(event.target.value)}
+                  className="w-full rounded-xl border border-indigo-300/30 bg-[#0f0f13] px-3 py-2 text-sm text-white outline-none"
+                >
+                  <option value="India">India · INR</option>
+                  <option value="United States">United States · USD</option>
+                  <option value="United Kingdom">United Kingdom · USD</option>
+                </select>
+              </label>
+            </div>
+          </section>
+        ) : null}
         {!showWallet ? (
           <>
             <section className="rounded-2xl border border-zinc-800 bg-gradient-to-br from-[#17171c] to-[#101014] p-5">
@@ -664,7 +707,7 @@ function WalletPage() {
           </>
         ) : (
           <>
-            {canApply && !eligible ? (
+            {!previewMode && canApply && !eligible ? (
               <section className="rounded-2xl border border-indigo-500/30 bg-indigo-500/10 p-4">
                 <p className="text-sm font-semibold">Monetization threshold reached</p>
                 <p className="pt-1 text-[11px] leading-relaxed text-zinc-400">
@@ -681,7 +724,7 @@ function WalletPage() {
             ) : null}
 
             {/* Total earnings */}
-            <section className="rounded-2xl border border-zinc-800 bg-gradient-to-br from-[#17171c] to-[#101014] p-5">
+            <section className={`rounded-2xl border border-zinc-800 bg-gradient-to-br from-[#17171c] to-[#101014] p-5 ${previewMode ? "hidden" : ""}`}>
               <div className="flex items-center gap-2 text-zinc-400">
                 <Wallet size={16} />
                 <p className="text-[11px] font-semibold uppercase tracking-wide">
@@ -696,7 +739,7 @@ function WalletPage() {
               </p>
             </section>
             {/* Revenue breakdown */}
-            <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <section className={`grid grid-cols-2 gap-3 sm:grid-cols-4 ${previewMode ? "hidden" : ""}`}>
               {[
                 { label: "Ad & View Earnings", v: b.creatorBySource.ads },
                 { label: "Course Earnings", v: b.creatorBySource.course },
@@ -712,7 +755,7 @@ function WalletPage() {
               ))}
             </section>
 
-            <section className="rounded-2xl border border-indigo-500/20 bg-indigo-500/10 p-4">
+            <section className={`rounded-2xl border border-indigo-500/20 bg-indigo-500/10 p-4 ${previewMode ? "hidden" : ""}`}>
               <p className="text-sm font-semibold">Payout preview</p>
               <div className="mt-3 space-y-2 text-xs">
                 <div className="flex justify-between gap-3 text-zinc-300">
@@ -732,36 +775,46 @@ function WalletPage() {
               </div>
             </section>
 
-            <MonetizationTermsCheckbox accepted={termsAccepted} onChange={setTermsAccepted} />
+            {!previewMode ? (
+              <MonetizationTermsCheckbox accepted={termsAccepted} onChange={setTermsAccepted} />
+            ) : null}
 
             {/* Payout details */}
             <section className="rounded-2xl border border-zinc-800 bg-[#141418] p-4">
               <div className="flex items-center justify-between gap-3">
-                <h2 className="text-sm font-bold">Payout & Bank Details</h2>
-                <span
-                  className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${
-                    kycStatus === "verified"
-                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                <h2 className="text-sm font-bold">
+                  {previewMode ? "Payout Details Preview" : "Payout & Bank Details"}
+                </h2>
+                {previewMode ? (
+                  <span className="rounded-full border border-indigo-400/30 bg-indigo-400/10 px-2.5 py-1 text-[10px] font-semibold text-indigo-200">
+                    Preview only
+                  </span>
+                ) : (
+                  <span
+                    className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${
+                      kycStatus === "verified"
+                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                        : kycStatus === "rejected"
+                          ? "border-red-500/30 bg-red-500/10 text-red-300"
+                          : "border-amber-500/30 bg-amber-500/10 text-amber-300"
+                    }`}
+                  >
+                    {kycStatus === "verified" ? <CheckCircle2 size={12} /> : null}
+                    KYC Status:{" "}
+                    {kycStatus === "verified"
+                      ? "Verified"
                       : kycStatus === "rejected"
-                        ? "border-red-500/30 bg-red-500/10 text-red-300"
-                        : "border-amber-500/30 bg-amber-500/10 text-amber-300"
-                  }`}
-                >
-                  {kycStatus === "verified" ? <CheckCircle2 size={12} /> : null}
-                  KYC Status:{" "}
-                  {kycStatus === "verified"
-                    ? "Verified"
-                    : kycStatus === "rejected"
-                      ? "Rejected"
-                      : "Under Review"}
-                </span>
+                        ? "Rejected"
+                        : "Under Review"}
+                  </span>
+                )}
               </div>
               <div className="grid gap-2.5 pt-3">
                 {!countryLoaded ? (
                   <div className="rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-3 text-sm text-zinc-400">
                     Loading payout country…
                   </div>
-                ) : payoutCurrency === "INR" ? (
+                ) : formCurrency === "INR" ? (
                   [
                     ["creator_email", "Creator Email ID", "you@gmail.com"],
                     ["upi_id", "UPI ID (optional)", "name@upi"],
@@ -773,7 +826,8 @@ function WalletPage() {
                     <label key={key} className="block">
                       <span className="mb-1 block text-[11px] text-zinc-500">{label}</span>
                       <input
-                        value={details[key as keyof Details]}
+                        value={previewMode ? "" : details[key as keyof Details]}
+                        readOnly={previewMode}
                         onChange={(e) =>
                           setDetails((d) => ({ ...d, [key as keyof Details]: e.target.value }))
                         }
@@ -789,11 +843,12 @@ function WalletPage() {
                     </p>
                     <label className="block">
                       <span className="mb-1 block text-[11px] text-zinc-500">
-                        Full Legal Name {isUnitedStatesPayoutCountry(country) ? "(as per government ID)" : "(as per Passport / National ID)"}
+                        Full Legal Name {isUnitedStatesPayoutCountry(formCountry) ? "(as per government ID)" : "(as per Passport / National ID)"}
                       </span>
                       <input
                         autoComplete="name"
-                        value={internationalDetails.legalName}
+                        value={previewMode ? "" : internationalDetails.legalName}
+                        readOnly={previewMode}
                         onChange={(e) =>
                           setInternationalDetails((d) => ({ ...d, legalName: e.target.value }))
                         }
@@ -803,18 +858,19 @@ function WalletPage() {
                     </label>
                     <label className="block">
                       <span className="mb-1 block text-[11px] text-zinc-500">
-                        {isUnitedStatesPayoutCountry(country)
+                        {isUnitedStatesPayoutCountry(formCountry)
                           ? "Tax Identification Number: SSN / ITIN"
                           : "Tax ID / National ID Number (TIN / National ID / Passport No.)"}
                       </span>
                       <input
                         autoComplete="off"
-                        value={internationalDetails.taxIdentifier}
+                        value={previewMode ? "" : internationalDetails.taxIdentifier}
+                        readOnly={previewMode}
                         onChange={(e) =>
                           setInternationalDetails((d) => ({ ...d, taxIdentifier: e.target.value }))
                         }
                         placeholder={
-                          isUnitedStatesPayoutCountry(country) ? "9-digit SSN or ITIN" : "Tax / National ID or Passport number"
+                          isUnitedStatesPayoutCountry(formCountry) ? "9-digit SSN or ITIN" : "Tax / National ID or Passport number"
                         }
                         className="w-full rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm outline-none placeholder:text-zinc-600 focus:border-zinc-600"
                       />
@@ -823,6 +879,7 @@ function WalletPage() {
                       <span className="mb-1 block text-[11px] text-zinc-500">Payout Method</span>
                       <select
                         value={internationalDetails.payoutMethod}
+                        disabled={previewMode}
                         onChange={(e) =>
                           setInternationalDetails((d) => {
                             const payoutMethod = e.target.value === "paypal" ? "paypal" : "bank";
@@ -842,7 +899,7 @@ function WalletPage() {
                         className="w-full rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm text-white outline-none focus:border-zinc-600"
                       >
                         <option value="bank">
-                          {isUnitedStatesPayoutCountry(country) ? "Direct Bank Transfer" : "International Bank"}
+                          {isUnitedStatesPayoutCountry(formCountry) ? "Direct Bank Transfer" : "International Bank"}
                         </option>
                         <option value="paypal">PayPal</option>
                       </select>
@@ -853,7 +910,8 @@ function WalletPage() {
                         <input
                           type="email"
                           autoComplete="email"
-                          value={internationalDetails.paypalEmail}
+                          value={previewMode ? "" : internationalDetails.paypalEmail}
+                          readOnly={previewMode}
                           onChange={(e) =>
                             setInternationalDetails((d) => ({ ...d, paypalEmail: e.target.value }))
                           }
@@ -864,14 +922,15 @@ function WalletPage() {
                           Each PayPal email can be linked to one YourWorld account only.
                         </span>
                       </label>
-                    ) : isUnitedStatesPayoutCountry(country) ? (
+                    ) : isUnitedStatesPayoutCountry(formCountry) ? (
                       <>
                         <label className="block">
                           <span className="mb-1 block text-[11px] text-zinc-500">Routing / ABA Number</span>
                           <input
                             inputMode="numeric"
                             autoComplete="off"
-                            value={internationalDetails.routingAba}
+                            value={previewMode ? "" : internationalDetails.routingAba}
+                            readOnly={previewMode}
                             onChange={(e) =>
                               setInternationalDetails((d) => ({ ...d, routingAba: e.target.value }))
                             }
@@ -884,7 +943,8 @@ function WalletPage() {
                           <input
                             inputMode="numeric"
                             autoComplete="off"
-                            value={internationalDetails.accountNumber}
+                            value={previewMode ? "" : internationalDetails.accountNumber}
+                            readOnly={previewMode}
                             onChange={(e) =>
                               setInternationalDetails((d) => ({ ...d, accountNumber: e.target.value }))
                             }
@@ -899,7 +959,8 @@ function WalletPage() {
                           <span className="mb-1 block text-[11px] text-zinc-500">IBAN</span>
                           <input
                             autoComplete="off"
-                            value={internationalDetails.iban}
+                            value={previewMode ? "" : internationalDetails.iban}
+                            readOnly={previewMode}
                             onChange={(e) =>
                               setInternationalDetails((d) => ({ ...d, iban: e.target.value }))
                             }
@@ -911,7 +972,8 @@ function WalletPage() {
                           <span className="mb-1 block text-[11px] text-zinc-500">SWIFT / BIC Code</span>
                           <input
                             autoComplete="off"
-                            value={internationalDetails.swiftBic}
+                            value={previewMode ? "" : internationalDetails.swiftBic}
+                            readOnly={previewMode}
                             onChange={(e) =>
                               setInternationalDetails((d) => ({ ...d, swiftBic: e.target.value }))
                             }
@@ -923,7 +985,8 @@ function WalletPage() {
                           <span className="mb-1 block text-[11px] text-zinc-500">Bank Name</span>
                           <input
                             autoComplete="organization"
-                            value={internationalDetails.bankName}
+                            value={previewMode ? "" : internationalDetails.bankName}
+                            readOnly={previewMode}
                             onChange={(e) =>
                               setInternationalDetails((d) => ({ ...d, bankName: e.target.value }))
                             }
@@ -936,14 +999,15 @@ function WalletPage() {
                     <label className="flex items-start gap-2.5 rounded-xl border border-zinc-800 bg-[#0f0f13] p-3 text-xs leading-5 text-zinc-300">
                       <input
                         type="checkbox"
-                        checked={
-                          isUnitedStatesPayoutCountry(country)
+                        checked={!previewMode && (
+                          isUnitedStatesPayoutCountry(formCountry)
                             ? internationalDetails.usTaxResidentDeclaration
                             : internationalDetails.nonIndianResidentDeclaration
-                        }
+                        )}
+                        disabled={previewMode}
                         onChange={(e) =>
                           setInternationalDetails((d) =>
-                            isUnitedStatesPayoutCountry(country)
+                            isUnitedStatesPayoutCountry(formCountry)
                               ? { ...d, usTaxResidentDeclaration: e.target.checked }
                               : { ...d, nonIndianResidentDeclaration: e.target.checked },
                           )
@@ -951,12 +1015,12 @@ function WalletPage() {
                         className="mt-1 accent-fuchsia-500"
                       />
                       <span>
-                        {isUnitedStatesPayoutCountry(country)
+                        {isUnitedStatesPayoutCountry(formCountry)
                           ? "I certify under penalty of perjury that I am a US tax resident and these details belong to me."
                           : "I confirm that I am a non-Indian resident, these banking/tax details legally belong to me, and all earnings are subject to local tax laws."}
                       </span>
                     </label>
-                    {kycStatus === "rejected" ? (
+                    {!previewMode && kycStatus === "rejected" ? (
                       <p className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">
                         Review issue: {internationalReviewReason || "Update your payout details and resubmit for admin review."}
                       </p>
@@ -966,28 +1030,40 @@ function WalletPage() {
                 <label className="block">
                   <span className="mb-1 block text-[11px] text-zinc-500">Payout Currency</span>
                   <div className="rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm">
-                    {countryLoaded ? `${payoutCurrency} · Based on your saved country` : "Loading country…"}
+                    {countryLoaded ? `${formCurrency} · ${previewMode ? "Preview country" : "Based on your saved country"}` : "Loading country…"}
                   </div>
-                  {payoutCurrency === "USD" ? (
-                    <p className="pt-1 text-[10px] text-zinc-500">Bank country: {country || "Not set"}</p>
+                  {formCurrency === "USD" ? (
+                    <p className="pt-1 text-[10px] text-zinc-500">Bank country: {formCountry || "Not set"}</p>
                   ) : null}
                 </label>
+                {previewMode ? (
+                  <div className="rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm">
+                    <span className="block text-[11px] text-zinc-500">Minimum withdrawal</span>
+                    <span>{formatPayoutAmount(minimumPayout(formCurrency), formCurrency)}</span>
+                  </div>
+                ) : null}
                 <div className="rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5">
                   <span className="block text-[11px] text-zinc-500">Monthly Payout Window</span>
                   <span className="text-sm">Every month, from the 1st through the 5th</span>
                 </div>
               </div>
-              <button
-                onClick={saveDetails}
-                disabled={saving || !termsAccepted || !countryLoaded}
-                className="mt-3 w-full rounded-full bg-white py-2.5 text-sm font-semibold text-black disabled:opacity-60"
-              >
-                {saving ? "Saving…" : "Save Details"}
-              </button>
+              {previewMode ? (
+                <div className="mt-3 w-full rounded-full bg-white/10 py-2.5 text-center text-sm font-semibold text-zinc-400">
+                  Preview only · saving disabled
+                </div>
+              ) : (
+                <button
+                  onClick={saveDetails}
+                  disabled={saving || !termsAccepted || !countryLoaded}
+                  className="mt-3 w-full rounded-full bg-white py-2.5 text-sm font-semibold text-black disabled:opacity-60"
+                >
+                  {saving ? "Saving…" : "Save Details"}
+                </button>
+              )}
             </section>
 
             {/* Withdraw */}
-            <div>
+            <div className={previewMode ? "hidden" : ""}>
               <button
                 onClick={withdraw}
                 disabled={
@@ -1015,7 +1091,7 @@ function WalletPage() {
             </div>
 
             {/* History */}
-            <section className="rounded-2xl border border-zinc-800 bg-[#141418] p-4">
+            <section className={`rounded-2xl border border-zinc-800 bg-[#141418] p-4 ${previewMode ? "hidden" : ""}`}>
               <h2 className="text-sm font-bold">Payout History</h2>
               {payouts.length === 0 ? (
                 <p className="pt-2 text-[11px] text-zinc-500">
