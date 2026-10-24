@@ -20,3 +20,9 @@ The installed Android client sends playback-preparation requests to the hosted A
 **Why:** A production 413 from `/api/media/transcode` persisted after an APK-only update because the production API revision predated the workspace's 2 GB Long Video processing code.
 
 **How to apply:** For persistent size-limit errors, confirm the actual storage bucket and inspect the currently deployed API revision as well as Supabase bucket limits. Publish validated API changes before treating an APK build as the fix. Keep the `videos` cap at 2 GB and align the separate `reels` cap to its configured 500 MiB bucket limit.
+
+For Long Videos already destined for Cloudflare Stream, bypass synchronous API-side FFmpeg fast-start remuxing; retain the original Supabase source and send the selected Blob through Stream TUS. Keep the existing remux path for Reels and Moments.
+
+**Why:** Production telemetry on 2026-10-24 showed the API process was killed during long-video playback preparation, after source upload; the logs did not establish whether memory pressure or another cause killed it.
+
+**How to apply:** Restrict this bypass to the `videos` bucket when Cloudflare Stream is enabled. Do not broaden it to Reels, Moments, storage limits, or user-facing upload flows.

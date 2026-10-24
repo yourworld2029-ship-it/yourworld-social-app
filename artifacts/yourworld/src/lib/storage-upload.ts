@@ -18,6 +18,7 @@ import {
   shouldUseStoragePlaybackFallback,
   WEAK_NETWORK_TUS_CHUNK_SIZE,
 } from "@/lib/storage-upload-tus-utils";
+import { shouldRunServerFastStart } from "@/lib/video-upload-processing";
 
 export type ProgressFn = UploadRequestProgress;
 export type VideoStreamUploadOptions = {
@@ -48,8 +49,6 @@ export const STORAGE_BUCKETS = {
 
 /** Uploaded video and poster objects use unique paths, so they can be cached immutably. */
 export const IMMUTABLE_MEDIA_CACHE_CONTROL = "31536000, immutable";
-const FASTSTART_BUCKETS = new Set(["videos", "reels", "moments"]);
-
 async function removeCanceledStorageObjects(bucket: string, paths: string[]) {
   const uniquePaths = [...new Set(paths.filter(Boolean))];
   if (!uniquePaths.length) return;
@@ -177,8 +176,11 @@ export async function uploadWithProgress(
     return { url: null, storagePath: null, error: sizeError };
   }
 
-  const needsFastStart =
-    contentType.toLowerCase().startsWith("video/") && FASTSTART_BUCKETS.has(bucket);
+  const needsFastStart = shouldRunServerFastStart({
+    bucket,
+    contentType,
+    cloudflareStream: options.cloudflareStream === true,
+  });
   const needsCloudflareStream =
     options.cloudflareStream === true &&
     contentType.toLowerCase().startsWith("video/") &&
