@@ -92,7 +92,16 @@ async function profileMap(admin: AdminClient, ids: string[]) {
 }
 
 export type AdminConsoleData = {
-  pendingVerificationCount: number;
+  pendingVerificationCount: number | null;
+  pendingUserReportsCount: number | null;
+  pendingCopyrightReportsCount: number | null;
+  loadErrors: {
+    overview: string | null;
+    userReports: string | null;
+    copyrightReports: string | null;
+    other: string | null;
+    profileLookup: string | null;
+  };
   userReports: Array<{
     id: string;
     reporterId: string;
@@ -173,6 +182,8 @@ export const listAdminConsole = createServerFn({ method: "POST" })
       pendingVerification,
       userReportsResult,
       copyrightReportsResult,
+      pendingUserReportsResult,
+      pendingCopyrightReportsResult,
       monetizationResult,
       restrictionsResult,
       payoutHoldsResult,
@@ -185,6 +196,8 @@ export const listAdminConsole = createServerFn({ method: "POST" })
         .not("submitted_at", "is", null),
       admin.from("user_reports").select("*").order("created_at", { ascending: false }).limit(100),
       admin.from("copyright_reports").select("*").order("created_at", { ascending: false }).limit(100),
+      admin.from("user_reports").select("id", { count: "exact", head: true }).eq("status", "pending"),
+      admin.from("copyright_reports").select("id", { count: "exact", head: true }).eq("status", "pending"),
       admin
         .from("monetization")
         .select("user_id,status,earnings_total,pending_payout,created_at")
@@ -205,17 +218,6 @@ export const listAdminConsole = createServerFn({ method: "POST" })
       admin.from("admin_action_audit").select("*").order("created_at", { ascending: false }).limit(200),
     ]);
 
-    for (const result of [
-      userReportsResult,
-      copyrightReportsResult,
-      monetizationResult,
-      restrictionsResult,
-      payoutHoldsResult,
-      auditResult,
-    ]) {
-      if (result.error) throw new Error(result.error.message);
-    }
-
     const userReportRows = (userReportsResult.data ?? []) as Array<Record<string, unknown>>;
     const copyrightRows = (copyrightReportsResult.data ?? []) as Array<Record<string, unknown>>;
     const monetizationRows = (monetizationResult.data ?? []) as Array<Record<string, unknown>>;
@@ -228,11 +230,45 @@ export const listAdminConsole = createServerFn({ method: "POST" })
       ...restrictionRows.map((row) => String(row.user_id ?? "")),
       ...payoutHoldRows.map((row) => String(row.user_id ?? "")),
     ];
-    const profiles = await profileMap(admin, ids);
+    let profiles = new Map<string, AdminProfile>();
+    let profileLookupError: string | null = null;
+    try {
+      profiles = await profileMap(admin, ids);
+    } catch (error) {
+      profileLookupError = error instanceof Error ? error.message : "Could not load report profiles.";
+    }
     const heldUserIds = new Set(payoutHoldRows.map((row) => String(row.user_id)));
+    const overviewErrors = [
+      pendingVerification.error?.message,
+      pendingUserReportsResult.error?.message,
+      pendingCopyrightReportsResult.error?.message,
+    ].filter(Boolean);
+    const otherErrors = [
+      monetizationResult.error?.message,
+      restrictionsResult.error?.message,
+      payoutHoldsResult.error?.message,
+      auditResult.error?.message,
+    ].filter(Boolean);
 
     return {
-      pendingVerificationCount: pendingVerification.count ?? 0,
+      pendingVerificationCount: pendingVerification.error ? null : pendingVerification.count ?? 0,
+      pendingUserReportsCount: pendingUserReportsResult.error
+        ? userReportsResult.error
+          ? null
+          : userReportRows.filter((row) => row.status === "pending").length
+        : pendingUserReportsResult.count ?? 0,
+      pendingCopyrightReportsCount: pendingCopyrightReportsResult.error
+        ? copyrightReportsResult.error
+          ? null
+          : copyrightRows.filter((row) => row.status === "pending").length
+        : pendingCopyrightReportsResult.count ?? 0,
+      loadErrors: {
+        overview: overviewErrors.length ? overviewErrors.join("; ") : null,
+        userReports: userReportsResult.error?.message ?? null,
+        copyrightReports: copyrightReportsResult.error?.message ?? null,
+        other: otherErrors.length ? otherErrors.join("; ") : null,
+        profileLookup: profileLookupError,
+      },
       userReports: userReportRows.map((row) => ({
         id: String(row.id),
         reporterId: String(row.reporter_id),

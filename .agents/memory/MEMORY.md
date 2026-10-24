@@ -48,6 +48,7 @@
 - [Public sports badge data contract](sports-badge-data-contract.md) — derive public badges from public profile identity plus existing active monetization signals; never query private verification details.
 - [Owner admin moderation security](admin-moderation-security.md) — sensitive moderation is server-side, owner-admin plus AAL2, privately evidenced, audited, and never an automatic forfeiture.
 - [Supabase MFA factor listing](supabase-mfa-factor-listing.md) — `listFactors().totp` only contains verified factors; inspect `all` to resume unverified TOTP verification.
+- [Admin MFA session continuity](admin-mfa-session-continuity.md) — trust the verified AAL session and keep AAL2 enforcement server-side; avoid redundant session refreshes after MFA verify.
 - [Highlight deletion boundary](highlight-deletion-boundary.md) — route destructive Highlight deletes through authenticated server code and verify the single JSONB row is gone before updating the UI.
 - [Account deletion pipeline](account-deletion-pipeline.md) — use a transactional SECURITY DEFINER Supabase function for authenticated cleanup before removing auth.users.
 - [Capacitor Android wrapper](capacitor-android-wrapper.md) — preserve Start's SPA shell, `cap sync android` after web builds, and package with JDK 21 plus an installed SDK.

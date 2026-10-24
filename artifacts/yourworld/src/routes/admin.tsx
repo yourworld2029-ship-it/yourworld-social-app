@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowLeft, CheckCircle2, LockKeyhole, RefreshCw, ShieldAlert, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
@@ -44,22 +44,69 @@ function AdminConsole() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [tab, setTab] = useState<Tab>("overview");
+  const [mfaVerified, setMfaVerified] = useState<boolean | null>(null);
+  const loadInFlight = useRef<Promise<void> | null>(null);
   const openMfa = useCallback(() => setMfaOpen(true), []);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setLoadError(null);
-    setRefreshKey((current) => current + 1);
-    try {
-      setData(await listAdminConsole());
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not load the admin console.";
-      setLoadError(message);
-      toast.error(message);
-    } finally {
-      setLoading(false);
-    }
+  const load = useCallback(() => {
+    if (loadInFlight.current) return loadInFlight.current;
+    const request = (async () => {
+      setLoading(true);
+      setLoadError(null);
+      setRefreshKey((current) => current + 1);
+      try {
+        setData(await listAdminConsole());
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Could not load the admin console.";
+        if (message.toLowerCase().includes("mfa")) setMfaVerified(false);
+        setLoadError(message);
+        toast.error(message);
+      } finally {
+        setLoading(false);
+      }
+    })();
+    loadInFlight.current = request;
+    void request.finally(() => {
+      if (loadInFlight.current === request) loadInFlight.current = null;
+    });
+    return request;
   }, []);
+
+  useEffect(() => {
+    if (access.status !== "allowed") {
+      setMfaVerified(null);
+      return;
+    }
+
+    let active = true;
+    const syncMfaState = async () => {
+      try {
+        const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+        if (active) setMfaVerified(!error && data.currentLevel === "aal2");
+      } catch {
+        if (active) setMfaVerified(false);
+      }
+    };
+    void syncMfaState();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(() => {
+      window.setTimeout(() => {
+        if (active) void syncMfaState();
+      }, 0);
+    });
+    const onFocus = () => {
+      if (document.visibilityState === "visible") void syncMfaState();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+
+    return () => {
+      active = false;
+      authListener.subscription.unsubscribe();
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
+  }, [access.status]);
 
   useEffect(() => {
     if (access.status === "allowed") void load();
@@ -109,6 +156,7 @@ function AdminConsole() {
         onCancel={() => setMfaOpen(false)}
         onComplete={() => {
           setMfaOpen(false);
+          setMfaVerified(true);
           void load();
         }}
       />
@@ -117,8 +165,8 @@ function AdminConsole() {
 
   const counts = data
     ? {
-        reports: data.userReports.filter((report) => report.status === "pending").length,
-        copyright: data.copyrightReports.filter((report) => report.status === "pending").length,
+        reports: data.pendingUserReportsCount,
+        copyright: data.pendingCopyrightReportsCount,
         restrictions: data.restrictions.length,
         payoutHolds: data.payoutHolds.length,
       }
@@ -151,13 +199,19 @@ function AdminConsole() {
             </div>
           </div>
           <div className="flex gap-2 sm:justify-end">
-            <button
-              type="button"
-              onClick={() => setMfaOpen(true)}
-              className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-amber-200/20 bg-amber-200/[0.04] px-4 py-2.5 text-xs font-semibold text-amber-100 transition hover:bg-amber-200/10 active:scale-[0.98] sm:flex-none"
-            >
-              <LockKeyhole size={14} /> Verify MFA
-            </button>
+            {mfaVerified ? (
+              <div role="status" className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-emerald-200/15 bg-emerald-200/[0.05] px-4 py-2.5 text-xs font-semibold text-emerald-100 sm:flex-none">
+                <ShieldCheck size={14} /> MFA verified
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setMfaOpen(true)}
+                className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-amber-200/20 bg-amber-200/[0.04] px-4 py-2.5 text-xs font-semibold text-amber-100 transition hover:bg-amber-200/10 active:scale-[0.98] sm:flex-none"
+              >
+                <LockKeyhole size={14} /> Verify MFA
+              </button>
+            )}
             <button
               type="button"
               onClick={() => void load()}
@@ -168,6 +222,12 @@ function AdminConsole() {
             </button>
           </div>
         </header>
+
+        {data?.loadErrors.other || data?.loadErrors.profileLookup ? (
+          <p role="status" className="mb-4 rounded-xl border border-amber-200/15 bg-amber-200/[0.04] p-3 text-xs text-amber-100/90">
+            Some admin data could not be loaded: {[data.loadErrors.other, data.loadErrors.profileLookup].filter(Boolean).join("; ")}
+          </p>
+        ) : null}
 
         <div className="grid gap-4 lg:grid-cols-[190px_1fr]">
           <nav
@@ -205,8 +265,8 @@ function AdminConsole() {
           <section key={tab} className="min-w-0 animate-in fade-in-0 slide-in-from-bottom-1 duration-200">
             {tab === "overview" ? <Overview data={data} counts={counts} /> : null}
             {tab === "verification" ? <VerificationTab count={data?.pendingVerificationCount ?? 0} /> : null}
-            {tab === "reports" ? <ReportsTab data={data} loading={loading} error={loadError} onChanged={() => void load()} /> : null}
-            {tab === "copyright" ? <CopyrightTab data={data} loading={loading} error={loadError} onChanged={() => void load()} /> : null}
+            {tab === "reports" ? <ReportsTab data={data} loading={loading} error={loadError ?? data?.loadErrors.userReports ?? null} onChanged={() => void load()} /> : null}
+            {tab === "copyright" ? <CopyrightTab data={data} loading={loading} error={loadError ?? data?.loadErrors.copyrightReports ?? null} onChanged={() => void load()} /> : null}
             {tab === "payouts" ? (
               <PayoutsTab
                 data={data}
@@ -283,9 +343,14 @@ function MfaGate({ onComplete, onCancel }: { onComplete: () => void; onCancel: (
     if (error) {
       toast.error(error.message);
     } else {
-      await supabase.auth.refreshSession();
-      toast.success("Admin MFA verified.");
-      onComplete();
+      const { data: assurance, error: assuranceError } =
+        await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+      if (assuranceError || assurance.currentLevel !== "aal2") {
+        toast.error(assuranceError?.message ?? "MFA verified, but the active session is not yet at AAL2. Please retry.");
+      } else {
+        toast.success("Admin MFA verified.");
+        onComplete();
+      }
     }
     setBusy(false);
   };
@@ -373,7 +438,7 @@ function Overview({
   counts,
 }: {
   data: AdminConsoleData | null;
-  counts: { reports: number; copyright: number; restrictions: number; payoutHolds: number } | null;
+  counts: { reports: number | null; copyright: number | null; restrictions: number; payoutHolds: number } | null;
 }) {
   const cards = [
     ["Pending verification", data?.pendingVerificationCount ?? "—", "verification"],
@@ -436,6 +501,8 @@ function ReportsTab({
       {error ? <p role="alert" className="mb-3 rounded-xl border border-red-300/20 bg-red-300/[0.06] p-3 text-xs text-red-200">{error}</p> : null}
       {!data ? (
         <Empty text={loading ? "Loading user reports…" : error ? "Reports could not be loaded. Verify MFA, then use Refresh." : "No reports loaded. Use Refresh to try again."} />
+      ) : error ? (
+        <Empty text="Reports could not be loaded. Use Refresh to try again." />
       ) : loading && data.userReports.length === 0 ? (
         <Empty text="Checking for new reports…" />
       ) : !data.userReports.length ? (
@@ -510,7 +577,9 @@ function CopyrightTab({
   return (
     <Panel title="Copyright / DMCA" description="Review takedown claims. Takedown deletes only the reported post or Moment, and every decision is audited.">
       {error ? <p role="alert" className="mb-3 rounded-xl border border-red-300/20 bg-red-300/[0.06] p-3 text-xs text-red-200">{error}</p> : null}
-      {!data?.copyrightReports.length
+      {error
+        ? <Empty text="Copyright reports could not be loaded. Use Refresh to try again." />
+        : !data?.copyrightReports.length
         ? <Empty text={loading ? "Loading copyright claims…" : error ? "Copyright claims could not be loaded. Verify MFA, then use Refresh." : "No copyright reports."} />
         : data.copyrightReports.map((report) => <CopyrightCard key={report.id} report={report} onChanged={onChanged} />)}
     </Panel>
