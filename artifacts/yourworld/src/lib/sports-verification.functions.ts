@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { hasAdminConsoleAccess } from "@/lib/admin-access-policy";
+import { escapeEmailHtml, sendTransactionalEmail } from "@/lib/email.server";
 import {
   countryCodeForSportsCountry,
   isIndiaSportsCountry,
@@ -699,19 +700,46 @@ export const reviewSportsVerification = createServerFn({ method: "POST" })
     });
     if (auditError) throw new Error(auditError.message);
 
-    return { status, reason };
+    let emailSent = false;
+    let emailReason = "Applicant has no confirmed email address.";
+    const { data: applicantAuth, error: applicantAuthError } =
+      await admin.auth.admin.getUserById(data.applicantUserId);
+    if (applicantAuthError) {
+      console.warn("[sports-verification] Could not retrieve applicant email for status notice.");
+    } else if (applicantAuth.user?.email && applicantAuth.user.email_confirmed_at) {
+      const subject =
+        data.action === "approve"
+          ? "Your YourWorld Sports Verification is approved"
+          : data.action === "request_correction"
+            ? "Action needed for your YourWorld Sports Verification"
+            : "Your YourWorld Sports Verification was not approved";
+      const message =
+        data.action === "approve"
+          ? "Your Sports Verification is approved and your profile badge has been updated."
+          : data.action === "request_correction"
+            ? `Please update the requested verification details and resubmit. Reviewer note: ${reason ?? "See your Sports Details screen."}`
+            : `Your Sports Verification was not approved. Reviewer note: ${reason ?? "Please contact support."}`;
+      const escapedMessage = escapeEmailHtml(message);
+      const result = await sendTransactionalEmail({
+        to: applicantAuth.user.email,
+        subject,
+        text: message,
+        html: `<p>${escapedMessage}</p><p>Open YourWorld to view your Sports Details.</p><p>— YourWorld Creator Admin</p>`,
+      });
+      emailSent = result.sent;
+      if (!result.sent) {
+        emailReason = result.reason;
+        console.warn("[sports-verification] Applicant status email was not sent.");
+      }
+    }
+
+    return { status, reason, emailSent, emailReason };
   });
 
 async function notifySupportOfSubmission(
   profile: AdminProfileRow,
   details: VerificationDetailsRow | null,
 ) {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) {
-    console.error("[sports-verification] RESEND_API_KEY is not configured; support notification skipped.");
-    return { sent: false, reason: "Support email service is not configured." };
-  }
-
   const categoryParts = (profile.category ?? "").split("·").map((part) => part.trim());
   const role = categoryParts[0] || "Sports profile";
   const sport = categoryParts[1] || valueAfterLabel(profile.bio, ["Sport"]) || "Not recorded";
@@ -720,34 +748,37 @@ async function notifySupportOfSubmission(
   const submittedAt = details?.submitted_at ?? new Date().toISOString();
   const appUrl = process.env.REPLIT_APP_URL || "https://your-world-social-app--yourworld2029.replit.app";
 
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      from: "YourWorld Verification <onboarding@resend.dev>",
-      to: [process.env.SUPPORT_EMAIL || "yourworld2029@gmail.com"],
-      subject: "New Sports Verification request",
-      html: [
-        "<p>New verification request</p>",
-        `<p>User name: ${escapeHtml(profile.display_name || profile.username || "Unnamed applicant")}</p>`,
-        `<p>Username: @${escapeHtml(profile.username || "—")}</p>`,
-        `<p>Sport: ${escapeHtml(sport)}</p>`,
-        `<p>Player/Coach: ${escapeHtml(role)}</p>`,
-        `<p>National/International: ${escapeHtml(representation)}</p>`,
-        `<p>Submission time: ${escapeHtml(submittedAt)}</p>`,
-        `<p>Review: <a href="${escapeAttribute(`${appUrl}/admin/sports-verification`)}">${escapeHtml(
-          `${appUrl}/admin/sports-verification`,
-        )}</a></p>`,
-      ].join(""),
-    }),
+  const reviewUrl = `${appUrl}/admin/sports-verification`;
+  const html = [
+    "<p>New verification request</p>",
+    `<p>User name: ${escapeHtml(profile.display_name || profile.username || "Unnamed applicant")}</p>`,
+    `<p>Username: @${escapeHtml(profile.username || "—")}</p>`,
+    `<p>Sport: ${escapeHtml(sport)}</p>`,
+    `<p>Player/Coach: ${escapeHtml(role)}</p>`,
+    `<p>National/International: ${escapeHtml(representation)}</p>`,
+    `<p>Submission time: ${escapeHtml(submittedAt)}</p>`,
+    `<p>Review: <a href="${escapeAttribute(reviewUrl)}">${escapeHtml(reviewUrl)}</a></p>`,
+  ].join("");
+  const text = [
+    "New Sports Verification request",
+    `User name: ${profile.display_name || profile.username || "Unnamed applicant"}`,
+    `Username: @${profile.username || "—"}`,
+    `Sport: ${sport}`,
+    `Player/Coach: ${role}`,
+    `National/International: ${representation}`,
+    `Submission time: ${submittedAt}`,
+    `Review: ${reviewUrl}`,
+  ].join("\n");
+  const result = await sendTransactionalEmail({
+    to: process.env.SUPPORT_EMAIL || "yourworld2029@gmail.com",
+    subject: "New Sports Verification request",
+    html,
+    text,
   });
 
-  if (!response.ok) {
-    console.error("[sports-verification] Support notification failed", response.status);
-    return { sent: false, reason: "Support notification could not be sent." };
+  if (!result.sent) {
+    console.warn("[sports-verification] Support notification was not sent.");
+    return { sent: false, reason: result.reason };
   }
   return { sent: true, reason: null };
 }

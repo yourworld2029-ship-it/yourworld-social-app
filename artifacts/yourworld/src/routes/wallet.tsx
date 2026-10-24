@@ -19,6 +19,7 @@ import {
   type PayoutCurrency,
 } from "@/lib/payout-math";
 import {
+  emailMonetizationChecklist,
   getInternationalPayoutProfile,
   saveInternationalPayoutProfile,
   submitPayoutRequest,
@@ -293,6 +294,7 @@ function WalletPage() {
   const runPayout = useServerFn(submitPayoutRequest);
   const loadInternationalPayout = useServerFn(getInternationalPayoutProfile);
   const saveInternationalPayout = useServerFn(saveInternationalPayoutProfile);
+  const sendMonetizationChecklist = useServerFn(emailMonetizationChecklist);
 
   const [gross, setGross] = useState<GrossBySource>({ ads: 0, course: 0, vip: 0 });
   const [videoNet, setVideoNet] = useState(0);
@@ -885,6 +887,11 @@ function WalletPage() {
     if (error) return toast.error(error.message);
     setEligible(true);
     toast.success("Monetization unlocked — welcome to the program!");
+    void sendMonetizationChecklist({})
+      .then((result) => {
+        if (!result.sent) toast.error(`Eligibility saved, but the email was not sent. ${result.reason}`);
+      })
+      .catch(() => toast.error("Eligibility was saved, but the checklist email could not be sent."));
   };
 
   const withdraw = async () => {

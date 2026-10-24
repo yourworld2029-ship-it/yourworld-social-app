@@ -613,10 +613,14 @@ function InternationalPayoutKycQueue({ onVerifyMfa, refreshKey }: { onVerifyMfa:
     }
     setBusyId(request.userId);
     try {
-      await reviewAdminInternationalPayoutKyc({
+      const result = await reviewAdminInternationalPayoutKyc({
         data: { userId: request.userId, action, reason: selectedReason },
       });
-      toast.success(action === "verified" ? "International payout KYC approved." : "International payout KYC rejected.");
+      if (result.emailSent) {
+        toast.success(action === "verified" ? "International payout KYC approved and creator notified." : "International payout KYC rejected and creator notified.");
+      } else {
+        toast.warning(`KYC decision saved, but the creator email was not sent. ${result.emailReason}`);
+      }
       await load();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not review international payout details.";

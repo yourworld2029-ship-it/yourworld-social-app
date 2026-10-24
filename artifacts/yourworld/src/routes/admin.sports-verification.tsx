@@ -80,7 +80,7 @@ function AdminSportsVerification() {
   ) => {
     setBusy(application.profile.id);
     try {
-      await reviewSportsVerification({
+      const result = await reviewSportsVerification({
         data: {
           applicantUserId: application.profile.id,
           action,
@@ -91,6 +91,9 @@ function AdminSportsVerification() {
       setApplications((current) =>
         current.filter((entry) => entry.profile.id !== application.profile.id),
       );
+      if (!result.emailSent) {
+        toast.warning(`Review saved, but the applicant email was not sent. ${result.emailReason}`);
+      }
       toast.success(
         action === "approve"
           ? "Sports Verification approved"

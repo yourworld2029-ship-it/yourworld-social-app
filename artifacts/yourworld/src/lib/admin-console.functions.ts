@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { hasAdminConsoleAccess } from "@/lib/admin-access-policy";
+import { escapeEmailHtml, sendTransactionalEmail } from "@/lib/email.server";
 
 type AdminClient = Awaited<ReturnType<typeof getAdminClient>>;
 type AdminRpcClient = {
@@ -679,7 +680,32 @@ export const reviewAdminInternationalPayoutKyc = createServerFn({ method: "POST"
       data.reason,
       { reviewStatus: data.action },
     );
-    return { userId: data.userId, reviewStatus: data.action };
+    let emailSent = false;
+    let emailReason = "Creator has no confirmed email address.";
+    const { data: applicantAuth, error: applicantAuthError } =
+      await admin.auth.admin.getUserById(data.userId);
+    if (applicantAuthError) {
+      console.warn("[payout-kyc] Could not retrieve creator email for the review update.");
+    } else if (applicantAuth.user?.email && applicantAuth.user.email_confirmed_at) {
+      const approved = data.action === "verified";
+      const message = approved
+        ? "Your international payout details have been approved. Future eligible payouts remain in USD and follow the monthly payout window."
+        : `Your international payout details need changes before they can be approved. Reviewer note: ${data.reason}`;
+      const result = await sendTransactionalEmail({
+        to: applicantAuth.user.email,
+        subject: approved
+          ? "Your YourWorld payout KYC is approved"
+          : "Action needed for your YourWorld payout KYC",
+        text: message,
+        html: `<p>${escapeEmailHtml(message)}</p><p>Open Monetization &amp; Wallet in YourWorld to review your details.</p><p>— YourWorld Creator Admin</p>`,
+      });
+      emailSent = result.sent;
+      if (!result.sent) {
+        emailReason = result.reason;
+        console.warn("[payout-kyc] Creator review email was not sent.");
+      }
+    }
+    return { userId: data.userId, reviewStatus: data.action, emailSent, emailReason };
   });
 
 const resolvePayoutSchema = z

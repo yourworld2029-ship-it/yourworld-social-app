@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { sendTransactionalEmail } from "@/lib/email.server";
 import { z } from "zod";
 
 export type PayoutRequestResult = {
@@ -128,6 +129,48 @@ export const processPayout = createServerFn({ method: "POST" })
     throw new Error("This legacy payout path is disabled. Submit a request from the Monetization Wallet.");
   });
 
+/** Sends the qualification checklist only after the creator's eligibility is saved. */
+export const emailMonetizationChecklist = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: payoutProfile, error: profileError } = await supabaseAdmin
+      .from("creator_payout_profiles")
+      .select("monetization_eligible,payout_currency")
+      .eq("user_id", context.userId)
+      .maybeSingle();
+    if (profileError) throw new Error(profileError.message);
+    if (!payoutProfile?.monetization_eligible) {
+      throw new Error("Save monetization eligibility before sending its checklist.");
+    }
+
+    const { data: authResult, error: authError } = await supabaseAdmin.auth.admin.getUserById(
+      context.userId,
+    );
+    if (authError) throw new Error("Could not confirm the creator's email address.");
+    const creatorEmail = authResult.user?.email;
+    if (!creatorEmail || !authResult.user?.email_confirmed_at) {
+      return { sent: false, reason: "A confirmed account email is required for the checklist." };
+    }
+
+    const isUsd = payoutProfile.payout_currency === "USD";
+    const currencyMinimum = isUsd ? "$70 USD" : "₹5,000";
+    const body = [
+      "Your account has been marked eligible for the YourWorld creator monetization program.",
+      `Minimum withdrawal: ${currencyMinimum}.`,
+      "Payouts are reviewed in the monthly window from the 1st through the 5th.",
+      "Complete and keep your payout KYC details current before requesting a transfer.",
+      "Revenue sharing applies to eligible standard videos of at least 90 seconds; Reels are not part of this ad-share calculation.",
+    ];
+    const escapedBody = body.map((line) => `<p>${line}</p>`).join("");
+    return sendTransactionalEmail({
+      to: creatorEmail,
+      subject: "Your YourWorld monetization eligibility checklist",
+      text: body.join("\n\n"),
+      html: `<h2>Your monetization checklist</h2>${escapedBody}<p>— YourWorld Creator Admin</p>`,
+    });
+  });
+
 /** Emails the generated payout PDF to the creator's registered address. */
 export const emailPayoutInvoice = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -155,33 +198,21 @@ export const emailPayoutInvoice = createServerFn({ method: "POST" })
       return { sent: false, reason: `Invoice storage failed: ${uploadError.message}` };
     }
 
-    const apiKey = process.env["RESEND_API_KEY"];
-    if (!apiKey) {
-      return { sent: false, reason: "Invoice saved. Email service is not connected yet." };
-    }
-
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        from: "YourWorld Payouts <onboarding@resend.dev>",
-        to: [data.to],
-        bcc: ["yourworld2029@gmail.com"],
-        subject: `Payout Statement & Tax Invoice — ${data.statementId}`,
-        html: `<p>Hi,</p><p>Your payout has been processed. Your Payout Statement &amp; Tax Invoice (${data.statementId}) is attached as a PDF.</p><p>Form 16A will be available in your Wallet section at the end of the financial quarter.</p><p>— YourWorld</p>`,
-        attachments: [
-          { filename: `${data.statementId}-payout-statement.pdf`, content: data.pdfBase64 },
-        ],
-      }),
+    const emailResult = await sendTransactionalEmail({
+      to: data.to,
+      bcc: ["yourworld2029@gmail.com"],
+      subject: `Payout Statement & Tax Invoice — ${data.statementId}`,
+      text: `Your payout has been processed. Your Payout Statement & Tax Invoice (${data.statementId}) is attached as a PDF. Form 16A will be available in your Wallet section at the end of the financial quarter.`,
+      html: `<p>Hi,</p><p>Your payout has been processed. Your Payout Statement &amp; Tax Invoice (${data.statementId}) is attached as a PDF.</p><p>Form 16A will be available in your Wallet section at the end of the financial quarter.</p><p>— YourWorld</p>`,
+      attachments: [
+        {
+          filename: `${data.statementId}-payout-statement.pdf`,
+          content: pdfBytes,
+          contentType: "application/pdf",
+        },
+      ],
     });
-
-    if (!res.ok) {
-      console.error("Resend email failed", res.status, await res.text());
-      return { sent: false, reason: "Could not send the invoice email." };
-    }
+    if (!emailResult.sent) return { sent: false, reason: `Invoice saved. ${emailResult.reason}` };
 
     const { error: statusError } = await supabaseAdmin
       .from("creator_payouts")

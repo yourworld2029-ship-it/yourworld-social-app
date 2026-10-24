@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { hasAdminConsoleAccess } from "@/lib/admin-access-policy";
+import { escapeEmailHtml, sendTransactionalEmail } from "@/lib/email.server";
 import {
   isNationalAwardCode,
   canRepairNationalAwardEvidence,
@@ -788,7 +789,32 @@ export const reviewNationalAwardVerification = createServerFn({ method: "POST" }
     if (status !== "approved" && status !== "rejected") {
       throw new Error("The Award Verification request could not be reviewed.");
     }
-    return { status, reason };
+    let emailSent = false;
+    let emailReason = "Applicant has no confirmed email address.";
+    const { data: applicantAuth, error: applicantAuthError } =
+      await admin.auth.admin.getUserById(data.applicantUserId);
+    if (applicantAuthError) {
+      console.warn("[national-award] Could not retrieve applicant email for the review update.");
+    } else if (applicantAuth.user?.email && applicantAuth.user.email_confirmed_at) {
+      const approved = status === "approved";
+      const message = approved
+        ? "Your National Award Verification has been approved and your profile badge has been updated."
+        : `Your National Award Verification was not approved. Reviewer note: ${reason ?? "Please review your application in YourWorld."}`;
+      const result = await sendTransactionalEmail({
+        to: applicantAuth.user.email,
+        subject: approved
+          ? "Your YourWorld National Award badge is approved"
+          : "Your YourWorld National Award verification needs attention",
+        text: message,
+        html: `<p>${escapeEmailHtml(message)}</p><p>Open YourWorld to review your Award Verification.</p><p>— YourWorld Creator Admin</p>`,
+      });
+      emailSent = result.sent;
+      if (!result.sent) {
+        emailReason = result.reason;
+        console.warn("[national-award] Applicant status email was not sent.");
+      }
+    }
+    return { status, reason, emailSent, emailReason };
   });
 
 export type { NationalAwardPublicBadge };

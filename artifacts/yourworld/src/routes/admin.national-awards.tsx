@@ -90,7 +90,7 @@ export function NationalAwardVerificationAdminPanel({
 
     setBusyUserId(application.userId);
     try {
-      await reviewNationalAwardVerification({
+      const result = await reviewNationalAwardVerification({
         data: {
           applicantUserId: application.userId,
           action,
@@ -98,11 +98,15 @@ export function NationalAwardVerificationAdminPanel({
           identityProofConfirmed,
         },
       });
-      toast.success(
-        action === "approve"
-          ? "National Award Verification approved."
-          : "National Award Verification rejected.",
-      );
+      if (result.emailSent) {
+        toast.success(
+          action === "approve"
+            ? "National Award Verification approved and creator notified."
+            : "National Award Verification rejected and creator notified.",
+        );
+      } else {
+        toast.warning(`Decision saved, but the applicant email was not sent. ${result.emailReason}`);
+      }
       setApplications((current) =>
         current.filter((item) => item.userId !== application.userId),
       );
