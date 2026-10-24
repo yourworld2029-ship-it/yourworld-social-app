@@ -38,6 +38,9 @@
         <item name="android:background">#000000</item>
         <item name="android:windowBackground">#000000</item>
         <item name="android:colorBackground">#000000</item>
+        <item name="android:colorBackgroundFloating">#27272A</item>
+        <item name="android:textColorPrimary">#FFFFFF</item>
+        <item name="android:textColorSecondary">#D4D4D8</item>
         <item name="windowSplashScreenBackground">#000000</item>
         <item name="android:windowFullscreen">false</item>
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
