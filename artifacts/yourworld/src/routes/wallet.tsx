@@ -102,11 +102,15 @@ type PayoutRequestRow = {
 
 type Details = {
   creator_email: string;
-  upi_id: string;
   bank_account: string;
+  confirm_bank_account: string;
   ifsc_code: string;
   account_holder: string;
   pan_number: string;
+  date_of_birth: string;
+  mobile_number: string;
+  bank_passbook_path: string;
+  pan_card_path: string;
   bank_name: string;
   swift_bic: string;
 };
@@ -141,14 +145,76 @@ const emptyInternationalPayoutForm: InternationalPayoutForm = {
 
 const emptyDetails: Details = {
   creator_email: "",
-  upi_id: "",
   bank_account: "",
+  confirm_bank_account: "",
   ifsc_code: "",
   account_holder: "",
   pan_number: "",
+  date_of_birth: "",
+  mobile_number: "",
+  bank_passbook_path: "",
+  pan_card_path: "",
   bank_name: "",
   swift_bic: "",
 };
+
+const PAYOUT_DOCUMENT_BUCKET = "documents";
+const PAYOUT_DOCUMENT_MAX_BYTES = 20 * 1024 * 1024;
+const PAYOUT_DOCUMENT_TYPES = {
+  pdf: "application/pdf",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+} as const;
+
+function getPayoutDocumentType(file: File) {
+  const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+  const contentType =
+    PAYOUT_DOCUMENT_TYPES[extension as keyof typeof PAYOUT_DOCUMENT_TYPES];
+  return contentType ? { extension, contentType } : null;
+}
+
+function getIndianMobileDigits(value: string) {
+  const digits = value.replace(/\D/g, "");
+  return digits.length > 10 && digits.startsWith("91")
+    ? digits.slice(2, 12)
+    : digits.slice(-10);
+}
+
+async function uploadIndianPayoutDocument(
+  userId: string,
+  kind: "bank-passbook" | "pan-card",
+  file: File,
+) {
+  if (file.size > PAYOUT_DOCUMENT_MAX_BYTES) {
+    throw new Error("Payout document must be 20 MB or smaller.");
+  }
+  const metadata = getPayoutDocumentType(file);
+  if (!metadata) {
+    throw new Error("Upload a PDF, JPG, PNG, or WEBP document.");
+  }
+  const uniqueSuffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const path = `${userId}/payout/${kind}-${uniqueSuffix}.${metadata.extension}`;
+  const { error } = await supabase.storage
+    .from(PAYOUT_DOCUMENT_BUCKET)
+    .upload(path, file, {
+      cacheControl: "3600",
+      contentType: metadata.contentType,
+      upsert: false,
+    });
+  if (error) throw new Error(error.message);
+  return path;
+}
+
+async function removeIndianPayoutDocuments(paths: string[]) {
+  const uniquePaths = [...new Set(paths.filter(Boolean))];
+  if (uniquePaths.length === 0) return;
+  const { error } = await supabase.storage
+    .from(PAYOUT_DOCUMENT_BUCKET)
+    .remove(uniquePaths);
+  if (error) console.warn("Could not remove replaced payout documents", error);
+}
 
 function MonetizationTermsCheckbox({
   accepted,
@@ -189,6 +255,8 @@ function WalletPage() {
   const [videoNet, setVideoNet] = useState(0);
   const [cumulativeDirectSalesNet, setCumulativeDirectSalesNet] = useState(0);
   const [details, setDetails] = useState<Details>(emptyDetails);
+  const [bankPassbookFile, setBankPassbookFile] = useState<File | null>(null);
+  const [panCardFile, setPanCardFile] = useState<File | null>(null);
   const [country, setCountry] = useState("");
   const [countryLoaded, setCountryLoaded] = useState(false);
   const [internationalDetails, setInternationalDetails] =
@@ -211,6 +279,9 @@ function WalletPage() {
     setNationalAwardApproved(false);
     setCountryLoaded(false);
     setCountry("");
+    setDetails({ ...emptyDetails, creator_email: user?.email ?? "" });
+    setBankPassbookFile(null);
+    setPanCardFile(null);
     setInternationalDetails(emptyInternationalPayoutForm);
     setInternationalReviewReason(null);
     if (!uid) return;
@@ -314,11 +385,15 @@ function WalletPage() {
       if (det) {
         setDetails({
           creator_email: det.email ?? "",
-          upi_id: det.upi_id ?? "",
           bank_account: det.account_number ?? "",
+          confirm_bank_account: "",
           ifsc_code: det.ifsc ?? "",
           account_holder: det.holder_name ?? "",
           pan_number: det.pan_number ?? "",
+          date_of_birth: det.date_of_birth ?? "",
+          mobile_number: getIndianMobileDigits(det.mobile_number ?? ""),
+          bank_passbook_path: det.bank_passbook_path ?? "",
+          pan_card_path: det.pan_card_path ?? "",
           bank_name: det.bank_name ?? "",
           swift_bic: det.swift_bic ?? "",
         });
@@ -495,42 +570,119 @@ function WalletPage() {
       }
       return;
     }
-    setSaving(true);
-    const nextKycStatus: KycStatus = kycStatus === "verified" ? "verified" : "pending";
-    const { error } = await supabase
-      .from("creator_payout_profiles")
-      .upsert(
-        {
-          user_id: user.id,
-          email: details.creator_email,
-          upi_id: details.upi_id,
-          account_number: details.bank_account,
-          ifsc: details.ifsc_code,
-          holder_name: details.account_holder,
-          pan_number: details.pan_number,
-          payout_currency: payoutCurrency,
-          bank_name: details.bank_name,
-          swift_bic: details.swift_bic,
-          bank_country: country,
-          payout_schedule: "monthly_1_5" satisfies PayoutSchedule,
-          kyc_status: nextKycStatus,
-          monetization_eligible: eligible,
-          terms_accepted_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "user_id" },
-      );
-    setSaving(false);
-    if (error) {
-      toast.error(error.message);
+    const mobileDigits = details.mobile_number.replace(/\D/g, "");
+    if (!details.account_holder.trim()) {
+      toast.error("Enter your full legal name");
       return;
     }
-    setKycStatus(nextKycStatus);
-    toast.success(
-      nextKycStatus === "verified"
-        ? "Payout details saved"
-        : "Payout details saved. KYC is now under review.",
-    );
+    if (!details.date_of_birth) {
+      toast.error("Enter your date of birth");
+      return;
+    }
+    if (mobileDigits.length !== 10) {
+      toast.error("Enter a valid 10-digit Indian mobile number");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(details.creator_email.trim())) {
+      toast.error("Enter a valid email address");
+      return;
+    }
+    if (!details.bank_account.trim() || details.confirm_bank_account !== details.bank_account) {
+      toast.error("Bank account numbers must match");
+      return;
+    }
+    if (!details.bank_passbook_path && !bankPassbookFile) {
+      toast.error("Upload the first page of your bank passbook or cheque");
+      return;
+    }
+    if (!details.ifsc_code.trim()) {
+      toast.error("Enter your IFSC code");
+      return;
+    }
+    if (!details.pan_number.trim()) {
+      toast.error("Enter your PAN card number");
+      return;
+    }
+    if (!details.pan_card_path && !panCardFile) {
+      toast.error("Upload your PAN card");
+      return;
+    }
+
+    setSaving(true);
+    const nextKycStatus: KycStatus = kycStatus === "verified" ? "verified" : "pending";
+    const uploadedPaths: string[] = [];
+    let nextPassbookPath = details.bank_passbook_path;
+    let nextPanCardPath = details.pan_card_path;
+    try {
+      if (bankPassbookFile) {
+        nextPassbookPath = await uploadIndianPayoutDocument(
+          user.id,
+          "bank-passbook",
+          bankPassbookFile,
+        );
+        uploadedPaths.push(nextPassbookPath);
+      }
+      if (panCardFile) {
+        nextPanCardPath = await uploadIndianPayoutDocument(
+          user.id,
+          "pan-card",
+          panCardFile,
+        );
+        uploadedPaths.push(nextPanCardPath);
+      }
+
+      const { error } = await supabase
+        .from("creator_payout_profiles")
+        .upsert(
+          {
+            user_id: user.id,
+            email: details.creator_email.trim(),
+            account_number: details.bank_account.trim(),
+            ifsc: details.ifsc_code.trim().toUpperCase(),
+            holder_name: details.account_holder.trim(),
+            pan_number: details.pan_number.trim().toUpperCase(),
+            date_of_birth: details.date_of_birth,
+            mobile_number: `+91${mobileDigits}`,
+            bank_passbook_path: nextPassbookPath,
+            pan_card_path: nextPanCardPath,
+            payout_currency: payoutCurrency,
+            bank_name: details.bank_name,
+            swift_bic: details.swift_bic,
+            bank_country: country,
+            payout_schedule: "monthly_1_5" satisfies PayoutSchedule,
+            kyc_status: nextKycStatus,
+            monetization_eligible: eligible,
+            terms_accepted_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "user_id" },
+        );
+      if (error) throw new Error(error.message);
+
+      await removeIndianPayoutDocuments([
+        details.bank_passbook_path === nextPassbookPath ? "" : details.bank_passbook_path,
+        details.pan_card_path === nextPanCardPath ? "" : details.pan_card_path,
+      ]);
+      setDetails((current) => ({
+        ...current,
+        confirm_bank_account: current.bank_account,
+        bank_passbook_path: nextPassbookPath,
+        pan_card_path: nextPanCardPath,
+      }));
+      setBankPassbookFile(null);
+      setPanCardFile(null);
+      setKycStatus(nextKycStatus);
+      toast.success(
+        nextKycStatus === "verified"
+          ? "Payout details saved"
+          : "Payout details saved. KYC is now under review.",
+      );
+    } catch (error) {
+      await removeIndianPayoutDocuments(uploadedPaths);
+      toast.error(error instanceof Error ? error.message : "Could not save payout details");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const applyForMonetization = async () => {
@@ -546,7 +698,6 @@ function WalletPage() {
         {
           user_id: user.id,
           email: details.creator_email,
-          upi_id: details.upi_id,
           account_number: details.bank_account,
           ifsc: details.ifsc_code,
           holder_name: details.account_holder,
@@ -831,27 +982,225 @@ function WalletPage() {
                     Loading payout country…
                   </div>
                 ) : formCurrency === "INR" ? (
-                  [
-                    ["creator_email", "Creator Email ID", "you@gmail.com"],
-                    ["upi_id", "UPI ID (optional)", "name@upi"],
-                    ["bank_account", "Bank Account Number", "Account number"],
-                    ["ifsc_code", "IFSC Code", "IFSC0000000"],
-                    ["account_holder", "Account Holder Name", "Full name as per bank"],
-                    ["pan_number", "PAN Card Number", "ABCDE1234F"],
-                  ].map(([key, label, ph]) => (
-                    <label key={key} className="block">
-                      <span className="mb-1 block text-[11px] text-zinc-500">{label}</span>
+                  <>
+                    <label className="block">
+                      <span className="mb-1 block text-[11px] text-zinc-500">Full Legal Name</span>
                       <input
-                        value={previewMode ? "" : details[key as keyof Details]}
+                        autoComplete="name"
+                        value={previewMode ? "" : details.account_holder}
                         readOnly={previewMode}
-                        onChange={(e) =>
-                          setDetails((d) => ({ ...d, [key as keyof Details]: e.target.value }))
+                        onChange={(event) =>
+                          setDetails((current) => ({
+                            ...current,
+                            account_holder: event.target.value,
+                          }))
                         }
-                        placeholder={String(ph)}
+                        placeholder="Full legal name as per bank"
                         className="w-full rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm outline-none placeholder:text-zinc-600 focus:border-zinc-600"
                       />
                     </label>
-                  ))
+                    <label className="block">
+                      <span className="mb-1 block text-[11px] text-zinc-500">Date of Birth (DOB)</span>
+                      <input
+                        type="date"
+                        value={previewMode ? "" : details.date_of_birth}
+                        disabled={previewMode}
+                        onChange={(event) =>
+                          setDetails((current) => ({
+                            ...current,
+                            date_of_birth: event.target.value,
+                          }))
+                        }
+                        className="w-full rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm text-white outline-none focus:border-zinc-600 disabled:opacity-60"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-[11px] text-zinc-500">Mobile Number</span>
+                      <div className="flex overflow-hidden rounded-xl border border-zinc-800 bg-[#0f0f13] focus-within:border-zinc-600">
+                        <span className="flex items-center border-r border-zinc-800 px-3 text-sm text-zinc-300">
+                          +91
+                        </span>
+                        <input
+                          type="tel"
+                          inputMode="numeric"
+                          autoComplete="tel-national"
+                          maxLength={10}
+                          value={previewMode ? "" : details.mobile_number}
+                          readOnly={previewMode}
+                          onChange={(event) =>
+                            setDetails((current) => ({
+                              ...current,
+                              mobile_number: event.target.value.replace(/\D/g, "").slice(0, 10),
+                            }))
+                          }
+                          placeholder="10-digit mobile number"
+                          className="min-w-0 flex-1 bg-transparent px-3 py-2.5 text-sm outline-none placeholder:text-zinc-600"
+                        />
+                      </div>
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-[11px] text-zinc-500">Email ID</span>
+                      <input
+                        type="email"
+                        autoComplete="email"
+                        value={previewMode ? "" : details.creator_email}
+                        readOnly={previewMode}
+                        onChange={(event) =>
+                          setDetails((current) => ({
+                            ...current,
+                            creator_email: event.target.value,
+                          }))
+                        }
+                        placeholder="you@example.com"
+                        className="w-full rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm outline-none placeholder:text-zinc-600 focus:border-zinc-600"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-[11px] text-zinc-500">Bank Account Number</span>
+                      <input
+                        autoComplete="off"
+                        value={previewMode ? "" : details.bank_account}
+                        readOnly={previewMode}
+                        onChange={(event) =>
+                          setDetails((current) => ({
+                            ...current,
+                            bank_account: event.target.value.replace(/\s/g, ""),
+                          }))
+                        }
+                        placeholder="Bank account number"
+                        className="w-full rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm outline-none placeholder:text-zinc-600 focus:border-zinc-600"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-[11px] text-zinc-500">Confirm Bank Account Number</span>
+                      <input
+                        autoComplete="off"
+                        value={previewMode ? "" : details.confirm_bank_account}
+                        readOnly={previewMode}
+                        aria-invalid={
+                          Boolean(details.confirm_bank_account) &&
+                          details.confirm_bank_account !== details.bank_account
+                        }
+                        onChange={(event) =>
+                          setDetails((current) => ({
+                            ...current,
+                            confirm_bank_account: event.target.value.replace(/\s/g, ""),
+                          }))
+                        }
+                        placeholder="Re-enter bank account number"
+                        className={`w-full rounded-xl border bg-[#0f0f13] px-3 py-2.5 text-sm outline-none placeholder:text-zinc-600 ${
+                          details.confirm_bank_account &&
+                          details.confirm_bank_account !== details.bank_account
+                            ? "border-red-500 focus:border-red-500"
+                            : "border-zinc-800 focus:border-zinc-600"
+                        }`}
+                      />
+                      {details.confirm_bank_account &&
+                      details.confirm_bank_account !== details.bank_account ? (
+                        <span className="mt-1 block text-[11px] text-red-400">
+                          Account numbers do not match
+                        </span>
+                      ) : null}
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-[11px] text-zinc-500">
+                        Upload Bank Passbook / Cheque (1st page)
+                      </span>
+                      <input
+                        type="file"
+                        accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp"
+                        disabled={previewMode || saving}
+                        onChange={(event) => {
+                          const file = event.currentTarget.files?.[0] ?? null;
+                          event.currentTarget.value = "";
+                          if (!file) return;
+                          if (file.size > PAYOUT_DOCUMENT_MAX_BYTES) {
+                            toast.error("Payout document must be 20 MB or smaller.");
+                            return;
+                          }
+                          if (!getPayoutDocumentType(file)) {
+                            toast.error("Upload a PDF, JPG, PNG, or WEBP document.");
+                            return;
+                          }
+                          setBankPassbookFile(file);
+                        }}
+                        className="block w-full text-xs text-zinc-400 file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-2 file:text-xs file:text-white"
+                      />
+                      <span className="mt-1 block text-[10px] text-zinc-500">
+                        {previewMode
+                          ? "Private document upload"
+                          : bankPassbookFile?.name
+                            ? `Ready to upload: ${bankPassbookFile.name}`
+                            : details.bank_passbook_path
+                              ? "Private bank document saved · choose a file to replace"
+                              : "PDF or image · maximum 20 MB"}
+                      </span>
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-[11px] text-zinc-500">IFSC Code</span>
+                      <input
+                        autoComplete="off"
+                        value={previewMode ? "" : details.ifsc_code}
+                        readOnly={previewMode}
+                        onChange={(event) =>
+                          setDetails((current) => ({
+                            ...current,
+                            ifsc_code: event.target.value.toUpperCase(),
+                          }))
+                        }
+                        placeholder="IFSC0000000"
+                        className="w-full rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm outline-none placeholder:text-zinc-600 focus:border-zinc-600"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-[11px] text-zinc-500">PAN Card Number</span>
+                      <input
+                        autoComplete="off"
+                        value={previewMode ? "" : details.pan_number}
+                        readOnly={previewMode}
+                        onChange={(event) =>
+                          setDetails((current) => ({
+                            ...current,
+                            pan_number: event.target.value.toUpperCase(),
+                          }))
+                        }
+                        placeholder="ABCDE1234F"
+                        className="w-full rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm outline-none placeholder:text-zinc-600 focus:border-zinc-600"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-[11px] text-zinc-500">Upload PAN Card</span>
+                      <input
+                        type="file"
+                        accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp"
+                        disabled={previewMode || saving}
+                        onChange={(event) => {
+                          const file = event.currentTarget.files?.[0] ?? null;
+                          event.currentTarget.value = "";
+                          if (!file) return;
+                          if (file.size > PAYOUT_DOCUMENT_MAX_BYTES) {
+                            toast.error("Payout document must be 20 MB or smaller.");
+                            return;
+                          }
+                          if (!getPayoutDocumentType(file)) {
+                            toast.error("Upload a PDF, JPG, PNG, or WEBP document.");
+                            return;
+                          }
+                          setPanCardFile(file);
+                        }}
+                        className="block w-full text-xs text-zinc-400 file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-2 file:text-xs file:text-white"
+                      />
+                      <span className="mt-1 block text-[10px] text-zinc-500">
+                        {previewMode
+                          ? "Private document upload"
+                          : panCardFile?.name
+                            ? `Ready to upload: ${panCardFile.name}`
+                            : details.pan_card_path
+                              ? "Private PAN document saved · choose a file to replace"
+                              : "PDF or image · maximum 20 MB"}
+                      </span>
+                    </label>
+                  </>
                 ) : (
                   <>
                     <p className="text-xs text-zinc-400">
