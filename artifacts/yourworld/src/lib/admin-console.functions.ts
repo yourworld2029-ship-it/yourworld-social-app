@@ -4,6 +4,12 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { hasAdminConsoleAccess } from "@/lib/admin-access-policy";
 
 type AdminClient = Awaited<ReturnType<typeof getAdminClient>>;
+type AdminRpcClient = {
+  rpc: (
+    functionName: string,
+    args?: Record<string, unknown>,
+  ) => Promise<{ data: unknown; error: { message: string } | null }>;
+};
 
 type AdminProfile = {
   id: string;
@@ -450,13 +456,36 @@ export type AdminPayoutRequest = {
   profile: AdminProfile | null;
   payoutProfile: {
     holderName: string | null;
+    legalName: string | null;
     bankName: string | null;
     accountNumber: string | null;
     ifsc: string | null;
     upiId: string | null;
     swiftBic: string | null;
     bankCountry: string | null;
+    payoutMethod: "bank" | "paypal" | null;
+    routingAba: string | null;
+    iban: string | null;
+    paypalEmail: string | null;
+    taxIdentifier: string | null;
   } | null;
+};
+
+export type AdminInternationalPayoutKyc = {
+  userId: string;
+  country: string;
+  legalName: string;
+  taxIdentifier: string;
+  payoutMethod: "bank" | "paypal";
+  routingAba: string | null;
+  accountNumber: string | null;
+  iban: string | null;
+  swiftBic: string | null;
+  bankName: string | null;
+  paypalEmail: string | null;
+  usTaxResidentDeclaration: boolean;
+  nonIndianResidentDeclaration: boolean;
+  submittedAt: string;
 };
 
 export const listAdminPayoutRequests = createServerFn({ method: "POST" })
@@ -475,6 +504,13 @@ export const listAdminPayoutRequests = createServerFn({ method: "POST" })
 
     const rows = (data ?? []) as Array<Record<string, unknown>>;
     const userIds = [...new Set(rows.map((row) => String(row.user_id ?? "")).filter(Boolean))];
+    const usdUserIds = [...new Set(
+      rows
+        .filter((row) => row.currency === "USD")
+        .map((row) => String(row.user_id ?? ""))
+        .filter(Boolean),
+    )];
+    const rpcClient = context.supabase as unknown as AdminRpcClient;
     const [profiles, payoutResult] = await Promise.all([
       profileMap(admin, userIds),
       userIds.length
@@ -487,21 +523,78 @@ export const listAdminPayoutRequests = createServerFn({ method: "POST" })
         : Promise.resolve({ data: [], error: null }),
     ]);
     if (payoutResult.error) throw new Error(payoutResult.error.message);
+    const internationalResult = usdUserIds.length
+      ? await rpcClient.rpc("admin_get_international_payout_profiles", { p_user_ids: usdUserIds })
+      : { data: [], error: null };
+    if (internationalResult.error) throw new Error(internationalResult.error.message);
 
-    const payoutProfiles = new Map(
+    const internationalProfiles = new Map(
+      (Array.isArray(internationalResult.data)
+        ? (internationalResult.data as Array<Record<string, unknown>>)
+        : []
+      ).map((row) => [
+        String(row.userId),
+        {
+          payoutMethod: row.payoutMethod === "paypal" ? "paypal" as const : "bank" as const,
+          legalName: row.legalName ? String(row.legalName) : null,
+          routingAba: row.routingAba ? String(row.routingAba) : null,
+          accountNumber: row.accountNumber ? String(row.accountNumber) : null,
+          iban: row.iban ? String(row.iban) : null,
+          swiftBic: row.swiftBic ? String(row.swiftBic) : null,
+          bankName: row.bankName ? String(row.bankName) : null,
+          paypalEmail: row.paypalEmail ? String(row.paypalEmail) : null,
+          taxIdentifier: row.taxIdentifier ? String(row.taxIdentifier) : null,
+        },
+      ]),
+    );
+    const payoutProfiles = new Map<string, NonNullable<AdminPayoutRequest["payoutProfile"]>>(
       ((payoutResult.data ?? []) as Array<Record<string, unknown>>).map((row) => [
         String(row.user_id),
         {
           holderName: row.holder_name ? String(row.holder_name) : null,
+          legalName: null,
           bankName: row.bank_name ? String(row.bank_name) : null,
           accountNumber: row.account_number ? String(row.account_number) : null,
           ifsc: row.ifsc ? String(row.ifsc) : null,
           upiId: row.upi_id ? String(row.upi_id) : null,
           swiftBic: row.swift_bic ? String(row.swift_bic) : null,
           bankCountry: row.bank_country ? String(row.bank_country) : null,
-        },
+          payoutMethod: null,
+          routingAba: null,
+          iban: null,
+          paypalEmail: null,
+          taxIdentifier: null,
+        } as NonNullable<AdminPayoutRequest["payoutProfile"]>,
       ]),
     );
+    for (const [userId, profile] of internationalProfiles) {
+      const base = payoutProfiles.get(userId);
+      payoutProfiles.set(userId, {
+        holderName: base?.holderName ?? null,
+        legalName: profile.legalName ?? base?.legalName ?? null,
+        bankName: profile.bankName ?? base?.bankName ?? null,
+        accountNumber: profile.accountNumber ?? base?.accountNumber ?? null,
+        ifsc: base?.ifsc ?? null,
+        upiId: base?.upiId ?? null,
+        swiftBic: profile.swiftBic ?? base?.swiftBic ?? null,
+        bankCountry: base?.bankCountry ?? null,
+        payoutMethod: profile.payoutMethod,
+        routingAba: profile.routingAba ?? null,
+        iban: profile.iban ?? null,
+        paypalEmail: profile.paypalEmail ?? null,
+        taxIdentifier: profile.taxIdentifier ?? null,
+      });
+    }
+    if (usdUserIds.length) {
+      await writeAudit(
+        admin,
+        context,
+        null,
+        "view_international_payout_payment_details",
+        "Viewed USD payout destination details after Admin MFA",
+        { userCount: usdUserIds.length },
+      );
+    }
 
     return {
       requests: rows.map((row) => {
@@ -521,6 +614,54 @@ export const listAdminPayoutRequests = createServerFn({ method: "POST" })
         };
       }),
     };
+  });
+
+export const listAdminInternationalPayoutKyc = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const admin = await requireOwnerAdmin(context);
+    const rpcClient = context.supabase as unknown as AdminRpcClient;
+    const { data, error } = await rpcClient.rpc("admin_list_international_payout_kyc");
+    if (error) throw new Error(error.message);
+    const requests = Array.isArray(data) ? (data as AdminInternationalPayoutKyc[]) : [];
+    await writeAudit(
+      admin,
+      context,
+      null,
+      "view_international_payout_kyc_queue",
+      "Viewed pending international payout KYC after Admin MFA",
+      { requestCount: requests.length },
+    );
+    return { requests };
+  });
+
+export const reviewAdminInternationalPayoutKyc = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((data) =>
+    z.object({
+      userId: z.string().uuid(),
+      action: z.enum(["verified", "rejected"]),
+      reason: z.string().trim().min(3).max(2000),
+    }).parse(data),
+  )
+  .handler(async ({ data, context }) => {
+    const admin = await requireOwnerAdmin(context);
+    const rpcClient = context.supabase as unknown as AdminRpcClient;
+    const { error } = await rpcClient.rpc("admin_review_international_payout_profile", {
+      p_user_id: data.userId,
+      p_action: data.action,
+      p_reason: data.reason,
+    });
+    if (error) throw new Error(error.message);
+    await writeAudit(
+      admin,
+      context,
+      data.userId,
+      `international_payout_kyc_${data.action}`,
+      data.reason,
+      { reviewStatus: data.action },
+    );
+    return { userId: data.userId, reviewStatus: data.action };
   });
 
 const resolvePayoutSchema = z

@@ -9,6 +9,7 @@ import {
   computeBreakdown,
   earningsForCurrency,
   formatPayoutAmount,
+  isUnitedStatesPayoutCountry,
   meetsMonetizationTargets,
   minimumPayout,
   payoutCurrencyForCountry,
@@ -17,7 +18,11 @@ import {
   type GrossBySource,
   type PayoutCurrency,
 } from "@/lib/payout-math";
-import { submitPayoutRequest } from "@/lib/payouts.functions";
+import {
+  getInternationalPayoutProfile,
+  saveInternationalPayoutProfile,
+  submitPayoutRequest,
+} from "@/lib/payouts.functions";
 import { postKind } from "@/lib/supabase-compat";
 import { historyBackOr } from "@/lib/navigation";
 import { useVerifiedSportsIdentity } from "@/lib/sports-identity";
@@ -98,6 +103,34 @@ type Details = {
   swift_bic: string;
 };
 
+type InternationalPayoutForm = {
+  legalName: string;
+  taxIdentifier: string;
+  payoutMethod: "bank" | "paypal";
+  routingAba: string;
+  accountNumber: string;
+  iban: string;
+  swiftBic: string;
+  bankName: string;
+  paypalEmail: string;
+  usTaxResidentDeclaration: boolean;
+  nonIndianResidentDeclaration: boolean;
+};
+
+const emptyInternationalPayoutForm: InternationalPayoutForm = {
+  legalName: "",
+  taxIdentifier: "",
+  payoutMethod: "bank",
+  routingAba: "",
+  accountNumber: "",
+  iban: "",
+  swiftBic: "",
+  bankName: "",
+  paypalEmail: "",
+  usTaxResidentDeclaration: false,
+  nonIndianResidentDeclaration: false,
+};
+
 const emptyDetails: Details = {
   creator_email: "",
   upi_id: "",
@@ -140,12 +173,18 @@ function WalletPage() {
   const { user } = useAuth();
   const sportsIdentity = useVerifiedSportsIdentity(user?.id ?? null);
   const runPayout = useServerFn(submitPayoutRequest);
+  const loadInternationalPayout = useServerFn(getInternationalPayoutProfile);
+  const saveInternationalPayout = useServerFn(saveInternationalPayoutProfile);
 
   const [gross, setGross] = useState<GrossBySource>({ ads: 0, course: 0, vip: 0 });
   const [videoNet, setVideoNet] = useState(0);
   const [cumulativeDirectSalesNet, setCumulativeDirectSalesNet] = useState(0);
   const [details, setDetails] = useState<Details>(emptyDetails);
   const [country, setCountry] = useState("");
+  const [countryLoaded, setCountryLoaded] = useState(false);
+  const [internationalDetails, setInternationalDetails] =
+    useState<InternationalPayoutForm>(emptyInternationalPayoutForm);
+  const [internationalReviewReason, setInternationalReviewReason] = useState<string | null>(null);
   const [kycStatus, setKycStatus] = useState<KycStatus>("pending");
   const [eligible, setEligible] = useState(false);
   const [stats, setStats] = useState({ followers: 0, watchHours: 0, videoViews: 0 });
@@ -159,6 +198,10 @@ function WalletPage() {
   useEffect(() => {
     const uid = user?.id;
     setNationalAwardApproved(false);
+    setCountryLoaded(false);
+    setCountry("");
+    setInternationalDetails(emptyInternationalPayoutForm);
+    setInternationalReviewReason(null);
     if (!uid) return;
     let alive = true;
     (async () => {
@@ -282,6 +325,44 @@ function WalletPage() {
       }
       setPayouts((payoutHistory ?? []) as PayoutRequestRow[]);
 
+      if (activeCurrency === "USD") {
+        try {
+          const { profile: internationalProfile } = await loadInternationalPayout({});
+          if (!alive) return;
+          if (internationalProfile) {
+            setInternationalDetails({
+              legalName: internationalProfile.legalName ?? "",
+              taxIdentifier: internationalProfile.taxIdentifier ?? "",
+              payoutMethod: internationalProfile.payoutMethod === "paypal" ? "paypal" : "bank",
+              routingAba: internationalProfile.routingAba ?? "",
+              accountNumber: internationalProfile.accountNumber ?? "",
+              iban: internationalProfile.iban ?? "",
+              swiftBic: internationalProfile.swiftBic ?? "",
+              bankName: internationalProfile.bankName ?? "",
+              paypalEmail: internationalProfile.paypalEmail ?? "",
+              usTaxResidentDeclaration: Boolean(internationalProfile.usTaxResidentDeclaration),
+              nonIndianResidentDeclaration: Boolean(internationalProfile.nonIndianResidentDeclaration),
+            });
+            setKycStatus(internationalProfile.reviewStatus);
+            setInternationalReviewReason(internationalProfile.reviewReason);
+          } else {
+            setInternationalDetails(emptyInternationalPayoutForm);
+            setKycStatus("pending");
+            setInternationalReviewReason(null);
+          }
+        } catch (internationalLoadError) {
+          console.error("Could not load international payout details", internationalLoadError);
+          setInternationalDetails(emptyInternationalPayoutForm);
+          setKycStatus("pending");
+          setInternationalReviewReason(null);
+          toast.error("Could not load saved international payout details. Please retry.");
+        }
+      } else {
+        setInternationalDetails(emptyInternationalPayoutForm);
+        setInternationalReviewReason(null);
+      }
+      setCountryLoaded(true);
+
       let videoViews = 0;
       for (const p of myPosts ?? []) {
         const kind = postKind(p);
@@ -304,7 +385,7 @@ function WalletPage() {
     return () => {
       alive = false;
     };
-  }, [user?.id, user?.email]);
+  }, [loadInternationalPayout, user?.id, user?.email]);
 
   useEffect(() => {
     const uid = user?.id;
@@ -357,6 +438,47 @@ function WalletPage() {
     if (!user?.id) return;
     if (!termsAccepted) {
       toast.error("Accept the Creator Monetization Terms before saving payout details");
+      return;
+    }
+    if (payoutCurrency === "USD") {
+      const isUs = isUnitedStatesPayoutCountry(country);
+      if (isUs && !internationalDetails.usTaxResidentDeclaration) {
+        toast.error("Confirm the US tax-residency declaration before continuing");
+        return;
+      }
+      if (!isUs && !internationalDetails.nonIndianResidentDeclaration) {
+        toast.error("Confirm the non-Indian residency declaration before continuing");
+        return;
+      }
+      setSaving(true);
+      try {
+        const result = await saveInternationalPayout({
+          data: {
+            legalName: internationalDetails.legalName,
+            taxIdentifier: internationalDetails.taxIdentifier,
+            payoutMethod: internationalDetails.payoutMethod,
+            routingAba: internationalDetails.routingAba,
+            accountNumber: internationalDetails.accountNumber,
+            iban: internationalDetails.iban,
+            swiftBic: internationalDetails.swiftBic,
+            bankName: internationalDetails.bankName,
+            paypalEmail: internationalDetails.paypalEmail,
+            usTaxResidentDeclaration: internationalDetails.usTaxResidentDeclaration,
+            nonIndianResidentDeclaration: internationalDetails.nonIndianResidentDeclaration,
+          },
+        });
+        setKycStatus(result.reviewStatus);
+        setInternationalReviewReason(null);
+        toast.success(
+          result.reviewStatus === "verified"
+            ? "International payout details saved"
+            : "Submitted for manual admin review before any payout",
+        );
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Could not save payout details");
+      } finally {
+        setSaving(false);
+      }
       return;
     }
     setSaving(true);
@@ -635,41 +757,216 @@ function WalletPage() {
                 </span>
               </div>
               <div className="grid gap-2.5 pt-3">
-                {(
-                  payoutCurrency === "INR"
-                    ? [
-                        ["creator_email", "Creator Email ID", "you@gmail.com"],
-                        ["upi_id", "UPI ID (optional)", "name@upi"],
-                        ["bank_account", "Bank Account Number", "Account number"],
-                        ["ifsc_code", "IFSC Code", "IFSC0000000"],
-                        ["account_holder", "Account Holder Name", "Full name as per bank"],
-                        ["pan_number", "PAN Card Number", "ABCDE1234F"],
-                      ]
-                    : [
-                        ["creator_email", "Creator Email ID", "you@example.com"],
-                        ["bank_name", "Bank Name", "Bank name"],
-                        ["bank_account", "Account Number / IBAN", "Account number or IBAN"],
-                        ["swift_bic", "SWIFT / BIC", "SWIFT/BIC code"],
-                        ["account_holder", "Account Holder Name", "Full name as per bank"],
-                        ["pan_number", "Tax ID / PAN (if applicable)", "Tax identification number"],
-                      ]
-                ).map(([key, label, ph]) => (
-                  <label key={key} className="block">
-                    <span className="mb-1 block text-[11px] text-zinc-500">{label}</span>
-                    <input
-                      value={details[key as keyof Details]}
-                      onChange={(e) =>
-                        setDetails((d) => ({ ...d, [key as keyof Details]: e.target.value }))
-                      }
-                      placeholder={String(ph)}
-                      className="w-full rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm outline-none placeholder:text-zinc-600 focus:border-zinc-600"
-                    />
-                  </label>
-                ))}
+                {!countryLoaded ? (
+                  <div className="rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-3 text-sm text-zinc-400">
+                    Loading payout country…
+                  </div>
+                ) : payoutCurrency === "INR" ? (
+                  [
+                    ["creator_email", "Creator Email ID", "you@gmail.com"],
+                    ["upi_id", "UPI ID (optional)", "name@upi"],
+                    ["bank_account", "Bank Account Number", "Account number"],
+                    ["ifsc_code", "IFSC Code", "IFSC0000000"],
+                    ["account_holder", "Account Holder Name", "Full name as per bank"],
+                    ["pan_number", "PAN Card Number", "ABCDE1234F"],
+                  ].map(([key, label, ph]) => (
+                    <label key={key} className="block">
+                      <span className="mb-1 block text-[11px] text-zinc-500">{label}</span>
+                      <input
+                        value={details[key as keyof Details]}
+                        onChange={(e) =>
+                          setDetails((d) => ({ ...d, [key as keyof Details]: e.target.value }))
+                        }
+                        placeholder={String(ph)}
+                        className="w-full rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm outline-none placeholder:text-zinc-600 focus:border-zinc-600"
+                      />
+                    </label>
+                  ))
+                ) : (
+                  <>
+                    <p className="text-xs text-zinc-400">
+                      International payouts are held for manual admin review and paid only in USD.
+                    </p>
+                    <label className="block">
+                      <span className="mb-1 block text-[11px] text-zinc-500">
+                        Full Legal Name {isUnitedStatesPayoutCountry(country) ? "(as per government ID)" : "(as per Passport / National ID)"}
+                      </span>
+                      <input
+                        autoComplete="name"
+                        value={internationalDetails.legalName}
+                        onChange={(e) =>
+                          setInternationalDetails((d) => ({ ...d, legalName: e.target.value }))
+                        }
+                        placeholder="Full legal name"
+                        className="w-full rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm outline-none placeholder:text-zinc-600 focus:border-zinc-600"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-[11px] text-zinc-500">
+                        {isUnitedStatesPayoutCountry(country)
+                          ? "Tax Identification Number: SSN / ITIN"
+                          : "Tax ID / National ID Number (TIN / National ID / Passport No.)"}
+                      </span>
+                      <input
+                        autoComplete="off"
+                        value={internationalDetails.taxIdentifier}
+                        onChange={(e) =>
+                          setInternationalDetails((d) => ({ ...d, taxIdentifier: e.target.value }))
+                        }
+                        placeholder={
+                          isUnitedStatesPayoutCountry(country) ? "9-digit SSN or ITIN" : "Tax / National ID or Passport number"
+                        }
+                        className="w-full rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm outline-none placeholder:text-zinc-600 focus:border-zinc-600"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-[11px] text-zinc-500">Payout Method</span>
+                      <select
+                        value={internationalDetails.payoutMethod}
+                        onChange={(e) =>
+                          setInternationalDetails((d) => {
+                            const payoutMethod = e.target.value === "paypal" ? "paypal" : "bank";
+                            return payoutMethod === "paypal"
+                              ? {
+                                  ...d,
+                                  payoutMethod,
+                                  routingAba: "",
+                                  accountNumber: "",
+                                  iban: "",
+                                  swiftBic: "",
+                                  bankName: "",
+                                }
+                              : { ...d, payoutMethod, paypalEmail: "" };
+                          })
+                        }
+                        className="w-full rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm text-white outline-none focus:border-zinc-600"
+                      >
+                        <option value="bank">
+                          {isUnitedStatesPayoutCountry(country) ? "Direct Bank Transfer" : "International Bank"}
+                        </option>
+                        <option value="paypal">PayPal</option>
+                      </select>
+                    </label>
+                    {internationalDetails.payoutMethod === "paypal" ? (
+                      <label className="block">
+                        <span className="mb-1 block text-[11px] text-zinc-500">PayPal Email</span>
+                        <input
+                          type="email"
+                          autoComplete="email"
+                          value={internationalDetails.paypalEmail}
+                          onChange={(e) =>
+                            setInternationalDetails((d) => ({ ...d, paypalEmail: e.target.value }))
+                          }
+                          placeholder="you@example.com"
+                          className="w-full rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm outline-none placeholder:text-zinc-600 focus:border-zinc-600"
+                        />
+                        <span className="mt-1 block text-[10px] text-zinc-500">
+                          Each PayPal email can be linked to one YourWorld account only.
+                        </span>
+                      </label>
+                    ) : isUnitedStatesPayoutCountry(country) ? (
+                      <>
+                        <label className="block">
+                          <span className="mb-1 block text-[11px] text-zinc-500">Routing / ABA Number</span>
+                          <input
+                            inputMode="numeric"
+                            autoComplete="off"
+                            value={internationalDetails.routingAba}
+                            onChange={(e) =>
+                              setInternationalDetails((d) => ({ ...d, routingAba: e.target.value }))
+                            }
+                            placeholder="9-digit routing number"
+                            className="w-full rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm outline-none placeholder:text-zinc-600 focus:border-zinc-600"
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-[11px] text-zinc-500">Account Number</span>
+                          <input
+                            inputMode="numeric"
+                            autoComplete="off"
+                            value={internationalDetails.accountNumber}
+                            onChange={(e) =>
+                              setInternationalDetails((d) => ({ ...d, accountNumber: e.target.value }))
+                            }
+                            placeholder="Bank account number"
+                            className="w-full rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm outline-none placeholder:text-zinc-600 focus:border-zinc-600"
+                          />
+                        </label>
+                      </>
+                    ) : (
+                      <>
+                        <label className="block">
+                          <span className="mb-1 block text-[11px] text-zinc-500">IBAN</span>
+                          <input
+                            autoComplete="off"
+                            value={internationalDetails.iban}
+                            onChange={(e) =>
+                              setInternationalDetails((d) => ({ ...d, iban: e.target.value }))
+                            }
+                            placeholder="International Bank Account Number"
+                            className="w-full rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm outline-none placeholder:text-zinc-600 focus:border-zinc-600"
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-[11px] text-zinc-500">SWIFT / BIC Code</span>
+                          <input
+                            autoComplete="off"
+                            value={internationalDetails.swiftBic}
+                            onChange={(e) =>
+                              setInternationalDetails((d) => ({ ...d, swiftBic: e.target.value }))
+                            }
+                            placeholder="8 or 11 characters"
+                            className="w-full rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm outline-none placeholder:text-zinc-600 focus:border-zinc-600"
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-[11px] text-zinc-500">Bank Name</span>
+                          <input
+                            autoComplete="organization"
+                            value={internationalDetails.bankName}
+                            onChange={(e) =>
+                              setInternationalDetails((d) => ({ ...d, bankName: e.target.value }))
+                            }
+                            placeholder="Bank name"
+                            className="w-full rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm outline-none placeholder:text-zinc-600 focus:border-zinc-600"
+                          />
+                        </label>
+                      </>
+                    )}
+                    <label className="flex items-start gap-2.5 rounded-xl border border-zinc-800 bg-[#0f0f13] p-3 text-xs leading-5 text-zinc-300">
+                      <input
+                        type="checkbox"
+                        checked={
+                          isUnitedStatesPayoutCountry(country)
+                            ? internationalDetails.usTaxResidentDeclaration
+                            : internationalDetails.nonIndianResidentDeclaration
+                        }
+                        onChange={(e) =>
+                          setInternationalDetails((d) =>
+                            isUnitedStatesPayoutCountry(country)
+                              ? { ...d, usTaxResidentDeclaration: e.target.checked }
+                              : { ...d, nonIndianResidentDeclaration: e.target.checked },
+                          )
+                        }
+                        className="mt-1 accent-fuchsia-500"
+                      />
+                      <span>
+                        {isUnitedStatesPayoutCountry(country)
+                          ? "I certify under penalty of perjury that I am a US tax resident and these details belong to me."
+                          : "I confirm that I am a non-Indian resident, these banking/tax details legally belong to me, and all earnings are subject to local tax laws."}
+                      </span>
+                    </label>
+                    {kycStatus === "rejected" ? (
+                      <p className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">
+                        Review issue: {internationalReviewReason || "Update your payout details and resubmit for admin review."}
+                      </p>
+                    ) : null}
+                  </>
+                )}
                 <label className="block">
                   <span className="mb-1 block text-[11px] text-zinc-500">Payout Currency</span>
                   <div className="rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm">
-                    {payoutCurrency} · Based on your saved country
+                    {countryLoaded ? `${payoutCurrency} · Based on your saved country` : "Loading country…"}
                   </div>
                   {payoutCurrency === "USD" ? (
                     <p className="pt-1 text-[10px] text-zinc-500">Bank country: {country || "Not set"}</p>
@@ -682,7 +979,7 @@ function WalletPage() {
               </div>
               <button
                 onClick={saveDetails}
-                disabled={saving || !termsAccepted}
+                disabled={saving || !termsAccepted || !countryLoaded}
                 className="mt-3 w-full rounded-full bg-white py-2.5 text-sm font-semibold text-black disabled:opacity-60"
               >
                 {saving ? "Saving…" : "Save Details"}

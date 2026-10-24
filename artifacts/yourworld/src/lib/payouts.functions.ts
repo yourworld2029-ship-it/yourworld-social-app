@@ -18,6 +18,79 @@ export type PayoutRequestResult = {
   created_at: string;
 };
 
+export type InternationalPayoutProfile = {
+  country: string;
+  legalName: string;
+  taxIdentifier: string;
+  payoutMethod: "bank" | "paypal";
+  routingAba: string | null;
+  accountNumber: string | null;
+  iban: string | null;
+  swiftBic: string | null;
+  bankName: string | null;
+  paypalEmail: string | null;
+  usTaxResidentDeclaration: boolean;
+  nonIndianResidentDeclaration: boolean;
+  reviewStatus: "pending" | "verified" | "rejected";
+  reviewReason: string | null;
+  submittedAt: string;
+};
+
+type PayoutRpcClient = {
+  rpc: (
+    functionName: string,
+    args?: Record<string, unknown>,
+  ) => Promise<{ data: unknown; error: { message: string } | null }>;
+};
+
+const internationalPayoutSchema = z.object({
+  legalName: z.string().trim().min(2).max(160),
+  taxIdentifier: z.string().trim().min(4).max(100),
+  payoutMethod: z.enum(["bank", "paypal"]),
+  routingAba: z.string().trim().max(32).optional().default(""),
+  accountNumber: z.string().trim().max(64).optional().default(""),
+  iban: z.string().trim().max(64).optional().default(""),
+  swiftBic: z.string().trim().max(32).optional().default(""),
+  bankName: z.string().trim().max(160).optional().default(""),
+  paypalEmail: z.string().trim().max(254).optional().default(""),
+  usTaxResidentDeclaration: z.boolean().default(false),
+  nonIndianResidentDeclaration: z.boolean().default(false),
+});
+
+/** Returns only the signed-in creator's international payout form and review state. */
+export const getInternationalPayoutProfile = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const db = context.supabase as unknown as PayoutRpcClient;
+    const { data, error } = await db.rpc("get_my_international_payout_profile");
+    if (error) throw new Error(error.message);
+    return { profile: (data ?? null) as InternationalPayoutProfile | null };
+  });
+
+/** Saves non-Indian payout details; the database derives country from the saved profile. */
+export const saveInternationalPayoutProfile = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((data) => internationalPayoutSchema.parse(data))
+  .handler(async ({ data, context }) => {
+    const db = context.supabase as unknown as PayoutRpcClient;
+    const { data: result, error } = await db.rpc("save_international_payout_profile", {
+      p_legal_name: data.legalName,
+      p_tax_identifier: data.taxIdentifier,
+      p_payout_method: data.payoutMethod,
+      p_routing_aba: data.routingAba,
+      p_account_number: data.accountNumber,
+      p_iban: data.iban,
+      p_swift_bic: data.swiftBic,
+      p_bank_name: data.bankName,
+      p_paypal_email: data.paypalEmail,
+      p_us_tax_resident_declaration: data.usTaxResidentDeclaration,
+      p_non_indian_resident_declaration: data.nonIndianResidentDeclaration,
+      p_terms_accepted: true,
+    });
+    if (error) throw new Error(error.message);
+    return result as { reviewStatus: "pending" | "verified" | "rejected"; country: string };
+  });
+
 /** Submits the authenticated creator's active wallet balance for payout. */
 export const submitPayoutRequest = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])

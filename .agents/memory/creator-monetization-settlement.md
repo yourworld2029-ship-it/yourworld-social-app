@@ -17,6 +17,14 @@ Payout currency follows the saved profile country: India uses INR, non-India use
 
 **How to apply:** Keep currency attached to each earning and payout request, derive it server-side from the saved country, filter wallet totals and thresholds to that currency, and use MFA-protected manual settlement until the user explicitly selects a transfer provider.
 
+## International payout KYC
+
+For non-Indian creators, keep tax IDs, bank numbers, and PayPal email encrypted with a Vault-held key and inaccessible through direct client table reads. Creators can retrieve only their own details; admin decryption and KYC decisions require MFA and an audit record. Normalize PayPal email before enforcing one-account uniqueness. Require approved KYC before a USD request, then keep the payout itself in the existing manual-review flow. The India payout path stays separate.
+
+**Why:** International payout details include sensitive tax and banking data, and the app has no approved automatic USD transfer provider.
+
+**How to apply:** Keep country validation, encryption, PayPal uniqueness, and KYC state checks in the database; expose owner-scoped form RPCs and audited AAL2 admin review only.
+
 Paid-video purchases use a service-only, idempotent settlement RPC: derive the charge from the paid post, reserve the full 15% platform commission, deduct the actual gateway charge or 2.36% estimate from the creator amount, then write the purchase ledger, access grant, creator wallet credit, and platform balance in one transaction.
 
 **Why:** Payment retries and client-supplied amounts must never create duplicate access or double-credit either side of the 85/15 split.

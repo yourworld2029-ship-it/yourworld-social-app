@@ -8,14 +8,17 @@ import { useAdminAccess } from "@/lib/use-admin-access";
 import { NationalAwardVerificationAdminPanel } from "./admin.national-awards";
 import {
   listAdminPayoutRequests,
+  listAdminInternationalPayoutKyc,
   listAdminConsole,
   resolveAdminPayoutRequest,
+  reviewAdminInternationalPayoutKyc,
   reviewCopyrightReport,
   reviewUserReport,
   updateAccountRestriction,
   updatePayoutHold,
   type AdminConsoleData,
   type AdminPayoutRequest,
+  type AdminInternationalPayoutKyc,
 } from "@/lib/admin-console.functions";
 
 export const Route = createFileRoute("/admin")({
@@ -39,6 +42,7 @@ function AdminConsole() {
   const [data, setData] = useState<AdminConsoleData | null>(null);
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState<Tab>("overview");
+  const openMfa = useCallback(() => setMfaOpen(true), []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -182,7 +186,7 @@ function AdminConsole() {
               <PayoutsTab
                 data={data}
                 onChanged={() => void load()}
-                onVerifyMfa={() => setMfaOpen(true)}
+                onVerifyMfa={openMfa}
               />
             ) : null}
             {tab === "accounts" ? <AccountsTab data={data} onChanged={() => void load()} /> : null}
@@ -473,6 +477,7 @@ function PayoutsTab({
       title="Monetization & Payout Review"
       description="Review monthly payout requests and place or release a payout hold. External transfers are entered manually after payment."
     >
+      <InternationalPayoutKycQueue onVerifyMfa={onVerifyMfa} />
       <ManualPayoutQueue onVerifyMfa={onVerifyMfa} />
       {!data?.monetization.length && !data?.payoutHolds.length ? <Empty text="No monetization records or payout holds." /> : null}
       <div className="space-y-3">
@@ -480,6 +485,154 @@ function PayoutsTab({
         {data?.payoutHolds.map((hold) => <CaseCard key={hold.id} title={`Held payout · ${displayProfile(hold.profile)}`} status={hold.status} createdAt={hold.createdAt}><p className="text-sm text-zinc-300">{hold.reason}</p></CaseCard>)}
       </div>
     </Panel>
+  );
+}
+
+function InternationalPayoutKycQueue({ onVerifyMfa }: { onVerifyMfa: () => void }) {
+  const [requests, setRequests] = useState<AdminInternationalPayoutKyc[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [reason, setReason] = useState<Record<string, string>>({});
+  const [busyId, setBusyId] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const result = await listAdminInternationalPayoutKyc();
+      setRequests(result.requests);
+    } catch (error) {
+      setRequests([]);
+      const message = error instanceof Error ? error.message : "Could not load international KYC.";
+      if (message.toLowerCase().includes("mfa")) onVerifyMfa();
+      else toast.error(message);
+    } finally {
+      setLoading(false);
+    }
+  }, [onVerifyMfa]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const review = async (request: AdminInternationalPayoutKyc, action: "verified" | "rejected") => {
+    const selectedReason = reason[request.userId]?.trim() ?? "";
+    if (selectedReason.length < 3) {
+      toast.error("Add a review reason before deciding.");
+      return;
+    }
+    if (action === "rejected" && !window.confirm("Reject these payout details and require the creator to resubmit?")) {
+      return;
+    }
+    setBusyId(request.userId);
+    try {
+      await reviewAdminInternationalPayoutKyc({
+        data: { userId: request.userId, action, reason: selectedReason },
+      });
+      toast.success(action === "verified" ? "International payout KYC approved." : "International payout KYC rejected.");
+      await load();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not review international payout details.";
+      if (message.toLowerCase().includes("mfa")) onVerifyMfa();
+      else toast.error(message);
+    } finally {
+      setBusyId("");
+    }
+  };
+
+  return (
+    <section className="mb-4 rounded-2xl border border-white/10 bg-white/[0.025] p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-semibold text-white">International payout KYC</h3>
+          <p className="mt-1 text-[11px] text-zinc-500">
+            Tax and bank details are decrypted for Admin MFA review only. Approve KYC before any USD disbursal.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void load()}
+          disabled={loading}
+          className="rounded-xl border border-white/10 px-3 py-2 text-xs text-zinc-200 disabled:opacity-50"
+        >
+          {loading ? "Loading…" : "Refresh KYC"}
+        </button>
+      </div>
+      {!loading && requests.length === 0 ? (
+        <p className="mt-3 text-xs text-zinc-500">No pending international payout applications.</p>
+      ) : null}
+      <div className="mt-3 space-y-3">
+        {requests.map((request) => (
+          <article key={request.userId} className="rounded-xl border border-white/10 bg-black/20 p-3">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-white">{request.legalName}</p>
+                <p className="mt-0.5 text-[11px] text-zinc-400">
+                  {request.country} · {request.payoutMethod === "paypal" ? "PayPal" : "Bank"} · submitted{" "}
+                  {new Date(request.submittedAt).toLocaleString()}
+                </p>
+                <p className="mt-1 break-all text-[11px] text-zinc-500">User ID: {request.userId}</p>
+              </div>
+              <span className="rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-[10px] text-amber-200">
+                Pending review
+              </span>
+            </div>
+            <div className="mt-3 grid gap-2 text-xs text-zinc-300 sm:grid-cols-2">
+              <p>Tax / National ID: <span className="font-mono text-white">{request.taxIdentifier}</span></p>
+              {request.payoutMethod === "paypal" ? (
+                <p>PayPal email: <span className="text-white">{request.paypalEmail || "—"}</span></p>
+              ) : request.country.trim().toLowerCase().match(/^(united states|united states of america|usa|us|u\.s\.|u\.s\.a\.)$/) ? (
+                <>
+                  <p>Routing / ABA: <span className="font-mono text-white">{request.routingAba || "—"}</span></p>
+                  <p>Account number: <span className="font-mono text-white">{request.accountNumber || "—"}</span></p>
+                </>
+              ) : (
+                <>
+                  <p>IBAN: <span className="font-mono text-white">{request.iban || "—"}</span></p>
+                  <p>SWIFT / BIC: <span className="font-mono text-white">{request.swiftBic || "—"}</span></p>
+                  <p>Bank name: <span className="text-white">{request.bankName || "—"}</span></p>
+                </>
+              )}
+              <p className="sm:col-span-2">
+                Declaration:{" "}
+                <span className="text-white">
+                  {request.country.trim().toLowerCase().match(/^(united states|united states of america|usa|us|u\.s\.|u\.s\.a\.)$/)
+                    ? request.usTaxResidentDeclaration ? "US tax-residency declaration accepted" : "Missing"
+                    : request.nonIndianResidentDeclaration ? "Non-Indian residency declaration accepted" : "Missing"}
+                </span>
+              </p>
+            </div>
+            <label className="mt-3 block">
+              <span className="mb-1 block text-[10px] text-zinc-500">Admin review reason (required)</span>
+              <textarea
+                value={reason[request.userId] ?? ""}
+                onChange={(event) => setReason((current) => ({ ...current, [request.userId]: event.target.value }))}
+                rows={2}
+                maxLength={2000}
+                placeholder="Record the verification decision"
+                className="w-full resize-y rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs text-white outline-none placeholder:text-zinc-600 focus:border-white/25"
+              />
+            </label>
+            <div className="mt-2 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => void review(request, "rejected")}
+                disabled={busyId === request.userId}
+                className="rounded-xl border border-red-400/30 px-3 py-2 text-xs text-red-200 disabled:opacity-50"
+              >
+                Reject
+              </button>
+              <button
+                type="button"
+                onClick={() => void review(request, "verified")}
+                disabled={busyId === request.userId}
+                className="rounded-xl bg-white px-3 py-2 text-xs font-semibold text-black disabled:opacity-50"
+              >
+                {busyId === request.userId ? "Reviewing…" : "Approve KYC"}
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -610,13 +763,37 @@ function ManualPayoutQueue({ onVerifyMfa }: { onVerifyMfa: () => void }) {
             </div>
 
             <div className="mt-3 grid gap-1.5 rounded-lg bg-white/[0.03] p-3 text-xs text-zinc-300 sm:grid-cols-2">
-              <p>Payee: {request.payoutProfile?.holderName || "Not provided"}</p>
-              <p>Bank: {request.payoutProfile?.bankName || "—"}</p>
-              <p className="break-all">Account / IBAN: {request.payoutProfile?.accountNumber || "—"}</p>
-              <p>IFSC: {request.payoutProfile?.ifsc || "—"}</p>
-              <p>SWIFT / BIC: {request.payoutProfile?.swiftBic || "—"}</p>
-              <p>UPI: {request.payoutProfile?.upiId || "—"}</p>
-              <p>Bank country: {request.payoutProfile?.bankCountry || "—"}</p>
+              {request.currency === "INR" ? (
+                <>
+                  <p>Payee: {request.payoutProfile?.holderName || "Not provided"}</p>
+                  <p>Bank: {request.payoutProfile?.bankName || "—"}</p>
+                  <p className="break-all">Account / IBAN: {request.payoutProfile?.accountNumber || "—"}</p>
+                  <p>IFSC: {request.payoutProfile?.ifsc || "—"}</p>
+                  <p>SWIFT / BIC: {request.payoutProfile?.swiftBic || "—"}</p>
+                  <p>UPI: {request.payoutProfile?.upiId || "—"}</p>
+                  <p>Bank country: {request.payoutProfile?.bankCountry || "—"}</p>
+                </>
+              ) : (
+                <>
+                  <p>Payee: {request.payoutProfile?.legalName || "Not provided"}</p>
+                  <p>Method: {request.payoutProfile?.payoutMethod === "paypal" ? "PayPal" : "Bank transfer"}</p>
+                  {request.payoutProfile?.payoutMethod === "paypal" ? (
+                    <p className="break-all">PayPal: {request.payoutProfile.paypalEmail || "—"}</p>
+                  ) : request.payoutProfile?.iban ? (
+                    <>
+                      <p className="break-all">IBAN: {request.payoutProfile.iban}</p>
+                      <p>SWIFT / BIC: {request.payoutProfile.swiftBic || "—"}</p>
+                      <p>Bank: {request.payoutProfile.bankName || "—"}</p>
+                    </>
+                  ) : (
+                    <>
+                      <p>Routing / ABA: {request.payoutProfile?.routingAba || "—"}</p>
+                      <p className="break-all">Account: {request.payoutProfile?.accountNumber || "—"}</p>
+                    </>
+                  )}
+                  <p>Country: {request.payoutProfile?.bankCountry || "—"}</p>
+                </>
+              )}
             </div>
 
             <div className="mt-3 grid gap-2 sm:grid-cols-2">

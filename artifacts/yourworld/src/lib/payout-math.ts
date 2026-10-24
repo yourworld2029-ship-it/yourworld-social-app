@@ -32,6 +32,18 @@ export function payoutCurrencyForCountry(country: string | null | undefined): Pa
   return normalized && normalized !== "india" && normalized !== "in" ? "USD" : "INR";
 }
 
+export function isUnitedStatesPayoutCountry(country: string | null | undefined) {
+  const normalized = country?.trim().toLowerCase() ?? "";
+  return [
+    "united states",
+    "united states of america",
+    "usa",
+    "us",
+    "u.s.",
+    "u.s.a.",
+  ].includes(normalized);
+}
+
 export function minimumPayout(currency: PayoutCurrency) {
   return MIN_PAYOUT_BY_CURRENCY[currency];
 }

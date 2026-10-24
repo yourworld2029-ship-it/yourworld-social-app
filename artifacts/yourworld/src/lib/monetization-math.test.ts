@@ -6,6 +6,7 @@ import {
   computeVideoPurchaseSplit,
   earningsForCurrency,
   formatPayoutAmount,
+  isUnitedStatesPayoutCountry,
   meetsMonetizationTargets,
   minimumPayout,
   MIN_PAYOUT,
@@ -84,6 +85,9 @@ test("payout threshold and currency follow the saved profile country", () => {
   assert.equal(payoutCurrencyForCountry(""), "INR");
   assert.equal(minimumPayout("INR"), 5000);
   assert.equal(minimumPayout("USD"), 70);
+  assert.equal(isUnitedStatesPayoutCountry("United States"), true);
+  assert.equal(isUnitedStatesPayoutCountry("USA"), true);
+  assert.equal(isUnitedStatesPayoutCountry("United Kingdom"), false);
   assert.match(formatPayoutAmount(70, "USD"), /\$70\.00/);
   assert.match(formatPayoutAmount(5000, "INR"), /₹5,000\.00/);
 });
