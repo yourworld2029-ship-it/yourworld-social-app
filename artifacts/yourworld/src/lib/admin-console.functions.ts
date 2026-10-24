@@ -102,7 +102,10 @@ export type AdminConsoleData = {
     threadId: string | null;
     messageId: string | null;
     reportedPostId: string | null;
+    reportedContentId: string | null;
+    contentType: string | null;
     reason: string;
+    description: string | null;
     status: string;
     createdAt: string;
     reviewedAt: string | null;
@@ -112,12 +115,13 @@ export type AdminConsoleData = {
     id: string;
     reporterId: string;
     reporter: AdminProfile | null;
+    reporterFullName: string | null;
+    contactEmail: string | null;
     reportedPostId: string | null;
     reportedMomentId: string | null;
     originalWorkLink: string | null;
     infringingContentLink: string | null;
     reason: string | null;
-    contactEmail: string | null;
     status: string;
     createdAt: string;
     resolutionReason: string | null;
@@ -163,7 +167,7 @@ export type AdminConsoleData = {
 export const listAdminConsole = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    const admin = await requireOwnerAdmin(context, false);
+    const admin = await requireOwnerAdmin(context);
     const [
       pendingVerification,
       userReportsResult,
@@ -173,7 +177,11 @@ export const listAdminConsole = createServerFn({ method: "POST" })
       payoutHoldsResult,
       auditResult,
     ] = await Promise.all([
-      admin.from("profiles").select("id", { count: "exact", head: true }).eq("verification_requested", true),
+      admin
+        .from("sports_verification_details")
+        .select("user_id", { count: "exact", head: true })
+        .eq("review_status", "pending")
+        .not("submitted_at", "is", null),
       admin.from("user_reports").select("*").order("created_at", { ascending: false }).limit(100),
       admin.from("copyright_reports").select("*").order("created_at", { ascending: false }).limit(100),
       admin
@@ -234,7 +242,13 @@ export const listAdminConsole = createServerFn({ method: "POST" })
         threadId: (row.thread_id as string | null) ?? null,
         messageId: (row.message_id as string | null) ?? null,
         reportedPostId: (row.reported_post_id as string | null) ?? null,
+        reportedContentId:
+          (row.reported_content_id as string | null) ??
+          (row.reported_post_id as string | null) ??
+          null,
+        contentType: (row.content_type as string | null) ?? null,
         reason: String(row.reason ?? ""),
+        description: (row.description as string | null) ?? null,
         status: String(row.status ?? "pending"),
         createdAt: String(row.created_at),
         reviewedAt: (row.reviewed_at as string | null) ?? null,
@@ -244,12 +258,13 @@ export const listAdminConsole = createServerFn({ method: "POST" })
         id: String(row.id),
         reporterId: String(row.reporter_user_id),
         reporter: profiles.get(String(row.reporter_user_id)) ?? null,
+        reporterFullName: (row.reporter_full_name as string | null) ?? null,
+        contactEmail: (row.contact_email as string | null) ?? null,
         reportedPostId: (row.reported_post_id as string | null) ?? null,
         reportedMomentId: (row.reported_moment_id as string | null) ?? null,
         originalWorkLink: (row.original_work_link as string | null) ?? null,
         infringingContentLink: (row.infringing_content_link as string | null) ?? null,
         reason: (row.reason as string | null) ?? null,
-        contactEmail: (row.contact_email as string | null) ?? null,
         status: String(row.status ?? "pending"),
         createdAt: String(row.created_at),
         resolutionReason: (row.resolution_reason as string | null) ?? null,
@@ -311,12 +326,13 @@ export const reviewUserReport = createServerFn({ method: "POST" })
       .update({ status, resolution_reason: data.reason, reviewed_at: now, reviewed_by: context.userId })
       .eq("id", data.reportId)
       .eq("status", "pending")
-      .select("reported_user_id")
+      .select("reported_user_id,reported_content_id")
       .maybeSingle();
     if (reportError) throw new Error(reportError.message);
     if (!report) throw new Error("This moderation report is no longer pending.");
     await writeAudit(admin, context, report.reported_user_id, `user_report_${data.action}`, data.reason, {
       reportId: data.reportId,
+      reportedContentId: report.reported_content_id ?? null,
     });
     return { status };
   });

@@ -124,18 +124,35 @@ export async function submitVideoReport(input: {
   reporterId: string;
   creatorId: string;
   postId: string;
+  contentType: "video" | "reel";
   reason: string;
+  description?: string;
 }) {
-  const { error } = await supabase.from("user_reports").upsert(
-    {
-      reporter_id: input.reporterId,
-      reported_user_id: input.creatorId,
-      reported_post_id: input.postId,
-      surface: "social",
-      reason: input.reason,
-      created_at: new Date().toISOString(),
-    },
-    { onConflict: "reporter_id,reported_user_id,surface" },
-  );
+  const values = {
+    reporter_id: input.reporterId,
+    reported_user_id: input.creatorId,
+    reported_post_id: input.postId,
+    reported_content_id: input.postId,
+    content_type: input.contentType,
+    description: input.description?.trim() || null,
+    surface: "social",
+    reason: input.reason,
+  };
+  const { data: existing, error: lookupError } = await supabase
+    .from("user_reports")
+    .select("id")
+    .eq("reporter_id", input.reporterId)
+    .eq("reported_content_id", input.postId)
+    .eq("surface", "social")
+    .maybeSingle();
+  if (lookupError) throw lookupError;
+
+  const { error } = existing
+    ? await supabase
+        .from("user_reports")
+        .update(values)
+        .eq("id", existing.id)
+        .eq("reporter_id", input.reporterId)
+    : await supabase.from("user_reports").insert(values);
   if (error) throw error;
 }

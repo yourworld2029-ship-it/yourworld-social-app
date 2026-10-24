@@ -502,33 +502,36 @@ export const listSportsVerificationApplications = createServerFn({ method: "POST
   .handler(async ({ context }) => {
     const admin = await requireSportsVerificationAdmin(context.userId, context.claims);
     requireAdminStepUp(context.claims);
+    const { data: submittedDetails, error: detailsError } = await admin
+      .from("sports_verification_details")
+      .select("*")
+      .eq("review_status", "pending")
+      .not("submitted_at", "is", null)
+      .order("submitted_at", { ascending: true })
+      .limit(100);
+    if (detailsError) throw new Error(detailsError.message);
+    const detailRows = (submittedDetails ?? []) as VerificationDetailsRow[];
+    if (!detailRows.length) return { applications: [] as AdminVerificationApplication[] };
+
+    const ids = [...new Set(detailRows.map((details) => details.user_id))];
     const { data: profiles, error: profilesError } = await admin
       .from("profiles")
       .select(
         "id,username,display_name,category,bio,avatar_url,is_verified,verification_requested,updated_at",
       )
-      .eq("verification_requested", true)
-      .order("updated_at", { ascending: true })
-      .limit(100);
+      .in("id", ids);
 
     if (profilesError) throw new Error(profilesError.message);
-    const rows = (profiles ?? []) as AdminProfileRow[];
-    if (!rows.length) return { applications: [] as AdminVerificationApplication[] };
-
-    const ids = rows.map((profile) => profile.id);
-    const { data: detailRows, error: detailsError } = await admin
-      .from("sports_verification_details")
-      .select("*")
-      .in("user_id", ids);
-    if (detailsError) throw new Error(detailsError.message);
-
-    const detailsByUser = new Map(
-      ((detailRows ?? []) as VerificationDetailsRow[]).map((details) => [details.user_id, details]),
+    const profilesById = new Map(
+      ((profiles ?? []) as AdminProfileRow[]).map((profile) => [profile.id, profile]),
     );
+    const rows = detailRows.flatMap((details) => {
+      const profile = profilesById.get(details.user_id);
+      return profile ? [{ profile, details }] : [];
+    });
 
     const applications = await Promise.all(
-      rows.map(async (profile) => {
-        const details = detailsByUser.get(profile.id) ?? null;
+      rows.map(async ({ profile, details }) => {
         const { data: authUser } = await admin.auth.admin.getUserById(profile.id);
         const submittedAt = details?.submitted_at ?? details?.updated_at ?? profile.updated_at;
         const deadlineAt = deadlineFor(submittedAt);

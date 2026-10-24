@@ -41,15 +41,20 @@ function AdminConsole() {
   const [mfaOpen, setMfaOpen] = useState(false);
   const [data, setData] = useState<AdminConsoleData | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
   const [tab, setTab] = useState<Tab>("overview");
   const openMfa = useCallback(() => setMfaOpen(true), []);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
+    setRefreshKey((current) => current + 1);
     try {
       setData(await listAdminConsole());
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not load the admin console.";
+      setLoadError(message);
       toast.error(message);
     } finally {
       setLoading(false);
@@ -61,7 +66,7 @@ function AdminConsole() {
   }, [access.status, load]);
 
   useEffect(() => {
-    if (access.status !== "allowed" || tab !== "reports") return;
+    if (access.status !== "allowed" || (tab !== "reports" && tab !== "copyright")) return;
     const refreshReports = () => {
       if (document.visibilityState === "visible") void load();
     };
@@ -77,7 +82,7 @@ function AdminConsole() {
 
   const selectTab = (nextTab: Tab) => {
     setTab(nextTab);
-    if (nextTab === "reports") void load();
+    void load();
   };
 
   useEffect(() => {
@@ -200,18 +205,19 @@ function AdminConsole() {
           <section key={tab} className="min-w-0 animate-in fade-in-0 slide-in-from-bottom-1 duration-200">
             {tab === "overview" ? <Overview data={data} counts={counts} /> : null}
             {tab === "verification" ? <VerificationTab count={data?.pendingVerificationCount ?? 0} /> : null}
-            {tab === "reports" ? <ReportsTab data={data} loading={loading} onChanged={() => void load()} /> : null}
-            {tab === "copyright" ? <CopyrightTab data={data} onChanged={() => void load()} /> : null}
+            {tab === "reports" ? <ReportsTab data={data} loading={loading} error={loadError} onChanged={() => void load()} /> : null}
+            {tab === "copyright" ? <CopyrightTab data={data} loading={loading} error={loadError} onChanged={() => void load()} /> : null}
             {tab === "payouts" ? (
               <PayoutsTab
                 data={data}
                 onChanged={() => void load()}
                 onVerifyMfa={openMfa}
+                refreshKey={refreshKey}
               />
             ) : null}
             {tab === "accounts" ? <AccountsTab data={data} onChanged={() => void load()} /> : null}
             {tab === "audit" ? <AuditTab data={data} /> : null}
-            {tab === "awards" ? <NationalAwardVerificationAdminPanel /> : null}
+            {tab === "awards" ? <NationalAwardVerificationAdminPanel refreshKey={refreshKey} /> : null}
           </section>
         </div>
       </div>
@@ -414,11 +420,22 @@ function VerificationTab({ count }: { count: number }) {
   );
 }
 
-function ReportsTab({ data, loading, onChanged }: { data: AdminConsoleData | null; loading: boolean; onChanged: () => void }) {
+function ReportsTab({
+  data,
+  loading,
+  error,
+  onChanged,
+}: {
+  data: AdminConsoleData | null;
+  loading: boolean;
+  error: string | null;
+  onChanged: () => void;
+}) {
   return (
     <Panel title="User Reports" description="Resolve or dismiss user-submitted reports. Account restrictions are separate decisions and require their own reason.">
+      {error ? <p role="alert" className="mb-3 rounded-xl border border-red-300/20 bg-red-300/[0.06] p-3 text-xs text-red-200">{error}</p> : null}
       {!data ? (
-        <Empty text={loading ? "Loading user reports…" : "Could not load reports. Use Refresh to try again."} />
+        <Empty text={loading ? "Loading user reports…" : error ? "Reports could not be loaded. Verify MFA, then use Refresh." : "No reports loaded. Use Refresh to try again."} />
       ) : loading && data.userReports.length === 0 ? (
         <Empty text="Checking for new reports…" />
       ) : !data.userReports.length ? (
@@ -446,26 +463,56 @@ function UserReportCard({ report, onChanged }: { report: AdminConsoleData["userR
       setBusy(false);
     }
   };
+  const contentId = report.reportedContentId ?? report.reportedPostId;
+  const typeValue = report.contentType?.toLowerCase() ?? "";
+  const watchType = typeValue.includes("reel") ? "reel" : typeValue.includes("video") ? "video" : null;
+  const contentLabel = watchType === "reel" ? "Reel" : watchType === "video" ? "Video" : contentId ? "Post" : report.surface;
   return (
     <CaseCard
-      title={`${displayProfile(report.reportedUser)} · ${report.reportedPostId ? "Reel / video" : report.surface}`}
+      title={`${displayProfile(report.reportedUser)} · ${contentLabel}`}
       status={report.status}
       createdAt={report.createdAt}
     >
       <p className="text-sm text-zinc-300">{report.reason}</p>
+      {report.description ? <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-400">{report.description}</p> : null}
       <p className="mt-2 text-xs text-zinc-500">Reporter: {displayProfile(report.reporter)}</p>
-      {report.reportedPostId ? (
-        <p className="mt-2 break-all text-xs text-zinc-500">Reported post ID: {report.reportedPostId}</p>
+      {contentId ? (
+        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
+          <span className="break-all text-zinc-500">Reported content ID: {contentId}</span>
+          {watchType ? (
+            <Link
+              to="/watch/$contentId"
+              params={{ contentId }}
+              search={{ type: watchType }}
+              className="font-semibold text-indigo-300 underline underline-offset-2 hover:text-indigo-200"
+            >
+              Preview reported {watchType}
+            </Link>
+          ) : null}
+        </div>
       ) : null}
       {report.status === "pending" ? <DecisionControls reason={reason} setReason={setReason} busy={busy} onResolve={() => void review("resolve")} onDismiss={() => void review("dismiss")} /> : null}
     </CaseCard>
   );
 }
 
-function CopyrightTab({ data, onChanged }: { data: AdminConsoleData | null; onChanged: () => void }) {
+function CopyrightTab({
+  data,
+  loading,
+  error,
+  onChanged,
+}: {
+  data: AdminConsoleData | null;
+  loading: boolean;
+  error: string | null;
+  onChanged: () => void;
+}) {
   return (
     <Panel title="Copyright / DMCA" description="Review takedown claims. Takedown deletes only the reported post or Moment, and every decision is audited.">
-      {!data?.copyrightReports.length ? <Empty text="No copyright reports." /> : data.copyrightReports.map((report) => <CopyrightCard key={report.id} report={report} onChanged={onChanged} />)}
+      {error ? <p role="alert" className="mb-3 rounded-xl border border-red-300/20 bg-red-300/[0.06] p-3 text-xs text-red-200">{error}</p> : null}
+      {!data?.copyrightReports.length
+        ? <Empty text={loading ? "Loading copyright claims…" : error ? "Copyright claims could not be loaded. Verify MFA, then use Refresh." : "No copyright reports."} />
+        : data.copyrightReports.map((report) => <CopyrightCard key={report.id} report={report} onChanged={onChanged} />)}
     </Panel>
   );
 }
@@ -487,10 +534,15 @@ function CopyrightCard({ report, onChanged }: { report: AdminConsoleData["copyri
     }
   };
   return (
-    <CaseCard title={`Claim from ${displayProfile(report.reporter)}`} status={report.status} createdAt={report.createdAt}>
+    <CaseCard title={`Claim from ${report.reporterFullName || displayProfile(report.reporter)}`} status={report.status} createdAt={report.createdAt}>
       <div className="grid gap-2 text-xs text-zinc-400 sm:grid-cols-2">
         <a href={report.originalWorkLink ?? undefined} target="_blank" rel="noreferrer noopener" className="break-all text-indigo-300 hover:underline">Original work: {report.originalWorkLink || "—"}</a>
         <a href={report.infringingContentLink ?? undefined} target="_blank" rel="noreferrer noopener" className="break-all text-indigo-300 hover:underline">Reported content: {report.infringingContentLink || "—"}</a>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500">
+        {report.contactEmail ? <span>Claimant email: {report.contactEmail}</span> : null}
+        {report.reportedPostId ? <span>Video / post ID: {report.reportedPostId}</span> : null}
+        {report.reportedMomentId ? <span>Moment ID: {report.reportedMomentId}</span> : null}
       </div>
       <p className="mt-2 text-sm text-zinc-300">{report.reason || "No claim detail provided."}</p>
       {report.status === "pending" ? <DecisionControls reason={reason} setReason={setReason} busy={busy} resolveLabel="Takedown & resolve" dismissLabel="Reject claim" onResolve={() => void review("takedown")} onDismiss={() => void review("reject")} /> : null}
@@ -502,18 +554,20 @@ function PayoutsTab({
   data,
   onChanged,
   onVerifyMfa,
+  refreshKey,
 }: {
   data: AdminConsoleData | null;
   onChanged: () => void;
   onVerifyMfa: () => void;
+  refreshKey: number;
 }) {
   return (
     <Panel
       title="Monetization & Payout Review"
       description="Review monthly payout requests and place or release a payout hold. External transfers are entered manually after payment."
     >
-      <InternationalPayoutKycQueue onVerifyMfa={onVerifyMfa} />
-      <ManualPayoutQueue onVerifyMfa={onVerifyMfa} />
+      <InternationalPayoutKycQueue onVerifyMfa={onVerifyMfa} refreshKey={refreshKey} />
+      <ManualPayoutQueue onVerifyMfa={onVerifyMfa} refreshKey={refreshKey} />
       {!data?.monetization.length && !data?.payoutHolds.length ? <Empty text="No monetization records or payout holds." /> : null}
       <div className="space-y-3">
         {data?.monetization.map((row) => <PayoutCard key={row.userId} row={row} onChanged={onChanged} />)}
@@ -523,7 +577,7 @@ function PayoutsTab({
   );
 }
 
-function InternationalPayoutKycQueue({ onVerifyMfa }: { onVerifyMfa: () => void }) {
+function InternationalPayoutKycQueue({ onVerifyMfa, refreshKey }: { onVerifyMfa: () => void; refreshKey: number }) {
   const [requests, setRequests] = useState<AdminInternationalPayoutKyc[]>([]);
   const [loading, setLoading] = useState(true);
   const [reason, setReason] = useState<Record<string, string>>({});
@@ -546,7 +600,7 @@ function InternationalPayoutKycQueue({ onVerifyMfa }: { onVerifyMfa: () => void 
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, refreshKey]);
 
   const review = async (request: AdminInternationalPayoutKyc, action: "verified" | "rejected") => {
     const selectedReason = reason[request.userId]?.trim() ?? "";
@@ -671,7 +725,7 @@ function InternationalPayoutKycQueue({ onVerifyMfa }: { onVerifyMfa: () => void 
   );
 }
 
-function ManualPayoutQueue({ onVerifyMfa }: { onVerifyMfa: () => void }) {
+function ManualPayoutQueue({ onVerifyMfa, refreshKey }: { onVerifyMfa: () => void; refreshKey: number }) {
   const [requests, setRequests] = useState<AdminPayoutRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -695,7 +749,7 @@ function ManualPayoutQueue({ onVerifyMfa }: { onVerifyMfa: () => void }) {
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, refreshKey]);
 
   const resolve = async (request: AdminPayoutRequest, action: "completed" | "failed") => {
     const selectedReason = reason[request.id]?.trim() ?? "";

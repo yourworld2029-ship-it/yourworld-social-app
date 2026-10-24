@@ -1359,13 +1359,29 @@ export async function setUserBlock(blockerId: string, blockedId: string, blocked
 }
 
 export async function reportSocialUser(reporterId: string, reportedUserId: string, threadId: string) {
-  const result = await migrationTables.from("user_reports").upsert({
-    reporter_id: reporterId,
-    reported_user_id: reportedUserId,
-    surface: "social",
-    thread_id: threadId,
-    reason: "User report",
-  }, { onConflict: "reporter_id,reported_user_id,surface" });
+  const { data: existing, error: lookupError } = await supabase
+    .from("user_reports")
+    .select("id")
+    .eq("reporter_id", reporterId)
+    .eq("reported_user_id", reportedUserId)
+    .eq("surface", "social")
+    .is("reported_content_id", null)
+    .maybeSingle();
+  if (lookupError) return lookupError.message;
+
+  const result = existing
+    ? await supabase
+        .from("user_reports")
+        .update({ thread_id: threadId, reason: "User report" })
+        .eq("id", existing.id)
+        .eq("reporter_id", reporterId)
+    : await supabase.from("user_reports").insert({
+        reporter_id: reporterId,
+        reported_user_id: reportedUserId,
+        surface: "social",
+        thread_id: threadId,
+        reason: "User report",
+      });
   return result.error?.message ?? null;
 }
 

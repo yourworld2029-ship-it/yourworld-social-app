@@ -1086,6 +1086,7 @@ function ReelItem({
   const [deleting, setDeleting] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportReason, setReportReason] = useState("Inappropriate content / Nudity");
+  const [reportDescription, setReportDescription] = useState("");
   const [reporting, setReporting] = useState(false);
   const [contextActionBusy, setContextActionBusy] = useState(false);
   const [isFavorite, setIsFavorite] = useState(false);
@@ -1860,9 +1861,12 @@ function ReelItem({
         reporterId: viewerId,
         creatorId: reel.userId,
         postId: reel.id,
+        contentType: "reel",
         reason: reportReason,
+        description: reportDescription,
       });
       setReportOpen(false);
+      setReportDescription("");
       toast.success("Report submitted. Thank you for making our community safe.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Couldn't submit this report");
@@ -2294,6 +2298,19 @@ function ReelItem({
                 </label>
               ))}
             </div>
+            <label className="mt-3 block text-left">
+              <span className="mb-1 block text-xs font-medium text-muted-foreground">
+                Additional details (optional)
+              </span>
+              <textarea
+                value={reportDescription}
+                onChange={(event) => setReportDescription(event.target.value)}
+                rows={3}
+                maxLength={2000}
+                placeholder="Add context to help the review team"
+                className="w-full resize-y rounded-md border border-border bg-background/70 px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-violet-400"
+              />
+            </label>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={reporting}>Cancel</AlertDialogCancel>

@@ -659,6 +659,7 @@ export const listNationalAwardVerificationApplications = createServerFn({
       .from("national_award_verifications")
       .select("*")
       .in("review_status", ["pending", "pending_verification"])
+      .not("submitted_at", "is", null)
       .order("submitted_at", { ascending: true })
       .limit(100);
     if (error) throw new Error(`Could not load Award Verification requests: ${error.message}`);

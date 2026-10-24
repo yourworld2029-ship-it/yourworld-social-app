@@ -1254,9 +1254,12 @@ export type Database = {
       user_reports: {
         Row: {
           created_at: string
+          content_type: string | null
+          description: string | null
           id: string
           message_id: string | null
           reason: string
+          reported_content_id: string | null
           reported_post_id: string | null
           reported_user_id: string
           reporter_id: string
@@ -1265,9 +1268,12 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          content_type?: string | null
+          description?: string | null
           id?: string
           message_id?: string | null
           reason?: string
+          reported_content_id?: string | null
           reported_post_id?: string | null
           reported_user_id: string
           reporter_id: string
@@ -1276,9 +1282,12 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          content_type?: string | null
+          description?: string | null
           id?: string
           message_id?: string | null
           reason?: string
+          reported_content_id?: string | null
           reported_post_id?: string | null
           reported_user_id?: string
           reporter_id?: string

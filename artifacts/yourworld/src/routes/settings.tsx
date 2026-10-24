@@ -218,10 +218,21 @@ function SettingsPage() {
       toast.error("Please sign in to submit a report");
       return;
     }
+    let reportedPostId: string | null = null;
+    try {
+      const reportedUrl = new URL(contentLink);
+      if (reportedUrl.origin === window.location.origin) {
+        const match = /^\/(?:watch|video)\/([0-9a-f-]{36})\/?$/i.exec(reportedUrl.pathname);
+        if (match) reportedPostId = match[1];
+      }
+    } catch {
+      // The earlier validation handles malformed URLs; retain the submitted link either way.
+    }
     setSubmittingDmca(true);
     const { error } = await supabase.from("copyright_reports").insert({
       reporter_user_id: user.id,
       reporter_full_name: fullName.slice(0, 200),
+      reported_post_id: reportedPostId,
       infringing_content_link: contentLink.slice(0, 2000),
       original_work_link: originalWork.slice(0, 2000),
       reason: description.slice(0, 2000),

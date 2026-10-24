@@ -37,8 +37,10 @@ function NationalAwardVerificationAdminPage() {
 
 export function NationalAwardVerificationAdminPanel({
   embedded = true,
+  refreshKey = 0,
 }: {
   embedded?: boolean;
+  refreshKey?: number;
 }) {
   const access = useAdminAccess();
   const [applications, setApplications] = useState<Application[]>([]);
@@ -67,7 +69,7 @@ export function NationalAwardVerificationAdminPanel({
 
   useEffect(() => {
     if (access.status === "allowed") void load();
-  }, [access.status, load]);
+  }, [access.status, load, refreshKey]);
 
   const Root = embedded ? "div" : "main";
 
