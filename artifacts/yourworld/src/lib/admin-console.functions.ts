@@ -526,6 +526,10 @@ export type AdminPayoutRequest = {
   } | null;
 };
 
+export type AdminPayoutRequestsResponse = {
+  requests: AdminPayoutRequest[];
+};
+
 export type AdminInternationalPayoutKyc = {
   userId: string;
   country: string;
@@ -545,7 +549,7 @@ export type AdminInternationalPayoutKyc = {
 
 export const listAdminPayoutRequests = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
+  .handler(async ({ context }): Promise<AdminPayoutRequestsResponse> => {
     const admin = await requireOwnerAdmin(context);
     const { data, error } = await admin
       .from("payout_requests")
@@ -651,8 +655,7 @@ export const listAdminPayoutRequests = createServerFn({ method: "POST" })
       );
     }
 
-    return {
-      requests: rows.map((row) => {
+    const requests = rows.map((row) => {
         const userId = String(row.user_id);
         return {
           id: String(row.id),
@@ -667,13 +670,13 @@ export const listAdminPayoutRequests = createServerFn({ method: "POST" })
           profile: profiles.get(userId) ?? null,
           payoutProfile: payoutProfiles.get(userId) ?? null,
         };
-      }),
-    };
+      });
+    return { requests: Array.isArray(requests) ? requests : [] };
   });
 
 export const listAdminInternationalPayoutKyc = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
+  .handler(async ({ context }): Promise<{ requests: AdminInternationalPayoutKyc[] }> => {
     const admin = await requireOwnerAdmin(context);
     const rpcClient = context.supabase as unknown as AdminRpcClient;
     const { data, error } = await rpcClient.rpc("admin_list_international_payout_kyc");
@@ -687,7 +690,7 @@ export const listAdminInternationalPayoutKyc = createServerFn({ method: "POST" }
       "Viewed pending international payout KYC after Admin MFA",
       { requestCount: requests.length },
     );
-    return { requests };
+    return { requests: Array.isArray(requests) ? requests : [] };
   });
 
 export const reviewAdminInternationalPayoutKyc = createServerFn({ method: "POST" })

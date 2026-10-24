@@ -656,6 +656,11 @@ function InternationalPayoutKycQueue({ onVerifyMfa, refreshKey }: { onVerifyMfa:
     setLoading(true);
     try {
       const result = await listAdminInternationalPayoutKyc();
+      if (!Array.isArray(result?.requests)) {
+        setRequests([]);
+        toast.error("International KYC requests could not be read. Refresh to try again.");
+        return;
+      }
       setRequests(result.requests);
     } catch (error) {
       setRequests([]);
@@ -811,6 +816,11 @@ function ManualPayoutQueue({ onVerifyMfa, refreshKey }: { onVerifyMfa: () => voi
     setError("");
     try {
       const result = await listAdminPayoutRequests();
+      if (!Array.isArray(result?.requests)) {
+        setRequests([]);
+        setError("Payout requests could not be read. Refresh to try again.");
+        return;
+      }
       setRequests(result.requests);
     } catch (loadError) {
       setRequests([]);
