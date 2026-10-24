@@ -430,7 +430,8 @@ function DirectReelUploadPage() {
               placeholder="Tell people about this Reel"
               rows={4}
               maxLength={2200}
-              className="w-full resize-none rounded-2xl border border-zinc-800 bg-zinc-900/90 p-3.5 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
+              className="w-full resize-none rounded-2xl border border-zinc-800 bg-zinc-900/90 p-3.5 text-sm text-white caret-white selection:bg-fuchsia-500/40 selection:text-white outline-none transition placeholder:text-zinc-500 focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
+              style={{ WebkitTextFillColor: "#fff" }}
             />
           </label>
 

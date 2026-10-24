@@ -756,7 +756,8 @@ function VideoUploadPage() {
             rows={5}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Tell viewers about this video…"
-            className="min-h-28 rounded-xl border-zinc-800 bg-zinc-900/60 leading-relaxed"
+            className="min-h-28 rounded-xl border-zinc-800 bg-zinc-900/60 leading-relaxed text-white caret-white selection:bg-fuchsia-500/40 selection:text-white"
+            style={{ WebkitTextFillColor: "#fff" }}
           />
           <p className="pt-1 text-right text-[11px] text-zinc-500">{description.length}/2000</p>
         </Field>
