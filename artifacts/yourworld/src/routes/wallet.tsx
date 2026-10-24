@@ -165,7 +165,6 @@ const PAYOUT_DOCUMENT_TYPES = {
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
   png: "image/png",
-  webp: "image/webp",
 } as const;
 
 function getPayoutDocumentType(file: File) {
@@ -192,7 +191,7 @@ async function uploadIndianPayoutDocument(
   }
   const metadata = getPayoutDocumentType(file);
   if (!metadata) {
-    throw new Error("Upload a PDF, JPG, PNG, or WEBP document.");
+    throw new Error("Upload a PDF, JPG, or PNG document.");
   }
   const uniqueSuffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const path = `${userId}/payout/${kind}-${uniqueSuffix}.${metadata.extension}`;
@@ -271,6 +270,7 @@ function WalletPage() {
   const [processing, setProcessing] = useState(false);
   const [applying, setApplying] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
+  const [indiaPayoutDeclarationAccepted, setIndiaPayoutDeclarationAccepted] = useState(false);
   const [payoutPreviewRequested, setPayoutPreviewRequested] = useState(false);
   const [payoutPreviewCountry, setPayoutPreviewCountry] = useState("India");
 
@@ -282,6 +282,7 @@ function WalletPage() {
     setDetails({ ...emptyDetails, creator_email: user?.email ?? "" });
     setBankPassbookFile(null);
     setPanCardFile(null);
+    setIndiaPayoutDeclarationAccepted(false);
     setInternationalDetails(emptyInternationalPayoutForm);
     setInternationalReviewReason(null);
     if (!uid) return;
@@ -521,10 +522,17 @@ function WalletPage() {
   const previewMode = payoutPreviewRequested && adminAccess.status === "allowed";
   const formCountry = previewMode ? payoutPreviewCountry : country;
   const formCurrency = payoutCurrencyForCountry(formCountry);
+  const indiaLiveForm =
+    !previewMode || (formCurrency === "INR" && payoutCurrency === "INR");
+  const formReadOnlyPreview = previewMode && !indiaLiveForm;
   const showWallet = previewMode || eligible || canApply || directSalesUnlocked;
 
   const saveDetails = async () => {
     if (!user?.id) return;
+    if (payoutCurrency === "INR" && !indiaPayoutDeclarationAccepted) {
+      toast.error("Confirm that your payout details and documents are genuine and accurate");
+      return;
+    }
     if (!termsAccepted) {
       toast.error("Accept the Creator Monetization Terms before saving payout details");
       return;
@@ -592,7 +600,7 @@ function WalletPage() {
       return;
     }
     if (!details.bank_passbook_path && !bankPassbookFile) {
-      toast.error("Upload the first page of your bank passbook or cheque");
+      toast.error("Upload the first page of your bank passbook");
       return;
     }
     if (!details.ifsc_code.trim()) {
@@ -777,9 +785,13 @@ function WalletPage() {
           <section className="rounded-2xl border border-indigo-400/30 bg-indigo-400/10 p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="text-sm font-semibold text-indigo-100">Read-only payout UI preview</p>
+                <p className="text-sm font-semibold text-indigo-100">
+                  {indiaLiveForm ? "India payout details" : "Read-only payout UI preview"}
+                </p>
                 <p className="pt-1 text-xs text-indigo-100/70">
-                  No saved payout data is shown. Changes, submissions, and transfers are disabled.
+                  {indiaLiveForm
+                    ? "Your India payout details will be saved to your account."
+                    : "No saved payout data is shown. Changes, submissions, and transfers are disabled."}
                 </p>
               </div>
               <label className="min-w-40">
@@ -942,7 +954,7 @@ function WalletPage() {
               </div>
             </section>
 
-            {!previewMode ? (
+            {!formReadOnlyPreview ? (
               <MonetizationTermsCheckbox accepted={termsAccepted} onChange={setTermsAccepted} />
             ) : null}
 
@@ -950,9 +962,9 @@ function WalletPage() {
             <section className="rounded-2xl border border-zinc-800 bg-[#141418] p-4">
               <div className="flex items-center justify-between gap-3">
                 <h2 className="text-sm font-bold">
-                  {previewMode ? "Payout Details Preview" : "Payout & Bank Details"}
+                  {formReadOnlyPreview ? "Payout Details Preview" : "Payout & Bank Details"}
                 </h2>
-                {previewMode ? (
+                {formReadOnlyPreview ? (
                   <span className="rounded-full border border-indigo-400/30 bg-indigo-400/10 px-2.5 py-1 text-[10px] font-semibold text-indigo-200">
                     Preview only
                   </span>
@@ -987,8 +999,8 @@ function WalletPage() {
                       <span className="mb-1 block text-[11px] text-zinc-500">Full Legal Name</span>
                       <input
                         autoComplete="name"
-                        value={previewMode ? "" : details.account_holder}
-                        readOnly={previewMode}
+                        value={details.account_holder}
+                        readOnly={!indiaLiveForm}
                         onChange={(event) =>
                           setDetails((current) => ({
                             ...current,
@@ -1003,8 +1015,8 @@ function WalletPage() {
                       <span className="mb-1 block text-[11px] text-zinc-500">Date of Birth (DOB)</span>
                       <input
                         type="date"
-                        value={previewMode ? "" : details.date_of_birth}
-                        disabled={previewMode}
+                        value={details.date_of_birth}
+                        disabled={!indiaLiveForm}
                         onChange={(event) =>
                           setDetails((current) => ({
                             ...current,
@@ -1025,8 +1037,8 @@ function WalletPage() {
                           inputMode="numeric"
                           autoComplete="tel-national"
                           maxLength={10}
-                          value={previewMode ? "" : details.mobile_number}
-                          readOnly={previewMode}
+                          value={details.mobile_number}
+                          readOnly={!indiaLiveForm}
                           onChange={(event) =>
                             setDetails((current) => ({
                               ...current,
@@ -1043,8 +1055,8 @@ function WalletPage() {
                       <input
                         type="email"
                         autoComplete="email"
-                        value={previewMode ? "" : details.creator_email}
-                        readOnly={previewMode}
+                        value={details.creator_email}
+                        readOnly={!indiaLiveForm}
                         onChange={(event) =>
                           setDetails((current) => ({
                             ...current,
@@ -1059,8 +1071,8 @@ function WalletPage() {
                       <span className="mb-1 block text-[11px] text-zinc-500">Bank Account Number</span>
                       <input
                         autoComplete="off"
-                        value={previewMode ? "" : details.bank_account}
-                        readOnly={previewMode}
+                        value={details.bank_account}
+                        readOnly={!indiaLiveForm}
                         onChange={(event) =>
                           setDetails((current) => ({
                             ...current,
@@ -1075,8 +1087,8 @@ function WalletPage() {
                       <span className="mb-1 block text-[11px] text-zinc-500">Confirm Bank Account Number</span>
                       <input
                         autoComplete="off"
-                        value={previewMode ? "" : details.confirm_bank_account}
-                        readOnly={previewMode}
+                        value={details.confirm_bank_account}
+                        readOnly={!indiaLiveForm}
                         aria-invalid={
                           Boolean(details.confirm_bank_account) &&
                           details.confirm_bank_account !== details.bank_account
@@ -1104,12 +1116,12 @@ function WalletPage() {
                     </label>
                     <label className="block">
                       <span className="mb-1 block text-[11px] text-zinc-500">
-                        Upload Bank Passbook / Cheque (1st page)
+                        Upload Bank Passbook (1st page)
                       </span>
                       <input
                         type="file"
-                        accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp"
-                        disabled={previewMode || saving}
+                        accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                        disabled={!indiaLiveForm || saving}
                         onChange={(event) => {
                           const file = event.currentTarget.files?.[0] ?? null;
                           event.currentTarget.value = "";
@@ -1119,7 +1131,7 @@ function WalletPage() {
                             return;
                           }
                           if (!getPayoutDocumentType(file)) {
-                            toast.error("Upload a PDF, JPG, PNG, or WEBP document.");
+                            toast.error("Upload a PDF, JPG, or PNG document.");
                             return;
                           }
                           setBankPassbookFile(file);
@@ -1127,21 +1139,22 @@ function WalletPage() {
                         className="block w-full text-xs text-zinc-400 file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-2 file:text-xs file:text-white"
                       />
                       <span className="mt-1 block text-[10px] text-zinc-500">
-                        {previewMode
-                          ? "Private document upload"
-                          : bankPassbookFile?.name
-                            ? `Ready to upload: ${bankPassbookFile.name}`
-                            : details.bank_passbook_path
-                              ? "Private bank document saved · choose a file to replace"
-                              : "PDF or image · maximum 20 MB"}
+                        {bankPassbookFile?.name
+                          ? `Ready to upload: ${bankPassbookFile.name}`
+                          : details.bank_passbook_path
+                            ? "Private bank document saved · choose a file to replace"
+                            : "PDF or JPG/PNG image · maximum 20 MB"}
+                      </span>
+                      <span className="mt-1 block text-[10px] text-zinc-500">
+                        Please ensure uploaded documents are clear and readable.
                       </span>
                     </label>
                     <label className="block">
                       <span className="mb-1 block text-[11px] text-zinc-500">IFSC Code</span>
                       <input
                         autoComplete="off"
-                        value={previewMode ? "" : details.ifsc_code}
-                        readOnly={previewMode}
+                        value={details.ifsc_code}
+                        readOnly={!indiaLiveForm}
                         onChange={(event) =>
                           setDetails((current) => ({
                             ...current,
@@ -1156,8 +1169,8 @@ function WalletPage() {
                       <span className="mb-1 block text-[11px] text-zinc-500">PAN Card Number</span>
                       <input
                         autoComplete="off"
-                        value={previewMode ? "" : details.pan_number}
-                        readOnly={previewMode}
+                        value={details.pan_number}
+                        readOnly={!indiaLiveForm}
                         onChange={(event) =>
                           setDetails((current) => ({
                             ...current,
@@ -1172,8 +1185,8 @@ function WalletPage() {
                       <span className="mb-1 block text-[11px] text-zinc-500">Upload PAN Card</span>
                       <input
                         type="file"
-                        accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp"
-                        disabled={previewMode || saving}
+                        accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                        disabled={!indiaLiveForm || saving}
                         onChange={(event) => {
                           const file = event.currentTarget.files?.[0] ?? null;
                           event.currentTarget.value = "";
@@ -1183,7 +1196,7 @@ function WalletPage() {
                             return;
                           }
                           if (!getPayoutDocumentType(file)) {
-                            toast.error("Upload a PDF, JPG, PNG, or WEBP document.");
+                            toast.error("Upload a PDF, JPG, or PNG document.");
                             return;
                           }
                           setPanCardFile(file);
@@ -1191,13 +1204,28 @@ function WalletPage() {
                         className="block w-full text-xs text-zinc-400 file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-2 file:text-xs file:text-white"
                       />
                       <span className="mt-1 block text-[10px] text-zinc-500">
-                        {previewMode
-                          ? "Private document upload"
-                          : panCardFile?.name
-                            ? `Ready to upload: ${panCardFile.name}`
-                            : details.pan_card_path
-                              ? "Private PAN document saved · choose a file to replace"
-                              : "PDF or image · maximum 20 MB"}
+                        {panCardFile?.name
+                          ? `Ready to upload: ${panCardFile.name}`
+                          : details.pan_card_path
+                            ? "Private PAN document saved · choose a file to replace"
+                            : "PDF or JPG/PNG image · maximum 20 MB"}
+                      </span>
+                      <span className="mt-1 block text-[10px] text-zinc-500">
+                        Please ensure uploaded documents are clear and readable.
+                      </span>
+                    </label>
+                    <label className="flex items-start gap-2.5 rounded-xl border border-zinc-800 bg-[#0f0f13] p-3 text-xs leading-5 text-zinc-300">
+                      <input
+                        type="checkbox"
+                        checked={indiaPayoutDeclarationAccepted}
+                        onChange={(event) =>
+                          setIndiaPayoutDeclarationAccepted(event.target.checked)
+                        }
+                        className="mt-1 accent-fuchsia-500"
+                      />
+                      <span>
+                        I confirm that all the submitted details and uploaded documents are genuine
+                        and accurate.
                       </span>
                     </label>
                   </>
@@ -1404,7 +1432,9 @@ function WalletPage() {
                 <label className="block">
                   <span className="mb-1 block text-[11px] text-zinc-500">Payout Currency</span>
                   <div className="rounded-xl border border-zinc-800 bg-[#0f0f13] px-3 py-2.5 text-sm">
-                    {countryLoaded ? `${formCurrency} · ${previewMode ? "Preview country" : "Based on your saved country"}` : "Loading country…"}
+                    {countryLoaded
+                      ? `${formCurrency} · ${formReadOnlyPreview ? "Preview country" : "Based on your saved country"}`
+                      : "Loading country…"}
                   </div>
                   {formCurrency === "USD" ? (
                     <p className="pt-1 text-[10px] text-zinc-500">Bank country: {formCountry || "Not set"}</p>
@@ -1421,17 +1451,26 @@ function WalletPage() {
                   <span className="text-sm">Every month, from the 1st through the 5th</span>
                 </div>
               </div>
-              {previewMode ? (
+              {formReadOnlyPreview ? (
                 <div className="mt-3 w-full rounded-full bg-white/10 py-2.5 text-center text-sm font-semibold text-zinc-400">
                   Preview only · saving disabled
                 </div>
               ) : (
                 <button
                   onClick={saveDetails}
-                  disabled={saving || !termsAccepted || !countryLoaded}
+                  disabled={
+                    saving ||
+                    !termsAccepted ||
+                    !countryLoaded ||
+                    (formCurrency === "INR" && !indiaPayoutDeclarationAccepted)
+                  }
                   className="mt-3 w-full rounded-full bg-white py-2.5 text-sm font-semibold text-black disabled:opacity-60"
                 >
-                  {saving ? "Saving…" : "Save Details"}
+                  {saving
+                    ? "Submitting…"
+                    : formCurrency === "INR"
+                      ? "Submit Payout Details"
+                      : "Save Details"}
                 </button>
               )}
             </section>
