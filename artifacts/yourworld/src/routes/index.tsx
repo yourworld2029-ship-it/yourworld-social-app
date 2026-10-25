@@ -386,6 +386,13 @@ function HomePage() {
       return video ? [{ video, entry }] : [];
     });
   }, [resumeCandidates, resumeVideoQuery.data, videos]);
+  const visibleContinueWatchingItems = React.useMemo(
+    () =>
+      continueWatchingItems
+        .filter(({ entry }) => entry.currentTime >= 1)
+        .slice(0, 1),
+    [continueWatchingItems],
+  );
   const continueWatchingIds = React.useMemo(
     () => new Set(continueWatchingItems.map((item) => item.video.id)),
     [continueWatchingItems],
@@ -407,7 +414,7 @@ function HomePage() {
     },
     [queryClient, user?.id],
   );
-  const firstContinueItem = continueWatchingItems[0] ?? null;
+  const firstContinueItem = visibleContinueWatchingItems[0] ?? null;
   React.useEffect(() => {
     if (firstContinueItem) prepareContinuePlayback(firstContinueItem);
   }, [firstContinueItem, prepareContinuePlayback]);
@@ -725,7 +732,7 @@ function HomePage() {
     >
       <FeedTopBar alertCount={alertCount} />
       <ContinueWatchingShelf
-        items={continueWatchingItems}
+        items={visibleContinueWatchingItems}
         onPrepare={prepareContinuePlayback}
         onOpen={({ video, entry }) => {
           requestVideoResume(video.id, entry.currentTime);
@@ -840,7 +847,7 @@ function HomePage() {
         hydrated={hydrated}
         loading={loading}
         videos={videos}
-        hasContinueWatching={continueWatchingItems.length > 0}
+        hasContinueWatching={visibleContinueWatchingItems.length > 0}
         currentUserId={currentUserId}
         isFetchingNextPage={isFetchingNextPage}
       />
