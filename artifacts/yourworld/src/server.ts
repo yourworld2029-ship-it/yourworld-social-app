@@ -52,7 +52,7 @@ function isNativeServerRequest(request: Request): boolean {
   return (
     pathname === "/_serverFn" ||
     pathname.startsWith("/_serverFn/") ||
-    pathname === "/api/admin-console"
+    pathname === "/admin-console-data"
   );
 }
 

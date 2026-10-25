@@ -29,7 +29,7 @@ export async function readAdminConsoleApi<T>(
     throw new Error("The Admin Console service URL is not configured.");
   }
 
-  const response = await fetch(new URL("/api/admin-console", appOrigin), {
+  const response = await fetch(new URL("/admin-console-data", appOrigin), {
     method: "POST",
     credentials: "omit",
     headers: {

@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AccountRouteImport } from './routes/account'
 import { Route as AdminRouteImport } from './routes/admin'
+import { Route as AdminConsoleDataRouteImport } from './routes/admin-console-data'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as ChannelRouteImport } from './routes/channel'
 import { Route as CommunityGuidelinesRouteImport } from './routes/community-guidelines'
@@ -34,7 +35,6 @@ import { Route as WalletRouteImport } from './routes/wallet'
 import { Route as AdminCopyrightReportsRouteImport } from './routes/admin.copyright-reports'
 import { Route as AdminNationalAwardsRouteImport } from './routes/admin.national-awards'
 import { Route as AdminSportsVerificationRouteImport } from './routes/admin.sports-verification'
-import { Route as ApiAdminConsoleRouteImport } from './routes/api.admin-console'
 import { Route as ChannelIndexRouteImport } from './routes/channel.index'
 import { Route as ChannelAnalyticsRouteImport } from './routes/channel.analytics'
 import { Route as ChannelCreateRouteImport } from './routes/channel.create'
@@ -71,6 +71,11 @@ const AccountRoute = AccountRouteImport.update({
 const AdminRoute = AdminRouteImport.update({
   id: '/admin',
   path: '/admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminConsoleDataRoute = AdminConsoleDataRouteImport.update({
+  id: '/admin-console-data',
+  path: '/admin-console-data',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthRoute = AuthRouteImport.update({
@@ -178,11 +183,6 @@ const AdminSportsVerificationRoute = AdminSportsVerificationRouteImport.update({
   path: '/sports-verification',
   getParentRoute: () => AdminRoute,
 } as any)
-const ApiAdminConsoleRoute = ApiAdminConsoleRouteImport.update({
-  id: '/api/admin-console',
-  path: '/api/admin-console',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ChannelIndexRoute = ChannelIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -279,6 +279,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/account': typeof AccountRoute
   '/admin': typeof AdminRouteWithChildren
+  '/admin-console-data': typeof AdminConsoleDataRoute
   '/auth': typeof AuthRoute
   '/channel': typeof ChannelRouteWithChildren
   '/community-guidelines': typeof CommunityGuidelinesRoute
@@ -300,7 +301,6 @@ export interface FileRoutesByFullPath {
   '/admin/copyright-reports': typeof AdminCopyrightReportsRoute
   '/admin/national-awards': typeof AdminNationalAwardsRoute
   '/admin/sports-verification': typeof AdminSportsVerificationRoute
-  '/api/admin-console': typeof ApiAdminConsoleRoute
   '/channel/analytics': typeof ChannelAnalyticsRoute
   '/channel/create': typeof ChannelCreateRoute
   '/downloads/$downloadId': typeof DownloadsDownloadIdRoute
@@ -324,6 +324,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/account': typeof AccountRoute
   '/admin': typeof AdminRouteWithChildren
+  '/admin-console-data': typeof AdminConsoleDataRoute
   '/auth': typeof AuthRoute
   '/community-guidelines': typeof CommunityGuidelinesRoute
   '/copyright-policy': typeof CopyrightPolicyRoute
@@ -344,7 +345,6 @@ export interface FileRoutesByTo {
   '/admin/copyright-reports': typeof AdminCopyrightReportsRoute
   '/admin/national-awards': typeof AdminNationalAwardsRoute
   '/admin/sports-verification': typeof AdminSportsVerificationRoute
-  '/api/admin-console': typeof ApiAdminConsoleRoute
   '/channel/analytics': typeof ChannelAnalyticsRoute
   '/channel/create': typeof ChannelCreateRoute
   '/downloads/$downloadId': typeof DownloadsDownloadIdRoute
@@ -370,6 +370,7 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/account': typeof AccountRoute
   '/admin': typeof AdminRouteWithChildren
+  '/admin-console-data': typeof AdminConsoleDataRoute
   '/auth': typeof AuthRoute
   '/channel': typeof ChannelRouteWithChildren
   '/community-guidelines': typeof CommunityGuidelinesRoute
@@ -391,7 +392,6 @@ export interface FileRoutesById {
   '/admin/copyright-reports': typeof AdminCopyrightReportsRoute
   '/admin/national-awards': typeof AdminNationalAwardsRoute
   '/admin/sports-verification': typeof AdminSportsVerificationRoute
-  '/api/admin-console': typeof ApiAdminConsoleRoute
   '/channel/analytics': typeof ChannelAnalyticsRoute
   '/channel/create': typeof ChannelCreateRoute
   '/downloads/$downloadId': typeof DownloadsDownloadIdRoute
@@ -417,6 +417,7 @@ export interface FileRouteTypes {
     | '/'
     | '/account'
     | '/admin'
+    | '/admin-console-data'
     | '/auth'
     | '/channel'
     | '/community-guidelines'
@@ -438,7 +439,6 @@ export interface FileRouteTypes {
     | '/admin/copyright-reports'
     | '/admin/national-awards'
     | '/admin/sports-verification'
-    | '/api/admin-console'
     | '/channel/analytics'
     | '/channel/create'
     | '/downloads/$downloadId'
@@ -462,6 +462,7 @@ export interface FileRouteTypes {
     | '/'
     | '/account'
     | '/admin'
+    | '/admin-console-data'
     | '/auth'
     | '/community-guidelines'
     | '/copyright-policy'
@@ -482,7 +483,6 @@ export interface FileRouteTypes {
     | '/admin/copyright-reports'
     | '/admin/national-awards'
     | '/admin/sports-verification'
-    | '/api/admin-console'
     | '/channel/analytics'
     | '/channel/create'
     | '/downloads/$downloadId'
@@ -507,6 +507,7 @@ export interface FileRouteTypes {
     | '/_authenticated'
     | '/account'
     | '/admin'
+    | '/admin-console-data'
     | '/auth'
     | '/channel'
     | '/community-guidelines'
@@ -528,7 +529,6 @@ export interface FileRouteTypes {
     | '/admin/copyright-reports'
     | '/admin/national-awards'
     | '/admin/sports-verification'
-    | '/api/admin-console'
     | '/channel/analytics'
     | '/channel/create'
     | '/downloads/$downloadId'
@@ -554,6 +554,7 @@ export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AccountRoute: typeof AccountRoute
   AdminRoute: typeof AdminRouteWithChildren
+  AdminConsoleDataRoute: typeof AdminConsoleDataRoute
   AuthRoute: typeof AuthRoute
   ChannelRoute: typeof ChannelRouteWithChildren
   CommunityGuidelinesRoute: typeof CommunityGuidelinesRoute
@@ -572,7 +573,6 @@ export interface RootRouteChildren {
   TermsRoute: typeof TermsRouteWithChildren
   Verify2faRoute: typeof Verify2faRoute
   WalletRoute: typeof WalletRoute
-  ApiAdminConsoleRoute: typeof ApiAdminConsoleRoute
   DownloadsDownloadIdRoute: typeof DownloadsDownloadIdRoute
   LiveStreamIdRoute: typeof LiveStreamIdRoute
   LiveCreateRoute: typeof LiveCreateRoute
@@ -615,6 +615,13 @@ declare module '@tanstack/react-router' {
       path: '/admin'
       fullPath: '/admin'
       preLoaderRoute: typeof AdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin-console-data': {
+      id: '/admin-console-data'
+      path: '/admin-console-data'
+      fullPath: '/admin-console-data'
+      preLoaderRoute: typeof AdminConsoleDataRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/auth': {
@@ -763,13 +770,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/admin/sports-verification'
       preLoaderRoute: typeof AdminSportsVerificationRouteImport
       parentRoute: typeof AdminRoute
-    }
-    '/api/admin-console': {
-      id: '/api/admin-console'
-      path: '/api/admin-console'
-      fullPath: '/api/admin-console'
-      preLoaderRoute: typeof ApiAdminConsoleRouteImport
-      parentRoute: typeof rootRouteImport
     }
     '/channel/': {
       id: '/channel/'
@@ -957,6 +957,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AccountRoute: AccountRoute,
   AdminRoute: AdminRouteWithChildren,
+  AdminConsoleDataRoute: AdminConsoleDataRoute,
   AuthRoute: AuthRoute,
   ChannelRoute: ChannelRouteWithChildren,
   CommunityGuidelinesRoute: CommunityGuidelinesRoute,
@@ -975,7 +976,6 @@ const rootRouteChildren: RootRouteChildren = {
   TermsRoute: TermsRouteWithChildren,
   Verify2faRoute: Verify2faRoute,
   WalletRoute: WalletRoute,
-  ApiAdminConsoleRoute: ApiAdminConsoleRoute,
   DownloadsDownloadIdRoute: DownloadsDownloadIdRoute,
   LiveStreamIdRoute: LiveStreamIdRoute,
   LiveCreateRoute: LiveCreateRoute,

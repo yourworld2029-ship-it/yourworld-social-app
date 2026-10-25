@@ -47,7 +47,7 @@ async function executeServerFunction(
   });
 }
 
-export const Route = createFileRoute("/api/admin-console")({
+export const Route = createFileRoute("/admin-console-data")({
   server: {
     handlers: {
       POST: async ({ request }) => {

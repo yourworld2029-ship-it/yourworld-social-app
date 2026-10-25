@@ -5,6 +5,6 @@ description: Production TanStack Start server-function errors can be hidden by a
 
 For Admin Console data reads, keep the existing server-side authentication, owner-admin authorization, and AAL2 checks, but expose the result through a structured JSON HTTP response when native server-function calls return opaque or missing values. Never resolve this by bypassing admin or MFA checks.
 
-**Why:** A production no-session server-function request produced `Seroval Error (step: 3)` caused by a serialization plugin reading a missing `t` field, obscuring the original auth error; the equivalent JSON route returned a clear 401.
+**Why:** A production no-session server-function request produced `Seroval Error (step: 3)` caused by a serialization plugin reading a missing `t` field, obscuring the original auth error. A follow-up Admin JSON route under `/api` was then captured by this workspace's separate API artifact and returned 404 instead of reaching YourWorld.
 
-**How to apply:** When an Admin RPC appears as `undefined`, inspect production status/body shape and logs. Prefer a narrowly scoped JSON route that invokes the same protected server handler and returns JSON errors; do not add database-role bypasses.
+**How to apply:** When an Admin RPC appears as `undefined`, inspect production status/body shape and logs. Prefer a narrowly scoped JSON route that invokes the same protected server handler and returns JSON errors; verify its URL is routed to the YourWorld artifact (not the API artifact's `/api/*` namespace). Do not add database-role bypasses.
