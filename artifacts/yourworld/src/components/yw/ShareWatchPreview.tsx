@@ -126,18 +126,20 @@ export function ShareWatchPreview({
               </p>
             </div>
 
-            <a
-              href={apkUrl}
-              download
-              target="_blank"
-              rel="noreferrer"
-              className="group inline-flex shrink-0 items-center gap-2 rounded-full border border-fuchsia-300/30 bg-fuchsia-300 px-3.5 py-2.5 text-xs font-bold text-[#1b0b20] shadow-[0_8px_24px_rgba(232,121,249,0.16)] transition-transform hover:bg-fuchsia-200 active:scale-[0.97]"
-              data-testid="link-share-apk-download"
-            >
-              <Download className="h-4 w-4 transition-transform group-hover:translate-y-0.5" aria-hidden="true" />
-              <span className="hidden sm:inline">Get the app</span>
-              <span className="sm:hidden">APK</span>
-            </a>
+            {!reportReview ? (
+              <a
+                href={apkUrl}
+                download
+                target="_blank"
+                rel="noreferrer"
+                className="group inline-flex shrink-0 items-center gap-2 rounded-full border border-fuchsia-300/30 bg-fuchsia-300 px-3.5 py-2.5 text-xs font-bold text-[#1b0b20] shadow-[0_8px_24px_rgba(232,121,249,0.16)] transition-transform hover:bg-fuchsia-200 active:scale-[0.97]"
+                data-testid="link-share-apk-download"
+              >
+                <Download className="h-4 w-4 transition-transform group-hover:translate-y-0.5" aria-hidden="true" />
+                <span className="hidden sm:inline">Get the app</span>
+                <span className="sm:hidden">APK</span>
+              </a>
+            ) : null}
           </div>
 
           {description ? (

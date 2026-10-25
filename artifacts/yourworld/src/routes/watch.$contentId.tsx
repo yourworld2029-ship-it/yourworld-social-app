@@ -160,15 +160,17 @@ function WatchPreviewPage() {
           <p className="min-w-0 text-sm font-semibold text-white sm:text-base">
             Watch in HD on YourWorld App
           </p>
-          <a
-            href={APK_DOWNLOAD_PATH}
-            download
-            className="inline-flex shrink-0 items-center gap-2 rounded-full bg-fuchsia-300 px-4 py-2 text-xs font-bold text-black transition-colors hover:bg-fuchsia-200 sm:text-sm"
-            data-testid="link-sticky-apk-download"
-          >
-            <Download className="h-4 w-4" aria-hidden="true" />
-            Download APK
-          </a>
+          {!reportReview ? (
+            <a
+              href={APK_DOWNLOAD_PATH}
+              download
+              className="inline-flex shrink-0 items-center gap-2 rounded-full bg-fuchsia-300 px-4 py-2 text-xs font-bold text-black transition-colors hover:bg-fuchsia-200 sm:text-sm"
+              data-testid="link-sticky-apk-download"
+            >
+              <Download className="h-4 w-4" aria-hidden="true" />
+              Download APK
+            </a>
+          ) : null}
         </div>
       </header>
 

@@ -21,6 +21,7 @@ test("report review preview keeps playback but hides social actions and native o
   assert.match(markup, /disablePictureInPicture=""/);
   assert.match(markup, /disableRemotePlayback=""/);
   assert.match(markup, /report-review-video/);
+  assert.doesNotMatch(markup, /link-share-apk-download/);
   assert.doesNotMatch(markup, /button-share-like|button-share-comment|button-share-follow/);
 });
 
@@ -30,5 +31,6 @@ test("regular shared watch previews keep their existing interaction buttons", ()
   assert.match(markup, /button-share-like/);
   assert.match(markup, /button-share-comment/);
   assert.match(markup, /button-share-follow/);
+  assert.match(markup, /link-share-apk-download/);
   assert.doesNotMatch(markup, /report-review-video/);
 });
