@@ -177,7 +177,11 @@ export type AdminConsoleData = {
 export const listAdminConsole = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    const admin = await requireOwnerAdmin(context);
+    // The configured owner may read the console without another MFA gate.
+    // Identity still comes from the authenticated Supabase JWT; all other
+    // admin reads and sensitive mutations retain their existing AAL2 checks.
+    const ownerRead = hasAdminConsoleAccess(claimsFor(context).email, null);
+    const admin = await requireOwnerAdmin(context, !ownerRead);
     const [
       pendingVerification,
       userReportsResult,

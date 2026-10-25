@@ -5,17 +5,7 @@ import {
   listAdminPayoutRequests,
 } from "@/lib/admin-console.functions";
 import type { AdminConsoleReadOperation } from "@/lib/admin-console-api";
-
-type ServerFunctionExecutor = {
-  __executeServer?: (options: {
-    context: Record<string, never>;
-    data?: unknown;
-    method: "POST";
-  }) => Promise<{
-    result?: unknown;
-    error?: unknown;
-  }>;
-};
+import { executeAdminRead } from "@/lib/admin-console-read";
 
 const readOperations = {
   console: listAdminConsole,
@@ -31,20 +21,6 @@ function statusFromError(message: string): number {
   if (/unauthorized|session expired/i.test(message)) return 401;
   if (/forbidden|admin|mfa|assurance/i.test(message)) return 403;
   return 500;
-}
-
-async function executeServerFunction(
-  operation: AdminConsoleReadOperation,
-): Promise<{ result?: unknown; error?: unknown }> {
-  const serverFunction = readOperations[operation] as ServerFunctionExecutor;
-  if (typeof serverFunction.__executeServer !== "function") {
-    throw new Error("Admin server handler is unavailable.");
-  }
-
-  return serverFunction.__executeServer({
-    context: {},
-    method: "POST",
-  });
 }
 
 export const Route = createFileRoute("/admin-console-data")({
@@ -67,19 +43,12 @@ export const Route = createFileRoute("/admin-console-data")({
         }
 
         try {
-          const execution = await executeServerFunction(
-            operation as AdminConsoleReadOperation,
+          const envelope = await executeAdminRead<unknown>(
+            readOperations[operation as AdminConsoleReadOperation],
           );
-          if (execution.error) {
-            const message = messageFromError(execution.error);
-            return Response.json(
-              { error: message },
-              { status: statusFromError(message), headers: { "Cache-Control": "no-store" } },
-            );
-          }
 
           return Response.json(
-            { data: execution.result },
+            envelope,
             { headers: { "Cache-Control": "no-store" } },
           );
         } catch (error) {
