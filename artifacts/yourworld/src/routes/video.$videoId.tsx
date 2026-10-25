@@ -38,7 +38,11 @@ import {
   type QualityId,
 } from "@/lib/video-playback";
 import { useValidatedVideoViewTracker } from "@/lib/video-view-validation";
-import { consumeVideoResumeRequest } from "@/lib/video-resume";
+import {
+  consumeVideoResumeRequest,
+  removeVideoResumeEntry,
+  saveVideoResumeEntry,
+} from "@/lib/video-resume";
 import { getVideoReactionState, setVideoReaction } from "@/lib/video-reactions";
 import {
   downloadAudioOnly,
@@ -270,6 +274,7 @@ function VideoRouteComponent() {
     isPlaying,
     videoRef,
     setLongVideoPlayerMenuActions,
+    setTimeUpdateHandler,
   } = useVideoPlayback();
   const { videos, loadMore, hasNextPage, isFetchingNextPage } = useLongVideos();
   const { user, requestAuthAction } = useAuth();
@@ -279,6 +284,12 @@ function VideoRouteComponent() {
   );
   const { following, toggleFollow } = useYw();
   const resumeTimeRef = useRef<number | null>(null);
+  const lastResumeSavedRef = useRef<{
+    videoId: string;
+    currentTime: number;
+    savedAt: number;
+  } | null>(null);
+  const resumeRemovedRef = useRef(false);
   const scrollRestoreRef = useRef<Array<{ element: HTMLElement; top: number }> | null>(null);
   const loadMoreTargetRef = useRef<HTMLDivElement | null>(null);
   const [lastPlayableData, setLastPlayableData] = useState<VideoRouteData | null>(null);
@@ -390,6 +401,67 @@ function VideoRouteComponent() {
   }, [user?.id, video?.id]);
   const hasResolvedRouteData = Boolean(currentData || lastRouteData);
   const isCurrentVideo = video?.id === videoId && Boolean(currentData);
+  const persistResumeAt = useCallback(
+    (currentTime: number, reportedDuration: number, force = false) => {
+      if (!video || !isCurrentVideo || activeVideo?.id !== videoId) return;
+
+      const safeCurrentTime = Number.isFinite(currentTime)
+        ? Math.max(0, currentTime)
+        : 0;
+      const duration =
+        Number.isFinite(reportedDuration) && reportedDuration > 0
+          ? reportedDuration
+          : video.durationSeconds ?? 0;
+      const now = Date.now();
+
+      if (
+        duration > 0 &&
+        (safeCurrentTime / duration >= 0.95 ||
+          (duration > 30 && duration - safeCurrentTime <= 15))
+      ) {
+        if (!resumeRemovedRef.current) {
+          removeVideoResumeEntry(video.id);
+          resumeRemovedRef.current = true;
+        }
+        lastResumeSavedRef.current = {
+          videoId: video.id,
+          currentTime: safeCurrentTime,
+          savedAt: now,
+        };
+        return;
+      }
+      if (safeCurrentTime <= 0) return;
+
+      const previous = lastResumeSavedRef.current;
+      if (previous?.videoId === video.id) {
+        if (force && Math.abs(safeCurrentTime - previous.currentTime) < 0.25) {
+          return;
+        }
+        if (!force && now - previous.savedAt < 1_000) return;
+      }
+
+      const episodeNumber = Number(video.episodeNumber);
+      saveVideoResumeEntry({
+        id: video.id,
+        title: video.title || "Untitled video",
+        thumbnailUrl: video.thumbnailUrl || "",
+        currentTime: safeCurrentTime,
+        duration,
+        progress: duration > 0 ? safeCurrentTime / duration : 0,
+        seriesTitle: video.seriesTitle ?? null,
+        episodeNumber: Number.isFinite(episodeNumber) ? episodeNumber : null,
+        watchedSeconds: Math.floor(safeCurrentTime),
+        updatedAt: now,
+      });
+      lastResumeSavedRef.current = {
+        videoId: video.id,
+        currentTime: safeCurrentTime,
+        savedAt: now,
+      };
+      resumeRemovedRef.current = false;
+    },
+    [activeVideo?.id, isCurrentVideo, video, videoId],
+  );
   const isSwitching = query.isFetching || (!!video && video.id !== videoId);
   const hasLikeOverride = Boolean(video && likeOverride?.videoId === video.id);
   const liked = hasLikeOverride
@@ -423,6 +495,52 @@ function VideoRouteComponent() {
   useEffect(() => {
     resumeTimeRef.current = consumeVideoResumeRequest(videoId);
   }, [videoId]);
+
+  useEffect(() => {
+    lastResumeSavedRef.current = null;
+    resumeRemovedRef.current = false;
+  }, [videoId]);
+
+  useEffect(() => {
+    if (!video || !isCurrentVideo || activeVideo?.id !== videoId) {
+      setTimeUpdateHandler(null);
+      return;
+    }
+
+    const flushPlayerPosition = () => {
+      const player = videoRef.current;
+      if (!player) return;
+      persistResumeAt(
+        player.currentTime,
+        Number.isFinite(player.duration) ? player.duration : video.durationSeconds ?? 0,
+        true,
+      );
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") flushPlayerPosition();
+    };
+
+    setTimeUpdateHandler((currentTime, duration) => {
+      persistResumeAt(currentTime, duration);
+    });
+    window.addEventListener("pagehide", flushPlayerPosition);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      flushPlayerPosition();
+      setTimeUpdateHandler(null);
+      window.removeEventListener("pagehide", flushPlayerPosition);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [
+    activeVideo?.id,
+    isCurrentVideo,
+    persistResumeAt,
+    setTimeUpdateHandler,
+    video,
+    videoId,
+    videoRef,
+  ]);
 
   useEffect(() => {
     setLikeOverride(null);

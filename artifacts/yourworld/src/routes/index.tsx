@@ -4,11 +4,17 @@ import { useQuery } from "@tanstack/react-query";
 import { FeedVideoShelfPreview } from "@/components/yw/FeedVideoShelfPreview";
 import { FeedVideoTray } from "@/components/yw/FeedVideoTray";
 import { LongVideoCard } from "@/components/yw/LongVideoCard";
+import { LazyVideoThumbnail } from "@/components/yw/LazyVideoThumbnail";
 import {
   FeedVideoAutoplayProvider,
 } from "@/components/yw/FeedVideoAutoplay";
 import { VirtualizedFeedWindow } from "@/components/yw/VirtualizedFeedWindow";
-import { loadLongVideosByIds, useLongVideos, type LongVideo } from "@/lib/video-data";
+import {
+  formatDuration,
+  loadLongVideosByIds,
+  useLongVideos,
+  type LongVideo,
+} from "@/lib/video-data";
 import { setVideoQueue } from "@/lib/video-queue";
 import { Search, Heart, Plus } from "lucide-react";
 import { useMoments } from "@/lib/moment-context";
@@ -144,6 +150,7 @@ function MomentAvatar({
 
 type LongVideoQuery = ReturnType<typeof useLongVideos>;
 type VideoResumeEntry = ReturnType<typeof getUnfinishedVideoResumes>[number];
+type ContinueWatchingItem = { video: LongVideo; entry: VideoResumeEntry };
 
 type HomeVideoFeedProps = Pick<
   LongVideoQuery,
@@ -154,7 +161,7 @@ type HomeVideoFeedProps = Pick<
   hydrated: boolean;
   loading: boolean;
   videos: LongVideo[];
-  resumeEntry: VideoResumeEntry | null;
+  hasContinueWatching: boolean;
 };
 
 const HomeVideoFeed = React.memo(function HomeVideoFeed({
@@ -163,9 +170,9 @@ const HomeVideoFeed = React.memo(function HomeVideoFeed({
   hydrated,
   loading,
   videos,
+  hasContinueWatching,
   currentUserId,
   isFetchingNextPage,
-  resumeEntry,
 }: HomeVideoFeedProps) {
   const navigate = useNavigate();
   const renderFeedItem = React.useCallback(
@@ -176,9 +183,6 @@ const HomeVideoFeed = React.memo(function HomeVideoFeed({
             videos={item.videos}
             renderPreview={(video) => <FeedVideoShelfPreview video={video} />}
             onOpenVideo={(video) => {
-              if (video.id === resumeEntry?.id) {
-                requestVideoResume(video.id, resumeEntry.currentTime);
-              }
               void navigate({
                 to: "/video/$videoId",
                 params: { videoId: video.id },
@@ -194,19 +198,10 @@ const HomeVideoFeed = React.memo(function HomeVideoFeed({
           video={item.video}
           prefetchNextVideos={item.prefetchNextVideos}
           currentUserId={currentUserId}
-          initialResumeTime={
-            item.video.id === resumeEntry?.id
-              ? resumeEntry.currentTime
-              : undefined
-          }
         />
       );
     },
-    [
-      currentUserId,
-      navigate,
-      resumeEntry,
-    ],
+    [currentUserId, navigate],
   );
 
   return (
@@ -225,18 +220,23 @@ const HomeVideoFeed = React.memo(function HomeVideoFeed({
               <div className="text-center py-12 text-neutral-500 text-sm">
                 Loading feed...
               </div>
-            ) : videos.length === 0 && !resumeEntry ? (
+            ) : null}
+            {hydrated &&
+            !loading &&
+            feedItems.length === 0 &&
+            videos.length === 0 &&
+            !hasContinueWatching ? (
               <div className="text-center py-12 text-neutral-500 text-sm">
                 No videos yet. Be the first to share!
               </div>
-            ) : (
+            ) : hydrated && !loading && feedItems.length > 0 ? (
               <VirtualizedFeedWindow
                 items={feedItems}
                 pinnedKey={pinnedKey}
                 estimateHeight={estimateFeedItemHeight}
                 renderItem={renderFeedItem}
               />
-            )}
+            ) : null}
             {isFetchingNextPage ? (
               <p className="py-3 text-center text-xs text-neutral-500">
                 Loading more videos…
@@ -248,6 +248,71 @@ const HomeVideoFeed = React.memo(function HomeVideoFeed({
     </FeedVideoAutoplayProvider>
   );
 });
+
+function ContinueWatchingShelf({
+  items,
+  onOpen,
+}: {
+  items: ContinueWatchingItem[];
+  onOpen: (item: ContinueWatchingItem) => void;
+}) {
+  if (items.length === 0) return null;
+
+  return (
+    <section
+      aria-label="Continue watching"
+      className="border-b border-neutral-900/60 bg-black px-4 py-3"
+      data-testid="continue-watching-shelf"
+    >
+      <h2 className="mb-2 text-sm font-semibold text-white">Continue Watching</h2>
+      <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {items.map(({ video, entry }) => {
+          const duration =
+            entry.duration > 0 ? entry.duration : video.durationSeconds ?? 0;
+          const progress = duration > 0
+            ? Math.max(0, Math.min(100, (entry.currentTime / duration) * 100))
+            : 0;
+
+          return (
+            <button
+              key={video.id}
+              type="button"
+              aria-label={`Continue watching ${video.title}`}
+              className="w-[208px] shrink-0 snap-start text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fuchsia-400"
+              data-testid={`continue-watching-${video.id}`}
+              onClick={() => onOpen({ video, entry })}
+            >
+              <div className="relative aspect-video overflow-hidden rounded-xl bg-neutral-900">
+                <LazyVideoThumbnail
+                  thumbnailUrl={video.thumbnailUrl}
+                  mediaUrl={video.access === "public" ? video.mediaUrl : null}
+                  streamId={video.access === "public" ? video.cloudflareStreamId : null}
+                  alt={video.title}
+                  bucket="thumbnails"
+                  className="bg-black [&_img]:object-contain"
+                  showFrameStatus={false}
+                  allowFrameCapture={false}
+                />
+                <span className="absolute inset-x-0 bottom-0 h-1 bg-white/25">
+                  <span
+                    className="block h-full bg-fuchsia-500"
+                    style={{ width: `${progress}%` }}
+                  />
+                </span>
+              </div>
+              <span className="mt-1.5 block truncate text-xs font-medium text-white">
+                {video.title || "Untitled video"}
+              </span>
+              <span className="block text-[11px] text-neutral-400">
+                {formatDuration(entry.currentTime)} / {formatDuration(duration)}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
 
 function HomePage() {
   const navigate = useNavigate();
@@ -266,29 +331,43 @@ function HomePage() {
     () => getUnfinishedVideoResumes(resumeEntries),
     [resumeEntries],
   );
-  const latestResumeEntry = resumeCandidates[0] ?? null;
-  const resumeVideoInFeed = latestResumeEntry
-    ? videos.find((video) => video.id === latestResumeEntry.id) ?? null
-    : null;
-  const resumeVideoQuery = useQuery({
+  const resumeVideoQuery = useQuery<LongVideo[]>({
     queryKey: ["long-video-resume-post", resumeCandidates.map((entry) => entry.id)],
-    enabled: resumeCandidates.length > 0 && !resumeVideoInFeed,
+    enabled:
+      resumeCandidates.length > 0 &&
+      resumeCandidates.some(
+        (entry) =>
+          !videos.some(
+            (video) => video.id === entry.id && video.isReel !== true,
+          ),
+      ),
     staleTime: 60_000,
     queryFn: async () => {
-      const resumeVideos = await loadLongVideosByIds(
+      return loadLongVideosByIds(
         resumeCandidates.map((entry) => entry.id),
         { includeLiveReplays: false },
       );
-      for (const entry of resumeCandidates) {
-        const video = resumeVideos.find((candidate) => candidate.id === entry.id);
-        if (video) return video;
-      }
-      return null;
     },
   });
-  const resumeVideo = resumeVideoInFeed ?? resumeVideoQuery.data ?? null;
-  const resumeEntry =
-    resumeCandidates.find((entry) => entry.id === resumeVideo?.id) ?? null;
+  const continueWatchingItems = React.useMemo(() => {
+    const videosById = new Map<string, LongVideo>();
+    for (const video of [...videos, ...(resumeVideoQuery.data ?? [])]) {
+      const isReel =
+        video.isReel === true ||
+        video.videoType?.toLowerCase() === "reel" ||
+        video.postType?.toLowerCase() === "reel";
+      if (!isReel) videosById.set(video.id, video);
+    }
+    return resumeCandidates.flatMap((entry) => {
+      const video = videosById.get(entry.id);
+      return video ? [{ video, entry }] : [];
+    });
+  }, [resumeCandidates, resumeVideoQuery.data, videos]);
+  const continueWatchingIds = React.useMemo(
+    () => new Set(continueWatchingItems.map((item) => item.video.id)),
+    [continueWatchingItems],
+  );
+  const latestResumeVideo = continueWatchingItems[0]?.video ?? null;
   const { moments } = useMoments();
   const { user } = useAuth();
   const { streams: liveStreams } = useActiveLiveStreams();
@@ -493,15 +572,12 @@ function HomePage() {
     const regular: LongVideo[] = [];
     const vertical: LongVideo[] = [];
 
-    for (const video of videos.filter((item) => item.id !== resumeVideo?.id)) {
+    for (const video of videos.filter((item) => !continueWatchingIds.has(item.id))) {
       (isVerticalLongVideo(video) ? vertical : regular).push(video);
     }
 
-    if (resumeVideo) {
-      (isVerticalLongVideo(resumeVideo) ? vertical : regular).unshift(resumeVideo);
-    }
     return { regularVideos: regular, verticalVideos: vertical };
-  }, [resumeVideo, videos]);
+  }, [continueWatchingIds, videos]);
   const recentVideoInteractions = React.useMemo(() => {
     const interactions: LongVideo[] = [];
     const seen = new Set<string>();
@@ -511,7 +587,7 @@ function HomePage() {
       interactions.push(video);
     };
 
-    if (resumeVideo) addInteraction(resumeVideo);
+    if (latestResumeVideo) addInteraction(latestResumeVideo);
     const likedVideos = videos
       .filter((video) => video.likedByMe)
       .sort((left, right) => {
@@ -527,7 +603,7 @@ function HomePage() {
       addInteraction(video);
     }
     return interactions;
-  }, [resumeVideo, videos]);
+  }, [latestResumeVideo, videos]);
   const verticalVideoGroups = React.useMemo(
     () => rankHomeVerticalVideos(verticalVideos, recentVideoInteractions),
     [recentVideoInteractions, verticalVideos],
@@ -609,6 +685,16 @@ function HomePage() {
       }}
     >
       <FeedTopBar alertCount={alertCount} />
+      <ContinueWatchingShelf
+        items={continueWatchingItems}
+        onOpen={({ video, entry }) => {
+          requestVideoResume(video.id, entry.currentTime);
+          void navigate({
+            to: "/video/$videoId",
+            params: { videoId: video.id },
+          });
+        }}
+      />
 
       {/* Stories / Moments Tray */}
       <div className="flex snap-x snap-proximity items-center gap-2 overflow-x-auto overscroll-x-contain touch-pan-x scroll-smooth px-4 py-3 no-scrollbar border-b border-neutral-900/60 bg-black">
@@ -713,9 +799,9 @@ function HomePage() {
         hydrated={hydrated}
         loading={loading}
         videos={videos}
+        hasContinueWatching={continueWatchingItems.length > 0}
         currentUserId={currentUserId}
         isFetchingNextPage={isFetchingNextPage}
-        resumeEntry={resumeEntry}
       />
     </div>
   );
