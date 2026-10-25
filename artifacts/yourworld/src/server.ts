@@ -47,9 +47,13 @@ function isH3SwallowedErrorBody(body: string): boolean {
   }
 }
 
-function isServerFnRequest(request: Request): boolean {
+function isNativeServerRequest(request: Request): boolean {
   const { pathname } = new URL(request.url);
-  return pathname === "/_serverFn" || pathname.startsWith("/_serverFn/");
+  return (
+    pathname === "/_serverFn" ||
+    pathname.startsWith("/_serverFn/") ||
+    pathname === "/api/admin-console"
+  );
 }
 
 function nativeServerFnCorsHeaders(): Headers {
@@ -87,7 +91,7 @@ function handleServerFnPreflight(request: Request): Response {
 
 function addNativeServerFnCors(request: Request, response: Response): Response {
   if (
-    !isServerFnRequest(request) ||
+    !isNativeServerRequest(request) ||
     request.headers.get("Origin") !== nativeWebViewOrigin
   ) {
     return response;
@@ -114,7 +118,7 @@ function addNativeServerFnCors(request: Request, response: Response): Response {
 
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
-    if (isServerFnRequest(request) && request.method === "OPTIONS") {
+    if (isNativeServerRequest(request) && request.method === "OPTIONS") {
       return handleServerFnPreflight(request);
     }
 

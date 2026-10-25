@@ -53,6 +53,7 @@
 - [Account deletion pipeline](account-deletion-pipeline.md) — use a transactional SECURITY DEFINER Supabase function for authenticated cleanup before removing auth.users.
 - [Capacitor Android wrapper](capacitor-android-wrapper.md) — preserve Start's SPA shell, `cap sync android` after web builds, and package with JDK 21 plus an installed SDK.
 - [Native server-function deployment alignment](native-server-function-deployment.md) — publish the matching hosted handler before sharing APKs that call changed server functions.
+- [Admin RPC error serialization](admin-rpc-error-serialization.md) — production server-function exceptions can become opaque Seroval errors; keep Admin reads on structured JSON responses with the same authorization checks.
 - [YourWorld Debug APK delivery](yourworld-debug-apk-delivery.md) — share a fresh Debug APK link and increment Android version metadata so each app update is identifiable.
 - [Capacitor native detection](capacitor-native-detection.md) — `window.Capacitor` also exists in browsers; use native platform signals and wait for client resolution before gating routes.
 - [Creator monetization settlement](creator-monetization-settlement.md) — keep splits server-authoritative; INR stays unconverted, while USD payouts use MFA-protected manual processing in the monthly 1–5 window.

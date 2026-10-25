@@ -6,11 +6,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { historyBackLink } from "@/lib/navigation";
 import { useAdminAccess } from "@/lib/use-admin-access";
 import { describeAdminResponseShape, findAdminConsolePayload } from "@/lib/admin-console-response";
+import { readAdminConsoleApi } from "@/lib/admin-console-api";
 import { NationalAwardVerificationAdminPanel } from "./admin.national-awards";
 import {
-  listAdminPayoutRequests,
-  listAdminInternationalPayoutKyc,
-  listAdminConsole,
   resolveAdminPayoutRequest,
   reviewAdminInternationalPayoutKyc,
   reviewCopyrightReport,
@@ -87,7 +85,7 @@ function AdminConsole() {
       setLoadError(null);
       setRefreshKey((current) => current + 1);
       try {
-        const rawResponse = await listAdminConsole();
+        const rawResponse = await readAdminConsoleApi<unknown>("console");
         const response = findAdminConsolePayload(rawResponse);
         if (!response) {
           const shape = describeAdminResponseShape(rawResponse);
@@ -709,7 +707,7 @@ function InternationalPayoutKycQueue({
     setLoading(true);
     try {
       const result = getAdminRequests<AdminInternationalPayoutKyc>(
-        await listAdminInternationalPayoutKyc(),
+        await readAdminConsoleApi<unknown>("internationalPayoutKyc"),
       );
       if (!result) {
         setRequests([]);
@@ -893,7 +891,9 @@ function ManualPayoutQueue({
     setLoading(true);
     setError("");
     try {
-      const result = getAdminRequests<AdminPayoutRequest>(await listAdminPayoutRequests());
+      const result = getAdminRequests<AdminPayoutRequest>(
+        await readAdminConsoleApi<unknown>("payoutRequests"),
+      );
       if (!result) {
         setRequests([]);
         setError("Payout requests could not be read. Refresh to try again.");
