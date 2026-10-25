@@ -121,7 +121,10 @@ export const Route = createFileRoute("/watch/$contentId")({
   validateSearch: (search: Record<string, unknown>) => {
     const type: WatchContentKind | undefined =
       search.type === "video" ? "video" : search.type === "reel" ? "reel" : undefined;
-    return { type };
+    return {
+      type,
+      reportReview: search.reportReview === true || search.reportReview === "true",
+    };
   },
   component: WatchPreviewPage,
   head: () => ({
@@ -137,7 +140,7 @@ export const Route = createFileRoute("/watch/$contentId")({
 
 function WatchPreviewPage() {
   const { contentId } = Route.useParams();
-  const { type } = Route.useSearch();
+  const { type, reportReview } = Route.useSearch();
   const isValidContentId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(contentId);
   const { data, isPending, isError } = useQuery<PublicWatchContent | null>({
     queryKey: ["public-watch-content", contentId, type],
@@ -213,6 +216,7 @@ function WatchPreviewPage() {
             description={data.description}
             posterUrl={data.thumbnailUrl}
             apkUrl={APK_DOWNLOAD_PATH}
+            reportReview={reportReview}
             className="max-w-3xl"
           />
         )}

@@ -592,7 +592,7 @@ function UserReportCard({ report, onChanged }: { report: AdminConsoleData["userR
             <Link
               to="/watch/$contentId"
               params={{ contentId }}
-              search={{ type: watchType }}
+              search={{ type: watchType, reportReview: true }}
               className="font-semibold text-indigo-300 underline underline-offset-2 hover:text-indigo-200"
             >
               Preview reported {watchType}

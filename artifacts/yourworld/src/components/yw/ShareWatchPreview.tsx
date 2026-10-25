@@ -18,6 +18,7 @@ export type ShareWatchPreviewProps = {
   creatorHandle?: string | null;
   posterUrl?: string | null;
   className?: string;
+  reportReview?: boolean;
 };
 
 const INTERACTION_PROMPT = "Download the YourWorld app to interact with creators";
@@ -36,6 +37,7 @@ export function ShareWatchPreview({
   creatorHandle,
   posterUrl,
   className,
+  reportReview = false,
 }: ShareWatchPreviewProps) {
   const [promptOpen, setPromptOpen] = useState(false);
   const dialogTitleId = useId();
@@ -88,11 +90,17 @@ export function ShareWatchPreview({
         <div className="relative bg-[#050608]">
           <video
             ref={videoRef}
-            className="block max-h-[78svh] min-h-[13rem] w-full object-contain sm:max-h-[82svh]"
+            className={cn(
+              "block max-h-[78svh] min-h-[13rem] w-full object-contain sm:max-h-[82svh]",
+              reportReview && "report-review-video",
+            )}
             src={/\.m3u8(?:[?#]|$)/i.test(mediaUrl) ? undefined : mediaUrl}
             crossOrigin="anonymous"
             poster={streamPosterUrl ?? posterUrl ?? undefined}
             controls
+            controlsList={reportReview ? "nodownload noremoteplayback noplaybackrate" : undefined}
+            disablePictureInPicture={reportReview}
+            disableRemotePlayback={reportReview}
             playsInline
             preload="none"
             aria-label={`Watch ${title}`}
@@ -141,35 +149,37 @@ export function ShareWatchPreview({
             </p>
           ) : null}
 
-          <div className="flex items-center gap-2 border-t border-white/[0.08] pt-4">
-            <button
-              type="button"
-              onClick={openInteractionPrompt}
-              className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl border border-white/[0.1] bg-white/[0.055] px-3 text-sm font-semibold text-zinc-200 transition-colors hover:bg-white/[0.1] active:scale-[0.98]"
-              data-testid="button-share-like"
-            >
-              <Heart className="h-[18px] w-[18px]" aria-hidden="true" />
-              <span>Like</span>
-            </button>
-            <button
-              type="button"
-              onClick={openInteractionPrompt}
-              className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl border border-white/[0.1] bg-white/[0.055] px-3 text-sm font-semibold text-zinc-200 transition-colors hover:bg-white/[0.1] active:scale-[0.98]"
-              data-testid="button-share-comment"
-            >
-              <MessageCircle className="h-[18px] w-[18px]" aria-hidden="true" />
-              <span>Comment</span>
-            </button>
-            <button
-              type="button"
-              onClick={openInteractionPrompt}
-              className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-white text-sm font-semibold text-[#101116] transition-colors hover:bg-zinc-200 active:scale-[0.98]"
-              data-testid="button-share-follow"
-            >
-              <UserPlus className="h-[18px] w-[18px]" aria-hidden="true" />
-              <span>Follow</span>
-            </button>
-          </div>
+          {!reportReview ? (
+            <div className="flex items-center gap-2 border-t border-white/[0.08] pt-4">
+              <button
+                type="button"
+                onClick={openInteractionPrompt}
+                className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl border border-white/[0.1] bg-white/[0.055] px-3 text-sm font-semibold text-zinc-200 transition-colors hover:bg-white/[0.1] active:scale-[0.98]"
+                data-testid="button-share-like"
+              >
+                <Heart className="h-[18px] w-[18px]" aria-hidden="true" />
+                <span>Like</span>
+              </button>
+              <button
+                type="button"
+                onClick={openInteractionPrompt}
+                className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl border border-white/[0.1] bg-white/[0.055] px-3 text-sm font-semibold text-zinc-200 transition-colors hover:bg-white/[0.1] active:scale-[0.98]"
+                data-testid="button-share-comment"
+              >
+                <MessageCircle className="h-[18px] w-[18px]" aria-hidden="true" />
+                <span>Comment</span>
+              </button>
+              <button
+                type="button"
+                onClick={openInteractionPrompt}
+                className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-white text-sm font-semibold text-[#101116] transition-colors hover:bg-zinc-200 active:scale-[0.98]"
+                data-testid="button-share-follow"
+              >
+                <UserPlus className="h-[18px] w-[18px]" aria-hidden="true" />
+                <span>Follow</span>
+              </button>
+            </div>
+          ) : null}
         </div>
       </article>
 
