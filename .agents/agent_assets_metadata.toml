@@ -448,3 +448,17 @@ mtime_ms = 1792771792563
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/05541794-9363-49aa-be94-bc7ed5ccc44e/6e4ef916-b0a9-430d-871e-f0e987987db4"
 storage_version_token = "1792771868281008"
 content_type = "application/pdf"
+
+[[outputs]]
+id = "1mzw4kYyk2GFk08Z6vpZS"
+uri = "file://generated-artifacts/yourworld-email-routing.pdf"
+type = "pdf"
+title = "YourWorld email routing guide"
+description = "Roman Hindi PDF: support inbox, automated sender, notification recipients, and in-app reports."
+logical_id = "3f86326a-6029-4790-9154-4478bebe594f"
+content_hash = "sha256:10575311aeb6ad9837190928421d628a6d4b1bd76cc3b4d7efcd63e4cab4f2cf"
+size = 59708
+mtime_ms = 1792949606264
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/3f86326a-6029-4790-9154-4478bebe594f/5e38c2e5-3b0f-4168-8862-b65fd2d62346"
+storage_version_token = "1792949625834238"
+content_type = "application/pdf"
