@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft, CheckCircle2, LockKeyhole, RefreshCw, ShieldAlert, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -66,6 +66,7 @@ function getAdminRequests<T>(value: unknown): { requests: T[]; error?: string } 
 }
 
 function AdminConsole() {
+  const navigate = useNavigate();
   const access = useAdminAccess();
   const [mfaOpen, setMfaOpen] = useState(false);
   const [data, setData] = useState<AdminConsoleData | null>(null);
@@ -299,7 +300,12 @@ function AdminConsole() {
 
           <section key={tab} className="min-w-0 animate-in fade-in-0 slide-in-from-bottom-1 duration-200">
             {tab === "overview" ? <Overview data={data} counts={counts} /> : null}
-            {tab === "verification" ? <VerificationTab count={data?.pendingVerificationCount ?? 0} /> : null}
+            {tab === "verification" ? (
+              <VerificationTab
+                count={data?.pendingVerificationCount ?? 0}
+                onOpenReview={() => void navigate({ to: "/admin/sports-verification" })}
+              />
+            ) : null}
             {tab === "reports" ? <ReportsTab data={data} loading={loading} error={loadError ?? data?.loadErrors.userReports ?? null} onChanged={() => void load()} /> : null}
             {tab === "copyright" ? <CopyrightTab data={data} loading={loading} error={loadError ?? data?.loadErrors.copyrightReports ?? null} onChanged={() => void load()} /> : null}
             {tab === "payouts" ? (
@@ -505,7 +511,7 @@ function Overview({
   );
 }
 
-function VerificationTab({ count }: { count: number }) {
+function VerificationTab({ count, onOpenReview }: { count: number; onOpenReview: () => void }) {
   return (
     <Panel title="Sports Verification" description="Review private verification submissions with the existing secure document viewer.">
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200/15 bg-amber-200/[0.05] p-4">
@@ -513,9 +519,9 @@ function VerificationTab({ count }: { count: number }) {
           <p className="font-semibold text-amber-100">{count} pending request{count === 1 ? "" : "s"}</p>
           <p className="mt-1 text-xs text-zinc-500">Documents remain private and are served only through short-lived signed URLs.</p>
         </div>
-        <Link to="/admin/sports-verification" className="rounded-xl bg-amber-300 px-4 py-2.5 text-sm font-bold text-black hover:bg-amber-200">
+        <button type="button" onClick={onOpenReview} className="rounded-xl bg-amber-300 px-4 py-2.5 text-sm font-bold text-black hover:bg-amber-200">
           Open verification review
-        </Link>
+        </button>
       </div>
     </Panel>
   );

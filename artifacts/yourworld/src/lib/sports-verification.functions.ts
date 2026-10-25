@@ -1,7 +1,10 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { hasAdminConsoleAccess } from "@/lib/admin-access-policy";
+import {
+  canReadSportsVerificationWithoutStepUp,
+  hasAdminConsoleAccess,
+} from "@/lib/admin-access-policy";
 import { escapeEmailHtml, sendTransactionalEmail } from "@/lib/email.server";
 import {
   countryCodeForSportsCountry,
@@ -116,6 +119,7 @@ export type ReviewDocument = {
   name: string;
   mimeType: string;
   url: string | null;
+  urlUnavailable?: boolean;
 };
 
 export type AdminVerificationApplication = {
@@ -356,7 +360,11 @@ async function createPrivateSignedUrl(
 ) {
   if (!path || path.includes("..") || !path.startsWith(`${ownerId}/`)) return null;
   const { data, error } = await admin.storage.from(bucket).createSignedUrl(path, 15 * 60);
-  return error ? null : data?.signedUrl ?? null;
+  if (error) {
+    console.warn(`[sports-verification] Private review URL creation failed for ${bucket} evidence.`);
+    return null;
+  }
+  return data?.signedUrl ?? null;
 }
 
 async function verifyStoredIndianIdentityProof(
@@ -483,12 +491,16 @@ async function buildDocuments(
   }
 
   return Promise.all(
-    entries.map(async ([kind, path]) => ({
-      kind,
-      name: path ? documentName(path) : `${kind} not submitted`,
-      mimeType: kind === "tournamentPhoto" ? "image/*" : "application/octet-stream",
-      url: await createPrivateSignedUrl(admin, "documents", ownerId, path),
-    })),
+    entries.map(async ([kind, path]) => {
+      const url = await createPrivateSignedUrl(admin, "documents", ownerId, path);
+      return {
+        kind,
+        name: path ? documentName(path) : `${kind} not submitted`,
+        mimeType: kind === "tournamentPhoto" ? "image/*" : "application/octet-stream",
+        url,
+        urlUnavailable: Boolean(path && !url),
+      };
+    }),
   );
 }
 
@@ -502,7 +514,10 @@ export const listSportsVerificationApplications = createServerFn({ method: "POST
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const admin = await requireSportsVerificationAdmin(context.userId, context.claims);
-    requireAdminStepUp(context.claims);
+    const email = (context.claims as { email?: string } | null | undefined)?.email;
+    if (!canReadSportsVerificationWithoutStepUp(email)) {
+      requireAdminStepUp(context.claims);
+    }
     const { data: submittedDetails, error: detailsError } = await admin
       .from("sports_verification_details")
       .select("*")

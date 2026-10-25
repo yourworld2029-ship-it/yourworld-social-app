@@ -375,7 +375,11 @@ function ApplicationCard({
                   <FileText className="h-4 w-4 shrink-0" />
                 )}
                 <span className="min-w-0 truncate">
-                  {document.url ? document.name : `${document.kind} not submitted`}
+                  {document.url
+                    ? document.name
+                    : document.urlUnavailable
+                      ? `${document.name} — could not create private review link`
+                      : `${document.kind} not submitted`}
                 </span>
               </a>
             ))}
