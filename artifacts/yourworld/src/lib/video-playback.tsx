@@ -1280,7 +1280,13 @@ export function VideoPlaybackProvider({ children }: { children: ReactNode }) {
       video.dataset.ywNativeVideoSupport = detectNativeVideoSupport(video, activeVideoUrl);
       if (isHlsMediaUrl(activeVideoUrl)) {
         if (Hls.isSupported()) {
-          const hls = new Hls(createVideoHlsConfig());
+          const hls = new Hls(
+            createVideoHlsConfig(
+              Number.isFinite(activeVideoInitialTime) && activeVideoInitialTime! > 0
+                ? activeVideoInitialTime
+                : -1,
+            ),
+          );
           hlsRef.current = hls;
           bindHlsNetworkAwareLevelCap(hls);
           hls.on(Hls.Events.MANIFEST_PARSED, () => {

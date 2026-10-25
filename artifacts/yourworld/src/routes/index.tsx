@@ -1,6 +1,6 @@
 import React from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FeedVideoShelfPreview } from "@/components/yw/FeedVideoShelfPreview";
 import { FeedVideoTray } from "@/components/yw/FeedVideoTray";
 import { LongVideoCard } from "@/components/yw/LongVideoCard";
@@ -24,6 +24,10 @@ import { useActiveLiveStreams } from "@/lib/live-data";
 import ywLogo from "@/assets/yw-logo.png";
 import { ProfileAvatar } from "@/components/yw/ProfileAvatar";
 import { useVideoPlayback } from "@/lib/video-playback";
+import {
+  LONG_VIDEO_PLAYBACK_PREFETCH_STALE_MS,
+  longVideoPlaybackQueryOptions,
+} from "@/lib/video-playback-data";
 import {
   getUnfinishedVideoResumes,
   requestVideoResume,
@@ -252,9 +256,11 @@ const HomeVideoFeed = React.memo(function HomeVideoFeed({
 function ContinueWatchingShelf({
   items,
   onOpen,
+  onPrepare,
 }: {
   items: ContinueWatchingItem[];
   onOpen: (item: ContinueWatchingItem) => void;
+  onPrepare: (item: ContinueWatchingItem) => void;
 }) {
   if (items.length === 0) return null;
 
@@ -266,12 +272,19 @@ function ContinueWatchingShelf({
     >
       <h2 className="mb-2 text-sm font-semibold text-white">Continue Watching</h2>
       <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {items.map(({ video, entry }) => {
+        {items.map((item, index) => {
+          const { video, entry } = item;
           const duration =
             entry.duration > 0 ? entry.duration : video.durationSeconds ?? 0;
           const progress = duration > 0
             ? Math.max(0, Math.min(100, (entry.currentTime / duration) * 100))
             : 0;
+          const thumbnailUrl =
+            entry.thumbnailUrl ||
+            video.thumbnailUrl ||
+            undefined;
+          const canCaptureResumeFrame =
+            video.access === "public" && video.audienceRestricted !== true;
 
           return (
             <button
@@ -281,17 +294,26 @@ function ContinueWatchingShelf({
               className="w-[208px] shrink-0 snap-start text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fuchsia-400"
               data-testid={`continue-watching-${video.id}`}
               onClick={() => onOpen({ video, entry })}
+              onTouchStart={() => onPrepare(item)}
+              onPointerEnter={() => onPrepare(item)}
+              onFocus={() => onPrepare(item)}
             >
               <div className="relative aspect-video overflow-hidden rounded-xl bg-neutral-900">
                 <LazyVideoThumbnail
-                  thumbnailUrl={video.thumbnailUrl}
-                  mediaUrl={video.access === "public" ? video.mediaUrl : null}
-                  streamId={video.access === "public" ? video.cloudflareStreamId : null}
+                  thumbnailUrl={thumbnailUrl}
+                  mediaUrl={canCaptureResumeFrame ? video.mediaUrl : null}
+                  streamId={canCaptureResumeFrame ? video.cloudflareStreamId : null}
                   alt={video.title}
                   bucket="thumbnails"
                   className="bg-black [&_img]:object-contain"
+                  loading={index === 0 ? "eager" : "lazy"}
+                  fetchPriority={index === 0 ? "high" : "auto"}
+                  frameCacheKey={`continue:${video.id}:${Math.floor(entry.currentTime)}`}
+                  frameCaptureTimeSeconds={entry.currentTime}
+                  posterTimeSeconds={entry.currentTime}
+                  preferVideoFrame={canCaptureResumeFrame}
                   showFrameStatus={false}
-                  allowFrameCapture={false}
+                  allowFrameCapture={canCaptureResumeFrame}
                 />
                 <span className="absolute inset-x-0 bottom-0 h-1 bg-white/25">
                   <span
@@ -316,6 +338,7 @@ function ContinueWatchingShelf({
 
 function HomePage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { activeVideo } = useVideoPlayback();
   const resumeEntries = useVideoResumeEntries();
   const [hydrated, setHydrated] = React.useState(false);
@@ -372,6 +395,22 @@ function HomePage() {
   const { user } = useAuth();
   const { streams: liveStreams } = useActiveLiveStreams();
   const { count: alertCount } = useAlertsCount();
+  const prepareContinuePlayback = React.useCallback(
+    (item: ContinueWatchingItem) => {
+      void queryClient.prefetchQuery(
+        longVideoPlaybackQueryOptions(
+          item.video.id,
+          user?.id ?? null,
+          LONG_VIDEO_PLAYBACK_PREFETCH_STALE_MS,
+        ),
+      );
+    },
+    [queryClient, user?.id],
+  );
+  const firstContinueItem = continueWatchingItems[0] ?? null;
+  React.useEffect(() => {
+    if (firstContinueItem) prepareContinuePlayback(firstContinueItem);
+  }, [firstContinueItem, prepareContinuePlayback]);
   const homeSwipeStartRef = React.useRef<{
     x: number;
     y: number;
@@ -687,11 +726,13 @@ function HomePage() {
       <FeedTopBar alertCount={alertCount} />
       <ContinueWatchingShelf
         items={continueWatchingItems}
+        onPrepare={prepareContinuePlayback}
         onOpen={({ video, entry }) => {
           requestVideoResume(video.id, entry.currentTime);
           void navigate({
             to: "/video/$videoId",
             params: { videoId: video.id },
+            search: { continueWatching: true },
           });
         }}
       />

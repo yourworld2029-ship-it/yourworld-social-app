@@ -2,11 +2,19 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   episodeOrdinal,
+  hasRestrictedLongVideoAudience,
   isLongVideoRow,
   isNextSeriesEpisode,
   isPublishedLongVideoRow,
   sortSeriesEpisodes,
 } from "./long-video-utils";
+
+test("restricted long-video audiences are identified before resume-frame capture", () => {
+  assert.equal(hasRestrictedLongVideoAudience({ is_private: true }), true);
+  assert.equal(hasRestrictedLongVideoAudience({ audience: "Close Friends" }), true);
+  assert.equal(hasRestrictedLongVideoAudience({ privacy: "followers" }), true);
+  assert.equal(hasRestrictedLongVideoAudience({ visibility: "public" }), false);
+});
 
 test("published long-video eligibility rejects reels and unpublished rows", () => {
   assert.equal(isPublishedLongVideoRow({ kind: "video", status: "published" }), true);

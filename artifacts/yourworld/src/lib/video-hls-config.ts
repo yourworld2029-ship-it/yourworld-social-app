@@ -125,12 +125,16 @@ function getInitialBandwidthEstimate() {
   return 3_000_000;
 }
 
-export function createVideoHlsConfig() {
+export function createVideoHlsConfig(startPosition = -1) {
   return {
     loader: HlsPrefetchCacheLoader,
     enableWorker: true,
     lowLatencyMode: true,
     autoStartLoad: true,
+    startPosition:
+      Number.isFinite(startPosition) && startPosition >= 0
+        ? startPosition
+        : -1,
     startLevel: -1,
     maxBufferLength: 3,
     maxMaxBufferLength: 6,

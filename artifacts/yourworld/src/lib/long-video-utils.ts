@@ -16,6 +16,23 @@ export function isLongVideoRow(row: UnknownRow) {
   return hasVideoMedia && Number.isFinite(duration) && duration >= 90;
 }
 
+export function hasRestrictedLongVideoAudience(row: UnknownRow) {
+  if (row.is_private === true || row.is_followers_only === true || row.close_friends_only === true) {
+    return true;
+  }
+  const restrictedAudiences = new Set([
+    "private",
+    "close_friends",
+    "friends",
+    "followers",
+    "only_me",
+  ]);
+  return [row.audience, row.privacy, row.visibility]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .map((value) => value.trim().toLowerCase().replace(/[\s-]+/g, "_"))
+    .some((value) => restrictedAudiences.has(value));
+}
+
 /** Applies publication state when the current database shape exposes it. */
 export function isPublishedPostRow(row: UnknownRow, now = Date.now()) {
   const status = valueText(row.status).toLowerCase();

@@ -16,6 +16,11 @@ test("HLS playback starts on automatic quality with bounded 3/6-second buffers",
   assert.equal(config.maxMaxBufferLength, 6);
 });
 
+test("HLS resume starts directly at the saved position", () => {
+  assert.equal(createVideoHlsConfig(87).startPosition, 87);
+  assert.equal(createVideoHlsConfig().startPosition, -1);
+});
+
 test("HLS quality resolution uses the short side for landscape and portrait levels", () => {
   assert.equal(hlsLevelResolution({ width: 1920, height: 1080 }), 1080);
   assert.equal(hlsLevelResolution({ width: 1080, height: 1920 }), 1080);
@@ -55,6 +60,14 @@ test("Cloudflare Stream poster uses the first-second thumbnail", () => {
     "https://videodelivery.net/Abcd1234Efgh5678/thumbnails/thumbnail.jpg?time=1s&height=720",
   );
   assert.equal(cloudflareStreamUidFromUrl(manifest), "Abcd1234Efgh5678");
+});
+
+test("Cloudflare Stream resume poster uses the saved playback time", () => {
+  const manifest = "https://videodelivery.net/Abcd1234Efgh5678/manifest/video.m3u8";
+  assert.equal(
+    cloudflareStreamPosterUrl(manifest, undefined, 87.9),
+    "https://videodelivery.net/Abcd1234Efgh5678/thumbnails/thumbnail.jpg?time=87s&height=720",
+  );
 });
 
 test("Cloudflare Stream poster rejects unrelated or malformed manifests", () => {

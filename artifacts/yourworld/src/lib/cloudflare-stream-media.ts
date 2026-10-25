@@ -26,11 +26,15 @@ export function cloudflareStreamUidFromUrl(value: string | null | undefined) {
   }
 }
 
-export function cloudflareStreamPosterUrl(value: string | null | undefined, streamId?: string | null) {
+export function cloudflareStreamPosterUrl(
+  value: string | null | undefined,
+  streamId?: string | null,
+  timeSeconds = 1,
+) {
   const uid = validStreamId(streamId) ?? cloudflareStreamUidFromUrl(value);
-  return uid
-    ? `https://videodelivery.net/${uid}/thumbnails/thumbnail.jpg?time=1s&height=720`
-    : null;
+  if (!uid) return null;
+  const safeTime = Number.isFinite(timeSeconds) ? Math.max(1, Math.floor(timeSeconds)) : 1;
+  return `https://videodelivery.net/${uid}/thumbnails/thumbnail.jpg?time=${safeTime}s&height=720`;
 }
 
 function validStreamId(value?: string | null) {

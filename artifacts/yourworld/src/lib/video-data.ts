@@ -40,7 +40,10 @@ import {
 } from "@/lib/video-thumbnails";
 import { scanVideoContent, type ModerationVerdict } from "@/lib/moderation.functions";
 import { missingColumn, normalizePostRow, postKind, writeCompat } from "@/lib/supabase-compat";
-import { isPublishedLongVideoRow } from "@/lib/long-video-utils";
+import {
+  hasRestrictedLongVideoAudience,
+  isPublishedLongVideoRow,
+} from "@/lib/long-video-utils";
 import { registerUniqueView } from "@/lib/unique-views";
 import {
   qualityTierFromDimensions,
@@ -93,6 +96,7 @@ export type LongVideo = {
   videoType?: string | null;
   isReel?: boolean | null;
   postType?: string | null;
+  audienceRestricted?: boolean;
   durationSeconds: number | null;
   originalWidth?: number | null;
   originalHeight?: number | null;
@@ -853,6 +857,12 @@ async function loadLongVideoPage(
           price?: number | null;
           series_title?: string | null;
           episode_number?: string | null;
+          is_private?: boolean | null;
+          is_followers_only?: boolean | null;
+          close_friends_only?: boolean | null;
+          audience?: string | null;
+          privacy?: string | null;
+          visibility?: string | null;
         };
         const rawAccess = String(metadata.video_access ?? "").toLowerCase();
         const hasPaidPrice =
@@ -865,6 +875,9 @@ async function loadLongVideoPage(
               : rawAccess === "" || rawAccess === "public"
                 ? "public"
                 : "paid";
+        const audienceRestricted = hasRestrictedLongVideoAudience(
+          metadata as Record<string, unknown>,
+        );
         const cloudflarePoster =
           access === "public"
             ? cloudflareStreamPosterUrl(
@@ -890,6 +903,7 @@ async function loadLongVideoPage(
           videoType: metadata.video_type ?? null,
           isReel: metadata.is_reel ?? null,
           postType: metadata.type ?? post.kind ?? null,
+          audienceRestricted,
           durationSeconds: readVideoDurationSeconds(
             post as unknown as Record<string, unknown>,
           ),

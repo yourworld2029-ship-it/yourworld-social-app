@@ -30,6 +30,7 @@ type Props = {
   preferVideoFrame?: boolean;
   frameCacheKey?: string;
   frameCaptureTimeSeconds?: number;
+  posterTimeSeconds?: number;
   resolveFrameMediaSource?: boolean;
   showPlaceholderWhileLoading?: boolean;
 };
@@ -41,7 +42,7 @@ export function LazyVideoThumbnail({
   loading = "lazy", fetchPriority = "auto", onPosterResolved, allowFrameCapture = true,
   showFrameStatus = true, preferGeneratedFallback = false, preferVideoFrame = false,
   frameCacheKey, frameCaptureTimeSeconds = 0.1, resolveFrameMediaSource = false,
-  showPlaceholderWhileLoading = false, mediaBucket,
+  posterTimeSeconds = 1, showPlaceholderWhileLoading = false, mediaBucket,
 }: Props) {
   const [resolved, setResolved] = useState<{ key: string; urls: string[] } | null>(null);
   const [failed, setFailed] = useState<string[]>([]);
@@ -90,7 +91,7 @@ export function LazyVideoThumbnail({
     return () => { observer.disconnect(); document.removeEventListener("visibilitychange", update); };
   }, []);
   const primary = resolved?.key === key ? resolved.urls : [];
-  const cloudflare = cloudflareStreamPosterUrl(mediaUrl, streamId);
+  const cloudflare = cloudflareStreamPosterUrl(mediaUrl, streamId, posterTimeSeconds);
   const preferVideoPreview = preferVideoFrame && (!!mediaUrl || !!streamId);
   const generatePreferredFrame = preferVideoFrame
     ? !!mediaUrl
