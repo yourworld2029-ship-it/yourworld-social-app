@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { historyBackLink } from "@/lib/navigation";
 import { useAdminAccess } from "@/lib/use-admin-access";
+import { describeAdminResponseShape, findAdminConsolePayload } from "@/lib/admin-console-response";
 import { NationalAwardVerificationAdminPanel } from "./admin.national-awards";
 import {
   listAdminPayoutRequests,
@@ -86,16 +87,13 @@ function AdminConsole() {
       setLoadError(null);
       setRefreshKey((current) => current + 1);
       try {
-        const response = unwrapAdminResult(await listAdminConsole());
-        if (
-          !response ||
-          typeof response !== "object" ||
-          !Array.isArray((response as AdminConsoleData).userReports) ||
-          !Array.isArray((response as AdminConsoleData).copyrightReports)
-        ) {
-          throw new Error("Admin Console returned an incomplete response. Refresh after verifying MFA.");
+        const rawResponse = await listAdminConsole();
+        const response = findAdminConsolePayload(rawResponse);
+        if (!response) {
+          const shape = describeAdminResponseShape(rawResponse);
+          throw new Error(`Admin Console response format was not recognized (received: ${shape}).`);
         }
-        setData(response as AdminConsoleData);
+        setData(response);
       } catch (error) {
         const message = error instanceof Error ? error.message : "Could not load the admin console.";
         if (message.toLowerCase().includes("mfa")) setMfaVerified(false);
