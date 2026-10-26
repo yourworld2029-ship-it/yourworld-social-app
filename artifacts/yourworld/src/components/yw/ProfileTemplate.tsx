@@ -326,6 +326,21 @@ export function ProfileTemplate({
                   variant="profile"
                 />
               ) : null}
+              {nationalAwardBadge ? (
+                <div className="w-full flex justify-start">
+                  <span
+                    data-testid="badge-national-award-profile"
+                    aria-label={nationalAwardLabel(nationalAwardBadge.awardCode)}
+                    title={`Verified National Award, ${nationalAwardBadge.awardYear}`}
+                    className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-amber-300/55 bg-gradient-to-r from-amber-300/15 via-yellow-200/10 to-amber-500/15 px-3 py-1.5 text-[10px] font-extrabold tracking-[0.07em] text-amber-100 shadow-[0_0_22px_rgba(234,179,8,0.12)]"
+                  >
+                    <Medal className="h-3.5 w-3.5 shrink-0 text-amber-300" />
+                    <span className="truncate">
+                      {nationalAwardLabel(nationalAwardBadge.awardCode)}
+                    </span>
+                  </span>
+                </div>
+              ) : null}
               {primaryCategoryLine ? (
                 <p
                   data-testid="text-profile-category"
@@ -342,22 +357,6 @@ export function ProfileTemplate({
             <Stat label="Followers" value={counts.followers === null ? "—" : formatCount(counts.followers)} onClick={onFollowersClick} />
             <Stat label="Following" value={counts.following === null ? "—" : formatCount(counts.following)} onClick={onFollowingClick} />
           </dl>
-
-          {nationalAwardBadge ? (
-            <div className="col-span-2 flex justify-start">
-              <span
-                data-testid="badge-national-award-profile"
-                aria-label={nationalAwardLabel(nationalAwardBadge.awardCode)}
-                title={`Verified National Award, ${nationalAwardBadge.awardYear}`}
-                className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-amber-300/55 bg-gradient-to-r from-amber-300/15 via-yellow-200/10 to-amber-500/15 px-3 py-1.5 text-[10px] font-extrabold tracking-[0.07em] text-amber-100 shadow-[0_0_22px_rgba(234,179,8,0.12)]"
-              >
-                <Medal className="h-3.5 w-3.5 shrink-0 text-amber-300" />
-                <span className="truncate">
-                  {nationalAwardLabel(nationalAwardBadge.awardCode)}
-                </span>
-              </span>
-            </div>
-          ) : null}
 
           <div className="col-span-2 min-w-0">
             {userBio ? <Bio text={userBio} /> : null}

@@ -193,6 +193,16 @@ function ProfilePreview({
           <h3 className="yw-profile-name">{name}</h3>
           <p className="yw-profile-handle">{handle}</p>
           {identity ? <SportsIdentityBadge identity={identity} /> : null}
+          {awardCode ? (
+            <span
+              className="yw-award-badge"
+              aria-label={nationalAwardLabel(awardCode)}
+              title="Verified National Award"
+            >
+              <Medal aria-hidden="true" />
+              <span className="yw-award-label">{nationalAwardLabel(awardCode)}</span>
+            </span>
+          ) : null}
           {category ? <p className="yw-category-line">{category}</p> : null}
         </div>
       </div>
@@ -201,16 +211,6 @@ function ProfilePreview({
         <div className="yw-stat">12.4k<span>Followers</span></div>
         <div className="yw-stat">284<span>Following</span></div>
       </div>
-      {awardCode ? (
-        <span
-          className="yw-award-badge"
-          aria-label={nationalAwardLabel(awardCode)}
-          title="Verified National Award"
-        >
-          <Medal aria-hidden="true" />
-          <span className="yw-award-label">{nationalAwardLabel(awardCode)}</span>
-        </span>
-      ) : null}
     </article>
   );
 }
