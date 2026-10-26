@@ -476,3 +476,31 @@ mtime_ms = 1793001270786
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/9397d20a-cde4-4ad1-9b0b-79f39196a084/2e840507-307e-40ca-aa62-dfd7ef4ba445"
 storage_version_token = "1793001493796871"
 content_type = "application/pdf"
+
+[[outputs]]
+id = "16MqNXiG-r7RUpSJ_VCbB"
+uri = "file://generated-artifacts/yourworld-payout-india-sample.pdf"
+type = "pdf"
+title = "India Payout Statement — Sample PDF"
+description = "Vector A4 sample with mock PAN, masked bank details, and 1% Section 194-O TDS. Not a real payment record."
+logical_id = "31fbbe3b-7036-4a39-8f7a-920e9d36b042"
+content_hash = "sha256:c37915317707e284131e30e7f04152cca9198594e89bf6b56dc98e0928148bf3"
+size = 61404
+mtime_ms = 1793005300478
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/31fbbe3b-7036-4a39-8f7a-920e9d36b042/9928f506-3c67-4e04-a4f1-73d48c538196"
+storage_version_token = "1793005582215670"
+content_type = "application/pdf"
+
+[[outputs]]
+id = "jtxR0jrLPpYtG-1vMjNts"
+uri = "file://generated-artifacts/yourworld-payout-international-sample.pdf"
+type = "pdf"
+title = "International USD Payout Statement — Sample PDF"
+description = "Vector A4 USD sample with masked destination and local taxes explicitly not calculated. Not a real payment record."
+logical_id = "94dde709-f6ce-4422-bf78-4602f22f89be"
+content_hash = "sha256:1f4f8ccbd3a49e52874b88fb082480bbe2b052cf4a97e456fa7427e7c27a0398"
+size = 53267
+mtime_ms = 1793005300666
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/94dde709-f6ce-4422-bf78-4602f22f89be/bc1f041f-3064-4faa-950f-832cdeb9a749"
+storage_version_token = "1793005583687487"
+content_type = "application/pdf"

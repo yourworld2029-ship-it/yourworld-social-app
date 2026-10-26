@@ -63,7 +63,7 @@ function drawField(
   x: number,
   y: number,
   valueWidth: number,
-  options: { bold?: boolean; rupee?: boolean } = {},
+  options: { bold?: boolean; rupee?: boolean; stacked?: boolean } = {},
 ) {
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7.6);
@@ -72,6 +72,11 @@ function drawField(
 
   if (options.rupee) {
     addAmount(doc, value, x + valueWidth, y + 1, "right");
+  } else if (options.stacked) {
+    doc.setFont("helvetica", options.bold ? "bold" : "normal");
+    doc.setFontSize(8.5);
+    applyTextColor(doc, CHARCOAL);
+    doc.text(value || "—", x, y + 11, { maxWidth: valueWidth });
   } else {
     doc.setFont("helvetica", options.bold ? "bold" : "normal");
     doc.setFontSize(8.8);
@@ -140,12 +145,13 @@ export function renderPayoutPdf(
 
   const statusWidth = 190;
   const statusX = right - statusWidth - 16;
-  applyFillColor(doc, GREEN);
+  const paymentStatus = info.paymentStatus ?? "PAID / TRANSFERRED";
+  applyFillColor(doc, paymentStatus.includes("PAID") ? GREEN : CHARCOAL);
   doc.roundedRect(statusX, headerY + 20, statusWidth, 25, 12, 12, "F");
   doc.setFont("helvetica", "bold");
   doc.setFontSize(8.6);
   doc.setTextColor(255, 255, 255);
-  doc.text(info.paymentStatus ?? "PAID / TRANSFERRED", statusX + statusWidth / 2, headerY + 36, {
+  doc.text(paymentStatus, statusX + statusWidth / 2, headerY + 36, {
     align: "center",
   });
 
@@ -220,6 +226,7 @@ export function renderPayoutPdf(
     });
     drawField(doc, rightFields[index]![0], rightFields[index]![1], rightX + 14, y, labelWidth, {
       bold: rightFields[index]![2],
+      stacked: rightFields[index]![0].length > 22,
     });
   }
 
@@ -246,10 +253,16 @@ export function renderPayoutPdf(
   doc.text("DESCRIPTION", tableX + 12, tableY + 16);
   doc.text("AMOUNT", tableX + tableWidth - 12, tableY + 16, { align: "right" });
 
-  const rows: Array<{ label: string; amount: number; bold?: boolean; net?: boolean }> = [
-    { label: "Ad Revenue Share (Videos 90s+)", amount: breakdown.creatorBySource.ads },
-    { label: "Course / Creator Content Sales", amount: breakdown.creatorBySource.course },
+  const sourceRows: Array<{ label: string; amount: number }> = [
+    { label: "Ad Revenue Share (Standard Videos 90s+)", amount: breakdown.creatorBySource.ads },
+    {
+      label: "Paid Courses (masterclasses and skill workshops)",
+      amount: breakdown.creatorBySource.course,
+    },
     { label: "VIP Subscriptions", amount: breakdown.creatorBySource.vip },
+  ];
+  const rows: Array<{ label: string; amount: number; bold?: boolean; net?: boolean }> = [
+    ...sourceRows.filter((row) => row.amount !== 0),
     { label: "Gross Platform Earnings", amount: breakdown.creatorShare, bold: true },
     { label: "TDS Deducted @ 1% (u/s 194-O Income Tax Act)", amount: -breakdown.tds },
     { label: "Total Net Payout Credited", amount: breakdown.net, bold: true, net: true },
