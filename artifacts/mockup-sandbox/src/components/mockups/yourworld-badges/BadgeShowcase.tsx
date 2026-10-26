@@ -191,7 +191,6 @@ function ProfilePreview({
         <div className="yw-avatar" aria-hidden="true">{initials}</div>
         <div className="yw-profile-copy">
           <h3 className="yw-profile-name">{name}</h3>
-          <p className="yw-profile-handle">{handle}</p>
           {identity ? <SportsIdentityBadge identity={identity} /> : null}
           {awardCode ? (
             <span
@@ -203,6 +202,7 @@ function ProfilePreview({
               <span className="yw-award-label">{nationalAwardLabel(awardCode)}</span>
             </span>
           ) : null}
+          <p className="yw-profile-handle">{handle}</p>
           {category ? <p className="yw-category-line">{category}</p> : null}
         </div>
       </div>
