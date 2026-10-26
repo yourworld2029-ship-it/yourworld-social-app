@@ -19,10 +19,10 @@ import { useAdminAccess } from "@/lib/use-admin-access";
 import { parseForeignSportsAddress } from "@/lib/profile-data";
 import { isIndiaSportsCountry } from "@/lib/sports-country";
 import {
-  listSportsVerificationApplications,
   reviewSportsVerification,
   type AdminVerificationApplication,
 } from "@/lib/sports-verification.functions";
+import { readAdminConsoleApi } from "@/lib/admin-console-api";
 
 export const Route = createFileRoute("/admin/sports-verification")({
   head: () => ({
@@ -53,7 +53,12 @@ function AdminSportsVerification() {
     setLoading(true);
     setError(null);
     try {
-      const result = await listSportsVerificationApplications();
+      const result = await readAdminConsoleApi<{
+        applications?: AdminVerificationApplication[];
+      }>("sportsVerification");
+      if (!Array.isArray(result?.applications)) {
+        throw new Error("Sports Verification returned an invalid application list. Refresh and try again.");
+      }
       setApplications(
         result.applications.map((application) => ({
           ...application,

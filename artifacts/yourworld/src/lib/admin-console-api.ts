@@ -3,7 +3,8 @@ import { supabase } from "@/integrations/supabase/client";
 export type AdminConsoleReadOperation =
   | "console"
   | "payoutRequests"
-  | "internationalPayoutKyc";
+  | "internationalPayoutKyc"
+  | "sportsVerification";
 
 type AdminConsoleApiEnvelope = {
   data?: unknown;
