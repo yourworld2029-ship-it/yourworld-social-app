@@ -1,5 +1,5 @@
 import { jsPDF } from "jspdf";
-import { inr, type PayoutBreakdown } from "./payout-math";
+import { inr, round2, TDS_RATE, type PayoutBreakdown } from "./payout-math";
 
 export type StatementInfo = {
   statementId: string;
@@ -106,7 +106,7 @@ function drawRoundedPanel(
   doc.roundedRect(x, y, width, height, 8, 8, "FD");
 }
 
-/** Builds the "Payout Statement & Tax Invoice" using vector text and shapes. */
+/** Builds the "Payout Statement & TDS Summary" using vector text and shapes. */
 export function renderPayoutPdf(
   info: StatementInfo,
   breakdown: PayoutBreakdown,
@@ -117,7 +117,7 @@ export function renderPayoutPdf(
   doc.addFileToVFS("DejaVuSans.ttf", fontBase64);
   doc.addFont("DejaVuSans.ttf", "DejaVuSans", "normal");
   doc.setProperties({
-    title: "YourWorld Social Creator Payout Statement & Tax Invoice",
+    title: "YourWorld Social Creator Payout Statement & TDS Summary",
     subject: `Payout statement ${info.statementId}`,
     creator: "YourWorld Social",
   });
@@ -138,7 +138,7 @@ export function renderPayoutPdf(
   doc.setFont("helvetica", "normal");
   doc.setFontSize(10.5);
   doc.setTextColor(221, 228, 237);
-  doc.text("Creator Payout Statement & Tax Invoice", margin + 18, headerY + 49);
+  doc.text("Creator Payout Statement & TDS Summary", margin + 18, headerY + 49);
   doc.setFontSize(8);
   doc.setTextColor(192, 203, 218);
   doc.text("YourWorld Creator Payouts · support: Yourworld2029@gmail.com", margin + 18, headerY + 67);
@@ -253,19 +253,22 @@ export function renderPayoutPdf(
   doc.text("DESCRIPTION", tableX + 12, tableY + 16);
   doc.text("AMOUNT", tableX + tableWidth - 12, tableY + 16, { align: "right" });
 
+  const adRevenueShare = breakdown.creatorBySource.ads;
+  const courseCreatorSales = round2(
+    breakdown.creatorBySource.course + breakdown.creatorBySource.vip,
+  );
+  const grossPlatformEarnings = round2(adRevenueShare + courseCreatorSales);
+  const tds = round2(grossPlatformEarnings * TDS_RATE);
+  const netPayout = round2(grossPlatformEarnings - tds);
   const sourceRows: Array<{ label: string; amount: number }> = [
-    { label: "Ad Revenue Share (Standard Videos 90s+)", amount: breakdown.creatorBySource.ads },
-    {
-      label: "Paid Courses (masterclasses and skill workshops)",
-      amount: breakdown.creatorBySource.course,
-    },
-    { label: "VIP Subscriptions", amount: breakdown.creatorBySource.vip },
+    { label: "Ad Revenue Share (Videos 90s+)", amount: adRevenueShare },
+    { label: "Course / Creator Content Sales", amount: courseCreatorSales },
   ];
   const rows: Array<{ label: string; amount: number; bold?: boolean; net?: boolean }> = [
     ...sourceRows.filter((row) => row.amount !== 0),
-    { label: "Gross Platform Earnings", amount: breakdown.creatorShare, bold: true },
-    { label: "TDS Deducted @ 1% (u/s 194-O Income Tax Act)", amount: -breakdown.tds },
-    { label: "Total Net Payout Credited", amount: breakdown.net, bold: true, net: true },
+    { label: "Gross Platform Earnings", amount: grossPlatformEarnings, bold: true },
+    { label: "TDS Deducted @ 1% (u/s 194-O Income Tax Act)", amount: -tds },
+    { label: "Total Net Payout Credited", amount: netPayout, bold: true, net: true },
   ];
 
   rows.forEach((row, index) => {
@@ -284,11 +287,17 @@ export function renderPayoutPdf(
     doc.setFontSize(8.8);
     applyTextColor(doc, row.net ? GREEN : CHARCOAL);
     doc.text(row.label, tableX + 12, y + 17);
-    addAmount(doc, `${row.amount < 0 ? "−" : ""}${inr(Math.abs(row.amount))}`, tableX + tableWidth - 12, y + 18, "right");
+    addAmount(
+      doc,
+      `${row.amount < 0 ? "-" : ""}${inr(Math.abs(row.amount))}`,
+      tableX + tableWidth - 12,
+      y + 18,
+      "right",
+    );
   });
 
   const noteY = tableY + headerRowHeight + rows.length * rowHeight + 17;
-  const noteText = `Tax Compliance Note: TDS of ${inr(breakdown.tds)} has been credited against PAN ${info.pan || "—"} under Section 194-O. Form 16A TDS Certificate will be issued quarterly as per Indian Income Tax guidelines.`;
+  const noteText = `Tax Compliance Note: TDS of ${inr(tds)} has been credited against PAN ${info.pan || "—"} under Section 194-O. Form 16A TDS Certificate will be issued quarterly as per Indian Income Tax guidelines.`;
   const noteLines = doc.splitTextToSize(noteText, contentWidth - 28);
   const noteHeight = Math.max(56, noteLines.length * 13 + 22);
   applyFillColor(doc, [239, 243, 248]);
