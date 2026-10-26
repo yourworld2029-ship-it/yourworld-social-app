@@ -462,3 +462,17 @@ mtime_ms = 1792949606264
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/3f86326a-6029-4790-9154-4478bebe594f/5e38c2e5-3b0f-4168-8862-b65fd2d62346"
 storage_version_token = "1792949625834238"
 content_type = "application/pdf"
+
+[[outputs]]
+id = "sv_ReLIVNyIy9h4c4RnIs"
+uri = "file://generated-artifacts/yourworld-payout-statement-sample.pdf"
+type = "pdf"
+title = "YourWorld Payout Statement — Sample PDF"
+description = "One-page vector PDF preview with the requested mock earnings, TDS, creator, and masked payout details. Not a real payment record."
+logical_id = "9397d20a-cde4-4ad1-9b0b-79f39196a084"
+content_hash = "sha256:7b836e55bdb8d653a3f8a19340771e2bd0c3604e380ce37a4b52a882af33b7ac"
+size = 61575
+mtime_ms = 1793001270786
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d48a5d16-ca1f-48d5-bfeb-3d8ebf665d4f/9397d20a-cde4-4ad1-9b0b-79f39196a084/2e840507-307e-40ca-aa62-dfd7ef4ba445"
+storage_version_token = "1793001493796871"
+content_type = "application/pdf"
