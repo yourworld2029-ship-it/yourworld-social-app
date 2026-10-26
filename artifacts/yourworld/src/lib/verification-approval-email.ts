@@ -1,4 +1,7 @@
-import { countryCodeForSportsCountry } from "./sports-country";
+import {
+  countryCodeForSportsCountry,
+  countryFlagForSportsCountry,
+} from "./sports-country";
 
 export type VerificationBadgeKind = "award" | "sports";
 export type MonetizationQuotaTier = "special" | "national" | "standard";
@@ -75,6 +78,7 @@ export function buildVerificationApprovalEmail(input: {
   badgeKind: VerificationBadgeKind;
   badgeTitle: string;
   quotaTier: MonetizationQuotaTier;
+  country: string | null;
   avatarUrl?: string | null;
   profileUrl?: string | null;
 }) {
@@ -85,6 +89,21 @@ export function buildVerificationApprovalEmail(input: {
   const profileUrl =
     safeHttpsUrl(input.profileUrl) ??
     "https://your-world-social-app--yourworld2029.replit.app/profile";
+  const countryCode = countryCodeForSportsCountry(input.country);
+  const isIndianCreator = countryCode === "IN";
+  const countryFlag = countryFlagForSportsCountry(input.country);
+  const greeting = isIndianCreator
+    ? `Badhaai Ho, ${profileName}! 🏆🎉`
+    : `Congratulations, ${profileName}! 🏆🎉`;
+  const tributeParagraphs = isIndianCreator
+    ? [
+        "Aapne desh aur samaj ka naam uncha kiya hai, isliye YourWorld par aapka swagat bhi sabse khas hona chahiye! 🇮🇳",
+        `Hamein behad garv hai ki hum aapko ${badgeTitle} ke sath verify kar rahe hain.`,
+      ]
+    : [
+        "Your athletic achievements and dedication to sports inspire us all.",
+        `We are proud to verify you with the ${badgeTitle} badge. Welcome to YourWorld!${countryFlag ? ` ${countryFlag}` : ""}`,
+      ];
   const avatarInitials =
     profileName
       .split(/\s+/)
@@ -95,9 +114,8 @@ export function buildVerificationApprovalEmail(input: {
   const badgeLabel = input.badgeKind === "award" ? "National Honours / Gallantry Award" : "Sports Badge";
   const text = [
     "YOURWORLD VERIFIED 🏆",
-    `Badhaai Ho, ${profileName}! 🏆🎉`,
-    "Aapne desh aur samaj ka naam uncha kiya hai, isliye YourWorld par aapka swagat bhi sabse khas hona chahiye! 🇮🇳",
-    `Hamein behad garv hai ki hum aapko ${badgeTitle} ke sath verify kar rahe hain.`,
+    greeting,
+    ...tributeParagraphs,
     "Your Profile Identity Card:",
     `Profile Name: ${profileName}`,
     `${badgeLabel}: ${badgeTitle}`,
@@ -110,6 +128,10 @@ export function buildVerificationApprovalEmail(input: {
   const escapedProfileName = escapeEmailHtml(profileName);
   const escapedBadgeTitle = escapeEmailHtml(badgeTitle);
   const escapedQuotaCopy = escapeEmailHtml(quotaCopy);
+  const escapedGreeting = escapeEmailHtml(greeting);
+  const htmlTributeParagraphs = tributeParagraphs
+    .map((paragraph) => `<p style="margin:0 0 12px;color:#e6deeb;font-size:16px;line-height:1.75">${escapeEmailHtml(paragraph)}</p>`)
+    .join("");
   const escapedAvatarInitials = escapeEmailHtml(avatarInitials);
   const escapedAvatarUrl = avatarUrl ? escapeEmailHtml(avatarUrl) : null;
   const escapedProfileUrl = escapeEmailHtml(profileUrl);
@@ -122,9 +144,8 @@ export function buildVerificationApprovalEmail(input: {
         <div style="height:5px;background:#e649c7"></div>
         <div style="padding:30px 28px 28px">
           <div style="margin:0 0 22px;color:#f1a6e3;font-size:13px;font-weight:800;letter-spacing:2px">YOURWORLD VERIFIED 🏆</div>
-          <h1 style="margin:0 0 14px;color:#ffffff;font-size:27px;line-height:1.35">Badhaai Ho, ${escapedProfileName}! 🏆🎉</h1>
-          <p style="margin:0 0 12px;color:#e6deeb;font-size:16px;line-height:1.75">Aapne desh aur samaj ka naam uncha kiya hai, isliye YourWorld par aapka swagat bhi sabse khas hona chahiye! 🇮🇳</p>
-          <p style="margin:0 0 24px;color:#e6deeb;font-size:16px;line-height:1.75">Hamein behad garv hai ki hum aapko <strong style="color:#ffffff">${escapedBadgeTitle}</strong> ke sath verify kar rahe hain.</p>
+          <h1 style="margin:0 0 14px;color:#ffffff;font-size:27px;line-height:1.35">${escapedGreeting}</h1>
+          ${htmlTributeParagraphs}
           <div style="padding:22px;background:#1a1424;border:1px solid #53375f;border-radius:18px">
             <div style="margin:0 0 15px;color:#f1a6e3;font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase">Profile Identity Card</div>
             <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse">

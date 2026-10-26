@@ -67,6 +67,7 @@ test("approval identity card shows profile name and the exact selected badge tit
     badgeKind: "award",
     badgeTitle: "Padma Award (Vibhushan / Bhushan / Shri) 🎖️",
     quotaTier: "special",
+    country: "India",
     avatarUrl: "https://cdn.example.com/avatars/arjun.jpg",
     profileUrl: "https://your-world-social-app--yourworld2029.replit.app/u/creator-123",
   });
@@ -101,6 +102,7 @@ test("national sports approval email includes the exact national quota", () => {
     badgeKind: "sports",
     badgeTitle: "National Coach",
     quotaTier: "national",
+    country: "India",
   });
   assert.match(
     email.quotaCopy,
@@ -114,16 +116,40 @@ test("approval email uses a safe initials avatar when a usable profile image is 
     badgeKind: "sports",
     badgeTitle: "International Athlete",
     quotaTier: "special",
+    country: "United States",
     avatarUrl: "javascript:alert(1)",
     profileUrl: "http://unsafe.example.com/profile",
   });
   assert.match(email.html, /aria-label="Riya Kapoor avatar"/);
   assert.match(email.html, />RK<\/div>/);
+  assert.match(email.text, /Congratulations, Riya Kapoor! 🏆🎉/);
+  assert.match(
+    email.text,
+    /Your athletic achievements and dedication to sports inspire us all\./,
+  );
+  assert.match(
+    email.text,
+    /We are proud to verify you with the International Athlete badge\. Welcome to YourWorld! 🇺🇸/,
+  );
+  assert.doesNotMatch(email.text, /🇮🇳|Badhaai Ho|Aapne desh/);
   assert.doesNotMatch(email.html, /javascript:|unsafe\.example/);
   assert.equal(
     email.profileUrl,
     "https://your-world-social-app--yourworld2029.replit.app/profile",
   );
+});
+
+test("India-based international sports badges retain the Hindi tribute and Indian flag", () => {
+  const email = buildVerificationApprovalEmail({
+    profileName: "Ananya Rao",
+    badgeKind: "sports",
+    badgeTitle: "International Athlete",
+    quotaTier: "special",
+    country: "India",
+  });
+  assert.match(email.text, /Badhaai Ho, Ananya Rao! 🏆🎉/);
+  assert.match(email.text, /🇮🇳/);
+  assert.doesNotMatch(email.text, /Congratulations, Ananya Rao|🇺🇸/);
 });
 
 test("badge label cleanup removes decorative symbols but preserves the selected name", () => {

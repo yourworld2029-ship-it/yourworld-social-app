@@ -741,6 +741,7 @@ export const reviewSportsVerification = createServerFn({ method: "POST" })
           badgeKind: "sports",
           badgeTitle: sportsApprovalBadgeTitle(profile),
           quotaTier: sportsMonetizationQuotaTier(profile),
+          country: profile.country ?? null,
           avatarUrl: profile.avatar_url,
           profileUrl: buildPublicAppUrl(`/u/${encodeURIComponent(profile.id)}`),
         });

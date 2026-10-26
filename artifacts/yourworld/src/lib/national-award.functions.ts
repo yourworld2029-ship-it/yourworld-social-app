@@ -736,6 +736,7 @@ export const reviewNationalAwardVerification = createServerFn({ method: "POST" }
     let approvalProfileName = "";
     let approvalBadgeTitle = "";
     let approvalAvatarUrl: string | null = null;
+    let approvalCountry: string | null = null;
     if (data.action === "reject" && !reason) {
       throw new Error("A reason is required when rejecting an Award Verification request.");
     }
@@ -763,6 +764,7 @@ export const reviewNationalAwardVerification = createServerFn({ method: "POST" }
         .maybeSingle();
       if (applicantProfileError) throw new Error(applicantProfileError.message);
       approvalAvatarUrl = applicantProfile?.avatar_url ?? null;
+      approvalCountry = applicantProfile?.country ?? null;
       approvalProfileName =
         applicantProfile?.display_name?.trim() ||
         applicantProfile?.username?.trim() ||
@@ -824,6 +826,7 @@ export const reviewNationalAwardVerification = createServerFn({ method: "POST" }
           badgeKind: "award",
           badgeTitle: approvalBadgeTitle,
           quotaTier: "special",
+          country: approvalCountry,
           avatarUrl: approvalAvatarUrl,
           profileUrl: buildPublicAppUrl(`/u/${encodeURIComponent(data.applicantUserId)}`),
         });
