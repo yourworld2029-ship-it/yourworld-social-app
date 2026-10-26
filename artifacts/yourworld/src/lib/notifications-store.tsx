@@ -32,6 +32,7 @@ export type NotificationKind =
   | "mention"
   | "follower"
   | "message"
+  | "collaboration"
   | "channel"
   | "verification"
   | "monetization"
@@ -63,6 +64,11 @@ export type NotificationItem = {
   /** Reshare action supplied by a Moment mention notification. */
   canReshareMoment?: boolean;
   momentId?: string;
+  collaborationInvite?: {
+    inviteId: string;
+    postId: string;
+    status: "pending" | "accepted" | "declined" | "removed";
+  };
 };
 
 export type KindMeta = {
@@ -80,6 +86,7 @@ export const NOTIFICATION_KINDS: KindMeta[] = [
   { id: "mention", label: "Mentions", emoji: "", icon: AtSign, tint: "text-violet-400" },
   { id: "follower", label: "New Followers", emoji: "", icon: UserPlus, tint: "text-violet-400" },
   { id: "message", label: "Messages", emoji: "", icon: Mail, tint: "text-blue-400" },
+  { id: "collaboration", label: "Collaborations", emoji: "", icon: UserPlus, tint: "text-violet-400" },
   { id: "channel", label: "Channel Updates", emoji: "", icon: Megaphone, tint: "text-orange-400" },
   { id: "verification", label: "Verification", emoji: "", icon: BadgeCheck, tint: "text-cyan-400" },
   { id: "monetization", label: "Monetization", emoji: "", icon: Coins, tint: "text-amber-400" },
@@ -122,6 +129,7 @@ function normalizeNotificationKind(value: string): NotificationKind {
     kind === "mention" ||
     kind === "follower" ||
     kind === "message" ||
+    kind === "collaboration" ||
     kind === "channel" ||
     kind === "verification" ||
     kind === "monetization"
@@ -592,6 +600,15 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
   for (const r of rows.momentNotifications) {
     const kind = normalizeNotificationKind(r.kind);
     const entityType = r.entity_type?.trim().toLowerCase() ?? "";
+    const collaborationInviteId = kind === "collaboration"
+      ? metadataId(r.metadata, "invite_id")
+      : "";
+    const collaborationPostId = kind === "collaboration"
+      ? metadataId(r.metadata, "post_id") || r.entity_id || ""
+      : "";
+    const collaborationStatus = metadataId(r.metadata, "status");
+    const collaborationPreview = kind === "collaboration" &&
+      r.metadata?.source === "reel_collaboration_invite";
     const momentId =
       entityType === "moment"
         ? r.entity_id ?? metadataId(r.metadata, "moment_id")
@@ -671,10 +688,32 @@ async function fetchEvents(): Promise<Omit<NotificationItem, "read">[]> {
           : contentId
             ? postPreviewMedia.get(contentId) ?? null
             : null,
-      previewStreamId: contentId
-        ? postPreviewStreamIds.get(contentId) ?? null
-        : null,
-      previewBucket: contentId ? postPreviewBuckets.get(contentId) : undefined,
+      previewStreamId: collaborationPreview
+        ? metadataId(r.metadata, "stream_id") || null
+        : contentId
+          ? postPreviewStreamIds.get(contentId) ?? null
+          : null,
+      previewBucket: collaborationPreview
+        ? "reels"
+        : contentId
+          ? postPreviewBuckets.get(contentId)
+          : undefined,
+      ...(collaborationPreview && collaborationInviteId && collaborationPostId
+        ? {
+            collaborationInvite: {
+              inviteId: collaborationInviteId,
+              postId: collaborationPostId,
+              status:
+                collaborationStatus === "accepted" ||
+                collaborationStatus === "declined" ||
+                collaborationStatus === "removed"
+                  ? collaborationStatus
+                  : "pending",
+            },
+            thumbnailUrl: metadataId(r.metadata, "thumbnail_url") || null,
+            previewMediaUrl: metadataId(r.metadata, "media_url") || null,
+          }
+        : {}),
     });
   }
 
@@ -726,6 +765,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
         .on("postgres_changes", { event: "*", schema: "public", table: "comments" }, reload)
         .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, reload)
         .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications" }, reload)
+        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "notifications" }, reload)
         .subscribe((status) => {
           if (status === "SUBSCRIBED") {
             void load();

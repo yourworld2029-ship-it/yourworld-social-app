@@ -1578,7 +1578,7 @@ export async function publishDirectReel(opts: {
   thumbnail?: Blob | null;
   onProgress?: ProgressFn;
   signal?: AbortSignal;
-}): Promise<{ error: string | null }> {
+}): Promise<{ error: string | null; collaborationError?: string | null }> {
   const sizeError = getReelVideoSizeError(opts.file.size);
   if (sizeError) return { error: sizeError };
 
@@ -1677,7 +1677,6 @@ export async function publishDirectReel(opts: {
       allow_download: opts.allowDownload ?? true,
       paid_promotion: opts.paidPromotion ?? false,
       audience: "everyone",
-      tagged_user_ids: opts.collaboratorUserId ? [opts.collaboratorUserId] : [],
       viewer_user_ids: [],
       duration_seconds: Math.round(durationSeconds ?? opts.durationSeconds),
       original_width: uploadedWidth,
@@ -1695,7 +1694,18 @@ export async function publishDirectReel(opts: {
       ? { message: "The video source could not be saved for offline downloads. Please update the video schema and try again." }
       : result.error;
   if (error) console.error("Direct reel database insert failed", error);
-  else {
+  let collaborationError: string | null = null;
+  if (!error && opts.collaboratorUserId) {
+    const { error: inviteError } = await supabase.rpc("create_reel_collaboration_invite", {
+      p_post_id: postId,
+      p_collaborator_id: opts.collaboratorUserId,
+    });
+    if (inviteError) {
+      collaborationError = inviteError.message;
+      console.error("Direct Reel collaboration invite failed", inviteError);
+    }
+  }
+  if (!error) {
     announcePublishedPost({
       id: postId,
       kind: "reel",
@@ -1704,7 +1714,7 @@ export async function publishDirectReel(opts: {
     });
   }
   if (!opts.signal?.aborted) opts.onProgress?.(100);
-  return { error: error?.message ?? null };
+  return { error: error?.message ?? null, collaborationError };
 }
 
 /** Uploads a photo/video and inserts it into the posts table (kind = "post"). */

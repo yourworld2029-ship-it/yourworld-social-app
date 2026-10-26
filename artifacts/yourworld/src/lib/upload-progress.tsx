@@ -26,7 +26,11 @@ import {
 
 export type UploadKind = "reel" | "video" | "post" | "moment";
 export type UploadProgressReporter = ProgressFn;
-export type UploadRunResult = { error: string | null; cancelled?: boolean };
+export type UploadRunResult = {
+  error: string | null;
+  cancelled?: boolean;
+  collaborationError?: string | null;
+};
 
 export type UploadTask = {
   id: string;

@@ -38,3 +38,9 @@ For performance DDL, query `information_schema.columns` in the runtime Supabase 
 **Why:** The runtime `posts` table exposed `user_id`, `kind`, and `created_at` but not the status columns suggested by older local assumptions. An initial multi-index migration failed as a batch until it was reduced to confirmed columns.
 
 **How to apply:** Apply only indexes backed by live column metadata, keep the local migration aligned with the successful remote DDL, and treat a failed migration as a transaction to verify rather than assuming any earlier statements applied.
+
+For Reel collaborations, do not assume `public.posts` has `tagged_user_ids` or `audience`; the live schema currently lacks both. Keep invites and acceptance state in a dedicated table and expose only accepted collaborators.
+
+**Why:** Compatibility writes can silently drop an unknown collaborator field, and a query against a missing audience column fails. A separate invite record is also required to ensure a collaborator appears only after accepting.
+
+**How to apply:** Verify live post columns first; create one pending invite through an owner-checked RPC, let only the invited user accept or decline, and read accepted collaborator IDs through a narrowly scoped RPC. Do not attempt a backfill from columns that do not exist.

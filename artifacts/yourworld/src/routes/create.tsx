@@ -328,7 +328,7 @@ function DirectReelUploadPage() {
       removeOptimisticPost(optimisticId);
       return;
     }
-    void uploadPromise.then(({ error: uploadError, cancelled }) => {
+    void uploadPromise.then(({ error: uploadError, cancelled, collaborationError }) => {
       if (cancelled) {
         removeOptimisticPost(optimisticId);
         return;
@@ -339,6 +339,9 @@ function DirectReelUploadPage() {
         return;
       }
       toast.success("Reel published");
+      if (collaborationError) {
+        toast.error("Reel published, but the collaboration invite could not be sent.");
+      }
     });
 
     navigate({

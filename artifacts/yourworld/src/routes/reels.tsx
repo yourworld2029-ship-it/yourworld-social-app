@@ -373,23 +373,38 @@ function ReelsList() {
     }
     return [target, ...dbReels];
   }, [dbReels, initialId, removedDirectTargetId, targetedMedia.post, userId]);
-  const collaboratorIds = useMemo(
-    () =>
-      [...new Set(
-        reelRows.flatMap((post) => {
-          if (post.kind !== "reel") return [];
-          const taggedUserIds = (post as SocialPost & {
-            tagged_user_ids?: unknown;
-          }).tagged_user_ids;
-          return Array.isArray(taggedUserIds)
-            ? taggedUserIds.filter(
-                (id): id is string =>
-                  typeof id === "string" && id.length > 0 && id !== post.user_id,
-              ).slice(0, 1)
-            : [];
-        }),
-      )],
+  const reelPostIds = useMemo(
+    () => reelRows.filter((post) => post.kind === "reel").map((post) => post.id),
     [reelRows],
+  );
+  const acceptedCollaboratorsQuery = useQuery<
+    Array<{ post_id: string; collaborator_id: string }>
+  >({
+    queryKey: ["accepted-reel-collaborators", reelPostIds],
+    enabled: reelPostIds.length > 0,
+    staleTime: 0,
+    refetchOnMount: "always",
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("get_public_reel_collaborators", {
+        p_post_ids: reelPostIds,
+      });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+  const collaboratorByPostId = useMemo(
+    () =>
+      new Map(
+        (acceptedCollaboratorsQuery.data ?? []).map((item) => [
+          item.post_id,
+          item.collaborator_id,
+        ]),
+      ),
+    [acceptedCollaboratorsQuery.data],
+  );
+  const collaboratorIds = useMemo(
+    () => [...new Set(collaboratorByPostId.values())],
+    [collaboratorByPostId],
   );
   const collaboratorProfilesQuery = useQuery<
     Array<{ id: string; username: string; display_name: string }>
@@ -410,16 +425,9 @@ function ReelsList() {
     [collaboratorProfilesQuery.data],
   );
   const live = useMemo(() => reelRows.map((p) => {
-    const taggedUserIds = (p as SocialPost & {
-      tagged_user_ids?: unknown;
-    }).tagged_user_ids;
-    const collaboratorId =
-      p.kind === "reel" && Array.isArray(taggedUserIds)
-        ? taggedUserIds.find(
-            (id): id is string =>
-              typeof id === "string" && id.length > 0 && id !== p.user_id,
-          )
-        : undefined;
+    const collaboratorId = p.kind === "reel"
+      ? collaboratorByPostId.get(p.id)
+      : undefined;
     return {
       sourcePost: p,
       collaborator: collaboratorId
@@ -473,7 +481,7 @@ function ReelsList() {
         : p.thumbnail_url ?? null,
     isPending: p.id.startsWith("optimistic-reel-"),
     };
-  }), [collaboratorProfileById, reelRows]);
+  }), [collaboratorByPostId, collaboratorProfileById, reelRows]);
 
   const items = live;
   const nextItem = items[active + 1];
@@ -695,6 +703,7 @@ function ReelsList() {
                 onBack={handleBack}
                 collaborator={collaborator}
                 onCollaboratorRemoved={() => {
+                  void queryClient.invalidateQueries({ queryKey: ["accepted-reel-collaborators"] });
                   void queryClient.invalidateQueries({ queryKey: ["social-posts"] });
                   void targetedMedia.reload();
                 }}
@@ -1069,43 +1078,13 @@ export function ReelMedia({
 
 async function unlinkReelCollaborator(
   postId: string,
-  ownerId: string,
   collaboratorId: string,
 ) {
-  const { data: post, error: loadError } = await supabase
-    .from("posts")
-    .select("kind,tagged_user_ids")
-    .eq("id", postId)
-    .eq("user_id", ownerId)
-    .maybeSingle();
-  if (loadError) throw loadError;
-  if (!post || post.kind !== "reel") {
-    throw new Error("This Reel is no longer available to edit.");
-  }
-
-  const taggedUserIds = (post as unknown as { tagged_user_ids?: unknown })
-    .tagged_user_ids;
-  const currentIds = Array.isArray(taggedUserIds)
-    ? taggedUserIds.filter((id): id is string => typeof id === "string")
-    : [];
-  if (!currentIds.includes(collaboratorId)) {
-    throw new Error("This collaborator is no longer linked to the Reel.");
-  }
-
-  const { data: updatedPost, error: updateError } = await supabase
-    .from("posts")
-    .update({
-      tagged_user_ids: currentIds.filter((id) => id !== collaboratorId),
-    } as never)
-    .eq("id", postId)
-    .eq("user_id", ownerId)
-    .eq("kind", "reel")
-    .select("id")
-    .maybeSingle();
-  if (updateError) throw updateError;
-  if (!updatedPost) {
-    throw new Error("You don't have permission to remove this collaborator.");
-  }
+  const { error } = await supabase.rpc("remove_reel_collaboration_invite", {
+    p_post_id: postId,
+    p_collaborator_id: collaboratorId,
+  });
+  if (error) throw error;
 }
 
 function ReelItem({
@@ -1881,7 +1860,7 @@ function ReelItem({
     if (!canDelete || !visibleCollaborator || removingCollaborator) return;
     setRemovingCollaborator(true);
     try {
-      await unlinkReelCollaborator(reel.id, reel.userId, visibleCollaborator.id);
+      await unlinkReelCollaborator(reel.id, visibleCollaborator.id);
       setCollaboratorRemoved(true);
       setRemoveCollaboratorOpen(false);
       onCollaboratorRemoved?.();

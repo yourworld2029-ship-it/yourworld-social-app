@@ -231,7 +231,8 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
     }
   };
 
-  const isVideo = Boolean(post?.media_type?.startsWith("video") || post?.kind === "video" || post?.kind === "reel");
+  const isReel = post?.kind === "reel";
+  const isVideo = Boolean(post?.media_type?.startsWith("video") || post?.kind === "video" || isReel);
   const progressPercent = duration > 0 ? Math.min(100, Math.max(0, (currentTime / duration) * 100)) : 0;
 
   return (
@@ -250,7 +251,13 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
         </DialogHeader>
         {post ? (
           <div className="max-h-[78vh] overflow-y-auto">
-            <div className="relative bg-secondary">
+            <div
+              className={`relative bg-secondary ${
+                isReel
+                  ? "mx-auto aspect-[9/16] w-full max-w-[260px] overflow-hidden"
+                  : ""
+              }`}
+            >
               {isVideo ? (
                 <video
                   ref={videoRef}
@@ -270,7 +277,11 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
                   }}
                   onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
                   onClick={togglePlayback}
-                  className="max-h-64 w-full cursor-pointer object-contain"
+                  className={
+                    isReel
+                      ? "h-full w-full cursor-pointer object-contain"
+                      : "max-h-64 w-full cursor-pointer object-contain"
+                  }
                 />
               ) : (
                 <img src={mediaSrc ?? post.media_url} alt="" className="max-h-64 w-full object-contain" />
@@ -342,7 +353,13 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
               </label>
             </div>
             <div className="space-y-3 px-4 py-4">
-              <input value={title} onChange={(event) => setTitle(event.target.value.slice(0, 180))} placeholder="Add a title" className="w-full border-b border-border bg-transparent pb-2 text-sm font-semibold outline-none placeholder:text-muted-foreground" />
+              <input
+                value={title}
+                onChange={(event) => setTitle(event.target.value.slice(0, 180))}
+                aria-label={isReel ? "Caption" : "Title"}
+                placeholder={isReel ? "Caption" : "Add a title"}
+                className="w-full border-b border-border bg-transparent pb-2 text-sm font-semibold outline-none placeholder:text-muted-foreground"
+              />
               <Textarea value={caption} onChange={(event) => setCaption(event.target.value.slice(0, 2200))} placeholder="Write a caption with emojis and #hashtags…" rows={5} className="resize-none text-sm" />
               <p className="text-right text-[11px] text-muted-foreground">{caption.length}/2,200</p>
               <div className="flex items-center gap-3 border-t border-border pt-3">

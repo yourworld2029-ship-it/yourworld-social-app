@@ -3,12 +3,14 @@ import { useEffect, useMemo, useState } from "react";
 import { markAlertsSeen } from "@/lib/alerts-count";
 import {
   Bell,
+  Check,
   CheckCheck,
   ChevronLeft,
   Heart,
   MessageCircle,
   Reply,
   UserRound,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -90,6 +92,7 @@ function NotificationsPage() {
   const [resharingMomentId, setResharingMomentId] = useState<string | null>(null);
   const [likedCommentIds, setLikedCommentIds] = useState<Record<string, boolean>>({});
   const [pendingCommentLikes, setPendingCommentLikes] = useState<Record<string, boolean>>({});
+  const [respondingCollaborationInviteId, setRespondingCollaborationInviteId] = useState<string | null>(null);
   const navigate = useNavigate();
 
   const addMentionedMomentToMyMoments = async (item: NotificationItem) => {
@@ -254,6 +257,42 @@ function NotificationsPage() {
     });
   };
 
+  const respondToCollaborationInvite = async (
+    item: NotificationItem,
+    action: "accept" | "decline",
+  ) => {
+    const invite = item.collaborationInvite;
+    if (
+      !invite ||
+      invite.status !== "pending" ||
+      respondingCollaborationInviteId
+    ) {
+      return;
+    }
+    setRespondingCollaborationInviteId(invite.inviteId);
+    try {
+      const { error } = await supabase.rpc("respond_to_reel_collaboration_invite", {
+        p_invite_id: invite.inviteId,
+        p_action: action,
+      });
+      if (error) throw error;
+      markRead(item.id);
+      toast.success(
+        action === "accept"
+          ? "Collaboration invitation accepted"
+          : "Collaboration invitation declined",
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Couldn't respond to this collaboration invitation",
+      );
+    } finally {
+      setRespondingCollaborationInviteId(null);
+    }
+  };
+
   const list = useMemo(() => {
     const filtered = items.filter((item) => {
       if (filter === "all") return true;
@@ -390,6 +429,12 @@ function NotificationsPage() {
                         if (item.actorId) void openDirectMessage(item.actorId, item.id);
                       }}
                       onToggleCommentLike={() => void toggleNotificationCommentLike(item)}
+                      onCollaborationResponse={(action) =>
+                        void respondToCollaborationInvite(item, action)
+                      }
+                      collaborationResponding={
+                        respondingCollaborationInviteId === item.collaborationInvite?.inviteId
+                      }
                     />
                   ))}
                 </ul>
@@ -414,6 +459,8 @@ function NotificationRow({
   onToggleFollow,
   onMessage,
   onToggleCommentLike,
+  onCollaborationResponse,
+  collaborationResponding,
 }: {
   item: NotificationItem;
   prioritizeThumbnail: boolean;
@@ -426,6 +473,8 @@ function NotificationRow({
   onToggleFollow: () => void;
   onMessage: () => void;
   onToggleCommentLike: () => void;
+  onCollaborationResponse: (action: "accept" | "decline") => void;
+  collaborationResponding: boolean;
 }) {
   const meta = kindMeta(item.kind);
   const Icon = meta.icon;
@@ -500,7 +549,8 @@ function NotificationRow({
               Follow back
             </button>
           )
-        ) : item.thumbnailUrl || item.previewMediaUrl || item.previewStreamId ? (
+        ) : !item.collaborationInvite &&
+          (item.thumbnailUrl || item.previewMediaUrl || item.previewStreamId) ? (
           <button
             type="button"
             onClick={onOpen}
@@ -544,6 +594,88 @@ function NotificationRow({
           </button>
         ) : null}
       </div>
+      {item.collaborationInvite ? (
+        <div className="ml-[50px] mt-2 flex items-start gap-3 rounded-xl border border-white/[0.08] bg-white/[0.025] p-2.5">
+          <button
+            type="button"
+            onClick={onOpen}
+            aria-label="Open Reel collaboration preview"
+            data-testid={`button-open-collaboration-preview-${item.collaborationInvite.inviteId}`}
+            className="relative h-32 w-[4.5rem] shrink-0 overflow-hidden rounded-lg bg-zinc-900"
+          >
+            <LazyVideoThumbnail
+              thumbnailUrl={item.thumbnailUrl}
+              mediaUrl={item.previewMediaUrl ?? undefined}
+              streamId={item.previewStreamId ?? undefined}
+              bucket={item.previewBucket}
+              allowFrameCapture={!!item.previewMediaUrl}
+              resolveFrameMediaSource
+              frameCacheKey={
+                item.previewMediaUrl
+                  ? `${item.previewMediaUrl}#collaboration-invite`
+                  : undefined
+              }
+              frameCaptureTimeSeconds={1}
+              alt="Reel preview"
+              loading="lazy"
+              showFrameStatus={false}
+              className="h-full w-full"
+            />
+            <span className="absolute inset-x-1 bottom-1 rounded bg-black/65 px-1 py-0.5 text-[9px] font-semibold text-white">
+              REEL PREVIEW
+            </span>
+          </button>
+          <div className="flex min-h-32 min-w-0 flex-1 flex-col justify-between py-0.5">
+            <div>
+              <p className="text-[11px] font-semibold text-zinc-200">
+                Reel collaboration invite
+              </p>
+              <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
+                Review the Reel, then choose whether to collaborate.
+              </p>
+            </div>
+            {item.collaborationInvite.status === "pending" ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={collaborationResponding}
+                  onClick={() => onCollaborationResponse("accept")}
+                  data-testid={`button-accept-collaboration-${item.collaborationInvite.inviteId}`}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-violet-600 px-3 text-[11px] font-semibold text-white disabled:opacity-60"
+                >
+                  <Check className="h-3.5 w-3.5" />
+                  {collaborationResponding ? "Saving…" : "Accept"}
+                </button>
+                <button
+                  type="button"
+                  disabled={collaborationResponding}
+                  onClick={() => onCollaborationResponse("decline")}
+                  data-testid={`button-decline-collaboration-${item.collaborationInvite.inviteId}`}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/[0.12] px-3 text-[11px] font-medium text-zinc-300 disabled:opacity-60"
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Decline
+                </button>
+              </div>
+            ) : (
+              <span
+                className={cn(
+                  "mt-3 inline-flex w-fit rounded-full px-2.5 py-1 text-[10px] font-semibold",
+                  item.collaborationInvite.status === "accepted"
+                    ? "bg-emerald-400/10 text-emerald-300"
+                    : "bg-white/[0.06] text-zinc-400",
+                )}
+              >
+                {item.collaborationInvite.status === "accepted"
+                  ? "Accepted"
+                  : item.collaborationInvite.status === "declined"
+                    ? "Declined"
+                    : "Closed"}
+              </span>
+            )}
+          </div>
+        </div>
+      ) : null}
       {item.kind === "comment" && item.commentId ? (
         <div className="ml-[50px] mt-0.5 flex items-center gap-4 text-[11px] text-zinc-500">
           <button
