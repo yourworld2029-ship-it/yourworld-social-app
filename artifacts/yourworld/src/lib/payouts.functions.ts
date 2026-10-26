@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { sendTransactionalEmail } from "@/lib/email.server";
+import { buildMonetizationApprovalEmail } from "@/lib/monetization-approval-email";
 import { z } from "zod";
 
 export type PayoutRequestResult = {
@@ -153,21 +154,12 @@ export const emailMonetizationChecklist = createServerFn({ method: "POST" })
       return { sent: false, reason: "A confirmed account email is required for the checklist." };
     }
 
-    const isUsd = payoutProfile.payout_currency === "USD";
-    const currencyMinimum = isUsd ? "$70 USD" : "₹5,000";
-    const body = [
-      "Your account has been marked eligible for the YourWorld creator monetization program.",
-      `Minimum withdrawal: ${currencyMinimum}.`,
-      "Payouts are reviewed in the monthly window from the 1st through the 5th.",
-      "Complete and keep your payout KYC details current before requesting a transfer.",
-      "Revenue sharing applies to eligible standard videos of at least 90 seconds; Reels are not part of this ad-share calculation.",
-    ];
-    const escapedBody = body.map((line) => `<p>${line}</p>`).join("");
+    const template = buildMonetizationApprovalEmail(
+      payoutProfile.payout_currency === "USD" ? "USD" : "INR",
+    );
     return sendTransactionalEmail({
       to: creatorEmail,
-      subject: "Your YourWorld monetization eligibility checklist",
-      text: body.join("\n\n"),
-      html: `<h2>Your monetization checklist</h2>${escapedBody}<p>— YourWorld Creator Admin</p>`,
+      ...template,
     });
   });
 
