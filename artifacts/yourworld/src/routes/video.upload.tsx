@@ -69,7 +69,7 @@ export const Route = createFileRoute("/video/upload")({
   component: VideoUploadPage,
 });
 const MIN_DURATION = 90;
-const UPLOAD_VIDEO_CATEGORIES = [...VIDEO_CATEGORIES, "Sports"] as const;
+const UPLOAD_VIDEO_CATEGORIES = [...VIDEO_CATEGORIES, "Sports", "Entertainment"] as const;
 
 function VideoUploadPage() {
 
