@@ -373,9 +373,59 @@ function ReelsList() {
     }
     return [target, ...dbReels];
   }, [dbReels, initialId, removedDirectTargetId, targetedMedia.post, userId]);
-  const live = useMemo(() => reelRows.map((p) => ({
-    sourcePost: p,
-    reel: {
+  const collaboratorIds = useMemo(
+    () =>
+      [...new Set(
+        reelRows.flatMap((post) => {
+          if (post.kind !== "reel") return [];
+          const taggedUserIds = (post as SocialPost & {
+            tagged_user_ids?: unknown;
+          }).tagged_user_ids;
+          return Array.isArray(taggedUserIds)
+            ? taggedUserIds.filter(
+                (id): id is string =>
+                  typeof id === "string" && id.length > 0 && id !== post.user_id,
+              ).slice(0, 1)
+            : [];
+        }),
+      )],
+    [reelRows],
+  );
+  const collaboratorProfilesQuery = useQuery<
+    Array<{ id: string; username: string; display_name: string }>
+  >({
+    queryKey: ["reel-collaborator-profiles", collaboratorIds],
+    enabled: collaboratorIds.length > 0,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("get_public_profiles", {
+        ids: collaboratorIds,
+      });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+  const collaboratorProfileById = useMemo(
+    () => new Map((collaboratorProfilesQuery.data ?? []).map((profile) => [profile.id, profile])),
+    [collaboratorProfilesQuery.data],
+  );
+  const live = useMemo(() => reelRows.map((p) => {
+    const taggedUserIds = (p as SocialPost & {
+      tagged_user_ids?: unknown;
+    }).tagged_user_ids;
+    const collaboratorId =
+      p.kind === "reel" && Array.isArray(taggedUserIds)
+        ? taggedUserIds.find(
+            (id): id is string =>
+              typeof id === "string" && id.length > 0 && id !== p.user_id,
+          )
+        : undefined;
+    return {
+      sourcePost: p,
+      collaborator: collaboratorId
+        ? collaboratorProfileById.get(collaboratorId) ?? null
+        : null,
+      reel: {
       id: p.id,
       userId: p.user_id,
       poster: p.media_url,
@@ -422,7 +472,8 @@ function ReelsList() {
         ? p.thumbnail_url ?? cloudflareStreamPosterUrl(p.media_url, p.cloudflare_stream_id ?? p.cloudflare_stream_uid) ?? null
         : p.thumbnail_url ?? null,
     isPending: p.id.startsWith("optimistic-reel-"),
-  })), [reelRows]);
+    };
+  }), [collaboratorProfileById, reelRows]);
 
   const items = live;
   const nextItem = items[active + 1];
@@ -609,7 +660,7 @@ function ReelsList() {
 
   return (
     <>
-      {items.map(({ reel, author, likedByMe, mediaUrl, mediaType, mediaBucket, thumbnailUrl, access, sourcePost, isPending }, i) => (
+      {items.map(({ reel, author, likedByMe, mediaUrl, mediaType, mediaBucket, thumbnailUrl, access, sourcePost, collaborator, isPending }, i) => (
         <section
           key={reel.id}
           data-index={i}
@@ -642,6 +693,11 @@ function ReelsList() {
                 allowFrameCapture={access === "public"}
                 scoped={scoped}
                 onBack={handleBack}
+                collaborator={collaborator}
+                onCollaboratorRemoved={() => {
+                  void queryClient.invalidateQueries({ queryKey: ["social-posts"] });
+                  void targetedMedia.reload();
+                }}
                 commentsDisabled={!!reelRows[i]?.comments_off}
                 hideLikeCount={!!reelRows[i]?.hide_like_count}
                 hideShareCount={!!reelRows[i]?.hide_share_count}
@@ -1011,6 +1067,47 @@ export function ReelMedia({
   );
 }
 
+async function unlinkReelCollaborator(
+  postId: string,
+  ownerId: string,
+  collaboratorId: string,
+) {
+  const { data: post, error: loadError } = await supabase
+    .from("posts")
+    .select("kind,tagged_user_ids")
+    .eq("id", postId)
+    .eq("user_id", ownerId)
+    .maybeSingle();
+  if (loadError) throw loadError;
+  if (!post || post.kind !== "reel") {
+    throw new Error("This Reel is no longer available to edit.");
+  }
+
+  const taggedUserIds = (post as unknown as { tagged_user_ids?: unknown })
+    .tagged_user_ids;
+  const currentIds = Array.isArray(taggedUserIds)
+    ? taggedUserIds.filter((id): id is string => typeof id === "string")
+    : [];
+  if (!currentIds.includes(collaboratorId)) {
+    throw new Error("This collaborator is no longer linked to the Reel.");
+  }
+
+  const { data: updatedPost, error: updateError } = await supabase
+    .from("posts")
+    .update({
+      tagged_user_ids: currentIds.filter((id) => id !== collaboratorId),
+    } as never)
+    .eq("id", postId)
+    .eq("user_id", ownerId)
+    .eq("kind", "reel")
+    .select("id")
+    .maybeSingle();
+  if (updateError) throw updateError;
+  if (!updatedPost) {
+    throw new Error("You don't have permission to remove this collaborator.");
+  }
+}
+
 function ReelItem({
   reel,
   currentUserId,
@@ -1026,6 +1123,8 @@ function ReelItem({
   allowFrameCapture = true,
   scoped = false,
   onBack,
+  collaborator,
+  onCollaboratorRemoved,
   commentsDisabled = false,
   hideLikeCount = false,
   hideShareCount = false,
@@ -1042,6 +1141,12 @@ function ReelItem({
 }: {
   reel: Reel;
   currentUserId?: string | null;
+  collaborator?: {
+    id: string;
+    username?: string | null;
+    display_name?: string | null;
+  } | null;
+  onCollaboratorRemoved?: () => void;
   active: boolean;
   muted: boolean;
   onMutedChange: (muted: boolean) => void;
@@ -1084,6 +1189,9 @@ function ReelItem({
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [removeCollaboratorOpen, setRemoveCollaboratorOpen] = useState(false);
+  const [removingCollaborator, setRemovingCollaborator] = useState(false);
+  const [collaboratorRemoved, setCollaboratorRemoved] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportReason, setReportReason] = useState("Inappropriate content / Nudity");
   const [reportDescription, setReportDescription] = useState("");
@@ -1092,7 +1200,13 @@ function ReelItem({
   const [isFavorite, setIsFavorite] = useState(false);
   const [favoriteLoaded, setFavoriteLoaded] = useState(false);
   const viewerId = viewer?.id ?? currentUserId ?? null;
+  const isOwnReel = viewerId === reel.userId;
+  const visibleCollaborator = collaboratorRemoved ? null : collaborator;
   const shareUrl = buildWatchShareUrl(reel.id, "reel");
+
+  useEffect(() => {
+    setCollaboratorRemoved(false);
+  }, [collaborator?.id, reel.id]);
 
   useEffect(() => {
     setFavoriteLoaded(false);
@@ -1763,6 +1877,26 @@ function ReelItem({
     }
   };
 
+  const handleRemoveCollaborator = async () => {
+    if (!canDelete || !visibleCollaborator || removingCollaborator) return;
+    setRemovingCollaborator(true);
+    try {
+      await unlinkReelCollaborator(reel.id, reel.userId, visibleCollaborator.id);
+      setCollaboratorRemoved(true);
+      setRemoveCollaboratorOpen(false);
+      onCollaboratorRemoved?.();
+      toast.success("Collaborator removed from this Reel");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Couldn't remove the collaborator",
+      );
+    } finally {
+      setRemovingCollaborator(false);
+    }
+  };
+
   const handleCopyLink = async () => {
     setMenuOpen(false);
     try {
@@ -1950,10 +2084,11 @@ function ReelItem({
           <Link
             to="/u/$userId"
             params={{ userId: reel.userId }}
-            className="flex min-w-0 items-center gap-2.5 transition-opacity active:opacity-70"
+            className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full ring-2 ring-foreground/30 transition-opacity active:opacity-70"
+            aria-label={`View ${user.name}'s profile`}
           >
             <div
-              className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full ring-2 ring-foreground/30"
+              className="grid h-full w-full place-items-center"
               style={{
                 backgroundImage: `linear-gradient(140deg, oklch(0.55 0.2 ${user.hue}), oklch(0.32 0.12 ${user.hue + 40}))`,
               }}
@@ -1966,30 +2101,50 @@ function ReelItem({
                 }}
               />
             </div>
-               <span className="flex min-w-0 items-center gap-1 truncate text-sm font-semibold drop-shadow">
-               {user.name}
-               <span className="ml-2 text-xs font-normal text-gray-300">
-                 • {reel.createdAt ? timeAgo(reel.createdAt) : "Just now"}
-               </span>
-             </span>
           </Link>
-          <button
-            onClick={() => {
-              if (!viewer) {
-                requestAuthAction({ type: "follow-user", targetId: user.id });
-                return;
-              }
-              void toggleFollow(user.id);
-            }}
-            className={cn(
-              "rounded-full border px-3 py-1 text-xs font-semibold transition-colors",
-              following[user.id]
-                ? "border-border bg-background/40 text-muted-foreground"
-                : "border-foreground/50",
-            )}
-          >
-            {following[user.id] ? "Following" : "Follow"}
-          </button>
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1 text-sm font-semibold drop-shadow">
+            <Link
+              to="/u/$userId"
+              params={{ userId: reel.userId }}
+              className="truncate transition-opacity active:opacity-70"
+            >
+              @{user.username || user.name}
+            </Link>
+            {visibleCollaborator ? (
+              <>
+                <span className="shrink-0 text-xs font-normal text-white/85">and</span>
+                <Link
+                  to="/u/$userId"
+                  params={{ userId: visibleCollaborator.id }}
+                  className="max-w-[42%] truncate transition-opacity active:opacity-70"
+                >
+                  @{visibleCollaborator.username || visibleCollaborator.display_name || "Creator"}
+                </Link>
+              </>
+            ) : null}
+            <span className="shrink-0 text-xs font-normal text-gray-300">
+              • {reel.createdAt ? timeAgo(reel.createdAt) : "Just now"}
+            </span>
+          </div>
+          {!isOwnReel ? (
+            <button
+              onClick={() => {
+                if (!viewer) {
+                  requestAuthAction({ type: "follow-user", targetId: user.id });
+                  return;
+                }
+                void toggleFollow(user.id);
+              }}
+              className={cn(
+                "rounded-full border px-3 py-1 text-xs font-semibold transition-colors",
+                following[user.id]
+                  ? "border-border bg-background/40 text-muted-foreground"
+                  : "border-foreground/50",
+              )}
+            >
+              {following[user.id] ? "Following" : "Follow"}
+            </button>
+          ) : null}
         </div>
 
         <button
@@ -2187,18 +2342,35 @@ function ReelItem({
               {isFavorite ? "Remove from Favorites" : "Add to Favorites"}
             </button>
             {canDelete ? (
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setMenuOpen(false);
-                  setDeleteOpen(true);
-                }}
-                className="flex w-full items-center gap-3 border-t border-border/50 px-4 py-3 text-left text-[13px] font-medium text-destructive transition-colors hover:bg-destructive/10"
-              >
-                <Trash2 strokeWidth={1.6} className="h-[17px] w-[17px]" />
-                Delete
-              </button>
+              <>
+                {visibleCollaborator ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    disabled={contextActionBusy || removingCollaborator}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setRemoveCollaboratorOpen(true);
+                    }}
+                    className="flex w-full items-center gap-3 border-t border-border/50 px-4 py-3 text-left text-[13px] font-medium transition-colors hover:bg-foreground/10 disabled:opacity-60"
+                  >
+                    <UserX strokeWidth={1.6} className="h-[17px] w-[17px] text-muted-foreground" />
+                    Remove Collaborator
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setDeleteOpen(true);
+                  }}
+                  className="flex w-full items-center gap-3 border-t border-border/50 px-4 py-3 text-left text-[13px] font-medium text-destructive transition-colors hover:bg-destructive/10"
+                >
+                  <Trash2 strokeWidth={1.6} className="h-[17px] w-[17px]" />
+                  Delete
+                </button>
+              </>
             ) : null}
           </div>
         </>
@@ -2322,6 +2494,35 @@ function ReelItem({
               }}
             >
               {reporting ? "Submitting…" : "Submit report"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog
+        open={removeCollaboratorOpen}
+        onOpenChange={(open) => {
+          if (!removingCollaborator) setRemoveCollaboratorOpen(open);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove this collaborator?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {visibleCollaborator
+                ? `This will unlink @${visibleCollaborator.username || visibleCollaborator.display_name || "Creator"} from this Reel. The Reel itself will stay on your profile.`
+                : "This will unlink the collaborator from this Reel. The Reel itself will stay on your profile."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={removingCollaborator}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={removingCollaborator}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleRemoveCollaborator();
+              }}
+            >
+              {removingCollaborator ? "Removing…" : "Remove collaborator"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
