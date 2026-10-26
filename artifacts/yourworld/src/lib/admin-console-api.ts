@@ -4,7 +4,8 @@ export type AdminConsoleReadOperation =
   | "console"
   | "payoutRequests"
   | "internationalPayoutKyc"
-  | "sportsVerification";
+  | "sportsVerification"
+  | "awardVerification";
 
 type AdminConsoleApiEnvelope = {
   data?: unknown;

@@ -5,6 +5,7 @@ import {
   listAdminPayoutRequests,
 } from "@/lib/admin-console.functions";
 import { listSportsVerificationApplications } from "@/lib/sports-verification.functions";
+import { listNationalAwardVerificationApplications } from "@/lib/national-award.functions";
 import type { AdminConsoleReadOperation } from "@/lib/admin-console-api";
 import { executeAdminRead } from "@/lib/admin-console-read";
 
@@ -13,6 +14,7 @@ const readOperations = {
   payoutRequests: listAdminPayoutRequests,
   internationalPayoutKyc: listAdminInternationalPayoutKyc,
   sportsVerification: listSportsVerificationApplications,
+  awardVerification: listNationalAwardVerificationApplications,
 } satisfies Record<AdminConsoleReadOperation, unknown>;
 
 function messageFromError(error: unknown): string {

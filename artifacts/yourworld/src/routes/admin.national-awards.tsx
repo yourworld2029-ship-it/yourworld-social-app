@@ -9,9 +9,10 @@ import {
   NATIONAL_AWARD_OPTIONS,
 } from "@/lib/national-award";
 import {
-  listNationalAwardVerificationApplications,
   reviewNationalAwardVerification,
+  type listNationalAwardVerificationApplications,
 } from "@/lib/national-award.functions";
+import { readAdminConsoleApi } from "@/lib/admin-console-api";
 import { useAdminAccess } from "@/lib/use-admin-access";
 
 export const Route = createFileRoute("/admin/national-awards")({
@@ -54,7 +55,12 @@ export function NationalAwardVerificationAdminPanel({
     setLoading(true);
     setError(null);
     try {
-      const result = await listNationalAwardVerificationApplications();
+      const result = await readAdminConsoleApi<{
+        applications?: Application[];
+      }>("awardVerification");
+      if (!Array.isArray(result?.applications)) {
+        throw new Error("Award Verification returned an invalid application list. Refresh and try again.");
+      }
       setApplications(result.applications);
     } catch (loadError) {
       const message =
