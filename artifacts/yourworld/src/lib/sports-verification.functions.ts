@@ -7,6 +7,10 @@ import {
 } from "@/lib/admin-access-policy";
 import { escapeEmailHtml, sendTransactionalEmail } from "@/lib/email.server";
 import {
+  buildVerificationApprovalEmail,
+  sportsApprovalBadgeTitle,
+} from "@/lib/verification-approval-email";
+import {
   countryCodeForSportsCountry,
   isIndiaSportsCountry,
   isIndianIdentityProofType,
@@ -623,7 +627,7 @@ export const reviewSportsVerification = createServerFn({ method: "POST" })
 
     const { data: profile, error: profileReadError } = await admin
       .from("profiles")
-      .select("id,is_verified,verification_requested,bio,category,country")
+      .select("id,is_verified,verification_requested,bio,category,country,display_name,username")
       .eq("id", data.applicantUserId)
       .maybeSingle();
     if (profileReadError) throw new Error(profileReadError.message);
@@ -722,24 +726,39 @@ export const reviewSportsVerification = createServerFn({ method: "POST" })
     if (applicantAuthError) {
       console.warn("[sports-verification] Could not retrieve applicant email for status notice.");
     } else if (applicantAuth.user?.email && applicantAuth.user.email_confirmed_at) {
-      const subject =
-        data.action === "approve"
-          ? "Your YourWorld Sports Verification is approved"
-          : data.action === "request_correction"
-            ? "Action needed for your YourWorld Sports Verification"
-            : "Your YourWorld Sports Verification was not approved";
-      const message =
-        data.action === "approve"
-          ? "Your Sports Verification is approved and your profile badge has been updated."
-          : data.action === "request_correction"
+      let subject = "";
+      let text = "";
+      let html = "";
+      if (data.action === "approve") {
+        const approvalEmail = buildVerificationApprovalEmail({
+          profileName:
+            profile.display_name?.trim() ||
+            profile.username?.trim() ||
+            requestDetails?.full_name?.trim() ||
+            "YourWorld Creator",
+          badgeKind: "sports",
+          badgeTitle: sportsApprovalBadgeTitle(profile),
+        });
+        subject = `Your YourWorld ${approvalEmail.badgeTitle} badge is approved`;
+        text = approvalEmail.text;
+        html = approvalEmail.html;
+      } else {
+        const message =
+          data.action === "request_correction"
             ? `Please update the requested verification details and resubmit. Reviewer note: ${reason ?? "See your Sports Details screen."}`
             : `Your Sports Verification was not approved. Reviewer note: ${reason ?? "Please contact support."}`;
-      const escapedMessage = escapeEmailHtml(message);
+        subject =
+          data.action === "request_correction"
+            ? "Action needed for your YourWorld Sports Verification"
+            : "Your YourWorld Sports Verification was not approved";
+        text = message;
+        html = `<p>${escapeEmailHtml(message)}</p><p>Open YourWorld to view your Sports Details.</p><p>— YourWorld Creator Admin</p>`;
+      }
       const result = await sendTransactionalEmail({
         to: applicantAuth.user.email,
         subject,
-        text: message,
-        html: `<p>${escapedMessage}</p><p>Open YourWorld to view your Sports Details.</p><p>— YourWorld Creator Admin</p>`,
+        text,
+        html,
       });
       emailSent = result.sent;
       if (!result.sent) {

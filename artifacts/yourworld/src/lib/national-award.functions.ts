@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { hasAdminConsoleAccess } from "@/lib/admin-access-policy";
 import { escapeEmailHtml, sendTransactionalEmail } from "@/lib/email.server";
+import { buildVerificationApprovalEmail } from "@/lib/verification-approval-email";
 import {
   isNationalAwardCode,
   canRepairNationalAwardEvidence,
@@ -731,6 +732,8 @@ export const reviewNationalAwardVerification = createServerFn({ method: "POST" }
   .handler(async ({ data, context }) => {
     const admin = await requireNationalAwardAdmin(context.userId, context.claims);
     const reason = data.reason?.trim() || null;
+    let approvalProfileName = "";
+    let approvalBadgeTitle = "";
     if (data.action === "reject" && !reason) {
       throw new Error("A reason is required when rejecting an Award Verification request.");
     }
@@ -743,13 +746,25 @@ export const reviewNationalAwardVerification = createServerFn({ method: "POST" }
         .maybeSingle();
       if (applicationError) throw new Error(applicationError.message);
       if (!application) throw new Error("This National Award Verification request is no longer pending.");
+      const awardOption = NATIONAL_AWARD_OPTIONS.find(
+        (option) => option.value === application.award_code,
+      );
+      if (!awardOption) {
+        throw new Error("The selected National Award could not be identified for the approval email.");
+      }
+      approvalBadgeTitle = awardOption.label;
 
       const { data: applicantProfile, error: applicantProfileError } = await admin
         .from("profiles")
-        .select("country")
+        .select("country,display_name,username")
         .eq("id", data.applicantUserId)
         .maybeSingle();
       if (applicantProfileError) throw new Error(applicantProfileError.message);
+      approvalProfileName =
+        applicantProfile?.display_name?.trim() ||
+        applicantProfile?.username?.trim() ||
+        application.full_name.trim() ||
+        "YourWorld Creator";
       if (countryCodeForSportsCountry(applicantProfile?.country) !== "IN") {
         throw new Error("National Award approval requires India as the selected nationality.");
       }
@@ -797,16 +812,24 @@ export const reviewNationalAwardVerification = createServerFn({ method: "POST" }
       console.warn("[national-award] Could not retrieve applicant email for the review update.");
     } else if (applicantAuth.user?.email && applicantAuth.user.email_confirmed_at) {
       const approved = status === "approved";
-      const message = approved
-        ? "Your National Award Verification has been approved and your profile badge has been updated."
-        : `Your National Award Verification was not approved. Reviewer note: ${reason ?? "Please review your application in YourWorld."}`;
+      let subject = "Your YourWorld National Award verification needs attention";
+      let text = `Your National Award Verification was not approved. Reviewer note: ${reason ?? "Please review your application in YourWorld."}`;
+      let html = `<p>${escapeEmailHtml(text)}</p><p>Open YourWorld to review your Award Verification.</p><p>— YourWorld Creator Admin</p>`;
+      if (approved) {
+        const approvalEmail = buildVerificationApprovalEmail({
+          profileName: approvalProfileName,
+          badgeKind: "award",
+          badgeTitle: approvalBadgeTitle,
+        });
+        subject = `Your YourWorld ${approvalEmail.badgeTitle} badge is approved`;
+        text = approvalEmail.text;
+        html = approvalEmail.html;
+      }
       const result = await sendTransactionalEmail({
         to: applicantAuth.user.email,
-        subject: approved
-          ? "Your YourWorld National Award badge is approved"
-          : "Your YourWorld National Award verification needs attention",
-        text: message,
-        html: `<p>${escapeEmailHtml(message)}</p><p>Open YourWorld to review your Award Verification.</p><p>— YourWorld Creator Admin</p>`,
+        subject,
+        text,
+        html,
       });
       emailSent = result.sent;
       if (!result.sent) {
