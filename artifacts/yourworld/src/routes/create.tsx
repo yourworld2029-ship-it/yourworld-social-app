@@ -8,8 +8,11 @@ import {
   Loader2,
   Pause,
   Play,
+  Search,
   Upload,
+  UserRound,
   Video,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { publishDirectReel } from "@/lib/social-data";
@@ -17,6 +20,7 @@ import { getReelVideoSizeError } from "@/lib/video-upload-limits";
 import { useUploadActions } from "@/lib/upload-progress";
 import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/lib/auth-store";
+import { searchPublicProfiles, type PublicSearchProfile } from "@/lib/search-data";
 import {
   announceOptimisticPost,
   removeOptimisticPost,
@@ -64,6 +68,12 @@ function DirectReelUploadPage() {
   const [caption, setCaption] = useState("");
   const [hashtags, setHashtags] = useState("");
   const [allowDownload, setAllowDownload] = useState(true);
+  const [collaboratorQuery, setCollaboratorQuery] = useState("");
+  const [collaboratorResults, setCollaboratorResults] = useState<PublicSearchProfile[]>([]);
+  const [selectedCollaborator, setSelectedCollaborator] = useState<PublicSearchProfile | null>(null);
+  const [collaboratorLoading, setCollaboratorLoading] = useState(false);
+  const [collaboratorError, setCollaboratorError] = useState<string | null>(null);
+  const [paidPartnership, setPaidPartnership] = useState(false);
   const [progress, setProgress] = useState(0);
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -97,6 +107,46 @@ function DirectReelUploadPage() {
       if (thumbnailUrl) URL.revokeObjectURL(thumbnailUrl);
     };
   }, [file]);
+
+  useEffect(() => {
+    const term = collaboratorQuery.trim();
+    if (selectedCollaborator || term.replace(/^@/, "").trim().length < 2) {
+      setCollaboratorResults([]);
+      setCollaboratorError(null);
+      setCollaboratorLoading(false);
+      return;
+    }
+
+    let active = true;
+    setCollaboratorLoading(true);
+    setCollaboratorError(null);
+    const timeout = window.setTimeout(() => {
+      void searchPublicProfiles(term)
+        .then((profiles) => {
+          if (!active) return;
+          setCollaboratorResults(
+            profiles
+              .filter((profile) => profile.id !== user?.id && profile.username)
+              .slice(0, 6),
+          );
+        })
+        .catch((cause) => {
+          if (!active) return;
+          setCollaboratorResults([]);
+          setCollaboratorError(
+            cause instanceof Error ? cause.message : "Couldn't search accounts.",
+          );
+        })
+        .finally(() => {
+          if (active) setCollaboratorLoading(false);
+        });
+    }, 250);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+    };
+  }, [collaboratorQuery, selectedCollaborator, user?.id]);
 
   const resetVideo = () => {
     setFile(null);
@@ -259,6 +309,8 @@ function DirectReelUploadPage() {
           caption,
           hashtags: parsedHashtags,
           allowDownload,
+           collaboratorUserId: selectedCollaborator?.id ?? null,
+           paidPromotion: paidPartnership,
           durationSeconds: duration,
           originalWidth: dimensions.width || null,
           originalHeight: dimensions.height || null,
@@ -444,6 +496,135 @@ function DirectReelUploadPage() {
               className="w-full rounded-2xl border border-zinc-800 bg-zinc-900/90 p-3.5 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
             />
           </label>
+
+          <div className="space-y-3 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+            <div className="flex items-start gap-3">
+              <UserRound className="mt-0.5 h-4 w-4 shrink-0 text-pink-300" />
+              <div>
+                <p className="text-sm font-semibold">Invite Collaborator (Max 1)</p>
+                <p className="mt-1 text-xs text-white/60">
+                  Search by username and add one account to this Reel.
+                </p>
+              </div>
+            </div>
+            {selectedCollaborator ? (
+              <div className="flex items-center justify-between gap-3 rounded-xl border border-violet-400/30 bg-violet-500/10 p-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  {selectedCollaborator.avatar_url ? (
+                    <img
+                      src={selectedCollaborator.avatar_url}
+                      alt=""
+                      className="h-9 w-9 shrink-0 rounded-full object-cover"
+                    />
+                  ) : (
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/10 text-xs font-bold text-white">
+                      {(selectedCollaborator.name || selectedCollaborator.username)
+                        .slice(0, 1)
+                        .toUpperCase()}
+                    </span>
+                  )}
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-medium text-white">
+                      {selectedCollaborator.name || `@${selectedCollaborator.username}`}
+                    </span>
+                    <span className="block truncate text-xs text-white/60">
+                      @{selectedCollaborator.username}
+                    </span>
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedCollaborator(null);
+                    setCollaboratorQuery("");
+                  }}
+                  aria-label="Remove collaborator"
+                  className="rounded-full p-2 text-white/70 transition hover:bg-white/10 hover:text-white"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900/90 px-3">
+                  <Search className="h-4 w-4 shrink-0 text-white/45" />
+                  <input
+                    value={collaboratorQuery}
+                    onChange={(event) => setCollaboratorQuery(event.target.value)}
+                    placeholder="Search username"
+                    autoComplete="off"
+                    className="min-w-0 flex-1 bg-transparent py-3 text-sm text-white outline-none placeholder:text-zinc-500"
+                    aria-label="Search collaborator by username"
+                  />
+                </div>
+                {collaboratorLoading ? (
+                  <p className="px-1 text-xs text-white/55">Searching accounts…</p>
+                ) : null}
+                {collaboratorError ? (
+                  <p role="alert" className="px-1 text-xs text-red-300">{collaboratorError}</p>
+                ) : null}
+                {!collaboratorLoading &&
+                !collaboratorError &&
+                collaboratorQuery.trim().replace(/^@/, "").length >= 2 &&
+                collaboratorResults.length === 0 ? (
+                  <p className="px-1 text-xs text-white/55">No matching accounts found.</p>
+                ) : null}
+                {collaboratorResults.length > 0 ? (
+                  <div className="max-h-56 overflow-y-auto rounded-xl border border-white/10 bg-zinc-950">
+                    {collaboratorResults.map((profile) => (
+                      <button
+                        key={profile.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedCollaborator(profile);
+                          setCollaboratorQuery("");
+                          setCollaboratorResults([]);
+                        }}
+                        className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition hover:bg-white/[0.07]"
+                      >
+                        {profile.avatar_url ? (
+                          <img
+                            src={profile.avatar_url}
+                            alt=""
+                            className="h-9 w-9 shrink-0 rounded-full object-cover"
+                          />
+                        ) : (
+                          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/10 text-xs font-bold text-white">
+                            {(profile.name || profile.username).slice(0, 1).toUpperCase()}
+                          </span>
+                        )}
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-medium text-white">
+                            {profile.name || `@${profile.username}`}
+                          </span>
+                          <span className="block truncate text-xs text-white/60">
+                            @{profile.username}
+                          </span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+            <div className="flex min-w-0 items-start gap-3">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-pink-300" />
+              <div>
+                <p className="text-sm font-semibold">Paid Partnership Label</p>
+                <p className="mt-1 text-xs text-white/60">
+                  Mark this Reel as paid or sponsored content.
+                </p>
+              </div>
+            </div>
+            <Switch
+              checked={paidPartnership}
+              onCheckedChange={setPaidPartnership}
+              aria-label="Paid Partnership Label"
+            />
+          </div>
 
           <div className="flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
             <div className="flex min-w-0 items-start gap-3">

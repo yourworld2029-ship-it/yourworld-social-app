@@ -1570,6 +1570,8 @@ export async function publishDirectReel(opts: {
   caption?: string;
   hashtags?: string[];
   allowDownload?: boolean;
+  collaboratorUserId?: string | null;
+  paidPromotion?: boolean;
   durationSeconds: number;
   originalWidth?: number | null;
   originalHeight?: number | null;
@@ -1673,8 +1675,9 @@ export async function publishDirectReel(opts: {
       hashtags: opts.hashtags ?? [],
       audio: null,
       allow_download: opts.allowDownload ?? true,
+      paid_promotion: opts.paidPromotion ?? false,
       audience: "everyone",
-      tagged_user_ids: [],
+      tagged_user_ids: opts.collaboratorUserId ? [opts.collaboratorUserId] : [],
       viewer_user_ids: [],
       duration_seconds: Math.round(durationSeconds ?? opts.durationSeconds),
       original_width: uploadedWidth,
