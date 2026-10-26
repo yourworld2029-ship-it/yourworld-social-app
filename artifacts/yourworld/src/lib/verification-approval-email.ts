@@ -1,6 +1,7 @@
 import { countryCodeForSportsCountry } from "./sports-country";
 
 export type VerificationBadgeKind = "award" | "sports";
+export type MonetizationQuotaTier = "special" | "national" | "standard";
 
 export type SportsApprovalProfile = {
   category?: string | null;
@@ -38,17 +39,46 @@ export function sportsApprovalBadgeTitle(profile: SportsApprovalProfile) {
   return role === "Coach" ? "National Coach" : "National Player";
 }
 
+/** Mirrors the representation branches in enforce_creator_monetization_eligibility. */
+export function sportsMonetizationQuotaTier(
+  profile: SportsApprovalProfile,
+): MonetizationQuotaTier {
+  const category = profile.category ?? "";
+  const bio = profile.bio ?? "";
+  if (!/\b(player|athlete|coach)\b/i.test(category)) return "standard";
+
+  const internationalRepresentation =
+    /(?:^|\r?\n)[ \t]*(?:representation|represents|status)[ \t]*:[ \t]*international(?:[ \t]+(?:player|coach))?(?=[ \t\r\n]|$)/i;
+  const nationalRepresentation =
+    /(?:^|\r?\n)[ \t]*(?:representation|represents|status)[ \t]*:[ \t]*national(?:[ \t]+(?:player|coach))?(?=[ \t\r\n]|$)/i;
+  if (internationalRepresentation.test(bio)) return "special";
+  if (nationalRepresentation.test(bio)) return "national";
+  return "standard";
+}
+
 export function cleanVerificationBadgeTitle(title: string) {
   return title.replace(/\s*[🎖️⚔️🛡️🇮🇳]+$/u, "").trim();
+}
+
+function monetizationQuotaCopy(tier: MonetizationQuotaTier) {
+  if (tier === "special") {
+    return "Special Quota Unlocked: Monetize faster with only 10,000 followers, 1,500 watch hours, and 70,000 video views (Standard is 15k / 2,500 hrs / 150k views).";
+  }
+  if (tier === "national") {
+    return "National Quota Unlocked: Monetize faster with only 12,000 followers, 2,000 watch hours, and 100,000 video views (Standard is 15k / 2,500 hrs / 150k views).";
+  }
+  return "Standard Quota: Monetization eligibility requires 15,000 followers, 2,500 watch hours, and 150,000 video views.";
 }
 
 export function buildVerificationApprovalEmail(input: {
   profileName: string;
   badgeKind: VerificationBadgeKind;
   badgeTitle: string;
+  quotaTier: MonetizationQuotaTier;
 }) {
   const profileName = input.profileName.trim() || "YourWorld Creator";
   const badgeTitle = cleanVerificationBadgeTitle(input.badgeTitle);
+  const quotaCopy = monetizationQuotaCopy(input.quotaTier);
   const approvalType =
     input.badgeKind === "award" ? "National Honours / Gallantry Award" : "Sports Verification";
   const text = [
@@ -57,12 +87,15 @@ export function buildVerificationApprovalEmail(input: {
     "Your Profile Identity Card:",
     `Profile Name: ${profileName}`,
     `Award / Sports Badge: ${badgeTitle}`,
+    "Your Monetization Quota Privilege:",
+    quotaCopy,
     "Open YourWorld to view your updated profile.",
     "— YourWorld Creator Admin",
   ].join("\n\n");
 
   const escapedProfileName = escapeEmailHtml(profileName);
   const escapedBadgeTitle = escapeEmailHtml(badgeTitle);
+  const escapedQuotaCopy = escapeEmailHtml(quotaCopy);
   const html = `
     <div style="margin:0;padding:24px;background:#f4f2f8;font-family:Arial,Helvetica,sans-serif;color:#242033">
       <div style="max-width:600px;margin:0 auto;padding:28px;background:#ffffff;border:1px solid #e8e2f0;border-radius:16px">
@@ -76,12 +109,16 @@ export function buildVerificationApprovalEmail(input: {
           <div style="color:#e7d7f4;font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase">Award / Sports Badge</div>
           <div style="margin-top:6px;color:#ffffff;font-size:17px;font-weight:700">${escapedBadgeTitle}</div>
         </div>
+        <div style="margin-top:18px;padding:18px;background:#f8f3ff;border:1px solid #dfc9f2;border-radius:14px">
+          <div style="color:#4b1680;font-size:13px;font-weight:700">Your Monetization Quota Privilege</div>
+          <p style="margin:8px 0 0;color:#332544;font-size:14px;line-height:1.6">${escapedQuotaCopy}</p>
+        </div>
         <p style="margin:22px 0 0;font-size:14px">Open YourWorld to view your updated profile.</p>
         <p style="margin:8px 0 0;font-size:14px">— YourWorld Creator Admin</p>
       </div>
     </div>`;
 
-  return { profileName, badgeTitle, text, html };
+  return { profileName, badgeTitle, quotaCopy, text, html };
 }
 
 function escapeEmailHtml(value: string) {

@@ -9,6 +9,7 @@ import { escapeEmailHtml, sendTransactionalEmail } from "@/lib/email.server";
 import {
   buildVerificationApprovalEmail,
   sportsApprovalBadgeTitle,
+  sportsMonetizationQuotaTier,
 } from "@/lib/verification-approval-email";
 import {
   countryCodeForSportsCountry,
@@ -738,6 +739,7 @@ export const reviewSportsVerification = createServerFn({ method: "POST" })
             "YourWorld Creator",
           badgeKind: "sports",
           badgeTitle: sportsApprovalBadgeTitle(profile),
+          quotaTier: sportsMonetizationQuotaTier(profile),
         });
         subject = `Your YourWorld ${approvalEmail.badgeTitle} badge is approved`;
         text = approvalEmail.text;

@@ -820,6 +820,7 @@ export const reviewNationalAwardVerification = createServerFn({ method: "POST" }
           profileName: approvalProfileName,
           badgeKind: "award",
           badgeTitle: approvalBadgeTitle,
+          quotaTier: "special",
         });
         subject = `Your YourWorld ${approvalEmail.badgeTitle} badge is approved`;
         text = approvalEmail.text;
