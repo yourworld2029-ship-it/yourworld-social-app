@@ -6,6 +6,7 @@ import {
   hasAdminConsoleAccess,
 } from "@/lib/admin-access-policy";
 import { escapeEmailHtml, sendTransactionalEmail } from "@/lib/email.server";
+import { buildPublicAppUrl } from "@/lib/public-app-url";
 import {
   buildVerificationApprovalEmail,
   sportsApprovalBadgeTitle,
@@ -628,7 +629,7 @@ export const reviewSportsVerification = createServerFn({ method: "POST" })
 
     const { data: profile, error: profileReadError } = await admin
       .from("profiles")
-      .select("id,is_verified,verification_requested,bio,category,country,display_name,username")
+      .select("id,is_verified,verification_requested,bio,category,country,display_name,username,avatar_url")
       .eq("id", data.applicantUserId)
       .maybeSingle();
     if (profileReadError) throw new Error(profileReadError.message);
@@ -740,6 +741,8 @@ export const reviewSportsVerification = createServerFn({ method: "POST" })
           badgeKind: "sports",
           badgeTitle: sportsApprovalBadgeTitle(profile),
           quotaTier: sportsMonetizationQuotaTier(profile),
+          avatarUrl: profile.avatar_url,
+          profileUrl: buildPublicAppUrl(`/u/${encodeURIComponent(profile.id)}`),
         });
         subject = `Your YourWorld ${approvalEmail.badgeTitle} badge is approved`;
         text = approvalEmail.text;

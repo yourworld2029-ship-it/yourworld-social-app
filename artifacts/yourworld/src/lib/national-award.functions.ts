@@ -4,6 +4,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { hasAdminConsoleAccess } from "@/lib/admin-access-policy";
 import { escapeEmailHtml, sendTransactionalEmail } from "@/lib/email.server";
 import { buildVerificationApprovalEmail } from "@/lib/verification-approval-email";
+import { buildPublicAppUrl } from "@/lib/public-app-url";
 import {
   isNationalAwardCode,
   canRepairNationalAwardEvidence,
@@ -734,6 +735,7 @@ export const reviewNationalAwardVerification = createServerFn({ method: "POST" }
     const reason = data.reason?.trim() || null;
     let approvalProfileName = "";
     let approvalBadgeTitle = "";
+    let approvalAvatarUrl: string | null = null;
     if (data.action === "reject" && !reason) {
       throw new Error("A reason is required when rejecting an Award Verification request.");
     }
@@ -756,10 +758,11 @@ export const reviewNationalAwardVerification = createServerFn({ method: "POST" }
 
       const { data: applicantProfile, error: applicantProfileError } = await admin
         .from("profiles")
-        .select("country,display_name,username")
+        .select("country,display_name,username,avatar_url")
         .eq("id", data.applicantUserId)
         .maybeSingle();
       if (applicantProfileError) throw new Error(applicantProfileError.message);
+      approvalAvatarUrl = applicantProfile?.avatar_url ?? null;
       approvalProfileName =
         applicantProfile?.display_name?.trim() ||
         applicantProfile?.username?.trim() ||
@@ -821,6 +824,8 @@ export const reviewNationalAwardVerification = createServerFn({ method: "POST" }
           badgeKind: "award",
           badgeTitle: approvalBadgeTitle,
           quotaTier: "special",
+          avatarUrl: approvalAvatarUrl,
+          profileUrl: buildPublicAppUrl(`/u/${encodeURIComponent(data.applicantUserId)}`),
         });
         subject = `Your YourWorld ${approvalEmail.badgeTitle} badge is approved`;
         text = approvalEmail.text;

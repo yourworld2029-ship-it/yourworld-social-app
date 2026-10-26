@@ -75,50 +75,82 @@ export function buildVerificationApprovalEmail(input: {
   badgeKind: VerificationBadgeKind;
   badgeTitle: string;
   quotaTier: MonetizationQuotaTier;
+  avatarUrl?: string | null;
+  profileUrl?: string | null;
 }) {
   const profileName = input.profileName.trim() || "YourWorld Creator";
   const badgeTitle = cleanVerificationBadgeTitle(input.badgeTitle);
   const quotaCopy = monetizationQuotaCopy(input.quotaTier);
-  const approvalType =
-    input.badgeKind === "award" ? "National Honours / Gallantry Award" : "Sports Verification";
+  const avatarUrl = safeHttpsUrl(input.avatarUrl);
+  const profileUrl =
+    safeHttpsUrl(input.profileUrl) ??
+    "https://your-world-social-app--yourworld2029.replit.app/profile";
+  const avatarInitials =
+    profileName
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toLocaleUpperCase() ?? "")
+      .join("") || "Y";
+  const badgeLabel = input.badgeKind === "award" ? "National Honours / Gallantry Award" : "Sports Badge";
   const text = [
-    `Congratulations, ${profileName}!`,
-    `Your ${approvalType} has been approved and your profile badge has been updated.`,
+    "YOURWORLD VERIFIED 🏆",
+    `Badhaai Ho, ${profileName}! 🏆🎉`,
+    "Aapne desh aur samaj ka naam uncha kiya hai, isliye YourWorld par aapka swagat bhi sabse khas hona chahiye! 🇮🇳",
+    `Hamein behad garv hai ki hum aapko ${badgeTitle} ke sath verify kar rahe hain.`,
     "Your Profile Identity Card:",
     `Profile Name: ${profileName}`,
-    `Award / Sports Badge: ${badgeTitle}`,
+    `${badgeLabel}: ${badgeTitle}`,
     "Your Monetization Quota Privilege:",
     quotaCopy,
-    "Open YourWorld to view your updated profile.",
-    "— YourWorld Creator Admin",
+    `[ GO TO MY PROFILE ] ${profileUrl}`,
+    "— Team YourWorld Social",
   ].join("\n\n");
 
   const escapedProfileName = escapeEmailHtml(profileName);
   const escapedBadgeTitle = escapeEmailHtml(badgeTitle);
   const escapedQuotaCopy = escapeEmailHtml(quotaCopy);
+  const escapedAvatarInitials = escapeEmailHtml(avatarInitials);
+  const escapedAvatarUrl = avatarUrl ? escapeEmailHtml(avatarUrl) : null;
+  const escapedProfileUrl = escapeEmailHtml(profileUrl);
+  const avatarContent = escapedAvatarUrl
+    ? `<img src="${escapedAvatarUrl}" width="72" height="72" alt="${escapedProfileName} profile avatar" style="display:block;width:72px;height:72px;object-fit:cover;border:2px solid #ed69db;border-radius:50%">`
+    : `<div aria-label="${escapedProfileName} avatar" style="width:72px;height:72px;line-height:72px;text-align:center;background:#321850;border:2px solid #ed69db;border-radius:50%;color:#ffffff;font-size:22px;font-weight:700">${escapedAvatarInitials}</div>`;
   const html = `
-    <div style="margin:0;padding:24px;background:#f4f2f8;font-family:Arial,Helvetica,sans-serif;color:#242033">
-      <div style="max-width:600px;margin:0 auto;padding:28px;background:#ffffff;border:1px solid #e8e2f0;border-radius:16px">
-        <p style="margin:0 0 10px;color:#4b1680;font-size:12px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase">YourWorld Verification</p>
-        <h1 style="margin:0 0 14px;font-size:24px;line-height:1.3">Congratulations, ${escapedProfileName}!</h1>
-        <p style="margin:0 0 22px;font-size:15px;line-height:1.6">Your ${approvalType} has been approved and your profile badge has been updated.</p>
-        <div style="padding:20px;background:#24113e;border:1px solid #eadcf8;border-radius:14px;color:#ffffff">
-          <div style="color:#f2a6e8;font-size:11px;font-weight:700;letter-spacing:1.3px;text-transform:uppercase">Profile Identity Card</div>
-          <div style="margin-top:8px;font-size:21px;font-weight:700">${escapedProfileName}</div>
-          <div style="height:1px;margin:14px 0;background:#684b80"></div>
-          <div style="color:#e7d7f4;font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase">Award / Sports Badge</div>
-          <div style="margin-top:6px;color:#ffffff;font-size:17px;font-weight:700">${escapedBadgeTitle}</div>
+    <div style="margin:0;padding:28px 14px;background:#08080d;font-family:Arial,Helvetica,sans-serif;color:#f7f3fb">
+      <div style="max-width:620px;margin:0 auto;overflow:hidden;background:#111019;border:1px solid #392749;border-radius:22px">
+        <div style="height:5px;background:#e649c7"></div>
+        <div style="padding:30px 28px 28px">
+          <div style="margin:0 0 22px;color:#f1a6e3;font-size:13px;font-weight:800;letter-spacing:2px">YOURWORLD VERIFIED 🏆</div>
+          <h1 style="margin:0 0 14px;color:#ffffff;font-size:27px;line-height:1.35">Badhaai Ho, ${escapedProfileName}! 🏆🎉</h1>
+          <p style="margin:0 0 12px;color:#e6deeb;font-size:16px;line-height:1.75">Aapne desh aur samaj ka naam uncha kiya hai, isliye YourWorld par aapka swagat bhi sabse khas hona chahiye! 🇮🇳</p>
+          <p style="margin:0 0 24px;color:#e6deeb;font-size:16px;line-height:1.75">Hamein behad garv hai ki hum aapko <strong style="color:#ffffff">${escapedBadgeTitle}</strong> ke sath verify kar rahe hain.</p>
+          <div style="padding:22px;background:#1a1424;border:1px solid #53375f;border-radius:18px">
+            <div style="margin:0 0 15px;color:#f1a6e3;font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase">Profile Identity Card</div>
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse">
+              <tr>
+                <td width="88" valign="middle" style="padding:0 16px 0 0">${avatarContent}</td>
+                <td valign="middle" style="padding:0">
+                  <div style="color:#ffffff;font-size:20px;font-weight:700;line-height:1.35">${escapedProfileName}</div>
+                  <div style="margin-top:8px;color:#d5b2e7;font-size:11px;font-weight:700;letter-spacing:1.1px;text-transform:uppercase">${badgeLabel}</div>
+                  <div style="margin-top:4px;color:#ffffff;font-size:16px;font-weight:700;line-height:1.4">${escapedBadgeTitle}</div>
+                </td>
+              </tr>
+            </table>
+          </div>
+          <div style="margin-top:18px;padding:19px;background:#171323;border:1px solid #69417a;border-radius:18px">
+            <div style="color:#f1a6e3;font-size:13px;font-weight:800">Your Monetization Quota Privilege</div>
+            <p style="margin:9px 0 0;color:#eee5f2;font-size:14px;line-height:1.7">${escapedQuotaCopy}</p>
+          </div>
+          <div style="margin:26px 0 18px;text-align:center">
+            <a href="${escapedProfileUrl}" style="display:inline-block;padding:15px 25px;background:#d638bb;border:1px solid #ef8ce0;border-radius:12px;color:#ffffff;font-size:13px;font-weight:800;letter-spacing:1px;text-decoration:none">GO TO MY PROFILE</a>
+          </div>
+          <p style="margin:0;color:#bcb2c5;font-size:13px;line-height:1.6;text-align:center">— Team YourWorld Social</p>
         </div>
-        <div style="margin-top:18px;padding:18px;background:#f8f3ff;border:1px solid #dfc9f2;border-radius:14px">
-          <div style="color:#4b1680;font-size:13px;font-weight:700">Your Monetization Quota Privilege</div>
-          <p style="margin:8px 0 0;color:#332544;font-size:14px;line-height:1.6">${escapedQuotaCopy}</p>
-        </div>
-        <p style="margin:22px 0 0;font-size:14px">Open YourWorld to view your updated profile.</p>
-        <p style="margin:8px 0 0;font-size:14px">— YourWorld Creator Admin</p>
       </div>
     </div>`;
 
-  return { profileName, badgeTitle, quotaCopy, text, html };
+  return { profileName, badgeTitle, quotaCopy, text, html, profileUrl };
 }
 
 function escapeEmailHtml(value: string) {
@@ -128,4 +160,14 @@ function escapeEmailHtml(value: string) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function safeHttpsUrl(value?: string | null) {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
 }
