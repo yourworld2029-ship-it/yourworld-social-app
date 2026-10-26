@@ -64,9 +64,7 @@ function DirectReelUploadPage() {
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
-  const [title, setTitle] = useState("");
   const [caption, setCaption] = useState("");
-  const [hashtags, setHashtags] = useState("");
   const [allowDownload, setAllowDownload] = useState(true);
   const [collaboratorQuery, setCollaboratorQuery] = useState("");
   const [collaboratorResults, setCollaboratorResults] = useState<PublicSearchProfile[]>([]);
@@ -240,18 +238,21 @@ function DirectReelUploadPage() {
       setError(`Reels must be between ${MIN_REEL_SECONDS} and ${MAX_REEL_SECONDS} seconds.`);
       return;
     }
-    if (!title.trim()) {
-      setError("Add a title before publishing.");
-      return;
-    }
-
     setPublishing(true);
     setProgress(0);
     setError(null);
-    const parsedHashtags = hashtags
-      .split(/[\s,]+/)
-      .map((tag) => tag.replace(/^#/, "").trim())
-      .filter(Boolean);
+    const normalizedCaption = caption.trim();
+    const reelTitle =
+      normalizedCaption.split(/\r?\n/, 1)[0]?.slice(0, 120) || "New reel";
+    const parsedHashtags = [
+      ...new Set(
+        normalizedCaption
+          .split(/\s+/)
+          .filter((tag) => tag.startsWith("#"))
+          .map((tag) => tag.slice(1).replace(/[^\p{L}\p{N}_].*$/u, ""))
+          .filter(Boolean),
+      ),
+    ];
     const userMetadata = (user?.user_metadata ?? {}) as Record<string, unknown>;
     const username =
       (typeof userMetadata.username === "string" && userMetadata.username) ||
@@ -277,8 +278,8 @@ function DirectReelUploadPage() {
         kind: "reel",
         userId: user.id,
         file,
-        title: title.trim(),
-        caption: caption.trim(),
+        title: reelTitle,
+        caption: normalizedCaption,
         hashtags: parsedHashtags,
         allowDownload,
         createdAt: new Date().toISOString(),
@@ -298,15 +299,15 @@ function DirectReelUploadPage() {
     const uploadPromise = startUpload(
       {
         kind: "reel",
-        label: title.trim() || "New reel",
+        label: reelTitle,
         viewTo: "/reels",
         isVideo: true,
       },
       (onProgress, signal) =>
         publishDirectReel({
           file,
-          title,
-          caption,
+          title: reelTitle,
+          caption: normalizedCaption,
           hashtags: parsedHashtags,
           allowDownload,
            collaboratorUserId: selectedCollaborator?.id ?? null,
@@ -464,36 +465,15 @@ function DirectReelUploadPage() {
           )}
 
           <label className="block space-y-2">
-            <span className="text-sm font-semibold">Title</span>
-            <input
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              placeholder="Give your Reel a title"
-              maxLength={120}
-              className="w-full rounded-2xl border border-zinc-800 bg-zinc-900/90 p-3.5 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
-            />
-          </label>
-
-          <label className="block space-y-2">
             <span className="text-sm font-semibold">Caption</span>
             <textarea
               value={caption}
               onChange={(event) => setCaption(event.target.value)}
-              placeholder="Tell people about this Reel"
+              placeholder="Write a caption and add hashtags..."
               rows={4}
               maxLength={2200}
               className="w-full resize-none rounded-2xl border border-zinc-800 bg-zinc-900/90 p-3.5 text-sm text-white caret-white selection:bg-fuchsia-500/40 selection:text-white outline-none transition placeholder:text-zinc-500 focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
               style={{ WebkitTextFillColor: "#fff" }}
-            />
-          </label>
-
-          <label className="block space-y-2">
-            <span className="text-sm font-semibold">Hashtags</span>
-            <input
-              value={hashtags}
-              onChange={(event) => setHashtags(event.target.value)}
-              placeholder="#travel #music"
-              className="w-full rounded-2xl border border-zinc-800 bg-zinc-900/90 p-3.5 text-sm text-white outline-none transition placeholder:text-zinc-500 focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
             />
           </label>
 
