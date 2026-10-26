@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, useLocation, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft, CheckCircle2, LockKeyhole, RefreshCw, ShieldAlert, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -67,6 +67,7 @@ function getAdminRequests<T>(value: unknown): { requests: T[]; error?: string } 
 
 function AdminConsole() {
   const navigate = useNavigate();
+  const location = useLocation();
   const access = useAdminAccess();
   const [mfaOpen, setMfaOpen] = useState(false);
   const [data, setData] = useState<AdminConsoleData | null>(null);
@@ -186,6 +187,9 @@ function AdminConsole() {
         message={access.message ?? "This account does not have the admin role."}
       />
     );
+  }
+  if (location.pathname.replace(/\/+$/, "").endsWith("/admin/sports-verification")) {
+    return <Outlet />;
   }
   if (mfaOpen) {
     return (
