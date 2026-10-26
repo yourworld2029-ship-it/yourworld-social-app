@@ -49,7 +49,10 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
   const indicatorTimerRef = useRef<number | null>(null);
   const hasInteractedRef = useRef(false);
 
-  const mediaReference = post?.video_url ?? post?.media_url ?? null;
+  const mediaReference =
+    post?.kind === "reel"
+      ? post.media_url || post.video_url || null
+      : post?.video_url ?? post?.media_url ?? null;
 
   useEffect(() => {
     if (!post) return;
@@ -266,7 +269,7 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
                   loop
                   muted={isMuted}
                   playsInline
-                  preload="none"
+                  preload={isReel ? "metadata" : "none"}
                   controls={false}
                   onLoadedMetadata={(event) => {
                     setCurrentTime(event.currentTarget.currentTime);
