@@ -1066,6 +1066,7 @@ export function ReelMedia({
       <ProtectedCanvasVideoMirror
         videoRef={videoRef}
         screenBounded
+        devicePixelResolution
         className={`absolute inset-0 ${className}`}
       />
       <LazyVideoThumbnail

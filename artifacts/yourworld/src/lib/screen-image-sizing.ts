@@ -4,6 +4,21 @@ export function fitImageToScreen(width: number, height: number, maxWidth: number
   return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
 }
 
+/** Convert a CSS viewport to a bounded physical-pixel canvas size. */
+export function fitDeviceCanvasBounds(
+  width: number,
+  height: number,
+  devicePixelRatio: number,
+) {
+  const ratio = Number.isFinite(devicePixelRatio)
+    ? Math.min(3, Math.max(1, devicePixelRatio))
+    : 1;
+  return {
+    width: Math.max(1, Math.min(1440, Math.round(Math.max(1, width) * ratio))),
+    height: Math.max(1, Math.min(2560, Math.round(Math.max(1, height) * ratio))),
+  };
+}
+
 /** Read dimensions without decoding the full image into a GPU texture. */
 export function imageHeaderDimensions(bytes: ArrayBuffer): { width: number; height: number } | null {
   const view = new DataView(bytes);

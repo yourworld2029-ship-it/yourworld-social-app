@@ -8,6 +8,7 @@ import {
 } from "react";
 import { extractExternalTextLinks } from "@/lib/chat-links";
 import { screenImageBounds } from "@/lib/screen-image";
+import { fitDeviceCanvasBounds } from "@/lib/screen-image-sizing";
 
 type WrappedTextLine = {
   text: string;
@@ -503,11 +504,13 @@ export function ProtectedCanvasVideoMirror({
   className = "",
   style,
   screenBounded = false,
+  devicePixelResolution = false,
 }: {
   videoRef: RefObject<HTMLVideoElement | null>;
   className?: string;
   style?: CSSProperties;
   screenBounded?: boolean;
+  devicePixelResolution?: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -527,7 +530,14 @@ export function ProtectedCanvasVideoMirror({
     const draw = () => {
       frame = videoFrame = 0;
       if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-        const bounds = screenBounded ? screenImageBounds() : { width: 1600, height: 1600 };
+        const screenBounds = screenBounded ? screenImageBounds() : { width: 1600, height: 1600 };
+        const bounds = devicePixelResolution
+          ? fitDeviceCanvasBounds(
+              screenBounds.width,
+              screenBounds.height,
+              typeof window === "undefined" ? 1 : window.devicePixelRatio,
+            )
+          : screenBounds;
         const scale = Math.min(
           1,
           bounds.width / (video.videoWidth || 320),
@@ -566,7 +576,7 @@ export function ProtectedCanvasVideoMirror({
       video.removeEventListener("seeked", drawContinuously);
       video.removeEventListener("pause", drawContinuously);
     };
-  }, [videoRef, screenBounded]);
+  }, [devicePixelResolution, videoRef, screenBounded]);
 
   return (
     <canvas

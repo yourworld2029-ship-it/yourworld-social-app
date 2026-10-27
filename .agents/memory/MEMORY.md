@@ -85,3 +85,4 @@
 - [Android text-selection toolbar](android-text-selection-toolbar.md) — WebView Cut/Copy popup contrast follows the native post-splash Activity theme, not textarea CSS.
 - [Android WebView select menus](android-webview-select-options.md) — use the app-styled selector for dark-theme dropdowns; native option popups can render unreadable text.
 - [jsPDF Indian rupee glyph](jspdf-rupee-glyph.md) — embed a Unicode font for ₹; Helvetica/WinAnsi maps it to ¹.
+- [Reel canvas resolution](reel-canvas-resolution.md) — size protected Reel canvases in device pixels, with a strict memory cap, to avoid blurry Android playback.

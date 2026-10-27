@@ -1,7 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { fitImageToScreen, imageHeaderDimensions } from "./screen-image-sizing";
+import { fitDeviceCanvasBounds, fitImageToScreen, imageHeaderDimensions } from "./screen-image-sizing";
 import { releaseListVideo } from "./media-release";
+
+test("protected Reel canvases use device pixels while bounding memory", () => {
+  assert.deepEqual(fitDeviceCanvasBounds(393, 873, 3), { width: 1179, height: 2560 });
+  assert.deepEqual(fitDeviceCanvasBounds(500, 900, 2), { width: 1000, height: 1800 });
+  assert.deepEqual(fitDeviceCanvasBounds(900, 1600, 4), { width: 1440, height: 2560 });
+  assert.deepEqual(fitDeviceCanvasBounds(360, 800, Number.NaN), { width: 360, height: 800 });
+});
 
 test("4K landscape and portrait images fit the viewport without stretching", () => {
   assert.deepEqual(fitImageToScreen(3840, 2160, 360, 640), { width: 360, height: 203 });
