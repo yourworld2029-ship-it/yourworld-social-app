@@ -16,6 +16,8 @@ import { missingTable, writeCompat } from "@/lib/supabase-compat";
 import { getRegisteredBlob } from "@/lib/blob-registry";
 import { dmThreadId, ensureThreadConversation, resolveMediaUrl } from "@/lib/social-data";
 import { loadLongVideosByIds, resolveLongVideoUrl } from "@/lib/video-data";
+import { resolveAuthorizedPlaybackUrl } from "@/lib/video-media-api";
+import { isHlsMediaUrl } from "@/lib/video-playback-engine";
 import { parseSharedMomentContent, type SharedMomentContent } from "@/lib/moment-share";
 import {
   normalizeAutoDeleteSetting,
@@ -598,7 +600,10 @@ async function signMomentMedia(list: MyMoment[]) {
         }
         const source = row.video_url ?? row.media_url;
         if (typeof source !== "string" || !source) return { ...moment, media: "" };
-        const media = await resolveMediaUrl(source, "reels");
+        const resolvedMedia = await resolveMediaUrl(source, "reels");
+        const media = isHlsMediaUrl(resolvedMedia)
+          ? await resolveAuthorizedPlaybackUrl(shared.id, resolvedMedia)
+          : resolvedMedia;
         return media ? { ...moment, media } : moment;
       } catch (error) {
         console.warn("Could not refresh shared video for Moment", {

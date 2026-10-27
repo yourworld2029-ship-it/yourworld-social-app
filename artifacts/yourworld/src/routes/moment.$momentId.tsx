@@ -8,6 +8,7 @@ import { useProfiles } from "@/lib/profiles-map";
 import { cn } from "@/lib/utils";
 import { bindHlsNetworkAwareLevelCap, createVideoHlsConfig } from "@/lib/video-hls-config";
 import { isHlsMediaUrl } from "@/lib/video-playback-engine";
+import { resolveAuthorizedPlaybackUrl } from "@/lib/video-media-api";
 import {
   X,
   Heart,
@@ -329,8 +330,20 @@ function MomentViewRoute() {
     if (Hls.isSupported()) {
       hls = new Hls(createVideoHlsConfig());
       bindHlsNetworkAwareLevelCap(hls);
+      let retriedAuthorization = false;
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         if (active && !playbackBlockedRef.current) playSharedReel(video);
+      });
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        if (!data.fatal || !active || !hls || retriedAuthorization) return;
+        retriedAuthorization = true;
+        const shared = current?.sharedContent;
+        if (shared?.kind !== "reel") return;
+        void resolveAuthorizedPlaybackUrl(shared.id, sharedReelHlsUrl)
+          .then((freshUrl) => {
+            if (active && hls) hls.loadSource(freshUrl);
+          })
+          .catch(() => undefined);
       });
       hls.loadSource(sharedReelHlsUrl);
       hls.attachMedia(video);

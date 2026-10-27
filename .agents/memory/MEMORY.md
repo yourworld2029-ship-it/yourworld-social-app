@@ -60,6 +60,7 @@
 - [Moment expiry cleanup](moment-expiry-cleanup.md) — preserve strict active-feed expiry; keep archive recovery owner-only and align duration checks and poll votes with the database.
 - [Moment viewer index sync](moment-viewer-index-sync.md) — refreshes to Moment data must not reset the selected segment within the active author group.
 - [Shared Moment preview limit](shared-moment-preview-limit.md) — enforce the 30-second cap even when a shared video reports an unknown or infinite duration.
+- [Shared Reel Moment playback](shared-reel-moment-playback.md) — shared Reel Moments need the same authorized HLS URL as the full Reel player.
 - [Viewed Moment rings](moment-viewed-ring-state.md) — optimistically update viewer state before unique-view deduplication so watched Moments immediately show muted rings.
 - [Moment mention delivery](moment-mention-delivery.md) — deliver Moment mentions as 1:1 chat DMs with a preview and reshare action, not visible Notifications feed items.
 - [Artifact-scoped builds](artifact-scoped-builds.md) — for a one-artifact change, validate that package directly before treating unrelated workspace build failures as blockers.
