@@ -210,14 +210,26 @@ function DirectReelUploadPage() {
     }
   };
 
-  const togglePlayback = async () => {
+  const playPreview = async () => {
     const video = videoRef.current;
-    if (!video) return;
-    if (video.paused) {
+    if (!video || !video.paused) return;
+    try {
       await video.play();
-    } else {
-      video.pause();
+    } catch {
+      setIsPlaying(false);
     }
+  };
+
+  const pausePreview = () => {
+    videoRef.current?.pause();
+  };
+
+  const seekPreview = (time: number) => {
+    const video = videoRef.current;
+    if (!video || !Number.isFinite(video.duration) || video.duration <= 0) return;
+    const nextTime = Math.max(0, Math.min(time, video.duration));
+    video.currentTime = nextTime;
+    setCurrentTime(nextTime);
   };
 
   const handleTimeUpdate = (event: React.SyntheticEvent<HTMLVideoElement>) => {
@@ -404,35 +416,25 @@ function DirectReelUploadPage() {
               />
               <button
                 type="button"
-                onClick={togglePlayback}
-                className="absolute inset-0 z-[2] flex items-center justify-center text-white transition-opacity duration-300"
-                aria-label={isPlaying ? "Pause preview" : "Play preview"}
-              >
-                <span className="flex h-14 w-14 items-center justify-center rounded-full border border-white/20 bg-black/40 text-white shadow-xl backdrop-blur-md transition-all duration-300 hover:scale-105 hover:bg-black/55 active:scale-95">
-                  {isPlaying ? (
-                    <Pause className="h-5 w-5 fill-current" />
-                  ) : (
-                    <Play className="ml-0.5 h-5 w-5 fill-current" />
-                  )}
-                </span>
-              </button>
-              <button
-                type="button"
                 onClick={resetVideo}
                 className="absolute right-3 top-3 z-[2] rounded-full border border-white/15 bg-black/60 px-3.5 py-1.5 text-xs font-medium text-white/90 backdrop-blur-md transition hover:bg-black/80"
               >
                 Replace
               </button>
-              <div className="pointer-events-none absolute inset-x-4 bottom-4 z-[2] h-1 overflow-hidden rounded-full bg-white/20">
-                <div
-                  className="h-full rounded-full bg-white shadow-[0_0_12px_rgba(255,255,255,0.7)] transition-[width] duration-150"
-                  style={{
-                    width: duration && duration > 0
-                      ? `${Math.min(100, (currentTime / duration) * 100)}%`
-                      : "0%",
-                  }}
-                />
-              </div>
+              <input
+                type="range"
+                aria-label="Seek Reel preview"
+                min={0}
+                max={duration ?? 0}
+                step={0.1}
+                value={Math.min(currentTime, duration ?? 0)}
+                onChange={(event) => seekPreview(Number(event.currentTarget.value))}
+                onPointerUp={() => {
+                  if (videoRef.current?.paused) void playPreview();
+                }}
+                disabled={duration === null || duration <= 0}
+                className="absolute inset-x-4 bottom-1 z-[3] h-8 w-[calc(100%-2rem)] cursor-pointer accent-white disabled:cursor-not-allowed"
+              />
             </div>
           ) : (
             <button
@@ -449,6 +451,31 @@ function DirectReelUploadPage() {
             </button>
           )}
 
+          {previewUrl && (
+            <div className="flex items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={() => void playPreview()}
+                disabled={isPlaying || duration === null}
+                className="inline-flex min-w-28 items-center justify-center gap-2 rounded-full border border-white/15 bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-45"
+                aria-label="Play Reel preview"
+              >
+                <Play className="h-4 w-4 fill-current" />
+                Play
+              </button>
+              <button
+                type="button"
+                onClick={pausePreview}
+                disabled={!isPlaying}
+                className="inline-flex min-w-28 items-center justify-center gap-2 rounded-full border border-white/15 bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-45"
+                aria-label="Pause Reel preview"
+              >
+                <Pause className="h-4 w-4 fill-current" />
+                Pause
+              </button>
+            </div>
+          )}
+
           <input
             ref={fileInputRef}
             type="file"
@@ -463,7 +490,6 @@ function DirectReelUploadPage() {
             <div className="mx-auto inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-400">
               <CheckCircle2 className="h-4 w-4 text-emerald-400" />
               {duration.toFixed(1)} seconds
-              {dimensions.width > 0 && ` · ${dimensions.width}×${dimensions.height}`}
             </div>
           )}
 
