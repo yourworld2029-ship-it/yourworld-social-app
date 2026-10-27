@@ -1,10 +1,13 @@
 import { useState, useRef, useEffect, useCallback, useMemo, type PointerEvent as ReactPointerEvent } from "react";
 import { createFileRoute, useParams, useNavigate } from "@tanstack/react-router";
+import Hls from "hls.js";
 import { type MyMoment } from "@/lib/moment-store";
 import { useMoments } from "@/lib/moment-context";
 import { aiFilterCss } from "@/lib/moment-utils";
 import { useProfiles } from "@/lib/profiles-map";
 import { cn } from "@/lib/utils";
+import { bindHlsNetworkAwareLevelCap, createVideoHlsConfig } from "@/lib/video-hls-config";
+import { isHlsMediaUrl } from "@/lib/video-playback-engine";
 import {
   X,
   Heart,
@@ -146,6 +149,7 @@ function MomentViewRoute() {
   const [showViewers, setShowViewers] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const playbackBlockedRef = useRef(false);
   const musicRef = useRef<HTMLAudioElement | null>(null);
   const replyBarRef = useRef<HTMLDivElement | null>(null);
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -157,6 +161,26 @@ function MomentViewRoute() {
 
   const current = items[index] ?? selected ?? null;
   const selectedMomentId = selected?.id ?? null;
+  const sharedReelHlsUrl =
+    current?.sharedContent?.kind === "reel" &&
+    current.media &&
+    isHlsMediaUrl(current.media)
+      ? current.media
+      : null;
+
+  const playSharedReel = useCallback((video: HTMLVideoElement) => {
+    void video.play().catch((error: unknown) => {
+      const name =
+        error && typeof error === "object" && "name" in error
+          ? String(error.name)
+          : "";
+      if (name !== "NotAllowedError") return;
+      video.muted = true;
+      video.defaultMuted = true;
+      setMuted(true);
+      void video.play().catch(() => undefined);
+    });
+  }, []);
 
   // sync index to the moment in the URL
   useEffect(() => {
@@ -262,11 +286,17 @@ function MomentViewRoute() {
   useEffect(() => {
     const v = videoRef.current;
     const a = musicRef.current;
+    playbackBlockedRef.current =
+      paused || replying || replyFocused || showViewers;
     if (paused || replying || replyFocused || showViewers) {
       v?.pause();
       a?.pause();
     } else {
-      void v?.play().catch(() => {});
+      if (v && current?.sharedContent?.kind === "reel") {
+        playSharedReel(v);
+      } else {
+        void v?.play().catch(() => {});
+      }
       void a?.play().catch(() => {
         if (a && !muted) {
           a.muted = true;
@@ -274,7 +304,50 @@ function MomentViewRoute() {
         }
       });
     }
-  }, [paused, replyFocused, replying, showViewers, index, muted]);
+  }, [
+    current?.id,
+    current?.sharedContent?.kind,
+    index,
+    muted,
+    paused,
+    playSharedReel,
+    replyFocused,
+    replying,
+    showViewers,
+  ]);
+
+  // Shared Reels can use Cloudflare HLS manifests, which Android WebView cannot
+  // play by assigning the manifest directly as a normal video source.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !sharedReelHlsUrl) return;
+    let active = true;
+    let hls: Hls | null = null;
+
+    video.removeAttribute("src");
+    video.load();
+    if (Hls.isSupported()) {
+      hls = new Hls(createVideoHlsConfig());
+      bindHlsNetworkAwareLevelCap(hls);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        if (active && !playbackBlockedRef.current) playSharedReel(video);
+      });
+      hls.loadSource(sharedReelHlsUrl);
+      hls.attachMedia(video);
+    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = sharedReelHlsUrl;
+      video.load();
+      if (!playbackBlockedRef.current) playSharedReel(video);
+    }
+
+    return () => {
+      active = false;
+      hls?.destroy();
+      video.pause();
+      video.removeAttribute("src");
+      video.load();
+    };
+  }, [current?.id, playSharedReel, sharedReelHlsUrl]);
 
   // background music
   useEffect(() => {
@@ -501,7 +574,7 @@ function MomentViewRoute() {
             <div key={current.id} className="relative h-full w-full">
               <video
                 ref={videoRef}
-                src={current.media}
+                src={sharedReelHlsUrl ? undefined : current.media}
                 autoPlay
                 playsInline
                 muted={muted}
