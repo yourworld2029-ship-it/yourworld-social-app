@@ -1131,6 +1131,7 @@ export async function updateMyPost(
     comments_off?: boolean;
     archived?: boolean;
     mentions?: string[];
+    tagged_user_ids?: string[];
     category?: string | null;
     sports_tag?: string | null;
     thumbnail_url?: string | null;
@@ -1147,6 +1148,7 @@ export async function updateMyPost(
     comments_off?: boolean;
     archived?: boolean;
     mentions?: string[];
+    tagged_user_ids?: string[];
     category?: string | null;
     sports_tag?: string | null;
     thumbnail_url?: string | null;
@@ -1166,6 +1168,7 @@ export async function updateMyPost(
   if (patch.comments_off !== undefined) next.comments_off = patch.comments_off;
   if (patch.archived !== undefined) next.archived = patch.archived;
   if (patch.mentions !== undefined) next.mentions = patch.mentions;
+  if (patch.tagged_user_ids !== undefined) next.tagged_user_ids = patch.tagged_user_ids;
   if (patch.category !== undefined) next.category = patch.category;
   if (patch.sports_tag !== undefined) next.sports_tag = patch.sports_tag;
   if (patch.thumbnail_url !== undefined) next.thumbnail_url = patch.thumbnail_url;

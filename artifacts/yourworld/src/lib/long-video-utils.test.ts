@@ -4,6 +4,7 @@ import {
   episodeOrdinal,
   hasRestrictedLongVideoAudience,
   isLongVideoRow,
+  isReelRow,
   isNextSeriesEpisode,
   isPublishedLongVideoRow,
   sortSeriesEpisodes,
@@ -24,6 +25,14 @@ test("published long-video eligibility rejects reels and unpublished rows", () =
   assert.equal(isPublishedLongVideoRow({ kind: "video", archived: true }), false);
   assert.equal(isPublishedLongVideoRow({ kind: "reel", media_type: "video" }), false);
   assert.equal(isPublishedLongVideoRow({ kind: "moment", media_type: "video" }), false);
+});
+
+test("Reel feeds reject long-video rows and over-limit Reel rows", () => {
+  assert.equal(isReelRow({ kind: "reel", media_type: "video", duration_seconds: 90 }), true);
+  assert.equal(isReelRow({ kind: "reel", media_type: "video", duration_seconds: 91 }), false);
+  assert.equal(isReelRow({ kind: "video", duration_seconds: 30, is_reel: true }), false);
+  assert.equal(isReelRow({ kind: null, is_reel: true, duration_seconds: 45 }), true);
+  assert.equal(isReelRow({ kind: "video", duration_seconds: 180 }), false);
 });
 
 test("legacy rows without publication columns remain visible when their kind is video", () => {

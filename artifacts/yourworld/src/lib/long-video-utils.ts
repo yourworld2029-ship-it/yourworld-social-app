@@ -16,6 +16,17 @@ export function isLongVideoRow(row: UnknownRow) {
   return hasVideoMedia && Number.isFinite(duration) && duration >= 90;
 }
 
+/** A Reel must be explicitly marked as one and stay within its 90-second cap. */
+export function isReelRow(row: UnknownRow) {
+  const kind = valueText(row.kind ?? row.type).toLowerCase();
+  if (kind === "video" || kind === "long_video") return false;
+  const explicitlyReel = kind === "reel" || row.is_reel === true;
+  if (!explicitlyReel) return false;
+
+  const duration = Number(row.duration_seconds);
+  return !Number.isFinite(duration) || duration <= 90;
+}
+
 export function hasRestrictedLongVideoAudience(row: UnknownRow) {
   if (row.is_private === true || row.is_followers_only === true || row.close_friends_only === true) {
     return true;

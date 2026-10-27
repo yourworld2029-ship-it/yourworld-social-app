@@ -100,6 +100,11 @@ type Message = {
     postId: string;
     status: "pending" | "accepted" | "declined" | "removed";
   };
+  reelTag?: {
+    postId: string;
+    taggedUserId: string;
+    status: "active" | "removed";
+  };
   sender: "me" | "them";
   system?: boolean;
   captureEventId?: string;
@@ -1169,6 +1174,8 @@ function NativeChatThreadPage() {
   const [collaborationInviteStatuses, setCollaborationInviteStatuses] = useState<
     Record<string, "pending" | "accepted" | "declined" | "removed">
   >({});
+  const [reelTagStatuses, setReelTagStatuses] = useState<Record<string, "active" | "removed">>({});
+  const [removingReelTagPostId, setRemovingReelTagPostId] = useState<string | null>(null);
   const [respondingCollaborationInviteId, setRespondingCollaborationInviteId] =
     useState<string | null>(null);
   const [replyTo, setReplyTo] = useState<ReplyPreview | null>(null);
@@ -1243,6 +1250,15 @@ function NativeChatThreadPage() {
             ? metadata.post_id
             : null;
         const inviteStatus = metadata?.status;
+        const reelTagPostId =
+          metadata?.source === "reel_tag" && typeof metadata.post_id === "string"
+            ? metadata.post_id
+            : null;
+        const taggedUserId =
+          reelTagPostId && typeof metadata?.tagged_user_id === "string"
+            ? metadata.tagged_user_id
+            : null;
+        const reelTagStatus = metadata?.status === "removed" ? "removed" : "active";
         const viewedAt =
           typeof m?.viewed_at === "string" ? Date.parse(m.viewed_at) : Number.NaN;
         const vanishExpiresAt =
@@ -1269,6 +1285,15 @@ function NativeChatThreadPage() {
                       inviteStatus === "removed"
                         ? inviteStatus
                         : "pending",
+                  },
+                }
+              : {}),
+            ...(reelTagPostId && taggedUserId
+              ? {
+                  reelTag: {
+                    postId: reelTagPostId,
+                    taggedUserId,
+                    status: reelTagStatus,
                   },
                 }
               : {}),
@@ -1405,6 +1430,23 @@ function NativeChatThreadPage() {
       );
     } finally {
       setRespondingCollaborationInviteId(null);
+    }
+  };
+
+  const removeMyReelTag = async (tag: NonNullable<Message["reelTag"]>) => {
+    if (!currentUserId || tag.taggedUserId !== currentUserId || removingReelTagPostId) return;
+    setRemovingReelTagPostId(tag.postId);
+    try {
+      const { error } = await supabase.rpc("remove_my_reel_tag", {
+        p_post_id: tag.postId,
+      });
+      if (error) throw error;
+      setReelTagStatuses((current) => ({ ...current, [tag.postId]: "removed" }));
+      toast.success("Your tag was removed from the Reel");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't remove your Reel tag");
+    } finally {
+      setRemovingReelTagPostId(null);
     }
   };
 
@@ -3809,6 +3851,42 @@ function NativeChatThreadPage() {
                                 ? "Collaboration ended"
                                 : "Collaboration invitation sent"}
                         </p>
+                      )}
+                    </div>
+                  );
+                })() : null}
+                {m.reelTag ? (() => {
+                  const tagStatus = reelTagStatuses[m.reelTag!.postId] ?? m.reelTag!.status;
+                  const canRemoveOwnTag =
+                    m.reelTag!.taggedUserId === currentUserId && m.sender === "them";
+                  return (
+                    <div
+                      className="mt-3 rounded-xl border border-violet-300/15 bg-black/20 p-3"
+                      data-testid={`chat-reel-tag-${m.reelTag!.postId}`}
+                      onPointerDown={(event) => event.stopPropagation()}
+                    >
+                      {tagStatus === "removed" ? (
+                        <p className="text-xs text-zinc-400">
+                          {canRemoveOwnTag ? "You removed your tag from this Reel." : "The Reel tag was removed."}
+                        </p>
+                      ) : canRemoveOwnTag ? (
+                        <>
+                          <p className="mb-2 text-xs text-zinc-300">You were tagged in this Reel.</p>
+                          <button
+                            type="button"
+                            disabled={removingReelTagPostId === m.reelTag!.postId}
+                            data-testid={`chat-remove-reel-tag-${m.reelTag!.postId}`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void removeMyReelTag(m.reelTag!);
+                            }}
+                            className="rounded-full border border-white/15 px-3 py-2 text-xs font-medium text-zinc-200 disabled:opacity-60"
+                          >
+                            {removingReelTagPostId === m.reelTag!.postId ? "Removing…" : "Remove my tag"}
+                          </button>
+                        </>
+                      ) : (
+                        <p className="text-xs text-zinc-400">Reel tag sent in chat.</p>
                       )}
                     </div>
                   );

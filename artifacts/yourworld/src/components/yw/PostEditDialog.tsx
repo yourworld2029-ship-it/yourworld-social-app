@@ -15,6 +15,7 @@ import {
 } from "@/lib/profile-data";
 import { resolveMediaUrl, type DbPost } from "@/lib/social-data";
 import { STORAGE_BUCKETS } from "@/lib/storage-upload";
+import { searchPublicProfiles } from "@/lib/search-data";
 
 type Props = {
   open: boolean;
@@ -23,6 +24,31 @@ type Props = {
   onOpenChange: (open: boolean) => void;
   onSaved: (post: DbPost) => void;
 };
+
+function mentionUsernames(value: string) {
+  return [...new Set(
+    value
+      .split(/[\s,]+/)
+      .map((entry) => entry.trim().replace(/^@/, "").toLowerCase())
+      .filter(Boolean),
+  )].slice(0, 50);
+}
+
+async function resolveReelTagIds(value: string, ownerId: string) {
+  const usernames = mentionUsernames(value);
+  const matches = await Promise.all(usernames.map(async (username) => {
+    const profiles = await searchPublicProfiles(username);
+    return profiles.find(
+      (profile) => profile.id !== ownerId &&
+        profile.username?.trim().toLowerCase() === username,
+    );
+  }));
+  const missing = usernames.filter((_, index) => !matches[index]);
+  if (missing.length) {
+    throw new Error(`Couldn't find @${missing[0]}. Check the username and try again.`);
+  }
+  return [...new Set(matches.flatMap((profile) => profile ? [profile.id] : []))];
+}
 
 function formatVideoTime(seconds: number) {
   if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
@@ -216,11 +242,15 @@ export function PostEditDialog({ open, post, userId, onOpenChange, onSaved }: Pr
             .slice(0, 50),
         ),
       );
+      const taggedUserIds = post.kind === "reel"
+        ? await resolveReelTagIds(mentions, userId)
+        : undefined;
       const patch = {
         title,
         caption,
         location: location.trim() || null,
         mentions: parsedMentions,
+        ...(taggedUserIds ? { tagged_user_ids: taggedUserIds } : {}),
         thumbnail_url: thumbnailUrl,
       } as const;
       await updateMyPost(post.id, patch);

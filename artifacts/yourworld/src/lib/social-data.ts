@@ -59,6 +59,7 @@ import {
   MIN_REEL_DURATION_SECONDS,
 } from "@/lib/reel-editor";
 import { getReelVideoSizeError } from "@/lib/video-upload-limits";
+import { isReelRow } from "@/lib/long-video-utils";
 import { sourceQualityTierFromDimensions } from "@/lib/video-quality";
 import {
   AFTER_VIEW_DELAY_MS,
@@ -153,6 +154,7 @@ export type DbPost = {
   pinned?: boolean | null;
   archived?: boolean | null;
   mentions?: string[] | null;
+  tagged_user_ids?: string[] | null;
   category?: string | null;
   sports_tag?: string | null;
   series_title?: string | null;
@@ -383,7 +385,10 @@ export async function loadSocialPosts(
     return { posts: [], currentUserId: uid, hasMore: false };
   }
 
-  const visiblePosts = posts.filter((post) => !isPostDeleted(post.id));
+  const visiblePosts = posts.filter((post) =>
+    !isPostDeleted(post.id) &&
+    (kind !== "reel" || isReelRow(post as unknown as Record<string, unknown>)),
+  );
   if (!visiblePosts.length) {
     return { posts: [], currentUserId: uid, hasMore: posts.length >= pageSize };
   }

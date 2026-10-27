@@ -87,7 +87,7 @@ import {
 import { trackEvent } from "@/lib/analytics";
 import { deleteMyPost } from "@/lib/profile-data";
 import { supabase } from "@/integrations/supabase/client";
-import { isLongVideoRow } from "@/lib/long-video-utils";
+import { isLongVideoRow, isReelRow } from "@/lib/long-video-utils";
 import { buildWatchShareUrl } from "@/lib/watch-links";
 import {
   acquireMediaDownloadLock,
@@ -359,19 +359,22 @@ function ReelsList() {
   }, [navigate, returnTo, scoped, userId]);
 
   const reelRows = useMemo(() => {
+    const onlyReels = dbReels.filter((post) =>
+      isReelRow(post as unknown as Record<string, unknown>),
+    );
     const target = targetedMedia.post;
     const canPrependTarget =
       !!initialId &&
       !!target &&
       target.id === initialId &&
-      target.kind === "reel" &&
+      isReelRow(target as unknown as Record<string, unknown>) &&
       (!userId || target.user_id === userId) &&
       target.id !== removedDirectTargetId &&
       canReadPublicVideoPreview(target);
-    if (!canPrependTarget || dbReels.some((post) => post.id === target.id)) {
-      return dbReels;
+    if (!canPrependTarget || onlyReels.some((post) => post.id === target.id)) {
+      return onlyReels;
     }
-    return [target, ...dbReels];
+    return [target, ...onlyReels];
   }, [dbReels, initialId, removedDirectTargetId, targetedMedia.post, userId]);
   const reelPostIds = useMemo(
     () => reelRows.filter((post) => post.kind === "reel").map((post) => post.id),
