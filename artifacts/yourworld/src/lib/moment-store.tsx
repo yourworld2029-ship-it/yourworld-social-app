@@ -17,7 +17,7 @@ import { getRegisteredBlob } from "@/lib/blob-registry";
 import { dmThreadId, ensureThreadConversation, resolveMediaUrl } from "@/lib/social-data";
 import { loadLongVideosByIds, resolveLongVideoUrl } from "@/lib/video-data";
 import { resolveAuthorizedPlaybackUrl } from "@/lib/video-media-api";
-import { isHlsMediaUrl } from "@/lib/video-playback-engine";
+import { isHlsMediaUrl, reelPlaybackSource } from "@/lib/video-playback-engine";
 import { parseSharedMomentContent, type SharedMomentContent } from "@/lib/moment-share";
 import {
   normalizeAutoDeleteSetting,
@@ -598,8 +598,8 @@ async function signMomentMedia(list: MyMoment[]) {
         ) {
           return { ...moment, media: "" };
         }
-        const source = row.video_url ?? row.media_url;
-        if (typeof source !== "string" || !source) return { ...moment, media: "" };
+        const source = reelPlaybackSource(row.media_url, row.video_url);
+        if (!source) return { ...moment, media: "" };
         const resolvedMedia = await resolveMediaUrl(source, "reels");
         const media = isHlsMediaUrl(resolvedMedia)
           ? await resolveAuthorizedPlaybackUrl(shared.id, resolvedMedia)

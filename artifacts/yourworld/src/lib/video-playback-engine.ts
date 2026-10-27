@@ -25,6 +25,15 @@ export function isHlsMediaUrl(url: string, contentType?: string | null) {
   return /\.m3u8$/i.test(path) || /\/manifest\/video\.m3u8$/i.test(path);
 }
 
+/** Prefer a Reel's playable media_url; video_url is normally a retained storage source. */
+export function reelPlaybackSource(mediaUrl: unknown, retainedSource: unknown) {
+  const playbackUrl = typeof mediaUrl === "string" ? mediaUrl.trim() : "";
+  if (playbackUrl) return playbackUrl;
+  const source = typeof retainedSource === "string" ? retainedSource.trim() : "";
+  if (!source) return null;
+  return source.replace(/^reels\//i, "");
+}
+
 export function isValidMp4RangeResponse(
   status: number,
   contentType: string | null,

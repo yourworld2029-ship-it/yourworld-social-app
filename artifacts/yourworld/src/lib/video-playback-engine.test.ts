@@ -9,6 +9,7 @@ import {
   isHlsMediaUrl,
   isPlayableMediaUrl,
   isValidMp4RangeResponse,
+  reelPlaybackSource,
   safeMediaUrlForLog,
   supportsNativeHls,
 } from "./video-playback-engine";
@@ -25,6 +26,15 @@ test("identifies HLS manifests with query strings and fragments", () => {
     true,
   );
   assert.equal(isHlsMediaUrl("https://media.example/video.mp4"), false);
+});
+
+test("shared Moment Reels prefer playable media over the retained source path", () => {
+  const playbackUrl = "https://media.example/reel/manifest/video.m3u8";
+  const retainedSource = "reels/user-id/original.mp4";
+  assert.equal(reelPlaybackSource(playbackUrl, retainedSource), playbackUrl);
+  assert.equal(reelPlaybackSource("", retainedSource), "user-id/original.mp4");
+  assert.equal(reelPlaybackSource(null, "https://media.example/reel.mp4"), "https://media.example/reel.mp4");
+  assert.equal(reelPlaybackSource(null, null), null);
 });
 
 test("accepts only MP4 partial-content responses for storage playback fallbacks", () => {
