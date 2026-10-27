@@ -95,6 +95,11 @@ type Message = {
   mediaKind?: "image" | "video" | "audio";
   mediaMimeType?: string;
   sharedMedia?: SharedMediaPreview;
+  collaborationInvite?: {
+    inviteId: string;
+    postId: string;
+    status: "pending" | "accepted" | "declined" | "removed";
+  };
   sender: "me" | "them";
   system?: boolean;
   captureEventId?: string;
@@ -1161,6 +1166,11 @@ function NativeChatThreadPage() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
 
   const [message, setMessage] = useState("");
+  const [collaborationInviteStatuses, setCollaborationInviteStatuses] = useState<
+    Record<string, "pending" | "accepted" | "declined" | "removed">
+  >({});
+  const [respondingCollaborationInviteId, setRespondingCollaborationInviteId] =
+    useState<string | null>(null);
   const [replyTo, setReplyTo] = useState<ReplyPreview | null>(null);
   const [swipeState, setSwipeState] = useState<{ id: string; offset: number } | null>(null);
   const [localMessages, setLocalMessages] = useState<Message[]>([]);
@@ -1223,6 +1233,16 @@ function NativeChatThreadPage() {
         const isMomentMention =
           metadata?.type === "moment_mention" ||
           metadata?.source === "moment_mention";
+        const inviteId =
+          metadata?.source === "reel_collaboration_invite" &&
+          typeof metadata.invite_id === "string"
+            ? metadata.invite_id
+            : null;
+        const invitePostId =
+          inviteId && typeof metadata?.post_id === "string"
+            ? metadata.post_id
+            : null;
+        const inviteStatus = metadata?.status;
         const viewedAt =
           typeof m?.viewed_at === "string" ? Date.parse(m.viewed_at) : Number.NaN;
         const vanishExpiresAt =
@@ -1238,6 +1258,20 @@ function NativeChatThreadPage() {
             mediaKind: mediaKindFromMetadata(metadata, m?.media_url, m?.voice_note_url),
             mediaMimeType: mediaMimeTypeFromMetadata(metadata, m?.media_url),
             sharedMedia: sharedMediaFromMetadata(metadata),
+            ...(inviteId && invitePostId
+              ? {
+                  collaborationInvite: {
+                    inviteId,
+                    postId: invitePostId,
+                    status:
+                      inviteStatus === "accepted" ||
+                      inviteStatus === "declined" ||
+                      inviteStatus === "removed"
+                        ? inviteStatus
+                        : "pending",
+                  },
+                }
+              : {}),
             sender: m?.sender_id === currentUserId ? "me" : "them",
             system: m?.is_system_message === true || CALL_LOG_PATTERN.test(text ?? ""),
             captureEventId:
@@ -1341,6 +1375,38 @@ function NativeChatThreadPage() {
     const timer = window.setInterval(() => setCountdownNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [dbMessages]);
+
+  const respondToChatCollaborationInvite = async (
+    invite: NonNullable<Message["collaborationInvite"]>,
+    action: "accept" | "decline",
+  ) => {
+    if (respondingCollaborationInviteId) return;
+    setRespondingCollaborationInviteId(invite.inviteId);
+    try {
+      const { error } = await supabase.rpc("respond_to_reel_collaboration_invite", {
+        p_invite_id: invite.inviteId,
+        p_action: action,
+      });
+      if (error) throw error;
+      setCollaborationInviteStatuses((current) => ({
+        ...current,
+        [invite.inviteId]: action === "accept" ? "accepted" : "declined",
+      }));
+      toast.success(
+        action === "accept"
+          ? "Collaboration invitation accepted"
+          : "Collaboration invitation declined",
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Couldn't respond to this collaboration invitation",
+      );
+    } finally {
+      setRespondingCollaborationInviteId(null);
+    }
+  };
 
   const openMomentReply = (message: Message) => {
     if (!message.momentId || !resolveMomentReplyPreview(message, moments).available) {
@@ -3681,6 +3747,72 @@ function NativeChatThreadPage() {
                     }}
                   />
                 ) : null}
+                {m.collaborationInvite ? (() => {
+                  const inviteStatus =
+                    collaborationInviteStatuses[m.collaborationInvite!.inviteId] ??
+                    m.collaborationInvite!.status;
+                  const responding =
+                    respondingCollaborationInviteId === m.collaborationInvite!.inviteId;
+                  return (
+                    <div
+                      className="mt-3 rounded-xl border border-violet-300/15 bg-black/20 p-3"
+                      data-testid={`chat-collaboration-invite-${m.collaborationInvite!.inviteId}`}
+                      onPointerDown={(event) => event.stopPropagation()}
+                    >
+                      {inviteStatus === "pending" && m.sender === "them" ? (
+                        <>
+                          <p className="mb-2 text-xs text-zinc-300">
+                            Review this Reel, then accept or decline the collaboration.
+                          </p>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              disabled={responding}
+                              data-testid={`chat-collaboration-accept-${m.collaborationInvite!.inviteId}`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void respondToChatCollaborationInvite(
+                                  m.collaborationInvite!,
+                                  "accept",
+                                );
+                              }}
+                              className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-full bg-violet-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
+                            >
+                              <Check size={14} />
+                              {responding ? "Saving…" : "Accept"}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={responding}
+                              data-testid={`chat-collaboration-decline-${m.collaborationInvite!.inviteId}`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void respondToChatCollaborationInvite(
+                                  m.collaborationInvite!,
+                                  "decline",
+                                );
+                              }}
+                              className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-full border border-white/15 px-3 py-2 text-xs font-medium text-zinc-200 disabled:opacity-60"
+                            >
+                              <X size={14} />
+                              Decline
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <p className="text-xs font-medium text-zinc-300">
+                          {inviteStatus === "accepted"
+                            ? "Collaboration accepted"
+                            : inviteStatus === "declined"
+                              ? "Collaboration declined"
+                              : inviteStatus === "removed"
+                                ? "Collaboration ended"
+                                : "Collaboration invitation sent"}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })() : null}
               </div>
             )}
             {m.text?.trim()

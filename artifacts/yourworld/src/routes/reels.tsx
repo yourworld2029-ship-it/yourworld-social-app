@@ -738,6 +738,10 @@ function ReelsList() {
                   pendingRepostKeys.has(`${currentUserId}:${reel.id}`)
                 }
                 canDelete={currentUserId === reel.userId}
+                canRemoveCollaboration={
+                  Boolean(currentUserId) &&
+                  (currentUserId === reel.userId || currentUserId === collaborator?.id)
+                }
                 onDeleted={() => {
                   removePost(reel.id);
                   if (reel.id === initialId) setRemovedDirectTargetId(reel.id);
@@ -1116,6 +1120,7 @@ function ReelItem({
   reposted = false,
   repostPending = false,
   canDelete = false,
+  canRemoveCollaboration = false,
   onDeleted,
 }: {
   reel: Reel;
@@ -1150,6 +1155,7 @@ function ReelItem({
   reposted?: boolean;
   repostPending?: boolean;
   canDelete?: boolean;
+  canRemoveCollaboration?: boolean;
   onDeleted?: () => void;
 }) {
   const user = author;
@@ -1857,7 +1863,7 @@ function ReelItem({
   };
 
   const handleRemoveCollaborator = async () => {
-    if (!canDelete || !visibleCollaborator || removingCollaborator) return;
+    if (!canRemoveCollaboration || !visibleCollaborator || removingCollaborator) return;
     setRemovingCollaborator(true);
     try {
       await unlinkReelCollaborator(reel.id, visibleCollaborator.id);
@@ -2320,23 +2326,23 @@ function ReelItem({
               />
               {isFavorite ? "Remove from Favorites" : "Add to Favorites"}
             </button>
+            {canRemoveCollaboration && visibleCollaborator ? (
+              <button
+                type="button"
+                role="menuitem"
+                disabled={contextActionBusy || removingCollaborator}
+                onClick={() => {
+                  setMenuOpen(false);
+                  setRemoveCollaboratorOpen(true);
+                }}
+                className="flex w-full items-center gap-3 border-t border-border/50 px-4 py-3 text-left text-[13px] font-medium transition-colors hover:bg-foreground/10 disabled:opacity-60"
+              >
+                <UserX strokeWidth={1.6} className="h-[17px] w-[17px] text-muted-foreground" />
+                Remove Collaborator
+              </button>
+            ) : null}
             {canDelete ? (
               <>
-                {visibleCollaborator ? (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    disabled={contextActionBusy || removingCollaborator}
-                    onClick={() => {
-                      setMenuOpen(false);
-                      setRemoveCollaboratorOpen(true);
-                    }}
-                    className="flex w-full items-center gap-3 border-t border-border/50 px-4 py-3 text-left text-[13px] font-medium transition-colors hover:bg-foreground/10 disabled:opacity-60"
-                  >
-                    <UserX strokeWidth={1.6} className="h-[17px] w-[17px] text-muted-foreground" />
-                    Remove Collaborator
-                  </button>
-                ) : null}
                 <button
                   type="button"
                   role="menuitem"
@@ -2488,8 +2494,8 @@ function ReelItem({
             <AlertDialogTitle>Remove this collaborator?</AlertDialogTitle>
             <AlertDialogDescription>
               {visibleCollaborator
-                ? `This will unlink @${visibleCollaborator.username || visibleCollaborator.display_name || "Creator"} from this Reel. The Reel itself will stay on your profile.`
-                : "This will unlink the collaborator from this Reel. The Reel itself will stay on your profile."}
+                ? `This will remove the collaboration with @${visibleCollaborator.username || visibleCollaborator.display_name || "Creator"}. The original Reel will remain available.`
+                : "This will remove the collaboration link. The original Reel will remain available."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

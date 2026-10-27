@@ -10,6 +10,7 @@ type PostsResult = {
 
 type PostsQuery = {
   eq: (column: string, value: unknown) => PostsQuery;
+  in: (column: string, values: string[]) => PostsQuery;
   order: (
     column: string,
     options: { ascending: boolean; nullsFirst?: boolean },
@@ -43,7 +44,7 @@ export async function fetchProfilePostsPage(
   let filterArchived = options.includeArchived !== true;
   let orderPinned = true;
 
-  const runQuery = () => {
+  const runQuery = (to: number) => {
     let query = defaultClient
       .from("posts")
       .select("*")
@@ -57,10 +58,10 @@ export async function fetchProfilePostsPage(
     }
     return query
       .order("created_at", { ascending: false })
-      .range(safeOffset, safeOffset + safePageSize - 1);
+      .range(0, to);
   };
 
-  let result = await runQuery();
+  let result = await runQuery(safeOffset + safePageSize - 1);
   for (let retry = 0; result.error && retry < 2; retry += 1) {
     const absentColumn = missingColumn(result.error);
     if (absentColumn === "archived" && filterArchived) {
@@ -70,17 +71,61 @@ export async function fetchProfilePostsPage(
     } else {
       break;
     }
-    result = await runQuery();
+    result = await runQuery(safeOffset + safePageSize - 1);
   }
 
   if (result.error) throw result.error;
 
-  const posts = (result.data ?? [])
+  const authoredPosts = (result.data ?? [])
     .filter(
       (row): row is Record<string, unknown> =>
         row !== null && typeof row === "object" && !Array.isArray(row),
     )
     .map(normalizePostRow)
     .filter((post) => options.includeArchived === true || post.archived !== true) as DbPost[];
-  return excludeLiveReplayPosts(posts);
+
+  const { data: collaborationRows, error: collaborationError } = await supabase
+    .from("reel_collaboration_invites" as never)
+    .select("post_id" as never)
+    .eq("collaborator_id" as never, cleanUserId as never)
+    .eq("status" as never, "accepted" as never);
+  if (collaborationError) throw collaborationError;
+
+  const collaboratorPostIds = [
+    ...new Set(
+      ((collaborationRows ?? []) as Array<{ post_id?: unknown }>)
+        .map((row) => row.post_id)
+        .filter((id): id is string => typeof id === "string" && id.length > 0),
+    ),
+  ];
+  let collaboratorPosts: DbPost[] = [];
+  if (collaboratorPostIds.length > 0) {
+    const { data, error } = await defaultClient
+      .from("posts")
+      .select("*")
+      .in("id", collaboratorPostIds)
+      .eq("kind", "reel")
+      .order("created_at", { ascending: false })
+      .range(0, safeOffset + safePageSize - 1);
+    if (error) throw error;
+    collaboratorPosts = ((data ?? []) as Array<Record<string, unknown>>)
+      .map(normalizePostRow)
+      .filter((post) => post.archived !== true) as DbPost[];
+  }
+
+  const uniquePosts = new Map<string, DbPost>();
+  for (const post of [...authoredPosts, ...collaboratorPosts]) {
+    if (post.kind === "reel" || post.user_id === cleanUserId) {
+      uniquePosts.set(post.id, post);
+    }
+  }
+  const combinedPosts = [...uniquePosts.values()].sort((left, right) => {
+    const leftPinned = left.pinned === true ? 1 : 0;
+    const rightPinned = right.pinned === true ? 1 : 0;
+    return rightPinned - leftPinned ||
+      Date.parse(right.created_at) - Date.parse(left.created_at);
+  });
+  return excludeLiveReplayPosts(
+    combinedPosts.slice(safeOffset, safeOffset + safePageSize),
+  );
 }

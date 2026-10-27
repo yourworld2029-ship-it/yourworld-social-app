@@ -304,7 +304,7 @@ function PublicProfilePage() {
       to: "/reels",
       search: {
         reelId: undefined,
-        userId: resolvedUserId ?? undefined,
+        userId: post.user_id,
         initialVideoId: id,
         returnTo: "public",
       },
