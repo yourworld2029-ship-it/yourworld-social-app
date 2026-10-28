@@ -99,8 +99,8 @@ Capacitor's `server.url` overrides the local `webDir` as the WebView's page sour
 
 **How to apply:** Remove `server.url` from the release config, sync the fresh web output, and verify the packaged Capacitor config has no remote URL and the APK contains the same entry HTML and referenced JS/CSS as the web build.
 
-In this Replit workspace, Gradle's debug keystore may be under the workspace config directory rather than `$HOME/.android`.
+In this Replit workspace, the existing debug keystore is under the workspace config directory, while shell `HOME` and Java's `user.home` resolve elsewhere. Gradle can otherwise create a different debug key and produce an APK that cannot update the existing installation.
 
-**Why:** Assuming the default home-directory location can falsely suggest the existing signing key is missing; generating a replacement certificate breaks update-install continuity.
+**Why:** The staged APK's certificate matched the workspace-config keystore, not a newly generated default-home key; changing certificates breaks update-install continuity.
 
-**How to apply:** Locate the existing debug keystore without inspecting or exporting its private contents, compare its certificate fingerprint with the installed/downloaded APK, and use it only when a release-format APK must retain that signing identity. Keep this temporary signing step out of committed Gradle configuration.
+**How to apply:** Locate the existing debug keystore without inspecting or exporting its private contents, compare its public certificate fingerprint with the installed/downloaded APK, and set Java's `user.home` to the workspace config parent for both Gradle client and daemon. Keep `GRADLE_USER_HOME` explicit so the signing-path override does not move dependency caches. Never stage an APK whose certificate differs from the existing install.
