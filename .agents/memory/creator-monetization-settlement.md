@@ -42,3 +42,9 @@ In-app playback must not bypass paid/VIP access checks: only resolve a restricte
 **Why:** A direct video route or an inline preview can bypass the controls shown on a card if it receives a restricted media source before access is confirmed.
 
 **How to apply:** Gate the shared-player activation before URL resolution, and do not register non-public or priced media as feed autoplay candidates.
+
+Creator monetization watch time counts only authenticated views of public-access videos while the creator account is public. Preserve account privacy transitions so watch time accrued during private periods remains excluded after the account becomes public again; for minute-bucketed live watch events, exclude any minute that overlaps a private period.
+
+**Why:** Private periods must pause monetization eligibility without erasing valid public-period watch time or counting time that overlaps a privacy change.
+
+**How to apply:** Use the persisted `profiles.is_private` status and its history in both the long-video and saved-live watch-hour aggregates; do not reset privacy history when the account is made public.

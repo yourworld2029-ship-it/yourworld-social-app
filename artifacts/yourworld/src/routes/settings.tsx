@@ -263,7 +263,80 @@ function SettingsPage() {
     channel: true,
     system: true,
   });
+  const [privateAccountReady, setPrivateAccountReady] = useState(false);
+  const [privateAccountSaving, setPrivateAccountSaving] = useState(false);
   const flip = (k: string) => setToggles((t) => ({ ...t, [k]: !t[k] }));
+
+  useEffect(() => {
+    let active = true;
+    setPrivateAccountReady(false);
+
+    if (!user?.id) {
+      setToggles((current) => ({ ...current, privateAccount: false }));
+      return () => {
+        active = false;
+      };
+    }
+
+    void (async () => {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("is_private")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (!active) return;
+      if (error || !data) {
+        toast.error("Could not load your account privacy setting.");
+        return;
+      }
+
+      setToggles((current) => ({
+        ...current,
+        privateAccount: data.is_private,
+      }));
+      setPrivateAccountReady(true);
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [user?.id]);
+
+  const togglePrivateAccount = async () => {
+    if (!user?.id || !privateAccountReady || privateAccountSaving) return;
+
+    const nextValue = !toggles.privateAccount;
+    setPrivateAccountSaving(true);
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .update({ is_private: nextValue })
+        .eq("id", user.id)
+        .select("id")
+        .maybeSingle();
+
+      if (error || !data) {
+        toast.error(error?.message || "Could not save your account privacy setting.");
+        return;
+      }
+
+      setToggles((current) => ({ ...current, privateAccount: nextValue }));
+      toast.success(
+        nextValue
+          ? "Private account enabled. Watch time from private periods will not count."
+          : "Public account enabled. New public watch time can count.",
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not save your account privacy setting.",
+      );
+    } finally {
+      setPrivateAccountSaving(false);
+    }
+  };
 
   const handleLogout = async () => {
     await queryClient.cancelQueries();
@@ -447,7 +520,13 @@ function SettingsPage() {
 
       {panel === "privacy" && (
         <Panel title={t("privacy")} onClose={() => setPanel(null)}>
-          <Toggle label={t("privateAccount")} hint={t("privateAccountHint")} on={toggles.privateAccount} onClick={() => flip("privateAccount")} />
+          <Toggle
+            label={t("privateAccount")}
+            hint={t("privateAccountHint")}
+            on={toggles.privateAccount}
+            onClick={() => void togglePrivateAccount()}
+            disabled={!privateAccountReady || privateAccountSaving}
+          />
           <Toggle label={t("activityStatus")} hint={t("activityStatusHint")} on={toggles.activityStatus} onClick={() => flip("activityStatus")} />
           <Row
             label={t("blockedAccounts")}
@@ -1721,7 +1800,19 @@ function DmcaField({ label, value, onChange, placeholder, type = "text" }: { lab
   );
 }
 
-function Toggle({ label, hint, on, onClick }: { label: string; hint?: string; on: boolean; onClick: () => void }) {
+function Toggle({
+  label,
+  hint,
+  on,
+  onClick,
+  disabled = false,
+}: {
+  label: string;
+  hint?: string;
+  on: boolean;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
   return (
     <div className="flex items-center justify-between rounded-xl p-3">
       <span className="min-w-0 pr-3">
@@ -1733,7 +1824,8 @@ function Toggle({ label, hint, on, onClick }: { label: string; hint?: string; on
         aria-checked={on}
         aria-label={label}
         onClick={onClick}
-        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${on ? "bg-primary" : "bg-muted"}`}
+        disabled={disabled}
+        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${on ? "bg-primary" : "bg-muted"}`}
       >
         <span
           className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${on ? "translate-x-[22px]" : "translate-x-0.5"}`}

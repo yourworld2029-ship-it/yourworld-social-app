@@ -56,7 +56,7 @@
 - [Admin RPC error serialization](admin-rpc-error-serialization.md) — production server-function exceptions can become opaque Seroval errors; keep Admin reads on structured JSON responses with the same authorization checks.
 - [YourWorld Debug APK delivery](yourworld-debug-apk-delivery.md) — share a fresh Debug APK link and increment Android version metadata so each app update is identifiable.
 - [Capacitor native detection](capacitor-native-detection.md) — `window.Capacitor` also exists in browsers; use native platform signals and wait for client resolution before gating routes.
-- [Creator monetization settlement](creator-monetization-settlement.md) — keep splits server-authoritative; INR stays unconverted, while USD payouts use MFA-protected manual processing in the monthly 1–5 window.
+- [Creator monetization settlement](creator-monetization-settlement.md) — preserve server-authoritative payouts and count watch time only for authenticated public-content views outside private-account periods.
 - [Moment expiry cleanup](moment-expiry-cleanup.md) — preserve strict active-feed expiry; keep archive recovery owner-only and align duration checks and poll votes with the database.
 - [Moment viewer index sync](moment-viewer-index-sync.md) — refreshes to Moment data must not reset the selected segment within the active author group.
 - [Shared Moment preview limit](shared-moment-preview-limit.md) — enforce the 30-second cap even when a shared video reports an unknown or infinite duration.

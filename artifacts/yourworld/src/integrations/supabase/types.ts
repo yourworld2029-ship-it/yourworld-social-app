@@ -710,6 +710,7 @@ export type Database = {
           full_name: string | null
           id: string
           is_verified: boolean | null
+          is_private: boolean
           two_factor_enabled: boolean
           updated_at: string | null
           username: string | null
@@ -730,6 +731,7 @@ export type Database = {
           full_name?: string | null
           id: string
           is_verified?: boolean | null
+          is_private?: boolean
           two_factor_enabled?: boolean
           updated_at?: string | null
           username?: string | null
@@ -750,6 +752,7 @@ export type Database = {
           full_name?: string | null
           id?: string
           is_verified?: boolean | null
+          is_private?: boolean
           two_factor_enabled?: boolean
           updated_at?: string | null
           username?: string | null
