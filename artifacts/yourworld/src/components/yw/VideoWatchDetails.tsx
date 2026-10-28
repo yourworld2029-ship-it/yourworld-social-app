@@ -283,7 +283,7 @@ export function VideoWatchDetails({
             }`}
           >
             <ThumbsUp className="h-3.5 w-3.5 shrink-0" fill={liked ? "currentColor" : "none"} />
-              <span>{formatCount(likeCount)}</span>
+              <span>{video.hideLikeCount && !isOwner ? "Likes hidden" : formatCount(likeCount)}</span>
           </button>
 
           <button

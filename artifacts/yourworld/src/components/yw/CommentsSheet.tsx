@@ -309,7 +309,7 @@ export function CommentsSheet({
   }, [onCountChange, visibleList.length]);
 
   const send = () => {
-    if (!draft.trim()) return;
+    if (commentsDisabled || !draft.trim()) return;
     if (replyingTo) {
       submitReply();
       return;
@@ -336,7 +336,7 @@ export function CommentsSheet({
 
   useResumeAuthAction("post-comment", postId, async (action) => {
     const text = action.payload?.text ?? "";
-    if (!text.trim()) return;
+    if (commentsDisabled || !text.trim()) return;
     setOpen(true);
     const ok = await real.send(text);
     if (!ok) {
@@ -348,7 +348,7 @@ export function CommentsSheet({
   useResumeAuthAction("post-reply", postId, async (action) => {
     const text = action.payload?.text ?? "";
     const parentId = action.payload?.parentId;
-    if (!text.trim() || !parentId) return;
+    if (commentsDisabled || !text.trim() || !parentId) return;
     setOpen(true);
     const ok = await real.sendReply(text, parentId);
     if (!ok) {

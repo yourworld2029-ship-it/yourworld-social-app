@@ -1187,6 +1187,35 @@ export async function updateMyPost(
   }
 }
 
+export async function updateMyPostDisplayOptions(
+  postId: string,
+  patch: {
+    hide_like_count?: boolean;
+    hide_share_count?: boolean;
+    comments_off?: boolean;
+  },
+) {
+  const values = Object.fromEntries(
+    Object.entries(patch).filter(([, value]) => value !== undefined),
+  );
+  if (Object.keys(values).length === 0) return;
+
+  const { data, error } = await supabase
+    .from("posts")
+    .update(values as never)
+    .eq("id", postId)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    console.error("Post display option update failed", error);
+    throw new Error(error.message);
+  }
+  if (!data?.id) {
+    throw new Error("These post settings could not be saved. Refresh and try again.");
+  }
+}
+
 export async function setMyPostPinned(postId: string, pinned: boolean) {
   const body = SetPostPinBody.parse({ pinned });
   const {

@@ -114,6 +114,8 @@ export type LongVideo = {
   likeCount: number;
   commentCount: number;
   likedByMe: boolean;
+  hideLikeCount?: boolean;
+  hideShareCount?: boolean;
   commentsOff?: boolean;
   access?: "public" | "vip" | "paid";
   price?: number | null;
@@ -928,6 +930,8 @@ async function loadLongVideoPage(
           likeCount: (likes ?? []).filter((like) => like.post_id === post.id).length,
           commentCount: (comments ?? []).filter((comment) => comment.post_id === post.id).length,
           likedByMe: !!uid && (likes ?? []).some((like) => like.post_id === post.id && like.user_id === uid),
+          hideLikeCount: !!post.hide_like_count,
+          hideShareCount: !!post.hide_share_count,
           commentsOff: !!(post as typeof post & { comments_off?: boolean }).comments_off,
           access,
           price: (post as typeof post & { price?: number | null }).price ?? null,

@@ -10,7 +10,6 @@ import {
   MessageCircleOff,
   Send,
   Pencil,
-  Download,
   Share2,
   Pin,
   PinOff,
@@ -37,7 +36,7 @@ import { toast } from "sonner";
 import { EditProfileSheet, type ProfileEdit } from "@/components/yw/EditProfileSheet";
 import {
   useMyProfile,
-  updateMyPost,
+  updateMyPostDisplayOptions,
   setMyPostPinned,
   deleteMyPost,
   deleteSportsIntroduction,
@@ -104,9 +103,6 @@ import { useVideoPlayback } from "@/lib/video-playback";
 import { supabase } from "@/integrations/supabase/client";
 import { PostEditDialog } from "@/components/yw/PostEditDialog";
 import {
-  isMediaDownloadLocked,
-  showMediaDownloadBusyToast,
-  useMediaConcurrency,
   type MediaDownloadLease,
 } from "@/lib/media-concurrency";
 
@@ -185,7 +181,6 @@ function ProfilePage() {
   } =
     useMyProfile();
   const navigate = useNavigate();
-  const { isMediaDownloadInProgress } = useMediaConcurrency();
   const { connections, tab, replay } = Route.useSearch();
   const savedVideosQuery = useQuery({
     queryKey: ["saved-long-videos", userId],
@@ -227,14 +222,15 @@ function ProfilePage() {
   const [downloadsLoadedFor, setDownloadsLoadedFor] = useState<string | null>(null);
   const [downloadsAuthRevision, setDownloadsAuthRevision] = useState(0);
   const downloadsRevisionRef = useRef(0);
-  const [downloadTarget, setDownloadTarget] = useState<DbPost | null>(null);
+  const [downloadTarget] = useState<DbPost | null>(null);
   const [downloadOpen, setDownloadOpen] = useState(false);
-  const [downloadSourceUrl, setDownloadSourceUrl] = useState<string | null>(null);
+  const [downloadSourceUrl] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const counts = useFollowCounts(userId);
   const [listOpen, setListOpen] = useState(false);
   const [listTab, setListTab] = useState<"followers" | "following">("followers");
   const [manage, setManage] = useState<DbPost | null>(null);
+  const [manageSaving, setManageSaving] = useState(false);
   const downloadQualityPost = downloadTarget as
     | (DbPost & {
         source_quality_tier?: string | null;
@@ -431,12 +427,18 @@ function ProfilePage() {
   };
 
   const patchManaged = async (
-    patch: Parameters<typeof updateMyPost>[1] & { pinned?: boolean },
+    patch: {
+      hide_like_count?: boolean;
+      hide_share_count?: boolean;
+      comments_off?: boolean;
+      pinned?: boolean;
+    },
     msg: string,
   ) => {
-    if (!manage) return;
+    if (!manage || manageSaving) return;
     const prev = manage;
     const { pinned, ...postPatch } = patch;
+    setManageSaving(true);
 
     if (pinned !== undefined) {
       setManage({ ...prev, pinned } as DbPost);
@@ -457,6 +459,9 @@ function ProfilePage() {
             },
           },
         );
+        void queryClient.invalidateQueries({ queryKey: ["social-posts"] });
+        void queryClient.invalidateQueries({ queryKey: ["long-videos"] });
+        void queryClient.invalidateQueries({ queryKey: ["long-video-playback", prev.id] });
       } catch (error) {
         setManage(prev);
         patchPost(prev);
@@ -470,19 +475,25 @@ function ProfilePage() {
             },
           },
         );
+      } finally {
+        setManageSaving(false);
       }
       return;
     }
     setManage({ ...prev, ...postPatch } as DbPost);
     patchPost({ ...prev, ...postPatch } as DbPost);
     try {
-      await updateMyPost(prev.id, postPatch);
+      await updateMyPostDisplayOptions(prev.id, postPatch);
       toast.success(msg);
-      await reload();
+      void queryClient.invalidateQueries({ queryKey: ["social-posts"] });
+      void queryClient.invalidateQueries({ queryKey: ["long-videos"] });
+      void queryClient.invalidateQueries({ queryKey: ["long-video-playback", prev.id] });
     } catch (e) {
       setManage(prev);
       patchPost(prev);
       toast.error(e instanceof Error ? e.message : "Couldn't update");
+    } finally {
+      setManageSaving(false);
     }
   };
 
@@ -500,29 +511,6 @@ function ProfilePage() {
       toast.error(error instanceof Error ? error.message : "Couldn't delete this post");
     } finally {
       setDeleting(false);
-    }
-  };
-
-  const openManagedDownload = async () => {
-    if (!manage || !userId) return;
-    if (isMediaDownloadLocked()) {
-      showMediaDownloadBusyToast();
-      return;
-    }
-    const post = manage;
-    setManage(null);
-    setDownloadTarget(post);
-    setDownloadSourceUrl(null);
-    try {
-      const mediaBucket =
-        post.kind === "reel" ? STORAGE_BUCKETS.reels : STORAGE_BUCKETS.videos;
-      const mediaUrl = await resolveMediaUrl(post.media_url, mediaBucket);
-      if (!mediaUrl) throw new Error("This media file is unavailable");
-      setDownloadSourceUrl(mediaUrl);
-      setDownloadOpen(true);
-    } catch (error) {
-      setDownloadTarget(null);
-      toast.error(error instanceof Error ? error.message : "Couldn't prepare this download");
     }
   };
 
@@ -1240,6 +1228,7 @@ function ProfilePage() {
                 label="Hide like count to others"
                 sub="Only you will see the total number of likes."
                 toggle={!!manage.hide_like_count}
+                busy={manageSaving}
                 onToggle={(v) => patchManaged({ hide_like_count: v }, v ? "Like count hidden" : "Like count visible")}
               />
               <OptionRow
@@ -1247,6 +1236,7 @@ function ProfilePage() {
                 label="Hide share count"
                 sub="Others won't see how many times this was shared."
                 toggle={!!manage.hide_share_count}
+                busy={manageSaving}
                 onToggle={(v) => patchManaged({ hide_share_count: v }, v ? "Share count hidden" : "Share count visible")}
               />
               <OptionRow
@@ -1254,11 +1244,13 @@ function ProfilePage() {
                 label="Turn off commenting"
                 sub="No one can comment on this post."
                 toggle={!!manage.comments_off}
+                busy={manageSaving}
                 onToggle={(v) => patchManaged({ comments_off: v }, v ? "Commenting turned off" : "Commenting turned on")}
               />
               <OptionRow
                 icon={manage.pinned ? <PinOff className="h-5 w-5" /> : <Pin className="h-5 w-5" />}
                 label={manage.pinned ? "Unpin from your grid" : "Pin to your main grid"}
+                busy={manageSaving}
                 onClick={() =>
                   patchManaged({ pinned: !manage.pinned }, manage.pinned ? "Unpinned" : "Pinned to your grid")
                 }
@@ -1266,20 +1258,8 @@ function ProfilePage() {
               <OptionRow
                 icon={<Pencil className="h-5 w-5" />}
                 label="Edit"
+                busy={manageSaving}
                 onClick={() => startEdit(manage)}
-              />
-              <OptionRow
-                icon={<Download className="h-5 w-5" />}
-                label="Download"
-                sub="Save a copy of your media."
-                busy={isMediaDownloadInProgress}
-                onClick={() => {
-                  if (isMediaDownloadLocked()) {
-                    showMediaDownloadBusyToast();
-                    return;
-                  }
-                  void openManagedDownload();
-                }}
               />
               <OptionRow
                 icon={<Share2 className="h-5 w-5" />}
@@ -1502,7 +1482,7 @@ function OptionRow({
         {sub ? <span className="block text-xs text-muted-foreground">{sub}</span> : null}
       </span>
       {onToggle ? (
-        <Switch checked={!!toggle} onCheckedChange={onToggle} onClick={(e) => e.stopPropagation()} />
+        <Switch checked={!!toggle} disabled={busy} onCheckedChange={onToggle} onClick={(e) => e.stopPropagation()} />
       ) : null}
     </div>
   );
@@ -1511,6 +1491,7 @@ function OptionRow({
     <button
       type="button"
       onClick={onClick}
+      disabled={busy}
       aria-disabled={busy || undefined}
       className={`w-full transition-colors active:bg-secondary ${busy ? "cursor-not-allowed opacity-50" : ""}`}
     >

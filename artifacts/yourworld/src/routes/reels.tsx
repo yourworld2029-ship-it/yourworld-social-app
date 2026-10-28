@@ -2155,7 +2155,7 @@ function ReelItem({
       >
         <Action
           onClick={() => void handleLike()}
-          label={hideLikeCount ? "Likes hidden" : formatCount(reel.likes)}
+          label={hideLikeCount && !isOwnReel ? "Likes hidden" : formatCount(reel.likes)}
           active={isLiked}
         >
           <Heart
@@ -2200,7 +2200,7 @@ function ReelItem({
           thumbnailBucket="thumbnails"
           onShareEvent={onShareEvent}
         >
-          <Action label={hideShareCount ? "Shares hidden" : formatCount(reel.shares)}>
+          <Action label={hideShareCount && !isOwnReel ? "Shares hidden" : formatCount(reel.shares)}>
             <Send strokeWidth={2.3} className="h-[22px] w-[22px]" />
           </Action>
         </ShareSheet>
