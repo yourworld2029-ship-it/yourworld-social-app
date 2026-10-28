@@ -1029,7 +1029,11 @@ function SettingsPage() {
 
       {panel === "about" && (
         <Panel title={t("about")} onClose={() => setPanel(null)}>
-          <Row label="YourWorld" hint="Version 1.0.0" />
+          <Row
+            label="YourWorld"
+            hint="Version 1.0.0"
+            onClick={() => toast.info("You are on the latest version of YourWorld (v1.0.0)")}
+          />
           <Row label="Terms of Service" onClick={() => navigate({ to: "/terms" })} />
           <Row label="Privacy Policy" onClick={() => navigate({ to: "/privacy" })} />
           <Row
