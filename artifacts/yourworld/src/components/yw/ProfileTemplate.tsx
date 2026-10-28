@@ -708,10 +708,13 @@ export function MediaGrid({
                 alt={it.post?.caption ?? "Video preview"}
                 showFallbackIcon
                 bucket="thumbnails"
-                mediaBucket="videos"
+                mediaBucket={it.post?.kind === "reel" ? "reels" : "videos"}
                 loading={eagerVideo ? "eager" : "lazy"}
                 fetchPriority={eagerVideo && i < 3 ? "high" : "auto"}
-                resolveFrameMediaSource={eagerVideo}
+                resolveFrameMediaSource={
+                  eagerVideo ||
+                  (it.post?.kind === "reel" && canReadPublicVideoPreview(it.post))
+                }
                 showPlaceholderWhileLoading={eagerVideo}
                 className={`h-full w-full object-cover${eagerVideo ? " bg-gradient-to-br from-zinc-900 via-zinc-800 to-black" : ""}`}
               />
