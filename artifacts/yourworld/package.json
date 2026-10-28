@@ -15,6 +15,7 @@
     "test:media-repair": "tsx --test src/lib/media-repair.test.ts src/lib/list-playback-upgrade.test.ts",
     "test:profile-media": "tsx --test src/lib/profile-posts.test.ts src/lib/video-preview-access.test.ts",
     "test:performance": "tsx --test src/lib/adaptive-performance.test.ts src/lib/screen-image-sizing.test.ts",
+    "test:calls": "tsx --test src/lib/webrtc-media.test.ts",
     "lint": "eslint .",
     "format": "prettier --write ."
   },

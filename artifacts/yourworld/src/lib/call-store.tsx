@@ -50,6 +50,7 @@ import {
   classifyCallNetwork,
   collectCallPacketLoss,
   prioritizeCallAudioSender,
+  setCallVideoTransmissionPaused,
   tuneCallVideoSender,
   type CallRtpStatsSample,
 } from "@/lib/webrtc-media";
@@ -571,6 +572,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const mediaStatsTimer = useRef<number | null>(null);
   const lowBandwidthCallRef = useRef(false);
   const incomingVideoPaused = useRef(false);
+  const remoteVideoFlowLease = useRef<number | null>(null);
   const callRef = useRef<CallState | null>(null);
   const meRef = useRef<string | null>(null);
   const isGuestRef = useRef(true);
@@ -835,6 +837,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
       mediaStatsTimer.current = null;
     }
     reconnectAttempt.current = 0;
+    if (remoteVideoFlowLease.current) {
+      window.clearTimeout(remoteVideoFlowLease.current);
+      remoteVideoFlowLease.current = null;
+    }
     lowBandwidthCallRef.current = false;
     incomingVideoPaused.current = false;
     videoEffectPipeline.current?.stop();
@@ -855,6 +861,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     const pc = pcRef.current;
     if (pc) {
       pc.onicecandidate = null;
+      pc.oniceconnectionstatechange = null;
       pc.ontrack = null;
       pc.onconnectionstatechange = null;
       pc.getSenders().forEach((s) => s.track?.stop());
@@ -1053,7 +1060,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     const sender = peer.getSenders().find((item) => item.track?.kind === "video");
     if (sender) {
       await sender.replaceTrack(nextTrack);
-      await tuneCallVideoSender(sender);
+      await tuneCallVideoSender(sender, lowBandwidthCallRef.current);
     }
     if (current && current !== nextTrack) stream.removeTrack(current);
     if (!stream.getVideoTracks().includes(nextTrack)) stream.addTrack(nextTrack);
@@ -1157,6 +1164,92 @@ export function CallProvider({ children }: { children: ReactNode }) {
           void prioritizeCallAudioSender(sender, lowBandwidthCallRef.current);
         }
       }
+      const previousRtpCounters = new Map<
+        string,
+        { received: number; lost: number; timestamp?: number }
+      >();
+      let statsRequestPending = false;
+      let poorSamples = 0;
+      let healthySamples = 0;
+      let criticalSamples = 0;
+      let lastVideoFlowRequestAt = 0;
+      const requestRemoteVideoFlow = (paused: boolean) => {
+        lastVideoFlowRequestAt = Date.now();
+        // Ephemeral control: never overwrite the durable offer/answer fallback.
+        void sigRef.current?.send({
+          type: "broadcast",
+          event: "CALL_VIDEO_FLOW",
+          payload: { type: "CALL_VIDEO_FLOW", callId: callRef.current?.callId, paused },
+        });
+      };
+      const setIncomingVideoPaused = (paused: boolean) => {
+        if (incomingVideoPaused.current === paused) return;
+        incomingVideoPaused.current = paused;
+        requestRemoteVideoFlow(paused);
+        for (const receiver of pc.getReceivers()) {
+          if (receiver.track.kind === "video") receiver.track.enabled = !paused;
+        }
+        remoteStream.current?.getVideoTracks().forEach((track) => {
+          track.enabled = !paused;
+        });
+        // Do not pause the media element: it also carries the remote audio.
+        if (!paused) playRemoteMedia();
+      };
+      const applyNetworkProfile = async (lowBandwidth: boolean) => {
+        if (lowBandwidthCallRef.current === lowBandwidth) return;
+        lowBandwidthCallRef.current = lowBandwidth;
+        await Promise.all(
+          pc.getSenders().map((sender) => {
+            if (sender.track?.kind === "video") {
+              return tuneCallVideoSender(sender, lowBandwidth);
+            }
+            if (sender.track?.kind === "audio") {
+              return prioritizeCallAudioSender(sender, lowBandwidth);
+            }
+            return Promise.resolve();
+          }),
+        );
+      };
+      const sampleCallNetwork = async () => {
+        if (incomingVideoPaused.current && Date.now() - lastVideoFlowRequestAt >= 4_000) {
+          requestRemoteVideoFlow(true);
+        }
+        if (statsRequestPending || pc.connectionState !== "connected") return;
+        statsRequestPending = true;
+        try {
+          const stats = await pc.getStats();
+          if (pcRef.current !== pc) return;
+          const reports: CallRtpStatsSample[] = [];
+          stats.forEach((report) => reports.push(report as CallRtpStatsSample));
+          const loss = collectCallPacketLoss(reports, previousRtpCounters);
+          const tier = classifyCallNetwork(loss.audio, loss.video);
+          if (tier === "degraded" || tier === "critical") {
+            poorSamples += 1;
+            healthySamples = 0;
+            if (poorSamples >= 2) {
+              void applyNetworkProfile(true).catch(() => {});
+            }
+            criticalSamples = tier === "critical" ? criticalSamples + 1 : 0;
+            if (criticalSamples >= 2) setIncomingVideoPaused(true);
+          } else if (tier === "healthy") {
+            healthySamples += 1;
+            poorSamples = 0;
+            criticalSamples = 0;
+            if (healthySamples >= 3) {
+              void applyNetworkProfile(false).catch(() => {});
+              setIncomingVideoPaused(false);
+            }
+          } else {
+            healthySamples = 0;
+            poorSamples = 0;
+            criticalSamples = 0;
+          }
+        } catch {
+          // A missed stats sample must not interrupt call media.
+        } finally {
+          statsRequestPending = false;
+        }
+      };
       pc.onicecandidate = (e) => {
         if (!e.candidate) return;
         if (callRef.current) {
@@ -1228,6 +1321,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
               if (!description) throw new Error("ICE restart offer was not created");
               await persistDescription(callRef.current.callId, "offer", description);
               signal({ type: "CALL_OFFER", sdp: description, reconnect: true });
+              if (pc.connectionState !== "connected") {
+                reconnectTimer.current = window.setTimeout(() => {
+                  reconnectTimer.current = null;
+                  if (pcRef.current === pc && pc.connectionState !== "connected") {
+                    scheduleReconnect();
+                  }
+                }, 4_000);
+              }
             } catch (error) {
               console.debug("[call] ICE restart attempt failed", error);
               scheduleReconnect();
@@ -1236,13 +1337,34 @@ export function CallProvider({ children }: { children: ReactNode }) {
         }, delay);
       };
 
+      pc.oniceconnectionstatechange = () => {
+        if (
+          pc.iceConnectionState === "disconnected" ||
+          pc.iceConnectionState === "failed"
+        ) {
+          setIncomingVideoPaused(true);
+          scheduleReconnect();
+        }
+      };
+
       pc.onconnectionstatechange = () => {
         if (pc.connectionState === "connected") {
           stopAllRingtones();
+          if (reconnectTimer.current) {
+            window.clearTimeout(reconnectTimer.current);
+            reconnectTimer.current = null;
+          }
           reconnectAttempt.current = 0;
           setNetworkState("stable");
           connectedAt.current ??= Date.now();
           setPhase("active");
+          if (!mediaStatsTimer.current) {
+            mediaStatsTimer.current = window.setInterval(
+              () => void sampleCallNetwork(),
+              1_500,
+            );
+          }
+          void sampleCallNetwork();
           const currentCall = callRef.current;
           if (currentCall) {
             void callDb.from("calls")
@@ -1251,6 +1373,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
           }
         }
         if (pc.connectionState === "disconnected" || pc.connectionState === "failed") {
+          setIncomingVideoPaused(true);
           scheduleReconnect();
         }
       };
@@ -1365,6 +1488,26 @@ export function CallProvider({ children }: { children: ReactNode }) {
               } else {
                 pendingIce.current.push(candidate);
               }
+            } else if (type === "CALL_VIDEO_FLOW" && pc) {
+              if (payload.callId !== callId || typeof payload.paused !== "boolean") return;
+              if (remoteVideoFlowLease.current) {
+                window.clearTimeout(remoteVideoFlowLease.current);
+                remoteVideoFlowLease.current = null;
+              }
+              const paused = payload.paused;
+              await Promise.all(pc.getSenders().map((sender) =>
+                setCallVideoTransmissionPaused(sender, paused),
+              ));
+              if (paused) {
+                // Recover automatically if a resume message is lost.
+                remoteVideoFlowLease.current = window.setTimeout(() => {
+                  remoteVideoFlowLease.current = null;
+                  if (pcRef.current !== pc) return;
+                  for (const sender of pc.getSenders()) {
+                    void setCallVideoTransmissionPaused(sender, false);
+                  }
+                }, 10_000);
+              }
             } else if (type === "END_CALL") {
               if (payload.callId && payload.callId !== callId) return;
               stopAllRingtones();
@@ -1383,7 +1526,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
           return next;
         };
         receiveSignalRef.current = enqueueReceive;
-        const broadcastEvents = ["CALL_ACCEPT", "CALL_OFFER", "CALL_ANSWER", "ICE_CANDIDATE", "END_CALL"] as const;
+        const broadcastEvents = ["CALL_ACCEPT", "CALL_OFFER", "CALL_ANSWER", "ICE_CANDIDATE", "CALL_VIDEO_FLOW", "END_CALL"] as const;
         for (const event of broadcastEvents) {
           ch.on("broadcast", { event }, ({ payload }) => {
             void enqueueReceive(payload as Record<string, unknown>, event);
@@ -2062,7 +2205,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         .find((s) => s.track?.kind === "video");
       if (sender && newVideoTrack) {
         await sender.replaceTrack(newVideoTrack);
-        await tuneCallVideoSender(sender);
+        await tuneCallVideoSender(sender, lowBandwidthCallRef.current);
       }
       if (localStream.current && newVideoTrack) {
         localStream.current.addTrack(newVideoTrack);
@@ -2079,7 +2222,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         const sender = pcRef.current?.getSenders().find((s) => s.track?.kind === "video");
         if (sender && t) {
           await sender.replaceTrack(t);
-          await tuneCallVideoSender(sender);
+          await tuneCallVideoSender(sender, lowBandwidthCallRef.current);
         }
         if (localStream.current && t) localStream.current.addTrack(t);
         cameraSourceTrack.current = t;

@@ -14,3 +14,9 @@ For call-camera acquisition, request 2K at 30 fps first with HD/SD fallbacks for
 **Why:** The user wants a clearer, smooth call-camera preview, while lower-end devices and network adaptation must remain supported.
 
 **How to apply:** Change capture constraints without silently removing the existing sender/network safeguards or changing signaling behavior.
+
+Keep transient call bandwidth controls separate from the durable SDP/ICE fallback, and give remote video-pause requests an expiry.
+
+**Why:** Saving a bandwidth-control message over the negotiation fallback can prevent reconnection; a lost resume message must not leave the other participant's camera transmission paused indefinitely. Pausing the whole remote media element also pauses its audio.
+
+**How to apply:** Use short-lived, renewable video-only control messages, preserve audio tracks and playback, and leave stored offers/answers intact during quality adaptation.

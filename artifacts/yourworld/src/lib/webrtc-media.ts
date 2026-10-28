@@ -178,6 +178,7 @@ export type CallRtpStatsSample = {
   type?: string;
   kind?: string;
   mediaType?: string;
+  timestamp?: number;
   fractionLost?: number;
   packetsReceived?: number;
   packetsLost?: number;
@@ -192,7 +193,7 @@ export type CallNetworkTier = "healthy" | "degraded" | "critical" | "unknown";
 
 export function collectCallPacketLoss(
   reports: readonly CallRtpStatsSample[],
-  previousCounters: Map<string, { received: number; lost: number }>,
+  previousCounters: Map<string, { received: number; lost: number; timestamp?: number }>,
 ): CallPacketLoss {
   const loss: CallPacketLoss = { audio: null, video: null };
   for (const report of reports) {
@@ -205,6 +206,18 @@ export function collectCallPacketLoss(
       typeof report.fractionLost === "number" &&
       Number.isFinite(report.fractionLost)
     ) {
+      const previous = report.id ? previousCounters.get(report.id) : undefined;
+      if (
+        typeof report.timestamp === "number" &&
+        previous?.timestamp === report.timestamp
+      ) continue;
+      if (report.id) {
+        previousCounters.set(report.id, {
+          received: 0,
+          lost: 0,
+          timestamp: report.timestamp,
+        });
+      }
       fraction = report.fractionLost;
     } else if (
       report.type === "inbound-rtp" &&
@@ -258,7 +271,8 @@ export function callVideoScaleTo240p(track?: MediaStreamTrack | null): number {
 }
 
 /**
- * Keep one full-resolution video layer with a predictable 1.5 Mbps ceiling.
+ * Preserve the normal capture profile, lowering only the transmitted layer
+ * to 240p/15fps when sustained RTP loss is detected.
  * The fallback removes networkPriority for browsers that reject that optional
  * encoding field while preserving the bitrate and priority settings.
  */
@@ -333,5 +347,23 @@ export async function prioritizeCallAudioSender(
     } catch {
       // Negotiated defaults remain usable when sender parameters are read-only.
     }
+  }
+}
+
+export async function setCallVideoTransmissionPaused(
+  sender: RTCRtpSender,
+  paused: boolean,
+): Promise<void> {
+  if (sender.track?.kind !== "video") return;
+  try {
+    const parameters = sender.getParameters();
+    const encodings = parameters.encodings?.length ? parameters.encodings : [{}];
+    parameters.encodings = encodings.map((encoding) => ({
+      ...encoding,
+      active: !paused,
+    }));
+    await sender.setParameters(parameters);
+  } catch {
+    // Older engines may not expose encoding.active; keep audio untouched.
   }
 }
