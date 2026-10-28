@@ -33,7 +33,8 @@ type PostCountResult = {
 type PostCountQuery = PromiseLike<PostCountResult> & {
   eq: (column: string, value: unknown) => PostCountQuery;
   in: (column: string, values: string[]) => PostCountQuery;
-  not: (column: string, operator: "in", value: string) => PostCountQuery;
+  not: (column: string, operator: "in" | "eq", value: string) => PostCountQuery;
+  limit: (count: number) => PostCountQuery;
 };
 
 type ProfilePostCountClient = {
@@ -124,10 +125,14 @@ export async function fetchProfilePostCount(
   ];
 
   const runAuthoredCount = (filterArchived: boolean) => {
+    // Use a bounded GET rather than HEAD: PostgREST HEAD errors have no
+    // JSON body, hiding missing optional columns from the compatibility retry.
     let query = client
       .from("posts")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", cleanUserId);
+      .select("id", { count: "exact" })
+      .eq("user_id", cleanUserId)
+      .in("kind", ["video", "reel"])
+      .limit(1);
     if (filterArchived) query = query.eq("archived", false);
     if (liveReplayIds.length > 0) {
       query = query.not("id", "in", `(${liveReplayIds.join(",")})`);
@@ -145,9 +150,11 @@ export async function fetchProfilePostCount(
     const runCollaboratorCount = (filterArchived: boolean) => {
       let query = client
         .from("posts")
-        .select("id", { count: "exact", head: true })
+        .select("id", { count: "exact" })
         .in("id", collaboratorPostIds)
-        .eq("kind", "reel");
+        .eq("kind", "reel")
+        .not("user_id", "eq", cleanUserId)
+        .limit(1);
       if (filterArchived) query = query.eq("archived", false);
       return query;
     };

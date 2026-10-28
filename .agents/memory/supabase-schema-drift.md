@@ -9,6 +9,12 @@ When the live Supabase schema differs from generated types, use narrowly scoped 
 
 **How to apply:** Prefer the runtime error as evidence, alias legacy columns where semantics are known, remove only fields explicitly reported missing, and keep unrelated database errors visible. Apply remote schema changes only after confirming the management connection targets the runtime project.
 
+Compatibility-aware exact counts must preserve PostgREST error bodies.
+
+**Why:** HEAD requests omit the JSON error body, so a missing optional column cannot be identified and the compatibility retry never runs. Mocked errors can conceal this transport difference.
+
+**How to apply:** Use an exact-count GET with a one-row limit where missing-column fallback is required. Read the total from the count header, not the limited data length, and verify against the runtime endpoint with the public client as well as unit tests.
+
 For call signaling specifically, keep SDP and role-separated ICE candidates inside the verified participant-protected `calls.signal_data` envelope unless top-level columns are confirmed in the runtime schema.
 
 **Why:** The live calls table exposes `signal_data`; writing guessed `offer` or `answer` columns would make call setup fail before WebRTC starts.

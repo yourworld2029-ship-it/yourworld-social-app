@@ -20,6 +20,9 @@ function query(result: QueryResult) {
     not() {
       return this;
     },
+    limit() {
+      return this;
+    },
   });
 }
 
@@ -97,4 +100,45 @@ test("profile count includes readable accepted collaboration Reels", async () =>
   );
 
   assert.equal(result, 9);
+});
+
+test("missing archived column retries the exact count using its GET error body", async () => {
+  const result = await fetchProfilePostCount(
+    "creator-id",
+    countClient({}, [
+      { count: null, data: null, error: { code: "42703", message: "column posts.archived does not exist" } },
+      { count: 36, data: [{ id: "one-returned-row" }], error: null },
+    ]),
+  );
+  assert.equal(result, 36);
+});
+
+test("count requests retain JSON errors, count only Videos and Reels, and avoid duplicate collaborations", async () => {
+  const calls: Array<[string, ...unknown[]]> = [];
+  const client = {
+    from(table: string) {
+      return {
+        select(columns: string, options?: { count?: string; head?: boolean }) {
+          calls.push(["select", table, columns, options]);
+          const result = table === "posts"
+            ? { count: 5, data: [{ id: "bounded-row" }], error: null }
+            : { count: null, data: table === "reel_collaboration_invites" ? [{ post_id: "collab" }] : [], error: null };
+          const request = Object.assign(Promise.resolve(result), {
+            eq(column: string, value: unknown) { calls.push(["eq", table, column, value]); return this; },
+            in(column: string, value: string[]) { calls.push(["in", table, column, value]); return this; },
+            not(column: string, operator: string, value: string) { calls.push(["not", table, column, operator, value]); return this; },
+            limit(value: number) { calls.push(["limit", table, value]); return this; },
+          });
+          return request;
+        },
+      };
+    },
+  };
+  assert.equal(await fetchProfilePostCount("creator-id", client as never), 10);
+  const countReads = calls.filter(([method, table]) => method === "select" && table === "posts");
+  assert.equal(countReads.length, 2);
+  for (const call of countReads) assert.deepEqual(call[3], { count: "exact" });
+  assert.ok(calls.some((call) => call[0] === "in" && call[2] === "kind" && JSON.stringify(call[3]) === '["video","reel"]'));
+  assert.ok(calls.some((call) => call[0] === "not" && call[2] === "user_id" && call[3] === "eq" && call[4] === "creator-id"));
+  assert.equal(calls.filter(([method]) => method === "limit").length, 2);
 });
