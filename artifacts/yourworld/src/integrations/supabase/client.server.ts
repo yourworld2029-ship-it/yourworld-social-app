@@ -5,13 +5,14 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 import { normalizeSupabaseProjectUrl } from './url';
+import { withSupabaseQueryResilience } from '../../lib/supabase-query-fetch';
 
 function isNewSupabaseApiKey(value: string): boolean {
   return value.startsWith('sb_publishable_') || value.startsWith('sb_secret_');
 }
 
 function createSupabaseFetch(supabaseKey: string): typeof fetch {
-  return (input, init) => {
+  const fetchWithApiKey: typeof fetch = (input, init) => {
     const headers = new Headers(
       typeof Request !== 'undefined' && input instanceof Request ? input.headers : undefined,
     );
@@ -28,6 +29,7 @@ function createSupabaseFetch(supabaseKey: string): typeof fetch {
     headers.set('apikey', supabaseKey);
     return fetch(input, { ...init, headers });
   };
+  return withSupabaseQueryResilience(fetchWithApiKey);
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

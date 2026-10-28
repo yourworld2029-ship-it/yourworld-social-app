@@ -4,6 +4,7 @@ import { getRequest } from '@tanstack/react-start/server'
 import { createClient } from '@supabase/supabase-js'
 import type { Database } from './types'
 import { normalizeSupabaseProjectUrl } from './url'
+import { withSupabaseQueryResilience } from '../../lib/supabase-query-fetch'
 
 
 
@@ -12,7 +13,7 @@ function isNewSupabaseApiKey(value: string): boolean {
 }
 
 function createSupabaseFetch(supabaseKey: string): typeof fetch {
-  return (input, init) => {
+  const fetchWithApiKey: typeof fetch = (input, init) => {
     const headers = new Headers(
       typeof Request !== 'undefined' && input instanceof Request ? input.headers : undefined,
     );
@@ -29,6 +30,7 @@ function createSupabaseFetch(supabaseKey: string): typeof fetch {
     headers.set('apikey', supabaseKey);
     return fetch(input, { ...init, headers });
   };
+  return withSupabaseQueryResilience(fetchWithApiKey);
 }
 
 export const requireSupabaseAuth = createMiddleware({ type: 'function' }).server(
