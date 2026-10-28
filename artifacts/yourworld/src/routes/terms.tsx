@@ -206,7 +206,7 @@ function TermsPage() {
             </div>
             <div>
               <dt className="font-semibold text-white">Grievance & Compliance Officer</dt>
-              <dd>S. Kumar</dd>
+              <dd>Legal & Compliance Desk</dd>
             </div>
             <div>
               <dt className="font-semibold text-white">Official Support & Grievance Email</dt>

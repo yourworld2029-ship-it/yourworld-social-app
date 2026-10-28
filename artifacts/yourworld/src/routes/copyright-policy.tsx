@@ -168,8 +168,8 @@ function CopyrightPolicyPage() {
           <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
             <div className="space-y-2 text-sm text-zinc-300">
               <p>
-                <span className="font-semibold text-white">Designated Agent:</span> S. Kumar
-                (Copyright &amp; Compliance Desk)
+                <span className="font-semibold text-white">Designated Agent:</span> Legal &amp;
+                Compliance Desk
               </p>
               <p>
                 <span className="font-semibold text-white">Enterprise:</span> YourWorld Social
