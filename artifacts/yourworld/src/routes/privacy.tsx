@@ -160,8 +160,8 @@ function PrivacyPage() {
             processing practices, contact our designated Grievance Officer:
           </p>
           <ul className="list-disc space-y-1 pl-5">
-            <li>Grievance &amp; Compliance Officer: S. Kumar</li>
-            <li>Enterprise: YourWorld Social (Proprietorship, India)</li>
+            <li>Grievance &amp; Compliance Officer: Legal &amp; Compliance Desk</li>
+            <li>Enterprise: YourWorld Social</li>
             <li>
               Official Email:{" "}
               <a href="mailto:Yourworld2029@gmail.com" className="text-indigo-400 underline">
