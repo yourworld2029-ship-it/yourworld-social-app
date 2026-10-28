@@ -50,33 +50,59 @@ type ProfilePostCountClient = {
 const defaultClient = supabase as unknown as ProfilePostsClient;
 const countClient = supabase as unknown as ProfilePostCountClient;
 
+async function readOptionalRows(
+  load: () => PromiseLike<PostCountResult>,
+  label: string,
+): Promise<unknown[]> {
+  try {
+    const result = await load();
+    if (result.error) {
+      console.warn(`[profile] ${label} unavailable; keeping authored post count`, result.error);
+      return [];
+    }
+    return result.data ?? [];
+  } catch (error) {
+    console.warn(`[profile] ${label} unavailable; keeping authored post count`, error);
+    return [];
+  }
+}
+
 /**
  * Count all media rows represented in a profile grid, independent of the
  * currently loaded page. Live replay backing posts are shown in the Live tab,
  * while accepted Reel collaborations are also shown in the collaborator's
  * profile.
  */
-export async function fetchProfilePostCount(userId: string): Promise<number> {
+export async function fetchProfilePostCount(
+  userId: string,
+  client: ProfilePostCountClient = countClient,
+): Promise<number> {
   const cleanUserId = userId.trim();
   if (!cleanUserId) return 0;
 
   const [replayResult, collaborationResult] = await Promise.all([
-    countClient
-      .from("live_replays")
-      .select("post_id")
-      .eq("broadcaster_id", cleanUserId),
-    countClient
-      .from("reel_collaboration_invites")
-      .select("post_id")
-      .eq("collaborator_id", cleanUserId)
-      .eq("status", "accepted"),
+    readOptionalRows(
+      () =>
+        client
+          .from("live_replays")
+          .select("post_id")
+          .eq("broadcaster_id", cleanUserId),
+      "live replay IDs",
+    ),
+    readOptionalRows(
+      () =>
+        client
+          .from("reel_collaboration_invites")
+          .select("post_id")
+          .eq("collaborator_id", cleanUserId)
+          .eq("status", "accepted"),
+      "accepted Reel collaborations",
+    ),
   ]);
-  if (replayResult.error) throw replayResult.error;
-  if (collaborationResult.error) throw collaborationResult.error;
 
   const liveReplayIds = [
     ...new Set(
-      (replayResult.data ?? [])
+      replayResult
         .map((row) =>
           row && typeof row === "object"
             ? (row as { post_id?: unknown }).post_id
@@ -87,7 +113,7 @@ export async function fetchProfilePostCount(userId: string): Promise<number> {
   ];
   const collaboratorPostIds = [
     ...new Set(
-      (collaborationResult.data ?? [])
+      collaborationResult
         .map((row) =>
           row && typeof row === "object"
             ? (row as { post_id?: unknown }).post_id
@@ -98,7 +124,7 @@ export async function fetchProfilePostCount(userId: string): Promise<number> {
   ];
 
   const runAuthoredCount = (filterArchived: boolean) => {
-    let query = countClient
+    let query = client
       .from("posts")
       .select("id", { count: "exact", head: true })
       .eq("user_id", cleanUserId);
@@ -117,7 +143,7 @@ export async function fetchProfilePostCount(userId: string): Promise<number> {
   let collaboratorCount = 0;
   if (collaboratorPostIds.length > 0) {
     const runCollaboratorCount = (filterArchived: boolean) => {
-      let query = countClient
+      let query = client
         .from("posts")
         .select("id", { count: "exact", head: true })
         .in("id", collaboratorPostIds)
@@ -132,8 +158,14 @@ export async function fetchProfilePostCount(userId: string): Promise<number> {
     ) {
       collaboratorCountResult = await runCollaboratorCount(false);
     }
-    if (collaboratorCountResult.error) throw collaboratorCountResult.error;
-    collaboratorCount = collaboratorCountResult.count ?? 0;
+    if (collaboratorCountResult.error) {
+      console.warn(
+        "[profile] accepted Reel collaboration count unavailable",
+        collaboratorCountResult.error,
+      );
+    } else {
+      collaboratorCount = collaboratorCountResult.count ?? 0;
+    }
   }
 
   return Math.max(0, (authoredResult.count ?? 0) + collaboratorCount);

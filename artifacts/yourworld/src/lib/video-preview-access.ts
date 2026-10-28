@@ -9,3 +9,16 @@ export function canReadPublicVideoPreview(post: unknown) {
     !(typeof metadata?.price === "number" && Number.isFinite(metadata.price) && metadata.price > 0) &&
     metadata?.audience !== "close_friends";
 }
+
+/** Profile owners may generate previews from their own restricted uploads. */
+export function canReadProfileVideoPreview(
+  post: unknown,
+  profileOwnerId: string,
+  isOwner: boolean,
+) {
+  if (canReadPublicVideoPreview(post)) return true;
+  if (!isOwner || !post || typeof post !== "object" || Array.isArray(post)) {
+    return false;
+  }
+  return (post as { user_id?: unknown }).user_id === profileOwnerId;
+}

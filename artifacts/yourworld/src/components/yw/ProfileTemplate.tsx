@@ -34,7 +34,7 @@ import {
 } from "@/components/yw/SportsProfile";
 import { SportsIdentityBadge } from "@/components/yw/SportsIdentityBadge";
 import { LazyVideoThumbnail } from "@/components/yw/LazyVideoThumbnail";
-import { canReadPublicVideoPreview } from "@/lib/video-preview-access";
+import { canReadProfileVideoPreview } from "@/lib/video-preview-access";
 import { ProfilePhotoViewer } from "@/components/yw/ProfilePhotoViewer";
 import { ShareSheet } from "@/components/yw/ShareSheet";
 import { ProfileLiveReplayVideos } from "@/components/yw/ProfileLiveReplayVideos";
@@ -549,6 +549,8 @@ export function ProfileTemplate({
               onManage={onManage}
               items={videoItems}
               eagerVideoThumbnails
+              profileOwnerId={profile.id}
+              allowPrivateOwnerPreview={isOwner}
             />
           ) : mediaLoading ? (
             <ProfileMediaSkeleton />
@@ -561,7 +563,13 @@ export function ProfileTemplate({
         </TabsContent>
         <TabsContent value="reels" className="mt-0">
           {visibleReels.length ? (
-            <MediaGrid onOpen={onOpen} onManage={onManage} items={reelItems} />
+            <MediaGrid
+              onOpen={onOpen}
+              onManage={onManage}
+              items={reelItems}
+              profileOwnerId={profile.id}
+              allowPrivateOwnerPreview={isOwner}
+            />
           ) : mediaLoading ? (
             <ProfileMediaSkeleton />
           ) : (
@@ -779,6 +787,8 @@ export function MediaGrid({
   onOpen,
   onManage,
   eagerVideoThumbnails = false,
+  profileOwnerId,
+  allowPrivateOwnerPreview = false,
 }: {
   items: {
     src: string;
@@ -791,6 +801,8 @@ export function MediaGrid({
   onOpen?: (post: DbPost) => void;
   onManage?: (post: DbPost) => void;
   eagerVideoThumbnails?: boolean;
+  profileOwnerId?: string;
+  allowPrivateOwnerPreview?: boolean;
 }) {
   return (
     <ul data-testid="grid-profile-media" className="grid grid-cols-3 gap-1.5 bg-transparent px-3 sm:px-4">
@@ -800,23 +812,27 @@ export function MediaGrid({
           it.post?.kind === "reel" ||
           it.type?.startsWith("video");
         const eagerVideo = eagerVideoThumbnails && isVideo;
+        const canReadPreview =
+          !!it.post &&
+          canReadProfileVideoPreview(
+            it.post,
+            profileOwnerId ?? "",
+            allowPrivateOwnerPreview,
+          );
         return (
         <li key={`${it.post?.id ?? it.src}-${i}`} data-testid={`card-profile-media-${it.post?.id ?? i}`} className="media-frame relative overflow-hidden rounded-lg bg-secondary" style={{ aspectRatio: it.ratio ?? 1 }}>
           {isVideo ? (
               <LazyVideoThumbnail
                 thumbnailUrl={it.thumbnail ?? it.post?.thumbnail_url}
-                mediaUrl={canReadPublicVideoPreview(it.post) ? it.mediaUrl ?? it.post?.media_url ?? it.src : undefined}
-                streamId={it.post?.cloudflare_stream_id ?? it.post?.cloudflare_stream_uid}
+                mediaUrl={canReadPreview ? it.mediaUrl ?? it.post?.media_url ?? it.src : undefined}
+                streamId={canReadPreview ? it.post?.cloudflare_stream_id ?? it.post?.cloudflare_stream_uid : undefined}
                 alt={it.post?.caption ?? "Video preview"}
                 showFallbackIcon
                 bucket="thumbnails"
                 mediaBucket={it.post?.kind === "reel" ? "reels" : "videos"}
                 loading={eagerVideo ? "eager" : "lazy"}
                 fetchPriority={eagerVideo && i < 3 ? "high" : "auto"}
-                resolveFrameMediaSource={
-                  eagerVideo ||
-                  (it.post?.kind === "reel" && canReadPublicVideoPreview(it.post))
-                }
+                resolveFrameMediaSource={canReadPreview}
                 showPlaceholderWhileLoading={eagerVideo}
                 className={`h-full w-full object-cover${eagerVideo ? " bg-gradient-to-br from-zinc-900 via-zinc-800 to-black" : ""}`}
               />
